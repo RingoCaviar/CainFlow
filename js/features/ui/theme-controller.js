@@ -28,12 +28,12 @@ export function createThemeControllerApi({
         },
         {
             id: THEME_IDS.PRO,
-            label: 'pro',
+            label: '专业深色',
             colorScheme: 'dark'
         },
         {
             id: THEME_IDS.PAPER,
-            label: 'Paper',
+            label: '纸张',
             colorScheme: 'light'
         },
         {
@@ -43,17 +43,17 @@ export function createThemeControllerApi({
         },
         {
             id: THEME_IDS.GLASS_LIGHT,
-            label: 'Glass Light',
+            label: '浅色玻璃',
             colorScheme: 'light'
         },
         {
             id: THEME_IDS.GLASS_DARK,
-            label: 'Glass Dark',
+            label: '深色玻璃',
             colorScheme: 'dark'
         },
         {
             id: THEME_IDS.PINK,
-            label: 'pink',
+            label: '粉色',
             colorScheme: 'light'
         }
     ]);

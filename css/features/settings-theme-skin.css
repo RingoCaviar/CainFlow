@@ -458,7 +458,7 @@ html:root #settings-modal.modal-overlay input.notification-volume-slider:is(:foc
 html:root #settings-modal.modal-overlay :is(.card-type.google, .version-badge) {
     background: var(--settings-action-primary-bg);
     border-color: var(--settings-action-primary-border);
-    color: var(--panel-accent-text);
+    color: var(--settings-action-primary-text);
 }
 
 html:root #settings-modal.modal-overlay .card-type.openai {

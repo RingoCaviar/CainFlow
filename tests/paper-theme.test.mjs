@@ -8,7 +8,7 @@ const paper = await readFile(new URL('../css/themes/paper.css', import.meta.url)
 
 test('Paper is registered as a light theme and included in the theme bundle', () => {
     assert.match(controller, /PAPER:\s*'paper'/);
-    assert.match(controller, /id:\s*THEME_IDS\.PAPER,[\s\S]*?label:\s*'Paper',[\s\S]*?colorScheme:\s*'light'/);
+    assert.match(controller, /id:\s*THEME_IDS\.PAPER,[\s\S]*?label:\s*'纸张',[\s\S]*?colorScheme:\s*'light'/);
     assert.match(themeEntry, /@import '\.\/themes\/paper\.css';/);
 });
 

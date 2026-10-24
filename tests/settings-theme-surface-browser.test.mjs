@@ -21,6 +21,15 @@ function renderFixture() {
     return renderComputedFixture(fixturePath, 'cainflow-settings-theme-');
 }
 
+test('version badge text stays readable in every theme', () => {
+    for (const measurement of renderFixture()) {
+        const background = parseColor(measurement.versionBadge.background);
+        const foreground = composite(parseColor(measurement.versionBadge.color), background);
+        const ratio = contrastRatio(foreground, background);
+        assert.ok(ratio >= 4.5, `${measurement.themeId} version badge contrast ${ratio.toFixed(2)} must meet WCAG AA`);
+    }
+});
+
 test('settings surfaces render from the semantic palette in every supported theme', () => {
     const measurements = renderFixture();
     assert.equal(measurements.length, 7);

@@ -48,6 +48,7 @@
                         <span id="card-probe" style="position:absolute;left:-9999px;background:var(--settings-dialog-section-bg);border:1px solid var(--settings-dialog-panel-border)"></span>
                     </article>
                 </section>
+                <div id="general-settings" style="position:absolute;left:-9999px"><span class="version-badge">v3.8.6</span></div>
                 <section id="providers-list" style="position:absolute;left:-9999px">
                     <article class="api-config-card provider-config-card">
                         <div class="card-header"><span class="card-drag-handle">⠿</span><input id="card-name-probe" class="card-name" value="新供应商"></div>
@@ -85,6 +86,7 @@
             const dividerProbe = document.querySelector('#divider-probe');
             const tab = document.querySelector('#settings-modal .modal-tab-btn');
             const cardName = document.querySelector('#card-name-probe');
+            const versionBadge = document.querySelector('.version-badge');
             const measurements = themeIds.map((themeId) => {
                 root.dataset.appTheme = themeId;
                 const rootStyle = getComputedStyle(root);
@@ -165,6 +167,10 @@
                 }));
                 return {
                     themeId,
+                    versionBadge: {
+                        background: getComputedStyle(versionBadge).backgroundColor,
+                        color: getComputedStyle(versionBadge).color,
+                    },
                     actual: {
                         rootBackground: rootStyle.backgroundColor,
                         pageBackground: bodyStyle.backgroundColor,
