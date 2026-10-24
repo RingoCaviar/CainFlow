@@ -208,8 +208,8 @@
     </svg>
 
     <div id="app-container">
-        <!-- Top Toolbar -->
-        <div id="toolbar">
+        <!-- Unified Toolbar -->
+        <div id="toolbar" role="toolbar" aria-label="画布工具栏">
             <div class="toolbar-left toolbar-brand" aria-label="CainFlow">
                 <div class="logo">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -220,47 +220,52 @@
                     <span>CainFlow <small class="logo-version" data-app-version-text></small></span>
                 </div>
             </div>
-            <div class="toolbar-center toolbar-canvas-only toolbar-action-group toolbar-run-group" role="group" aria-label="运行控制">
+            <div class="toolbar-canvas-only toolbar-action-group toolbar-navigation-group" role="group" aria-label="工作流管理">
+                <button id="btn-toggle-workflow" class="btn btn-ghost" type="button" title="工作流管理">
+                    <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>
+                    工作流
+                </button>
+            </div>
+            <div class="toolbar-canvas-only toolbar-action-group toolbar-run-group" role="group" aria-label="运行控制">
                 <button id="btn-run" class="btn btn-run" title="运行工作流 (Ctrl+Enter)">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M8 5v14l11-7z" />
-                    </svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                     运行
                 </button>
                 <button id="btn-stop" class="btn btn-stop" title="强制停止运行" disabled>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        stroke-width="2.5">
-                        <rect x="6" y="6" width="12" height="12" />
-                    </svg>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="6" y="6" width="12" height="12" /></svg>
                     停止
                 </button>
-                <div class="toolbar-toggle-group" title="开启后，运行失败的节点会自动重新执行直到成功">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                        style="color:var(--text-dim); margin-right:4px;">
-                        <path d="M23 4v6h-6" />
-                        <path d="M1 20v-6h6" />
-                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                <input type="file" id="import-file" accept=".json" hidden />
+            </div>
+            <div class="toolbar-canvas-only toolbar-action-group toolbar-workflow-group" role="group" aria-label="创作与保存">
+                <button id="btn-save" class="btn btn-primary" title="保存当前工作流 (Ctrl+S)"><svg class="icon-sm"><use href="#icon-save" /></svg>保存</button>
+                <button id="btn-history" class="btn btn-ghost" title="查看生成历史"><svg class="icon-sm"><use href="#icon-history" /></svg>历史</button>
+                <button id="btn-prompt-agent" class="btn btn-ghost" type="button" aria-controls="prompt-agent-panel" aria-expanded="false" title="打开提示词 Agent">Agent</button>
+            </div>
+            <div class="toolbar-canvas-only toolbar-action-group toolbar-global-group" role="group" aria-label="工具与设置">
+                <details id="toolbar-workflow-more" class="toolbar-more-shell">
+                    <summary class="btn btn-ghost" aria-label="更多工具">更多 <span aria-hidden="true">▾</span></summary>
+                    <div class="toolbar-more-menu">
+                        <span class="toolbar-menu-heading">画布工具</span>
+                        <button id="btn-auto-arrange" class="btn btn-ghost" type="button" title="自动整理节点">整理节点</button>
+                        <button id="btn-prompt-library" class="btn btn-ghost" type="button" title="打开提示词库"><svg class="icon-sm"><use href="#icon-prompt-library" /></svg>提示词库</button>
+                        <span class="toolbar-menu-heading">资源与记录</span>
+                        <button id="btn-toggle-cache" class="btn btn-ghost" type="button" title="缓存管理">缓存管理</button>
+                        <button id="btn-toggle-statistics" class="btn btn-ghost" type="button" title="今日请求统计"><svg class="icon-sm"><use href="#icon-statistics" /></svg>请求统计</button>
+                        <button id="btn-logs" class="btn btn-ghost" type="button" title="执行日志"><svg class="icon-sm"><use href="#icon-logs" /></svg>执行日志</button>
+                        <span class="toolbar-menu-heading">帮助与维护</span>
+                        <button id="btn-help" class="btn btn-ghost" type="button" title="操作帮助与快捷键"><svg class="icon-sm"><use href="#icon-help" /></svg>帮助与快捷键</button>
+                <button id="btn-hard-reload" class="btn btn-ghost" type="button" title="强制刷新 (Ctrl+F5)" aria-label="强制刷新">
+                    <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                        <path d="M21 3v6h-6" />
                     </svg>
-                    <span
-                        style="font-size:11px; color:var(--text-dim); margin-right:6px; white-space:nowrap;">自动重试</span>
-                    <label class="toggle-switch" style="width:30px; height:18px;">
-                        <input type="checkbox" id="toggle-retry">
-                        <span class="toggle-slider"></span>
-                    </label>
-                </div>
-                <div class="toolbar-toggle-group" title="开启后，工作流运行结束后将发送系统通知">
-                    <svg class="icon-xs" fill="none" stroke="currentColor" stroke-width="2"
-                        style="color:var(--text-secondary); margin-right:4px;" viewBox="0 0 24 24">
-                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
-                        <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
-                    </svg>
-                    <span style="font-size:12px; color:var(--text-secondary); margin-right:8px; white-space:nowrap;">运行通知</span>
-                    <label class="toggle-switch">
-                        <input type="checkbox" id="toggle-notifications">
-                        <span class="toggle-slider"></span>
-                    </label>
-                </div>
-                <input type="file" id="import-file" accept=".json" style="display:none" />
+                    强制刷新
+                </button>
+                        <button id="btn-clear" class="btn btn-ghost toolbar-menu-danger" type="button" title="清除画布"><svg class="icon-sm"><use href="#icon-trash" /></svg>清除画布</button>
+                    </div>
+                </details>
+                <button id="btn-settings" class="btn btn-ghost" type="button" title="设置：模型、外观与运行偏好"><svg class="icon-sm"><use href="#icon-settings" /></svg>设置</button>
             </div>
             <div class="toolbar-conversation-only conversation-toolbar-actions" role="group" aria-label="对话操作">
                 <span id="conversation-toolbar-title" class="conversation-toolbar-title" aria-live="polite">新对话</span>
@@ -271,78 +276,8 @@
                 <span class="toolbar-divider" aria-hidden="true"></span>
                 <button id="conversation-toolbar-return-canvas" class="btn btn-ghost conversation-return-canvas" type="button">返回画布</button>
             </div>
-            <div class="toolbar-right toolbar-canvas-only toolbar-action-group toolbar-agent-group" role="group" aria-label="创作助手">
-                <button id="btn-prompt-agent" class="btn btn-ghost" type="button" aria-controls="prompt-agent-panel"
-                    aria-expanded="false" title="打开提示词 Agent">Agent</button>
-            </div>
-            <div class="toolbar-right toolbar-canvas-only toolbar-action-group toolbar-workflow-group" role="group" aria-label="工作流操作">
-                <button id="btn-save" class="btn btn-primary" title="保存当前工作流 (Ctrl+S)">
-                    <svg class="icon-sm"><use href="#icon-save" /></svg>
-                    保存
-                </button>
-                <button id="btn-history" class="btn btn-ghost" title="查看生成历史">
-                    <svg class="icon-sm">
-                        <use href="#icon-history" />
-                    </svg>
-                    历史
-                </button>
-                <button id="btn-undo" class="btn btn-ghost" title="撤回上一步 (Ctrl+Z)" disabled>
-                    <svg class="icon-sm"><use href="#icon-undo" /></svg>
-                    撤回
-                </button>
-                <button id="btn-redo" class="btn btn-ghost" title="重做上一步 (Ctrl+Y / Ctrl+Shift+Z)" disabled>
-                    <svg class="icon-sm"><use href="#icon-redo" /></svg>
-                    重做
-                </button>
-                <details id="toolbar-workflow-more" class="toolbar-more-shell">
-                    <summary class="btn btn-ghost" aria-label="更多工作流操作">更多 <span aria-hidden="true">▾</span></summary>
-                    <div class="toolbar-more-menu">
-                        <button id="btn-clear" class="btn btn-ghost" type="button" title="清除画布">
-                            <svg class="icon-sm"><use href="#icon-trash" /></svg>
-                            清除画布
-                        </button>
-                    </div>
-                </details>
-            </div>
-            <div class="toolbar-right toolbar-canvas-only toolbar-action-group toolbar-global-group" role="group" aria-label="全局工具">
-                <div class="theme-menu-shell">
-                    <button id="btn-theme-toggle" class="btn btn-ghost" type="button" aria-pressed="false"
-                        aria-haspopup="menu" aria-expanded="false" title="选择主题">
-                        <svg class="icon-sm">
-                            <use href="#icon-theme-toggle" />
-                        </svg>
-                        <span data-role="theme-toggle-label">深色</span>
-                        <svg class="icon-xs theme-menu-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2" aria-hidden="true">
-                            <path d="M6 9l6 6 6-6" />
-                        </svg>
-                    </button>
-                    <div id="theme-menu" class="theme-menu-panel hidden" role="menu" aria-labelledby="btn-theme-toggle"></div>
-                </div>
-                <button id="btn-settings" class="btn btn-ghost" title="通用设置">
-                    <svg class="icon-sm">
-                        <use href="#icon-settings" />
-                    </svg>
-                    设置
-                </button>
-                <button id="btn-logs" class="btn btn-ghost" title="执行日志">
-                    <svg class="icon-sm">
-                        <use href="#icon-logs" />
-                    </svg>
-                    日志
-                </button>
-                <button id="btn-hard-reload" class="btn btn-icon" type="button" title="强制刷新 (Ctrl+F5)" aria-label="强制刷新">
-                    <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-                        <path d="M21 3v6h-6" />
-                    </svg>
-                </button>
-            </div>
             <div class="toolbar-right toolbar-conversation-only conversation-toolbar-global" role="group" aria-label="全局操作">
-                <div class="theme-menu-shell">
-                    <button id="conversation-toolbar-theme" class="btn btn-ghost" type="button" title="选择主题">主题</button>
-                </div>
-                <button id="conversation-toolbar-settings" class="btn btn-ghost" type="button" title="通用设置">设置</button>
+                <button id="conversation-toolbar-settings" class="btn btn-ghost" type="button" title="设置">设置</button>
             </div>
         </div>
 
@@ -407,60 +342,6 @@
                     </div>
                 </form>
             </aside>
-            <!-- Vertical Sidebar (Left) -->
-            <div id="side-bar">
-                <button id="btn-toggle-workflow" class="side-bar-btn" title="工作流管理">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-                    </svg>
-                    <span>工作流</span>
-                </button>
-                <div class="side-bar-divider"
-                    style="height: 1px; background: var(--border-color);"></div>
-                <button id="btn-toggle-cache" class="side-bar-btn" title="缓存管理">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21 8v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8" />
-                        <path d="M21 8V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v2" />
-                        <path d="M3 12h18" />
-                        <path d="M3 8l3 3" />
-                        <path d="M21 8l-3 3" />
-                    </svg>
-                    <span>缓存</span>
-                </button>
-                <button id="btn-toggle-statistics" class="side-bar-btn" title="今日请求统计">
-                    <svg class="icon-sm">
-                        <use href="#icon-statistics" />
-                    </svg>
-                    <span>统计</span>
-                </button>
-                <button id="btn-prompt-library" class="side-bar-btn" title="提示词库">
-                    <svg class="icon-sm">
-                        <use href="#icon-prompt-library" />
-                    </svg>
-                    <span>提示词</span>
-                </button>
-                <button id="btn-auto-arrange" class="side-bar-btn" title="自动整理节点">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                        stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="3" y="4" width="6" height="5" rx="1.5"></rect>
-                        <rect x="15" y="4" width="6" height="5" rx="1.5"></rect>
-                        <rect x="9" y="15" width="6" height="5" rx="1.5"></rect>
-                        <path d="M9 6.5h6"></path>
-                        <path d="M18 9v2a4 4 0 0 1-4 4"></path>
-                        <path d="M6 9v2a4 4 0 0 0 4 4"></path>
-                    </svg>
-                    <span>自动<br>整理</span>
-                </button>
-
-                <button id="btn-help" class="side-bar-btn help-btn" title="操作帮助"
-                    style="margin-top:auto; margin-bottom: 20px;">
-                    <svg class="icon-sm">
-                        <use href="#icon-help" />
-                    </svg>
-                    <span>帮助</span>
-                </button>
-            </div>
-
             <!-- Help Panel (Floating) -->
             <div id="help-panel" class="help-panel" aria-hidden="true" inert>
                 <div class="help-panel-header">
@@ -1391,7 +1272,7 @@
         <div class="modal-panel">
             <div class="modal-header">
                 <div style="display: flex; align-items: center; gap: 10px;">
-                    <h2>⚙ 通用设置</h2>
+                    <h2>设置</h2>
                     <a href="https://github.com/RingoCaviar/CainFlow" target="_blank" class="github-link" title="前往 GitHub 项目主页">
                         <svg class="icon-sm">
                             <use href="#icon-github" />
@@ -1427,6 +1308,24 @@
                     </div>
                 </div>
                 <div id="settings-tab-general" class="settings-tab-pane">
+                    <div class="settings-section settings-appearance">
+                        <div class="settings-toolbar"><h3>外观主题</h3></div>
+                        <p class="settings-appearance-hint">主题、画布交互、运行与通知偏好在这里统一管理。</p>
+                <div class="theme-menu-shell">
+                    <button id="btn-theme-toggle" class="btn btn-ghost" type="button" aria-pressed="false"
+                        aria-haspopup="menu" aria-expanded="false" title="选择主题">
+                        <svg class="icon-sm">
+                            <use href="#icon-theme-toggle" />
+                        </svg>
+                        <span data-role="theme-toggle-label">深色</span>
+                        <svg class="icon-xs theme-menu-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" aria-hidden="true">
+                            <path d="M6 9l6 6 6-6" />
+                        </svg>
+                    </button>
+                    <div id="theme-menu" class="theme-menu-panel hidden" role="menu" aria-labelledby="btn-theme-toggle"></div>
+                </div>
+                    </div>
                     <div class="settings-section">
                         <div class="settings-toolbar">
                             <h3>常规设置 (General Settings)</h3>

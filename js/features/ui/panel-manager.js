@@ -18,6 +18,7 @@ export function createPanelManager(documentRef = document, canvasContainer = nul
     let canvasBlankCloseBound = false;
     documentRef.addEventListener?.('keydown', event => {
         if (event.key !== 'Escape' || event.defaultPrevented) return;
+        if (documentRef.getElementById('toolbar-workflow-more')?.open) return;
         const active = Object.keys(panels).find(key => documentRef.getElementById(panels[key].id)?.classList.contains('active'));
         if (!active) return;
         event.preventDefault(); event.stopImmediatePropagation(); close(active);

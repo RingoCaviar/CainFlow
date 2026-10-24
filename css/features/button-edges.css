@@ -114,6 +114,17 @@ html:root #toolbar .toolbar-more-menu .btn {
     background: transparent;
 }
 
+html:root #toolbar .toolbar-more-menu .btn:is(:hover, :focus-visible) {
+    background: var(--panel-hover-bg);
+}
+
+html:root #toolbar .toolbar-more-menu #btn-hard-reload {
+    width: 100%;
+    min-width: 0;
+    padding-inline: 12px;
+    flex: none;
+}
+
 html:root #toolbar #btn-hard-reload {
     width: 38px;
     min-width: 38px;

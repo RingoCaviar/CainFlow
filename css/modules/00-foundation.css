@@ -198,9 +198,6 @@ body.toolbar-pinned {
     --app-chrome-top-offset: calc(var(--toolbar-height, 48px) + var(--app-chrome-gap, 8px));
 }
 
-body.sidebar-pinned {
-    --app-chrome-left-offset: 60px;
-}
 
 html.animations-disabled,
 html.animations-disabled * {

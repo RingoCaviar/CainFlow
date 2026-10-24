@@ -18,12 +18,9 @@ test('toolbar controls have visible edges in all seven themes', () => {
     const stylesheetLinks = [...appHtml.matchAll(/<link rel="stylesheet" href="([^"]+)">/g)]
         .map(([, href]) => `<link rel="stylesheet" href="${href}">`)
         .join('\n');
-    const reloadButton = appHtml.match(/<button id="btn-hard-reload"[\s\S]*?<\/button>/)?.[0];
-    assert.ok(reloadButton, 'real application reload button must exist');
     const fixtureTemplate = readFileSync(new URL('./fixtures/toolbar-button-edges.html', import.meta.url), 'utf8');
     const fixtureHtml = fixtureTemplate.replace('<!-- application styles -->',
-        `<base href="${new URL('../', import.meta.url).href}">\n${stylesheetLinks}`)
-        .replace('<!-- actual reload button -->', reloadButton.replace('id="btn-hard-reload"', 'id="btn-hard-reload" data-kind="reload"'));
+        `<base href="${new URL('../', import.meta.url).href}">\n${stylesheetLinks}`);
     const fixtureDirectory = mkdtempSync(join(tmpdir(), 'cainflow-toolbar-app-css-'));
     let measurements;
     try {
@@ -41,7 +38,7 @@ test('toolbar controls have visible edges in all seven themes', () => {
         const toolbar = composite(parseColor(measurement.toolbarBackground), page);
         assert.equal(measurement.toolbarGap, '8px');
         assert.equal(measurement.dividerDisplay, 'none');
-        assert.equal(measurement.controls.length, 9);
+        assert.equal(measurement.controls.length, 8);
         for (const control of measurement.controls) {
             assert.equal(control.height, 38, `${measurement.themeId} ${control.kind} must match toolbar control height`);
             assert.equal(control.borderWidth, '2px', `${measurement.themeId} ${control.kind} needs a clear two-pixel edge`);
@@ -64,16 +61,6 @@ test('toolbar controls have visible edges in all seven themes', () => {
                     `${measurement.themeId} wrapped toolbar rows need the same 8px gap`);
             }
         }
-        const reload = measurement.controls.find(({ kind }) => kind === 'reload').icon;
-        assert.equal(reload.buttonWidth, 38);
-        assert.equal(reload.buttonHeight, 38);
-        assert.equal(reload.svgWidth, 20);
-        assert.equal(reload.svgHeight, 20);
-        assert.ok(Math.abs(reload.centerOffsetX) <= 0.5 && Math.abs(reload.centerOffsetY) <= 0.5,
-            `${measurement.themeId} reload icon must be centered`);
-        assert.ok(reload.pathBounds.x >= 2 && reload.pathBounds.y >= 2
-            && reload.pathBounds.x + reload.pathBounds.width <= 22
-            && reload.pathBounds.y + reload.pathBounds.height <= 22,
-        `${measurement.themeId} reload symbol must fit inside its SVG viewBox`);
+
     }
 });

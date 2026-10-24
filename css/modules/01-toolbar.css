@@ -13,7 +13,7 @@
     height: auto;
     flex-wrap: wrap;
     z-index: var(--layer-toolbar);
-    /* Above the left sidebar so the top menu is never covered; below notices and modals. */
+    /* Above drawers; below notices and modal surfaces. */
     position: absolute;
     top: 0;
     left: 0;
@@ -29,14 +29,6 @@
     will-change: transform;
 }
 
-#toolbar:hover + #main-layout #side-bar,
-#toolbar:focus-within + #main-layout #side-bar,
-#toolbar:has(.btn.active:not(#btn-prompt-agent)) + #main-layout #side-bar,
-#toolbar:has([aria-expanded="true"]:not(#btn-prompt-agent)) + #main-layout #side-bar,
-body.toolbar-peek-active #toolbar + #main-layout #side-bar,
-body.toolbar-pinned #toolbar + #main-layout #side-bar {
-    top: calc(var(--toolbar-height, 48px) + 8px);
-}
 
 #toolbar::before {
     content: "";
@@ -85,23 +77,7 @@ body.preview-active #toolbar {
     pointer-events: none;
 }
 
-body.preview-active #side-bar {
-    transform: translateX(-100%);
-    opacity: 0;
-    box-shadow: none;
-    pointer-events: none;
-}
 
-body.preview-active #side-bar:hover,
-body.preview-active #side-bar:focus-within,
-body.preview-active #side-bar:has(.side-bar-btn.active),
-body.preview-active.sidebar-peek-active #side-bar,
-body.preview-active.sidebar-pinned #side-bar {
-    transform: translateX(-100%);
-    opacity: 0;
-    box-shadow: none;
-    pointer-events: none;
-}
 
 #toolbar:hover::after,
 #toolbar:focus-within::after,
@@ -178,7 +154,11 @@ body.workspace-mode-conversation #toolbar .toolbar-action-group {
     top: calc(100% + 8px);
     right: 0;
     z-index: var(--layer-menu);
-    min-width: 148px;
+    width: 216px;
+    max-width: calc(100vw - 24px);
+    max-height: calc(100vh - var(--toolbar-height, 64px) - 24px);
+    overflow-y: auto;
+    box-sizing: border-box;
     padding: 6px;
     border: 1px solid var(--panel-border);
     border-radius: 9px;
@@ -189,12 +169,43 @@ body.workspace-mode-conversation #toolbar .toolbar-action-group {
 #toolbar .toolbar-more-menu .btn {
     justify-content: flex-start;
     width: 100%;
+    color: var(--text-primary);
+}
+
+#toolbar .toolbar-global-group {
+    margin-left: auto;
+}
+
+.toolbar-menu-heading {
+    display: block;
+    padding: 10px 10px 5px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.toolbar-menu-heading:not(:first-child) {
+    margin-top: 4px;
+    border-top: 1px solid var(--panel-border);
+}
+
+#toolbar .toolbar-more-menu .toolbar-menu-danger {
     color: var(--text-danger);
 }
 
 @media (max-width: 520px) {
     #toolbar .toolbar-action-group {
         flex-wrap: wrap;
+    }
+}
+
+/* A short window cannot fit a dropdown below a wrapped toolbar. */
+@media (max-height: 480px) {
+    .toolbar-more-menu {
+        position: fixed;
+        top: 8px;
+        right: 8px;
+        max-height: calc(100dvh - 16px);
     }
 }
 

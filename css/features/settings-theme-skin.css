@@ -523,3 +523,15 @@ html:root #settings-modal.modal-overlay .update-status-new {
 html:root #settings-modal.modal-overlay .update-status-error {
     color: var(--accent-red);
 }
+.settings-appearance {
+    padding-bottom: 16px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.settings-appearance-hint {
+    margin: 0 0 12px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.6;
+}

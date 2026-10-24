@@ -1,5 +1,5 @@
 /**
- * Applies canvas chrome visibility preferences shared by toolbar/sidebar UI.
+ * Applies the unified canvas toolbar visibility preference.
  */
 export function applyCanvasUiSetting({
     state,
@@ -8,14 +8,12 @@ export function applyCanvasUiSetting({
     const body = documentRef.body;
     if (!body) {
         return {
-            toolbarPinned: state.toolbarPinned === true,
-            sidebarPinned: state.sidebarPinned === true
+            toolbarPinned: state.toolbarPinned === true
         };
     }
 
     const toolbarPinned = state.toolbarPinned === true;
-    const sidebarPinned = state.sidebarPinned === true;
     body.classList.toggle('toolbar-pinned', toolbarPinned);
-    body.classList.toggle('sidebar-pinned', sidebarPinned);
-    return { toolbarPinned, sidebarPinned };
+    body.classList.remove('sidebar-pinned', 'sidebar-peek-active');
+    return { toolbarPinned };
 }

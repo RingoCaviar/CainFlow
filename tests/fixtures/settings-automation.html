@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"></head>
+<body>
+    <div id="general-settings"></div>
+    <pre id="surface-result"></pre>
+    <script type="module">
+        import { createInitialState } from '../../js/core/state.js';
+        import { createGeneralSettings } from '../../js/features/settings/general-settings.js';
+
+        try {
+            const state = createInitialState();
+            Object.assign(state, { autoRetry: true, notificationsEnabled: false, sidebarPinned: true });
+            const saved = [], toasts = [], notices = [];
+            let supported = true, permission = 'granted', requestedPermission = 'granted', testSent = true;
+            let permissionRequests = 0, readyCalls = 0, paused = 0;
+            const storage = new Map();
+            const api = createGeneralSettings({
+                ctx: {
+                    state, appVersion: 'test', documentRef: document, windowRef: window,
+                    localStorageRef: { getItem: key => storage.get(key) || null },
+                    diagnosticClient: { status: async () => ({}) },
+                    saveState: () => saved.push({ autoRetry: state.autoRetry, notificationsEnabled: state.notificationsEnabled }),
+                    showToast: (message, type) => toasts.push({ message, type })
+                },
+                dialogs: {
+                    escapeHtml: value => String(value),
+                    renderGeneralSettingsHelpLabel: title => `<span>${title}</span>`,
+                    initGeneralSettingsHelpInteractions() {}, closeGeneralSettingsHelpPopovers() {}
+                },
+                systemNotificationApi: {
+                    isSupported: () => supported,
+                    getPermission: () => permission,
+                    requestPermission: async () => { permissionRequests += 1; return requestedPermission; },
+                    ensureReady: async () => { readyCalls += 1; },
+                    showNotification: async (title, options) => { notices.push({ title, ...options }); return testSent; }
+                }
+            });
+            const toggle = async (id, checked) => {
+                const input = document.getElementById(id);
+                input.checked = checked;
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                await new Promise(resolve => setTimeout(resolve, 0));
+            };
+            const notificationSnapshot = () => ({
+                enabled: state.notificationsEnabled,
+                checked: document.getElementById('toggle-notifications').checked,
+                saved: saved.at(-1).notificationsEnabled,
+                toast: toasts.at(-1)
+            });
+            api.renderGeneralSettings();
+            const controls = {
+                retryCard: document.getElementById('toggle-retry').closest('.general-settings-card').querySelector('.card-header').textContent.trim(),
+                notificationCard: document.getElementById('toggle-notifications').closest('.general-settings-card').querySelector('.card-header').textContent.trim(),
+                retryLoaded: document.getElementById('toggle-retry').checked,
+                notificationsLoaded: document.getElementById('toggle-notifications').checked,
+                sidebarControl: !!document.getElementById('setting-sidebar-pinned'),
+                toolbarLabel: document.querySelector('#setting-toolbar-pinned').closest('.general-settings-control-row').textContent.trim()
+            };
+            await toggle('toggle-retry', false);
+            api.renderGeneralSettings();
+            const retryRestored = document.getElementById('toggle-retry').checked === false;
+            await toggle('toggle-retry', true);
+            const retry = { restored: retryRestored, enabled: state.autoRetry, writes: saved.length };
+
+            supported = false;
+            await toggle('toggle-notifications', true);
+            const unsupported = notificationSnapshot();
+            supported = true; permission = 'default'; requestedPermission = 'denied';
+            await toggle('toggle-notifications', true);
+            const denied = { ...notificationSnapshot(), permissionRequests, notices: notices.length };
+            requestedPermission = 'granted';
+            await toggle('toggle-notifications', true);
+            const success = { ...notificationSnapshot(), permissionRequests, readyCalls, notices: [...notices] };
+            api.renderGeneralSettings();
+            const notificationRestored = document.getElementById('toggle-notifications').checked;
+            const audio = { src: 'notice.mp3', pause: () => { paused += 1; } };
+            state.notificationAudio = audio;
+            await toggle('toggle-notifications', false);
+            const disabled = { ...notificationSnapshot(), restored: notificationRestored, paused, audioSrc: audio.src, audioCleared: state.notificationAudio === null };
+            permission = 'granted'; testSent = false;
+            await toggle('toggle-notifications', true);
+            const failedTest = { ...notificationSnapshot(), permissionRequests, notices: notices.length };
+            document.getElementById('surface-result').textContent = JSON.stringify({ controls, retry, unsupported, denied, success, disabled, failedTest });
+        } catch (error) {
+            document.getElementById('surface-result').textContent = JSON.stringify({ error: error.stack || String(error) });
+        }
+    </script>
+</body>
+</html>

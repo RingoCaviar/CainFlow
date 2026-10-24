@@ -816,6 +816,8 @@ function renderTextChatBody(id, restoreData, models, providers) {
     const opts = renderApiConfigOptions(models, providers, rd.apiConfigId, 'chat');
     const selectedModel = getSelectedModelForTask(models, rd.apiConfigId, 'chat');
     const selectedProviderId = getResolvedProviderIdForModel(selectedModel, providers, rd.providerId || '');
+    const selectedProvider = getResolvedProviderForModel(selectedModel, providers, selectedProviderId);
+    const searchAvailable = getEffectiveProtocol(selectedModel, selectedProvider) === 'google';
     const modelProviders = getModelProviders(selectedModel, providers);
     const providerOptions = modelProviders
         .map((provider) => `<option value="${provider.id}" ${selectedProviderId === provider.id ? 'selected' : ''}>${provider.name || provider.id}</option>`)
@@ -827,10 +829,14 @@ function renderTextChatBody(id, restoreData, models, providers) {
         <div class="node-field node-chat-system-field"><label>系统提示语（可选）</label>
             <textarea id="${id}-sysprompt" placeholder="设定 AI 的角色或背景..." rows="4"${getTextareaHeightStyle(rd, 'sysprompt')}>${rd.sysprompt || ''}</textarea></div>
         <div class="node-parameter-grid node-chat-toggle-grid">
-        <div class="node-field node-field-row"><label>启用搜索</label>
-            <label class="toggle-switch"><input type="checkbox" id="${id}-search" ${rd.search ? 'checked' : ''} /><span class="toggle-slider"></span></label></div>
-        <div class="node-field node-field-row"><label>固定结果</label>
-            <label class="toggle-switch"><input type="checkbox" id="${id}-fixed" ${rd.fixed ? 'checked' : ''} /><span class="toggle-slider"></span></label></div>
+        <div class="node-field node-chat-option" id="${id}-search-field">
+            <div class="node-chat-option-copy"><label for="${id}-search">联网搜索</label>
+                <p class="node-chat-option-help" id="${id}-search-help">${searchAvailable ? '查询网页补充回答，需模型服务支持。' : '当前接口未接入联网搜索'}</p></div>
+            <label class="toggle-switch"><input type="checkbox" role="switch" id="${id}-search" aria-describedby="${id}-search-help" ${rd.search ? 'checked' : ''} ${searchAvailable ? '' : 'disabled'} /><span class="toggle-slider"></span></label></div>
+        <div class="node-field node-chat-option">
+            <div class="node-chat-option-copy"><label for="${id}-fixed">复用上次回复</label>
+                <p class="node-chat-option-help" id="${id}-fixed-help">运行工作流时复用成功回复并跳过上游；单独运行此节点可更新。首次仍会生成。</p></div>
+            <label class="toggle-switch"><input type="checkbox" role="switch" id="${id}-fixed" aria-describedby="${id}-fixed-help" ${rd.fixed ? 'checked' : ''} /><span class="toggle-slider"></span></label></div>
         </div>
         <div class="node-field node-chat-prompt-field"><label>提问内容</label>
             <textarea id="${id}-prompt" placeholder="输入你的问题..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${rd.prompt || ''}</textarea></div>

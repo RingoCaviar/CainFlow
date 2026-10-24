@@ -68,8 +68,6 @@ export function createUiControllerApi({
     indexedDbRef = indexedDB,
     desktopRef = typeof globalThis !== 'undefined' ? globalThis.__cainflowDesktop : null,
     locationRef = location,
-    notificationRef = typeof Notification !== 'undefined' ? Notification : null,
-    systemNotificationApi = null,
     confirmRef = confirm,
     alertRef = alert
 }) {
@@ -1116,64 +1114,6 @@ export function createUiControllerApi({
             } finally {
                 locationRef.reload();
             }
-        });
-
-        documentRef.getElementById('toggle-notifications')?.addEventListener('change', async (e) => {
-            const enabled = e.target.checked;
-            const notificationApi = systemNotificationApi || {
-                isSupported: () => !!notificationRef,
-                getPermission: () => notificationRef?.permission || 'unsupported',
-                requestPermission: () => notificationRef?.requestPermission?.() || 'unsupported',
-                ensureReady: async () => true
-            };
-            if (enabled && !notificationApi.isSupported()) {
-                e.target.checked = false;
-                state.notificationsEnabled = false;
-                showToast('当前浏览器环境不支持系统通知，无法开启运行通知', 'warning', 5000);
-                saveState();
-                return;
-            }
-            if (enabled && notificationApi.getPermission() !== 'granted') {
-                let permission = notificationApi.getPermission();
-                try {
-                    permission = await notificationApi.requestPermission();
-                } catch (err) {
-                    console.warn('Notification permission request failed:', err);
-                    permission = 'denied';
-                }
-                if (permission !== 'granted') {
-                    e.target.checked = false;
-                    state.notificationsEnabled = false;
-                    showToast('未开启通知权限，请在浏览器设置中手动允许此网站发送通知', 'warning', 5000);
-                    saveState();
-                    return;
-                }
-            }
-            state.notificationsEnabled = enabled;
-            if (enabled) {
-                await notificationApi.ensureReady?.();
-                const testSent = await notificationApi.showNotification?.('CainFlow 运行通知已开启', {
-                    body: '之后工作流运行结束时，你会收到系统通知。',
-                    tag: 'cainflow-notification-test'
-                });
-                if (!testSent) {
-                    e.target.checked = false;
-                    state.notificationsEnabled = false;
-                    showToast('系统通知测试失败，请检查 Windows“通知”和“勿扰/专注模式”设置', 'warning', 7000);
-                    saveState();
-                    return;
-                }
-            }
-
-            if (!enabled && state.notificationAudio) {
-                state.notificationAudio.pause();
-                state.notificationAudio.src = '';
-                state.notificationAudio = null;
-            }
-
-            saveState();
-            if (enabled) showToast('运行完成通知已开启', 'success');
-            else showToast('运行完成通知已关闭', 'info');
         });
 
         initFeatureModules();

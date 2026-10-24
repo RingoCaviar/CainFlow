@@ -26,6 +26,83 @@
 .node-advanced-parameters > .node-parameter-grid {
     padding: 0 10px 10px;
 }
+
+html:root #canvas-container .node-chat-toggle-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+}
+
+html:root #canvas-container .node-chat-option {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    margin: 0;
+    padding: 9px 10px;
+    border: 1px solid var(--node-control-border);
+    border-radius: 8px;
+    background: var(--node-control-surface);
+}
+
+html:root #canvas-container .node-chat-option-copy {
+    min-width: 0;
+}
+
+html:root #canvas-container .node-chat-option-copy > label {
+    display: block;
+    margin: 0;
+    color: var(--text-primary);
+    cursor: pointer;
+    line-height: 1.4;
+}
+
+html:root #canvas-container .node-chat-option-help {
+    margin: 3px 0 0;
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+html:root #canvas-container .node-chat-option .toggle-switch {
+    flex-shrink: 0;
+    margin: 0;
+}
+
+html:root #canvas-container .node-chat-option .toggle-slider {
+    background: var(--node-control-border);
+    border: 1px solid var(--node-control-border);
+    box-sizing: border-box;
+}
+
+html:root #canvas-container .node-chat-option .toggle-slider::before {
+    background: var(--text-secondary);
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+html:root #canvas-container .node-chat-option input:checked + .toggle-slider {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+
+html:root #canvas-container .node-chat-option input:checked + .toggle-slider::before {
+    background: var(--panel-primary-action-text, var(--bg-node));
+    transform: translate(14px, -50%);
+}
+
+html:root #canvas-container .node-chat-option input:focus-visible + .toggle-slider {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 3px;
+}
+
+html:root #canvas-container .node-chat-option input:disabled + .toggle-slider {
+    background: var(--node-control-border);
+    border-color: var(--node-control-border);
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
 html:root #canvas-container {
     --node-surface: var(--bg-node);
     --node-header-surface: var(--bg-node-header);

@@ -58,12 +58,12 @@ test('complete application previews, applies, executes and undoes a canvas plan 
         await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='撤销本次画布操作').click()");
         await waitFor("document.querySelectorAll('#nodes-layer .node').length===0");
         assert.ok(await evaluate("Boolean(document.querySelector('.prompt-agent-result-image'))"));
-        await waitFor("!document.getElementById('btn-redo').disabled");
+        await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已按撤销栈处理')");
         assert.ok(await evaluate("fetch('/api/storage/maintenance').then(r=>r.json()).then(s=>s.undoSession.protectedCount>0)"), 'redo protects its original media');
         await evaluate("fetch('/api/storage/maintenance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'clear-assets',mode:'node-orphans'})}).then(r=>r.json())");
-        await evaluate("document.getElementById('btn-redo').click()");
+        await evaluate("(() => { const canvas = document.getElementById('canvas-container'); canvas.focus(); canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'y', ctrlKey: true, bubbles: true, cancelable: true })); })()");
         await waitFor("document.querySelectorAll('#nodes-layer .node').length===3");
-        await waitFor("!document.getElementById('btn-undo').disabled");
+        await waitFor("[...document.querySelectorAll('.toast')].some(toast => toast.textContent.includes('已重做上一步操作'))");
         assert.equal(await evaluate('window.agentRequests.length'), 2);
         await send('Page.reload'); await waitFor('window.__cainflowAppReady === true');
         await evaluate("document.getElementById('btn-prompt-agent').click()");

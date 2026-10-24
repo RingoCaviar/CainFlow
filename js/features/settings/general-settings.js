@@ -2,6 +2,7 @@
  * Handles general settings rendering, notification sound, image save warnings, and cache usage.
  */
 import { AUTO_UPDATE_CHECK_DISABLED } from '../../core/constants.js';
+import { createSystemNotificationService } from '../../services/system-notification-service.js';
 import { videoTimeoutMinutesToSeconds } from '../execution/async-media-execution.js';
 import { getPromptAgentCacheUsage } from '../prompt-agent/prompt-agent-cache-usage.js';
 import { getAvailablePromptAgentModels } from '../prompt-agent/prompt-agent-model.js';
@@ -20,7 +21,7 @@ function compactionModelLabel(model, providers) {
     return `${modelName} · ${providerNames.join(' / ')}`;
 }
 
-export function createGeneralSettings({ ctx, dialogs }) {
+export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = createSystemNotificationService() }) {
     const {
         appVersion,
         githubRepo,
@@ -92,7 +93,6 @@ export function createGeneralSettings({ ctx, dialogs }) {
         const autoResizeEnabled = state.imageAutoResizeEnabled !== false;
         const connectionLineType = state.connectionLineType || 'bezier';
         const toolbarPinned = state.toolbarPinned === true;
-        const sidebarPinned = state.sidebarPinned === true;
         const globalAnimationEnabled = state.globalAnimationEnabled !== false;
         const denseModeOverride = state.canvasRender?.denseModeOverride || 'auto';
         const autoCheckUpdatesOnLoad = state.autoCheckUpdatesOnLoad !== false;
@@ -124,15 +124,16 @@ export function createGeneralSettings({ ctx, dialogs }) {
                 '局域网其他设备访问时无法使用自动保存功能。'
             ].join('\n'),
             promptFilename: '开启后，保存节点会用生成该图片时的提示词加时间作为文件名。注意：如果提示词过长，可能导致部分环境下出现文件名相关问题。',
-            maxRetries: '初始失败后，最多允许再尝试执行多少轮。',
+            autoRetry: '默认关闭。开启后，工作流中失败的请求会按下方最大重试次数自动补试；已成功的结果会保留。',
+            maxRetries: '开启自动重试后，初始失败最多允许再尝试执行多少轮。',
             autoCompactTokens: '所有工作流的 Agent 共用此阈值。达到估算 Token 数时尝试压缩上下文；它不是模型的最大上下文容量。',
             compactionModel: '手动 /compact 与自动压缩共用此模型。默认跟随 Agent 对话模型；选用独立模型可控制压缩成本。所选模型不可用时会提示重新选择。',
             concurrentRequestMode: '默认开启。开启后，节点一旦需要执行多次，会并发发起这些请求；默认不会重试失败项，只把成功结果继续传递到下游。只有手动开启自动重试时，失败项才会按最大重试次数补试。',
             timeout: '图片与普通工作流的请求超时。视频生成使用独立的超时设置，避免长时间排队的视频任务被图片阈值中断。',
             connectionLineType: '切换后会立即更新当前画布中的全部连线，直角连线会在拐点保留小圆角。',
-            toolbarPinned: '默认关闭。开启后顶部菜单栏会一直显示，不再靠近顶部才弹出。',
-            sidebarPinned: '默认关闭。开启后左侧工具栏会一直显示，不再靠近左侧才弹出。',
+            toolbarPinned: '默认关闭。开启后统一顶部工具栏会一直显示；关闭后靠近顶部时展开。',
             globalAnimation: '默认开启。关闭后会禁用连线流动、弹窗渐入渐出、按钮过渡和提示等装饰动画；计时、进度、运行状态与危险操作确认等功能性动画仍会保留。',
+            notifications: '开启后，工作流运行结束时发送系统通知并播放完成音效。首次开启会检查通知权限并发送测试通知。',
             notificationVolume: '调整工作流完成时通知音效的播放音量，可用“测试音效”立即预览当前设置。'
         };
 
@@ -360,6 +361,16 @@ export function createGeneralSettings({ ctx, dialogs }) {
                 </div>
                 <div class="card-row">
                     <div class="card-field">
+                        <div class="general-settings-control-row">
+                            ${dialogs.renderGeneralSettingsHelpLabel('失败时自动重试', generalHelpText.autoRetry, { emphasis: true })}
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="toggle-retry" role="switch" aria-label="失败时自动重试" ${state.autoRetry === true ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="general-settings-field-divider" aria-hidden="true"></div>
+                    <div class="card-field">
                         <div class="general-settings-label-row">
                             ${dialogs.renderGeneralSettingsHelpLabel('最大自动重试次数', generalHelpText.maxRetries)}
                         </div>
@@ -451,19 +462,9 @@ export function createGeneralSettings({ ctx, dialogs }) {
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <div class="general-settings-control-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('顶部菜单栏固定显示', generalHelpText.toolbarPinned, { emphasis: true })}
+                            ${dialogs.renderGeneralSettingsHelpLabel('统一顶部工具栏固定显示', generalHelpText.toolbarPinned, { emphasis: true })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-toolbar-pinned" ${toolbarPinned ? 'checked' : ''}>
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                    </div>
-                    <div class="general-settings-field-divider" aria-hidden="true"></div>
-                    <div class="card-field">
-                        <div class="general-settings-control-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('左侧工具栏固定显示', generalHelpText.sidebarPinned, { emphasis: true })}
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="setting-sidebar-pinned" ${sidebarPinned ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
@@ -485,6 +486,16 @@ export function createGeneralSettings({ ctx, dialogs }) {
                     <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">通知设置</span>
                 </div>
                 <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
+                    <div class="card-field">
+                        <div class="general-settings-control-row">
+                            ${dialogs.renderGeneralSettingsHelpLabel('运行完成通知', generalHelpText.notifications, { emphasis: true })}
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="toggle-notifications" role="switch" aria-label="运行完成通知" ${state.notificationsEnabled === true ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <div class="general-settings-label-row">
                             ${dialogs.renderGeneralSettingsHelpLabel('完成音效音量', generalHelpText.notificationVolume)}
@@ -538,7 +549,6 @@ export function createGeneralSettings({ ctx, dialogs }) {
         const concurrentRequestModeInput = documentRef.getElementById('setting-concurrent-request-mode');
         const connectionLineTypeInput = documentRef.getElementById('setting-connection-line-type');
         const toolbarPinnedInput = documentRef.getElementById('setting-toolbar-pinned');
-        const sidebarPinnedInput = documentRef.getElementById('setting-sidebar-pinned');
         const globalAnimationInput = documentRef.getElementById('setting-global-animation-enabled');
         const denseModeInput = documentRef.getElementById('setting-canvas-dense-mode');
         const autoCheckUpdatesOnLoadInput = documentRef.getElementById('setting-auto-check-updates-on-load');
@@ -704,6 +714,59 @@ export function createGeneralSettings({ ctx, dialogs }) {
             saveState();
         });
 
+        documentRef.getElementById('toggle-retry')?.addEventListener('change', (event) => {
+            state.autoRetry = event.target.checked;
+            saveState();
+        });
+
+        documentRef.getElementById('toggle-notifications')?.addEventListener('change', async (event) => {
+            const enabled = event.target.checked;
+            const disableNotifications = (message, duration = 5000) => {
+                event.target.checked = false;
+                const currentInput = documentRef.getElementById('toggle-notifications');
+                if (currentInput) currentInput.checked = false;
+                state.notificationsEnabled = false;
+                showToast(message, 'warning', duration);
+                saveState();
+            };
+            if (enabled && !systemNotificationApi.isSupported()) {
+                disableNotifications('当前浏览器环境不支持系统通知，无法开启运行通知');
+                return;
+            }
+            if (enabled && systemNotificationApi.getPermission() !== 'granted') {
+                let permission;
+                try {
+                    permission = await systemNotificationApi.requestPermission();
+                } catch (error) {
+                    console.warn('Notification permission request failed:', error);
+                    permission = 'denied';
+                }
+                if (permission !== 'granted') {
+                    disableNotifications('未开启通知权限，请在浏览器设置中手动允许此网站发送通知');
+                    return;
+                }
+            }
+            state.notificationsEnabled = enabled;
+            if (enabled) {
+                await systemNotificationApi.ensureReady?.();
+                const testSent = await systemNotificationApi.showNotification?.('CainFlow 运行通知已开启', {
+                    body: '之后工作流运行结束时，你会收到系统通知。',
+                    tag: 'cainflow-notification-test'
+                });
+                if (!testSent) {
+                    disableNotifications('系统通知测试失败，请检查 Windows“通知”和“勿扰/专注模式”设置', 7000);
+                    return;
+                }
+            }
+            if (!enabled && state.notificationAudio) {
+                state.notificationAudio.pause();
+                state.notificationAudio.src = '';
+                state.notificationAudio = null;
+            }
+            saveState();
+            showToast(enabled ? '运行完成通知已开启' : '运行完成通知已关闭', enabled ? 'success' : 'info');
+        });
+
         documentRef.getElementById('setting-max-retries')?.addEventListener('change', (event) => {
             const val = parseInt(event.target.value, 10);
             if (val >= 1 && val <= 100) {
@@ -815,12 +878,6 @@ export function createGeneralSettings({ ctx, dialogs }) {
 
         toolbarPinnedInput?.addEventListener('change', (event) => {
             state.toolbarPinned = event.target.checked;
-            applyCanvasUiSetting();
-            saveState();
-        });
-
-        sidebarPinnedInput?.addEventListener('change', (event) => {
-            state.sidebarPinned = event.target.checked;
             applyCanvasUiSetting();
             saveState();
         });

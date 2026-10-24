@@ -243,7 +243,7 @@
 .help-panel.active,
 .drawer-left.active,
 #workflow-sidebar.active {
-    left: 60px;
+    left: 0;
 }
 
 .help-panel.active {

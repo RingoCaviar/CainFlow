@@ -9,15 +9,15 @@ export function createHelpPanelApi({
     documentRef = document
 }) {
     const helpContent = `
-    <div class="help-intro">从左侧工具栏打开常用面板；画布快捷键只在鼠标位于画布或画布获得焦点时生效。</div>
+    <div class="help-intro">从顶部工具栏及“更多”打开常用面板；画布快捷键只在鼠标位于画布或画布获得焦点时生效。</div>
     <div class="help-section">
-        <h4>左侧工具栏</h4>
+        <h4>顶部工具栏</h4>
         <div class="help-grid">
             <div class="help-item"><span class="help-desc">工作流列表</span><span class="help-key">工作流</span></div>
-            <div class="help-item"><span class="help-desc">缓存占用与清理</span><span class="help-key">缓存</span></div>
-            <div class="help-item"><span class="help-desc">今日请求统计</span><span class="help-key">统计</span></div>
-            <div class="help-item"><span class="help-desc">提示词管理</span><span class="help-key">提示词</span></div>
-            <div class="help-item"><span class="help-desc">整理当前画布</span><span class="help-key">自动整理</span></div>
+            <div class="help-item"><span class="help-desc">缓存占用与清理</span><span class="help-key">更多 → 缓存管理</span></div>
+            <div class="help-item"><span class="help-desc">今日请求统计</span><span class="help-key">更多 → 请求统计</span></div>
+            <div class="help-item"><span class="help-desc">提示词管理</span><span class="help-key">更多 → 提示词库</span></div>
+            <div class="help-item"><span class="help-desc">整理当前画布</span><span class="help-key">更多 → 整理节点</span></div>
         </div>
     </div>
     <div class="help-section">
@@ -27,7 +27,7 @@ export function createHelpPanelApi({
             <div class="help-item"><span class="help-desc">停止全部运行</span><span class="help-key">顶部停止</span></div>
             <div class="help-item"><span class="help-desc">保存当前工作流</span><span class="help-key">Ctrl + S</span></div>
             <div class="help-item"><span class="help-desc">导入 / 导出工作流</span><span class="help-key">Ctrl + O / E</span></div>
-            <div class="help-item"><span class="help-desc">撤回上一步</span><span class="help-key">Ctrl + Z</span></div>
+            <div class="help-item"><span class="help-desc">撤销上一步</span><span class="help-key">Ctrl + Z</span></div>
             <div class="help-item"><span class="help-desc">重做上一步</span><span class="help-key">Ctrl + Y / Ctrl + Shift + Z</span></div>
         </div>
     </div>
@@ -38,7 +38,7 @@ export function createHelpPanelApi({
             <div class="help-item"><span class="help-desc">框选节点</span><span class="help-key">拖拽空白处</span></div>
             <div class="help-item"><span class="help-desc">全选节点</span><span class="help-key">Ctrl + A</span></div>
             <div class="help-item"><span class="help-desc">平移画布</span><span class="help-key">空格拖拽</span></div>
-            <div class="help-item"><span class="help-desc">缩放画布</span><span class="help-key">滚轮 / 顶部按钮</span></div>
+            <div class="help-item"><span class="help-desc">缩放画布</span><span class="help-key">滚轮 / 右下角按钮</span></div>
             <div class="help-item"><span class="help-desc">聚焦选中或全部</span><span class="help-key">F</span></div>
             <div class="help-item"><span class="help-desc">取消选择 / 关闭菜单</span><span class="help-key">Esc</span></div>
         </div>
@@ -68,6 +68,7 @@ export function createHelpPanelApi({
     <div class="help-tip">
         <strong>小提示</strong>
         <div>只运行选中节点时，会优先读取未选中上游的已有缓存；运行中的节点不能直接移动，按住 <span class="help-key">Ctrl</span> 可克隆。</div>
+        <div>主题、自动重试、运行通知在顶部“设置 → 常规设置”中管理。Mac 使用 Command 代替 Ctrl。</div>
         <div>界面异常或资源没更新时，按 <span class="help-key">Ctrl + F5</span> 强制刷新。</div>
     </div>
 `;
@@ -115,15 +116,7 @@ export function createHelpPanelApi({
 
     function initHelpPanel() {
         panelManager?.register?.('help', { close: closeHelpPanel });
-        documentRef.getElementById('side-bar')?.addEventListener('click', (e) => {
-            const button = e.target?.closest?.('.side-bar-btn');
-            if (button && button.id !== 'btn-help') {
-                closeHelpPanel();
-            }
-        });
-
-        documentRef.getElementById('btn-help')?.addEventListener('click', (e) => {
-            e.stopPropagation();
+        documentRef.getElementById('btn-help')?.addEventListener('click', () => {
             toggleHelpPanel();
         });
 

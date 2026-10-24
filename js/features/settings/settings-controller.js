@@ -40,7 +40,7 @@ export function createSettingsControllerApi(options) {
     providerSettingsApi = createProviderSettings({ ctx, store, dialogs, getDeps });
     modelSettingsApi = createModelSettings({ ctx, store, dialogs, providerSettings: providerSettingsApi, getDeps });
     proxyNetworkSettingsApi = createProxyNetworkSettings({ ctx, store, dialogs });
-    generalSettingsApi = createGeneralSettings({ ctx, dialogs });
+    generalSettingsApi = createGeneralSettings({ ctx, dialogs, systemNotificationApi: options.systemNotificationApi });
 
     function collapseAllConfigCards() {
         providerSettingsApi.collapseAllProviderConfigCards();

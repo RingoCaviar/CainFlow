@@ -1,6 +1,6 @@
 /* Workbench foundation: shared UI tokens and low-cost polish for the main app shell. */
 #canvas-navigation {
-    position: absolute; right: 16px; bottom: 16px; z-index: var(--layer-toolbar);
+    position: absolute; right: 16px; bottom: 16px; z-index: calc(var(--layer-toolbar) - 1);
     display: flex; align-items: center; gap: 4px; padding: 6px; max-width: calc(100% - 32px);
     border: 1px solid var(--panel-border); border-radius: 10px;
     background: var(--panel-bg-strong); color: var(--text-primary); box-shadow: var(--panel-shadow-soft);
@@ -58,8 +58,8 @@ body:has(.painter-overlay.active) #canvas-navigation { visibility: hidden; }
     --floating-notices-width-limit: min(420px, calc(100% - 28px));
     --floating-notices-left-drawer-offset: 400px;
     --floating-notices-left-drawer-width: min(420px, calc(100% - 414px));
-    --floating-notices-workflow-offset: calc(60px + var(--workflow-sidebar-width, 320px) + 20px);
-    --floating-notices-workflow-width: min(420px, calc(100% - (var(--workflow-sidebar-width, 320px) + 94px)));
+    --floating-notices-workflow-offset: calc(var(--workflow-sidebar-width, 320px) + 20px);
+    --floating-notices-workflow-width: min(420px, calc(100% - (var(--workflow-sidebar-width, 320px) + 34px)));
     --toast-right-offset: 20px;
     --toast-bottom-offset: 20px;
     --toast-settings-bottom-offset: clamp(128px, 18vh, 220px);
@@ -76,7 +76,6 @@ body {
 }
 
 #toolbar,
-#side-bar,
 .drawer,
 .drawer-left,
 .context-menu,
@@ -140,48 +139,9 @@ body.toolbar-pinned #toolbar {
 }
 
 .btn:focus-visible,
-.side-bar-btn:focus-visible,
 .context-menu-item:focus-visible {
     outline: none;
     box-shadow: var(--focus-ring);
-}
-
-#side-bar {
-    background: var(--sidebar-bg);
-    border-color: var(--sidebar-border);
-    box-shadow: var(--elevation-panel);
-    transition:
-        transform var(--motion-standard),
-        top var(--motion-standard),
-        opacity var(--motion-fast),
-        box-shadow var(--motion-standard);
-    will-change: auto;
-}
-
-#side-bar:hover,
-#side-bar:focus-within,
-#side-bar:has(.side-bar-btn.active),
-body.sidebar-peek-active #side-bar,
-body.sidebar-pinned #side-bar {
-    will-change: transform;
-}
-
-.side-bar-btn {
-    border: 1px solid transparent;
-    border-radius: 8px;
-    transition:
-        background var(--motion-fast),
-        border-color var(--motion-fast),
-        color var(--motion-fast),
-        transform var(--motion-fast);
-}
-
-.side-bar-btn:hover {
-    border-color: var(--border-subtle);
-}
-
-.side-bar-btn.active {
-    border-color: var(--panel-active-border);
 }
 
 #canvas-container {
@@ -253,15 +213,6 @@ body.toolbar-pinned {
     --floating-notices-top-offset: calc(var(--toolbar-height, 48px) + 12px);
 }
 
-body:has(#side-bar:hover),
-body:has(#side-bar:focus-within),
-body:has(#side-bar .side-bar-btn.active),
-body.sidebar-peek-active,
-body.sidebar-pinned {
-    --floating-notices-left-offset: 76px;
-    --floating-notices-width-limit: min(420px, calc(100% - 90px));
-}
-
 #toast-container {
     right: var(--toast-right-offset);
     bottom: max(var(--toast-bottom-offset), var(--toast-canvas-bottom-offset, 0px));
@@ -300,7 +251,8 @@ body:has(#prompt-agent-panel.active) #toast-container .toast-message {
 }
 
 body:has(#statistics-sidebar.active),
-body:has(#cache-sidebar.active) {
+body:has(#cache-sidebar.active),
+body:has(#help-panel.active) {
     --floating-notices-left-offset: var(--floating-notices-left-drawer-offset);
     --floating-notices-width-limit: var(--floating-notices-left-drawer-width);
 }
@@ -356,8 +308,6 @@ body.is-interacting .connection-path,
 }
 
 html.animations-disabled #toolbar,
-html.animations-disabled #side-bar,
-html.animations-disabled .btn,
-html.animations-disabled .side-bar-btn {
+html.animations-disabled .btn {
     transition: none !important;
 }

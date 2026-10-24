@@ -1,0 +1,88 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../css/modules/00-foundation.css">
+<link rel="stylesheet" href="../../css/modules/04-node-core.css">
+<link rel="stylesheet" href="../../css/modules/06-node-text.css">
+<link rel="stylesheet" href="../../css/modules/07-node-controls.css">
+<link rel="stylesheet" href="../../css/themes.css">
+<link rel="stylesheet" href="../../css/features/node-canvas-theme-skin.css">
+<style>.node{position:relative;width:360px;left:auto;top:auto;margin:24px}.node-body{height:auto}</style>
+</head><body><div id="canvas-container"><div id="sample" class="node node-chat"></div></div><pre id="surface-result"></pre>
+<script type="module">
+import { createNodeMarkup } from '../../js/nodes/node-view-factory.js';
+import { NODE_CONFIGS } from '../../js/nodes/registry.js';
+import { createNodeDomBindingsApi } from '../../js/nodes/node-dom-bindings.js';
+const result = { themes: [] };
+try {
+    const node = document.getElementById('sample');
+    const state = { nodes: new Map(), connections: [], selectedNodes: new Set(), runningNodeIds: new Set(), canvas: { zoom: 1, x: 0, y: 0 },
+        models: [
+            { id: 'openai', modelId: 'chat-a', name: 'OpenAI', taskType: 'chat', protocol: 'openai', providerIds: ['provider'] },
+            { id: 'google', modelId: 'gemini-chat', name: 'Gemini', taskType: 'chat', protocol: 'google', providerIds: ['provider'] },
+            { id: 'provider-protocol', modelId: 'chat-b', name: '跟随接口', taskType: 'chat', providerIds: ['provider', 'google-provider'] }
+        ], providers: [{ id: 'provider', type: 'openai', name: 'OpenAI' }, { id: 'google-provider', type: 'google', name: 'Google' }] };
+    const render = (apiConfigId) => {
+        node.innerHTML = createNodeMarkup({ type: 'TextChat', id: 'sample', config: NODE_CONFIGS.TextChat,
+            restoreData: { apiConfigId, search: true, fixed: true }, state });
+    };
+    for (const theme of ['light', 'dark', 'paper', 'pink', 'pro', 'glass-light', 'glass-dark']) {
+        document.documentElement.dataset.appTheme = theme;
+        render('google');
+        const search = document.getElementById('sample-search');
+        const fixed = document.getElementById('sample-fixed');
+        const descriptions = [search, fixed].map(input => document.getElementById(input.getAttribute('aria-describedby')));
+        const switches = [search, fixed];
+        const namedSwitches = switches.every(input => input.getAttribute('role') === 'switch' && input.labels.length > 0);
+        const labels = switches.map(input => [...input.labels].map(label => label.textContent).join(''));
+        const visibleDescriptions = descriptions.every(el => el?.checkVisibility() && el.textContent.trim()) &&
+            labels[0].includes('联网搜索') && labels[1].includes('复用上次回复') &&
+            descriptions[0].textContent.includes('查询网页补充回答') && descriptions[1].textContent.includes('首次仍会生成');
+        const card = node.getBoundingClientRect();
+        const contained = [...descriptions, ...node.querySelectorAll('.node-chat-option .toggle-switch')].every(el => {
+            const rect = el.getBoundingClientRect();
+            return rect.left >= card.left && rect.right <= card.right && rect.height > 0 && el.scrollWidth <= el.clientWidth;
+        });
+        document.querySelector('label[for="sample-fixed"]').click();
+        const labelTogglesSwitch = !fixed.checked;
+        search.focus();
+        const sliderStyle = getComputedStyle(search.nextElementSibling);
+        const focusVisible = sliderStyle.outlineStyle !== 'none' && parseFloat(sliderStyle.outlineWidth) >= 2;
+        result.themes.push({ theme, namedSwitches, visibleDescriptions, contained, labelTogglesSwitch, focusVisible });
+    }
+    render('openai');
+    const search = document.getElementById('sample-search');
+    const help = document.getElementById('sample-search-help');
+    result.initial = { disabled: search.disabled, checked: search.checked, help: help?.textContent };
+    const modelNode = { id: 'sample', type: 'TextChat', el: node, data: {}, x: 0, y: 0, width: 360, height: 600 };
+    state.nodes.set('sample', modelNode);
+    const noop = () => {};
+    const bindings = createNodeDomBindingsApi({ state, canvasContainer: node.parentElement, connectionsGroup: document.createElement('div'),
+        viewportApi: {}, pushHistory: noop, scheduleSave: noop, showToast: noop, debounce: fn => fn, fitNodeToContent: noop });
+    bindings.bindNodeInteractions({ id: 'sample', type: 'TextChat', el: node });
+    const model = document.getElementById('sample-apiconfig');
+    const provider = document.getElementById('sample-provider');
+    const snapshot = () => ({ disabled: search.disabled, checked: search.checked, saved: modelNode.data.search });
+    const selectModel = value => { model.value = value; model.dispatchEvent(new Event('change', { bubbles: true })); };
+    selectModel('google');
+    result.google = snapshot();
+    selectModel('openai');
+    result.openai = { ...snapshot(), help: help.textContent };
+    selectModel('google');
+    result.restoredGoogle = snapshot();
+    search.click();
+    selectModel('openai');
+    selectModel('google');
+    result.offPreference = snapshot();
+    search.click();
+    selectModel('provider-protocol');
+    provider.value = 'google-provider';
+    provider.dispatchEvent(new Event('change', { bubbles: true }));
+    result.googleProvider = snapshot();
+    provider.value = 'provider';
+    provider.dispatchEvent(new Event('change', { bubbles: true }));
+    result.openaiProvider = snapshot();
+    modelNode.isClone = true;
+    selectModel('google');
+    result.cloneSearchDisabled = search.disabled;
+} catch (error) { result.error = error.stack; }
+document.getElementById('surface-result').textContent = JSON.stringify(result);
+</script></body></html>

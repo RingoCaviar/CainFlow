@@ -31,22 +31,20 @@ export function createToolbarControllerApi({
     function isChromeActive(element, activeClass) {
         if (!element) return false;
         const body = documentRef.body;
-        return body.classList.contains(activeClass)
+        return body.classList.contains('toolbar-pinned')
+            || body.classList.contains(activeClass)
             || element.matches(':hover')
             || element.matches(':focus-within')
+            || element.querySelector('details[open]')
             || element.querySelector('.btn.active:not(#btn-prompt-agent), [aria-expanded="true"]:not(#btn-prompt-agent)');
     }
 
     function getViewportSafeInsets() {
         const toolbar = documentRef.getElementById('toolbar');
-        const sidebar = documentRef.getElementById('side-bar');
         const topInset = isChromeActive(toolbar, 'toolbar-peek-active')
             ? ((toolbar?.offsetHeight || 48) + 8)
             : 0;
-        const leftInset = isChromeActive(sidebar, 'sidebar-peek-active')
-            ? (sidebar?.offsetWidth || 60)
-            : 0;
-        return { topInset, leftInset };
+        return { topInset, leftInset: 0 };
     }
 
     function zoomToFit(targetNodes = null) {
@@ -102,6 +100,35 @@ export function createToolbarControllerApi({
 
     function initToolbarControls() {
         const workflowMore = documentRef.getElementById('toolbar-workflow-more');
+        workflowMore?.addEventListener('click', (event) => {
+            if (!event.target.closest?.('button')) return;
+            workflowMore.open = false;
+            if (workflowMore.contains(documentRef.activeElement)) workflowMore.querySelector('summary')?.focus();
+        });
+        workflowMore?.addEventListener('keydown', (event) => {
+            if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
+            if (event.key === 'Escape' && workflowMore.open) {
+                event.preventDefault();
+                event.stopPropagation();
+                workflowMore.open = false;
+                workflowMore.querySelector('summary')?.focus();
+                return;
+            }
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+            const buttons = [...workflowMore.querySelectorAll('button:not([disabled])')].filter(button => !button.hidden);
+            if (!buttons.length) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const current = buttons.indexOf(documentRef.activeElement);
+            let next = event.key === 'End' || (current < 0 && event.key === 'ArrowUp') ? buttons.length - 1 : 0;
+            if (current >= 0 && event.key === 'ArrowDown') next = (current + 1) % buttons.length;
+            if (current >= 0 && event.key === 'ArrowUp') next = (current - 1 + buttons.length) % buttons.length;
+            workflowMore.open = true;
+            buttons[next].focus();
+        });
+        workflowMore?.addEventListener('focusout', (event) => {
+            if (!workflowMore.contains(event.relatedTarget)) workflowMore.open = false;
+        });
         documentRef.addEventListener('click', (event) => {
             if (workflowMore?.open && !workflowMore.contains(event.target)) workflowMore.open = false;
         });
@@ -125,10 +152,6 @@ export function createToolbarControllerApi({
                     state.abortController?.abort();
                 }
             }
-        });
-        documentRef.getElementById('toggle-retry')?.addEventListener('change', (e) => {
-            state.autoRetry = e.target.checked;
-            saveState();
         });
         documentRef.getElementById('btn-save')?.addEventListener('click', () => {
             if (typeof saveCurrentWorkflow === 'function') {
