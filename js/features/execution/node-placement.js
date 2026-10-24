@@ -1,9 +1,11 @@
 /** All dimensions are canvas units, never screen pixels. */
 export function nodeBounds(node, zoom = 1) {
     const rect = node.el?.getBoundingClientRect?.();
+    const measuredWidth = Number(node.el?.offsetWidth) || rect?.width / zoom;
+    const measuredHeight = Number(node.el?.offsetHeight) || rect?.height / zoom;
     return { x: Number(node.x) || 0, y: Number(node.y) || 0,
-        width: Number(node.width) || node.el?.offsetWidth || rect?.width / zoom || 300,
-        height: Number(node.height) || node.el?.offsetHeight || rect?.height / zoom || 340 };
+        width: measuredWidth || Number(node.width) || 300,
+        height: measuredHeight || Number(node.height) || 340 };
 }
 
 export function findNearbyNodePosition({ x, y, width = 300, height = 340, occupied = [], gap = 40 }) {

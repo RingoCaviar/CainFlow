@@ -3,9 +3,11 @@
  */
 import { appendMappedConnectionSnapshots } from './connection-copy-utils.js';
 import { CANVAS_INTERACTION_KIND } from './canvas-interaction-kinds.js';
+import { createSelectionApi } from './selection.js';
 
 export function createCanvasInteractionsApi({
     state,
+    selectionApi = createSelectionApi({ state }),
     canvasContainer,
     nodesLayer,
     tempConnection,
@@ -607,26 +609,13 @@ export function createCanvasInteractionsApi({
         const marqueeRect = getMarqueeCanvasRect(marquee);
         if (!marqueeRect) return false;
 
-        const changedNodeIds = [];
+        const desired = new Set(marquee.initialSelection);
         state.nodes.forEach((node, id) => {
             const nodeBounds = getNodeCanvasBounds(node);
-            const intersects = nodeBounds ? rectsIntersect(marqueeRect, nodeBounds) : false;
-
-            if (intersects) {
-                if (!state.selectedNodes.has(id)) {
-                    state.selectedNodes.add(id);
-                    node.el?.classList.add('selected');
-                    changedNodeIds.push(id);
-                }
-            } else if (!marquee.initialSelection.has(id) && state.selectedNodes.has(id)) {
-                state.selectedNodes.delete(id);
-                node.el?.classList.remove('selected');
-                changedNodeIds.push(id);
-            }
+            if (nodeBounds && rectsIntersect(marqueeRect, nodeBounds)) desired.add(id);
         });
 
-        if (changedNodeIds.length) connectionProjection?.nodeAppearanceChanged(changedNodeIds);
-        return changedNodeIds.length > 0;
+        return selectionApi.setSelection(Array.from(desired)).length > 0;
     }
 
     function finishZoomInteraction() {
@@ -901,13 +890,7 @@ export function createCanvasInteractionsApi({
             if (isMarqueeAction) {
                 const isToggle = e.ctrlKey || e.metaKey || e.shiftKey;
                 if (!isToggle) {
-                    const changedNodeIds = Array.from(state.selectedNodes);
-                    state.selectedNodes.forEach((nid) => {
-                        const node = state.nodes.get(nid);
-                        if (node) node.el.classList.remove('selected');
-                    });
-                    state.selectedNodes.clear();
-                    connectionProjection?.nodeAppearanceChanged(changedNodeIds);
+                    selectionApi.clearSelection();
                 }
 
                 e.preventDefault();
@@ -1043,16 +1026,15 @@ export function createCanvasInteractionsApi({
                         state.dragging.connectionsToUpdate = [];
                         state.dragging.portOffsets = new Map();
 
-                        state.selectedNodes.forEach((nid) => {
-                            const node = state.nodes.get(nid);
-                            if (node) node.el.classList.remove('selected', 'is-interacting');
+                        const previouslySelected = Array.from(state.selectedNodes);
+                        selectionApi.clearSelection({ notify: false });
+                        previouslySelected.forEach((nid) => {
+                            state.nodes.get(nid)?.el.classList.remove('is-interacting');
                         });
-                        state.selectedNodes.clear();
 
                         newDraggedIds.forEach((id) => {
-                            state.selectedNodes.add(id);
-                            const node = state.nodes.get(id);
-                            if (node) node.el.classList.add('selected', 'is-interacting');
+                            selectionApi.addToSelection(id, { notify: false });
+                            state.nodes.get(id)?.el.classList.add('is-interacting');
                         });
 
                         updateAllConnections();

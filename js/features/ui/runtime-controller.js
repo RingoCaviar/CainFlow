@@ -1,6 +1,7 @@
 import { canUseCanvasShortcuts, isTextEditingTarget } from './shortcut-guard.js';
 import { installUiBoundaryAudit } from './ui-boundary-audit.js';
 import { getSurfaceCoordinator } from './surface-coordinator.js';
+import { createSelectionApi } from '../../canvas/selection.js';
 
 export function hasOpenImmersivePreview(documentRef = document) {
     return documentRef.querySelector('.fullscreen-overlay.active') !== null;
@@ -13,7 +14,7 @@ export function createRuntimeControllerApi({
     state,
     canvasContainer,
     contextMenu,
-    selectionApi,
+    selectionApi = createSelectionApi({ state }),
     runWorkflow,
     saveState,
     saveCurrentWorkflow = null,
@@ -35,11 +36,7 @@ export function createRuntimeControllerApi({
     installUiBoundaryAudit({ documentRef, windowRef });
 
     function clearSelection() {
-        state.selectedNodes.forEach((nodeId) => {
-            const node = state.nodes.get(nodeId);
-            if (node) node.el.classList.remove('selected');
-        });
-        state.selectedNodes.clear();
+        return selectionApi.clearSelection();
     }
 
     function initToolbarObserver() {

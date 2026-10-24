@@ -31,6 +31,7 @@ test('complete application previews, applies, executes and undoes a canvas plan 
         await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='仅应用').click()");
         await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已应用并保存')");
         assert.equal(await evaluate("document.querySelectorAll('#nodes-layer .node').length"), 3);
+        assert.equal(await evaluate("document.querySelectorAll('#nodes-layer .node.selected').length"), 0);
         assert.equal(await evaluate("document.querySelector('#nodes-layer select[id$=apiconfig]').value"), 'image-two');
         assert.equal(await evaluate('window.agentRequests.length'), 1);
         for (const theme of ['light', 'dark', 'pink', 'pro', 'paper', 'glass-light', 'glass-dark']) {
@@ -70,6 +71,20 @@ test('complete application previews, applies, executes and undoes a canvas plan 
         await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
         await waitFor("Boolean(document.querySelector('.prompt-agent-result-image'))");
         assert.equal(await evaluate("document.querySelectorAll('#nodes-layer .node').length"), 3);
+        assert.equal(await evaluate(`(() => {
+            const node = document.querySelector('#nodes-layer .node');
+            const rect = node.getBoundingClientRect();
+            node.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: rect.left + 12, clientY: rect.top + 12 }));
+            window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0, clientX: rect.left + 12, clientY: rect.top + 12 }));
+            return document.querySelectorAll('#nodes-layer .node.selected').length;
+        })()`), 1);
+        await evaluate(`(() => {
+            const canvas = document.getElementById('canvas-container');
+            canvas.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 8, clientY: 8 }));
+            window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 8, clientY: 8 }));
+            canvas.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0, clientX: 8, clientY: 8 }));
+        })()`);
+        assert.equal(await evaluate("document.querySelectorAll('#nodes-layer .node.selected').length"), 0);
         await evaluate("window.testExitCount=0; window.pywebview={api:{finish_close:async()=>{window.testExitCount++}}}; window.confirm=message=>{window.testExitError=message;return false}; window.cainflowPrepareExit()");
         assert.equal(await evaluate('window.testExitCount'), 1, await evaluate('window.testExitError || \"desktop exit persisted\"'));
     });

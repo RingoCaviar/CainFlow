@@ -1,4 +1,5 @@
 import { createThinkingControl } from '../features/execution/thinking-control.js';
+import { createSelectionApi } from '../canvas/selection.js';
 /**
  * 负责把节点 DOM 与交互行为绑定起来，包括拖拽、输入监听、按钮操作和端口事件。
  */
@@ -39,6 +40,7 @@ import { getSurfaceCoordinator } from '../features/ui/surface-coordinator.js';
 
 export function createNodeDomBindingsApi({
     state,
+    selectionApi = createSelectionApi({ state }),
     canvasContainer,
     connectionsGroup,
     tempConnection,
@@ -1094,13 +1096,8 @@ export function createNodeDomBindingsApi({
             showToast('源节点不存在，右键可将此克隆节点独立化', 'warning');
             return;
         }
-        state.selectedNodes.forEach((nid) => {
-            const selectedNode = state.nodes.get(nid);
-            selectedNode?.el?.classList.remove('selected');
-        });
-        state.selectedNodes.clear();
-        state.selectedNodes.add(source.id);
-        source.el.classList.add('selected', 'clone-source-highlight');
+        selectionApi.setSelection([source.id]);
+        source.el.classList.add('clone-source-highlight');
         const containerRect = canvasContainer.getBoundingClientRect();
         const zoom = state.canvas.zoom || 1;
         const width = source.el.offsetWidth || source.width || 180;

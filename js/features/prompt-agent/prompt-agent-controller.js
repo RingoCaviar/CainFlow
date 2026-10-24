@@ -231,15 +231,23 @@ export function createPromptAgentController({
         }
         return { modelId, config: captureThinkingConfig(modelId) };
     }
+    function getUsableChatModels() {
+        return getChatModels().filter((model) => model?.id && model?.modelId);
+    }
+    function updateSendButtonState(models = getUsableChatModels()) {
+        const { input, sendButton } = getElements();
+        if (!sendButton) return;
+        sendButton.disabled = !input?.value?.trim().startsWith('/')
+            && (requestPending || models.length === 0 || pendingReferenceImages.some((image) => image.loading || image.error));
+    }
     function renderModelOptions() {
         searchMenu?.render();
         renderImageModelOptions();
-        const { input, modelSelect, modelHint, sendButton } = getElements();
-        const models = getChatModels().filter((model) => model?.id && model?.modelId);
+        const { modelSelect, modelHint } = getElements();
+        const models = getUsableChatModels();
         if (modelHint) modelHint.hidden = models.length > 0;
         // Local commands remain available without a model and during requests.
-        if (sendButton) sendButton.disabled = !input?.value?.trim().startsWith('/')
-            && (requestPending || models.length === 0 || pendingReferenceImages.some((image) => image.loading || image.error));
+        updateSendButtonState(models);
         if (!modelSelect) return models;
         const selected = getSelectedModelId() || models[0]?.id || '';
         modelSelect.replaceChildren?.();
@@ -1721,7 +1729,7 @@ export function createPromptAgentController({
         input?.addEventListener('focus', renderModelOptions);
         input?.addEventListener('input', () => {
             renderCommandMenu({ resetSelection: true });
-            renderModelOptions();
+            updateSendButtonState();
         });
         input?.addEventListener('keydown', async (event) => {
             if (event.isComposing || event.keyCode === 229 || (event.key === 'Enter' && event.shiftKey)) return;

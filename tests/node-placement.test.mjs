@@ -32,3 +32,16 @@ test('nearby rectangle search avoids both disabled nodes and existing positioned
     assert.ok(Math.hypot(next.x - 380, next.y) < 800);
     for (const box of occupied) assert.ok(next.x >= box.x + box.width + 40 || next.y >= box.y + box.height + 40 || next.y + 380 <= box.y);
 });
+
+test('placement uses rendered node height when stored dimensions are stale', () => {
+    const expanded = nodeBounds({
+        x: 100,
+        y: 100,
+        width: 410,
+        height: 340,
+        el: { offsetWidth: 410, offsetHeight: 720 }
+    });
+    assert.deepEqual(expanded, { x: 100, y: 100, width: 410, height: 720 });
+    const next = findNearbyNodePosition({ x: 100, y: 480, width: 410, occupied: [expanded] });
+    assert.ok(next.x >= expanded.x + expanded.width + 40 || next.y >= expanded.y + expanded.height + 40);
+});

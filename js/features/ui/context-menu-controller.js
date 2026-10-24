@@ -4,6 +4,7 @@
 import { hasRunningEndpoint } from '../media/utils/ui-state-helpers.js';
 import { createNodePicker } from './node-picker.js';
 import { getSurfaceCoordinator } from './surface-coordinator.js';
+import { createSelectionApi } from '../../canvas/selection.js';
 
 const IMAGE_CONTEXT_TARGET_SELECTOR = '.preview-container, .save-preview-container, .file-drop-zone, .image-compare-container, .color-reset-preview, .image-resize-preview, .camera-control-node-preview';
 
@@ -47,6 +48,7 @@ export function disconnectReferenceImageConnections({ state, nodeId, pushHistory
 
 export function createContextMenuControllerApi({
     state,
+    selectionApi = createSelectionApi({ state }),
     canvasContainer,
     contextMenu,
     connectionCreatePopup,
@@ -89,21 +91,12 @@ export function createContextMenuControllerApi({
     }
 
     function clearSelection() {
-        const changedNodeIds = Array.from(state.selectedNodes);
-        state.selectedNodes.forEach((nodeId) => {
-            const node = state.nodes.get(nodeId);
-            if (node) node.el.classList.remove('selected');
-        });
-        state.selectedNodes.clear();
-        return changedNodeIds;
+        return selectionApi.clearSelection();
     }
 
     function ensureNodeSelected(nodeEl) {
         if (state.selectedNodes.has(nodeEl.id)) return;
-        const changedNodeIds = clearSelection();
-        state.selectedNodes.add(nodeEl.id);
-        nodeEl.classList.add('selected');
-        connectionProjection?.nodeAppearanceChanged([...changedNodeIds, nodeEl.id]);
+        selectionApi.selectNode(nodeEl.id);
     }
 
     function updateNodeActionVisibility({ hasNodeTarget, hasSelection }) {
@@ -897,8 +890,7 @@ export function createContextMenuControllerApi({
             if (!contextMenu.contains(e.target) && !isInsideSubmenu) closeContextMenu();
 
             if (e.target.id === 'canvas-container' && !state.justDragged) {
-                const changedNodeIds = clearSelection();
-                connectionProjection?.nodeAppearanceChanged(changedNodeIds);
+                clearSelection();
             }
         });
 

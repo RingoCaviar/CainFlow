@@ -19,6 +19,11 @@ try {
     const pointer = (target,type,x=400,y=400) => target.dispatchEvent(new PointerEvent(type,{pointerId:1,button:0,clientX:x,clientY:y,bubbles:true}));
     const click = target => { pointer(target,'pointerdown');pointer(target,'pointerup');target.dispatchEvent(new MouseEvent('click',{button:0,bubbles:true})); };
     await tick();
+    const chatOption = document.querySelector('#prompt-agent-model option');
+    const imageOption = document.querySelector('#prompt-agent-image-model option');
+    input.dispatchEvent(new Event('input',{bubbles:true}));
+    check(document.querySelector('#prompt-agent-model option') === chatOption
+        && document.querySelector('#prompt-agent-image-model option') === imageOption,'typingKeepsModelOptions');
     check(select.value === '', 'manualSelection');
     trigger.click(); await tick();
     check(!!document.querySelector('.prompt-agent-model-menu') && panel.classList.contains('active'), 'menuStaysOpen');

@@ -7,6 +7,7 @@ import { createProjectIoApi } from '../../features/persistence/project-io.js';
 export function createProjectIoFeature({
     registry,
     state,
+    selectionApi,
     storageKey,
     nodeSerializer,
     getHandle,
@@ -40,6 +41,7 @@ export function createProjectIoFeature({
         if (!registry.projectIoApi) {
             registry.projectIoApi = createProjectIoApi({
                 state,
+                selectionApi,
                 storageKey,
                 nodeSerializer,
                 getHandle,

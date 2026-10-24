@@ -10,9 +10,11 @@ import {
 } from './workflow-model-resolver.js';
 import { migrateLegacyWorkflowData } from './legacy-node-migration.js';
 import { normalizeWorkspaceMode } from '../ui/workspace-mode-controller.js';
+import { createSelectionApi } from '../../canvas/selection.js';
 
 export function createProjectIoApi({
     state,
+    selectionApi = createSelectionApi({ state }),
     storageKey,
     nodeSerializer,
     localStorageRef = localStorage,
@@ -231,7 +233,7 @@ export function createProjectIoApi({
                     node.el.remove();
                 }
                 state.nodes.clear();
-                state.selectedNodes.clear();
+                selectionApi.reset();
 
                 const remapText = modelResolution.remappedModels.length > 0
                     ? `，已自动匹配 ${modelResolution.remappedModels.length} 个模型引用`

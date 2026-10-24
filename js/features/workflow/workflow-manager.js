@@ -2,6 +2,7 @@
  * 负责工作流文件管理，包括列表渲染、保存、加载、删除与校验提示。
  */
 import { renderWorkflowToolbarStatus } from '../ui/workflow-toolbar-status.js';
+import { createSelectionApi } from '../../canvas/selection.js';
 import {
     createWorkflowFolder as createWorkflowFolderService,
     deleteWorkflowFolder as deleteWorkflowFolderService,
@@ -69,6 +70,7 @@ export function getWorkflowCardStateLabel({ isActive, isOpen, running, runResult
 
 export function createWorkflowManagerApi({
     state,
+    selectionApi = createSelectionApi({ state }),
     nodeSerializer,
     viewportApi,
     addNode,
@@ -262,7 +264,7 @@ export function createWorkflowManagerApi({
         }
         state.nodes.clear();
         state.connections = [];
-        state.selectedNodes.clear();
+        selectionApi.reset();
         clearUndoStack();
         const centered = getCenteredCanvasState();
         state.canvas.x = centered.x;
@@ -2499,7 +2501,7 @@ export function createWorkflowManagerApi({
                 node.el.remove();
             }
             state.nodes.clear();
-            state.selectedNodes.clear();
+            selectionApi.reset();
             clearUndoStack();
 
             if (data.canvas) {

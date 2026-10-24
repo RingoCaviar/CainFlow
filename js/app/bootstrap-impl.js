@@ -331,7 +331,7 @@ const renderProjectionManager = createRenderProjectionManager({
     windowRef: window,
     performanceMonitor: canvasPerformanceMonitor
 });
-function focusCanvasNode(nodeId, { avoidAgentPanel = false } = {}) {
+function focusCanvasNode(nodeId, { avoidAgentPanel = false, selectOnFocus = true } = {}) {
     const node = state.nodes.get(nodeId);
     const rect = canvasContainer?.getBoundingClientRect?.();
     if (!node || !rect) return false;
@@ -346,7 +346,7 @@ function focusCanvasNode(nodeId, { avoidAgentPanel = false } = {}) {
     state.canvas.y = rect.height / 2 - (Number(node.y) + height / 2) * zoom;
     viewportApi.updateCanvasTransform({ connectionRefreshReason: 'node-failure-focus' });
     renderProjectionManager.focusNode(nodeId);
-    node.el?.classList.add('selected');
+    if (selectOnFocus) selectNode(nodeId, false);
     return true;
 }
 function showWorkflowFailureSummary(failures = []) {
@@ -669,6 +669,7 @@ const imagePainterApi = createImagePainterApi({
 });
 const nodeDomBindingsApi = createNodeDomBindingsApi({
     state,
+    selectionApi,
     canvasContainer,
     connectionsGroup,
     tempConnection,
@@ -939,7 +940,7 @@ const promptAgentExecutionAdapter = createPromptAgentExecutionAdapter({
     nodeAdapter: promptAgentNodeAdapter,
     runWorkflow: (runInput, options) => runWorkflow(runInput, { ...options, waitForCompletion: true }),
     cancelRunningNode,
-    focusNode: (nodeId) => focusCanvasNode(nodeId, { avoidAgentPanel: true })
+    focusNode: (nodeId) => focusCanvasNode(nodeId, { avoidAgentPanel: true, selectOnFocus: false })
 });
 const promptAgentModelPreference = createAgentChatModelPreference({ storage: diskStorage,
     legacyStorage: { getItem: key => window.localStorage.getItem(key) } });
@@ -977,7 +978,7 @@ const promptAgentController = createPromptAgentController({
                     width: (bounds.width + 32) / state.canvas.zoom, height: (bounds.height + 32) / state.canvas.zoom } } : {}) };
         },
         getImageAsset, runWorkflow: (input, options) => runWorkflow(input, { ...options, waitForCompletion: true }),
-        cancelNode: cancelRunningNode, focusNode: (nodeId) => focusCanvasNode(nodeId, { avoidAgentPanel: true })
+        cancelNode: cancelRunningNode, focusNode: (nodeId) => focusCanvasNode(nodeId, { avoidAgentPanel: true, selectOnFocus: false })
     }),
     panelManager,
     getSearchModels: () => state.models.filter(model => !model.taskType || model.taskType === 'chat'),
@@ -1079,6 +1080,7 @@ function getSessionManagerApi() {
     if (!registry.sessionManagerApi) {
         registry.sessionManagerApi = createSessionManagerApi({
             state,
+            selectionApi,
             storageKey: STORAGE_KEY,
             localStorageRef: diskStorage,
             nodeSerializer,
@@ -1109,6 +1111,7 @@ function getClipboardControllerApi() {
     if (!registry.clipboardControllerApi) {
         registry.clipboardControllerApi = createClipboardControllerApi({
             state,
+            selectionApi,
             showToast,
             addNode,
             updateAllConnections,
@@ -1144,6 +1147,7 @@ function getCanvasInteractionsApi() {
     if (!registry.canvasInteractionsApi) {
         registry.canvasInteractionsApi = createCanvasInteractionsApi({
             state,
+            selectionApi,
             canvasContainer,
             nodesLayer,
             tempConnection,
@@ -1186,6 +1190,7 @@ function getToolbarControllerApi() {
     if (!registry.toolbarControllerApi) {
         registry.toolbarControllerApi = createToolbarControllerApi({
             state,
+            selectionApi,
             canvasContainer,
             viewportApi,
             runWorkflow,
@@ -1379,6 +1384,7 @@ function getContextMenuControllerApi() {
     if (!registry.contextMenuControllerApi) {
         registry.contextMenuControllerApi = createContextMenuControllerApi({
             state,
+            selectionApi,
             canvasContainer,
             contextMenu,
             connectionCreatePopup,
@@ -1456,6 +1462,7 @@ function getNodeLifecycleApi() {
     if (!registry.nodeLifecycleApi) {
         registry.nodeLifecycleApi = createNodeLifecycleApi({
             state,
+            selectionApi,
             nodeConfigs: NODE_CONFIGS,
             createNodeMarkup,
             nodesLayer,
@@ -1725,6 +1732,7 @@ function pasteNode(options) {
 
 const workflowManagerApi = createWorkflowManagerApi({
     state,
+    selectionApi,
     nodeSerializer,
     viewportApi,
     addNode,
@@ -1896,6 +1904,7 @@ historyPreviewApi = historyFeature.historyPreviewApi;
 projectIoFeature = createProjectIoFeature({
     registry,
     state,
+    selectionApi,
     storageKey: STORAGE_KEY,
     localStorageRef: diskStorage,
     nodeSerializer,

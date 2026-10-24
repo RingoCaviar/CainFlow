@@ -1,10 +1,12 @@
 import { initCanvasNavigation } from './canvas-navigation.js';
+import { createSelectionApi } from '../../canvas/selection.js';
 
 /**
  * 管理顶部工具栏交互，包括运行、保存、导入导出、缩放与清空画布等操作。
  */
 export function createToolbarControllerApi({
     state,
+    selectionApi = createSelectionApi({ state }),
     canvasContainer,
     viewportApi,
     documentRef = document,
@@ -184,7 +186,7 @@ export function createToolbarControllerApi({
                 state.connections = [];
                 for (const [, node] of state.nodes) cleanupNodeElement(node);
                 state.nodes.clear();
-                state.selectedNodes.clear();
+                selectionApi.reset();
                 clearUndoStack();
                 if (typeof clearWorkflowAssets === 'function') {
                     await clearWorkflowAssets({ includeCanvas: false });

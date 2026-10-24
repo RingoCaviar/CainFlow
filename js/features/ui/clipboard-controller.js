@@ -9,9 +9,11 @@ import { migrateLegacyNodeData, migrateLegacyWorkflowData } from '../persistence
 import { applyProtocolVariantSnapshot } from '../../nodes/protocol-variant-drafts.js';
 import { hasNodeCapability, NODE_CAPABILITIES } from '../../nodes/registry.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
+import { createSelectionApi } from '../../canvas/selection.js';
 
 export function createClipboardControllerApi({
     state,
+    selectionApi = createSelectionApi({ state }),
     documentRef = document,
     showToast,
     addNode,
@@ -324,12 +326,7 @@ export function createClipboardControllerApi({
         const clip = state.clipboard;
         const idMap = new Map();
 
-        state.selectedNodes.forEach((nid) => {
-            const node = state.nodes.get(nid);
-            if (node) node.el.classList.remove('selected');
-        });
-        state.selectedNodes.clear();
-
+        const newIds = [];
         clip.nodes.forEach((data) => {
             const migratedData = migrateLegacyNodeData({ ...data, id: null });
             const offsetX = data.x - clip.center.x;
@@ -337,10 +334,10 @@ export function createClipboardControllerApi({
             const newId = addNode(migratedData.type, mousePos.x + offsetX, mousePos.y + offsetY, migratedData, true);
             if (newId) {
                 idMap.set(data.id, newId);
-                state.selectedNodes.add(newId);
-                state.nodes.get(newId).el.classList.add('selected');
+                newIds.push(newId);
             }
         });
+        selectionApi.setSelection(newIds);
 
         const connectionResult = appendMappedConnectionSnapshots({
             state,

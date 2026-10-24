@@ -4,9 +4,11 @@
 import { cleanupElementResources } from '../../core/common-utils.js';
 import { DEFAULT_THEME_ID } from '../../core/constants.js';
 import { migrateLegacyWorkflowData } from './legacy-node-migration.js';
+import { createSelectionApi } from '../../canvas/selection.js';
 
 export function createSessionManagerApi({
     state,
+    selectionApi = createSelectionApi({ state }),
     storageKey,
     nodeSerializer,
     localStorageRef = localStorage,
@@ -520,7 +522,7 @@ export function createSessionManagerApi({
     async function applySnapshotGraph(snapshot) {
         beginMediaRestoreBatch();
         try {
-            state.selectedNodes.clear();
+            selectionApi.reset();
             state.nodes.forEach((node) => {
                 cleanupElementResources(node.el);
                 node.el.remove();

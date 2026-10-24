@@ -3,6 +3,7 @@
  */
 import { NODE_DEFAULT_TYPES } from '../core/state.js';
 import { cleanupElementResources } from '../core/common-utils.js';
+import { createSelectionApi } from '../canvas/selection.js';
 import {
     normalizeConcurrentRequestStatusPayload,
     renderConcurrentRequestStatusPanel
@@ -19,6 +20,7 @@ import { definitionHasCapability, NODE_CAPABILITIES } from './node-capabilities.
 
 export function createNodeLifecycleApi({
     state,
+    selectionApi = createSelectionApi({ state }),
     nodeConfigs,
     createNodeMarkup,
     nodesLayer,
@@ -1910,7 +1912,7 @@ export function createNodeLifecycleApi({
             node.el.remove();
             state.nodes.delete(nid);
             removedIds.push(nid);
-            state.selectedNodes.delete(nid);
+            selectionApi.removeFromSelection(nid, { notify: false });
             if (node.type === 'ImageImport') {
                 const importAssetKey = getNodeImageImportAssetKey(node);
                 const ownedAssetKey = importAssetKey || getExpectedImageImportAssetKey(nid);
@@ -1949,36 +1951,18 @@ export function createNodeLifecycleApi({
     }
 
     function selectNode(id, isMulti) {
-        const changedNodeIds = new Set();
-        if (!isMulti) {
-            state.selectedNodes.forEach((nid) => {
-                changedNodeIds.add(nid);
-                const node = state.nodes.get(nid);
-                if (node) node.el.classList.remove('selected');
-            });
-            state.selectedNodes.clear();
-        }
-
-        if (state.selectedNodes.has(id)) {
-            state.selectedNodes.delete(id);
-            changedNodeIds.add(id);
-            const node = state.nodes.get(id);
-            if (node) node.el.classList.remove('selected');
-        } else {
-            state.selectedNodes.add(id);
-            changedNodeIds.add(id);
+        const result = selectionApi.selectNode(id, { isMulti, notify: false });
+        if (result.added) {
             state.activeNodeId = id;
             const node = state.nodes.get(id);
-            if (node) {
-                node.el.classList.add('selected');
-                if (node.el.parentElement === nodesLayer) {
-                    nodesLayer.appendChild(node.el);
-                }
+            if (node?.el && node.el.parentElement === nodesLayer) {
+                nodesLayer.appendChild(node.el);
             }
             scheduleSave();
         }
         refreshNodeRelationCache();
-        connectionProjection?.nodeAppearanceChanged(Array.from(changedNodeIds));
+        selectionApi.notifyChanged(result.changedNodeIds);
+        return result;
     }
 
     function getRelationAnchorNodeId() {
@@ -2187,15 +2171,7 @@ export function createNodeLifecycleApi({
         }
         if (!newIds.length) return null;
 
-        state.selectedNodes.forEach((nid) => {
-            const node = state.nodes.get(nid);
-            if (node) node.el.classList.remove('selected');
-        });
-        state.selectedNodes.clear();
-        newIds.forEach((newId) => {
-            state.selectedNodes.add(newId);
-            state.nodes.get(newId)?.el.classList.add('selected');
-        });
+        selectionApi.setSelection(newIds);
         updateAllConnections();
         updatePortStyles();
         if (addedConnectionCount > 0) onConnectionsChanged();

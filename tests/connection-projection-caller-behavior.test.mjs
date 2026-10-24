@@ -43,6 +43,23 @@ test('select-all reports affected node ids through the appearance seam', () => {
     assert.deepEqual(calls, [['node-a', 'node-b']]);
 });
 
+test('multi-selection preserves existing nodes and can toggle one off', () => {
+    const nodes = new Map([
+        ['node-a', createNode('node-a')],
+        ['node-b', createNode('node-b')]
+    ]);
+    const state = { nodes, selectedNodes: new Set() };
+    const api = createSelectionApi({ state });
+
+    api.selectNode('node-a', { isMulti: false });
+    api.selectNode('node-b', { isMulti: true });
+    assert.deepEqual([...state.selectedNodes], ['node-a', 'node-b']);
+    assert.equal(nodes.get('node-a').el.classList.contains('selected'), true);
+    api.selectNode('node-b', { isMulti: true });
+    assert.deepEqual([...state.selectedNodes], ['node-a']);
+    assert.equal(nodes.get('node-b').el.classList.contains('selected'), false);
+});
+
 test('visible workflow completion reports the runtime node id through the appearance seam', () => {
     const calls = [];
     const node = createNode('runtime-node');
