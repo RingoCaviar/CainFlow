@@ -13,12 +13,16 @@ test('chat options explain their behavior, remain usable at narrow widths, and p
         assert.equal(theme.labelTogglesSwitch, true, theme.theme);
         assert.equal(theme.focusVisible, true, theme.theme);
     }
-    assert.deepEqual(result.initial, { disabled: true, checked: true, help: '当前接口未接入联网搜索' });
+    assert.deepEqual(result.initial, { disabled: false, checked: true, help: '查询网页补充回答，需接口支持' });
+    assert.deepEqual(result.openaiOff, { disabled: false, checked: false, saved: false });
+    assert.deepEqual(result.openaiOn, { disabled: false, checked: true, saved: true });
     assert.deepEqual(result.google, { disabled: false, checked: true, saved: true });
-    assert.deepEqual(result.openai, { disabled: true, checked: true, saved: true, help: '当前接口未接入联网搜索' });
+    assert.deepEqual(result.openai, { disabled: false, checked: true, saved: true, help: '查询网页补充回答，需接口支持' });
     assert.deepEqual(result.restoredGoogle, { disabled: false, checked: true, saved: true });
     assert.deepEqual(result.offPreference, { disabled: false, checked: false, saved: false });
     assert.deepEqual(result.googleProvider, { disabled: false, checked: true, saved: true });
-    assert.deepEqual(result.openaiProvider, { disabled: true, checked: true, saved: true });
+    assert.deepEqual(result.openaiProvider, { disabled: false, checked: true, saved: true });
+    assert.equal(result.runningLockDisabled, true);
+    assert.equal(result.unlockedSearchEnabled, true);
     assert.equal(result.cloneSearchDisabled, true);
 });

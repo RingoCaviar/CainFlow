@@ -1702,15 +1702,8 @@ export function createNodeDomBindingsApi({
         if (type === 'TextChat') {
             node.data.sysprompt = readValue('sysprompt', node.data.sysprompt || '');
             node.data.fixed = readChecked('fixed', node.data.fixed === true);
-            const model = state.models.find((candidate) => candidate.id === node.apiConfigId);
-            const provider = getResolvedProviderForModel(model, state.providers, node.providerId);
-            const searchAvailable = getEffectiveProtocol(model, provider) === 'google';
             const searchInput = documentRef.getElementById(`${id}-search`);
-            if (searchInput) searchInput.disabled = !searchAvailable || node.isClone === true;
-            const searchHelp = documentRef.getElementById(`${id}-search-help`);
-            if (searchHelp) searchHelp.textContent = searchAvailable
-                ? '查询网页补充回答'
-                : '当前接口未接入联网搜索';
+            if (searchInput) searchInput.disabled = node.isClone === true || searchInput.dataset.runningLockApplied === '1';
             const systemSummary = documentRef.getElementById(`${id}-system-summary`);
             if (systemSummary) systemSummary.textContent = node.data.sysprompt.trim()
                 ? `已设置 · ${node.data.sysprompt.trim().replace(/\s+/g, ' ').slice(0, 28)}`

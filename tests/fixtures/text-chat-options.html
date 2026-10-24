@@ -63,6 +63,10 @@ try {
     const provider = document.getElementById('sample-provider');
     const snapshot = () => ({ disabled: search.disabled, checked: search.checked, saved: modelNode.data.search });
     const selectModel = value => { model.value = value; model.dispatchEvent(new Event('change', { bubbles: true })); };
+    search.click();
+    result.openaiOff = snapshot();
+    search.click();
+    result.openaiOn = snapshot();
     selectModel('google');
     result.google = snapshot();
     selectModel('openai');
@@ -81,6 +85,13 @@ try {
     provider.value = 'provider';
     provider.dispatchEvent(new Event('change', { bubbles: true }));
     result.openaiProvider = snapshot();
+    search.dataset.runningLockApplied = '1';
+    search.disabled = true;
+    selectModel('google');
+    result.runningLockDisabled = search.disabled;
+    delete search.dataset.runningLockApplied;
+    selectModel('openai');
+    result.unlockedSearchEnabled = !search.disabled;
     modelNode.isClone = true;
     selectModel('google');
     result.cloneSearchDisabled = search.disabled;

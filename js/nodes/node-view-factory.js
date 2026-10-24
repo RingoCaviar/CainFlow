@@ -821,8 +821,6 @@ function renderTextChatBody(id, restoreData, models, providers) {
     const opts = renderApiConfigOptions(models, providers, rd.apiConfigId, 'chat');
     const selectedModel = getSelectedModelForTask(models, rd.apiConfigId, 'chat');
     const selectedProviderId = getResolvedProviderIdForModel(selectedModel, providers, rd.providerId || '');
-    const selectedProvider = getResolvedProviderForModel(selectedModel, providers, selectedProviderId);
-    const searchAvailable = getEffectiveProtocol(selectedModel, selectedProvider) === 'google';
     const modelProviders = getModelProviders(selectedModel, providers);
     const providerOptions = modelProviders
         .map((provider) => `<option value="${provider.id}" ${selectedProviderId === provider.id ? 'selected' : ''}>${provider.name || provider.id}</option>`)
@@ -837,15 +835,15 @@ function renderTextChatBody(id, restoreData, models, providers) {
         <div class="node-parameter-grid node-chat-toggle-grid">
         <div class="node-field node-chat-option" id="${id}-search-field">
             <div class="node-chat-option-copy"><label for="${id}-search">联网搜索</label>
-                <p class="node-chat-option-help" id="${id}-search-help">${searchAvailable ? '查询网页补充回答' : '当前接口未接入联网搜索'}</p></div>
-            <label class="toggle-switch"><input type="checkbox" role="switch" id="${id}-search" aria-describedby="${id}-search-help" ${rd.search ? 'checked' : ''} ${searchAvailable ? '' : 'disabled'} /><span class="toggle-slider"></span></label></div>
+                <p class="node-chat-option-help" id="${id}-search-help">查询网页补充回答，需接口支持</p></div>
+            <label class="toggle-switch"><input type="checkbox" role="switch" id="${id}-search" aria-describedby="${id}-search-help" ${rd.search ? 'checked' : ''} /><span class="toggle-slider"></span></label></div>
         <div class="node-field node-chat-option">
             <div class="node-chat-option-copy"><label for="${id}-fixed">复用上次回复</label>
                 <p class="node-chat-option-help" id="${id}-fixed-help">运行工作流时复用成功回复</p></div>
             <label class="toggle-switch"><input type="checkbox" role="switch" id="${id}-fixed" aria-describedby="${id}-fixed-help" ${rd.fixed ? 'checked' : ''} /><span class="toggle-slider"></span></label></div>
         </div>
         <details class="node-chat-option-guide" id="${id}-option-help"><summary>选项说明</summary>
-            <p>联网搜索：由当前模型服务查询网页补充回答，需模型服务支持。当前已接入 Google 接口。</p>
+            <p>联网搜索：可随时开关，切换模型后保留选择。当前仅 Google 接口已接入联网搜索，仍需模型服务支持。</p>
             <p>复用上次回复：运行工作流时复用成功回复并跳过上游；单独运行此节点可更新。首次仍会生成。</p>
         </details>
         <div class="node-field node-chat-prompt-field"><label>提问内容</label>
