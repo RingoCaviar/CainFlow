@@ -21,89 +21,26 @@ export function createStartupControllerApi({
 }) {
     const startupNetworkDetectionDelayMs = 2000;
     let startupNetworkDetectionTimer = null;
-    let startupNetworkDetectionToast = null;
-
-    function getToastContainer() {
-        return documentRef.getElementById('toast-container');
-    }
-
-    function renderStartupNetworkDetectionCountdownToast(secondsRemaining) {
-        const container = getToastContainer();
-        if (!container) return;
-
-        if (!startupNetworkDetectionToast || !documentRef.body?.contains(startupNetworkDetectionToast)) {
-            const toast = documentRef.createElement('div');
-            toast.className = 'toast info';
-
-            const icon = documentRef.createElement('span');
-            icon.textContent = '[i]';
-
-            const message = documentRef.createElement('span');
-            message.className = 'update-auto-check-countdown-message';
-
-            toast.appendChild(icon);
-            toast.appendChild(message);
-            container.appendChild(toast);
-            startupNetworkDetectionToast = toast;
-        }
-
-        const message = startupNetworkDetectionToast.querySelector('.update-auto-check-countdown-message');
-        if (message) {
-            message.textContent = `将在 ${secondsRemaining} 秒后检测网络连接`;
-        }
-    }
-
-    function dismissStartupNetworkDetectionToast(delay = 0) {
-        if (!startupNetworkDetectionToast) return;
-
-        const toast = startupNetworkDetectionToast;
-        startupNetworkDetectionToast = null;
-
-        window.setTimeout(() => {
-            toast.style.animation = 'toast-out 0.3s ease-out forwards';
-            window.setTimeout(() => toast.remove(), 300);
-        }, delay);
-    }
 
     function scheduleStartupNetworkDetection() {
         if (startupNetworkDetectionTimer !== null) {
             window.clearTimeout(startupNetworkDetectionTimer);
             startupNetworkDetectionTimer = null;
         }
-        dismissStartupNetworkDetectionToast();
-
-        const targetTime = Date.now() + startupNetworkDetectionDelayMs;
-
-        const tick = () => {
-            const remainingMs = targetTime - Date.now();
-            const secondsRemaining = Math.ceil(remainingMs / 1000);
-
-            if (secondsRemaining > 0) {
-                renderStartupNetworkDetectionCountdownToast(secondsRemaining);
-                startupNetworkDetectionTimer = window.setTimeout(tick, Math.min(1000, Math.max(remainingMs, 0)));
-                return;
-            }
-
+        startupNetworkDetectionTimer = window.setTimeout(() => {
             startupNetworkDetectionTimer = null;
-            if (startupNetworkDetectionToast) {
-                const message = startupNetworkDetectionToast.querySelector('.update-auto-check-countdown-message');
-                if (message) message.textContent = '正在检测网络连接...';
-            }
             Promise.resolve(checkNetworkConnectivity({ showResultToast: true }))
                 .catch((error) => {
                     consoleRef.error('Failed to check startup network connectivity:', error);
                 })
                 .finally(() => {
-                    dismissStartupNetworkDetectionToast(1200);
                     window.setTimeout(() => {
                         Promise.resolve(checkNetworkProxyMismatch(true)).catch((error) => {
                             consoleRef.error('Failed to detect startup network proxy mismatch:', error);
                         });
                     }, 1600);
                 });
-        };
-
-        tick();
+        }, startupNetworkDetectionDelayMs);
     }
 
     async function bootstrapApp() {

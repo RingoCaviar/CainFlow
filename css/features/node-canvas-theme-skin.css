@@ -59,7 +59,7 @@ html:root #canvas-container .node-chat-option-copy > label {
 html:root #canvas-container .node-chat-option-help {
     margin: 3px 0 0;
     color: var(--text-secondary);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.5;
     overflow-wrap: anywhere;
 }
@@ -101,6 +101,175 @@ html:root #canvas-container .node-chat-option input:disabled + .toggle-slider {
     border-color: var(--node-control-border);
     cursor: not-allowed;
     opacity: 0.55;
+}
+
+html:root #canvas-container .node-chat :is(textarea, .chat-response-area) {
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--text-primary);
+}
+
+html:root #canvas-container .node-chat .node-field > label,
+html:root #canvas-container .node-chat-option-copy > label {
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+html:root #canvas-container .node-chat-system-field {
+    display: block;
+    min-width: 0;
+    padding: 8px 10px;
+    border: 1px solid var(--node-control-border);
+    border-radius: 8px;
+}
+
+html:root #canvas-container .node-chat-system-field > summary {
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.5;
+}
+
+html:root #canvas-container .node-chat-system-summary {
+    display: block;
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+html:root #canvas-container .node-chat-system-field textarea {
+    display: block;
+    width: 100%;
+    margin-top: 8px;
+}
+
+html:root #canvas-container .node-chat-option-guide {
+    flex: 0 0 auto;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+html:root #canvas-container .node-chat-option-guide > summary {
+    cursor: pointer;
+}
+
+html:root #canvas-container .node-chat-option-guide p {
+    margin: 6px 0 0;
+}
+
+html:root #canvas-container .node-chat :is(.node-chat-system-field, .node-chat-option-guide) > summary:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 3px;
+    border-radius: 3px;
+}
+
+html:root #canvas-container .node-chat-response-heading,
+html:root #canvas-container .node-chat-response-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+html:root #canvas-container .node-chat-response-heading {
+    justify-content: space-between;
+    flex: 0 0 auto;
+    min-height: 24px;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+html:root #canvas-container .node-chat-response-actions > button {
+    position: static;
+    width: auto;
+    height: 26px;
+    min-height: 26px;
+    margin: 0;
+    padding: 3px 7px;
+    border: 1px solid var(--node-control-border);
+    border-radius: 5px;
+    background: var(--node-control-surface);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 12px;
+}
+
+html:root #canvas-container .node-chat-response-actions > button:hover {
+    border-color: var(--accent-primary);
+    color: var(--text-primary);
+}
+
+html:root #canvas-container .node-chat-response-actions > button:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
+html:root #canvas-container .node-chat .chat-response-area {
+    flex: 1 0 auto;
+    padding: 10px;
+    max-height: none;
+}
+
+html:root #canvas-container .node-chat .chat-response-wrapper {
+    height: auto;
+    max-height: none;
+}
+
+/* Placeholder geometry is transient; the inline response height remains the saved reply size. */
+html:root #canvas-container .node-chat-response-field.is-empty,
+html:root #canvas-container .node-chat-response-field.is-empty .chat-response-wrapper {
+    flex: 0 0 auto;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+}
+
+html:root #canvas-container .node-chat-response-field.is-empty .chat-response-area {
+    flex: 0 0 auto;
+    height: auto !important;
+    min-height: 38px;
+    max-height: 120px;
+    padding: 8px 10px;
+}
+
+html:root #canvas-container .node-chat-response-field.is-empty .chat-response-placeholder {
+    padding: 0;
+    text-align: left;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+html:root #canvas-container .node-chat-response-field.is-empty .node-chat-response-actions {
+    display: none;
+}
+
+.node-text-response-preview-panel {
+    width: min(820px, calc(100vw - 32px));
+    max-height: calc(100dvh - 32px);
+    display: flex;
+    flex-direction: column;
+    background: var(--panel-bg);
+    border-color: var(--panel-border);
+}
+
+.node-text-response-preview-panel .reference-image-count-body {
+    min-height: 0;
+    overflow: auto;
+}
+
+.node-text-response-preview-text {
+    min-height: 100px;
+    margin: 0;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 15px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
 }
 
 html:root #canvas-container {

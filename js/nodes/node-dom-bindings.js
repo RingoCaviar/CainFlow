@@ -1072,6 +1072,7 @@ export function createNodeDomBindingsApi({
         const node = state.nodes.get(id);
         if (!node?.isClone) return;
         el.querySelectorAll('.node-body input, .node-body select, .node-body textarea, .node-body button, .node-select-trigger').forEach((control) => {
+            if (control.hasAttribute('data-node-read-action')) return;
             control.dataset.cloneLocked = '1';
             control.classList.add('clone-locked-control');
             if (control.tagName === 'TEXTAREA' || control.tagName === 'INPUT') {
@@ -1708,8 +1709,12 @@ export function createNodeDomBindingsApi({
             if (searchInput) searchInput.disabled = !searchAvailable || node.isClone === true;
             const searchHelp = documentRef.getElementById(`${id}-search-help`);
             if (searchHelp) searchHelp.textContent = searchAvailable
-                ? '查询网页补充回答，需模型服务支持。'
+                ? '查询网页补充回答'
                 : '当前接口未接入联网搜索';
+            const systemSummary = documentRef.getElementById(`${id}-system-summary`);
+            if (systemSummary) systemSummary.textContent = node.data.sysprompt.trim()
+                ? `已设置 · ${node.data.sysprompt.trim().replace(/\s+/g, ' ').slice(0, 28)}`
+                : '未设置';
         }
     }
 
@@ -1992,6 +1997,7 @@ export function createNodeDomBindingsApi({
 
     function isVisibleElement(el) {
         if (!el) return false;
+        if (el.checkVisibility && !el.checkVisibility()) return false;
         const style = getComputedStyle(el);
         return style.display !== 'none' && style.visibility !== 'collapse' && el.offsetParent !== null;
     }
@@ -2043,6 +2049,7 @@ export function createNodeDomBindingsApi({
         const chatResponseTargets = isChatNode
             ? Array.from(body.querySelectorAll('.chat-response-area'))
                 .filter(isVisibleElement)
+                .filter((responseArea) => !responseArea.closest('.node-chat-response-field.is-empty'))
                 .map((responseArea) => {
                     const { minHeight, startHeight } = getResizeTargetBaseMetrics(responseArea);
                     return {
@@ -3014,16 +3021,67 @@ export function createNodeDomBindingsApi({
                 syncNodeFormData(id, type);
             });
             const copyBtn = el.querySelector(`#${id}-copy-btn`);
+            const previewBtn = el.querySelector(`#${id}-preview-btn`);
+            const responseArea = el.querySelector(`#${id}-response`);
+            const responseField = responseArea?.closest('.node-chat-response-field');
+            const getResponseText = () => responseArea && !responseArea.querySelector('.chat-response-placeholder')
+                ? responseArea.innerText.trim() : '';
+            let hadResponse = null;
+            const refreshResponse = () => {
+                const hasResponse = Boolean(getResponseText());
+                responseField?.classList.toggle('is-empty', !hasResponse);
+                if (copyBtn) copyBtn.disabled = !hasResponse;
+                if (previewBtn) previewBtn.disabled = !hasResponse;
+                if (hadResponse !== hasResponse) fitNodeToContent(id, { reason: 'element-resize' });
+                hadResponse = hasResponse;
+            };
             if (copyBtn) {
                 copyBtn.onclick = () => {
-                    const area = el.querySelector(`#${id}-response`);
-                    if (area && !area.querySelector('.chat-response-placeholder')) {
-                        copyToClipboard(area.innerText);
-                    } else {
-                        showToast('暂无内容可复制', 'warning');
-                    }
+                    const text = getResponseText();
+                    if (text) copyToClipboard(text);
                 };
             }
+            previewBtn?.addEventListener('click', () => {
+                const text = getResponseText();
+                if (!text) return;
+                documentRef.getElementById('node-text-response-preview-dialog')?.remove();
+                const dialog = documentRef.createElement('div');
+                dialog.id = 'node-text-response-preview-dialog';
+                dialog.className = 'reference-image-count-dialog';
+                dialog.dataset.nodeId = id;
+                dialog.innerHTML = `
+                    <div class="reference-image-count-backdrop" data-close-text-response></div>
+                    <div class="reference-image-count-panel node-text-response-preview-panel" role="dialog" aria-modal="true" aria-labelledby="node-text-response-preview-title">
+                        <div class="reference-image-count-header"><h3 id="node-text-response-preview-title">对话回复</h3>
+                            <button type="button" class="reference-image-count-close" aria-label="关闭回复预览" data-close-text-response>×</button></div>
+                        <div class="reference-image-count-body"><pre class="node-text-response-preview-text" tabindex="0"></pre></div>
+                        <div class="reference-image-count-footer"><button type="button" class="btn btn-secondary" data-close-text-response>关闭</button>
+                            <button type="button" class="btn btn-primary" data-copy-text-response>复制回复</button></div>
+                    </div>`;
+                dialog.querySelector('.node-text-response-preview-text').textContent = text;
+                dialog.querySelectorAll('[data-close-text-response]').forEach(button => button.addEventListener('click', () => {
+                    dialog.remove();
+                    surfaces?.refresh();
+                }));
+                dialog.querySelector('[data-copy-text-response]').addEventListener('click', () => copyToClipboard(text));
+                documentRef.body.appendChild(dialog);
+                surfaces?.refresh();
+            });
+            for (const details of el.querySelectorAll('.node-chat-system-field, .node-chat-option-guide')) {
+                details.addEventListener('toggle', () => fitNodeToContent(id, { reason: 'element-resize' }));
+                details.addEventListener('mousedown', event => event.stopPropagation());
+            }
+            const Observer = documentRef.defaultView?.MutationObserver;
+            if (Observer && responseArea) {
+                const observer = new Observer(refreshResponse);
+                observer.observe(responseArea, { childList: true, subtree: true, characterData: true });
+                (el._cleanupFns ||= []).push(() => observer.disconnect());
+            }
+            (el._cleanupFns ||= []).push(() => {
+                const dialog = documentRef.getElementById('node-text-response-preview-dialog');
+                if (dialog?.dataset.nodeId === id) { dialog.remove(); surfaces?.refresh(); }
+            });
+            refreshResponse();
             syncNodeFormData(id, type);
         } else if (type === 'Text') {
             syncTextNodeData(id);

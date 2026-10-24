@@ -534,10 +534,12 @@ function initFloatingNotices() {
         priority: 10,
         className: 'workflow-backup-notice',
         icon: '!',
-        content: ['及时备份 ', { code: true, text: 'workflows文件夹' }, ' 里的工作流，防止更新后丢失'],
+        content: ['更新前请备份 ', { code: true, text: 'workflows 文件夹' }, '。'],
         dismissStorageKey: workflowBackupDismissStorageKey,
+        dismissScope: 'session',
         dismissible: true,
-        closeLabel: '关闭工作流备份提醒'
+        closeText: '本次隐藏',
+        closeLabel: '本次不再显示工作流备份提醒'
     });
 
 }

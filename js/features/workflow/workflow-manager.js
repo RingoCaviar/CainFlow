@@ -1,6 +1,7 @@
 /**
  * 负责工作流文件管理，包括列表渲染、保存、加载、删除与校验提示。
  */
+import { renderWorkflowToolbarStatus } from '../ui/workflow-toolbar-status.js';
 import {
     createWorkflowFolder as createWorkflowFolderService,
     deleteWorkflowFolder as deleteWorkflowFolderService,
@@ -1002,10 +1003,20 @@ export function createWorkflowManagerApi({
         }
         replaceWorkflowTabData(tab, snapshot);
         if (markDirty) tab.dirty = true;
+        syncToolbarWorkflowStatus();
         return tab;
     }
 
+    function syncToolbarWorkflowStatus() {
+        renderWorkflowToolbarStatus({
+            snapshot: workflowDesk.snapshot(),
+            dirty: getActiveWorkflowTab()?.dirty === true,
+            documentRef
+        });
+    }
+
     function refreshWorkflowCardState(name) {
+        syncToolbarWorkflowStatus();
         const list = documentRef.getElementById('workflow-list');
         if (!list || !name) return;
         const item = Array.from(list.querySelectorAll('.workflow-item'))
@@ -2240,6 +2251,7 @@ export function createWorkflowManagerApi({
     }
 
     async function renderWorkflowList({ forceReload = true } = {}) {
+        syncToolbarWorkflowStatus();
         const list = documentRef.getElementById('workflow-list');
         const workflowEntries = await getWorkflowEntriesForRender({ forceReload });
         if (!list || !workflowEntries) return;

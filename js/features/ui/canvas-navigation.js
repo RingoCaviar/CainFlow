@@ -8,11 +8,39 @@ export function initCanvasNavigation({ state, canvasContainer, viewportApi, zoom
     const search = root.querySelector('input');
     const results = root.querySelector('.canvas-node-results');
     const toggle = root.querySelector('[data-nav="search"]');
+    const zoomMenu = root.querySelector('.canvas-zoom-menu');
     let activeIndex = 0;
     let observer = null;
     let searchRevision = 0;
     let pendingResults = false;
     let resultsSignature = '';
+
+    function closeZoom() {
+        if (zoomMenu) zoomMenu.open = false;
+        surfaces?.forgetPopover('canvas-zoom');
+    }
+
+    function syncZoomMenuSize() {
+        if (!zoomMenu?.open) return;
+        const availableHeight = Math.max(40, zoomMenu.getBoundingClientRect().top - 24);
+        zoomMenu.style.setProperty('--canvas-zoom-max-height', `${availableHeight}px`);
+    }
+
+    documentRef.defaultView?.addEventListener('resize', syncZoomMenuSize);
+    zoomMenu?.addEventListener('toggle', () => {
+        if (zoomMenu.open) {
+            closeSearch();
+            syncZoomMenuSize();
+            surfaces?.openPopover('canvas-zoom', { element: zoomMenu, trigger: zoomMenu.querySelector('summary'), close: closeZoom });
+        } else surfaces?.forgetPopover('canvas-zoom');
+    });
+    zoomMenu?.querySelectorAll('[data-zoom]').forEach(button => {
+        button.addEventListener('click', () => {
+            setZoom(Number(button.dataset.zoom));
+            closeZoom();
+            zoomMenu.querySelector('summary').focus();
+        });
+    });
 
     function closeSearch() {
         surfaces?.forgetPopover('canvas-navigation');
@@ -105,6 +133,20 @@ export function initCanvasNavigation({ state, canvasContainer, viewportApi, zoom
     root.addEventListener('keydown', (event) => {
         event.stopPropagation();
         if (event.isComposing || event.keyCode === 229 || event.ctrlKey || event.metaKey || event.altKey) return;
+        if (zoomMenu?.contains(event.target)) {
+            const options = [...zoomMenu.querySelectorAll('[data-zoom]')];
+            if (event.key === 'Escape') { event.preventDefault(); closeZoom(); zoomMenu.querySelector('summary').focus(); }
+            if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+                event.preventDefault();
+                const current = options.indexOf(documentRef.activeElement);
+                const next = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1
+                    : current < 0 ? (event.key === 'ArrowDown' ? 0 : options.length - 1)
+                    : event.key === 'ArrowDown' ? (current + 1) % options.length : (current - 1 + options.length) % options.length;
+                zoomMenu.open = true;
+                options[next]?.focus();
+            }
+            return;
+        }
         if (event.key === 'Escape') { event.preventDefault(); closeSearch(); toggle.focus(); return; }
         const buttons = [...results.querySelectorAll('button')];
         const focused = buttons.indexOf(documentRef.activeElement);
@@ -120,9 +162,10 @@ export function initCanvasNavigation({ state, canvasContainer, viewportApi, zoom
     });
     root.querySelector('[data-nav="minus"]').addEventListener('click', () => setZoom(state.canvas.zoom / 1.2));
     root.querySelector('[data-nav="plus"]').addEventListener('click', () => setZoom(state.canvas.zoom * 1.2));
-    root.querySelector('[data-nav="reset"]').addEventListener('click', () => setZoom(1));
+    root.querySelector('[data-nav="reset"]')?.addEventListener('click', () => setZoom(1));
     root.querySelector('[data-nav="fit"]').addEventListener('click', () => { zoomToFit([...state.nodes.values()]); scheduleSave(); });
     toggle.addEventListener('click', () => {
+        closeZoom();
         if (root.classList.contains('search-open')) { closeSearch(); return; }
         root.classList.add('search-open');
         surfaces?.openPopover('canvas-navigation', { element: root, trigger: toggle, close: closeSearch });
@@ -147,5 +190,8 @@ export function initCanvasNavigation({ state, canvasContainer, viewportApi, zoom
         }
     });
     search.addEventListener('input', renderResults);
-    documentRef.addEventListener('pointerdown', (event) => { if (!root.contains(event.target)) closeSearch(); });
+    documentRef.addEventListener('pointerdown', (event) => {
+        if (!root.contains(event.target)) closeSearch();
+        if (!zoomMenu?.contains(event.target)) closeZoom();
+    });
 }

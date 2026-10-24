@@ -22,6 +22,22 @@
 #canvas-navigation button:is(:hover,.is-active) { background: var(--panel-hover-bg); border-color: var(--panel-hover-border); }
 #canvas-navigation :is(button,input):focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 #zoom-level { min-width: 42px; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+.canvas-zoom-menu { position: relative; }
+.canvas-zoom-menu > summary {
+    display: flex; align-items: center; gap: 3px; padding: 6px 4px; list-style: none; cursor: pointer;
+    border: 1px solid var(--panel-control-border); border-radius: 6px; background: var(--panel-control-bg);
+}
+.canvas-zoom-menu > summary::-webkit-details-marker { display: none; }
+.canvas-zoom-menu > summary:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.canvas-zoom-options {
+    position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+    width: 160px; max-height: min(280px, var(--canvas-zoom-max-height, calc(100dvh - 96px))); overflow-y: auto; padding: 6px;
+    border: 1px solid var(--panel-border); border-radius: 9px; background: var(--panel-bg-strong); box-shadow: var(--panel-shadow-soft);
+}
+#canvas-navigation .canvas-zoom-options button { display: block; width: 100%; margin-block: 2px; text-align: left; }
+@media (max-width: 440px) {
+    #canvas-navigation { flex-wrap: wrap; justify-content: center; }
+}
 .canvas-node-search {
     display: none; position: absolute; bottom: calc(100% + 8px); right: 0;
     width: min(340px, calc(100vw - 32px)); padding: 12px; border-radius: 10px;

@@ -12,6 +12,7 @@ test('model editor omits request controls and global compaction setting persists
         const modelUi = await evaluate("(()=>{const card=document.querySelector('.model-config-card');return {search:!!card.querySelector('[data-field=agentSearch]'),compact:!!card.querySelector('[data-field=autoCompactTokenLimit]'),thinking:!!card.querySelector('.thinking-model-settings')}})()");
         assert.deepEqual(modelUi, { search: false, compact: false, thinking: false });
         await evaluate("document.querySelector('.modal-tab-btn[data-tab=general]').click()");
+        await evaluate("document.querySelector('[data-settings-category=advanced]').click()");
         await waitFor("Boolean(document.getElementById('setting-agent-auto-compact-tokens'))");
         const value = await evaluate(`(async()=>{const input=document.getElementById('setting-agent-auto-compact-tokens');input.value='24000';input.dispatchEvent(new Event('change',{bubbles:true}));const {diskStorage}=await import('/js/services/storage-documents.js');return diskStorage.getItem('cainflow_prompt_agent_auto_compact_tokens')})()`);
         assert.equal(value, '24000');

@@ -212,6 +212,20 @@
     background: var(--notice-close-hover-bg);
 }
 
+.notice-close.notice-close-text {
+    flex: 0 0 auto;
+    min-height: 28px;
+    padding: 4px 6px;
+    color: var(--text-primary);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.notice-close:focus-visible {
+    outline: 2px solid var(--notice-action-hover-border);
+    outline-offset: 2px;
+}
+
 .floating-notice.hidden {
     opacity: 0;
     transform: translateY(-20px);

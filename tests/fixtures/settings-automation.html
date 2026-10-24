@@ -1,8 +1,16 @@
 <!doctype html>
-<html lang="zh-CN">
-<head><meta charset="utf-8"></head>
+<html lang="zh-CN" data-app-theme="paper">
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="../../index.css">
+    <link rel="stylesheet" href="../../css/themes.css">
+    <link rel="stylesheet" href="../../css/features/settings-theme-skin.css">
+    <style>#surface-result { display: none; }</style>
+</head>
 <body>
-    <div id="general-settings"></div>
+    <div id="settings-modal" class="modal-overlay">
+        <section class="modal-panel"><div class="modal-body"><div id="general-settings"></div></div></section>
+    </div>
     <pre id="surface-result"></pre>
     <script type="module">
         import { createInitialState } from '../../js/core/state.js';
@@ -13,7 +21,7 @@
             Object.assign(state, { autoRetry: true, notificationsEnabled: false, sidebarPinned: true });
             const saved = [], toasts = [], notices = [];
             let supported = true, permission = 'granted', requestedPermission = 'granted', testSent = true;
-            let permissionRequests = 0, readyCalls = 0, paused = 0;
+            let permissionRequests = 0, readyCalls = 0, paused = 0, savedDirectory = '';
             const storage = new Map();
             const api = createGeneralSettings({
                 ctx: {
@@ -21,7 +29,10 @@
                     localStorageRef: { getItem: key => storage.get(key) || null },
                     diagnosticClient: { status: async () => ({}) },
                     saveState: () => saved.push({ autoRetry: state.autoRetry, notificationsEnabled: state.notificationsEnabled }),
-                    showToast: (message, type) => toasts.push({ message, type })
+                    showToast: (message, type) => toasts.push({ message, type }),
+                    saveHandle: async (key, directory) => { savedDirectory = directory; return true; },
+                    getHandle: async () => ({ name: savedDirectory }),
+                    addLog() {}
                 },
                 dialogs: {
                     escapeHtml: value => String(value),
@@ -42,6 +53,7 @@
                 input.dispatchEvent(new Event('change', { bubbles: true }));
                 await new Promise(resolve => setTimeout(resolve, 0));
             };
+            const selectCategory = id => document.querySelector(`[data-settings-category="${id}"]`).click();
             const notificationSnapshot = () => ({
                 enabled: state.notificationsEnabled,
                 checked: document.getElementById('toggle-notifications').checked,
@@ -49,6 +61,15 @@
                 toast: toasts.at(-1)
             });
             api.renderGeneralSettings();
+            const grouping = {
+                labels: [...document.querySelectorAll('[data-settings-category]')].map(button => button.textContent),
+                selected: document.querySelector('[data-settings-category][aria-selected="true"]').dataset.settingsCategory,
+                fields: Object.fromEntries(['setting-canvas-dense-mode', 'setting-global-export-dir', 'toggle-retry', 'toggle-notifications',
+                    'setting-agent-auto-compact-tokens', 'btn-migrate-browser-storage', 'setting-diagnostic-level']
+                    .map(id => [id, document.getElementById(id).closest('[data-settings-pane]').dataset.settingsPane])),
+                saveNote: document.querySelector('.general-settings-save-note').textContent
+            };
+            selectCategory('generation');
             const controls = {
                 retryCard: document.getElementById('toggle-retry').closest('.general-settings-card').querySelector('.card-header').textContent.trim(),
                 notificationCard: document.getElementById('toggle-notifications').closest('.general-settings-card').querySelector('.card-header').textContent.trim(),
@@ -58,10 +79,32 @@
                 toolbarLabel: document.querySelector('#setting-toolbar-pinned').closest('.general-settings-control-row').textContent.trim()
             };
             await toggle('toggle-retry', false);
+            const disabledRetry = {
+                controlsDisabled: document.getElementById('setting-max-retries').disabled
+                    && [...document.querySelectorAll('.btn-retry-step')].every(button => button.disabled),
+                hint: document.getElementById('setting-max-retries-hint').textContent,
+                value: state.maxRetries
+            };
+            document.querySelector('.btn-retry-step[data-step="1"]').click();
+            disabledRetry.steppingIgnored = state.maxRetries === disabledRetry.value && saved.length === 1;
             api.renderGeneralSettings();
             const retryRestored = document.getElementById('toggle-retry').checked === false;
+            grouping.restoredCategory = document.querySelector('[data-settings-category][aria-selected="true"]').dataset.settingsCategory;
             await toggle('toggle-retry', true);
-            const retry = { restored: retryRestored, enabled: state.autoRetry, writes: saved.length };
+            const retry = { restored: retryRestored, enabled: state.autoRetry, writes: saved.length,
+                controlsEnabled: !document.getElementById('setting-max-retries').disabled
+                    && [...document.querySelectorAll('.btn-retry-step')].every(button => !button.disabled) };
+
+            const directoryInput = document.getElementById('setting-global-export-dir');
+            directoryInput.value = 'D:\\CainFlow\\exports';
+            directoryInput.dispatchEvent(new Event('change', { bubbles: true }));
+            const explicitSave = { unchangedBeforeSave: !savedDirectory && !state.globalSaveDirHandle };
+            document.getElementById('btn-set-global-dir').click();
+            await new Promise(resolve => setTimeout(resolve, 0));
+            explicitSave.directory = state.globalSaveDirHandle?.name;
+            explicitSave.category = document.querySelector('[data-settings-category][aria-selected="true"]').dataset.settingsCategory;
+
+            selectCategory('notifications');
 
             supported = false;
             await toggle('toggle-notifications', true);
@@ -81,7 +124,36 @@
             permission = 'granted'; testSent = false;
             await toggle('toggle-notifications', true);
             const failedTest = { ...notificationSnapshot(), permissionRequests, notices: notices.length };
-            document.getElementById('surface-result').textContent = JSON.stringify({ controls, retry, unsupported, denied, success, disabled, failedTest });
+
+            const navButton = document.querySelector('[data-settings-category="notifications"]');
+            navButton.focus();
+            navButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+            grouping.keyboardEnd = document.activeElement.dataset.settingsCategory;
+            document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+            grouping.keyboardHome = document.activeElement.dataset.settingsCategory;
+            const themes = [];
+            for (const theme of ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink']) {
+                document.documentElement.dataset.appTheme = theme;
+                for (const category of ['canvas', 'generation', 'notifications', 'advanced']) {
+                    selectCategory(category);
+                    const pane = document.querySelector(`[data-settings-pane="${category}"]`);
+                    const cards = [...pane.querySelectorAll('.general-settings-card')];
+                    const bounds = document.querySelector('.modal-body').getBoundingClientRect();
+                    themes.push({ theme, category,
+                        contained: cards.every(card => card.getBoundingClientRect().left >= bounds.left
+                            && card.getBoundingClientRect().right <= bounds.right + 1 && card.scrollWidth <= card.clientWidth + 1),
+                        navigationFits: document.querySelector('.general-settings-navigation').scrollWidth <= document.querySelector('.general-settings-navigation').clientWidth,
+                        directoryReadable: category !== 'generation' || document.getElementById('setting-global-export-dir').getBoundingClientRect().width
+                            >= Math.min(240, document.querySelector('[data-settings-card="storage"]').clientWidth - 36),
+                        textColor: getComputedStyle(pane).color
+                    });
+                }
+            }
+            selectCategory('generation');
+            const image = document.querySelector('[data-settings-card="image"]');
+            const imageSpace = image.getBoundingClientRect().bottom - image.querySelector('.card-field:last-child').getBoundingClientRect().bottom;
+            document.getElementById('surface-result').textContent = JSON.stringify({ controls, grouping, disabledRetry, retry, explicitSave,
+                unsupported, denied, success, disabled, failedTest, themes, imageSpace });
         } catch (error) {
             document.getElementById('surface-result').textContent = JSON.stringify({ error: error.stack || String(error) });
         }

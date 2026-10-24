@@ -1,0 +1,62 @@
+<!doctype html><html><head><meta charset="utf-8"></head><body>
+<button id="btn-settings">设置</button><div id="toast-container"></div><pre id="surface-result"></pre>
+<script type="module">
+import { createUpdateManager } from '../../js/features/update/update-manager.js';
+const result = {};
+const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+function makeManager() {
+    const stored = new Map(), timers = new Map(), toasts = [], notices = [], requests = [];
+    let sequence = 0, version = 'v1.0.0', failure = '', disabled = false, dismissals = 0;
+    const manager = createUpdateManager({ appVersion: 'v1.0.0', githubRepo: 'example/project',
+        getProxyHeaders: url => ({ 'x-target-url': url }),
+        showToast: (message, type, duration) => { toasts.push({ message, type, duration }); return { dismiss: () => { dismissals += 1; }, update() {} }; },
+        renderGeneralSettings() {}, exportWorkflow() {}, autoUpdateCheckDisabled: () => disabled,
+        floatingNoticesApi: { upsertNotice: notice => notices.push(notice), hideNotice() {} },
+        documentRef: document, windowRef: window,
+        localStorageRef: { getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value), removeItem: key => stored.delete(key) },
+        setTimeoutImpl: (callback, delay) => { const id = ++sequence; timers.set(id, { callback, delay }); return id; },
+        clearTimeoutImpl: id => timers.delete(id),
+        fetchImpl: async (url, options) => {
+            requests.push(url);
+            if (url === '/api/detect_proxy') return { ok: true, json: async () => ({ success: false }) };
+            if (failure) throw new Error(failure);
+            return { ok: true, text: async () => `<feed><entry><title>${version}</title><link rel="alternate" href="https://github.com/example/project/releases/tag/${version}"/><updated>2026-10-24T00:00:00Z</updated><content>更新说明</content></entry></feed>` };
+        }
+    });
+    return { manager, stored, timers, toasts, notices, requests,
+        setVersion: value => { version = value; }, setFailure: value => { failure = value; },
+        setDisabled: value => { disabled = value; }, getDismissals: () => dismissals,
+        runScheduled: () => { const item = [...timers.entries()].find(([, timer]) => timer.delay === 5000); timers.delete(item[0]); item[1].callback(); }
+    };
+}
+try {
+    const quiet = makeManager();
+    quiet.manager.scheduleAutoUpdateCheck();
+    result.pending = { requests: quiet.requests.length, toasts: quiet.toasts.length, directToasts: document.querySelectorAll('#toast-container .toast').length };
+    quiet.runScheduled(); await settle();
+    result.automatic = { requests: quiet.requests.length, status: quiet.stored.get('cainflow_update_status'), toasts: quiet.toasts.length, notices: quiet.notices.length };
+
+    await quiet.manager.checkUpdate(true, { force: true, showModal: false });
+    result.manual = { messages: quiet.toasts, dismissals: quiet.getDismissals(), status: quiet.stored.get('cainflow_update_status') };
+
+    const available = makeManager();
+    available.setVersion('v2.0.0'); available.manager.scheduleAutoUpdateCheck(); available.runScheduled(); await settle();
+    result.available = { status: available.stored.get('cainflow_update_status'), toast: available.toasts[0],
+        notice: available.notices.map(({ id, actions }) => ({ id, actions: actions.map(action => action.label) })) };
+
+    const failed = makeManager(); failed.setFailure('service unreachable');
+    await failed.manager.checkUpdate(false, { force: true });
+    result.failed = { status: failed.stored.get('cainflow_update_status'), types: failed.toasts.map(toast => toast.type), error: failed.stored.get('cainflow_update_error') };
+
+    const timeout = makeManager(); timeout.setFailure('timeout');
+    await timeout.manager.checkUpdate(false, { force: true });
+    result.timeout = { retriedProxyDetection: timeout.requests.includes('/api/detect_proxy'), status: timeout.stored.get('cainflow_update_status'), types: timeout.toasts.map(toast => toast.type) };
+
+    const disabled = makeManager(); disabled.setDisabled(true);
+    const notScheduled = disabled.manager.scheduleAutoUpdateCheck();
+    disabled.setDisabled(false); disabled.manager.scheduleAutoUpdateCheck(); disabled.setDisabled(true);
+    disabled.runScheduled(); await settle();
+    result.disabled = { notScheduled, requests: disabled.requests.length, toasts: disabled.toasts.length };
+} catch (error) { result.error = error.stack || String(error); }
+document.getElementById('surface-result').textContent = JSON.stringify(result);
+</script></body></html>

@@ -144,3 +144,36 @@ test('application bootstrap publishes its initialization failure', async () => {
         'SyntaxError: broken application module'
     );
 });
+
+test('startup schedules network checks quietly and still runs connectivity then proxy detection', async () => {
+    const previousWindow = globalThis.window;
+    const timers = [];
+    globalThis.window = { setTimeout: (callback, delay) => { timers.push({ callback, delay }); return timers.length; }, clearTimeout() {} };
+    const events = [], toasts = [];
+    const controller = createStartupControllerApi({
+        state: { nodes: new Map() }, initUI() {}, loadState: async () => false,
+        showToast: (...args) => toasts.push(args), syncProxyToServer() {},
+        updateCanvasTransform() {}, scheduleAutoUpdateCheck: () => events.push('update-scheduled'), checkRefreshNotice() {},
+        checkNetworkConnectivity: async options => { events.push(['connectivity', options.showResultToast]); },
+        checkNetworkProxyMismatch: async force => { events.push(['proxy-detection', force]); },
+        documentRef: { readyState: 'complete', getElementById: () => { throw new Error('startup must not create countdown notifications'); } },
+        consoleRef: { log() {}, error() {} }
+    });
+    try {
+        await controller.bootstrapApp();
+        assert.deepEqual(toasts, []);
+        assert.deepEqual(events, ['update-scheduled']);
+        assert.equal(timers.length, 1);
+        assert.equal(timers[0].delay, 2000);
+        timers[0].callback();
+        await new Promise(setImmediate);
+        assert.deepEqual(events, ['update-scheduled', ['connectivity', true]]);
+        assert.equal(timers[1].delay, 1600);
+        timers[1].callback();
+        await new Promise(setImmediate);
+        assert.deepEqual(events, ['update-scheduled', ['connectivity', true], ['proxy-detection', true]]);
+        assert.deepEqual(toasts, []);
+    } finally {
+        globalThis.window = previousWindow;
+    }
+});

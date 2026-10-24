@@ -1,0 +1,109 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../css/modules/00-foundation.css">
+<link rel="stylesheet" href="../../css/modules/09-toasts.css">
+<link rel="stylesheet" href="../../css/modules/14-sidebar-notices-errors.css">
+<link rel="stylesheet" href="../../css/layout/workbench.css">
+<link rel="stylesheet" href="../../css/themes.css">
+<style>.toast,.floating-notice,.notice-close{animation:none!important;transition:none!important}#surface-result{display:none}</style>
+</head><body><div id="floating-notices-container"></div><div id="toast-container"></div><pre id="surface-result"></pre>
+<script type="module">
+import { createToastControllerApi } from '../../js/features/ui/toast-controller.js';
+import { createFloatingNoticesController } from '../../js/features/ui/floating-notices-controller.js';
+const result = {};
+try {
+    const container = document.getElementById('toast-container');
+    let sequence = 0;
+    const pending = new Map(), callbacks = new Map();
+    const api = createToastControllerApi({ container, documentRef: document,
+        setTimeoutRef: (callback, delay) => { const id = ++sequence; pending.set(id, { callback, delay }); callbacks.set(id, callback); return id; },
+        clearTimeoutRef: id => pending.delete(id)
+    });
+    const messages = () => [...container.querySelectorAll('.toast-message')].map(el => el.textContent);
+    const first = api.showToast('正在载入', 'info');
+    const firstTimer = sequence;
+    api.showToast('代理设置已读取', 'success');
+    api.showToast('模型已读取', 'info');
+    api.showToast('已切换工作流', 'success');
+    const latest = api.showToast('工作流已保存', 'success');
+    result.startup = { messages: messages(), role: latest.element.getAttribute('role'), timers: pending.size };
+    const warning = api.showToast('请配置模型', 'warning');
+    const error = api.showToast('读取失败', 'error');
+    callbacks.get(firstTimer)();
+    first.update('旧状态不得覆盖最新消息', 'error');
+    first.dismiss();
+    result.important = { messages: messages(), warningRole: warning.element.getAttribute('role'), errorRole: error.element.getAttribute('role') };
+
+    const indefinite = api.showToast('视频保存进度', 'info', 0);
+    const longProgress = api.showToast('图片复制进度', 'info', 15000);
+    const controlled = api.showToast('受控进度', 'info');
+    controlled.clearTimer();
+    api.showToast('普通操作完成', 'success');
+    const updated = api.showToast('待更新进度', 'info');
+    updated.update('进度 50%', 'info');
+    api.showToast('第二次操作完成', 'success');
+    indefinite.update('视频保存 30%');
+    longProgress.update('图片复制 60%');
+    result.progress = { messages: messages(), persistentConnected: indefinite.element.isConnected,
+        longConnected: longProgress.element.isConnected, controlledConnected: controlled.element.isConnected,
+        updatedConnected: updated.element.isConnected };
+    const old = api.showToast('即将消失', 'info');
+    const oldTimer = sequence;
+    callbacks.get(oldTimer)();
+    const removalTimer = sequence;
+    const newest = api.showToast('新的操作已完成', 'success');
+    callbacks.get(removalTimer)();
+    result.removal = { oldConnected: old.element.isConnected, newestConnected: newest.element.isConnected,
+        newestMessage: newest.element.querySelector('.toast-message').textContent };
+
+    const noticeContainer = document.getElementById('floating-notices-container');
+    const persistent = new Map(), session = new Map();
+    const storage = map => ({ getItem: key => map.get(key) ?? null, setItem: (key, value) => map.set(key, value) });
+    const makeNotices = map => createFloatingNoticesController({ container: noticeContainer, documentRef: document,
+        localStorageRef: storage(persistent), sessionStorageRef: storage(map) });
+    const config = { id: 'backup', className: 'workflow-backup-notice', icon: '!',
+        content: ['及时备份 ', { code: true, text: 'workflows 文件夹' }, '，防止更新后丢失'],
+        dismissStorageKey: 'backup-dismissed', dismissScope: 'session', dismissible: true,
+        closeText: '本次隐藏', closeLabel: '本次不再显示工作流备份提醒' };
+    let notices = makeNotices(session);
+    const backup = notices.upsertNotice(config);
+    const close = backup.querySelector('.notice-close');
+    result.close = { text: close.textContent, name: close.getAttribute('aria-label'), title: close.title };
+    close.click();
+    result.dismissal = { hidden: backup.classList.contains('hidden'), persistentWrites: persistent.size, sessionValue: session.get('backup-dismissed') };
+    notices.upsertNotice(config);
+    result.dismissal.hiddenAfterUpdate = backup.classList.contains('hidden');
+    notices = makeNotices(session);
+    result.dismissal.hiddenAfterRecreate = notices.upsertNotice(config).classList.contains('hidden');
+    notices = makeNotices(new Map());
+    result.dismissal.visibleInNewSession = !notices.upsertNotice(config).classList.contains('hidden');
+    persistent.set('backup-dismissed', 'true');
+    result.dismissal.legacyPreferenceRetained = notices.upsertNotice(config).classList.contains('hidden');
+    const permanent = notices.upsertNotice({ id: 'permanent', content: '旧行为', dismissible: true, dismissStorageKey: 'permanent-key' });
+    permanent.querySelector('.notice-close').click();
+    result.dismissal.permanentDefault = persistent.get('permanent-key');
+
+    container.replaceChildren();
+    noticeContainer.replaceChildren();
+    persistent.clear();
+    const visibleBackup = makeNotices(new Map()).upsertNotice(config);
+    api.showToast('已选择当前工作流', 'info');
+    api.showToast('工作流已保存', 'success');
+    api.showToast('未配置模型，请前往设置', 'warning');
+    api.showToast('保存失败，请重试', 'error');
+    result.themes = [];
+    for (const theme of ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink']) {
+        document.documentElement.dataset.appTheme = theme;
+        const controls = [...container.querySelectorAll('.toast'), visibleBackup.querySelector('.notice-close')].map(element => {
+            const rect = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            const surface = element.classList.contains('notice-close') ? visibleBackup : element;
+            return { text: element.textContent, foreground: style.color, background: getComputedStyle(surface).backgroundColor,
+                visible: rect.width > 0 && rect.height > 0 && rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight,
+                fontSize: parseFloat(style.fontSize) };
+        });
+        result.themes.push({ theme, controls, canvas: getComputedStyle(document.documentElement).getPropertyValue('--bg-canvas').trim(), root: getComputedStyle(document.documentElement).backgroundColor,
+            page: getComputedStyle(document.body).backgroundColor });
+    }
+} catch (error) { result.error = error.stack || String(error); }
+document.getElementById('surface-result').textContent = JSON.stringify(result);
+</script></body></html>

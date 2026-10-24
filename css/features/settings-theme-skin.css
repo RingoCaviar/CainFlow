@@ -535,3 +535,157 @@ html:root #settings-modal.modal-overlay .update-status-error {
     font-size: 12px;
     line-height: 1.6;
 }
+
+html:root #settings-modal #general-settings .general-settings-save-note {
+    margin: 0 0 12px;
+    color: var(--settings-dialog-muted-text);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+html:root #settings-modal #general-settings .general-settings-navigation {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 18px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--settings-dialog-divider);
+}
+
+html:root #settings-modal #general-settings .general-settings-category-btn {
+    min-height: 36px;
+    padding: 7px 14px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--settings-dialog-muted-text);
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+html:root #settings-modal #general-settings .general-settings-category-btn[aria-selected="true"] {
+    background: var(--panel-hover-bg);
+    border-color: var(--panel-active-border);
+    color: var(--panel-accent-text);
+    font-weight: 600;
+}
+
+html:root #settings-modal #general-settings .general-settings-category-btn:hover {
+    background: var(--settings-action-secondary-hover-bg);
+    color: var(--settings-action-secondary-hover-text);
+}
+
+html:root #settings-modal #general-settings .general-settings-category-btn:focus-visible {
+    outline: 2px solid var(--settings-action-focus-ring);
+    outline-offset: 2px;
+}
+
+html:root #settings-modal #general-settings .general-settings-category[hidden] {
+    display: none;
+}
+
+html:root #settings-modal #general-settings .general-settings-category-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+    align-items: start;
+    gap: 16px;
+}
+
+html:root #settings-modal #general-settings .general-settings-column {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+}
+
+html:root #settings-modal #general-settings .general-settings-card {
+    height: auto;
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    padding: 16px;
+    gap: 14px;
+}
+
+html:root #settings-modal #general-settings .general-settings-card .card-row {
+    flex: 0 0 auto;
+    min-width: 0;
+}
+
+html:root #settings-modal #general-settings .general-settings-card .card-header {
+    cursor: default;
+}
+
+html:root #settings-modal #general-settings .general-settings-card .card-field label {
+    font-size: 14px;
+}
+
+html:root #settings-modal #general-settings .general-settings-card .general-settings-field-divider {
+    width: 100%;
+    margin: 12px 0;
+}
+
+html:root #settings-modal #general-settings .general-settings-control-row {
+    align-items: center;
+}
+
+html:root #settings-modal #general-settings [data-settings-card="canvas"] .general-settings-control-row > select {
+    flex: 0 1 240px;
+    width: 40%;
+    min-width: 120px;
+}
+
+html:root #settings-modal #general-settings .general-settings-field-hint {
+    color: var(--settings-dialog-muted-text);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+html:root #settings-modal #general-settings #global-dir-badge {
+    flex: 1 1 100%;
+    min-height: 0;
+    padding: 0;
+    background: transparent;
+    border: 0;
+}
+
+html:root #settings-modal #general-settings .retry-input-group .btn-retry-step:disabled {
+    background: var(--settings-input-disabled-bg);
+    color: var(--settings-input-disabled-text);
+    cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+    html:root #settings-modal #general-settings .general-settings-navigation {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    html:root #settings-modal #general-settings .general-settings-category-btn {
+        justify-content: center;
+        padding-inline: 8px;
+    }
+
+    html:root #settings-modal #general-settings .general-settings-category-columns {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    html:root #settings-modal #general-settings .general-settings-card {
+        padding: 14px;
+    }
+
+    html:root #settings-modal #general-settings .general-settings-control-row {
+        flex-wrap: wrap;
+    }
+
+    html:root #settings-modal #general-settings [data-settings-card="canvas"] .general-settings-control-row > select {
+        flex-basis: 100%;
+        width: 100%;
+    }
+
+    html:root #settings-modal #general-settings .general-settings-volume-row {
+        flex-wrap: wrap;
+    }
+
+    html:root #settings-modal #general-settings #setting-global-export-dir {
+        flex-basis: 100%;
+    }
+}

@@ -3,7 +3,7 @@
 <style>#canvas-container{position:relative;width:900px;height:600px}#nodes-layer{position:absolute;inset:0}</style>
 </head><body><div id="canvas-container" tabindex="0"><div id="nodes-layer"></div>
 <div id="canvas-navigation"><div class="canvas-node-search"><input type="search"><div class="canvas-node-results"></div></div>
-<button data-nav="search">查找节点</button><button data-nav="minus">−</button><output id="zoom-level">100%</output><button data-nav="plus">+</button><button data-nav="reset">100%</button><button data-nav="fit">全图</button></div></div><pre id="surface-result"></pre>
+<button data-nav="search">查找节点</button><button data-nav="minus">−</button><details class="canvas-zoom-menu"><summary><output id="zoom-level">100%</output></summary><div class="canvas-zoom-options"><button data-zoom="0.5">50%</button><button data-zoom="1">100% · 原始比例</button></div></details><button data-nav="plus">+</button><button data-nav="fit">适应画布</button></div></div><pre id="surface-result"></pre>
 <script type="module">
 import {initCanvasNavigation} from '../../js/features/ui/canvas-navigation.js';
 import {createViewportApi} from '../../js/canvas/viewport.js';
@@ -21,7 +21,13 @@ try {
  click('plus');const plus=state.canvas.zoom;
  const anchorPreserved=Math.abs((450-state.canvas.x)/plus-350)<0.01;
  const percent=document.getElementById('zoom-level').textContent;
- click('reset');const reset=state.canvas.zoom;
+ const zoomMenu=root.querySelector('.canvas-zoom-menu');
+ zoomMenu.querySelector('summary').focus();
+ zoomMenu.querySelector('summary').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));
+ const zoomKeyboard=document.activeElement.dataset.zoom==='1' && zoomMenu.open;
+ root.querySelector('[data-zoom="0.5"]').click();const preset=state.canvas.zoom;
+ const presetAnchor=Math.abs((450-state.canvas.x)/preset-350)<0.01;
+ root.querySelector('[data-zoom="1"]').click();const reset=state.canvas.zoom;
  click('fit');click('search');
  const input=root.querySelector('input');input.value='海报';input.dispatchEvent(new Event('input'));
  const found=[...root.querySelectorAll('.canvas-node-results button')].map(x=>x.textContent);
@@ -45,6 +51,6 @@ try {
  input.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
  state.canvas.zoom=5;click('plus');const maximum=state.canvas.zoom;
  state.canvas.zoom=.1;click('minus');const minimum=state.canvas.zoom;
- document.getElementById('surface-result').textContent=JSON.stringify({plus,percent,anchorPreserved,reset,fitCount,focused,found,current,shortcutSafe,wheels,maximum,minimum,saves,projectionKeptResults,renamedRunning,closed:!root.classList.contains('search-open')});
+ document.getElementById('surface-result').textContent=JSON.stringify({plus,percent,anchorPreserved,preset,presetAnchor,zoomKeyboard,reset,fitCount,focused,found,current,shortcutSafe,wheels,maximum,minimum,saves,projectionKeptResults,renamedRunning,closed:!root.classList.contains('search-open')});
 }catch(error){document.getElementById('surface-result').textContent=JSON.stringify({error:error.stack});}
 </script></body></html>

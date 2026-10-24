@@ -225,6 +225,10 @@
                     <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>
                     工作流
                 </button>
+                <div class="toolbar-workflow-current" aria-label="当前工作流">
+                    <span id="toolbar-workflow-name" class="toolbar-workflow-name">未打开工作流</span>
+                    <span id="toolbar-workflow-status" class="toolbar-workflow-status" data-state="empty" aria-live="polite">新建或打开工作流</span>
+                </div>
             </div>
             <div class="toolbar-canvas-only toolbar-action-group toolbar-run-group" role="group" aria-label="运行控制">
                 <button id="btn-run" class="btn btn-run" title="运行工作流 (Ctrl+Enter)">
@@ -515,10 +519,19 @@
                     <div class="canvas-node-search"><input type="search" aria-label="搜索当前工作流节点" placeholder="搜索节点名称或类型…"><div class="canvas-node-results"></div></div>
                     <button type="button" data-nav="search" aria-expanded="false" title="查找当前工作流节点">查找节点</button>
                     <button type="button" data-nav="minus" aria-label="缩小">−</button>
-                    <output id="zoom-level" aria-label="当前缩放比例">100%</output>
+                    <details class="canvas-zoom-menu">
+                        <summary title="选择缩放比例"><output id="zoom-level" aria-label="当前缩放比例">100%</output><span aria-hidden="true">▾</span></summary>
+                        <div class="canvas-zoom-options" role="group" aria-label="缩放比例">
+                            <button type="button" data-zoom="0.25">25%</button>
+                            <button type="button" data-zoom="0.5">50%</button>
+                            <button type="button" data-zoom="0.75">75%</button>
+                            <button type="button" data-zoom="1">100% · 原始比例</button>
+                            <button type="button" data-zoom="1.5">150%</button>
+                            <button type="button" data-zoom="2">200%</button>
+                        </div>
+                    </details>
                     <button type="button" data-nav="plus" aria-label="放大">＋</button>
-                    <button type="button" data-nav="reset" title="恢复到 100%">100%</button>
-                    <button type="button" data-nav="fit" title="显示当前工作流全部节点">全图</button>
+                    <button type="button" data-nav="fit" title="显示当前工作流全部节点 (F)">适应画布</button>
                 </div>
             </div>
 
@@ -1310,7 +1323,6 @@
                 <div id="settings-tab-general" class="settings-tab-pane">
                     <div class="settings-section settings-appearance">
                         <div class="settings-toolbar"><h3>外观主题</h3></div>
-                        <p class="settings-appearance-hint">主题、画布交互、运行与通知偏好在这里统一管理。</p>
                 <div class="theme-menu-shell">
                     <button id="btn-theme-toggle" class="btn btn-ghost" type="button" aria-pressed="false"
                         aria-haspopup="menu" aria-expanded="false" title="选择主题">
@@ -1327,9 +1339,6 @@
                 </div>
                     </div>
                     <div class="settings-section">
-                        <div class="settings-toolbar">
-                            <h3>常规设置 (General Settings)</h3>
-                        </div>
                         <div id="general-settings" class="api-configs-list">
                             <!-- Filled by JS -->
                         </div>

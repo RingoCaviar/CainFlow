@@ -569,6 +569,7 @@ export function createNodeLifecycleApi({
 
     function isVisibleElement(el) {
         if (!el) return false;
+        if (el.checkVisibility && !el.checkVisibility()) return false;
         if (el.classList?.contains('node-select-native') || el.classList?.contains('node-select-panel')) {
             return false;
         }
@@ -666,7 +667,8 @@ export function createNodeLifecycleApi({
             const explicitHeightValue = String(el.style?.height || '');
             const explicitHeight = /px$/i.test(explicitHeightValue) ? parseFloat(explicitHeightValue) : NaN;
             const computedHeight = parseFloat(style.height || '0');
-            const fixedHeight = Number.isFinite(explicitHeight) && explicitHeight > 0
+            const compactChatPlaceholder = el.closest?.('.node-chat-response-field.is-empty');
+            const fixedHeight = !compactChatPlaceholder && Number.isFinite(explicitHeight) && explicitHeight > 0
                 ? explicitHeight
                 : (Number.isFinite(computedHeight) && computedHeight > 0 ? computedHeight : minHeight);
             return {

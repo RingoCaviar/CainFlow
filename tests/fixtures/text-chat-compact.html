@@ -1,0 +1,95 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../css/modules/00-foundation.css">
+<link rel="stylesheet" href="../../css/modules/02-buttons.css">
+<link rel="stylesheet" href="../../css/modules/04-node-core.css">
+<link rel="stylesheet" href="../../css/modules/06-node-text.css">
+<link rel="stylesheet" href="../../css/modules/07-node-controls.css">
+<link rel="stylesheet" href="../../css/features/panels.css">
+<link rel="stylesheet" href="../../css/themes.css">
+<link rel="stylesheet" href="../../css/features/menu-dialog-theme-skin.css">
+<link rel="stylesheet" href="../../css/features/node-canvas-theme-skin.css">
+<style>.node{position:relative;left:auto;top:auto;margin:16px}.node-body{height:auto}#surface-result{display:none}</style>
+</head><body><div id="canvas-container"><div id="nodes-layer"><div id="sample" class="node node-chat"></div></div></div><pre id="surface-result"></pre>
+<script type="module">
+import { createNodeMarkup } from '../../js/nodes/node-view-factory.js';
+import { NODE_CONFIGS } from '../../js/nodes/registry.js';
+import { createNodeDomBindingsApi } from '../../js/nodes/node-dom-bindings.js';
+import { createNodeLifecycleApi } from '../../js/nodes/node-lifecycle.js';
+import { createNodeSerializer } from '../../js/nodes/node-serializer.js';
+const result = { themes: [] }, copies=[];
+const tick = () => new Promise(resolve => setTimeout(resolve, 30));
+try {
+    const node = document.getElementById('sample');
+    const state = { nodes: new Map(), connections: [], selectedNodes: new Set(), runningNodeIds: new Set(), canvas: { zoom: 1, x: 0, y: 0 },
+        models: [{ id: 'google', modelId: 'gemini-chat', name: '对话模型', taskType: 'chat', protocol: 'google', providerIds: ['provider'] }],
+        providers: [{ id: 'provider', type: 'google', name: 'Google' }] };
+    const noop = () => {};
+    const lifecycle = createNodeLifecycleApi({ state, nodeConfigs: NODE_CONFIGS, nodesLayer: node.parentElement,
+        scheduleSave: noop, updateAllConnections: noop, updatePortStyles: noop });
+    const bindings = createNodeDomBindingsApi({ state, canvasContainer: document.getElementById('canvas-container'), connectionsGroup: document.createElement('div'),
+        viewportApi: {}, pushHistory: noop, scheduleSave: noop, showToast: noop, copyToClipboard: text => copies.push(text), debounce: fn => fn, fitNodeToContent: lifecycle.fitNodeToContent });
+    const serializer = createNodeSerializer({ state, documentRef: document });
+    const saved = { apiConfigId: 'google', providerId: 'provider', sysprompt: '你是创作助手，回答时请保持简洁。', prompt: '为我整理创作灵感', search: true,
+        textareaHeights: { sysprompt: 104, prompt: 90, response: 220 } };
+    const render = (data = saved, clone = false) => {
+        node._cleanupFns?.splice(0).forEach(cleanup => cleanup());
+        node.querySelectorAll('*').forEach(el => el._cleanupFns?.forEach(cleanup => cleanup()));
+        node.innerHTML = createNodeMarkup({ type: 'TextChat', id: 'sample', config: NODE_CONFIGS.TextChat, restoreData: data, state });
+        node.style.width = '360px'; node.style.height = 'auto';
+        const item = { id: 'sample', type: 'TextChat', el: node, data: {}, x: 0, y: 0, width: 360, userResized: false, isClone: clone, cloneSourceId: clone ? 'source' : '',
+            lastResponse: data.lastResponse || '', isSucceeded: !!data.lastText };
+        if (data.lastText) item.data.text = data.lastText;
+        state.nodes.set('sample', item);
+        bindings.bindNodeInteractions({ id: 'sample', type: 'TextChat', el: node });
+        lifecycle.fitNodeToContent('sample');
+        return item;
+    };
+    const byId = suffix => document.getElementById('sample-'+suffix);
+    for (const theme of ['light','dark','paper','pink','pro','glass-light','glass-dark']) {
+        document.documentElement.dataset.appTheme = theme;
+        const item = render(); await tick();
+        const system = byId('system-settings'), instructions=byId('option-help');
+        const closedHeight=node.getBoundingClientRect().height;
+        const systemCollapsed=!system.open&&!byId('sysprompt').checkVisibility();
+        const systemSummary=system.querySelector('summary').textContent.includes('已设置');
+        const emptyHeight=byId('response').getBoundingClientRect().height;
+        const savedEmpty=serializer.serializeNodes()[0];
+        system.querySelector('summary').click();await tick();
+        const systemExpandedHeight=node.getBoundingClientRect().height;
+        byId('sysprompt').value='新的系统提示语，请先分析再回答。';
+        byId('sysprompt').dispatchEvent(new Event('change',{bubbles:true}));
+        system.querySelector('summary').click();await tick();
+        const markup='<p>第一条回复</p><p><strong>第二段详细说明</strong></p>';
+        byId('response').innerHTML=markup;item.data.text='第一条回复\n第二段详细说明';item.lastResponse=markup;
+        await tick();
+        byId('copy-btn').click();
+        const copyWorks=copies.at(-1).includes('第一条回复')&&copies.at(-1).includes('第二段详细说明');
+        byId('preview-btn').focus();byId('preview-btn').click();await tick();
+        const preview=document.getElementById('node-text-response-preview-dialog');
+        const previewWorks=preview?.checkVisibility()&&preview.textContent.includes('第一条回复')&&preview.textContent.includes('第二段详细说明')&&node.closest('[inert]')!==null;
+        document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await tick();
+        const previewEscape=!document.getElementById('node-text-response-preview-dialog')?.checkVisibility();
+        const previewReturnsFocus=document.activeElement===byId('preview-btn');
+        const responseHeight=byId('response').getBoundingClientRect().height;
+        const savedReply=serializer.serializeNodes()[0];
+        const fontSize=parseFloat(getComputedStyle(byId('response')).fontSize),helpSize=parseFloat(getComputedStyle(byId('fixed-help')).fontSize);
+        const instructionsHidden=!instructions.open;
+        instructions.querySelector('summary').click();await tick();
+        const longInstructionsAvailable=instructions.innerText.includes('单独运行此节点可更新')&&instructions.innerText.includes('首次仍会生成');
+        render(savedReply);await tick();
+        result.themes.push({theme,systemCollapsed,systemSummary,closedHeight,emptyHeight,systemExpandedHeight,savedSystemHeight:savedEmpty.textareaHeights.sysprompt,
+            savedResponseHeight:savedEmpty.textareaHeights.response,savedSystem:savedReply.sysprompt,responseHeight,copyWorks,previewWorks,previewEscape,previewReturnsFocus,fontSize,helpSize,instructionsHidden,longInstructionsAvailable,
+            restoredText:byId('response').innerText.includes('第二段详细说明'),restoredSystemHeight:byId('sysprompt').style.height==='104px',restoredResponseHeight:byId('response').style.height==='220px'});
+    }
+    render({...saved,lastText:'已有回复',lastResponse:'<p>已有回复</p>'},true);await tick();
+    result.cloneReadOnly=byId('sysprompt').disabled&&byId('prompt').disabled&&byId('search').disabled;
+    result.cloneCanReadResult=!byId('copy-btn').disabled&&!byId('preview-btn').disabled;
+    byId('response').innerHTML='<div class="chat-response-placeholder">正在生成回复…</div>';await tick();
+    result.loadingCompact=byId('response').getBoundingClientRect().height<=44;
+    result.loadingActionsDisabled=byId('copy-btn').disabled&&byId('preview-btn').disabled;
+    result.savedResponseWhileLoading=serializer.serializeNodes()[0].textareaHeights.response;
+    byId('response').innerHTML='<p>新的回复</p>';await tick();
+    result.resultReturnsToSavedHeight=byId('response').getBoundingClientRect().height>=218;
+} catch(error) { result.error=error.stack; }
+document.getElementById('surface-result').textContent=JSON.stringify(result);
+</script></body></html>

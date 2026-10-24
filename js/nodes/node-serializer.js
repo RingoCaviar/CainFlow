@@ -45,7 +45,10 @@ export function createNodeSerializer({ state, documentRef }) {
         });
         const responseArea = documentRef.getElementById(`${id}-response`);
         if (responseArea) {
-            const responseHeight = responseArea.offsetHeight || parseFloat(responseArea.style.height || '0');
+            const savedHeight = parseFloat(responseArea.style.height || '0');
+            const responseHeight = responseArea.closest?.('.node-chat-response-field.is-empty')
+                ? savedHeight
+                : (responseArea.offsetHeight || savedHeight);
             if (Number.isFinite(responseHeight) && responseHeight > 0) {
                 heights.response = Math.round(responseHeight);
             }

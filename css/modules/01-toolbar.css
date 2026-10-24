@@ -116,21 +116,39 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     max-width: 100%;
     min-height: 46px;
     padding: 4px;
-    border: 1px solid color-mix(in srgb, var(--text-primary) 15%, transparent);
+    border: 1px solid transparent;
     border-radius: 10px;
-    background: color-mix(in srgb, var(--text-primary) 5%, var(--bg-toolbar));
+    background: transparent;
 }
 
 body.workspace-mode-conversation #toolbar .toolbar-action-group {
     display: none;
 }
 
-#toolbar .toolbar-run-group {
-    border-color: color-mix(in srgb, var(--accent-purple) 25%, var(--panel-border));
+.toolbar-workflow-current {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    height: 38px;
+    min-width: 0;
+    max-width: 130px;
+    gap: 2px;
+    padding-inline: 4px;
 }
 
-#toolbar .toolbar-workflow-group {
-    border-color: color-mix(in srgb, var(--accent-cyan) 22%, var(--panel-border));
+.toolbar-workflow-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--text-primary);
+}
+
+.toolbar-workflow-status { font-size: 11px; color: var(--text-secondary); }
+.toolbar-workflow-status:is([data-state="modified"], [data-state="pending"]) { color: var(--panel-accent-text); }
+
+@media (max-width: 1200px) {
+    .toolbar-workflow-current { max-width: 90px; }
 }
 
 .toolbar-more-shell {

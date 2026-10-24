@@ -813,6 +813,11 @@ function renderCameraControlBody(id, restoreData) {
 
 function renderTextChatBody(id, restoreData, models, providers) {
     const rd = restoreData || {};
+    const systemPrompt = String(rd.sysprompt || '');
+    const systemSummary = systemPrompt.trim()
+        ? `已设置 · ${systemPrompt.trim().replace(/\s+/g, ' ').slice(0, 28)}`
+        : '未设置';
+    const response = rd.lastResponse || escapeHtml(rd.lastText || rd.text || '').replace(/\n/g, '<br>');
     const opts = renderApiConfigOptions(models, providers, rd.apiConfigId, 'chat');
     const selectedModel = getSelectedModelForTask(models, rd.apiConfigId, 'chat');
     const selectedProviderId = getResolvedProviderIdForModel(selectedModel, providers, rd.providerId || '');
@@ -826,26 +831,36 @@ function renderTextChatBody(id, restoreData, models, providers) {
     return `
         <div class="node-field"><label>API 配置</label><select id="${id}-apiconfig">${opts}</select></div>
         <div class="node-field" id="${id}-provider-field"><label>供应商</label><select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select></div>
-        <div class="node-field node-chat-system-field"><label>系统提示语（可选）</label>
-            <textarea id="${id}-sysprompt" placeholder="设定 AI 的角色或背景..." rows="4"${getTextareaHeightStyle(rd, 'sysprompt')}>${rd.sysprompt || ''}</textarea></div>
+        <details class="node-field node-chat-system-field" id="${id}-system-settings">
+            <summary><span>系统提示语</span><span class="node-chat-system-summary" id="${id}-system-summary">${escapeHtml(systemSummary)}</span></summary>
+            <textarea id="${id}-sysprompt" aria-label="系统提示语（可选）" placeholder="设定 AI 的角色或背景..." rows="4"${getTextareaHeightStyle(rd, 'sysprompt')}>${escapeHtml(systemPrompt)}</textarea></details>
         <div class="node-parameter-grid node-chat-toggle-grid">
         <div class="node-field node-chat-option" id="${id}-search-field">
             <div class="node-chat-option-copy"><label for="${id}-search">联网搜索</label>
-                <p class="node-chat-option-help" id="${id}-search-help">${searchAvailable ? '查询网页补充回答，需模型服务支持。' : '当前接口未接入联网搜索'}</p></div>
+                <p class="node-chat-option-help" id="${id}-search-help">${searchAvailable ? '查询网页补充回答' : '当前接口未接入联网搜索'}</p></div>
             <label class="toggle-switch"><input type="checkbox" role="switch" id="${id}-search" aria-describedby="${id}-search-help" ${rd.search ? 'checked' : ''} ${searchAvailable ? '' : 'disabled'} /><span class="toggle-slider"></span></label></div>
         <div class="node-field node-chat-option">
             <div class="node-chat-option-copy"><label for="${id}-fixed">复用上次回复</label>
-                <p class="node-chat-option-help" id="${id}-fixed-help">运行工作流时复用成功回复并跳过上游；单独运行此节点可更新。首次仍会生成。</p></div>
+                <p class="node-chat-option-help" id="${id}-fixed-help">运行工作流时复用成功回复</p></div>
             <label class="toggle-switch"><input type="checkbox" role="switch" id="${id}-fixed" aria-describedby="${id}-fixed-help" ${rd.fixed ? 'checked' : ''} /><span class="toggle-slider"></span></label></div>
         </div>
+        <details class="node-chat-option-guide" id="${id}-option-help"><summary>选项说明</summary>
+            <p>联网搜索：由当前模型服务查询网页补充回答，需模型服务支持。当前已接入 Google 接口。</p>
+            <p>复用上次回复：运行工作流时复用成功回复并跳过上游；单独运行此节点可更新。首次仍会生成。</p>
+        </details>
         <div class="node-field node-chat-prompt-field"><label>提问内容</label>
             <textarea id="${id}-prompt" placeholder="输入你的问题..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${rd.prompt || ''}</textarea></div>
-        <div class="node-field node-field-expand"><label>对话回复</label>
+        <div class="node-field node-field-expand node-chat-response-field ${response ? '' : 'is-empty'}">
+            <div class="node-chat-response-heading"><span id="${id}-response-label">对话回复</span>
+                <div class="node-chat-response-actions">
+                    <button type="button" class="chat-copy-btn" id="${id}-copy-btn" data-node-read-action title="复制回复内容" aria-label="复制回复内容" ${response ? '' : 'disabled'}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    </button>
+                    <button type="button" class="chat-preview-btn" id="${id}-preview-btn" data-node-read-action ${response ? '' : 'disabled'}>放大查看</button>
+                </div>
+            </div>
             <div class="chat-response-wrapper" id="${id}-wrapper">
-                <button class="chat-copy-btn" id="${id}-copy-btn" title="复制回复内容">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                </button>
-                <div class="chat-response-area" id="${id}-response"${getResponseAreaHeightStyle(rd, 'response')}>${rd.lastResponse ? rd.lastResponse : '<div class="chat-response-placeholder">运行后显示对话结果</div>'}</div>
+                <div class="chat-response-area" id="${id}-response" role="region" aria-labelledby="${id}-response-label"${getResponseAreaHeightStyle(rd, 'response')}>${response || '<div class="chat-response-placeholder">运行后显示回复</div>'}</div>
             </div>
         </div>
         <div class="node-field node-generation-progress-field">

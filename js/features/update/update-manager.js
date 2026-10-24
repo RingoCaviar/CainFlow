@@ -17,8 +17,7 @@ export function createUpdateManager({
     setTimeoutImpl = setTimeout,
     clearTimeoutImpl = clearTimeout
 }) {
-    let autoCheckCountdownTimer = null;
-    let autoCheckCountdownToast = null;
+    let autoCheckTimer = null;
     let latestReleaseData = null;
     let updateDownloadInProgress = false;
     let updateDownloadPollTimer = null;
@@ -1521,44 +1520,6 @@ export function createUpdateManager({
         return documentRef.getElementById('toast-container');
     }
 
-    function renderAutoCheckCountdownToast(secondsRemaining) {
-        const container = getToastContainer();
-        if (!container) return;
-
-        if (!autoCheckCountdownToast || !documentRef.body?.contains(autoCheckCountdownToast)) {
-            const toast = documentRef.createElement('div');
-            toast.className = 'toast info';
-
-            const icon = documentRef.createElement('span');
-            icon.textContent = '[i]';
-
-            const message = documentRef.createElement('span');
-            message.className = 'update-auto-check-countdown-message';
-
-            toast.appendChild(icon);
-            toast.appendChild(message);
-            container.appendChild(toast);
-            autoCheckCountdownToast = toast;
-        }
-
-        const message = autoCheckCountdownToast.querySelector('.update-auto-check-countdown-message');
-        if (message) {
-            message.textContent = `将在 ${secondsRemaining} 秒后自动检查更新`;
-        }
-    }
-
-    function dismissAutoCheckCountdownToast(delay = 0) {
-        if (!autoCheckCountdownToast) return;
-
-        const toast = autoCheckCountdownToast;
-        autoCheckCountdownToast = null;
-
-        setTimeoutImpl(() => {
-            toast.style.animation = 'toast-out 0.3s ease-out forwards';
-            setTimeoutImpl(() => toast.remove(), 300);
-        }, delay);
-    }
-
     function scheduleAutoUpdateCheck(options = {}) {
         const {
             delayMs = 5000,
@@ -1567,48 +1528,25 @@ export function createUpdateManager({
             showCanvasNotification = true
         } = options;
 
-        if (autoCheckCountdownTimer !== null) {
-            clearTimeoutImpl(autoCheckCountdownTimer);
-            autoCheckCountdownTimer = null;
+        if (autoCheckTimer !== null) {
+            clearTimeoutImpl(autoCheckTimer);
+            autoCheckTimer = null;
         }
-        dismissAutoCheckCountdownToast();
 
         if (isAutoUpdateCheckDisabled()) {
             return false;
         }
 
-        const targetTime = Date.now() + delayMs;
-
-        const tick = () => {
-            if (isAutoUpdateCheckDisabled()) {
-                autoCheckCountdownTimer = null;
-                dismissAutoCheckCountdownToast();
-                return;
-            }
-
-            const remainingMs = targetTime - Date.now();
-            const secondsRemaining = Math.ceil(remainingMs / 1000);
-
-            if (secondsRemaining > 0) {
-                renderAutoCheckCountdownToast(secondsRemaining);
-                autoCheckCountdownTimer = setTimeoutImpl(tick, Math.min(1000, Math.max(remainingMs, 0)));
-                return;
-            }
-
-            autoCheckCountdownTimer = null;
-            if (autoCheckCountdownToast) {
-                const message = autoCheckCountdownToast.querySelector('.update-auto-check-countdown-message');
-                if (message) message.textContent = '正在自动检查更新...';
-            }
+        autoCheckTimer = setTimeoutImpl(() => {
+            autoCheckTimer = null;
+            if (isAutoUpdateCheckDisabled()) return;
             Promise.resolve(checkUpdate(false, {
                 force,
                 showModal,
                 showCanvasNotification,
                 showProgressToast: false
-            })).finally(() => dismissAutoCheckCountdownToast(1200));
-        };
-
-        tick();
+            }));
+        }, delayMs);
         return true;
     }
 
@@ -1617,7 +1555,7 @@ export function createUpdateManager({
             force = false,
             showModal = isManual,
             showCanvasNotification = true,
-            showProgressToast = true
+            showProgressToast = isManual
         } = options;
 
         const checkInterval = 6 * 60 * 60 * 1000;
@@ -1656,7 +1594,7 @@ export function createUpdateManager({
                 clearUpdateError();
                 hideUpdateCanvasNotice();
                 dismissUpdateCheckProgressToast();
-                showToast(`当前已是最新版本 (${appVersion})`, 'success', isManual ? 3000 : 4500);
+                if (isManual) showToast(`当前已是最新版本 (${appVersion})`, 'success', 3000);
             }
 
             renderGeneralSettings();
@@ -1675,9 +1613,9 @@ export function createUpdateManager({
             if (timeoutId !== null) clearTimeoutImpl(timeoutId);
             if (isUpdateCheckTimeoutError(e)) {
                 try {
-                    if (updateCheckProgressToast) {
+                    if (showProgressToast && updateCheckProgressToast) {
                         updateCheckProgressToast.update('检查更新超时，正在尝试使用代理重新检查...', 'info');
-                    } else {
+                    } else if (showProgressToast) {
                         updateCheckProgressToast = showToast('检查更新超时，正在尝试使用代理重新检查...', 'info', 0) || null;
                     }
                     const proxyOverride = await resolveUpdateCheckProxy();

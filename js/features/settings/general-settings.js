@@ -50,6 +50,128 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
         diagnosticClient
     } = ctx;
     let compactionModelMenu = null;
+    let activeCategory = 'canvas';
+
+    function organizeGeneralSettings(list) {
+        const cards = new Map([...list.querySelectorAll('[data-settings-card]')]
+            .map(card => [card.dataset.settingsCard, card]));
+        const createCard = (id, title) => {
+            const card = documentRef.createElement('div');
+            card.className = 'api-config-card general-settings-card';
+            card.dataset.settingsCard = id;
+            const header = documentRef.createElement('div');
+            header.className = 'card-header';
+            const heading = documentRef.createElement('span');
+            heading.textContent = title;
+            header.appendChild(heading);
+            const row = documentRef.createElement('div');
+            row.className = 'card-row';
+            card.append(header, row);
+            cards.set(id, card);
+            return row;
+        };
+        const moveField = (controlId, target) => {
+            const field = list.querySelector(`#${controlId}`)?.closest('.card-field');
+            if (!field || !target) return;
+            const divider = field.previousElementSibling;
+            if (divider?.classList.contains('general-settings-field-divider')) divider.remove();
+            if (target.children.length) {
+                const separator = documentRef.createElement('div');
+                separator.className = 'general-settings-field-divider';
+                separator.setAttribute('aria-hidden', 'true');
+                target.appendChild(separator);
+            }
+            target.appendChild(field);
+        };
+        moveField('setting-canvas-dense-mode', cards.get('canvas')?.querySelector('.card-row'));
+        const agentRow = createCard('agent', 'Agent 上下文');
+        moveField('setting-agent-auto-compact-tokens', agentRow);
+        moveField('setting-agent-compaction-model', agentRow);
+        const migrationRow = list.querySelector('#btn-migrate-browser-storage')?.closest('.card-row');
+        if (migrationRow) {
+            const row = createCard('migration', '旧浏览器数据迁移');
+            const divider = migrationRow.previousElementSibling;
+            if (divider?.classList.contains('general-settings-field-divider')) divider.remove();
+            row.replaceWith(migrationRow);
+            migrationRow.querySelector('.general-settings-label-row')?.remove();
+        }
+        const connectionSelect = list.querySelector('#setting-connection-line-type');
+        const connectionRow = connectionSelect?.previousElementSibling;
+        if (connectionRow) {
+            connectionRow.classList.replace('general-settings-label-row', 'general-settings-control-row');
+            connectionSelect.style.removeProperty('width');
+            connectionRow.appendChild(connectionSelect);
+        }
+
+        const categories = [
+            { id: 'canvas', label: '外观与画布', columns: [['canvas']] },
+            { id: 'generation', label: '生成与运行', columns: [['storage', 'image'], ['automation']] },
+            { id: 'notifications', label: '通知', columns: [['notifications']] },
+            { id: 'advanced', label: '高级', columns: [['agent'], ['migration', 'diagnostics', 'update']] }
+        ];
+        const note = documentRef.createElement('p');
+        note.className = 'general-settings-save-note';
+        note.textContent = '修改后自动保存；保存目录需点击“保存路径”确认。';
+        const navigation = documentRef.createElement('div');
+        navigation.className = 'general-settings-navigation';
+        navigation.setAttribute('role', 'tablist');
+        navigation.setAttribute('aria-label', '常规设置分类');
+        const panels = [];
+        for (const category of categories) {
+            const button = documentRef.createElement('button');
+            button.type = 'button';
+            button.className = 'btn btn-ghost general-settings-category-btn';
+            button.id = `general-settings-category-${category.id}`;
+            button.dataset.settingsCategory = category.id;
+            button.textContent = category.label;
+            button.setAttribute('role', 'tab');
+            button.setAttribute('aria-controls', `general-settings-pane-${category.id}`);
+            navigation.appendChild(button);
+            const panel = documentRef.createElement('section');
+            panel.id = `general-settings-pane-${category.id}`;
+            panel.className = 'general-settings-category';
+            panel.dataset.settingsPane = category.id;
+            panel.setAttribute('role', 'tabpanel');
+            panel.setAttribute('aria-labelledby', button.id);
+            const columns = documentRef.createElement('div');
+            columns.className = 'general-settings-category-columns';
+            for (const ids of category.columns) {
+                const column = documentRef.createElement('div');
+                column.className = 'general-settings-column';
+                ids.forEach(id => { if (cards.has(id)) column.appendChild(cards.get(id)); });
+                if (column.children.length) columns.appendChild(column);
+            }
+            panel.appendChild(columns);
+            panels.push(panel);
+        }
+        list.replaceChildren(note, navigation, ...panels);
+        const buttons = [...navigation.querySelectorAll('button')];
+        const activate = (id, focus = false) => {
+            activeCategory = id;
+            dialogs.closeGeneralSettingsHelpPopovers(list);
+            buttons.forEach(button => {
+                const selected = button.dataset.settingsCategory === id;
+                button.setAttribute('aria-selected', String(selected));
+                button.tabIndex = selected ? 0 : -1;
+                if (selected && focus) button.focus();
+            });
+            panels.forEach(panel => { panel.hidden = panel.dataset.settingsPane !== id; });
+        };
+        navigation.addEventListener('click', event => {
+            const button = event.target.closest('[data-settings-category]');
+            if (button) activate(button.dataset.settingsCategory);
+        });
+        navigation.addEventListener('keydown', event => {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+            const current = buttons.indexOf(documentRef.activeElement);
+            if (current < 0) return;
+            event.preventDefault();
+            const index = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+                : (current + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+            activate(buttons[index].dataset.settingsCategory, true);
+        });
+        activate(activeCategory);
+    }
 
     function playNotificationSound(isTest = false) {
         if (!isTest && !state.notificationsEnabled) return;
@@ -230,7 +352,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
         }
 
         const updateSettingsCardHtml = AUTO_UPDATE_CHECK_DISABLED ? '' : `
-            <div class="api-config-card general-settings-card general-settings-card--update" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
+            <div class="api-config-card general-settings-card general-settings-card--update" data-settings-card="update" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
                 <div class="card-header">
                     <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">系统版本与更新</span>
                 </div>
@@ -274,7 +396,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
 
         list.innerHTML = `
         <div class="general-settings-grid">
-            <div class="api-config-card general-settings-card" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
+            <div class="api-config-card general-settings-card" data-settings-card="image" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
                 <div class="card-header">
                     <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">图片处理设置</span>
                 </div>
@@ -312,7 +434,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                 </div>
             </div>
 
-            <div class="api-config-card general-settings-card">
+            <div class="api-config-card general-settings-card" data-settings-card="storage">
                 <div class="card-header">
                     <span>存储设置</span>
                 </div>
@@ -325,7 +447,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                             <span id="global-dir-badge" class="${state.globalSaveDirHandle ? 'is-set' : 'is-missing'}">
                                 ${state.globalSaveDirHandle ? `当前目录: ${dialogs.escapeHtml(state.globalSaveDirHandle.name)}` : '<span class="general-settings-warning-text">⚠️ 未设置</span>'}
                             </span>
-                            <input id="setting-global-export-dir" type="text" value="${dialogs.escapeHtml(state.globalSaveDirHandle?.name || '')}" placeholder="输入绝对路径，留空使用程序旁 exports" style="min-width:280px; flex:1" />
+                            <input id="setting-global-export-dir" type="text" aria-label="全局图片保存目录" value="${dialogs.escapeHtml(state.globalSaveDirHandle?.name || '')}" placeholder="输入绝对路径，留空使用程序旁 exports" style="min-width:0; flex:1 1 100%" />
                             ${windowRef.__cainflowDesktop ? '<button id="btn-choose-global-dir" class="btn btn-secondary btn-xs general-settings-dir-action">选择目录</button>' : ''}
                             <button id="btn-set-global-dir" class="btn btn-secondary btn-xs general-settings-dir-action">保存路径</button>
                             ${state.globalSaveDirHandle ? '<button id="btn-clear-global-dir" class="btn btn-ghost btn-xs general-settings-dir-action">恢复默认</button>' : ''}
@@ -355,7 +477,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                 </div>
             </div>
 
-            <div class="api-config-card general-settings-card">
+            <div class="api-config-card general-settings-card" data-settings-card="automation">
                 <div class="card-header">
                     <span>自动化与重试</span>
                 </div>
@@ -376,12 +498,13 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                         </div>
                         <div class="general-settings-inline-input">
                             <div class="retry-input-group">
-                                <button class="btn-retry-step" data-step="-1">-</button>
-                                <input type="number" id="setting-max-retries" value="${state.maxRetries || 15}" min="1" max="100" />
-                                <button class="btn-retry-step" data-step="1">+</button>
+                                <button class="btn-retry-step" type="button" aria-label="减少自动重试次数" data-step="-1" ${state.autoRetry === true ? '' : 'disabled'}>-</button>
+                                <input type="number" id="setting-max-retries" aria-label="最大自动重试次数" aria-describedby="setting-max-retries-hint" value="${state.maxRetries || 15}" min="1" max="100" ${state.autoRetry === true ? '' : 'disabled'} />
+                                <button class="btn-retry-step" type="button" aria-label="增加自动重试次数" data-step="1" ${state.autoRetry === true ? '' : 'disabled'}>+</button>
                             </div>
                             <span class="general-settings-unit">轮</span>
                         </div>
+                        <small id="setting-max-retries-hint" class="general-settings-field-hint">${state.autoRetry === true ? '初次失败后，最多再尝试这些轮数。' : '开启“失败时自动重试”后生效。'}</small>
                     </div>
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
@@ -445,9 +568,9 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                     </div>
                 </div>
             </div>
-            <div class="api-config-card general-settings-card" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
+            <div class="api-config-card general-settings-card" data-settings-card="canvas" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
                 <div class="card-header">
-                    <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">画布UI</span>
+                    <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">画布显示与交互</span>
                 </div>
                 <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
                     <div class="card-field">
@@ -481,7 +604,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                     </div>
                 </div>
             </div>
-            <div class="api-config-card general-settings-card" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
+            <div class="api-config-card general-settings-card" data-settings-card="notifications" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
                 <div class="card-header">
                     <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">通知设置</span>
                 </div>
@@ -509,7 +632,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                 </div>
             </div>
 
-            <div class="api-config-card general-settings-card" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
+            <div class="api-config-card general-settings-card" data-settings-card="diagnostics" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
                 <div class="card-header"><span style="font-size:14px; font-weight:500; color:var(--text-secondary)">诊断记录</span></div>
                 <div class="card-row" style="display:flex; flex-direction:column; gap:10px;">
                     <div class="card-field">
@@ -529,6 +652,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
             ${updateSettingsCardHtml}
         </div>
     `;
+        organizeGeneralSettings(list);
         dialogs.initGeneralSettingsHelpInteractions(list);
         dialogs.closeGeneralSettingsHelpPopovers(list);
 
@@ -716,6 +840,12 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
 
         documentRef.getElementById('toggle-retry')?.addEventListener('change', (event) => {
             state.autoRetry = event.target.checked;
+            const retriesInput = documentRef.getElementById('setting-max-retries');
+            if (retriesInput) retriesInput.disabled = !state.autoRetry;
+            list.querySelectorAll('.btn-retry-step').forEach(button => { button.disabled = !state.autoRetry; });
+            const retriesHint = documentRef.getElementById('setting-max-retries-hint');
+            if (retriesHint) retriesHint.textContent = state.autoRetry
+                ? '初次失败后，最多再尝试这些轮数。' : '开启“失败时自动重试”后生效。';
             saveState();
         });
 

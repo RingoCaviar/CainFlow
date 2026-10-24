@@ -35,7 +35,8 @@ try {
         const labels = switches.map(input => [...input.labels].map(label => label.textContent).join(''));
         const visibleDescriptions = descriptions.every(el => el?.checkVisibility() && el.textContent.trim()) &&
             labels[0].includes('联网搜索') && labels[1].includes('复用上次回复') &&
-            descriptions[0].textContent.includes('查询网页补充回答') && descriptions[1].textContent.includes('首次仍会生成');
+            descriptions[0].textContent.includes('查询网页补充回答') && descriptions[1].textContent.includes('复用成功回复') &&
+            document.getElementById('sample-option-help').textContent.includes('首次仍会生成');
         const card = node.getBoundingClientRect();
         const contained = [...descriptions, ...node.querySelectorAll('.node-chat-option .toggle-switch')].every(el => {
             const rect = el.getBoundingClientRect();

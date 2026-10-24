@@ -40,6 +40,12 @@
     word-break: break-word;
 }
 
+.toast.toast-status {
+    padding: 8px 12px;
+    font-size: 12px;
+    max-width: 320px;
+}
+
 .toast.success {
     border-left: 3px solid var(--accent-green);
 }

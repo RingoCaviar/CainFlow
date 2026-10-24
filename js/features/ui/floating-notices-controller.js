@@ -5,9 +5,11 @@
 export function createFloatingNoticesController({
     container,
     documentRef = document,
-    localStorageRef = localStorage
+    localStorageRef = localStorage,
+    sessionStorageRef = typeof sessionStorage !== 'undefined' ? sessionStorage : null
 }) {
     const notices = new Map();
+    const sessionDismissed = new Set();
 
     function escapeNoticeId(id) {
         if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
@@ -79,9 +81,12 @@ export function createFloatingNoticesController({
     function upsertNotice(config) {
         if (!container || !config?.id) return null;
 
-        const dismissed = config.dismissStorageKey
-            && localStorageRef.getItem(config.dismissStorageKey) === 'true'
-            && !config.forceVisible;
+        const sessionKey = config.dismissStorageKey || config.id;
+        const dismissed = !config.forceVisible && (
+            (config.dismissStorageKey && localStorageRef.getItem(config.dismissStorageKey) === 'true')
+            || (config.dismissScope === 'session' && (sessionDismissed.has(sessionKey)
+                || sessionStorageRef?.getItem(sessionKey) === 'true'))
+        );
         const visible = config.visible !== false && !dismissed;
         const notice = getNotice(config.id) || createNoticeElement(config);
         const classNames = ['floating-notice'];
@@ -158,10 +163,15 @@ export function createFloatingNoticesController({
             closeBtn.type = 'button';
             closeBtn.className = 'notice-close';
             closeBtn.setAttribute('aria-label', config.closeLabel || '关闭通知');
-            closeBtn.textContent = '×';
+            closeBtn.title = config.closeLabel || '关闭通知';
+            closeBtn.textContent = config.closeText || '×';
+            if (config.closeText) closeBtn.classList.add('notice-close-text');
             closeBtn.addEventListener('click', (event) => {
                 event.stopPropagation();
-                if (config.dismissStorageKey) {
+                if (config.dismissScope === 'session') {
+                    sessionDismissed.add(sessionKey);
+                    sessionStorageRef?.setItem(sessionKey, 'true');
+                } else if (config.dismissStorageKey) {
                     localStorageRef.setItem(config.dismissStorageKey, 'true');
                 }
                 hideNotice(config.id);
