@@ -12,11 +12,30 @@ const session = {
     providers: [{ id: 'p', name: '受控供应商', endpoint: 'https://controlled.test/v1', apikey: 'test' }]
 };
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=';
+const referenceImages = [
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAFUlEQVR4nGP4z8BAEBFWMapoABQBAPuQj3FCf3VbAAAAAElFTkSuQmCC',
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAFUlEQVR4nGP4v5SBICKsYlTRACgCAHyv7EFtAkRjAAAAAElFTkSuQmCC',
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAFUlEQVR4nGP4/5+BICKsYlTRACgCAGYDHvAftRnwAAAAAElFTkSuQmCC',
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAE0lEQVR4nGNgYPhPBBpVNAgVAQDcoY9xnYBDRgAAAABJRU5ErkJggg==',
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAEklEQVR4nGNgaGAgjEYVDUZFAHVeSAFOg4vRAAAAAElFTkSuQmCC'
+];
+
+function referenceSession({ empty = false } = {}) {
+    const sources = [
+        { id: 'source-a', type: 'ImageGenerate', x: 0, y: 120, customTitle: '甲', apiConfigId: 'image', providerId: 'p', prompt: 'source-a', generationCount: 3 },
+        { id: 'source-b', type: 'ImageGenerate', x: 0, y: 920, customTitle: '乙', apiConfigId: 'image', providerId: 'p', prompt: 'source-b', generationCount: 2 }
+    ];
+    if (empty) sources.push({ id: 'source-empty', type: 'ImageImport', x: 0, y: 720, customTitle: '待产出' });
+    return { ...session, nodes: [...sources, { id: 'reference-target', type: 'ImageGenerate', x: 500, y: 120, apiConfigId: 'image', providerId: 'p', prompt: 'use these references' }],
+        connections: sources.map((source,order)=>({ id: 'edge-'+source.id, from: { nodeId: source.id, port: 'image' }, to: { nodeId: 'reference-target', port: 'referenceImages' }, type: 'image', order })) };
+}
 
 async function controlImages({ send, waitFor }) {
     await send('Page.addScriptToEvaluateOnNewDocument', { source: `window.imageRequests=[];const nativeFetch=window.fetch;window.fetch=async(url,options={})=>{
         if(String(url)==='/proxy') { const body=JSON.parse(options.body); imageRequests.push(body);
-            return new Response(JSON.stringify({data:[{b64_json:'${png}'}]}),{headers:{'Content-Type':'application/json'}});
+            const results=body.prompt==='source-a'?${JSON.stringify(referenceImages.slice(0,3))}:body.prompt==='source-b'?${JSON.stringify(referenceImages.slice(3))}:['data:image/png;base64,${png}'];
+            const image=results[(imageRequests.filter(r=>r.prompt===body.prompt).length-1)%results.length];
+            return new Response(JSON.stringify({data:[{b64_json:image.split(',')[1]}]}),{headers:{'Content-Type':'application/json'}});
         } return nativeFetch(url,options);
     };` });
     await send('Page.reload');
@@ -34,6 +53,15 @@ async function createImage({ evaluate, waitFor }) {
 
 async function change(evaluate, id, value) {
     await evaluate(`(()=>{const field=document.getElementById(${JSON.stringify(id)});field.value=${JSON.stringify(value)};field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+}
+
+async function generateReferenceSources(app) {
+    await controlImages(app);
+    for (const id of ['source-a','source-b']) {
+        await app.evaluate(`document.getElementById('${id}').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()`);
+        await app.waitFor(`imageRequests.filter(r=>r.prompt==='${id}').length===${id==='source-a'?3:2} && !document.getElementById('${id}-prompt').disabled`);
+        await delay(300);
+    }
 }
 
 test('content-first image card keeps common parameters aligned with the real request and reload', { timeout: 60000 }, async () => {
@@ -138,5 +166,30 @@ test('connected prompt shows its existing source while keeping the inactive loca
         await delay(1000); await send('Page.reload'); await waitFor('window.__cainflowAppReady === true'); await delay(500);
         await waitFor("Boolean(document.getElementById('prompt-image-prompt'))");
         assert.equal(await evaluate("document.getElementById('prompt-image-prompt').value"), '本地 B');
+    });
+});
+
+test('reference overview retains ordered source batches and empty sources, with original preview', { timeout: 30000 }, async () => {
+    await withAppBrowser(referenceSession({ empty: true }), async app => {
+        const { evaluate, waitFor, send } = app;
+        await generateReferenceSources(app);
+        await waitFor("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length===3");
+        assert.deepEqual(await evaluate("[...document.querySelectorAll('#reference-target-reference-sources [data-reference-number]')].map(el=>el.dataset.referenceNumber)"), ['1','2','3','4']);
+        assert.match(await evaluate("document.getElementById('reference-target-reference-sources').textContent"), /尚无输出/);
+        await evaluate("document.querySelector('#reference-target-reference-sources .image-reference-expand').click()");
+        assert.deepEqual(await evaluate("[...document.querySelectorAll('#reference-target-reference-sources [data-reference-number]')].map(el=>el.dataset.referenceNumber)"), ['1','2','3','4','5']);
+        assert.equal(await evaluate("document.querySelector('#reference-target-reference-sources [data-reference-number=\"4\"]').disabled"), false, 'available original can be previewed');
+        await evaluate("document.querySelector('#reference-target-reference-sources [data-reference-number=\"4\"]').click()");
+        await waitFor("Boolean(document.querySelector('.fullscreen-overlay'))");
+        assert.equal(await evaluate("document.querySelector('.fullscreen-overlay img').src"), referenceImages[3]);
+        await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+        await waitFor("!document.querySelector('.fullscreen-overlay')");
+        assert.equal(await evaluate('document.activeElement.dataset.referenceNumber'), '4');
+        await delay(1000); await send('Page.reload'); await waitFor('window.__cainflowAppReady === true'); await delay(500);
+        await waitFor("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length===3");
+        assert.deepEqual(await evaluate("[...document.querySelectorAll('#reference-target-reference-sources [data-reference-number]')].map(el=>el.dataset.referenceNumber)"), ['1','2','3','4']);
+        assert.equal(await evaluate('imageRequests.length'), 0, 'reopening the overview does not generate sources');
+        await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-locate').click()");
+        assert.equal(await evaluate("document.getElementById('source-b').classList.contains('selected')"), true);
     });
 });

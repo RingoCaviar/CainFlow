@@ -1,4 +1,5 @@
 import { createThinkingControl } from '../features/execution/thinking-control.js';
+import { createImageReferenceOverview } from './image-reference-overview.js';
 import { getThinkingCapability } from '../features/execution/thinking-config.js';
 import { createSelectionApi } from '../canvas/selection.js';
 /**
@@ -48,6 +49,11 @@ export function createNodeDomBindingsApi({
     viewportApi,
     getPortPosition,
     getCachedOutputValue = (node, port) => node?.data?.[port],
+    createReferenceThumbnail,
+    readReferenceSourceImages,
+    openReferencePreview,
+    focusReferenceSource,
+    getWorkflowId,
     pushHistory,
     removeNode,
     selectNode,
@@ -87,6 +93,10 @@ export function createNodeDomBindingsApi({
     const NODE_RESIZABLE_MEDIA_SELECTOR = '.file-drop-zone, .preview-container, .save-preview-container, .image-compare-container';
     const ZOOM_SETTLE_GUARD_MS = 220;
     const pendingConnectedInputLayoutFrames = new Map();
+    const referenceOverview = createImageReferenceOverview({ state, documentRef, getCachedOutputValue,
+        createThumbnail: createReferenceThumbnail, readSourceImages: readReferenceSourceImages,
+        openPreview: openReferencePreview, focusNode: focusReferenceSource, getWorkflowId, showToast,
+        onLayout: scheduleConnectedInputFieldLayout });
     const IMAGE_GENERATE_STANDARD_PROTOCOL_PARAMS = new Set([
         'referenceImages',
         'prompt',
@@ -295,6 +305,7 @@ export function createNodeDomBindingsApi({
         let changed = false;
         if (node.type === 'ImageGenerate') {
             changed = syncImagePromptSource(nodeId) || changed;
+            referenceOverview.render(nodeId);
         }
         if (changed) {
             scheduleConnectedInputFieldLayout(nodeId);
@@ -3205,6 +3216,7 @@ export function createNodeDomBindingsApi({
         syncImageMergeNodes,
         syncAllConnectedInputFieldVisibility,
         syncDependentPromptSources,
+        refreshDependentReferenceSources: referenceOverview.refreshSource,
         syncClonesFromSource
     };
 }
