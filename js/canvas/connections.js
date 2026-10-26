@@ -7,6 +7,7 @@ import { getBezierCurveGeometry } from './geometry.js';
 import {
     getNextInputConnectionOrder,
     isMultiConnectionInput,
+    orderInputConnections,
     MAX_REFERENCE_IMAGE_COUNT
 } from '../nodes/reference-image-ports.js';
 import { getGenerationNodeInputConnectionPolicy } from '../nodes/generation-input-projection.js';
@@ -967,6 +968,37 @@ export function createConnectionsApi({
         return true;
     }
 
+    function getImageReferenceConnections(nodeId) {
+        if (getNodeById(nodeId)?.type !== 'ImageGenerate') return [];
+        return orderInputConnections('ImageGenerate', state.connections.filter(connection => connection.to.nodeId === nodeId
+            && (connection.to.port === 'referenceImages' || /^image_\d+$/.test(connection.to.port))));
+    }
+
+    function moveImageReferenceConnection(nodeId, connectionId, targetConnectionId) {
+        const connections = getImageReferenceConnections(nodeId);
+        const from = connections.findIndex(connection => connection.id === connectionId);
+        const to = connections.findIndex(connection => connection.id === targetConnectionId);
+        if (from < 0 || to < 0 || from === to || connections.some(hasRunningEndpoint)) return false;
+        pushHistory();
+        connections.splice(to, 0, connections.splice(from, 1)[0]);
+        const orders = new Map(connections.map((connection, index) => [connection.id, index]));
+        state.connections = state.connections.map(connection => orders.has(connection.id)
+            ? { ...connection, order: orders.get(connection.id) } : connection);
+        rebuildConnectionIndex();
+        updateAllConnections();
+        updatePortStyles();
+        scheduleSave();
+        onConnectionsChanged();
+        return true;
+    }
+
+    function disconnectImageReferenceConnection(nodeId, connectionId) {
+        const connection = getImageReferenceConnections(nodeId).find(item => item.id === connectionId);
+        if (!connection || hasRunningEndpoint(connection)) return false;
+        pushHistory();
+        return deleteConnection(connectionId);
+    }
+
     function ensureConnectionPath(conn) {
         let path = pathById.get(conn.id);
         if (path) return path;
@@ -1614,6 +1646,8 @@ export function createConnectionsApi({
         getCompatibleNodeTypeCandidates,
         createNodeFromConnectionCandidate,
         deleteConnection,
+        moveImageReferenceConnection,
+        disconnectImageReferenceConnection,
         finishConnection,
         drawTempConnection,
         updatePortStyles

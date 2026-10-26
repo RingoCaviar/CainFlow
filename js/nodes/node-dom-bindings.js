@@ -54,6 +54,8 @@ export function createNodeDomBindingsApi({
     openReferencePreview,
     focusReferenceSource,
     getWorkflowId,
+    moveReferenceSource,
+    disconnectReferenceSource,
     pushHistory,
     removeNode,
     selectNode,
@@ -96,6 +98,7 @@ export function createNodeDomBindingsApi({
     const referenceOverview = createImageReferenceOverview({ state, documentRef, getCachedOutputValue,
         createThumbnail: createReferenceThumbnail, readSourceImages: readReferenceSourceImages,
         openPreview: openReferencePreview, focusNode: focusReferenceSource, getWorkflowId, showToast,
+        moveSource: moveReferenceSource, disconnectSource: disconnectReferenceSource,
         onLayout: scheduleConnectedInputFieldLayout });
     const IMAGE_GENERATE_STANDARD_PROTOCOL_PARAMS = new Set([
         'referenceImages',
@@ -1108,6 +1111,7 @@ export function createNodeDomBindingsApi({
         if (!node?.isClone) return;
         el.querySelectorAll('.node-body input, .node-body select, .node-body textarea, .node-body button, .node-select-trigger').forEach((control) => {
             if (control.hasAttribute('data-node-read-action')) return;
+            if (node.type === 'ImageGenerate' && control.hasAttribute('data-node-connection-action')) return;
             control.dataset.cloneLocked = '1';
             control.classList.add('clone-locked-control');
             if (control.tagName === 'TEXTAREA' || control.tagName === 'INPUT') {

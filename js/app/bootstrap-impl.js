@@ -683,6 +683,8 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     openReferencePreview: (images, index, onClose) => openFullscreenPreview(images[index], null, { images, index, onClose }),
     focusReferenceSource: nodeId => focusCanvasNode(nodeId),
     getWorkflowId: () => workflowManagerApi.getActiveWorkflowId?.() || '',
+    moveReferenceSource: (nodeId, connectionId, targetConnectionId) => connectionsApi.moveImageReferenceConnection(nodeId, connectionId, targetConnectionId),
+    disconnectReferenceSource: (nodeId, connectionId) => connectionsApi.disconnectImageReferenceConnection(nodeId, connectionId),
     getPortPosition: (nodeId, portName, direction) => getPortPosition(nodeId, portName, direction),
     pushHistory,
     removeNode: (nodeId, options) => removeNode(nodeId, options),
