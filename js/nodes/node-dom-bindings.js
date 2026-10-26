@@ -56,6 +56,7 @@ export function createNodeDomBindingsApi({
     getWorkflowId,
     moveReferenceSource,
     disconnectReferenceSource,
+    prepareNodeContext = () => {},
     pushHistory,
     removeNode,
     selectNode,
@@ -2599,6 +2600,12 @@ export function createNodeDomBindingsApi({
             });
         }
         else if (type === 'ImageGenerate') {
+            const boundNode = state.nodes.get(id);
+            el.querySelector(`#${id}-assistant`)?.addEventListener('click', event => {
+                event.stopPropagation();
+                if (state.nodes.get(id) !== boundNode || blockRunningNodeMutation(id, event)) return;
+                prepareNodeContext({ workflowId: getWorkflowId?.() || '', nodeId: id });
+            });
             el.querySelector(`#${id}-prompt-source summary`)?.addEventListener('click', event => {
                 blockRunningNodeMutation(id, event, '节点正在运行，暂不能展开文本预览');
             });

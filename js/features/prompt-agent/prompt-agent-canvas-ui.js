@@ -177,6 +177,11 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
 
 export function attachCanvasMentions({ documentRef, input, adapter }) {
     const mentions = new Map(); let menu = null; let index = 0;
+    const remember = node => {
+        const token = `@${node.name.replace(/\s/g, '_')}[${node.id}]`;
+        mentions.set(node.id, { id: node.id, token, name: node.name, type: node.type });
+        return token;
+    };
     const surfaces = getSurfaceCoordinator(documentRef);
     const close = () => { menu?.remove(); menu = null; input.removeAttribute('aria-activedescendant'); input.removeAttribute('aria-controls'); input.setAttribute('aria-expanded', 'false'); surfaces?.forgetPopover('agent-node-mentions'); };
     input.addEventListener('input', () => {
@@ -194,8 +199,7 @@ export function attachCanvasMentions({ documentRef, input, adapter }) {
             const button = documentRef.createElement('button'); button.type = 'button'; button.textContent = `${node.name} · ${node.type} · ${node.id}`; button.setAttribute('role', 'option');
             button.id = `agent-node-mention-${i}`; button.setAttribute('aria-selected', String(i === 0));
             button.addEventListener('click', () => {
-                const token = `@${node.name.replace(/\s/g, '_')}[${node.id}]`;
-                mentions.set(node.id, { id: node.id, token, name: node.name, type: node.type });
+                const token = remember(node);
                 input.value = before.slice(0, -match[0].length) + token + ' ' + input.value.slice(input.selectionStart);
                 close(); input.focus();
             }); menu.appendChild(button);
@@ -215,5 +219,14 @@ export function attachCanvasMentions({ documentRef, input, adapter }) {
             input.setAttribute('aria-activedescendant', buttons[index].id);
         }
     }, true);
-    return { close, read: () => [...mentions.values()].filter(item => input.value.includes(item.token)), clear: () => { mentions.clear(); close(); } };
+    const read = () => [...mentions.values()].filter(item => input.value.includes(item.token));
+    const append = node => {
+        if (read().some(item => item.id === node.id)) return false;
+        const token = remember(node);
+        input.value += `${input.value && !/\s$/.test(input.value) ? '\n' : ''}${token} `;
+        input.setSelectionRange(input.value.length, input.value.length);
+        close(); input.dispatchEvent(new Event('input', { bubbles: true })); input.focus();
+        return true;
+    };
+    return { close, read, append, clear: () => { mentions.clear(); close(); } };
 }

@@ -77,6 +77,8 @@
 .image-reference-source-status { margin: 4px 0; color: var(--text-secondary); }
 .image-reference-sources button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 .image-reference-expand { margin-top: 8px; }
+.image-prompt-actions { display: flex; justify-content: flex-end; margin-top: 6px; }
+.image-node-assistant { padding: 6px 10px; font-size: 12px; }
 .image-reference-heading > button:not(.image-reference-locate) { flex: 0 0 26px; padding: 3px; min-width: 0; }
 .image-reference-drag { cursor: grab; }
 .image-reference-disconnect { margin-top: 5px; font-size: 12px; }
