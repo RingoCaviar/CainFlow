@@ -697,6 +697,12 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     disconnectReferenceSource: (nodeId, connectionId) => connectionsApi.disconnectImageReferenceConnection(nodeId, connectionId),
     prepareNodeContext: reference => promptAgentController.prepareNodeContext(reference),
     createImageResultActions: buildImageResultActions,
+    runToNode: nodeId => runWorkflow({ mode: 'target-node', targetNodeId: nodeId }),
+    openNodeLog: nodeId => {
+        const log = state.logs?.find(entry => entry.nodeId === nodeId);
+        if (log) getLogPanelApi().showLogDetail(log.id);
+        else panelManager.toggle('logs');
+    },
     readResultAsset: key => getImageAsset(key),
     createResultThumbnail: source => mediaControllerApi.createResultThumbnail(source),
     rememberResultThumbnail: (nodeId, source, thumbnail) => mediaControllerApi.rememberResultThumbnail(nodeId, source, thumbnail),

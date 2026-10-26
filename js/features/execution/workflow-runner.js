@@ -22,6 +22,7 @@ import { getGenerationInputProtocolId } from './provider-request-utils.js';
 import { resolveVideoExecutionInputRecord } from '../../nodes/video-execution-input-record.js';
 import { getNodeImageResultPersistence, IMAGE_RESULT_PERSISTENCE } from '../../nodes/registry.js';
 import { appendReferenceDescriptions } from './reference-image-description.js';
+import { renderImageNodeRunState } from '../../nodes/image-node-run-state.js';
 
 export function clearNodeExecutionFailure(node) {
     if (!node) return;
@@ -221,6 +222,11 @@ export function createWorkflowRunnerApi({
     }
 
     function emitNodeRunState(payload) {
+        const node = state.nodes.get(payload.nodeId);
+        if (['waiting', 'running', 'completed', 'error', 'aborted'].includes(payload.status) && node) {
+            node.runStatus = payload.status;
+            renderImageNodeRunState(node);
+        }
         try {
             onNodeRunStateChange(payload);
         } catch (err) {
@@ -509,6 +515,7 @@ export function createWorkflowRunnerApi({
                 nodeId,
                 status: result.status || 'idle',
                 running: false,
+                failure: node?.executionFailure,
                 durationSec: result.durationSec || node?.lastDuration || null
             });
         }
@@ -600,7 +607,6 @@ export function createWorkflowRunnerApi({
             removeConcurrentRequestStatusPanel(node);
             node.data = getPreservedNodeDataForReset(node);
             node.isSucceeded = false;
-            clearNodeExecutionFailure(node);
             if (node.type === 'ImageGenerate') {
                 node.imageData = null;
                 node.imageDataList = [];
@@ -617,6 +623,8 @@ export function createWorkflowRunnerApi({
             if (node.type === 'ImageGenerate' || node.type === 'VideoGenerate' || node.type === 'TextChat') {
                 delete node.apiGenerationProgress;
             }
+            setNodeRunningLock(node, true);
+            emitNodeRunState({ nodeId: nid, status: 'waiting' });
         }
         connectionProjection?.nodeAppearanceChanged(changedNodeIds);
         connectionProjection?.nodeGeometryChanged(geometryChangedNodeIds);
@@ -2295,6 +2303,10 @@ export function createWorkflowRunnerApi({
         function finalizeWorkflow() {
             if (session.finalized) return;
             session.finalized = true;
+            for (const nodeId of plan.executionOrder) {
+                const node = state.nodes.get(nodeId);
+                if (node?.runStatus === 'waiting') clearNodeRunning(nodeId, node, { status: node.isFailed ? 'error' : 'aborted' });
+            }
             if (session.timeoutId) {
                 clearTimeout(session.timeoutId);
                 session.timeoutId = null;

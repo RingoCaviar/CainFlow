@@ -5,7 +5,7 @@ import { createConnectionsApi } from '../../canvas/connections.js';
 import { createConnectionProjection } from '../../canvas/connection-projection.js';
 import { createCameraControlNodeApi } from '../camera/camera-control-node-proxy.js';
 import { createExecutionCoreApi } from '../execution/execution-core.js';
-import { createWorkflowRunnerApi } from '../execution/workflow-runner.js';
+import { createWorkflowRunnerApi, clearNodeExecutionFailure, showNodeExecutionFailure } from '../execution/workflow-runner.js';
 import {
     normalizeConcurrentRequestStatusPayload,
     removeConcurrentRequestStatusPanel,
@@ -1188,6 +1188,16 @@ export function createWorkflowRuntimeManager({
             return;
         }
 
+        node.runStatus = payload.status || 'idle';
+        if (payload.status === 'waiting') {
+            node.isSucceeded = false;
+            if (node.type === 'ImageGenerate') clearCanonicalImageOutput(node);
+            workflowRunViewNodeIds.add(nodeId);
+            setVisibleNodeControlsLocked(node, true);
+            onVisibleNodeChanged(nodeId);
+            return;
+        }
+
         if (payload.running === true || payload.status === 'running') {
             const startedAt = Number(payload.startedAt) || Date.now();
             removeConcurrentRequestStatusPanel(node);
@@ -1199,7 +1209,6 @@ export function createWorkflowRuntimeManager({
                 return context?.runner?.cancelRunningNode?.(nodeId) || false;
             });
             node.runStartedAt = startedAt;
-            node.isFailed = false;
             node.el.classList.add('running');
             node.el.classList.remove('completed', 'error', 'workflow-running-locked');
             setVisibleNodeControlsLocked(node, true);
@@ -1213,6 +1222,7 @@ export function createWorkflowRuntimeManager({
 
         const status = payload.status || 'idle';
         if (status === 'completed') {
+            clearNodeExecutionFailure(node);
             node.isSucceeded = true;
             node.isFailed = false;
             node.el.classList.add('completed');
@@ -1225,6 +1235,7 @@ export function createWorkflowRuntimeManager({
                 timeBadge.style.color = '';
             }
         } else if (status === 'error') {
+            if (payload.failure) showNodeExecutionFailure(node, payload.failure);
             node.isSucceeded = false;
             node.isFailed = true;
             node.el.classList.add('error');
@@ -1251,6 +1262,9 @@ export function createWorkflowRuntimeManager({
             return;
         }
         contexts.forEach((context) => {
+            context.state.nodes.forEach((runtimeNode, nodeId) => {
+                if (runtimeNode.runStatus === 'waiting') applyVisibleNodeRunState(workflowReference, { nodeId, status: 'waiting' });
+            });
             context.state.runningNodeIds?.forEach((nodeId) => {
                 const runtimeNode = context.state.nodes.get(nodeId);
                 applyVisibleNodeRunState(workflowReference, {

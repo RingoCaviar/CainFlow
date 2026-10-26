@@ -35,7 +35,7 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
         if (target?.type !== 'ImageGenerate' || !container) return;
         let view = views.get(container);
         if (!view) { view = { expanded: false, groups: [], revision: 0 }; views.set(container, view); }
-        const disabled = state.runningNodeIds?.has(nodeId) === true;
+        const disabled = state.runningNodeIds?.has(nodeId) === true || target.runStatus === 'waiting';
         const groups = orderInputConnections('ImageGenerate', state.connections.filter(connection => connection.to.nodeId === nodeId
             && (connection.to.port === 'referenceImages' || /^image_\d+$/.test(connection.to.port))))
             .map(connection => {

@@ -575,6 +575,11 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             </button>
         </div>
         <div class="node-error-msg hidden" id="${id}-error"></div>
+        <div class="image-node-run-actions">
+            <button type="button" class="btn btn-primary" id="${id}-run-to-here" title="运行此节点和所需上游，保留固定上游的成功缓存">运行到此</button>
+            <output class="image-node-run-status" id="${id}-run-status" aria-live="polite">待运行</output>
+            <button type="button" class="save-btn-secondary" id="${id}-run-log" data-node-read-action="true">查看日志</button>
+        </div>
         <section class="image-node-results" id="${id}-image-results" aria-label="生成结果" hidden></section>
     `;
 }
