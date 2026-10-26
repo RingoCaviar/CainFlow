@@ -9,7 +9,7 @@ export function createImageNodeResults({ state, documentRef, createActions = () 
         const node = state.nodes.get(nodeId), host = documentRef.getElementById(`${nodeId}-image-results`);
         if (node?.type !== 'ImageGenerate' || !host) return;
         const images = getCanonicalImageList(node), assets = [...(node.data?.mediaAssetKeys || [])];
-        const running = state.runningNodeIds?.has(nodeId) === true;
+        const running = state.runningNodeIds?.has(nodeId) === true || node.runStatus === 'waiting';
         const retained = images.length || Number(node.data?.imageCount) > 0 || node.data?.imageAssetReady === true
             || node.data?.imageMemoryReleased === true;
         const count = running || !retained ? 0 : Math.max(images.length, assets.length, Number(node.data?.imageCount) || 0);
@@ -21,7 +21,7 @@ export function createImageNodeResults({ state, documentRef, createActions = () 
         host.replaceChildren(); host.hidden = count === 0;
         if (!count) { onLayout(nodeId); return; }
         const assetKey = assets[index], original = images[index], legacyKey = node.data?.imageAssetKey;
-        const isCurrent = () => state.nodes.get(nodeId) === node && !state.runningNodeIds?.has(nodeId)
+        const isCurrent = () => state.nodes.get(nodeId) === node && node.runStatus !== 'waiting' && !state.runningNodeIds?.has(nodeId)
             && (assetKey ? node.data?.mediaAssetKeys?.[index] === assetKey : original
                 ? getCanonicalImageList(node)[index] === original : node.data?.imageAssetKey === legacyKey);
         const readOriginal = async () => {

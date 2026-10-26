@@ -1,7 +1,9 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { withAppBrowser, delay } from './helpers/app-browser.mjs';
+import { parseColor, composite, contrastRatio } from './helpers/browser-theme-fixture.mjs';
 
 const session = {
     autoCheckUpdatesOnLoad: false,
@@ -42,12 +44,15 @@ async function reloadApp({ evaluate, send, waitFor }) {
 
 async function controlImages(app) {
     await app.send('Page.addScriptToEvaluateOnNewDocument', { source: `window.imageRequests=[];const nativeFetch=window.fetch;window.fetch=async(url,options={})=>{
-        if(String(url)==='/proxy') { const body=JSON.parse(options.body); imageRequests.push(body);
+        if(String(url)==='/proxy') { const body=JSON.parse(options.body);
+            if(!body.messages && !body.contents && typeof body.prompt!=='string') return nativeFetch(url,options);
+            imageRequests.push(body);
             if(window.holdPrompt && window.holdPrompt===body.prompt) await new Promise(resolve=>window.releasePromptResponse=resolve);
             if(window.failImage && !body.messages) return new Response(JSON.stringify({error:{message:'受控失败：请检查模型配置'}}),{status:400,headers:{'Content-Type':'application/json'}});
             if(body.messages) {
                 const content=body.messages.at(-1).content,input=JSON.parse(Array.isArray(content)?content.find(p=>p.type==='text').text:content);
                 const plan=window.assistantBatch ? {canvasPlan:{version:1,steps:[{id:'generate',type:'ImageGenerate',parameters:{prompt:'source-a',generationCount:3}}],connections:[]}} : window.assistantGenerate ? {promptPlan:{prompt:'source-a',parameters:{},imageRoles:input.images.filter(i=>i.origins.includes('本轮附件')).map(i=>({imageId:i.imageId,role:'reference',purpose:'保留主体'}))}} : {canvasPlan:{version:1,steps:[{id:'revise',type:'ImageGenerate',nodeId:window.assistantTargetId||'context-one',parameters:{prompt:'助手优化后的提示词'}}],connections:[]}};
+                if(window.keepReferenceSources) plan.canvasPlan.connections=['source-b','source-a'].map((ref,order)=>({from:{ref,port:'image'},to:{ref:'revise',port:'referenceImages'},type:'image',order}));
                 return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({intent:'generate',message:'请核对修改方案',...plan})}}]}),{headers:{'Content-Type':'application/json'}});
             }
             if(body.contents) {
@@ -452,5 +457,110 @@ test('node run-to-here limits the real scope and reports waiting, success, failu
         await evaluate("document.getElementById('scope-up-run-to-here').click()");
         await waitFor("document.getElementById('scope-up-run-status').textContent==='完成'");
         assert.equal(await evaluate("document.querySelector('#scope-up .node-failure-summary').classList.contains('hidden')"), true);
+    });
+});
+
+test('seven themes and narrow panels keep creation actions legible and keyboard reachable', { timeout: 60000 }, async () => {
+    await withAppBrowser(referenceSession(), async app => {
+        const { evaluate, waitFor, send } = app;
+        await send('Emulation.setDeviceMetricsOverride', {width:1440,height:1200,deviceScaleFactor:1,mobile:false});
+        await generateReferenceSources(app);
+        const enter=async()=>{
+            await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,text:'\r'});
+            await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+        };
+        await evaluate("document.querySelector('#reference-target-advanced-parameters > summary').focus()");
+        await enter();
+        assert.equal(await evaluate("document.getElementById('reference-target-advanced-parameters').open"),true);
+        await enter();
+        assert.equal(await evaluate("document.getElementById('reference-target-advanced-parameters').open"),false);
+        await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-move-up').focus()");
+        await enter();
+        assert.equal(await evaluate("document.querySelector('#reference-target-reference-sources .image-reference-group').dataset.referenceConnection"),'edge-source-b');
+        await evaluate("document.querySelector('#reference-target-reference-sources [data-reference-number=\"1\"]').focus()");
+        await enter();
+        await waitFor("Boolean(document.querySelector('.fullscreen-overlay img'))");
+        assert.equal(await evaluate("document.querySelector('.fullscreen-overlay img').src"),referenceImages[3]);
+        await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});
+        await waitFor("!document.querySelector('.fullscreen-overlay')");
+        assert.equal(await evaluate('document.activeElement.dataset.referenceNumber'),'1');
+        await evaluate("document.getElementById('source-a-assistant').click()");
+        const evidence = [];
+        for (const theme of ['dark','pro','paper','light','glass-light','glass-dark','pink']) {
+            await evaluate(`document.documentElement.dataset.appTheme='${theme}'`);
+            await delay(300);
+            const rows = await evaluate(`(()=>{const root=document.getElementById('source-a');return [...root.querySelectorAll('.image-node-run-status,.image-result-actions button:not(:disabled),.image-node-result-count,.image-node-assistant,.node-select-trigger:not(:disabled)')].filter(el=>el.checkVisibility()).map(el=>{const style=getComputedStyle(el),backgrounds=[];for(let parent=el;parent;parent=parent.parentElement)backgrounds.push(getComputedStyle(parent).backgroundColor);return {text:el.textContent,color:style.color,backgrounds,font:parseFloat(style.fontSize),inside:el.getBoundingClientRect().right<=root.getBoundingClientRect().right+1}})})()`);
+            assert.ok(rows.length>=6);
+            for (const row of rows) {
+                let background=[255,255,255,1];
+                for(const color of row.backgrounds.toReversed()) background=composite(parseColor(color),background);
+                const contrast=contrastRatio(composite(parseColor(row.color),background),background);
+                assert.ok(contrast>=4.5, `${theme} contrast ${contrast.toFixed(2)}: ${JSON.stringify(row)}`);
+                assert.ok(row.font>=13, `${theme} ${row.text}: ${row.font}px`);
+                assert.ok(row.inside, `${theme} ${row.text} exceeds its node`);
+                evidence.push({theme,text:row.text,contrast,font:row.font});
+            }
+            if(process.env.CAINFLOW_QA_SCREENSHOT_DIR){
+                await mkdir(process.env.CAINFLOW_QA_SCREENSHOT_DIR,{recursive:true});
+                const shot=await send('Page.captureScreenshot',{format:'png'});
+                await writeFile(join(process.env.CAINFLOW_QA_SCREENSHOT_DIR,`image-assistant-${theme}.png`),Buffer.from(shot.data,'base64'));
+            }
+        }
+        await evaluate("document.querySelector('#source-a-image-results [data-result-action=more]').focus()");
+        await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,text:'\r'});
+        await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+        await waitFor("Boolean(document.querySelector('.image-result-menu'))");
+        assert.equal(await evaluate('document.activeElement.textContent'), '复制图片');
+        await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});
+        await waitFor("!document.querySelector('.image-result-menu')");
+        assert.equal(await evaluate('document.activeElement.dataset.resultAction'), 'more');
+        await evaluate("document.getElementById('source-a-assistant').click();document.getElementById('prompt-agent-resize').focus()");
+        await send('Input.dispatchKeyEvent',{type:'keyDown',key:'End',code:'End'});
+        const preferred = await evaluate("document.getElementById('prompt-agent-panel').offsetWidth");
+        await send('Emulation.setDeviceMetricsOverride',{width:640,height:720,deviceScaleFactor:1,mobile:false});
+        await delay(150);
+        const narrow = await evaluate("(()=>{const p=document.getElementById('prompt-agent-panel');return {width:p.offsetWidth,scroll:p.scrollWidth,client:p.clientWidth}})()");
+        assert.ok(narrow.width<preferred); assert.ok(narrow.scroll<=narrow.client+1,JSON.stringify(narrow));
+        await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1200,deviceScaleFactor:1,mobile:false});
+        await delay(150);
+        assert.equal(await evaluate("document.getElementById('prompt-agent-panel').offsetWidth"),preferred,'viewport constraints never overwrite preferred width');
+        if(process.env.CAINFLOW_QA_SCREENSHOT_DIR) await writeFile(join(process.env.CAINFLOW_QA_SCREENSHOT_DIR,'theme-geometry.json'),JSON.stringify(evidence,null,2));
+    });
+});
+
+test('old workflow completes source review, ordered generation through Agent, undo redo and reopen', { timeout: 60000 }, async () => {
+    const seeded=referenceSession(),target=seeded.nodes.at(-1);
+    Object.assign(target,{width:476,textareaHeights:{prompt:241},prompt:'保留的本地稿'});
+    seeded.nodes.push({id:'old-text',type:'Text',x:40,y:40,text:'上游已确认描述'});
+    seeded.connections.push({id:'old-prompt-link',from:{nodeId:'old-text',port:'text'},to:{nodeId:'reference-target',port:'prompt'},type:'text'});
+    await withAppBrowser(seeded,async app=>{
+        const {evaluate,waitFor}=app;
+        await generateReferenceSources(app);
+        assert.match(await evaluate("document.getElementById('reference-target-prompt-source').textContent"),/上游已确认描述/);
+        assert.equal(await evaluate("document.getElementById('reference-target-prompt').value"),'保留的本地稿');
+        await evaluate("document.querySelector('[data-conn-id=old-prompt-link]').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-move-up').click()");
+        await change(evaluate,'reference-target-apiconfig','google');
+        await evaluate("window.assistantTargetId='reference-target';window.keepReferenceSources=true;document.getElementById('reference-target-assistant').click();document.getElementById('prompt-agent-input').value+='使用乙和甲作为参考图，保持乙在前。';document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=google][data-provider-id=p]').click();document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
+        assert.equal(await evaluate("document.getElementById('reference-target-prompt').value"),'保留的本地稿');
+        await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='应用并执行').click()");
+        await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
+        assert.deepEqual(await evaluate("imageRequests.find(r=>r.contents).contents.flatMap(c=>c.parts).filter(p=>p.inlineData).map(p=>p.inlineData.data)"),[...referenceImages.slice(3),...referenceImages.slice(0,3)].map(image=>image.split(',')[1]));
+        assert.equal(await evaluate('imageRequests.filter(r=>!r.messages).length'),6,'only five source generations and one explicit target generation');
+        assert.equal(await evaluate("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length"),2);
+        await evaluate("document.querySelector('#reference-target-image-results [data-result-action=reference]').click()");
+        await waitFor("document.querySelectorAll('#prompt-agent-references img').length===1 && !document.querySelector('#prompt-agent-references .is-loading')");
+        assert.equal(await evaluate("document.querySelector('#prompt-agent-references img').src"),'data:image/png;base64,'+png);
+        const importId=await evaluate("document.querySelector('#nodes-layer .node-import').id");
+        await evaluate("document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,bubbles:true,cancelable:true}))");
+        await waitFor(`!document.getElementById('${importId}') && [...document.querySelectorAll('.toast')].some(t=>t.textContent.includes('已撤回上一步操作'))`);
+        await evaluate("document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'y',ctrlKey:true,bubbles:true,cancelable:true}))");
+        await waitFor(`Boolean(document.getElementById('${importId}')) && [...document.querySelectorAll('.toast')].some(t=>t.textContent.includes('已重做上一步操作'))`);
+        await delay(1000);await reloadApp(app);
+        await waitFor("document.querySelector('#source-a-image-results .image-node-result-count')?.textContent.endsWith('/ 3')");
+        assert.deepEqual(await evaluate("[...document.querySelectorAll('#reference-target-reference-sources .image-reference-locate')].map(el=>el.textContent.split(' · ')[0])"),['乙','甲']);
+        assert.deepEqual(await evaluate("(()=>{const node=document.getElementById('reference-target');return {x:node.style.left,y:node.style.top,width:node.offsetWidth,promptHeight:document.getElementById('reference-target-prompt').offsetHeight}})()"),{x:'500px',y:'120px',width:476,promptHeight:241});
+        assert.equal(await evaluate("document.getElementById('reference-target-prompt').value"),'助手优化后的提示词');
+        assert.equal(await evaluate('imageRequests.length'),0);
     });
 });

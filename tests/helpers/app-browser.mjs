@@ -6,8 +6,8 @@ import { join, resolve, sep } from 'node:path';
 import assert from 'node:assert/strict';
 
 export const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-export async function withAppBrowser(session, task) {
-    const server = await startCainflowServer({ session });
+export async function withAppBrowser(session, task, { repoDirectory } = {}) {
+    const server = await startCainflowServer({ session, repoDirectory });
     const profile = await mkdtemp(join(tmpdir(), 'cainflow-canvas-browser-'));
     const browser = spawn(chromePath, ['--headless=new', '--disable-gpu', '--no-sandbox', '--disable-extensions', `--user-data-dir=${profile}`, '--remote-debugging-port=0', 'about:blank'], { stdio: 'ignore' });
     let socket;

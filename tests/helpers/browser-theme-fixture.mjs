@@ -27,13 +27,13 @@ async function findFreePort() {
     return port;
 }
 
-export async function startCainflowServer({ session = null } = {}) {
+export async function startCainflowServer({ session = null, repoDirectory = repoRoot } = {}) {
     const dataDir = mkdtempSync(join(tmpdir(), 'cainflow-browser-data-'));
     const workflowsDir = mkdtempSync(join(tmpdir(), 'cainflow-browser-workflows-'));
     const port = await findFreePort();
     const python = process.env.CAINFLOW_PYTHON || 'python';
     const child = spawn(python, ['server.py', '--browser', '--port', String(port)], {
-        cwd: repoRoot,
+        cwd: repoDirectory,
         env: {
             ...process.env,
             CAINFLOW_DATA_DIR: dataDir,

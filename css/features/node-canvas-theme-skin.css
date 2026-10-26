@@ -83,6 +83,28 @@
 .image-reference-drag { cursor: grab; }
 .image-reference-disconnect { margin-top: 5px; font-size: 12px; }
 
+.image-node-assistant,
+.image-reference-sources button,
+.image-node-run-actions .save-btn-secondary,
+.image-node-result-navigation button {
+    min-height: 28px;
+    padding: 5px 8px;
+    border: 1px solid var(--node-control-border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    background: var(--node-control-surface);
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+.image-reference-heading .image-reference-locate { border: 0; background: transparent; padding-left: 0; }
+.image-reference-sources button:disabled,
+.image-node-assistant:disabled { opacity: .5; cursor: default; }
+.image-node-assistant:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.node-generate .node-select-trigger,
+.image-prompt-source,
+.image-reference-sources { font-size: 13px; }
+
 .node-generate textarea.image-generate-prompt,
 .node-generate textarea.image-generate-prompt::placeholder {
     font-size: 13px;
