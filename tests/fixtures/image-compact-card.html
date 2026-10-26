@@ -19,7 +19,7 @@ try {
         node.innerHTML = createNodeMarkup({type:'ImageGenerate', id:'sample', config:NODE_CONFIGS.ImageGenerate,
             restoreData:{apiConfigId:'model', moderation:'low', background:'transparent', quality:'high', prompt:'保留提示词'},
             state:{models:[{id:'model',modelId:'gpt-image-2',taskType:'image',protocol:'openai',providerIds:['provider']}], providers:[{id:'provider',type:'openai',name:'示例'}]}});
-        const details = node.querySelector('details');
+        const details = node.querySelector('.node-advanced-parameters');
         const height = node.getBoundingClientRect().height;
         const visible = (suffix) => node.querySelector(`#sample-${suffix}`).checkVisibility();
         const collapsed = !visible('moderation');
@@ -48,7 +48,7 @@ try {
         viewportApi:{},pushHistory:noop,scheduleSave:noop,showToast:noop,debounce:(fn)=>fn,
         fitNodeToContent:lifecycle.fitNodeToContent,connectionProjection:projection});
     bindings.bindNodeInteractions({id:'sample',type:'ImageGenerate',el:node});
-    const details=node.querySelector('details');
+    const details=node.querySelector('.node-advanced-parameters');
     details.open=false;
     details.dispatchEvent(new Event('toggle'));
     const compactHeight=node.getBoundingClientRect().height;

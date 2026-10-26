@@ -674,6 +674,7 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     connectionsGroup,
     tempConnection,
     viewportApi,
+    getCachedOutputValue: (node, port) => getExecutionCoreApi().getCachedOutputValue(node, port),
     getPortPosition: (nodeId, portName, direction) => getPortPosition(nodeId, portName, direction),
     pushHistory,
     removeNode: (nodeId, options) => removeNode(nodeId, options),
@@ -1627,6 +1628,7 @@ function getWorkflowRunnerApi() {
             focusCanvasNode,
             onWorkflowFailures: showWorkflowFailureSummary,
             onNodeRunStateChange: (payload) => {
+                if (payload?.nodeId) nodeDomBindingsApi.syncDependentPromptSources(payload.nodeId);
                 const activeWorkflow = workflowManagerApi.getActiveWorkflow();
                 if (activeWorkflow?.workflowId) {
                     getWorkflowRuntimeManagerApi().applyVisibleNodeRunState({
