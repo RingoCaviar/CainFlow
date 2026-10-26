@@ -16,6 +16,8 @@ export function createHistoryPreviewApi({
     downloadImage,
     copyToClipboard,
     copyImageToClipboard,
+    createImageResultActions = null,
+    onImageHandoff = () => {},
     renderHistoryList,
     showToast,
     documentRef = document,
@@ -262,6 +264,19 @@ export function createHistoryPreviewApi({
         revokePreviewVideoUrl();
         const isVideo = isVideoHistoryItem(item);
         setPreviewMode(isVideo ? 'video' : 'image');
+        const actionHost = documentRef.getElementById('history-image-result-actions');
+        actionHost?.replaceChildren();
+        btnDownload?.classList.toggle('hidden', !isVideo && Boolean(createImageResultActions));
+        if (!isVideo && actionHost && createImageResultActions) {
+            const actions = createImageResultActions({
+                name: `历史图片 ${item.id}`, historyId: item.id, assetKey: item.imageAssetKey,
+                readOriginal: async () => (await getFullHistoryItem(item))?.image || '',
+                isCurrent: () => token === previewState.loadToken && previewState.currentItem?.id === item.id,
+                beforeHandoff: () => { closeHistoryPreview(); onImageHandoff(); },
+                restoreFocus: () => actionHost.querySelector('[data-result-action=preview]')?.focus({ preventScroll: true })
+            });
+            actionHost.append(actions.element);
+        }
 
         if (img) {
             img.onload = null;

@@ -311,6 +311,9 @@
                         <span class="prompt-agent-node-context-copy"></span>
                         <button id="prompt-agent-insert-node-context" type="button">插入目标引用</button>
                     </div>
+                    <div id="prompt-agent-image-context" class="prompt-agent-node-context" role="status" hidden>
+                        <span></span><button id="prompt-agent-insert-image-request" type="button">插入修改请求</button>
+                    </div>
                     <section id="prompt-agent-search-menu" class="prompt-agent-search-menu">
                         <label class="prompt-agent-search-toggle"><span>联网搜索</span><span class="toggle-switch prompt-agent-search-switch"><input id="prompt-agent-search-enabled" type="checkbox" role="switch" aria-label="联网搜索"><span class="toggle-slider functional-animation"></span></span></label>
                     </section>
@@ -1282,6 +1285,7 @@
                 </button>
             </div>
             <div id="preview-meta" class="preview-meta"></div>
+            <div id="history-image-result-actions"></div>
         </div>
     </div>
 

@@ -1,5 +1,6 @@
 import { createThinkingControl } from '../features/execution/thinking-control.js';
 import { createImageReferenceOverview } from './image-reference-overview.js';
+import { createImageNodeResults } from './image-node-results.js';
 import { getThinkingCapability } from '../features/execution/thinking-config.js';
 import { createSelectionApi } from '../canvas/selection.js';
 /**
@@ -57,6 +58,10 @@ export function createNodeDomBindingsApi({
     moveReferenceSource,
     disconnectReferenceSource,
     prepareNodeContext = () => {},
+    createImageResultActions,
+    readResultAsset,
+    createResultThumbnail,
+    rememberResultThumbnail,
     pushHistory,
     removeNode,
     selectNode,
@@ -101,6 +106,9 @@ export function createNodeDomBindingsApi({
         openPreview: openReferencePreview, focusNode: focusReferenceSource, getWorkflowId, showToast,
         moveSource: moveReferenceSource, disconnectSource: disconnectReferenceSource,
         onLayout: scheduleConnectedInputFieldLayout });
+    const nodeResults = createImageNodeResults({ state, documentRef, createActions: createImageResultActions,
+        readAsset: readResultAsset, readSourceImages: readReferenceSourceImages, createThumbnail: createResultThumbnail,
+        rememberThumbnail: rememberResultThumbnail, scheduleSave, onLayout: scheduleConnectedInputFieldLayout, showToast });
     const IMAGE_GENERATE_STANDARD_PROTOCOL_PARAMS = new Set([
         'referenceImages',
         'prompt',
@@ -310,6 +318,7 @@ export function createNodeDomBindingsApi({
         if (node.type === 'ImageGenerate') {
             changed = syncImagePromptSource(nodeId) || changed;
             referenceOverview.render(nodeId);
+            nodeResults.render(nodeId);
         }
         if (changed) {
             scheduleConnectedInputFieldLayout(nodeId);
@@ -3227,7 +3236,7 @@ export function createNodeDomBindingsApi({
         syncImageMergeNodes,
         syncAllConnectedInputFieldVisibility,
         syncDependentPromptSources,
-        refreshDependentReferenceSources: referenceOverview.refreshSource,
+        refreshDependentReferenceSources: nodeId => { referenceOverview.refreshSource(nodeId); nodeResults.render(nodeId); },
         syncClonesFromSource
     };
 }

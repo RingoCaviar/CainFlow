@@ -110,6 +110,7 @@ export function createPromptAgentController({
     resultPersistence = null,
     loadResultImages = async () => [],
     openResultPreview = () => {},
+    createImageResultActions = null,
     createRunId = () => globalThis.crypto?.randomUUID?.() || `agent-run-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     readReferenceFile = readImageFile,
     referenceSource = null,
@@ -138,6 +139,7 @@ export function createPromptAgentController({
     let commandIndex = 0;
     let pendingReferenceImages = [];
     let preparedNodeContext = null;
+    let preparedImageRequest = null;
     let referencePickerOpen = false;
     let referencePickerError = '';
     let referenceTab = 'scene';
@@ -558,6 +560,7 @@ export function createPromptAgentController({
             const clearedRevision = workflowRevision;
             canvasMentions?.clear(); canvasViews.forEach(view => view.destroy()); canvasViews.clear();
             preparedNodeContext = null;
+            preparedImageRequest = null;
             const clearing = results.clear(clearedWorkflowId);
             tokenObservation = null;
             pendingReferenceImages = [];
@@ -698,6 +701,7 @@ export function createPromptAgentController({
             heading.textContent = `本轮待发送附件 · ${pendingReferenceImages.length}`;
         }
         renderPreparedNodeContext();
+        renderPreparedImageRequest();
         form?.classList.toggle('has-reference-images', pendingReferenceImages.length > 0);
         if (referenceError) {
             referenceError.hidden = !referencePickerError;
@@ -1023,12 +1027,59 @@ export function createPromptAgentController({
             || !canvasAdapter?.context([reference.nodeId]).nodes.some(node => node.id === reference.nodeId)) return false;
         preparedNodeContext = { workflowId: reference.workflowId, nodeId: reference.nodeId };
         open();
-        if (!input.value.trim() && pendingReferenceImages.length === 0) {
+        if (composerIsEmpty()) {
             insertPreparedNodeContext();
             input.value += '请优化这个生图节点的提示词，保留主体和现有参考关系。先提供方案，由我确认后再应用。';
             input.dispatchEvent(new Event('input', { bubbles: true }));
         }
         renderPreparedNodeContext(); input.focus();
+        return true;
+    }
+
+    function composerIsEmpty() {
+        return !getElements().input?.value.trim() && pendingReferenceImages.length === 0;
+    }
+
+    function renderPreparedImageRequest() {
+        const host = documentRef.getElementById('prompt-agent-image-context');
+        if (!host) return;
+        const request = preparedImageRequest;
+        const current = request && request.workflowId === getWorkflowId() && request.revision === workflowRevision
+            && pendingReferenceImages.some(image => image.selectionKey === request.referenceId);
+        host.hidden = !current;
+        if (!current) { preparedImageRequest = null; return; }
+        host.querySelector('span').textContent = `原图已加入附件：${request.name}。现有草稿保持，可主动插入修改请求。`;
+        const action = documentRef.getElementById('prompt-agent-insert-image-request');
+        action.disabled = getElements().input.value.includes(request.text);
+    }
+
+    async function prepareImageContext(reference, { edit = false } = {}) {
+        if (reference?.workflowId !== getWorkflowId() || !referenceSource || !/^data:image\//i.test(reference.image || '')) return false;
+        const revision = workflowRevision, input = getElements().input;
+        const textBefore = input?.value || '', emptyBefore = composerIsEmpty();
+        open();
+        const stableAsset = reference.assetKey?.startsWith('media:') ? reference.assetKey : '';
+        let identity = stableAsset || (reference.historyId ? `history:${reference.historyId}` : '');
+        if (!identity) {
+            const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(reference.image));
+            identity = `image-data:${[...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('')}`;
+        }
+        if (revision !== workflowRevision || reference.workflowId !== getWorkflowId()) return false;
+        const candidate = { referenceId: `result:${identity}`, historyId: reference.historyId ? String(reference.historyId) : `agent-asset:${identity}`,
+            name: reference.name || '结果原图', resolvedImage: { name: reference.name || '结果原图', dataUrl: reference.image } };
+        await toggleImportedReference(candidate, { toggle: false });
+        if (revision !== workflowRevision || reference.workflowId !== getWorkflowId()) return false;
+        const pending = pendingReferenceImages.find(image => image.selectionKey === candidate.referenceId);
+        if (!pending || pending.loading || pending.error) return false;
+        if (edit && input) {
+            const text = `请以「${reference.name || '选中结果'}」这张原图为基础修改。先提供修改方案，由我确认后再应用或生成。`;
+            if (emptyBefore && input.value === textBefore && pendingReferenceImages.length === 1) {
+                input.value = text; input.dispatchEvent(new Event('input', { bubbles: true }));
+            } else {
+                preparedImageRequest = { workflowId: reference.workflowId, revision, text, referenceId: candidate.referenceId, name: candidate.name };
+            }
+        }
+        renderPreparedImageRequest(); input?.focus();
         return true;
     }
     function close() { canvasMentions?.close(); canvasViews.forEach(view => view.close()); setOpen(false); }
@@ -1353,7 +1404,18 @@ export function createPromptAgentController({
                 event.preventDefault();
                 preview();
             });
-            runState.appendChild(image);
+            if (createImageResultActions) {
+                const wrapper = documentRef.createElement('div');
+                wrapper.className = 'prompt-agent-image-result';
+                const actions = createImageResultActions({
+                    name: `生成结果 ${index + 1}`, assetKey: result.mediaAssetKeys?.[index],
+                    readOriginal: async () => source,
+                    isCurrent: () => revision === workflowRevision && wrapper.isConnected,
+                    restoreFocus: () => wrapper.querySelector('[data-result-action=preview]')?.focus({ preventScroll: true })
+                });
+                wrapper.append(image, actions.element);
+                runState.appendChild(wrapper);
+            } else runState.appendChild(image);
         });
     }
 
@@ -1756,7 +1818,14 @@ export function createPromptAgentController({
         }
         if (input && canvasAdapter) canvasMentions = attachCanvasMentions({ documentRef, input, adapter: canvasAdapter });
         input?.addEventListener('input', renderPreparedNodeContext);
+        input?.addEventListener('input', renderPreparedImageRequest);
         documentRef.getElementById('prompt-agent-insert-node-context')?.addEventListener('click', insertPreparedNodeContext);
+        documentRef.getElementById('prompt-agent-insert-image-request')?.addEventListener('click', () => {
+            renderPreparedImageRequest();
+            if (!preparedImageRequest || !input || input.value.includes(preparedImageRequest.text)) return;
+            input.value += `${input.value && !/\s$/.test(input.value) ? '\n' : ''}${preparedImageRequest.text}`;
+            input.dispatchEvent(new Event('input', { bubbles: true })); input.focus();
+        });
         button?.addEventListener('click', toggle);
         closeButton?.addEventListener('click', close);
         form?.addEventListener('submit', async (event) => {
@@ -1993,6 +2062,7 @@ export function createPromptAgentController({
         thinkingControls.forEach(control => control.close());
         canvasMentions?.clear(); canvasViews.forEach(view => view.destroy()); canvasViews.clear();
         preparedNodeContext = null; renderPreparedNodeContext();
+        preparedImageRequest = null; renderPreparedImageRequest();
         cancelRequest({ silent: true });
         workflowRevision += 1;
         importQueue = Promise.resolve();
@@ -2040,7 +2110,7 @@ export function createPromptAgentController({
     }
 
     return {
-        init, open, close, toggle, submit, cancelRequest, removeNodeReferences, prepareNodeContext, refreshPreparedNodeContext: renderPreparedNodeContext,
+        init, open, close, toggle, submit, cancelRequest, removeNodeReferences, prepareNodeContext, prepareImageContext, refreshPreparedNodeContext: renderPreparedNodeContext,
         restoreWorkflow, snapshotWorkflow, syncWorkflowState, refreshActionStates, refreshResults: refreshRunViews, refreshModels: renderModelOptions
     };
 }

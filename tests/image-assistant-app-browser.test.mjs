@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { withAppBrowser, delay } from './helpers/app-browser.mjs';
@@ -12,13 +13,8 @@ const session = {
     providers: [{ id: 'p', name: '受控供应商', endpoint: 'https://controlled.test/v1', apikey: 'test' }]
 };
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=';
-const referenceImages = [
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAFUlEQVR4nGP4z8BAEBFWMapoABQBAPuQj3FCf3VbAAAAAElFTkSuQmCC',
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAFUlEQVR4nGP4v5SBICKsYlTRACgCAHyv7EFtAkRjAAAAAElFTkSuQmCC',
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAFUlEQVR4nGP4/5+BICKsYlTRACgCAGYDHvAftRnwAAAAAElFTkSuQmCC',
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAE0lEQVR4nGNgYPhPBBpVNAgVAQDcoY9xnYBDRgAAAABJRU5ErkJggg==',
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAEklEQVR4nGNgaGAgjEYVDUZFAHVeSAFOg4vRAAAAAElFTkSuQmCC'
-];
+const referenceImages = await Promise.all(['red','orange','yellow','blue','green'].map(async color =>
+    'data:image/png;base64,' + (await readFile(new URL('./fixtures/reference-' + color + '.png', import.meta.url))).toString('base64')));
 
 function referenceSession({ empty = false } = {}) {
     const sources = [
@@ -47,7 +43,11 @@ async function reloadApp({ evaluate, send, waitFor }) {
 async function controlImages(app) {
     await app.send('Page.addScriptToEvaluateOnNewDocument', { source: `window.imageRequests=[];const nativeFetch=window.fetch;window.fetch=async(url,options={})=>{
         if(String(url)==='/proxy') { const body=JSON.parse(options.body); imageRequests.push(body);
-            if(body.messages) return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({intent:'generate',message:'请核对修改方案',canvasPlan:{version:1,steps:[{id:'revise',type:'ImageGenerate',nodeId:window.assistantTargetId||'context-one',parameters:{prompt:'助手优化后的提示词'}}],connections:[]}})}}]}),{headers:{'Content-Type':'application/json'}});
+            if(body.messages) {
+                const content=body.messages.at(-1).content,input=JSON.parse(Array.isArray(content)?content.find(p=>p.type==='text').text:content);
+                const plan=window.assistantBatch ? {canvasPlan:{version:1,steps:[{id:'generate',type:'ImageGenerate',parameters:{prompt:'source-a',generationCount:3}}],connections:[]}} : window.assistantGenerate ? {promptPlan:{prompt:'source-a',parameters:{},imageRoles:input.images.filter(i=>i.origins.includes('本轮附件')).map(i=>({imageId:i.imageId,role:'reference',purpose:'保留主体'}))}} : {canvasPlan:{version:1,steps:[{id:'revise',type:'ImageGenerate',nodeId:window.assistantTargetId||'context-one',parameters:{prompt:'助手优化后的提示词'}}],connections:[]}};
+                return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({intent:'generate',message:'请核对修改方案',...plan})}}]}),{headers:{'Content-Type':'application/json'}});
+            }
             if(body.contents) {
                 if(window.holdTargetResponse) await new Promise(resolve=>window.releaseTargetResponse=resolve);
                 return new Response(JSON.stringify({candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:'${png}'}}]}}]}),{headers:{'Content-Type':'application/json'}});
@@ -76,7 +76,8 @@ async function generateReferenceSources(app) {
     for (const id of ['source-a','source-b']) {
         await app.evaluate(`document.getElementById('${id}').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()`);
         await app.waitFor(`imageRequests.filter(r=>r.prompt==='${id}').length===${id==='source-a'?3:2} && !document.getElementById('${id}-prompt').disabled`);
-        await delay(300);
+        await app.waitFor(`document.querySelector('#${id}-image-results .image-node-result-count')?.textContent.endsWith('/ ${id==='source-a'?3:2}')`);
+        await delay(100);
     }
 }
 
@@ -317,5 +318,92 @@ test('prepared node mention authorizes a previewed plan only after sending and e
         await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已按撤销栈处理')");
         assert.equal(await evaluate("document.getElementById('context-one-prompt').value"), 'original local prompt');
         assert.equal(await evaluate('imageRequests.length'), 1);
+    });
+});
+
+test('node result actions stage the selected original without rewiring or shrinking its batch', { timeout: 30000 }, async () => {
+    await withAppBrowser(referenceSession(), async app => {
+        const { evaluate, waitFor } = app;
+        await generateReferenceSources(app);
+        await waitFor("Boolean(document.querySelector('#source-a-image-results .image-result-actions'))");
+        await evaluate("document.querySelector('#source-a-image-results [data-result-step=\"-1\"]').click()");
+        await waitFor("document.querySelector('#source-a-image-results .image-node-result-count').textContent==='2 / 3'");
+        await waitFor("document.querySelector('#source-a-image-results .image-node-result-preview img')?.naturalWidth>0");
+        assert.notEqual(await evaluate("document.querySelector('#source-a-image-results .image-node-result-preview img').src"), referenceImages[1], 'display thumbnail is distinct from the original');
+        await evaluate("document.querySelector('#source-a-image-results [data-result-action=reference]').click()");
+        await waitFor("document.querySelectorAll('#prompt-agent-references img').length===1 && !document.querySelector('#prompt-agent-references .is-loading')");
+        assert.equal(await evaluate("document.querySelector('#prompt-agent-references img').src"), referenceImages[1]);
+        assert.equal(await evaluate("document.getElementById('prompt-agent-input').value"), '');
+        assert.equal(await evaluate("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length"), 2);
+        assert.equal(await evaluate('imageRequests.length'), 5);
+        await evaluate("document.querySelector('#source-a-image-results [data-result-step=\"1\"]').click()");
+        await waitFor("document.querySelector('#source-a-image-results .image-node-result-count').textContent==='3 / 3'");
+        assert.equal(await evaluate("document.querySelector('#prompt-agent-references img').src"), referenceImages[1], 'staged image never follows the latest viewed result');
+        await evaluate("document.querySelector('#prompt-agent-references button[aria-label^=移除]').click()");
+        assert.equal(await evaluate("document.querySelectorAll('#nodes-layer .node-import').length"), 1, 'removing attachment retains the imported source');
+        await change(evaluate, 'reference-target-apiconfig', 'google');
+        await evaluate("(()=>{const node=document.getElementById('reference-target'),r=node.getBoundingClientRect();node.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,clientX:r.left+12,clientY:r.top+12}));window.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0,clientX:r.left+12,clientY:r.top+12}));node.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:600,clientY:180}));document.getElementById('context-menu-run-selected').click()})()");
+        await waitFor('imageRequests.some(r=>r.contents)');
+        assert.equal(await evaluate('imageRequests.length'), 6, 'selected-only target reuses the whole source batches');
+        assert.deepEqual(await evaluate("imageRequests.find(r=>r.contents).contents.flatMap(c=>c.parts).filter(p=>p.inlineData).map(p=>p.inlineData.data)"), referenceImages.map(image=>image.split(',')[1]));
+    });
+});
+
+test('history original handoff preserves drafts, offers explicit insertion, and applies real reference edges only on confirmation', { timeout: 30000 }, async () => {
+    await withAppBrowser(referenceSession(), async app => {
+        const { evaluate, waitFor } = app;
+        await generateReferenceSources(app);
+        await change(evaluate, 'prompt-agent-input', '保留我的修改说明');
+        await evaluate("document.getElementById('btn-history').click()");
+        await waitFor("document.querySelectorAll('#history-list .history-card').length===5");
+        await evaluate("document.querySelector('#history-list .history-card').click()");
+        await waitFor("Boolean(document.querySelector('#history-image-result-actions [data-result-action=edit]'))");
+        await waitFor("document.getElementById('history-preview-img').naturalWidth===1024 && !document.getElementById('history-preview-img').classList.contains('history-preview-img-loading')");
+        const selectedOriginal = await evaluate("(async()=>{const blob=await (await fetch(document.getElementById('history-preview-img').src)).blob();return new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.readAsDataURL(blob)})})()");
+        assert.ok(referenceImages.includes(selectedOriginal));
+        assert.deepEqual(await evaluate("[...document.querySelectorAll('#history-image-result-actions button')].slice(0,4).map(b=>b.textContent)"), ['放大','用作参考','交给助手修改','下载']);
+        await evaluate("document.querySelector('#history-image-result-actions [data-result-action=edit]').click()");
+        await waitFor("document.querySelectorAll('#prompt-agent-references img').length===1 && !document.querySelector('#prompt-agent-references .is-loading')");
+        assert.equal(await evaluate("document.querySelector('#prompt-agent-references img').src"), selectedOriginal);
+        assert.equal(await evaluate("document.getElementById('prompt-agent-input').value"), '保留我的修改说明');
+        assert.equal(await evaluate("document.getElementById('history-preview-modal').classList.contains('hidden')"), true);
+        await evaluate("document.getElementById('prompt-agent-insert-image-request').click()");
+        assert.match(await evaluate("document.getElementById('prompt-agent-input').value"), /^保留我的修改说明\n/);
+        assert.equal(await evaluate('imageRequests.length'), 5);
+        assert.equal(await evaluate("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length"), 2);
+        await evaluate("window.assistantGenerate=true;document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=google][data-provider-id=p]').click();document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
+        assert.equal(await evaluate("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length"), 2, 'preview never applies input edges');
+        await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='应用并执行').click()");
+        await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
+        assert.deepEqual(await evaluate("imageRequests.find(r=>r.contents).contents.flatMap(c=>c.parts).filter(p=>p.inlineData).map(p=>p.inlineData.data)"), [selectedOriginal.split(',')[1]]);
+    });
+});
+
+test('assistant batch result selects one original, retains all results on reopen, and prepares an unsent edit', { timeout: 30000 }, async () => {
+    await withAppBrowser(session, async app => {
+        const { evaluate, waitFor, send } = app;
+        await controlImages(app);
+        await evaluate("window.assistantBatch=true;document.getElementById('btn-prompt-agent').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=image][data-provider-id=p]').click()");
+        await change(evaluate, 'prompt-agent-input', '生成3张色块海报');
+        await evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
+        await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='应用并执行').click()");
+        await waitFor("document.querySelectorAll('.prompt-agent-image-result').length===3");
+        await evaluate("document.querySelectorAll('.prompt-agent-image-result')[1].querySelector('[data-result-action=preview]').click()");
+        await waitFor("Boolean(document.querySelector('.fullscreen-overlay img'))");
+        assert.equal(await evaluate("document.querySelector('.fullscreen-overlay img').src"), referenceImages[1]);
+        await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+        await waitFor("!document.querySelector('.fullscreen-overlay')");
+        await evaluate("document.querySelectorAll('.prompt-agent-image-result')[1].querySelector('[data-result-action=edit]').click()");
+        await waitFor("document.querySelectorAll('#prompt-agent-references img').length===1 && !document.querySelector('#prompt-agent-references .is-loading')");
+        assert.equal(await evaluate("document.querySelector('#prompt-agent-references img').src"), referenceImages[1]);
+        assert.match(await evaluate("document.getElementById('prompt-agent-input').value"), /这张原图为基础修改/);
+        assert.equal(await evaluate('imageRequests.length'), 4, 'no request after preparing an edit');
+        await delay(1000); await reloadApp(app);
+        await evaluate("document.getElementById('btn-prompt-agent').click()");
+        await waitFor("document.querySelectorAll('.prompt-agent-image-result').length===3");
+        assert.deepEqual(await evaluate("[...document.querySelectorAll('.prompt-agent-result-image')].map(img=>img.src)"), referenceImages.slice(0,3));
+        assert.equal(await evaluate('imageRequests.length'), 0);
     });
 });

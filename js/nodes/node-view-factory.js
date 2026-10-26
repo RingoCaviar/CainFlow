@@ -575,6 +575,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             </button>
         </div>
         <div class="node-error-msg hidden" id="${id}-error"></div>
+        <section class="image-node-results" id="${id}-image-results" aria-label="生成结果" hidden></section>
     `;
 }
 

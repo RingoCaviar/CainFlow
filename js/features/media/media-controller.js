@@ -3508,6 +3508,14 @@ export function createMediaControllerApi({
         renderImageComparePreview,
         getNodeFullscreenImageContext,
         createReferenceThumbnail: source => previewCache.createDisplayMipmap(source, 96),
+        createResultThumbnail: source => previewCache.createDisplayMipmap(source, 480),
+        rememberResultThumbnail: (nodeId, source, thumbnail) => {
+            const node = getNodeById(nodeId);
+            if (!node) return;
+            const previous = node.data?.imagePreviewThumbnail;
+            setNodePreviewThumbnailValue(node, source, thumbnail);
+            if (node.data?.imagePreviewThumbnail !== previous) scheduleSave();
+        },
         releaseNodeImageData,
         clearPreviewThumbnailCache: () => previewCache.clearPreviewThumbnailCache(),
         scheduleDisplayImageMemorySweep,

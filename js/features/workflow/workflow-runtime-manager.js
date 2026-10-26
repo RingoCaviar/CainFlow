@@ -916,9 +916,14 @@ export function createWorkflowRuntimeManager({
             }
         } else if (runtimeNode.type === 'ImageGenerate') {
             const images = getCanonicalImageList(runtimeNode, { includeResizePreview: false });
+            const currentImages = getCanonicalImageList(node, { includeResizePreview: false });
+            const runtimeAssets = runtimeNode.data?.mediaAssetKeys || [];
+            const currentAssets = node.data?.mediaAssetKeys || [];
+            const sameAssets = runtimeAssets.length > 0 && runtimeAssets.length === currentAssets.length && runtimeAssets.every((key, index) => key === currentAssets[index]);
+            const sameImages = images.length > 0 && images.length === currentImages.length && images.every((image, index) => image === currentImages[index]);
             if (images.length > 0) {
                 setCanonicalImageOutput(node, images, {
-                    currentIndex: runtimeNode.imagePreviewIndex ?? Math.max(0, images.length - 1),
+                    currentIndex: sameAssets || sameImages ? node.imagePreviewIndex : (runtimeNode.imagePreviewIndex ?? Math.max(0, images.length - 1)),
                     assetKey: getNodeImageResultPersistence(runtimeNode.type) === IMAGE_RESULT_PERSISTENCE.PERSISTENT
                         ? (runtimeNode?.data?.imageAssetKey || '')
                         : '',
@@ -935,6 +940,14 @@ export function createWorkflowRuntimeManager({
                 node.imagePromptList = Array.isArray(runtimeNode.imagePromptList) ? runtimeNode.imagePromptList.slice() : [];
                 node.previewZoom = 1;
                 await showResolutionBadge(runtimeNodeId, images[node.imagePreviewIndex || 0] || images[0]);
+            } else if (runtimeNode.isSucceeded === true && runtimeAssets.length > 0) {
+                // Releasing decoded pixels does not discard a successful durable batch or its viewing index.
+                clearCanonicalImageOutput(node, { preservePreviewIndex: true, preservePreviewThumbnail: true });
+                node.data.mediaAssetKeys = runtimeAssets.slice();
+                node.data.imageAssetKey = runtimeAssets[0];
+                node.data.imageCount = runtimeAssets.length;
+                node.data.imageAssetReady = true;
+                node.data.imageMemoryReleased = true;
             } else {
                 clearCanonicalImageOutput(node);
                 node.imagePromptList = [];
