@@ -36,7 +36,7 @@ import {
     resolveGenerationInputProjection
 } from './generation-input-projection.js';
 import { activateProtocolVariantDraft, getProtocolVariantDraftKey, saveProtocolVariantDraft } from './protocol-variant-drafts.js';
-import { getPrimaryImageImportMediaAssetReference } from '../features/execution/execution-data-utils.js';
+import { getPrimaryImageImportMediaAssetReference, getPrimaryTextInput } from '../features/execution/execution-data-utils.js';
 import { getSurfaceCoordinator } from '../features/ui/surface-coordinator.js';
 
 export function createNodeDomBindingsApi({
@@ -47,6 +47,7 @@ export function createNodeDomBindingsApi({
     tempConnection,
     viewportApi,
     getPortPosition,
+    getCachedOutputValue = (node, port) => node?.data?.[port],
     pushHistory,
     removeNode,
     selectNode,
@@ -239,15 +240,35 @@ export function createNodeDomBindingsApi({
         ));
     }
 
-    function setNodeInputFieldConnectedVisibility(nodeId, portName, fieldSuffix) {
+    function syncImagePromptSource(nodeId) {
         const node = state.nodes.get(nodeId);
-        const field = node?.el?.querySelector(`#${nodeId}-${fieldSuffix}`);
+        const field = node?.el?.querySelector(`#${nodeId}-prompt-field`);
         if (!field) return false;
-        const shouldHide = hasIncomingConnection(nodeId, portName);
-        const changed = field.classList.contains('hidden') !== shouldHide;
-        field.classList.toggle('hidden', shouldHide);
-        field.setAttribute('aria-hidden', shouldHide ? 'true' : 'false');
-        return changed;
+        const input = documentRef.getElementById(`${nodeId}-prompt`);
+        const sourceView = documentRef.getElementById(`${nodeId}-prompt-source`);
+        const connection = state.connections.filter(c => c.to.nodeId === nodeId && c.to.port === 'prompt').at(-1);
+        const source = state.nodes.get(connection?.from.nodeId);
+        const text = source ? getPrimaryTextInput(getCachedOutputValue(source, connection.from.port)) : '';
+        const active = Boolean(text?.trim());
+        const sourceName = source?.customTitle || source?.el?.querySelector('.node-title')?.textContent || source?.type || '来源节点';
+        const label = connection ? `${sourceName} · ${active ? '使用上游已有文本，本地草稿当前不参与' : '尚无有效文本；执行时按原规则解析，本地草稿保留'}` : '';
+        const previous = sourceView?.textContent || '';
+        field.classList.remove('hidden');
+        field.removeAttribute('aria-hidden');
+        if (input) input.readOnly = active;
+        const fieldLabel = field.querySelector(':scope > label');
+        if (fieldLabel) fieldLabel.textContent = active ? '本地草稿（当前不参与）' : '提示词';
+        if (sourceView) {
+            sourceView.classList.toggle('hidden', !connection);
+            sourceView.querySelector('.image-prompt-source-label').textContent = label;
+            sourceView.querySelector('.image-prompt-source-preview').textContent = text || '来源尚无已有输出；此预览不是后续执行的最终请求快照。';
+        }
+        return previous !== (sourceView?.textContent || '');
+    }
+
+    function syncDependentPromptSources(sourceNodeId) {
+        const targets = new Set(state.connections.filter(c => c.from.nodeId === sourceNodeId && c.to.port === 'prompt').map(c => c.to.nodeId));
+        targets.forEach(syncConnectedInputFieldVisibility);
     }
 
     function scheduleConnectedInputFieldLayout(nodeId) {
@@ -273,7 +294,7 @@ export function createNodeDomBindingsApi({
         if (!node?.el) return false;
         let changed = false;
         if (node.type === 'ImageGenerate') {
-            changed = setNodeInputFieldConnectedVisibility(nodeId, 'prompt', 'prompt-field') || changed;
+            changed = syncImagePromptSource(nodeId) || changed;
         }
         if (changed) {
             scheduleConnectedInputFieldLayout(nodeId);
@@ -2563,6 +2584,9 @@ export function createNodeDomBindingsApi({
             });
         }
         else if (type === 'ImageGenerate') {
+            el.querySelector(`#${id}-prompt-source summary`)?.addEventListener('click', event => {
+                blockRunningNodeMutation(id, event, '节点正在运行，暂不能展开文本预览');
+            });
             syncImageGenerateResolutionOptions(id);
             const advanced = el.querySelector(`#${id}-advanced-parameters`);
             const searchField = documentRef.getElementById(`${id}-search-field`);
@@ -3135,6 +3159,8 @@ export function createNodeDomBindingsApi({
             syncTextSplitNodeData(id);
         }
 
+        el.addEventListener('input', () => syncDependentPromptSources(id));
+        el.addEventListener('change', () => syncDependentPromptSources(id));
         el.querySelectorAll('input, select, textarea').forEach((input) => {
             input.addEventListener('change', () => {
                 syncNodeFormData(id, type);
@@ -3178,6 +3204,7 @@ export function createNodeDomBindingsApi({
         syncTextSplitNodeData,
         syncImageMergeNodes,
         syncAllConnectedInputFieldVisibility,
+        syncDependentPromptSources,
         syncClonesFromSource
     };
 }

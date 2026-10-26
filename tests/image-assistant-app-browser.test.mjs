@@ -111,3 +111,32 @@ test('advanced settings retain values and each node expansion across save and re
         assert.equal(await evaluate("imageRequests.filter(r=>r.prompt==='one').at(-1).background"), 'transparent');
     });
 });
+
+test('connected prompt shows its existing source while keeping the inactive local draft for disconnect', { timeout: 30000 }, async () => {
+    await withAppBrowser({ ...session, nodes: [
+        { id: 'upstream', type: 'Text', x: 0, y: 100, text: '上游 A' },
+        { id: 'prompt-image', type: 'ImageGenerate', x: 400, y: 100, apiConfigId: 'image', providerId: 'p', prompt: '本地 B' }
+    ], connections: [{ id: 'prompt-edge', from: { nodeId: 'upstream', port: 'text' }, to: { nodeId: 'prompt-image', port: 'prompt' }, type: 'text' }] }, async app => {
+        const { evaluate, waitFor, send } = app;
+        await controlImages(app);
+        assert.ok(await evaluate("document.getElementById('prompt-image-prompt').checkVisibility()"), 'inactive local draft remains readable');
+        assert.equal(await evaluate("document.getElementById('prompt-image-prompt').readOnly"), true);
+        assert.match(await evaluate("document.getElementById('prompt-image-prompt-source').textContent"), /上游 A/);
+        await change(evaluate, 'upstream-text', '上游 A 更新');
+        assert.match(await evaluate("document.getElementById('prompt-image-prompt-source').textContent"), /上游 A 更新/);
+        await evaluate("document.getElementById('btn-run').click()");
+        await waitFor('imageRequests.length===1');
+        assert.equal(await evaluate('imageRequests[0].prompt'), '上游 A 更新');
+        await waitFor("!document.getElementById('prompt-image-prompt').disabled");
+        await delay(300);
+        await evaluate("document.querySelector('[data-conn-id=prompt-edge]').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))");
+        assert.equal(await evaluate("document.getElementById('prompt-image-prompt').readOnly"), false);
+        assert.equal(await evaluate("document.getElementById('prompt-image-prompt').value"), '本地 B');
+        await evaluate("document.getElementById('prompt-image').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:500,clientY:180}));document.getElementById('context-menu-run-to-here').click()");
+        await waitFor('imageRequests.length===2');
+        assert.equal(await evaluate('imageRequests[1].prompt'), '本地 B');
+        await delay(1000); await send('Page.reload'); await waitFor('window.__cainflowAppReady === true'); await delay(500);
+        await waitFor("Boolean(document.getElementById('prompt-image-prompt'))");
+        assert.equal(await evaluate("document.getElementById('prompt-image-prompt').value"), '本地 B');
+    });
+});

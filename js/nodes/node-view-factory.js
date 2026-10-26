@@ -437,7 +437,10 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             label: '提示词',
             fieldId: `${id}-prompt-field`,
             fieldClass: 'image-node-prompt-field',
-            content: `<textarea class="image-generate-prompt" id="${id}-prompt" placeholder="描述你想生成的图片..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${escapeHtml(rd.prompt || '')}</textarea>`
+            content: `<div class="image-prompt-source hidden" id="${id}-prompt-source" aria-live="polite">
+                <div class="image-prompt-source-label"></div>
+                <details><summary>查看上游已有文本</summary><pre class="image-prompt-source-preview"></pre></details>
+            </div><textarea class="image-generate-prompt" id="${id}-prompt" placeholder="描述你想生成的图片..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${escapeHtml(rd.prompt || '')}</textarea>`
         })}
 
         <section class="image-reference-overview" aria-label="参考图">
