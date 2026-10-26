@@ -11,8 +11,8 @@
     border: 1px solid var(--border-color);
     border-radius: 6px;
     background: var(--bg-input);
-    color: var(--text-main);
-    font-size: 12px;
+    color: var(--text-primary);
+    font-size: 13px;
     line-height: 1.5;
     cursor: pointer;
 }
@@ -39,10 +39,10 @@
 }
 .image-node-result-preview img { display: block; max-width: 100%; max-height: 238px; object-fit: contain; }
 .image-node-result-navigation { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 7px; }
-.image-node-result-navigation button { font-size: 12px; }
-.image-node-result-count { color: var(--text-secondary); font-size: 12px; }
+.image-node-result-navigation button { font-size: 13px; }
+.image-node-result-count { color: var(--text-secondary); font-size: 13px; }
 .image-node-run-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 4px 0 10px; }
 .image-node-run-actions > button { font-size: 13px; min-height: 30px; }
 .image-node-run-status { flex: 1; color: var(--text-secondary); font-size: 13px; }
-.image-node-run-status[data-status=error] { color: var(--accent-red); }
-.image-node-run-status[data-status=completed] { color: var(--accent-green); }
+.image-node-run-status[data-status=error] { color: var(--text-danger); }
+.image-node-run-status[data-status=completed] { color: var(--text-success); }

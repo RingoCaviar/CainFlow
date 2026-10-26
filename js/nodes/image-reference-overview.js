@@ -42,7 +42,7 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
                 const source = state.nodes.get(connection.from.nodeId);
                 const images = normalizeImageList(getCachedOutputValue(source, connection.from.port));
                 const assets = [...assetsOf(source)];
-                const running = state.runningNodeIds?.has(source?.id) === true;
+                const running = state.runningNodeIds?.has(source?.id) === true || source?.runStatus === 'waiting';
                 return { connection, source, images: running ? [] : images, assets: running ? [] : assets,
                     count: running ? 0 : Math.max(images.length, assets.length, Number(source?.data?.imageCount) || 0),
                     name: source?.customTitle || source?.el?.querySelector('.node-title')?.textContent || source?.type || '来源已不存在',
@@ -114,7 +114,8 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
                     const workflowId = getWorkflowId();
                     try {
                         const images = await readSourceImages(group.source.id);
-                        if (getWorkflowId() !== workflowId || state.nodes.get(nodeId) !== target || state.nodes.get(group.source.id) !== group.source) return;
+                        if (getWorkflowId() !== workflowId || state.nodes.get(nodeId) !== target || state.nodes.get(group.source.id) !== group.source
+                            || state.runningNodeIds?.has(group.source.id) || group.source.runStatus === 'waiting') return;
                         const currentAsset = assetsOf(group.source)[index];
                         const currentImage = normalizeImageList(getCachedOutputValue(group.source, group.connection.from.port))[index];
                         if ((asset && asset !== currentAsset) || (!asset && original !== currentImage)) throw new Error('来源图片已改变，请重新查看。');
