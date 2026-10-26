@@ -45,6 +45,8 @@ import { NODE_CONFIGS } from '../nodes/registry.js';
 import { createNodeSerializer } from '../nodes/node-serializer.js';
 import { createNodeMarkup } from '../nodes/node-view-factory.js';
 import { createNodeDomBindingsApi } from '../nodes/node-dom-bindings.js';
+import { createImageResultActions } from '../features/media/image-result-actions.js';
+import { startHistoryDownload } from '../features/history/history-download.js';
 import { createNodeLifecycleApi } from '../nodes/node-lifecycle.js';
 import { createMediaControllerApi } from '../features/media/media-controller.js';
 import { collectRetainedNodeAssetIds as collectRetainedNodeAssetIdsForWorkflows } from '../features/media/node-asset-retention.js';
@@ -671,6 +673,13 @@ const imagePainterApi = createImagePainterApi({
     scheduleSave,
     showToast
 });
+function buildImageResultActions(source, options = {}) {
+    return createImageResultActions({ documentRef: document, source, getWorkflowId: () => workflowManagerApi.getActiveWorkflowId?.() || '',
+        openPreview: (image, onClose) => openFullscreenPreview(image, null, { images: [image], index: 0, onClose }),
+        prepareReference: (reference, intent) => promptAgentController.prepareImageContext(reference, intent),
+        downloadImage: (image, item) => startHistoryDownload({ id: String(item.historyId || item.name || 'result').replace(/[^\p{L}\p{N}._-]/gu, '_'), image }, { downloadImage, documentRef: document, windowRef: window }),
+        copyImage: uiUtils.copyImageToClipboard, showToast, ...options });
+}
 const nodeDomBindingsApi = createNodeDomBindingsApi({
     state,
     selectionApi,
@@ -687,6 +696,10 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     moveReferenceSource: (nodeId, connectionId, targetConnectionId) => connectionsApi.moveImageReferenceConnection(nodeId, connectionId, targetConnectionId),
     disconnectReferenceSource: (nodeId, connectionId) => connectionsApi.disconnectImageReferenceConnection(nodeId, connectionId),
     prepareNodeContext: reference => promptAgentController.prepareNodeContext(reference),
+    createImageResultActions: buildImageResultActions,
+    readResultAsset: key => getImageAsset(key),
+    createResultThumbnail: source => mediaControllerApi.createResultThumbnail(source),
+    rememberResultThumbnail: (nodeId, source, thumbnail) => mediaControllerApi.rememberResultThumbnail(nodeId, source, thumbnail),
     getPortPosition: (nodeId, portName, direction) => getPortPosition(nodeId, portName, direction),
     pushHistory,
     removeNode: (nodeId, options) => removeNode(nodeId, options),
@@ -1031,6 +1044,7 @@ const promptAgentController = createPromptAgentController({
         try { return await getImageAsset(key) || null; } catch { return null; }
     })),
     openResultPreview: (images, index, options = {}) => openFullscreenPreview(images[index], null, { images, index, ...options }),
+    createImageResultActions: buildImageResultActions,
     getChatModels: () => getAvailablePromptAgentModels(state.models || [], state.providers || []),
     getImageModels: () => getAvailablePromptAgentImageModels(state.models || [], state.providers || []),
     openModelSettings: target => settingsControllerApi?.openModelSettings?.(target),
@@ -1917,6 +1931,7 @@ historyFeature = createHistoryFeature({
     downloadImage,
     copyToClipboard,
     copyImageToClipboard: uiUtils.copyImageToClipboard,
+    createImageResultActions: buildImageResultActions,
     showToast
 });
 historyPreviewApi = historyFeature.historyPreviewApi;
