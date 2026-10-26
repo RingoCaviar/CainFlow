@@ -106,6 +106,7 @@ export function createNodeDomBindingsApi({
     const pendingConnectedInputLayoutFrames = new Map();
     const referenceOverview = createImageReferenceOverview({ state, documentRef, getCachedOutputValue,
         createThumbnail: createReferenceThumbnail, readSourceImages: readReferenceSourceImages,
+        readAsset: readResultAsset,
         openPreview: openReferencePreview, focusNode: focusReferenceSource, getWorkflowId, showToast,
         moveSource: moveReferenceSource, disconnectSource: disconnectReferenceSource,
         onLayout: scheduleConnectedInputFieldLayout });
@@ -1875,7 +1876,8 @@ export function createNodeDomBindingsApi({
         const provider = getResolvedProviderForModel(model, state.providers, documentRef.getElementById(`${id}-provider`)?.value) || {};
         const supportsThinking = getThinkingCapability({ model, provider, task: 'image', protocol: model.protocol }).supported;
         const thinking = node?.el?.querySelector('.thinking-control');
-        if (thinking) thinking.hidden = !supportsThinking;
+        const hasThinkingDraft = Boolean(node?.data?.thinking && node.data.thinking.mode !== 'inherit');
+        if (thinking) thinking.hidden = !supportsThinking && !hasThinkingDraft;
         if (node?.data?.thinking && node.data.thinking.mode !== 'inherit') configured.push(supportsThinking ? '思考：已自定义' : '思考草稿：当前不适用');
         const search = documentRef.getElementById(`${id}-search-field`);
         const hasSearch = search && !search.classList.contains('hidden');
@@ -1888,7 +1890,7 @@ export function createNodeDomBindingsApi({
                 configured.push(`${parameter.label || parameter.name || key}：${String(value)}`);
             }
         }
-        details.classList.toggle('hidden', visibleFields.length === 0 && !hasSearch && !supportsThinking && !extra);
+        details.classList.toggle('hidden', visibleFields.length === 0 && !hasSearch && !supportsThinking && !hasThinkingDraft && !extra);
         summary.textContent = configured.length > 0 ? configured.join(' · ') : '默认设置';
     }
 

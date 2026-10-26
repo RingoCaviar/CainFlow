@@ -1,4 +1,5 @@
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { readFile, mkdir, writeFile, unlink } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -431,6 +432,8 @@ test('node run-to-here limits the real scope and reports waiting, success, failu
         assert.equal(await evaluate("document.getElementById('scope-target-run-status').textContent"), '待运行');
         assert.equal(await evaluate("document.getElementById('scope-up-prompt').disabled"), true);
         assert.equal(await evaluate("document.getElementById('scope-up-assistant').disabled"), true);
+        await evaluate("document.querySelector('#scope-target-advanced-parameters > summary').click()");
+        assert.equal(await evaluate("document.getElementById('scope-target-advanced-parameters').open"),false,'queued node details obey the same active-scope lock');
         await evaluate("window.releasePromptResponse();window.holdPrompt=''");
         await waitFor("document.getElementById('scope-target-run-status').textContent==='完成'");
         assert.equal(await evaluate('imageRequests.length'), 2, 'downstream and independent branches never execute');
@@ -562,5 +565,76 @@ test('old workflow completes source review, ordered generation through Agent, un
         assert.deepEqual(await evaluate("(()=>{const node=document.getElementById('reference-target');return {x:node.style.left,y:node.style.top,width:node.offsetWidth,promptHeight:document.getElementById('reference-target-prompt').offsetHeight}})()"),{x:'500px',y:'120px',width:476,promptHeight:241});
         assert.equal(await evaluate("document.getElementById('reference-target-prompt').value"),'助手优化后的提示词');
         assert.equal(await evaluate('imageRequests.length'),0);
+    });
+});
+
+test('unsupported retained thinking remains reachable for explicit reset before running', {timeout:30000}, async()=>{
+    const seeded={...session,models:session.models.map(model=>model.id==='google'?{...model,thinking:{profile:'google-image'}}:model),
+        nodes:[{id:'thinking-image',type:'ImageGenerate',x:20,y:100,apiConfigId:'google',providerId:'p',prompt:'reset thinking',advancedExpanded:true,thinking:{mode:'level',value:'high'}}],connections:[]};
+    await withAppBrowser(seeded,async app=>{
+        const {evaluate,waitFor}=app;
+        await controlImages(app);
+        await change(evaluate,'thinking-image-apiconfig','image');
+        assert.equal(await evaluate("document.querySelector('#thinking-image .thinking-control').hidden"),false);
+        await evaluate("document.querySelector('#thinking-image .thinking-control > summary').click()");
+        assert.ok(await evaluate("document.querySelector('#thinking-image .thinking-control select').checkVisibility()"));
+        const field=await evaluate("document.querySelector('#thinking-image .thinking-control select').id");
+        await change(evaluate,field,'inherit');
+        await evaluate("document.getElementById('thinking-image-run-to-here').click()");
+        await waitFor("document.getElementById('thinking-image-run-status').textContent==='完成'");
+        assert.equal(await evaluate('imageRequests.length'),1);
+        assert.equal(await evaluate('imageRequests[0].prompt'),'reset thinking');
+    });
+});
+
+test('disabled reference sources stay visible without consuming actual request image numbers', {timeout:30000},async()=>{
+    await withAppBrowser(referenceSession(),async app=>{
+        const {evaluate,waitFor}=app;
+        await generateReferenceSources(app);
+        await evaluate("document.querySelector('#source-a .node-bypass-btn').click()");
+        await waitFor("document.getElementById('reference-target-reference-sources').textContent.includes('不参与本轮输入')");
+        assert.deepEqual(await evaluate("[...document.querySelectorAll('#reference-target-reference-sources [data-reference-number]')].map(el=>el.dataset.referenceNumber)"),['1','2']);
+        assert.match(await evaluate("document.querySelector('#reference-target-reference-sources .image-reference-group').textContent"),/甲.*3 张/s);
+        await change(evaluate,'reference-target-apiconfig','google');
+        await evaluate("(()=>{const node=document.getElementById('reference-target'),r=node.getBoundingClientRect();node.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,clientX:r.left+12,clientY:r.top+12}));window.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0}));node.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:600,clientY:180}));document.getElementById('context-menu-run-selected').click()})()");
+        await waitFor('imageRequests.some(r=>r.contents)');
+        assert.deepEqual(await evaluate("imageRequests.find(r=>r.contents).contents.flatMap(c=>c.parts).filter(p=>p.inlineData).map(p=>p.inlineData.data)"),referenceImages.slice(3).map(image=>image.split(',')[1]));
+    });
+});
+
+test('missing first asset never shifts later originals in node and reference previews', {timeout:30000},async()=>{
+    await withAppBrowser(referenceSession(),async app=>{
+        const {evaluate,waitFor,send,server}=app;
+        await generateReferenceSources(app);
+        await delay(1000);
+        const digest=createHash('sha256').update(Buffer.from(referenceImages[0].split(',')[1],'base64')).digest('hex');
+        // Simulate external loss of one real file, inside this fixture's isolated temporary storage.
+        await unlink(join(server.dataDir,'assets',digest.slice(0,2),digest+'.png'));
+        await reloadApp(app);
+        await waitFor("document.querySelectorAll('#reference-target-reference-sources [data-reference-number]').length>=3");
+        await evaluate("document.querySelector('#reference-target-reference-sources [data-reference-number=\"2\"]').click()");
+        await waitFor("Boolean(document.querySelector('.fullscreen-overlay img'))");
+        assert.equal(await evaluate("document.querySelector('.fullscreen-overlay img').src"),referenceImages[1]);
+        await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});
+        await waitFor("!document.querySelector('.fullscreen-overlay')");
+        const firstMissing=await evaluate("document.querySelector('#reference-target-reference-sources [data-reference-number=\"1\"]').disabled");
+        if(!firstMissing){
+            await evaluate("document.querySelector('#reference-target-reference-sources [data-reference-number=\"1\"]').click()");
+            await waitFor("[...document.querySelectorAll('.toast')].some(el=>el.textContent.includes('原图缺失'))");
+            assert.equal(await evaluate("Boolean(document.querySelector('.fullscreen-overlay'))"),false);
+        }
+        // The source still owns three durable positions. Its second result is orange, even after lazy hydration.
+        for(let attempt=0;attempt<2;attempt++){
+            const current=await evaluate("document.querySelector('#source-a-image-results .image-node-result-count').textContent");
+            if(current==='3 / 3') break;
+            await evaluate("document.querySelector('#source-a-image-results [data-result-step=\"1\"]').click()");
+            await waitFor(`document.querySelector('#source-a-image-results .image-node-result-count').textContent!==${JSON.stringify(current)}`);
+        }
+        await evaluate("document.querySelector('#source-a-image-results [data-result-step=\"-1\"]').click()");
+        await waitFor("document.querySelector('#source-a-image-results .image-node-result-count').textContent==='2 / 3'");
+        await evaluate("document.querySelector('#source-a-image-results [data-result-action=preview]').click()");
+        await waitFor("Boolean(document.querySelector('.fullscreen-overlay img'))");
+        assert.equal(await evaluate("document.querySelector('.fullscreen-overlay img').src"),referenceImages[1]);
+        assert.equal(await evaluate('imageRequests.length'),0,'missing-file inspection never regenerates or downloads a remote substitute');
     });
 });

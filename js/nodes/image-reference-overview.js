@@ -1,19 +1,14 @@
-import { normalizeImageList, getImageImportMediaAssetReferences } from '../features/execution/execution-data-utils.js';
+import { normalizeImageList } from '../features/execution/execution-data-utils.js';
+import { getImageOutputAssets, projectImageOutput } from './image-output-projection.js';
 import { orderInputConnections } from './reference-image-ports.js';
 
 // A disposable projection of connections and existing outputs, never an attachment store.
 export function createImageReferenceOverview({ state, documentRef, getCachedOutputValue,
-    createThumbnail = async source => source, readSourceImages = async () => [], openPreview = () => {},
+    createThumbnail = async source => source, readSourceImages = async () => [], readAsset = null, openPreview = () => {},
     focusNode = () => {}, getWorkflowId = () => '', showToast = () => {}, onLayout = () => {},
     moveSource = () => false, disconnectSource = () => false }) {
     const views = new WeakMap();
-    const assetsOf = source => {
-        if (source?.type === 'ImageImport') return getImageImportMediaAssetReferences(source);
-        if (source?.data?.mediaAssetKeys?.length) return source.data.mediaAssetKeys;
-        return source?.data?.imageAssetKey
-            ? Array.from({ length: Math.max(1, Number(source.data.imageCount) || 0) }, (_, index) => `${source.data.imageAssetKey}:${index}`)
-            : [];
-    };
+    const assetsOf = getImageOutputAssets;
     const sameList = (left, right) => left.length === right.length && left.every((value, index) => value === right[index]);
     const button = (label, action, disabled) => {
         const control = documentRef.createElement('button');
@@ -40,13 +35,12 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
             && (connection.to.port === 'referenceImages' || /^image_\d+$/.test(connection.to.port))))
             .map(connection => {
                 const source = state.nodes.get(connection.from.nodeId);
-                const images = normalizeImageList(getCachedOutputValue(source, connection.from.port));
-                const assets = [...assetsOf(source)];
+                const { images, assets, count, missingPositions } = projectImageOutput(source, getCachedOutputValue(source, connection.from.port));
                 const running = state.runningNodeIds?.has(source?.id) === true || source?.runStatus === 'waiting';
                 return { connection, source, images: running ? [] : images, assets: running ? [] : assets,
-                    count: running ? 0 : Math.max(images.length, assets.length, Number(source?.data?.imageCount) || 0),
+                    count: running ? 0 : count,
                     name: source?.customTitle || source?.el?.querySelector('.node-title')?.textContent || source?.type || '来源已不存在',
-                    missing: source?.data?.mediaIntegrity?.state === 'missing', enabled: source?.enabled !== false,
+                    missing: source?.data?.mediaIntegrity?.state === 'missing', missingPositions, enabled: source?.enabled !== false,
                     running, thumbnail: source?.data?.imagePreviewThumbnail || '' };
             });
         if (view.disabled === disabled && view.groups.length === groups.length && groups.every((group, index) => {
@@ -54,6 +48,7 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
             return old.connection.id === group.connection.id && old.source === group.source && old.name === group.name
                 && old.count === group.count && old.missing === group.missing && old.enabled === group.enabled
                 && old.running === group.running && old.thumbnail === group.thumbnail
+                && sameList(old.missingPositions, group.missingPositions)
                 && sameList(old.images, group.images) && sameList(old.assets, group.assets);
         })) return;
         view.groups = groups; view.disabled = disabled; view.revision += 1;
@@ -104,16 +99,20 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
             down.setAttribute('aria-label', `后移${group.name}来源组`); down.title = '后移来源组';
             heading.append(drag, locate, up, down); row.append(heading);
             const strip = documentRef.createElement('div'); strip.className = 'image-reference-thumbnails';
-            for (let index = 0; index < group.count; index += 1) {
+            for (let index = 0; group.enabled && index < group.count; index += 1) {
                 number += 1;
                 if (!view.expanded && number > 4) { hidden += 1; continue; }
                 const label = `参考图 ${number}，来自${group.name}，源批次第 ${index + 1} 张`;
                 const asset = group.assets[index], original = group.images[index];
+                const missing = group.missingPositions.includes(index);
                 const preview = button(String(number), async control => {
                     control.focus();
                     const workflowId = getWorkflowId();
                     try {
-                        const images = await readSourceImages(group.source.id);
+                        const durable = readAsset && group.assets.length && group.assets.every(key => key.startsWith('media:'));
+                        const images = durable ? await Promise.all(group.assets.map(key => readAsset(key).catch(() => '')))
+                            : await readSourceImages(group.source.id);
+                        if (!durable && images.length !== group.count) throw new Error('原图批次不完整，请定位来源恢复。');
                         if (getWorkflowId() !== workflowId || state.nodes.get(nodeId) !== target || state.nodes.get(group.source.id) !== group.source
                             || state.runningNodeIds?.has(group.source.id) || group.source.runStatus === 'waiting') return;
                         const currentAsset = assetsOf(group.source)[index];
@@ -121,7 +120,8 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
                         if ((asset && asset !== currentAsset) || (!asset && original !== currentImage)) throw new Error('来源图片已改变，请重新查看。');
                         if (!images[index]) throw new Error('原图缺失，请定位来源恢复。');
                         render(nodeId);
-                        await openPreview(images, index, () => {
+                        const complete = images.every(Boolean);
+                        await openPreview(complete ? images : [images[index]], complete ? index : 0, () => {
                             if (getWorkflowId() !== workflowId || state.nodes.get(nodeId) !== target) return;
                             const row = [...container.querySelectorAll('.image-reference-group')].find(item => item.dataset.referenceConnection === group.connection.id);
                             const current = [...(row?.querySelectorAll('[data-source-image-index]') || [])].find(item => Number(item.dataset.sourceImageIndex) === index);
@@ -130,19 +130,19 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
                     } catch (error) {
                         if (getWorkflowId() === workflowId && state.nodes.get(nodeId) === target) showToast(error.message || '原图不可用', 'warning');
                     }
-                }, disabled || !group.enabled || group.missing || (!asset && !original));
+                }, disabled || !group.enabled || missing || (!asset && !original));
                 preview.className = 'image-reference-thumbnail'; preview.dataset.referenceNumber = String(number);
                 preview.dataset.sourceImageIndex = String(index);
                 preview.setAttribute('aria-label', label); preview.title = label;
                 const image = documentRef.createElement('img'); image.alt = ''; image.loading = 'lazy'; image.decoding = 'async';
-                const thumbnail = /^data:image\//i.test(original || '') ? original : (group.count === 1 ? group.thumbnail : '');
+                const thumbnail = missing ? '' : /^data:image\//i.test(original || '') ? original : (group.count === 1 ? group.thumbnail : '');
                 if (thumbnail) {
                     preview.prepend(image);
                     void createThumbnail(thumbnail).then(src => {
                         if (views.get(container)?.revision === revision && image.isConnected) image.src = src;
                     }).catch(() => { image.remove(); });
                 } else {
-                    const hint = documentRef.createElement('small'); hint.textContent = '按需预览'; preview.append(hint);
+                    const hint = documentRef.createElement('small'); hint.textContent = missing ? '原图缺失' : '按需预览'; preview.append(hint);
                 }
                 strip.append(preview);
             }
@@ -153,7 +153,7 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
             row.append(disconnect);
             if (!group.source || !group.enabled || group.missing || !group.count) {
                 const status = documentRef.createElement('p'); status.className = 'image-reference-source-status';
-                status.textContent = !group.source ? '来源节点已不存在' : !group.enabled ? '来源已禁用'
+                status.textContent = !group.source ? '来源节点已不存在' : !group.enabled ? '来源已禁用，不参与本轮输入'
                     : group.missing ? '原图缺失，请定位来源恢复' : group.running ? '来源运行中，尚无本轮输出' : '尚无输出';
                 row.append(status);
             }

@@ -1193,6 +1193,7 @@ export function createWorkflowRuntimeManager({
             node.isSucceeded = false;
             if (node.type === 'ImageGenerate') clearCanonicalImageOutput(node);
             workflowRunViewNodeIds.add(nodeId);
+            state.runningNodeIds.add(nodeId);
             setVisibleNodeControlsLocked(node, true);
             onVisibleNodeChanged(nodeId);
             return;
@@ -1267,6 +1268,7 @@ export function createWorkflowRuntimeManager({
             });
             context.state.runningNodeIds?.forEach((nodeId) => {
                 const runtimeNode = context.state.nodes.get(nodeId);
+                if (runtimeNode?.runStatus === 'waiting') return;
                 applyVisibleNodeRunState(workflowReference, {
                     nodeId,
                     status: 'running',
