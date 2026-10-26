@@ -655,6 +655,23 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 .prompt-agent-node-mentions button:is(:hover, :focus-visible, [aria-selected="true"]) { background: var(--panel-active-bg); outline: 2px solid var(--text-link); outline-offset: -2px; }
 
 /* Shared thinking controls use flat semantic surfaces in settings, nodes and Agent. */
+.prompt-agent-node-context {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 8px;
+    color: var(--text-secondary);
+    background: var(--surface-panel-strong);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.5;
+}
+.prompt-agent-node-context[hidden], .prompt-agent-context-heading[hidden] { display: none; }
+.prompt-agent-node-context-copy { flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; }
+.prompt-agent-node-context button { font-size: 12px; }
+.prompt-agent-context-heading { margin: 0; color: var(--text-secondary); font-size: 12px; }
 .thinking-control { min-width: 0; margin: 4px 0; color: var(--text-main); font-size: 12px; }
 .thinking-control > summary { cursor: pointer; padding: 4px; border-radius: 4px; }
 .thinking-control > summary:focus-visible { outline: 2px solid var(--text-link); outline-offset: 2px; }

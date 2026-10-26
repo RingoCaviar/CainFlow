@@ -307,9 +307,14 @@
                 <p id="prompt-agent-image-model-hint" class="prompt-agent-model-hint" aria-live="polite"><span id="prompt-agent-image-model-status">请选择生图模型后再应用或生成。</span><button id="prompt-agent-add-image-model" type="button" hidden>点击添加生图模型</button></p>
                 <p id="prompt-agent-model-hint" class="prompt-agent-model-hint" aria-live="polite" hidden><span id="prompt-agent-model-status">暂无可用模型，</span><button id="prompt-agent-add-model" type="button">点击添加模型</button></p>
                 <form id="prompt-agent-form" class="prompt-agent-composer">
+                    <div id="prompt-agent-node-context" class="prompt-agent-node-context" role="status" hidden>
+                        <span class="prompt-agent-node-context-copy"></span>
+                        <button id="prompt-agent-insert-node-context" type="button">插入目标引用</button>
+                    </div>
                     <section id="prompt-agent-search-menu" class="prompt-agent-search-menu">
                         <label class="prompt-agent-search-toggle"><span>联网搜索</span><span class="toggle-switch prompt-agent-search-switch"><input id="prompt-agent-search-enabled" type="checkbox" role="switch" aria-label="联网搜索"><span class="toggle-slider functional-animation"></span></span></label>
                     </section>
+                    <p id="prompt-agent-reference-heading" class="prompt-agent-context-heading" hidden>本轮待发送附件</p>
                     <div id="prompt-agent-references" class="prompt-agent-references" aria-label="待发送参考图" hidden></div>
                     <p id="prompt-agent-reference-error" class="prompt-agent-reference-error" role="status" hidden></p>
                     <p id="prompt-agent-command-status" class="prompt-agent-command-status" role="status" aria-live="polite" hidden></p>

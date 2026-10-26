@@ -137,6 +137,7 @@ export function createPromptAgentController({
     let commandMatches = [];
     let commandIndex = 0;
     let pendingReferenceImages = [];
+    let preparedNodeContext = null;
     let referencePickerOpen = false;
     let referencePickerError = '';
     let referenceTab = 'scene';
@@ -556,6 +557,7 @@ export function createPromptAgentController({
             importQueue = Promise.resolve();
             const clearedRevision = workflowRevision;
             canvasMentions?.clear(); canvasViews.forEach(view => view.destroy()); canvasViews.clear();
+            preparedNodeContext = null;
             const clearing = results.clear(clearedWorkflowId);
             tokenObservation = null;
             pendingReferenceImages = [];
@@ -690,6 +692,12 @@ export function createPromptAgentController({
         clearElement(references);
         appendReferencePreviews(references, pendingReferenceImages, { removable: true });
         references.hidden = pendingReferenceImages.length === 0;
+        const heading = documentRef.getElementById('prompt-agent-reference-heading');
+        if (heading) {
+            heading.hidden = pendingReferenceImages.length === 0;
+            heading.textContent = `本轮待发送附件 · ${pendingReferenceImages.length}`;
+        }
+        renderPreparedNodeContext();
         form?.classList.toggle('has-reference-images', pendingReferenceImages.length > 0);
         if (referenceError) {
             referenceError.hidden = !referencePickerError;
@@ -978,6 +986,51 @@ export function createPromptAgentController({
         if (scrollToLatestOnOpen) scrollToLatest();
         updateScrollBottomButton();
     }
+
+    function preparedTarget() {
+        if (!preparedNodeContext || preparedNodeContext.workflowId !== getWorkflowId()) return null;
+        return canvasAdapter?.context([preparedNodeContext.nodeId]).nodes.find(node => node.id === preparedNodeContext.nodeId) || null;
+    }
+
+    function renderPreparedNodeContext() {
+        const host = documentRef.getElementById('prompt-agent-node-context');
+        if (!host) return;
+        const node = preparedTarget();
+        host.hidden = !node;
+        if (!node) { preparedNodeContext = null; return; }
+        const inserted = canvasMentions?.read().some(item => item.id === node.id);
+        const context = canvasAdapter.context([node.id]);
+        const count = context.connections.filter(connection => connection.to.nodeId === node.id
+            && (connection.to.port === 'referenceImages' || /^image_\d+$/.test(connection.to.port))).length;
+        const label = `${inserted ? '草稿引用' : '待插入目标'}：${node.name} · 画布已连接 ${count} 个参考来源（非本轮附件）`;
+        const copy = host.querySelector('.prompt-agent-node-context-copy');
+        if (copy && copy.textContent !== label) copy.textContent = label;
+        const action = documentRef.getElementById('prompt-agent-insert-node-context');
+        if (action) { action.disabled = Boolean(inserted); action.textContent = inserted ? '引用已在草稿中' : '插入目标引用'; }
+    }
+
+    function insertPreparedNodeContext() {
+        const node = preparedTarget();
+        if (!node || !canvasMentions) { preparedNodeContext = null; renderPreparedNodeContext(); return false; }
+        const changed = canvasMentions.append(node);
+        renderPreparedNodeContext();
+        return changed;
+    }
+
+    function prepareNodeContext(reference) {
+        const input = getElements().input;
+        if (!input || !canvasMentions || reference?.workflowId !== getWorkflowId()
+            || !canvasAdapter?.context([reference.nodeId]).nodes.some(node => node.id === reference.nodeId)) return false;
+        preparedNodeContext = { workflowId: reference.workflowId, nodeId: reference.nodeId };
+        open();
+        if (!input.value.trim() && pendingReferenceImages.length === 0) {
+            insertPreparedNodeContext();
+            input.value += '请优化这个生图节点的提示词，保留主体和现有参考关系。先提供方案，由我确认后再应用。';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        renderPreparedNodeContext(); input.focus();
+        return true;
+    }
     function close() { canvasMentions?.close(); canvasViews.forEach(view => view.close()); setOpen(false); }
     function toggle() {
         const { panel } = getElements();
@@ -1201,6 +1254,7 @@ export function createPromptAgentController({
 
     function removeNodeReferences(nodeIds) {
         const removed = new Set(nodeIds);
+        if (removed.has(preparedNodeContext?.nodeId)) { preparedNodeContext = null; renderPreparedNodeContext(); }
         if (activeOperation) {
             activeOperation.removedReferenceNodeIds ||= new Set();
             nodeIds.forEach((id) => activeOperation.removedReferenceNodeIds.add(id));
@@ -1701,6 +1755,8 @@ export function createPromptAgentController({
             });
         }
         if (input && canvasAdapter) canvasMentions = attachCanvasMentions({ documentRef, input, adapter: canvasAdapter });
+        input?.addEventListener('input', renderPreparedNodeContext);
+        documentRef.getElementById('prompt-agent-insert-node-context')?.addEventListener('click', insertPreparedNodeContext);
         button?.addEventListener('click', toggle);
         closeButton?.addEventListener('click', close);
         form?.addEventListener('submit', async (event) => {
@@ -1936,6 +1992,7 @@ export function createPromptAgentController({
     function restoreWorkflow(value) {
         thinkingControls.forEach(control => control.close());
         canvasMentions?.clear(); canvasViews.forEach(view => view.destroy()); canvasViews.clear();
+        preparedNodeContext = null; renderPreparedNodeContext();
         cancelRequest({ silent: true });
         workflowRevision += 1;
         importQueue = Promise.resolve();
@@ -1983,7 +2040,7 @@ export function createPromptAgentController({
     }
 
     return {
-        init, open, close, toggle, submit, cancelRequest, removeNodeReferences,
+        init, open, close, toggle, submit, cancelRequest, removeNodeReferences, prepareNodeContext, refreshPreparedNodeContext: renderPreparedNodeContext,
         restoreWorkflow, snapshotWorkflow, syncWorkflowState, refreshActionStates, refreshResults: refreshRunViews, refreshModels: renderModelOptions
     };
 }

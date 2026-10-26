@@ -442,6 +442,7 @@ function handleNodeGraphChanged(options = {}) {
     getNodeLifecycleApi().refreshNodeRelationCache?.();
     nodeDomBindingsApi?.syncImageMergeNodes?.();
     nodeDomBindingsApi?.syncAllConnectedInputFieldVisibility?.();
+    promptAgentController?.refreshPreparedNodeContext?.();
     if (!force && isMediaRestoreBatchActive()) {
         return;
     }
@@ -685,6 +686,7 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     getWorkflowId: () => workflowManagerApi.getActiveWorkflowId?.() || '',
     moveReferenceSource: (nodeId, connectionId, targetConnectionId) => connectionsApi.moveImageReferenceConnection(nodeId, connectionId, targetConnectionId),
     disconnectReferenceSource: (nodeId, connectionId) => connectionsApi.disconnectImageReferenceConnection(nodeId, connectionId),
+    prepareNodeContext: reference => promptAgentController.prepareNodeContext(reference),
     getPortPosition: (nodeId, portName, direction) => getPortPosition(nodeId, portName, direction),
     pushHistory,
     removeNode: (nodeId, options) => removeNode(nodeId, options),
