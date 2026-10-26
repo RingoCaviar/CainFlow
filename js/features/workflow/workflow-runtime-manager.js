@@ -1769,10 +1769,8 @@ export function createWorkflowRuntimeManager({
         data.connections.forEach((connection) => {
             if (runtimeState.nodes.has(connection.from.nodeId) && runtimeState.nodes.has(connection.to.nodeId)) {
                 runtimeState.connections.push({
+                    ...serializeConnection(connection),
                     id: connection.id || `c_${generateId()}`,
-                    from: { ...connection.from },
-                    to: { ...connection.to },
-                    type: connection.type
                 });
             }
         });

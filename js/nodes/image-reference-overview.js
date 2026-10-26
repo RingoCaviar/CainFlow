@@ -4,7 +4,8 @@ import { orderInputConnections } from './reference-image-ports.js';
 // A disposable projection of connections and existing outputs, never an attachment store.
 export function createImageReferenceOverview({ state, documentRef, getCachedOutputValue,
     createThumbnail = async source => source, readSourceImages = async () => [], openPreview = () => {},
-    focusNode = () => {}, getWorkflowId = () => '', showToast = () => {}, onLayout = () => {} }) {
+    focusNode = () => {}, getWorkflowId = () => '', showToast = () => {}, onLayout = () => {},
+    moveSource = () => false, disconnectSource = () => false }) {
     const views = new WeakMap();
     const assetsOf = source => {
         if (source?.type === 'ImageImport') return getImageImportMediaAssetReferences(source);
@@ -17,7 +18,14 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
     const button = (label, action, disabled) => {
         const control = documentRef.createElement('button');
         control.type = 'button'; control.textContent = label; control.disabled = disabled;
+        control.dataset.nodeReadAction = 'true';
         control.addEventListener('click', event => { event.stopPropagation(); action(control); });
+        return control;
+    };
+    const connectionButton = (label, action, disabled, className) => {
+        const control = button(label, action, disabled);
+        delete control.dataset.nodeReadAction;
+        control.dataset.nodeConnectionAction = 'true'; control.className = className;
         return control;
     };
 
@@ -53,13 +61,48 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
         container.replaceChildren();
         if (!groups.length) { container.textContent = '连接参考图来源后，在此核对图片与输入顺序。'; onLayout(nodeId); return; }
         let number = 0, hidden = 0;
-        for (const group of groups) {
+        const moveLocked = disabled || groups.some(group => group.running);
+        const mutate = (operation, connectionId) => {
+            if (state.nodes.get(nodeId) !== target) return;
+            try {
+                if (!operation()) { showToast('当前不能修改来源连接，请检查运行状态。', 'warning'); return; }
+                render(nodeId);
+                const row = [...container.querySelectorAll('.image-reference-group')].find(item => item.dataset.referenceConnection === connectionId);
+                const control = row?.querySelector('.image-reference-locate') || container.querySelector('.image-reference-locate') || target.el.querySelector('textarea');
+                control?.focus({ preventScroll: true });
+            } catch (error) { showToast(error.message || '来源连接修改失败', 'warning'); }
+        };
+        for (const [groupIndex, group] of groups.entries()) {
             const row = documentRef.createElement('div'); row.className = 'image-reference-group';
             row.dataset.referenceConnection = group.connection.id;
             const heading = documentRef.createElement('div'); heading.className = 'image-reference-heading';
             const locate = button(`${group.name} · ${group.count} 张`, () => focusNode(group.source.id), disabled || !group.source);
             locate.className = 'image-reference-locate'; locate.title = '定位来源节点';
-            heading.append(locate); row.append(heading);
+            const drag = connectionButton('⠿', () => {}, moveLocked, 'image-reference-drag');
+            drag.setAttribute('aria-label', `拖动${group.name}来源组`); drag.draggable = !moveLocked;
+            drag.addEventListener('dragstart', event => {
+                if (moveLocked) { event.preventDefault(); return; }
+                event.stopPropagation();
+                view.drag = { workflowId: getWorkflowId(), target, connectionId: group.connection.id };
+                event.dataTransfer?.setData('application/x-cainflow-reference', group.connection.id);
+            });
+            drag.addEventListener('dragend', () => { view.drag = null; });
+            row.addEventListener('dragover', event => {
+                if (!view.drag || moveLocked) return;
+                event.preventDefault(); event.stopPropagation();
+            });
+            row.addEventListener('drop', event => {
+                if (!view.drag) return;
+                event.preventDefault(); event.stopPropagation();
+                const pending = view.drag; view.drag = null;
+                if (moveLocked || pending.workflowId !== getWorkflowId() || pending.target !== state.nodes.get(nodeId) || pending.connectionId === group.connection.id) return;
+                mutate(() => moveSource(nodeId, pending.connectionId, group.connection.id), pending.connectionId);
+            });
+            const up = connectionButton('↑', () => mutate(() => moveSource(nodeId, group.connection.id, groups[groupIndex - 1]?.connection.id), group.connection.id), moveLocked || groupIndex === 0, 'image-reference-move-up');
+            up.setAttribute('aria-label', `前移${group.name}来源组`); up.title = '前移来源组';
+            const down = connectionButton('↓', () => mutate(() => moveSource(nodeId, group.connection.id, groups[groupIndex + 1]?.connection.id), group.connection.id), moveLocked || groupIndex === groups.length - 1, 'image-reference-move-down');
+            down.setAttribute('aria-label', `后移${group.name}来源组`); down.title = '后移来源组';
+            heading.append(drag, locate, up, down); row.append(heading);
             const strip = documentRef.createElement('div'); strip.className = 'image-reference-thumbnails';
             for (let index = 0; index < group.count; index += 1) {
                 number += 1;
@@ -103,6 +146,10 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
                 strip.append(preview);
             }
             row.append(strip);
+            const disconnect = connectionButton(`断开 ${group.count} 张`, () => mutate(() => disconnectSource(nodeId, group.connection.id), group.connection.id), disabled || group.running, 'image-reference-disconnect');
+            disconnect.title = '仅断开此来源连接，保留源节点和原图';
+            disconnect.setAttribute('aria-label', `断开${group.name}来源连接，影响 ${group.count} 张图片，保留源节点和原图`);
+            row.append(disconnect);
             if (!group.source || !group.enabled || group.missing || !group.count) {
                 const status = documentRef.createElement('p'); status.className = 'image-reference-source-status';
                 status.textContent = !group.source ? '来源节点已不存在' : !group.enabled ? '来源已禁用'
