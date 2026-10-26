@@ -79,3 +79,35 @@ test('old image nodes retain coordinates, width and saved prompt height on reope
         assert.deepEqual(await geometry(), { x: '213px', y: '187px', width: 476, promptHeight: 241 });
     });
 });
+
+test('advanced settings retain values and each node expansion across save and reload', { timeout: 30000 }, async () => {
+    await withAppBrowser({ ...session, nodes: ['one','two'].map((id,index)=>({ id, type: 'ImageGenerate', x: index*500, y: 100,
+        apiConfigId: 'image', providerId: 'p', prompt: id })), connections: [] }, async app => {
+        const { evaluate, waitFor, send } = app;
+        await controlImages(app);
+        assert.equal(await evaluate("document.getElementById('one-advanced-parameters').open"), false);
+        await evaluate("document.querySelector('#one-advanced-parameters > summary').click()");
+        await change(evaluate, 'one-background', 'transparent');
+        await evaluate("document.querySelector('#one-advanced-parameters > summary').click()");
+        assert.match(await evaluate("document.getElementById('one-advanced-summary').textContent"), /透明/);
+        await evaluate("document.querySelector('#one-advanced-parameters > summary').click()");
+        await delay(1000);
+        await send('Page.reload'); await waitFor('window.__cainflowAppReady === true'); await delay(500);
+        await waitFor("Boolean(document.getElementById('two-advanced-parameters'))");
+        assert.equal(await evaluate("document.getElementById('one-advanced-parameters').open"), true);
+        assert.equal(await evaluate("document.getElementById('two-advanced-parameters').open"), false);
+        assert.equal(await evaluate("document.getElementById('one-background').value"), 'transparent');
+        await change(evaluate, 'one-apiconfig', 'google');
+        await change(evaluate, 'one-apiconfig', 'image');
+        assert.equal(await evaluate("document.getElementById('one-background').value"), 'transparent');
+        await evaluate("document.getElementById('btn-run').click()");
+        await waitFor('imageRequests.length===2');
+        assert.equal(await evaluate("imageRequests.find(r=>r.prompt==='one').background"), 'transparent');
+        await waitFor("!document.getElementById('one-prompt').disabled");
+        await waitFor("!document.getElementById('two-prompt').disabled && !document.getElementById('btn-run').disabled");
+        await delay(300);
+        await evaluate("document.querySelector('#one-advanced-parameters > summary').click();document.getElementById('one').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()");
+        await waitFor('imageRequests.length===3');
+        assert.equal(await evaluate("imageRequests.filter(r=>r.prompt==='one').at(-1).background"), 'transparent');
+    });
+});

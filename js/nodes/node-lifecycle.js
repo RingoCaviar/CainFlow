@@ -1268,6 +1268,9 @@ export function createNodeLifecycleApi({
         if (effectiveRestoreData?.protocolParams) {
             nodeData.data.protocolParams = clonePlainValue(effectiveRestoreData.protocolParams);
         }
+        if (normalizedType === 'ImageGenerate' && typeof effectiveRestoreData?.advancedExpanded === 'boolean') {
+            nodeData.data.advancedExpanded = effectiveRestoreData.advancedExpanded;
+        }
         if (effectiveRestoreData?.protocolVariantDrafts) {
             nodeData.data.protocolVariantDrafts = clonePlainValue(effectiveRestoreData.protocolVariantDrafts);
         }

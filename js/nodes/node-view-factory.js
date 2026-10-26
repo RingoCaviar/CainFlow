@@ -517,8 +517,8 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
         })}
         </div>
 
-        <details class="node-advanced-parameters node-field--full ${usesOpenAiImageControls && !isNewApiAsyncImage ? '' : 'hidden'}" id="${id}-advanced-parameters">
-            <summary>更多参数 <span class="node-advanced-summary" id="${id}-advanced-summary">内容审核、背景</span></summary>
+        <details class="node-advanced-parameters node-field--full" id="${id}-advanced-parameters"${rd.advancedExpanded === true ? ' open' : ''}>
+            <summary>高级设置 <span class="node-advanced-summary" id="${id}-advanced-summary">默认设置</span></summary>
             <div class="node-parameter-grid">
         ${renderNodeFormField({
             label: '内容审核',
@@ -542,9 +542,8 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             </select>`
         })}
             </div>
-        </details>
-
         <div class="node-protocol-params" id="${id}-protocol-params"></div>
+        </details>
 
 
         <div class="node-field ${isNewApiAsyncImage ? '' : 'hidden'}" id="${id}-image-async-result-field">
