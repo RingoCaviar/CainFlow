@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="../../css/components/nodes.css">
     <link rel="stylesheet" href="../../css/themes.css">
     <link rel="stylesheet" href="../../css/features/node-canvas-theme-skin.css">
+    <link rel="stylesheet" href="../../css/features/image-result-actions.css">
     <style>
         #canvas-container { position: relative; width: 1000px; height: 1200px; }
         #node { left: 60px; top: 0; width: 410px; }
@@ -73,13 +74,14 @@
                 const body = node.querySelector('.node-body').getBoundingClientRect();
                 const field = node.querySelector('.node-generation-progress-field').getBoundingClientRect();
                 const progress = node.querySelector('.api-generation-progress').getBoundingClientRect();
+                const actions = node.querySelector('.image-node-run-actions').getBoundingClientRect();
                 const prompt = node.querySelector('.image-generate-prompt').getBoundingClientRect();
                 const progressLabel = node.querySelector('.node-generation-progress-field label').getBoundingClientRect();
                 return {
                     cardHeight: Math.round(card.height), bodyHeight: Math.round(body.height),
                     promptHeight: Math.round(prompt.height),
-                    bottomGap: Math.round((card.bottom - progress.bottom) * 100) / 100,
-                    promptToProgressGap: Math.round((progressLabel.top - prompt.bottom) * 100) / 100,
+                    bottomGap: Math.round((card.bottom - actions.bottom) * 100) / 100,
+                    progressToActionsGap: Math.round((actions.top - progress.bottom) * 100) / 100,
                     bodyGap: Math.round((card.bottom - body.bottom) * 100) / 100,
                     fieldGap: Math.round((body.bottom - field.bottom) * 100) / 100,
                     progressFieldGap: Math.round((field.bottom - progress.bottom) * 100) / 100

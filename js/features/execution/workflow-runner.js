@@ -623,6 +623,7 @@ export function createWorkflowRunnerApi({
             if (node.type === 'ImageGenerate' || node.type === 'VideoGenerate' || node.type === 'TextChat') {
                 delete node.apiGenerationProgress;
             }
+            getRunningNodeIds().add(nid);
             setNodeRunningLock(node, true);
             emitNodeRunState({ nodeId: nid, status: 'waiting' });
         }

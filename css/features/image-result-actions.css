@@ -42,6 +42,7 @@
 .image-node-result-navigation button { font-size: 13px; }
 .image-node-result-count { color: var(--text-secondary); font-size: 13px; }
 .image-node-run-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 4px 0 10px; }
+.node-generate .node-generation-progress-field { margin-top: auto; }
 .image-node-run-actions > button { font-size: 13px; min-height: 30px; }
 .image-node-run-status { flex: 1; color: var(--text-secondary); font-size: 13px; }
 .image-node-run-status[data-status=error] { color: var(--text-danger); }

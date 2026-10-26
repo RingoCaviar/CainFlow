@@ -1,4 +1,5 @@
 import { getCanonicalImageList, getCanonicalImageIndex } from '../features/execution/execution-data-utils.js';
+import { getImageOutputAssets, projectImageOutput } from './image-output-projection.js';
 
 export function createImageNodeResults({ state, documentRef, createActions = () => null, readAsset = async () => '',
     readSourceImages = async () => [], createThumbnail = async source => source, rememberThumbnail = () => {},
@@ -8,24 +9,26 @@ export function createImageNodeResults({ state, documentRef, createActions = () 
     function render(nodeId) {
         const node = state.nodes.get(nodeId), host = documentRef.getElementById(`${nodeId}-image-results`);
         if (node?.type !== 'ImageGenerate' || !host) return;
-        const images = getCanonicalImageList(node), assets = [...(node.data?.mediaAssetKeys || [])];
+        const { images, assets, count: outputCount, compacted, missingPositions } = projectImageOutput(node, getCanonicalImageList(node));
         const running = state.runningNodeIds?.has(nodeId) === true || node.runStatus === 'waiting';
         const retained = images.length || Number(node.data?.imageCount) > 0 || node.data?.imageAssetReady === true
             || node.data?.imageMemoryReleased === true;
-        const count = running || !retained ? 0 : Math.max(images.length, assets.length, Number(node.data?.imageCount) || 0);
+        const stopped = node.runStatus === 'aborted' || node.runStatus === 'error' || node.isFailed === true;
+        const count = running || stopped || !retained ? 0 : outputCount;
         const index = count ? getCanonicalImageIndex(node, new Array(count)) : 0;
-        const previous = views.get(host), thumbnail = node.data?.imagePreviewThumbnail || '';
-        if (previous && previous.node === node && previous.count === count && previous.index === index
+        const previous = views.get(host), missing = missingPositions.includes(index);
+        const thumbnail = compacted || missing ? '' : node.data?.imagePreviewThumbnail || '';
+        if (previous && previous.node === node && previous.count === count && previous.index === index && previous.missing === missing
             && previous.thumbnail === thumbnail && same(previous.images, images) && same(previous.assets, assets)) return;
-        const view = { node, images, assets, count, index, thumbnail }; views.set(host, view);
+        const view = { node, images, assets, count, index, thumbnail, missing }; views.set(host, view);
         host.replaceChildren(); host.hidden = count === 0;
         if (!count) { onLayout(nodeId); return; }
         const assetKey = assets[index], original = images[index], legacyKey = node.data?.imageAssetKey;
-        const isCurrent = () => state.nodes.get(nodeId) === node && node.runStatus !== 'waiting' && !state.runningNodeIds?.has(nodeId)
-            && (assetKey ? node.data?.mediaAssetKeys?.[index] === assetKey : original
+        const isCurrent = () => state.nodes.get(nodeId) === node && !['waiting','error','aborted'].includes(node.runStatus) && !state.runningNodeIds?.has(nodeId)
+            && (assetKey ? getImageOutputAssets(node)[index] === assetKey : original
                 ? getCanonicalImageList(node)[index] === original : node.data?.imageAssetKey === legacyKey);
         const readOriginal = async () => {
-            if (assetKey) return readAsset(assetKey);
+            if (assetKey?.startsWith('media:')) return readAsset(assetKey);
             if (/^data:image\//i.test(original || '')) return original;
             return (await readSourceImages(nodeId))[index] || '';
         };
@@ -43,7 +46,7 @@ export function createImageNodeResults({ state, documentRef, createActions = () 
                 image.src = src;
                 rememberThumbnail(nodeId, source, src);
             }).catch(() => {});
-        } else preview.textContent = '按需载入原图';
+        } else preview.textContent = missing ? '原图缺失，请从媒体管理恢复' : '按需载入原图';
         host.append(preview);
         const navigation = documentRef.createElement('div'); navigation.className = 'image-node-result-navigation';
         for (const direction of [-1, 1]) {
