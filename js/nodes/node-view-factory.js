@@ -433,9 +433,20 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
     const generationCount = Math.max(1, parseInt(rd.generationCount || '1', 10) || 1);
 
     return `
+        ${renderNodeFormField({
+            label: '提示词',
+            fieldId: `${id}-prompt-field`,
+            fieldClass: 'image-node-prompt-field',
+            content: `<textarea class="image-generate-prompt" id="${id}-prompt" placeholder="描述你想生成的图片..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${escapeHtml(rd.prompt || '')}</textarea>`
+        })}
+
+        <section class="image-reference-overview" aria-label="参考图">
+            <div class="node-section-label">参考图</div>
+            <div class="image-reference-sources" id="${id}-reference-sources">通过参考图端口连接来源</div>
+        </section>
         <div class="node-parameter-grid">
         ${renderNodeFormField({
-            label: 'API 配置',
+            label: '模型',
             content: `<select id="${id}-apiconfig">${opts}</select>`
         })}
         ${renderNodeFormField({
@@ -480,32 +491,6 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
                 <option value="high" ${imageQuality === 'high' ? 'selected' : ''}>高</option>
             </select>`
         })}
-        <details class="node-advanced-parameters node-field--full ${usesOpenAiImageControls && !isNewApiAsyncImage ? '' : 'hidden'}" id="${id}-advanced-parameters">
-            <summary>更多参数 <span class="node-advanced-summary" id="${id}-advanced-summary">内容审核、背景</span></summary>
-            <div class="node-parameter-grid">
-        ${renderNodeFormField({
-            label: '内容审核',
-            fieldClass: usesOpenAiImageControls && !isNewApiAsyncImage ? '' : 'hidden',
-            fieldId: `${id}-moderation-field`,
-            content: `<select id="${id}-moderation">
-                <option value="" ${!imageModeration ? 'selected' : ''}>默认</option>
-                <option value="auto" ${imageModeration === 'auto' ? 'selected' : ''}>自动（auto）</option>
-                <option value="low" ${imageModeration === 'low' ? 'selected' : ''}>低限制（low）</option>
-            </select>`
-        })}
-        ${renderNodeFormField({
-            label: '背景',
-            fieldClass: usesOpenAiImageControls && !isNewApiAsyncImage ? '' : 'hidden',
-            fieldId: `${id}-background-field`,
-            content: `<select id="${id}-background">
-                <option value="" ${!imageBackground ? 'selected' : ''}>默认</option>
-                <option value="auto" ${imageBackground === 'auto' ? 'selected' : ''}>自动（auto）</option>
-                <option value="transparent" ${imageBackground === 'transparent' ? 'selected' : ''}>透明（transparent）</option>
-                <option value="opaque" ${imageBackground === 'opaque' ? 'selected' : ''}>不透明（opaque）</option>
-            </select>`
-        })}
-            </div>
-        </details>
         ${renderNodeFormField({
             label: '实际请求分辨率',
             fieldClass: 'node-field--full',
@@ -532,14 +517,35 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
         })}
         </div>
 
+        <details class="node-advanced-parameters node-field--full ${usesOpenAiImageControls && !isNewApiAsyncImage ? '' : 'hidden'}" id="${id}-advanced-parameters">
+            <summary>更多参数 <span class="node-advanced-summary" id="${id}-advanced-summary">内容审核、背景</span></summary>
+            <div class="node-parameter-grid">
+        ${renderNodeFormField({
+            label: '内容审核',
+            fieldClass: usesOpenAiImageControls && !isNewApiAsyncImage ? '' : 'hidden',
+            fieldId: `${id}-moderation-field`,
+            content: `<select id="${id}-moderation">
+                <option value="" ${!imageModeration ? 'selected' : ''}>默认</option>
+                <option value="auto" ${imageModeration === 'auto' ? 'selected' : ''}>自动（auto）</option>
+                <option value="low" ${imageModeration === 'low' ? 'selected' : ''}>低限制（low）</option>
+            </select>`
+        })}
+        ${renderNodeFormField({
+            label: '背景',
+            fieldClass: usesOpenAiImageControls && !isNewApiAsyncImage ? '' : 'hidden',
+            fieldId: `${id}-background-field`,
+            content: `<select id="${id}-background">
+                <option value="" ${!imageBackground ? 'selected' : ''}>默认</option>
+                <option value="auto" ${imageBackground === 'auto' ? 'selected' : ''}>自动（auto）</option>
+                <option value="transparent" ${imageBackground === 'transparent' ? 'selected' : ''}>透明（transparent）</option>
+                <option value="opaque" ${imageBackground === 'opaque' ? 'selected' : ''}>不透明（opaque）</option>
+            </select>`
+        })}
+            </div>
+        </details>
+
         <div class="node-protocol-params" id="${id}-protocol-params"></div>
 
-        ${renderNodeFormField({
-            label: '提示词',
-            fieldId: `${id}-prompt-field`,
-            fieldClass: 'node-field-expand',
-            content: `<textarea class="image-generate-prompt" id="${id}-prompt" placeholder="描述你想生成的图片..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${rd.prompt || ''}</textarea>`
-        })}
 
         <div class="node-field ${isNewApiAsyncImage ? '' : 'hidden'}" id="${id}-image-async-result-field">
             <label>异步任务</label>

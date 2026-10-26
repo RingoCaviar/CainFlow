@@ -1,5 +1,32 @@
 /* Nodes and canvas own their selectors; themes provide only the semantic palette. */
-.node-parameter-grid > .node-advanced-parameters {
+.image-reference-overview {
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid var(--node-control-border);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    background: var(--node-control-surface);
+}
+
+.node-section-label {
+    margin-bottom: 6px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.image-reference-sources {
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.node-generate textarea.image-generate-prompt,
+.node-generate textarea.image-generate-prompt::placeholder {
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.node-advanced-parameters {
     grid-column: 1 / -1;
     min-width: 0;
     border: 1px solid var(--border-input);

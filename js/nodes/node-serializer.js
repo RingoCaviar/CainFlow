@@ -108,9 +108,7 @@ export function createNodeSerializer({ state, documentRef }) {
             if (Array.isArray(node.data?.imageDescriptions) && node.data.imageDescriptions.some(Boolean)) {
                 serialized.imageDescriptions = Array.from(node.data.imageDescriptions, value => String(value || '').trim().slice(0, 2000));
             }
-            const textareaHeights = isAutoSizedImageGenerate
-                ? null
-                : getNodeTextareaHeights(id);
+            const textareaHeights = getNodeTextareaHeights(id);
             if (textareaHeights) serialized.textareaHeights = textareaHeights;
             if (node.type === 'TextChat') serialized.chatLayoutVersion = 3;
 

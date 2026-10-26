@@ -969,7 +969,9 @@ export function createNodeLifecycleApi({
         const config = nodeConfigs[node.type] || null;
         const usesContentSizedDefault = config?.contentSized === true && node.userResized !== true;
         if (usesContentSizedDefault) {
-            const defaultWidth = getDefaultNodeWidth(config);
+            const defaultWidth = node.type === 'ImageGenerate'
+                ? (node.width || getDefaultNodeWidth(config))
+                : getDefaultNodeWidth(config);
             const minimum = getNodeMinimumSize(node, { width: defaultWidth });
             applyNodeSize(
                 node,
@@ -1132,11 +1134,9 @@ export function createNodeLifecycleApi({
             const { textareaHeights, ...restoredChatData } = effectiveRestoreData;
             effectiveRestoreData = restoredChatData;
         }
-        // A content-sized generation card has no user-selected text area height.
-        // Older saves captured the flex-grown rendered height, which then became
-        // the card's minimum height on every subsequent restore.
+        // Recalculate automatic card height while retaining saved editor sizes.
         if (normalizedType === 'ImageGenerate' && effectiveRestoreData && effectiveRestoreData.userResized !== true) {
-            const { height, textareaHeights, collapsedExpandedHeight, ...restoredGenerationData } = effectiveRestoreData;
+            const { height, collapsedExpandedHeight, ...restoredGenerationData } = effectiveRestoreData;
             effectiveRestoreData = restoredGenerationData;
         }
         const restoredUserResized = effectiveRestoreData?.userResized === true;
@@ -1151,7 +1151,7 @@ export function createNodeLifecycleApi({
         el.style.left = x + 'px';
         el.style.top = y + 'px';
         const initialWidth = clampNodeWidthToDefault(effectiveRestoreData?.width, config, {
-            userResized: restoredUserResized
+            userResized: restoredUserResized || (normalizedType === 'ImageGenerate' && Number(effectiveRestoreData?.width) > 0)
         });
         el.style.width = initialWidth + 'px';
 

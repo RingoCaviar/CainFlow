@@ -1,0 +1,81 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { withAppBrowser, delay } from './helpers/app-browser.mjs';
+
+const session = {
+    autoCheckUpdatesOnLoad: false,
+    models: [
+        { id: 'chat', modelId: 'chat', name: '受控对话', protocol: 'openai', taskType: 'chat', providerIds: ['p'] },
+        { id: 'image', modelId: 'gpt-image-1', name: '受控图片', protocol: 'openai-image', taskType: 'image', providerIds: ['p'] },
+        { id: 'google', modelId: 'gemini-image', name: '另一图片模型', protocol: 'google', taskType: 'image', providerIds: ['p'] }
+    ],
+    providers: [{ id: 'p', name: '受控供应商', endpoint: 'https://controlled.test/v1', apikey: 'test' }]
+};
+const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=';
+
+async function controlImages({ send, waitFor }) {
+    await send('Page.addScriptToEvaluateOnNewDocument', { source: `window.imageRequests=[];const nativeFetch=window.fetch;window.fetch=async(url,options={})=>{
+        if(String(url)==='/proxy') { const body=JSON.parse(options.body); imageRequests.push(body);
+            return new Response(JSON.stringify({data:[{b64_json:'${png}'}]}),{headers:{'Content-Type':'application/json'}});
+        } return nativeFetch(url,options);
+    };` });
+    await send('Page.reload');
+    await waitFor('window.__cainflowAppReady === true');
+    await waitFor("document.getElementById('prompt-agent-model')?.options.length>0");
+    await delay(500);
+}
+
+async function createImage({ evaluate, waitFor }) {
+    await evaluate(`document.getElementById('canvas-container').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}))`);
+    await evaluate(`document.querySelector('.context-menu-item[data-type="ImageGenerate"]').click()`);
+    await waitFor("Boolean(document.querySelector('.node-generate textarea[id$=prompt]'))");
+    return evaluate("document.querySelector('.node-generate').id");
+}
+
+async function change(evaluate, id, value) {
+    await evaluate(`(()=>{const field=document.getElementById(${JSON.stringify(id)});field.value=${JSON.stringify(value)};field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+}
+
+test('content-first image card keeps common parameters aligned with the real request and reload', { timeout: 60000 }, async () => {
+    await withAppBrowser(session, async app => {
+        const { evaluate, waitFor, send } = app;
+        await controlImages(app);
+        const id = await createImage(app);
+        assert.ok(await evaluate(`document.getElementById('${id}-prompt').getBoundingClientRect().top < document.getElementById('${id}-apiconfig').getBoundingClientRect().top`), 'prompt is presented before model configuration');
+        await change(evaluate, `${id}-prompt`, 'a quiet poster');
+        await change(evaluate, `${id}-resolution`, 'custom');
+        await change(evaluate, `${id}-custom-resolution-width`, '1536');
+        await change(evaluate, `${id}-custom-resolution-height`, '1024');
+        await change(evaluate, `${id}-quality`, 'high');
+        await change(evaluate, `${id}-generation-count`, '2');
+        await evaluate("document.getElementById('btn-run').click()");
+        await waitFor('imageRequests.length===2');
+        await waitFor(`!document.getElementById('${id}-prompt').disabled`);
+        assert.deepEqual(await evaluate('imageRequests.map(r=>({prompt:r.prompt,size:r.size,quality:r.quality}))'), [
+            { prompt: 'a quiet poster', size: '1536x1024', quality: 'high' },
+            { prompt: 'a quiet poster', size: '1536x1024', quality: 'high' }
+        ]);
+        await delay(1000);
+        await send('Page.reload'); await waitFor('window.__cainflowAppReady === true'); await delay(500);
+        await waitFor(`Boolean(document.getElementById('${id}-prompt'))`);
+        assert.equal(await evaluate(`document.getElementById('${id}-prompt').value`), 'a quiet poster');
+        assert.equal(await evaluate(`document.getElementById('${id}-generation-count').value`), '2');
+        await change(evaluate, `${id}-apiconfig`, 'google');
+        assert.ok(await evaluate(`document.getElementById('${id}-quality-field').classList.contains('hidden')`));
+    });
+});
+
+test('old image nodes retain coordinates, width and saved prompt height on reopen', { timeout: 30000 }, async () => {
+    await withAppBrowser({ ...session, nodes: [{ id: 'old-image', type: 'ImageGenerate', x: 213, y: 187, width: 476,
+        apiConfigId: 'image', providerId: 'p', prompt: 'saved local draft', textareaHeights: { prompt: 241 } }], connections: [] }, async ({ evaluate, waitFor, send }) => {
+        await waitFor("Boolean(document.getElementById('old-image-prompt'))");
+        const geometry = () => evaluate(`(()=>{const node=document.getElementById('old-image');return {x:node.style.left,y:node.style.top,width:node.offsetWidth,promptHeight:document.getElementById('old-image-prompt').offsetHeight}})()`);
+        assert.deepEqual(await geometry(), { x: '213px', y: '187px', width: 476, promptHeight: 241 });
+        await change(evaluate, 'old-image-prompt', 'edited local draft');
+        await delay(1000);
+        await send('Page.reload');
+        await waitFor('window.__cainflowAppReady === true'); await delay(500);
+        await waitFor("Boolean(document.getElementById('old-image-prompt'))");
+        assert.deepEqual(await geometry(), { x: '213px', y: '187px', width: 476, promptHeight: 241 });
+    });
+});

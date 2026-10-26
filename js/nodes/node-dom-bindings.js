@@ -2518,7 +2518,9 @@ export function createNodeDomBindingsApi({
             el.addEventListener('change', event => { if (event.target.id === `${id}-apiconfig` || event.target.id === `${id}-provider`) queueMicrotask(control.refresh); });
             el._thinkingControl = control;
             const promptField = documentRef.getElementById(`${id}-prompt`)?.closest('.node-field') || documentRef.getElementById(`${id}-sysprompt`)?.closest('.node-field');
-            if (promptField) promptField.before(el.querySelector('.thinking-control'));
+            if (type === 'ImageGenerate') {
+                documentRef.getElementById(`${id}-advanced-parameters`)?.after(el.querySelector('.thinking-control'));
+            } else if (promptField) promptField.before(el.querySelector('.thinking-control'));
             (el._cleanupFns ||= []).push(control.destroy);
         }
         bindNodeRunCancelButton(id, el);
