@@ -186,6 +186,7 @@ export function createNodeSerializer({ state, documentRef }) {
                 serialized.providerId = documentRef.getElementById(`${id}-provider`)?.value || node.providerId || '';
                 serialized.prompt = documentRef.getElementById(`${id}-prompt`)?.value || '';
                 if (node.type === 'ImageGenerate') {
+                    serialized.advancedExpanded = documentRef.getElementById(`${id}-advanced-parameters`)?.open === true;
                     serialized.aspect = documentRef.getElementById(`${id}-aspect`)?.value || '';
                     serialized.resolution = documentRef.getElementById(`${id}-resolution`)?.value || '';
                     serialized.customWidth = documentRef.getElementById(`${id}-custom-resolution-width`)?.value || '';

@@ -54,6 +54,12 @@
     padding: 0 10px 10px;
 }
 
+.node-advanced-parameters > .node-protocol-params,
+.node-advanced-parameters > .thinking-control,
+.node-advanced-parameters > .node-field {
+    margin: 0 10px 10px;
+}
+
 html:root #canvas-container .node-chat-toggle-grid {
     grid-template-columns: minmax(0, 1fr);
     gap: 6px;

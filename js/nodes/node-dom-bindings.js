@@ -1,4 +1,5 @@
 import { createThinkingControl } from '../features/execution/thinking-control.js';
+import { getThinkingCapability } from '../features/execution/thinking-config.js';
 import { createSelectionApi } from '../canvas/selection.js';
 /**
  * 负责把节点 DOM 与交互行为绑定起来，包括拖拽、输入监听、按钮操作和端口事件。
@@ -1521,6 +1522,7 @@ export function createNodeDomBindingsApi({
             input.dataset.protocolParamBound = '1';
             const saveProtocolParams = () => {
                 syncImageGenerateProtocolParams(id);
+                syncImageAdvancedSummary(id);
                 if (!state.nodes.get(id)?.isClone) syncClonesFromSource(id);
                 scheduleSave();
             };
@@ -1800,8 +1802,8 @@ export function createNodeDomBindingsApi({
         updateImageGenerateMaskPortVisibility(id, usesOpenAiImageControls && !isNewApiAsyncImage);
         updateImageGenerateAsyncFieldsVisibility(id, isNewApiAsyncImage, usesOpenAiImageControls);
         updateImageGenerateCustomResolutionVisibility(id);
-        syncImageAdvancedSummary(id);
         refreshImageGenerateProtocolParams(id);
+        syncImageAdvancedSummary(id);
     }
 
     function syncImageAdvancedSummary(id) {
@@ -1813,13 +1815,31 @@ export function createNodeDomBindingsApi({
             control: documentRef.getElementById(`${id}-${name}`)
         }));
         const visibleFields = fields.filter(({ field }) => field && !field.classList.contains('hidden'));
-        details.classList.toggle('hidden', visibleFields.length === 0);
         const configured = visibleFields.filter(({ control }) => control?.value).map(({ field, control }) => {
             const label = field.querySelector('label')?.textContent || '';
             const value = control.selectedOptions?.[0]?.textContent || control.value;
             return `${label}：${value}`;
         });
-        summary.textContent = configured.length > 0 ? configured.join(' · ') : '内容审核、背景 · 默认';
+        const node = state.nodes.get(id);
+        const model = state.models.find(item => item.id === documentRef.getElementById(`${id}-apiconfig`)?.value) || {};
+        const provider = getResolvedProviderForModel(model, state.providers, documentRef.getElementById(`${id}-provider`)?.value) || {};
+        const supportsThinking = getThinkingCapability({ model, provider, task: 'image', protocol: model.protocol }).supported;
+        const thinking = node?.el?.querySelector('.thinking-control');
+        if (thinking) thinking.hidden = !supportsThinking;
+        if (node?.data?.thinking && node.data.thinking.mode !== 'inherit') configured.push(supportsThinking ? '思考：已自定义' : '思考草稿：当前不适用');
+        const search = documentRef.getElementById(`${id}-search-field`);
+        const hasSearch = search && !search.classList.contains('hidden');
+        if (hasSearch && documentRef.getElementById(`${id}-search`)?.checked) configured.push('搜索：开启');
+        const extra = getImageGenerateExtraProtocol(getImageGenerateSelectedProtocol(id));
+        for (const [key, parameter] of Object.entries(extra?.parameters || {})) {
+            if (!documentRef.getElementById(`${id}-param-${key}`)) continue;
+            const value = node?.data?.protocolParams?.[key];
+            if (value !== undefined && value !== '' && String(value) !== String(parameter.defaultValue ?? '')) {
+                configured.push(`${parameter.label || parameter.name || key}：${String(value)}`);
+            }
+        }
+        details.classList.toggle('hidden', visibleFields.length === 0 && !hasSearch && !supportsThinking && !extra);
+        summary.textContent = configured.length > 0 ? configured.join(' · ') : '默认设置';
     }
 
     function updateImageGenerateAspectAvailability(id, protocol, aspect = null) {
@@ -2513,13 +2533,14 @@ export function createNodeDomBindingsApi({
                 onChange: value => {
                     if (isNodeRunning(id)) throw new Error('节点正在运行，暂不能修改思考设置');
                     if (value) node.data.thinking = value; else delete node.data.thinking;
+                    if (type === 'ImageGenerate') syncImageAdvancedSummary(id);
                     scheduleSave();
                 } });
             el.addEventListener('change', event => { if (event.target.id === `${id}-apiconfig` || event.target.id === `${id}-provider`) queueMicrotask(control.refresh); });
             el._thinkingControl = control;
             const promptField = documentRef.getElementById(`${id}-prompt`)?.closest('.node-field') || documentRef.getElementById(`${id}-sysprompt`)?.closest('.node-field');
             if (type === 'ImageGenerate') {
-                documentRef.getElementById(`${id}-advanced-parameters`)?.after(el.querySelector('.thinking-control'));
+                documentRef.getElementById(`${id}-advanced-parameters`)?.append(el.querySelector('.thinking-control'));
             } else if (promptField) promptField.before(el.querySelector('.thinking-control'));
             (el._cleanupFns ||= []).push(control.destroy);
         }
@@ -2544,9 +2565,19 @@ export function createNodeDomBindingsApi({
         else if (type === 'ImageGenerate') {
             syncImageGenerateResolutionOptions(id);
             const advanced = el.querySelector(`#${id}-advanced-parameters`);
+            const searchField = documentRef.getElementById(`${id}-search-field`);
+            if (searchField && advanced) advanced.append(searchField);
             advanced?.addEventListener('change', () => syncImageAdvancedSummary(id));
+            advanced?.querySelector(':scope > summary')?.addEventListener('click', event => {
+                blockRunningNodeMutation(id, event, '节点正在运行，暂不能展开高级设置');
+            });
             advanced?.addEventListener('mousedown', (event) => event.stopPropagation());
             advanced?.addEventListener('toggle', () => {
+                const node = state.nodes.get(id);
+                if (node && node.data.advancedExpanded !== advanced.open) {
+                    node.data.advancedExpanded = advanced.open;
+                    scheduleSave();
+                }
                 fitNodeToContent(id, { allowShrink: true, preserveCurrentWidth: true, reason: 'element-resize', forceConnectionRefresh: true });
                 connectionProjection?.nodeGeometryChanged(id);
             });

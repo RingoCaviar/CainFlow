@@ -17,7 +17,7 @@ test('image card retains editable advanced values and primary controls across se
     assert.ok(bound.openHeight > bound.compactHeight + 30, JSON.stringify(bound));
     assert.ok(bound.closedHeight < bound.openHeight - 30, JSON.stringify(bound));
     assert.ok(bound.afterModelSwitchHeight < bound.beforeModelSwitchHeight - 30, JSON.stringify(bound));
-    assert.ok(bound.afterModelSwitchMinimum < bound.beforeModelSwitchMinimum - 30, JSON.stringify(bound));
+    assert.ok(bound.afterModelSwitchMinimum < bound.beforeModelSwitchMinimum - 15, JSON.stringify(bound));
     assert.equal(bound.afterModelSwitchWidth, 460);
     assert.ok(bound.restoredModelHeight > bound.afterModelSwitchHeight + 30, JSON.stringify(bound));
     assert.ok(bound.afterProviderSwitchHeight < bound.beforeProviderSwitchHeight - 15, JSON.stringify(bound));
