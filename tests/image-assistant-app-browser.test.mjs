@@ -43,6 +43,8 @@ async function reloadApp({ evaluate, send, waitFor }) {
 async function controlImages(app) {
     await app.send('Page.addScriptToEvaluateOnNewDocument', { source: `window.imageRequests=[];const nativeFetch=window.fetch;window.fetch=async(url,options={})=>{
         if(String(url)==='/proxy') { const body=JSON.parse(options.body); imageRequests.push(body);
+            if(window.holdPrompt && window.holdPrompt===body.prompt) await new Promise(resolve=>window.releasePromptResponse=resolve);
+            if(window.failImage && !body.messages) return new Response(JSON.stringify({error:{message:'受控失败：请检查模型配置'}}),{status:400,headers:{'Content-Type':'application/json'}});
             if(body.messages) {
                 const content=body.messages.at(-1).content,input=JSON.parse(Array.isArray(content)?content.find(p=>p.type==='text').text:content);
                 const plan=window.assistantBatch ? {canvasPlan:{version:1,steps:[{id:'generate',type:'ImageGenerate',parameters:{prompt:'source-a',generationCount:3}}],connections:[]}} : window.assistantGenerate ? {promptPlan:{prompt:'source-a',parameters:{},imageRoles:input.images.filter(i=>i.origins.includes('本轮附件')).map(i=>({imageId:i.imageId,role:'reference',purpose:'保留主体'}))}} : {canvasPlan:{version:1,steps:[{id:'revise',type:'ImageGenerate',nodeId:window.assistantTargetId||'context-one',parameters:{prompt:'助手优化后的提示词'}}],connections:[]}};
@@ -405,5 +407,50 @@ test('assistant batch result selects one original, retains all results on reopen
         await waitFor("document.querySelectorAll('.prompt-agent-image-result').length===3");
         assert.deepEqual(await evaluate("[...document.querySelectorAll('.prompt-agent-result-image')].map(img=>img.src)"), referenceImages.slice(0,3));
         assert.equal(await evaluate('imageRequests.length'), 0);
+    });
+});
+
+test('node run-to-here limits the real scope and reports waiting, success, failure and cancellation nearby', { timeout: 60000 }, async () => {
+    await withAppBrowser({ ...session, nodes: ['scope-up','scope-target','scope-down','scope-other'].map((id,index)=>({
+        id, type:'ImageGenerate', x:index*450, y:100, apiConfigId:index===0?'image':'google', providerId:'p', prompt:id
+    })), connections: [
+        { id:'scope-in', from:{nodeId:'scope-up',port:'image'}, to:{nodeId:'scope-target',port:'referenceImages'}, type:'image', order:0 },
+        { id:'scope-out', from:{nodeId:'scope-target',port:'image'}, to:{nodeId:'scope-down',port:'referenceImages'}, type:'image', order:0 }
+    ] }, async app => {
+        const { evaluate, waitFor } = app;
+        await controlImages(app);
+        assert.ok(await evaluate("Boolean(document.getElementById('scope-target-run-to-here'))"), 'target has a direct run button');
+        await evaluate("window.holdPrompt='scope-up';document.getElementById('scope-target-run-to-here').click()");
+        await waitFor('imageRequests.length===1');
+        assert.equal(await evaluate("document.getElementById('scope-up-run-status').textContent"), '运行中');
+        assert.equal(await evaluate("document.getElementById('scope-target-run-status').textContent"), '待运行');
+        assert.equal(await evaluate("document.getElementById('scope-up-prompt').disabled"), true);
+        assert.equal(await evaluate("document.getElementById('scope-up-assistant').disabled"), true);
+        await evaluate("window.releasePromptResponse();window.holdPrompt=''");
+        await waitFor("document.getElementById('scope-target-run-status').textContent==='完成'");
+        assert.equal(await evaluate('imageRequests.length'), 2, 'downstream and independent branches never execute');
+        assert.equal(await evaluate("document.getElementById('scope-down-run-status').textContent"), '待运行');
+        await waitFor("!document.getElementById('scope-up-run-to-here').disabled"); await delay(300);
+        await evaluate("window.failImage=true;document.getElementById('scope-up-run-to-here').click()");
+        await waitFor('imageRequests.length>2');
+        await waitFor("document.getElementById('scope-up-run-status').textContent==='失败'");
+        assert.equal(await evaluate("document.getElementById('scope-up-image-results').hidden"), true, 'failed run cannot show an older image');
+        assert.match(await evaluate("document.querySelector('#scope-up .node-failure-summary').textContent"), /受控失败/);
+        await evaluate("document.getElementById('scope-up-run-log').click()");
+        await waitFor("document.getElementById('modal-error').classList.contains('active')");
+        assert.match(await evaluate("document.getElementById('modal-error').textContent"), /受控失败/);
+        await waitFor("document.getElementById('btn-stop').disabled");
+        await evaluate("document.querySelector('#modal-error .modal-close').click();window.failImage=false;window.holdPrompt='scope-up';document.getElementById('scope-up-run-to-here').click()");
+        await waitFor("document.getElementById('scope-up-run-status').textContent==='运行中' && Boolean(window.releasePromptResponse)");
+        assert.match(await evaluate("document.querySelector('#scope-up .node-failure-summary').textContent"), /受控失败/, 'previous failure stays until success');
+        await evaluate("document.querySelector('#scope-up .node-run-cancel-btn').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:1,pointerType:'mouse',clientX:5,clientY:5}))");
+        await delay(2100);
+        await evaluate("window.releasePromptResponse();window.holdPrompt=''");
+        await waitFor("document.getElementById('scope-up-run-status').textContent==='已取消'");
+        assert.equal(await evaluate("document.getElementById('scope-up-image-results').hidden"), true);
+        await waitFor("document.getElementById('btn-stop').disabled");
+        await evaluate("document.getElementById('scope-up-run-to-here').click()");
+        await waitFor("document.getElementById('scope-up-run-status').textContent==='完成'");
+        assert.equal(await evaluate("document.querySelector('#scope-up .node-failure-summary').classList.contains('hidden')"), true);
     });
 });

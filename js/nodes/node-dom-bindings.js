@@ -1,6 +1,7 @@
 import { createThinkingControl } from '../features/execution/thinking-control.js';
 import { createImageReferenceOverview } from './image-reference-overview.js';
 import { createImageNodeResults } from './image-node-results.js';
+import { renderImageNodeRunState } from './image-node-run-state.js';
 import { getThinkingCapability } from '../features/execution/thinking-config.js';
 import { createSelectionApi } from '../canvas/selection.js';
 /**
@@ -58,6 +59,8 @@ export function createNodeDomBindingsApi({
     moveReferenceSource,
     disconnectReferenceSource,
     prepareNodeContext = () => {},
+    runToNode = () => {},
+    openNodeLog = () => {},
     createImageResultActions,
     readResultAsset,
     createResultThumbnail,
@@ -319,6 +322,7 @@ export function createNodeDomBindingsApi({
             changed = syncImagePromptSource(nodeId) || changed;
             referenceOverview.render(nodeId);
             nodeResults.render(nodeId);
+            renderImageNodeRunState(node);
         }
         if (changed) {
             scheduleConnectedInputFieldLayout(nodeId);
@@ -2329,6 +2333,15 @@ export function createNodeDomBindingsApi({
     }
 
     function bindNodeInteractions({ id, type, el }) {
+        const boundNode = state.nodes.get(id);
+        documentRef.getElementById(`${id}-run-to-here`)?.addEventListener('click', event => {
+            event.stopPropagation();
+            if (state.nodes.get(id) !== boundNode || state.runningNodeIds?.has(id)) return;
+            void runToNode(id);
+        });
+        documentRef.getElementById(`${id}-run-log`)?.addEventListener('click', event => {
+            event.stopPropagation(); openNodeLog(id);
+        });
         const createNodeDraggingState = (nodeIds, pos, isCloneDrag) => {
             const startPositions = new Map();
             const draggedNodeIds = new Set(nodeIds);
@@ -3236,7 +3249,7 @@ export function createNodeDomBindingsApi({
         syncImageMergeNodes,
         syncAllConnectedInputFieldVisibility,
         syncDependentPromptSources,
-        refreshDependentReferenceSources: nodeId => { referenceOverview.refreshSource(nodeId); nodeResults.render(nodeId); },
+        refreshDependentReferenceSources: nodeId => { referenceOverview.refreshSource(nodeId); nodeResults.render(nodeId); renderImageNodeRunState(state.nodes.get(nodeId)); },
         syncClonesFromSource
     };
 }
