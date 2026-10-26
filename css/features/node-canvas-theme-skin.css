@@ -43,6 +43,40 @@
     line-height: 1.5;
 }
 
+.image-reference-group + .image-reference-group {
+    margin-top: 9px;
+    padding-top: 9px;
+    border-top: 1px solid var(--node-control-border);
+}
+.image-reference-heading { display: flex; align-items: center; gap: 6px; }
+.image-reference-heading .image-reference-locate {
+    min-width: 0;
+    text-align: left;
+    overflow-wrap: anywhere;
+    color: var(--text-primary);
+    background: transparent;
+    border: 0;
+    padding: 3px 0;
+}
+.image-reference-thumbnails { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+.image-reference-thumbnails .image-reference-thumbnail {
+    display: grid;
+    gap: 3px;
+    justify-items: center;
+    width: 52px;
+    min-height: 32px;
+    padding: 3px;
+    border: 1px solid var(--node-control-border);
+    border-radius: 6px;
+    background: var(--node-control-surface);
+    color: var(--text-primary);
+    font-size: 12px;
+}
+.image-reference-thumbnail img { width: 44px; height: 44px; object-fit: cover; border-radius: 3px; }
+.image-reference-source-status { margin: 4px 0; color: var(--text-secondary); }
+.image-reference-sources button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.image-reference-expand { margin-top: 8px; }
+
 .node-generate textarea.image-generate-prompt,
 .node-generate textarea.image-generate-prompt::placeholder {
     font-size: 13px;

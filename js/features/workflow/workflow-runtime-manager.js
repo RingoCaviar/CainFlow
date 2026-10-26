@@ -579,6 +579,7 @@ export function createWorkflowRuntimeManager({
     showResolutionBadge = async () => {},
     visibleNodesLayer = null,
     bindVisibleNodeInteractions = () => {},
+    onVisibleNodeChanged = () => {},
     visibleConnectionProjectionMaintenance = null,
     createRunContext = null,
     documentRef = document,
@@ -976,6 +977,7 @@ export function createWorkflowRuntimeManager({
         }
 
         scheduleVisibleNodeFit(runtimeNodeId);
+        if (isActiveWorkflow(reference) && state.nodes.get(runtimeNodeId) === node) onVisibleNodeChanged(runtimeNodeId);
         return true;
     }
 
@@ -1190,6 +1192,7 @@ export function createWorkflowRuntimeManager({
             setVisibleNodeControlsLocked(node, true);
             startVisibleNodeRunTimer(nodeId, startedAt);
             connectionProjection?.nodeAppearanceChanged(nodeId);
+            onVisibleNodeChanged(nodeId);
             return;
         }
 
@@ -1219,6 +1222,7 @@ export function createWorkflowRuntimeManager({
             if (timeBadge) timeBadge.textContent = 'Err';
         }
         connectionProjection?.nodeAppearanceChanged(nodeId);
+        onVisibleNodeChanged(nodeId);
     }
 
     function refreshVisibleWorkflowRunState(workflowReference = (() => {

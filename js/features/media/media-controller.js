@@ -3378,6 +3378,7 @@ export function createMediaControllerApi({
             windowRef.removeEventListener('mouseup', onUp);
             windowRef.removeEventListener('blur', onBlur);
             documentRef.removeEventListener('keydown', onEsc);
+            if (typeof options.onClose === 'function') queueMicrotask(options.onClose);
         };
         overlay.querySelector('.fullscreen-close').addEventListener('click', cleanup);
         if (descriptionButton) {
@@ -3506,6 +3507,7 @@ export function createMediaControllerApi({
         renderImageSavePreview,
         renderImageComparePreview,
         getNodeFullscreenImageContext,
+        createReferenceThumbnail: source => previewCache.createDisplayMipmap(source, 96),
         releaseNodeImageData,
         clearPreviewThumbnailCache: () => previewCache.clearPreviewThumbnailCache(),
         scheduleDisplayImageMemorySweep,

@@ -586,7 +586,10 @@ const mediaControllerApi = createMediaControllerApi({
     onMediaIntegrityChanged: () => workflowManagerApi?.refreshActiveWorkflowIntegrityState?.(),
     onMissingMediaAction: (request) => handleMissingMediaAction(request),
     syncCameraControlNodePreview: (nodeId, imageValue) => cameraControlNodeApi.syncCameraControlFromExecution(nodeId, imageValue),
-    syncClonesFromSource: (nodeId) => nodeDomBindingsApi?.syncClonesFromSource(nodeId),
+    syncClonesFromSource: (nodeId) => {
+        nodeDomBindingsApi?.syncClonesFromSource(nodeId);
+        nodeDomBindingsApi?.refreshDependentReferenceSources(nodeId);
+    },
     openImagePainter,
     getHistory,
     getHistoryMetadata,
@@ -675,6 +678,11 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     tempConnection,
     viewportApi,
     getCachedOutputValue: (node, port) => getExecutionCoreApi().getCachedOutputValue(node, port),
+    createReferenceThumbnail: source => mediaControllerApi.createReferenceThumbnail(source),
+    readReferenceSourceImages: async nodeId => (await mediaControllerApi.getNodeFullscreenImageContext(nodeId)).images,
+    openReferencePreview: (images, index, onClose) => openFullscreenPreview(images[index], null, { images, index, onClose }),
+    focusReferenceSource: nodeId => focusCanvasNode(nodeId),
+    getWorkflowId: () => workflowManagerApi.getActiveWorkflowId?.() || '',
     getPortPosition: (nodeId, portName, direction) => getPortPosition(nodeId, portName, direction),
     pushHistory,
     removeNode: (nodeId, options) => removeNode(nodeId, options),
@@ -1629,6 +1637,7 @@ function getWorkflowRunnerApi() {
             onWorkflowFailures: showWorkflowFailureSummary,
             onNodeRunStateChange: (payload) => {
                 if (payload?.nodeId) nodeDomBindingsApi.syncDependentPromptSources(payload.nodeId);
+                if (payload?.nodeId) nodeDomBindingsApi.refreshDependentReferenceSources(payload.nodeId);
                 const activeWorkflow = workflowManagerApi.getActiveWorkflow();
                 if (activeWorkflow?.workflowId) {
                     getWorkflowRuntimeManagerApi().applyVisibleNodeRunState({
@@ -1695,6 +1704,10 @@ function getWorkflowRuntimeManagerApi() {
             showResolutionBadge,
             visibleNodesLayer: nodesLayer,
             bindVisibleNodeInteractions: ({ id, type, el }) => nodeDomBindingsApi.bindNodeInteractions({ id, type, el }),
+            onVisibleNodeChanged: nodeId => {
+                nodeDomBindingsApi.syncDependentPromptSources(nodeId);
+                nodeDomBindingsApi.refreshDependentReferenceSources(nodeId);
+            },
             visibleConnectionProjectionMaintenance: registry.connectionProjectionApi.maintenance,
             documentRef: document,
             windowRef: window,
