@@ -17,6 +17,16 @@ test('history protection is acknowledged synchronously, stores keys only and fai
     assert.throws(() => failed.protect(snapshot, 'wf'), /未执行/);
 });
 
+test('runtime snapshots protect every video position in generated and saved node results', () => {
+    const requests=[];
+    const protection=createUndoMediaProtection({pageId:'video-page',requestSync:body=>requests.push(body)});
+    protection.protect({historyId:'clipboard:video',nodes:[
+        {type:'VideoGenerate',videoAssetKey:'media:current',videos:[{assetKey:'media:first'},{assetKey:'media:second'}]},
+        {type:'ImageSave',video:{assetKey:'media:saved'},data:{videos:[{assetKey:'media:forwarded'},{assetKey:'media:first'}]}}
+    ]},'workflow');
+    assert.deepEqual(requests[0]?.assetKeys.sort(),['media:current','media:first','media:forwarded','media:saved','media:second'],'temporary retention covers video batches and forwarded save-node results');
+});
+
 test('exit waits for save before releasing, coalesces close clicks and supports retry after save failure', async () => {
     const order = []; let fail = true;
     const exit = createDesktopExit({ settle: async () => order.push('settle'), save: async () => { order.push('save'); if (fail) throw Error('disk'); },

@@ -74,9 +74,11 @@ export function createNodeSerializer({ state, documentRef }) {
         return params;
     }
 
-    function serializeNodes() {
+    function serializeNodes(nodeIds = null) {
+        const selected = nodeIds ? new Set(nodeIds) : null;
         const nodes = [];
         for (const [id, node] of getOrderedNodes()) {
+            if (selected && !selected.has(id)) continue;
             const isAutoSizedImageGenerate = node.type === 'ImageGenerate' && node.userResized !== true;
             const serialized = {
                 id,
@@ -178,6 +180,20 @@ export function createNodeSerializer({ state, documentRef }) {
                 serialized.outputFormat = node.outputFormat || node.resizePreviewMeta?.outputFormat || '';
                 serialized.outputQuality = node.outputQuality || node.resizePreviewMeta?.outputQuality || null;
                 serialized.estimatedBytes = node.estimatedBytes || node.resizePreviewMeta?.estimatedBytes || null;
+            }
+
+            if (node.type === 'ColorReset') {
+                const config = readColorResetConfig(node, documentRef);
+                Object.assign(serialized, {
+                    whiteBalanceMode: config.whiteBalanceMode,
+                    whiteBalanceGains: node.whiteBalanceGains || node.data?.whiteBalanceGains || config.whiteBalanceGains,
+                    customWhiteBalanceGains: node.customWhiteBalanceGains || node.data?.customWhiteBalanceGains || config.whiteBalanceGains,
+                    autoWhiteBalanceGains: node.autoWhiteBalanceGains || node.data?.autoWhiteBalanceGains || { r: 1, g: 1, b: 1 },
+                    whiteBalanceSamplePoint: config.samplePoint,
+                    whiteBalanceStatus: node.whiteBalanceStatus || node.data?.whiteBalanceStatus || 'idle',
+                    whiteBalanceMessage: config.whiteBalanceMessage,
+                    temperature: config.temperature, tint: config.tint, vibrance: config.vibrance, saturation: config.saturation
+                });
             }
 
             if (node.type === 'ImageGenerate' || node.type === 'VideoGenerate' || node.type === 'TextChat') {

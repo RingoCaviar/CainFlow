@@ -5,6 +5,7 @@ import { cleanupElementResources } from '../../core/common-utils.js';
 import { DEFAULT_THEME_ID } from '../../core/constants.js';
 import { migrateLegacyWorkflowData } from './legacy-node-migration.js';
 import { createSelectionApi } from '../../canvas/selection.js';
+import { getSnapshotMediaKeys } from './snapshot-media-keys.js';
 
 export function createSessionManagerApi({
     state,
@@ -58,14 +59,6 @@ export function createSessionManagerApi({
         return succeeded;
     }
 
-    function getSnapshotMediaKeys(node) {
-        const topLevel = Array.isArray(node?.mediaAssetKeys) ? node.mediaAssetKeys : [];
-        const nested = Array.isArray(node?.data?.mediaAssetKeys) ? node.data.mediaAssetKeys : [];
-        return [...new Set([...topLevel, ...nested, node?.imageAssetKey, node?.data?.imageAssetKey,
-            node?.imageImportAssetKey, node?.data?.imageImportAssetKey]
-            .filter((key) => typeof key === 'string' && key.startsWith('media:')))];
-    }
-
     async function discardMissingSnapshotMedia(snapshot) {
         const keys = [...new Set((snapshot.nodes || []).flatMap(getSnapshotMediaKeys))];
         if (keys.length === 0) return { snapshot, missingCount: 0 };
@@ -80,7 +73,12 @@ export function createSessionManagerApi({
             const originalKeys = getSnapshotMediaKeys(original);
             if (originalKeys.every((key) => available.has(key))) return original;
             const node = { ...original, data: original.data ? { ...original.data } : undefined };
-            const retained = originalKeys.filter((key) => available.has(key));
+            const videoKeys = new Set([original, original.data].filter(Boolean).flatMap(holder => [
+                holder.videoAssetKey, holder.video?.assetKey,
+                ...(Array.isArray(holder.videos) ? holder.videos.map(video => video?.assetKey) : []),
+                ...(original.type === 'VideoGenerate' && Array.isArray(holder.mediaAssetKeys) ? holder.mediaAssetKeys : [])
+            ]));
+            const retained = originalKeys.filter(key => !videoKeys.has(key) && available.has(key));
             for (const holder of [node, node.data].filter(Boolean)) {
                 if (Array.isArray(holder.mediaAssetKeys)) {
                     holder.mediaAssetKeys = holder.mediaAssetKeys.filter((key) => (
@@ -95,6 +93,13 @@ export function createSessionManagerApi({
                         else delete holder[field];
                     }
                 }
+                const missingVideo = key => typeof key === 'string' && key.startsWith('media:') && !available.has(key);
+                if (missingVideo(holder.videoAssetKey)) {
+                    delete holder.videoAssetKey;
+                    holder.videoUrl = '';
+                }
+                if (missingVideo(holder.video?.assetKey)) delete holder.video;
+                if (Array.isArray(holder.videos)) holder.videos = holder.videos.filter(video => !missingVideo(video?.assetKey));
                 if (retained.length === 0) {
                     delete holder.imageCount;
                     delete holder.imageAssetReady;
@@ -598,7 +603,7 @@ export function createSessionManagerApi({
         saveState();
         cleanupOrphanedNodeAssetsSoon();
         showToast(missingCount > 0
-            ? `已${label}节点和连线；${missingCount} 项已清理图片无法恢复`
+            ? `已${label}节点和连线；${missingCount} 项本地媒体无法恢复`
             : `已${label}上一步操作`, missingCount > 0 ? 'warning' : 'info');
     }
 
