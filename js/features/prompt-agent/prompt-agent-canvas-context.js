@@ -66,3 +66,8 @@ export function canvasBaseline(context, ids, ignoreOutputIds = []) {
         ignoreOutputIds.includes(node.id) ? { ...node, assets: [], missing: false } : node),
         connections: context.connections.filter(link => relevant.has(link.to.nodeId) || relevant.has(link.from.nodeId)) });
 }
+
+
+export function canvasPlanExecutionNodeIds(plan) {
+    return plan.steps.filter(step => step.execute !== false).map(step => plan.bindings?.[step.id]).filter(Boolean);
+}

@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { createPromptAgentNodeAdapter, getAvailablePromptAgentImageModels } from '../js/features/prompt-agent/prompt-agent-node-adapter.js';
 import { createPromptAgentReferenceSource } from '../js/features/prompt-agent/prompt-agent-reference-source.js';
+import { createPromptAgentInput } from '../js/features/prompt-agent/prompt-agent-input.js';
 import { createPromptAgentModelReply } from '../js/features/prompt-agent/prompt-agent-model.js';
 
 test('a manually imported search original replaces old connections and reaches the generation input', async () => {
@@ -110,7 +111,7 @@ test('reads one explicitly selected image-generation node as Agent context', () 
             quality: '', moderation: '', background: '', search: false, count: 1, protocolParams: {}
         },
         referenceImages: [{
-            sourceNodeId: 'source-1', sourcePort: 'image', targetPort: 'image_1',
+            sourceNodeId: 'source-1', name: 'ImageImport', sourcePort: 'image', targetPort: 'image_1',
             assetKeys: ['media:reference-1'], images: ['data:image/png;base64,cmVm']
         }],
         outputImages: []
@@ -623,4 +624,20 @@ test('size clarification happens before target creation; valid destination enabl
  controls['image-1-aspect'].dispatchEvent=e=>{if(e.type==='change'){assert.equal(controls['image-1-aspect'].disabled,false);writes.push('aspect');}};
  assert.equal(adapter.applyPromptPlan({targetNodeId:'image-1',prompt:'poster',parameters:{resolution:'2K',aspect:'16:9'}}),true);
  assert.deepEqual(writes,['resolution','aspect']);assert.equal(controls['image-1-aspect'].value,'16:9');
+});
+
+
+test('selected node context preserves ordered active reference slots even with identical pixels',()=>{
+    const pixels='data:image/png;base64,AAAA';
+    const nodes=[{id:'A',type:'ImageGenerate',data:{mediaAssetKeys:['media:same','media:same'],imageList:[pixels,pixels]}},
+        {id:'B',type:'ImageImport',data:{mediaAssetKeys:['media:same'],image:pixels}},
+        {id:'disabled',type:'ImageImport',enabled:false,data:{mediaAssetKeys:['media:disabled'],image:pixels}},
+        {id:'T',type:'ImageGenerate',data:{prompt:'test'}}];
+    const state={nodes:new Map(nodes.map(node=>[node.id,node])),connections:['A','disabled','B'].map((id,index)=>({from:{nodeId:id,port:'image'},to:{nodeId:'T',port:'referenceImages'},order:[1,2,0][index]})),models:[],providers:[],selectedNodes:new Set(['T'])};
+    const adapter=createPromptAgentNodeAdapter({state,documentRef:{getElementById:()=>null}});
+    const context=adapter.getSelectedContext();
+    assert.deepEqual(context.referenceImages.map(image=>image.sourceNodeId),['B','A']);
+    assert.equal(context.referenceImages[1].assetKeys.length,2,'same asset in two batch slots is still two slots');
+    const input=createPromptAgentInput({context,model:{protocol:'openai',capabilities:{imageInput:true}}});
+    assert.deepEqual(input.images.map(image=>[image.reference.sourceNodeId,image.reference.sourceImageIndex]),[['B',0],['A',0],['A',1]]);
 });

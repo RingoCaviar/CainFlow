@@ -5,7 +5,8 @@ import { getModelProtocolConfig } from '../execution/model-protocol-registry.js'
 import { normalizeImageSizeControls } from '../execution/image-generation-size.js';
 import { normalizePromptAgentParameters, readPromptAgentParameterSchema } from './prompt-agent-parameters.js';
 import { getCanonicalImageList, getImageImportMediaAssetReferences } from '../execution/execution-data-utils.js';
-import { MAX_REFERENCE_IMAGE_COUNT } from '../../nodes/reference-image-ports.js';
+import { projectImageOutput } from '../../nodes/image-output-projection.js';
+import { MAX_REFERENCE_IMAGE_COUNT, orderInputConnections } from '../../nodes/reference-image-ports.js';
 import { getImageDescription, setImageDescription } from '../execution/reference-image-description.js';
 
 export function getAvailablePromptAgentImageModels(models = [], providers = []) {
@@ -45,15 +46,11 @@ function writeBoolean(documentRef, id, value, createEvent) {
 
 function getReferenceImageDescriptor(state, connection) {
     const sourceNode = state.nodes?.get(connection.from?.nodeId);
-    const images = getCanonicalImageList(sourceNode);
-    const assetKeys = [
-        ...(Array.isArray(sourceNode?.data?.mediaAssetKeys) ? sourceNode.data.mediaAssetKeys : []),
-        sourceNode?.data?.imageImportAssetKey,
-        sourceNode?.data?.imageAssetKey
-    ].filter((value, index, values) => typeof value === 'string' && value && values.indexOf(value) === index);
+    const { images, assets: assetKeys } = projectImageOutput(sourceNode, getCanonicalImageList(sourceNode));
     const descriptions = Array.from({ length: Math.max(images.length, assetKeys.length) }, (_, index) => getImageDescription(sourceNode, index));
     return {
         sourceNodeId: connection.from?.nodeId || '',
+        name: sourceNode?.customTitle || sourceNode?.type || '来源已不存在',
         sourcePort: connection.from?.port || '',
         targetPort: connection.to.port,
         assetKeys,
@@ -140,8 +137,9 @@ export function createPromptAgentNodeAdapter({
     function getContext(nodeId) {
         const node = state?.nodes?.get(nodeId);
         if (node?.type !== 'ImageGenerate') return null;
-        const referenceImages = (state.connections || [])
-            .filter((connection) => connection?.to?.nodeId === node.id && /^(?:referenceImages|image|image_\d+)$/.test(connection?.to?.port || ''))
+        const referenceImages = orderInputConnections('ImageGenerate', (state.connections || [])
+            .filter((connection) => connection?.to?.nodeId === node.id && state.nodes.get(connection.from?.nodeId)?.enabled !== false
+                && /^(?:referenceImages|image|image_\d+)$/.test(connection?.to?.port || '')))
             .map((connection) => getReferenceImageDescriptor(state, connection));
         const protocolParams = { ...(node.data?.protocolParams || {}) };
         const modelId = readValue(documentRef, `${node.id}-apiconfig`, node.apiConfigId || '');

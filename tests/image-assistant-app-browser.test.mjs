@@ -50,18 +50,20 @@ async function controlImages(app) {
             imageRequests.push(body);
             if(window.holdPrompt && window.holdPrompt===body.prompt) await new Promise(resolve=>window.releasePromptResponse=resolve);
             if(window.failImage && !body.messages) return new Response(JSON.stringify({error:{message:window.failImageMessage||'受控失败：请检查模型配置'}}),{status:400,headers:{'Content-Type':'application/json'}});
+            if(window.failChainTarget && body.contents && JSON.stringify(body.contents).includes('chain-target')) return new Response(JSON.stringify({error:{message:'受控下游失败'}}),{status:400,headers:{'Content-Type':'application/json'}});
             if(body.messages) {
                 const content=body.messages.at(-1).content,input=JSON.parse(Array.isArray(content)?content.find(p=>p.type==='text').text:content);
-                const plan=window.assistantLegacy ? {promptPlan:{targetNodeId:window.assistantTargetId,prompt:'助手优化后的提示词',parameters:{},imageRoles:[]}} : window.assistantBatch ? {canvasPlan:{version:1,steps:[{id:'generate',type:'ImageGenerate',parameters:{prompt:'source-a',generationCount:3}}],connections:[]}} : window.assistantGenerate ? {promptPlan:{prompt:'source-a',parameters:{},imageRoles:input.images.filter(i=>i.origins.includes('本轮附件')).map(i=>({imageId:i.imageId,role:'reference',purpose:'保留主体'}))}} : {canvasPlan:{version:1,steps:[{id:'revise',type:'ImageGenerate',nodeId:window.assistantTargetId||'context-one',parameters:{prompt:'助手优化后的提示词'}}],connections:[]}};
+                if(Array.isArray(input.records)) return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({summary:'用户要求保留参考来源、完整批次与顺序，仅优化提示词；画布方案仍待用户确认。'})}}]}),{headers:{'Content-Type':'application/json'}});
+                const plan=window.assistantChain ? {canvasPlan:{version:1,steps:[{id:'up',type:'ImageGenerate',title:'链路上游',parameters:{prompt:'chain-source'}},{id:'down',type:'ImageGenerate',title:'链路目标',parameters:{prompt:'chain-target'}}],connections:[{from:{ref:'up',port:'image'},to:{ref:'down',port:'referenceImages'},order:0}]}} : window.assistantPromptOnly ? {targetSelection:{mode:'prompt-only',evidence:'只改提示词'},promptPlan:{prompt:'多轮优化后的提示词',parameters:{},imageRoles:[]}} : window.assistantLegacy ? {promptPlan:{targetNodeId:window.assistantTargetId,prompt:'助手优化后的提示词',parameters:{},imageRoles:[]}} : window.assistantBatch ? {canvasPlan:{version:1,steps:[{id:'generate',type:'ImageGenerate',parameters:{prompt:'source-a',generationCount:3}}],connections:[]}} : window.assistantGenerate ? {promptPlan:{prompt:'source-a',parameters:{},imageRoles:input.images.filter(i=>i.origins.includes('本轮附件')).map(i=>({imageId:i.imageId,role:'reference',purpose:'保留主体'}))}} : {canvasPlan:{version:1,steps:[{id:'revise',type:'ImageGenerate',nodeId:window.assistantTargetId||'context-one',...(window.assistantEvidence?{evidence:window.assistantEvidence}:{}),parameters:{prompt:'助手优化后的提示词'}}],connections:[]}};
                 if(window.keepReferenceSources) plan.canvasPlan.connections=['source-b','source-a'].map((ref,order)=>({from:{ref,port:'image'},to:{ref:'revise',port:'referenceImages'},type:'image',order}));
-                return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({intent:'generate',message:'请核对修改方案',...plan})}}]}),{headers:{'Content-Type':'application/json'}});
+                return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({intent:window.assistantPromptOnly?'refine':'generate',message:'请核对修改方案',...plan})}}]}),{headers:{'Content-Type':'application/json'}});
             }
             if(body.contents) {
                 if(window.holdTargetResponse) await new Promise(resolve=>window.releaseTargetResponse=resolve);
-                return new Response(JSON.stringify({candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:'${png}'}}]}}]}),{headers:{'Content-Type':'application/json'}});
+                return new Response(JSON.stringify({candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:window.alternateGeneratedImage?'${referenceImages[4].split(',')[1]}':'${png}'}}]}}]}),{headers:{'Content-Type':'application/json'}});
             }
             const results=body.prompt==='source-a'?${JSON.stringify(referenceImages.slice(0,3))}:body.prompt==='source-b'?${JSON.stringify(referenceImages.slice(3))}:['data:image/png;base64,${png}'];
-            const image=results[(imageRequests.filter(r=>r.prompt===body.prompt).length-1)%results.length];
+            const image=window.sameReferencePixels?'${referenceImages[0]}':results[(imageRequests.filter(r=>r.prompt===body.prompt).length-1)%results.length];
             return new Response(JSON.stringify({data:[{b64_json:image.split(',')[1]}]}),{headers:{'Content-Type':'application/json'}});
         } return nativeFetch(url,options);
     };` });
@@ -79,8 +81,9 @@ async function change(evaluate, id, value) {
     await evaluate(`(()=>{const field=document.getElementById(${JSON.stringify(id)});field.value=${JSON.stringify(value)};field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));})()`);
 }
 
-async function generateReferenceSources(app) {
+async function generateReferenceSources(app, { samePixels = false } = {}) {
     await controlImages(app);
+    if (samePixels) await app.evaluate('window.sameReferencePixels=true');
     for (const id of ['source-a','source-b']) {
         await app.evaluate(`document.getElementById('${id}').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()`);
         await app.waitFor(`imageRequests.filter(r=>r.prompt==='${id}').length===${id==='source-a'?3:2} && !document.getElementById('${id}-prompt').disabled`);
@@ -741,5 +744,119 @@ test('legacy Agent prompt reply preserves references by default and clears them 
         const received=await evaluate("imageRequests.find(r=>r.contents).contents.flatMap(c=>c.parts).filter(p=>p.inlineData).map(p=>p.inlineData.data)");
         assert.deepEqual(received.map(image=>createHash('sha256').update(image).digest('hex')),(removeReferences?[]:referenceImages).map(image=>createHash('sha256').update(image.split(',')[1]).digest('hex')),'legacy reply follows the human reference request rather than omitted imageRoles');
         assert.equal(await evaluate("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length"),removeReferences?0:2);
+    });
+});
+
+
+test('selected-node optimization keeps active reference order through apply, regenerate, reopen and stale-plan rejection', {timeout:60000},async()=>{
+    const seeded=referenceSession({empty:true});seeded.nodes[2].enabled=false;seeded.nodes[3].customTitle='目标生图';
+    seeded.connections[0].order=1;seeded.connections[1].order=0;
+    await withAppBrowser(seeded,async app=>{
+        const {evaluate,waitFor}=app;await generateReferenceSources(app);
+        await evaluate("document.getElementById('reference-target').dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,clientX:500,clientY:120}));document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0}));document.getElementById('btn-prompt-agent').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();window.assistantTargetId='reference-target';window.assistantEvidence='目标生图'");
+        assert.equal(await evaluate("document.getElementById('reference-target').classList.contains('selected')"),true);
+        await change(evaluate,'prompt-agent-input','请优化目标生图的提示词，保留参考图');
+        await evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
+        const slots=await evaluate("(()=>{const content=imageRequests.find(r=>r.messages).messages.at(-1).content;return JSON.parse(content.find(p=>p.type==='text').text).images.filter(i=>i.connectedToNode).map(i=>[i.sourceNodeId,i.sourceImageIndex])})()");
+        assert.deepEqual(slots,[['source-b',0],['source-b',1],['source-a',0],['source-a',1],['source-a',2]]);
+        await evaluate("document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=google][data-provider-id=p]').click();[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='仅应用').click()");
+        await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已应用并保存')");
+        assert.equal(await evaluate('imageRequests.filter(r=>r.contents).length'),0,'apply-only never generates');
+        const expected=[...referenceImages.slice(3),...referenceImages.slice(0,3)].map(image=>createHash('sha256').update(image.split(',')[1]).digest('hex'));
+        const received=()=>evaluate("imageRequests.filter(r=>r.contents).at(-1).contents.flatMap(c=>c.parts).filter(p=>p.inlineData).map(p=>p.inlineData.data)");
+        for(let attempt=1;attempt<=2;attempt++) {
+            await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='应用并执行').click()");
+            await waitFor(`imageRequests.filter(r=>r.contents).length===${attempt} && document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')`);
+            assert.deepEqual((await received()).map(image=>createHash('sha256').update(image).digest('hex')),expected);
+        }
+        await delay(1000);await reloadApp(app);
+        if(!await evaluate("document.getElementById('prompt-agent-panel').classList.contains('active')")) await evaluate("document.getElementById('btn-prompt-agent').click()");
+        await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
+        await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='应用并执行').click()");
+        await waitFor("imageRequests.filter(r=>r.contents).length===1 && document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
+        assert.deepEqual((await received()).map(image=>createHash('sha256').update(image).digest('hex')),expected);
+        assert.equal(await evaluate("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length"),3,'disabled source stays connected throughout');
+        await evaluate("document.querySelector('[data-reference-connection=\"edge-source-a\"] .image-reference-move-up').click();[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='应用并执行').click()");
+        await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已变化')");
+        assert.equal(await evaluate('imageRequests.filter(r=>r.contents).length'),1,'stale plan cannot reorder back or start a request');
+        assert.equal(await evaluate("document.querySelector('#reference-target-reference-sources .image-reference-group').dataset.referenceConnection"),'edge-source-a');
+    });
+});
+
+test('same-pixel references keep all source slots while sharing Agent pixel attachments', {timeout:30000},async()=>{
+    await withAppBrowser(referenceSession(),async app=>{
+        const {evaluate,waitFor}=app;await generateReferenceSources(app,{samePixels:true});
+        await evaluate("window.assistantTargetId='reference-target';document.getElementById('reference-target-assistant').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
+        const catalog=await evaluate("(()=>{const content=imageRequests.find(r=>r.messages).messages.at(-1).content;return {pixels:content.filter(p=>p.type==='image_url').length,slots:JSON.parse(content.find(p=>p.type==='text').text).images.filter(i=>i.connectedToNode).map(i=>[i.sourceNodeId,i.sourceImageIndex])}})()");
+        assert.equal(catalog.pixels,1);
+        assert.deepEqual(catalog.slots,[['source-a',0],['source-a',1],['source-a',2],['source-b',0],['source-b',1]]);
+        await evaluate("document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=google][data-provider-id=p]').click();[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='应用并执行').click()");
+        await waitFor("imageRequests.some(r=>r.contents)");
+        const sent=await evaluate("imageRequests.find(r=>r.contents).contents.flatMap(c=>c.parts).filter(p=>p.inlineData).map(p=>p.inlineData.data)");
+        assert.equal(sent.length,5);assert.ok(sent.every(pixels=>pixels===referenceImages[0].split(',')[1]));
+    });
+});
+
+
+test('prompt-only followup after applying and compacting a plan retains all reference originals', {timeout:45000},async()=>{
+    await withAppBrowser(referenceSession(),async app=>{
+        const {evaluate,waitFor}=app;await generateReferenceSources(app);
+        await evaluate("window.assistantTargetId='reference-target';document.getElementById('reference-target-assistant').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
+        await evaluate("document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=google][data-provider-id=p]').click();[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='仅应用').click()");
+        await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已应用并保存') && !document.getElementById('prompt-agent-input').disabled");
+        await evaluate('window.assistantPromptOnly=true');
+        await change(evaluate,'prompt-agent-input','只改提示词，让背景更温暖');
+        await evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await waitFor("document.querySelectorAll('.prompt-agent-canvas-plan').length===2");
+        const followup=await evaluate("(()=>{const request=imageRequests.filter(r=>r.messages).findLast(r=>{const c=r.messages.at(-1).content;return JSON.parse(Array.isArray(c)?c.find(p=>p.type==='text').text:c).userRequest?.startsWith('只改提示词')});const c=request.messages.at(-1).content;return JSON.parse(c.find(p=>p.type==='text').text).images.filter(i=>i.origins.includes('上一方案参考图')).map(i=>[i.sourceNodeId,i.sourceImageIndex])})()");
+        assert.deepEqual(followup,[['source-a',0],['source-a',1],['source-a',2],['source-b',0],['source-b',1]]);
+        await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-plan')].at(-1).querySelectorAll('button').forEach(b=>{if(b.textContent==='应用并执行')b.click()})");
+        await waitFor("imageRequests.some(r=>r.contents)");
+        const received=await evaluate("imageRequests.find(r=>r.contents).contents.flatMap(c=>c.parts).filter(p=>p.inlineData).map(p=>p.inlineData.data)");
+        assert.deepEqual(received.map(image=>createHash('sha256').update(image).digest('hex')),referenceImages.map(image=>createHash('sha256').update(image.split(',')[1]).digest('hex')));
+        assert.equal(await evaluate("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length"),2,'the previous target retains its original connections');
+    });
+});
+
+test('Agent can run with every reference source disabled without disconnecting them', {timeout:30000},async()=>{
+    const seeded=referenceSession();seeded.nodes[0].enabled=false;seeded.nodes[1].enabled=false;
+    await withAppBrowser(seeded,async app=>{
+        const {evaluate,waitFor}=app;await controlImages(app);
+        await evaluate("window.assistantTargetId='reference-target';document.getElementById('reference-target-assistant').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
+        await evaluate("document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=google][data-provider-id=p]').click();[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='应用并执行').click()");
+        await waitFor("imageRequests.some(r=>r.contents) && document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
+        assert.equal(await evaluate("imageRequests.find(r=>r.contents).contents.flatMap(c=>c.parts).filter(p=>p.inlineData).length"),0);
+        assert.equal(await evaluate("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length"),2);
+    });
+});
+
+
+test('partial Agent retries freeze successful upstream originals and full regeneration deliberately refreshes them', {timeout:60000},async()=>{
+    await withAppBrowser({...session,nodes:[],connections:[]},async app=>{
+        const {evaluate,waitFor}=app;await controlImages(app);
+        await evaluate("window.assistantChain=true;window.failChainTarget=true;document.getElementById('btn-prompt-agent').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click()");
+        await change(evaluate,'prompt-agent-input','先生成主体图，再参考主体图生成成品');
+        await evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
+        await evaluate("document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=google][data-provider-id=p]').click();[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='应用并执行').click()");
+        await waitFor("imageRequests.filter(r=>r.contents).length===2 && document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('未完成') && ![...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='重试未完成步骤').disabled");
+        await evaluate("document.querySelector('#modal-error .modal-close')?.click();[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='重试未完成步骤').click()");
+        await waitFor("imageRequests.filter(r=>r.contents).length===3 && document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('未完成') && ![...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='重试未完成步骤').disabled");
+        const unchanged=await evaluate("imageRequests.filter(r=>r.contents).at(-1).contents.flatMap(c=>c.parts).filter(p=>p.inlineData).map(p=>p.inlineData.data)");
+        assert.deepEqual(unchanged,[png],'retry skipped the successful upstream and used its original pixels');
+        const upstream=await evaluate("[...document.querySelectorAll('.node-generate')].find(node=>node.querySelector('textarea[id$=prompt]')?.value==='chain-source').id");
+        await evaluate(`window.alternateGeneratedImage=true;document.getElementById('${upstream}').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()`);
+        await waitFor(`imageRequests.filter(r=>r.contents).length===4 && document.getElementById('${upstream}-run-status').textContent==='完成' && document.getElementById('btn-stop').disabled`);
+        await evaluate("document.querySelector('#modal-error .modal-close')?.click();[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='重试未完成步骤').click()");
+        await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已完成上游')");
+        assert.equal(await evaluate('imageRequests.filter(r=>r.contents).length'),4,'changed successful upstream cannot silently enter a partial retry');
+        await evaluate("window.failChainTarget=false;[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='应用并执行').click()");
+        await waitFor("imageRequests.filter(r=>r.contents).length===6 && document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
+        const refreshed=await evaluate("imageRequests.filter(r=>r.contents).at(-1).contents.flatMap(c=>c.parts).filter(p=>p.inlineData).map(p=>p.inlineData.data)");
+        assert.deepEqual(refreshed,[referenceImages[4].split(',')[1]],'explicit complete regeneration uses the newly generated upstream');
     });
 });

@@ -58,6 +58,11 @@ export function createPromptAgentInput({
         const sources = image.dataUrl ? [image.dataUrl] : (image.images?.length ? image.images : Array(Math.max(1, image.assetKeys?.length || 0)).fill(null));
         sources.forEach((source, index) => {
             let key = source || image.referenceId || `${image.sourceNodeId || ''}:${image.sourcePort || ''}:${image.name || ''}:${index}`;
+            if (image.sourceNodeId && (connectedToNode || origin === '节点生成结果' || Number.isInteger(image.sourceImageIndex))) {
+                key = JSON.stringify([image.sourceNodeId, image.sourcePort || 'image', image.sourceImageIndex ?? index,
+                    image.assetKey || image.assetKeys?.[index] || source || image.referenceId || '']);
+            }
+
             const existing = bySource.get(key);
             // Two equal-pixel outputs still occupy two user-visible batch slots.
             if (image.latestResult && existing?.latestResult && existing.runId === image.runId
@@ -66,6 +71,7 @@ export function createPromptAgentInput({
             if (!entry) {
                 entry = {
                     imageId: `image-${images.length + 1}`,
+                    ...(image.sourceNodeId ? { sourceNodeId: image.sourceNodeId, sourcePort: image.sourcePort || 'image', sourceImageIndex: image.sourceImageIndex ?? index } : {}),
                     name: image.name || `${origin} ${images.length + 1}`,
                     ...((image.descriptions?.[index] || (index === 0 ? image.description : ''))
                         ? { description: image.descriptions?.[index] || (index === 0 ? image.description : '') } : {}),
@@ -106,10 +112,11 @@ export function createPromptAgentInput({
     (context?.outputImages || []).forEach((image) => addImage(image, '节点生成结果'));
     workflowReferenceImages.forEach((image) => addImage(image, image.contextOrigin || '历史附件'));
     const media = [];
+    const mediaIndices = new Map();
     const imageCatalog = images.map(({ source, reference, ...entry }) => {
         if (entry.visionAvailable) {
-            media.push({ type: 'image', url: source });
-            entry.attachmentIndex = media.length;
+            if (!mediaIndices.has(source)) { media.push({ type: 'image', url: source }); mediaIndices.set(source, media.length); }
+            entry.attachmentIndex = mediaIndices.get(source);
         }
         return entry;
     });

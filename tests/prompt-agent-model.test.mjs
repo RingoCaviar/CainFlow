@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createPromptAgentModelReply, getAvailablePromptAgentModels } from '../js/features/prompt-agent/prompt-agent-model.js';
+import { createCanvasContext } from '../js/features/prompt-agent/prompt-agent-canvas-context.js';
 import { createPromptAgentConversationStore } from '../js/features/prompt-agent/prompt-agent-conversation-store.js';
 
 const model = { id: 'chat-1', modelId: 'gpt-test', protocol: 'openai', capabilities: { imageInput: true }, providerIds: ['provider-1'] };
@@ -175,7 +176,7 @@ test('Prompt Agent rejects missing configuration and malformed model plans', asy
 function replyHarness(payload, options = {}) {
     let request;
     const result = createPromptAgentModelReply({
-        model, providers: [provider], providerId: provider.id, message: '再暖一点', ...options,
+        model, providers: [provider], providerId: provider.id, message: '再暖一点', getCanvasImage: async()=> 'data:image/png;base64,AAAA', ...options,
         fetchRef: async (url, init) => {
             request = JSON.parse(init.body);
             const text = typeof payload === 'string' ? payload : JSON.stringify(payload);
@@ -252,12 +253,15 @@ test('current, historical, connected and result images are real deduplicated med
     assert.deepEqual(content.filter((part) => part.type === 'image_url').map((part) => part.image_url.url), [a.dataUrl, b, c]);
     assert.doesNotMatch(content[0].text, /base64|REF_A|NODE_B|RESULT_C|media:missing/);
     const catalog = JSON.parse(content[0].text).images;
-    assert.deepEqual(catalog[0].origins, ['本轮附件', '节点输入', '历史附件']);
-    assert.equal(catalog[0].connectedToNode, true);
-    assert.equal(catalog[2].visionAvailable, false);
-    assert.equal(catalog[2].attachmentIndex, undefined);
-    assert.equal(catalog[3].attachmentIndex, 3);
-    assert.equal(catalog[3].connectedToNode, false);
+    assert.deepEqual(catalog[0].origins, ['本轮附件', '历史附件']);
+    assert.equal(catalog[0].connectedToNode, false);
+    assert.equal(catalog[1].sourceNodeId, 'source-a');
+    assert.equal(catalog[1].connectedToNode, true);
+    assert.equal(catalog[1].attachmentIndex, 1, 'same pixels reuse an attachment while keeping the node slot independent');
+    assert.equal(catalog[3].visionAvailable, false);
+    assert.equal(catalog[3].attachmentIndex, undefined);
+    assert.equal(catalog[4].attachmentIndex, 3);
+    assert.equal(catalog[4].connectedToNode, false);
     assert.equal(reply.promptPlan.referenceImages.length, 1);
     assert.equal(reply.promptPlan.referenceImages[0].role, 'reference');
     assert.equal(Object.hasOwn(reply.promptPlan, 'negativePrompt'), false);
@@ -473,4 +477,64 @@ test('explicit image mention reads its original before the first model request a
     const bad = replyHarness({intent:'chat'}, {canvasContext, getCanvasImage:async()=>null});
     await assert.rejects(bad.result, /原图读取失败/);
     assert.equal(bad.request(), undefined, 'no provider request with missing original or a substituted thumbnail');
+});
+
+
+test('selected generation context hydrates durable originals without requiring a node mention',async()=>{
+    const canvasContext=createCanvasContext({workflowId:'w',nodes:[{id:'source',type:'ImageImport',mediaAssetKeys:['media:original']},{id:'target',type:'ImageGenerate'}],connections:[{from:{nodeId:'source',port:'image'},to:{nodeId:'target',port:'referenceImages'},order:0}]});
+    const test=replyHarness({intent:'chat',message:'已查看'}, {canvasContext,context:{nodeId:'target',referenceImages:[{sourceNodeId:'source',images:['data:image/png;base64,PREVIEW'],assetKeys:['media:original']}]},getCanvasImage:async()=> 'data:image/png;base64,ORIGINAL'});
+    await test.result;
+    assert.equal(test.request().messages.at(-1).content.find(part=>part.type==='image_url').image_url.url,'data:image/png;base64,ORIGINAL');
+});
+
+
+test('prompt-only followups preserve complete previous canvas batches including implicitly retained connections',async()=>{
+    const canvasContext=createCanvasContext({workflowId:'w',nodes:[{id:'batch',type:'ImageGenerate',mediaAssetKeys:['media:a','media:b','media:c']},{id:'target',type:'ImageGenerate'}],connections:[{from:{nodeId:'batch',port:'image'},to:{nodeId:'target',port:'referenceImages'},order:0}]});
+    for(const connections of [[{from:{ref:'batch',port:'image'},to:{ref:'g',port:'referenceImages'},order:0}],[]]) {
+        const previous={id:'previous',steps:[{id:'g',type:'ImageGenerate',nodeId:'target'}],connections,bindings:{g:'target'}};
+        const reply=await replyHarness({intent:'refine',targetSelection:{mode:'prompt-only',evidence:'只改提示词'},promptPlan:{prompt:'new',imageRoles:[]}}, {message:'只改提示词',canvasContext,conversation:{messages:[{role:'agent',canvasPlan:previous}]}}).result;
+        assert.deepEqual(reply.promptPlan.referenceImages.map(image=>image.assetKey),['media:a','media:b','media:c']);
+        assert.deepEqual(reply.promptPlan.referenceImages.map(image=>image.sourceImageIndex),[0,1,2]);
+    }
+});
+
+test('prompt-only followup uses the saved reference manifest rather than later source outputs',async()=>{
+    const canvasContext=createCanvasContext({workflowId:'w',nodes:[{id:'batch',type:'ImageGenerate',mediaAssetKeys:['media:changed']},{id:'target',type:'ImageGenerate'}],connections:[]});
+    const previous={id:'previous',steps:[{id:'g',type:'ImageGenerate',nodeId:'target'}],connections:[],bindings:{g:'target'},referenceManifest:[{nodeId:'target',inputs:[{nodeId:'batch',port:'image',assets:['media:original-a','media:original-b'],upstream:false}]}]};
+    const reply=await replyHarness({intent:'refine',targetSelection:{mode:'prompt-only',evidence:'只改提示词'},promptPlan:{prompt:'new',imageRoles:[]}}, {message:'只改提示词',canvasContext,conversation:{messages:[{role:'agent',canvasPlan:previous}]}}).result;
+    assert.deepEqual(reply.promptPlan.referenceImages.map(image=>image.assetKey),['media:original-a','media:original-b']);
+});
+
+
+test('prompt-only followup never mixes several targets or fixes an unexecuted upstream to its old output',async()=>{
+    const canvasContext=createCanvasContext({workflowId:'w',nodes:[{id:'a',type:'ImageImport',mediaAssetKeys:['media:a']},{id:'b',type:'ImageImport',mediaAssetKeys:['media:b']},{id:'g1',type:'ImageGenerate'},{id:'g2',type:'ImageGenerate'},{id:'u',type:'ImageGenerate',mediaAssetKeys:['media:old']}],connections:[]});
+    const plans=[{id:'multi',steps:[{id:'one',nodeId:'g1',type:'ImageGenerate'},{id:'two',nodeId:'g2',type:'ImageGenerate'}],connections:[],bindings:{one:'g1',two:'g2'},referenceManifest:[{nodeId:'g1',inputs:[{nodeId:'a',port:'image',assets:['media:a']}]},{nodeId:'g2',inputs:[{nodeId:'b',port:'image',assets:['media:b']}]}]},
+        {id:'pending',steps:[{id:'up',nodeId:'u',type:'ImageGenerate',parameters:{prompt:'new not yet executed'}},{id:'down',nodeId:'g2',type:'ImageGenerate'}],connections:[{from:{ref:'up',port:'image'},to:{ref:'down',port:'referenceImages'}}],bindings:{},baseline:JSON.stringify({nodes:canvasContext.nodes,connections:[]})}];
+    for (const previous of plans) {
+        const reply=await replyHarness({intent:'refine',targetSelection:{mode:'prompt-only',evidence:'只改提示词'},promptPlan:{prompt:'new',imageRoles:[]}}, {message:previous.id==='pending'?'只改提示词 @图片生成[g2]':'只改提示词',canvasContext:previous.id==='pending'?{...canvasContext,summary:{...canvasContext.summary,mentionedIds:['g2']}}:canvasContext,conversation:{messages:[{role:'agent',canvasPlan:previous}]}}).result;
+        assert.equal(reply.intent,'clarify',previous.id);assert.equal(reply.promptPlan,null);
+    }
+});
+
+test('unrelated new text-only task is not blocked by an unavailable prior reference',async()=>{
+    const previous={id:'old',steps:[{id:'g',type:'ImageGenerate',nodeId:'target'}],bindings:{g:'target'},connections:[],referenceManifest:[{nodeId:'target',inputs:[{nodeId:'gone',port:'image',assets:['media:gone']}]}]};
+    const fixture=replyHarness({intent:'generate',promptPlan:{prompt:'全新雪山',imageRoles:[]}}, {message:'新建完全无关的雪山图，不要参考图',getCanvasImage:async()=>null,conversation:{messages:[{role:'agent',canvasPlan:previous}]}});
+    const reply=await fixture.result;assert.equal(reply.intent,'generate');assert.deepEqual(reply.promptPlan.referenceImages,[]);assert.ok(fixture.request());
+});
+
+
+test('explicitly clearing a target does not require reading its broken reference originals',async()=>{
+    const canvasContext=createCanvasContext({workflowId:'w',nodes:[{id:'gone',type:'ImageImport',mediaAssetKeys:['media:gone'],mediaIntegrity:{state:'missing'}},{id:'target',type:'ImageGenerate'}],connections:[{from:{nodeId:'gone',port:'image'},to:{nodeId:'target',port:'referenceImages'},order:0}],mentionedIds:['target']});
+    const fixture=replyHarness({intent:'generate',promptPlan:{prompt:'全新雪山',imageRoles:[]}}, {message:'@图片生成[target] 不要参考图，画雪山',context:{nodeId:'target'},canvasContext,getCanvasImage:async()=>null});
+    assert.equal((await fixture.result).intent,'generate');assert.ok(fixture.request());
+});
+
+
+test('modern prompt-only canvas plans cannot drop previous references or rebind them to new pixels',async()=>{
+    const canvasContext=createCanvasContext({workflowId:'w',nodes:[{id:'source',type:'ImageImport',mediaAssetKeys:['media:new']},{id:'target',type:'ImageGenerate'}],connections:[{from:{nodeId:'source',port:'image'},to:{nodeId:'target',port:'referenceImages'},order:0}],mentionedIds:['target']});
+    const previous={id:'prior',steps:[{id:'g',nodeId:'target',type:'ImageGenerate'}],bindings:{g:'target'},connections:[],referenceManifest:[{nodeId:'target',inputs:[{nodeId:'source',port:'image',assets:['media:old']}]}]};
+    const payload={intent:'refine',targetSelection:{mode:'prompt-only',evidence:'只改提示词'},canvasPlan:{version:1,steps:[{id:'g',nodeId:'target',type:'ImageGenerate',parameters:{prompt:'new'}}],connections:[]}};
+    await assert.rejects(replyHarness(payload,{message:'@图片生成[target] 只改提示词',canvasContext,conversation:{messages:[{role:'agent',canvasPlan:previous}]}}).result,/参考图|原图/);
+    const current={...canvasContext,nodes:canvasContext.nodes.map(node=>node.id==='source'?{...node,assets:['media:old']}:node)};
+    await assert.rejects(replyHarness({...payload,canvasPlan:{version:1,steps:[{id:'g',type:'ImageGenerate',parameters:{prompt:'new'}}],connections:[]}},{message:'只改提示词',canvasContext:current,conversation:{messages:[{role:'agent',canvasPlan:previous}]}}).result,/参考图|原图/);
 });
