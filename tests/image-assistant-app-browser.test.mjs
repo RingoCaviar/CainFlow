@@ -425,8 +425,8 @@ test('node run-to-here limits the real scope and reports waiting, success, failu
     ] }, async app => {
         const { evaluate, waitFor } = app;
         await controlImages(app);
-        assert.ok(await evaluate("Boolean(document.getElementById('scope-target-run-to-here'))"), 'target has a direct run button');
-        await evaluate("window.holdPrompt='scope-up';document.getElementById('scope-target-run-to-here').click()");
+        assert.equal(await evaluate("Boolean(document.getElementById('scope-target-run-to-here') || document.getElementById('scope-target-run-log'))"), false, 'node footer has no run or log buttons');
+        await evaluate("window.holdPrompt='scope-up';document.getElementById('scope-target').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()");
         await waitFor('imageRequests.length===1');
         assert.equal(await evaluate("document.getElementById('scope-up-run-status').textContent"), '运行中');
         assert.equal(await evaluate("document.getElementById('scope-target-run-status').textContent"), '待运行');
@@ -438,17 +438,17 @@ test('node run-to-here limits the real scope and reports waiting, success, failu
         await waitFor("document.getElementById('scope-target-run-status').textContent==='完成'");
         assert.equal(await evaluate('imageRequests.length'), 2, 'downstream and independent branches never execute');
         assert.equal(await evaluate("document.getElementById('scope-down-run-status').textContent"), '待运行');
-        await waitFor("!document.getElementById('scope-up-run-to-here').disabled"); await delay(300);
-        await evaluate("window.failImage=true;document.getElementById('scope-up-run-to-here').click()");
+        await waitFor("document.getElementById('btn-stop').disabled"); await delay(300);
+        await evaluate("window.failImage=true;document.getElementById('scope-up').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()");
         await waitFor('imageRequests.length>2');
         await waitFor("document.getElementById('scope-up-run-status').textContent==='失败'");
         assert.equal(await evaluate("document.getElementById('scope-up-image-results').hidden"), true, 'failed run cannot show an older image');
         assert.match(await evaluate("document.querySelector('#scope-up .node-failure-summary').textContent"), /受控失败/);
-        await evaluate("document.getElementById('scope-up-run-log').click()");
+        await evaluate("document.querySelector('#log-list .log-item.error').click()");
         await waitFor("document.getElementById('modal-error').classList.contains('active')");
         assert.match(await evaluate("document.getElementById('modal-error').textContent"), /受控失败/);
         await waitFor("document.getElementById('btn-stop').disabled");
-        await evaluate("document.querySelector('#modal-error .modal-close').click();window.failImage=false;window.holdPrompt='scope-up';document.getElementById('scope-up-run-to-here').click()");
+        await evaluate("document.querySelector('#modal-error .modal-close').click();window.failImage=false;window.holdPrompt='scope-up';document.getElementById('scope-up').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()");
         await waitFor("document.getElementById('scope-up-run-status').textContent==='运行中' && Boolean(window.releasePromptResponse)");
         assert.match(await evaluate("document.querySelector('#scope-up .node-failure-summary').textContent"), /受控失败/, 'previous failure stays until success');
         await evaluate("document.querySelector('#scope-up .node-run-cancel-btn').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:1,pointerType:'mouse',clientX:5,clientY:5}))");
@@ -457,7 +457,7 @@ test('node run-to-here limits the real scope and reports waiting, success, failu
         await waitFor("document.getElementById('scope-up-run-status').textContent==='已取消'");
         assert.equal(await evaluate("document.getElementById('scope-up-image-results').hidden"), true);
         await waitFor("document.getElementById('btn-stop').disabled");
-        await evaluate("document.getElementById('scope-up-run-to-here').click()");
+        await evaluate("document.getElementById('scope-up').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()");
         await waitFor("document.getElementById('scope-up-run-status').textContent==='完成'");
         assert.equal(await evaluate("document.querySelector('#scope-up .node-failure-summary').classList.contains('hidden')"), true);
     });
@@ -580,7 +580,7 @@ test('unsupported retained thinking remains reachable for explicit reset before 
         assert.ok(await evaluate("document.querySelector('#thinking-image .thinking-control select').checkVisibility()"));
         const field=await evaluate("document.querySelector('#thinking-image .thinking-control select').id");
         await change(evaluate,field,'inherit');
-        await evaluate("document.getElementById('thinking-image-run-to-here').click()");
+        await evaluate("document.getElementById('thinking-image').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()");
         await waitFor("document.getElementById('thinking-image-run-status').textContent==='完成'");
         assert.equal(await evaluate('imageRequests.length'),1);
         assert.equal(await evaluate('imageRequests[0].prompt'),'reset thinking');
