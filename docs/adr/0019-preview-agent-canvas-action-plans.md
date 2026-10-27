@@ -27,3 +27,10 @@ Each attempt records per-step status and actual model/Provider identities. Image
 ## Validation and limits
 
 Pure contract tests cover projection, paging, authorization, baselines, manual model choices, fixed result assets and persistence. Session-manager tests cover atomic rollback, durable-save failure and one-step undo/redo. Isolated complete-application browser tests use controlled chat/image responses to exercise actual node construction, sequential execution, media saving, restart, seven themes, narrow layout and keyboard mentions. They do not assert real-provider intent accuracy or promise reconstruction of a deleted asset.
+
+
+## Explicit node reference originals
+
+For an explicit stable @node mention, visual context follows that node rather than the unrelated current canvas selection. Before the first model request, a mentioned generation target's existing enabled reference sources are read from durable local originals in connection order and batch order. Direct image-node mentions likewise provide local originals. Missing or unreadable originals fail explicitly. These explicit inputs do not depend on the model deciding to issue a canvasRead request; other canvas inspection retains the read budget above.
+
+When the user explicitly asks to retain existing reference relationships while optimizing a prompt, a model reply labeled generate must not implicitly disconnect those relationships. Explicit requests to exclude reference images still clear them, and proposed graph changes remain previewed before application.

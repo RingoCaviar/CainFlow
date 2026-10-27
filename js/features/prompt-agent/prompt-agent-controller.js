@@ -1712,8 +1712,8 @@ export function createPromptAgentController({
             renderPendingReferences();
             const previousPlan = conversation.messages.findLast((message) => message.promptPlan)?.promptPlan
                 || conversation.previousPromptPlan;
-            const context = nodeAdapter?.getSelectedContext?.()
-                || (previousPlan?.targetNodeId ? nodeAdapter?.getContext?.(previousPlan.targetNodeId) : null)
+            const context = (nodeMentions.length ? nodeMentions.map(item => nodeAdapter?.getContext?.(item.id)).find(Boolean) : nodeAdapter?.getSelectedContext?.())
+                || (!nodeMentions.length && previousPlan?.targetNodeId ? nodeAdapter?.getContext?.(previousPlan.targetNodeId) : null)
                 || null;
             const reply = await createReply({
                 canvasContext,

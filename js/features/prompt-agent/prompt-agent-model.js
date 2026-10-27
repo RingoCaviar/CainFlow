@@ -140,6 +140,53 @@ export async function createPromptAgentModelReply({
     if (!model) throw new Error('请先配置对话模型和供应商。');
     const provider = resolveAgentProvider(model, providers, providerId);
     if (!model || !provider) throw new Error('请先在设置中配置一个可用的对话模型和 Provider');
+    // Explicit mentions bind visual context to the named node, independent of canvas selection.
+    // Read durable originals before the first request; topology alone does not give the model pixels.
+    const mentioned = canvasContext?.summary.mentionedIds || [];
+    if (mentioned.length) {
+        const hydrateNode = async (node, sourcePort = 'image', targetPort = '', requireAssets = false) => {
+            if (!node) {
+                if (requireAssets) throw new Error('参考图来源已删除，请刷新后重试');
+                return [];
+            }
+            if (node.enabled === false) return [];
+            if (node.running || node.missing) throw new Error(`「${node.name}」参考图正在运行或原图缺失，请恢复后重试`);
+            if (requireAssets && !node.assets.length) throw new Error(`「${node.name}」参考原图尚不可用，请恢复后重试`);
+            const result = [];
+            for (const [index, assetKey] of node.assets.entries()) {
+                const dataUrl = await getCanvasImage(assetKey);
+                assertActive();
+                if (!/^data:image\/[^;]+;base64,/i.test(String(dataUrl || ''))) throw new Error(`「${node.name}」原图读取失败，不能确认图片内容`);
+                result.push({ referenceId: `canvas:${node.id}:${index}:${assetKey}`, sourceNodeId: node.id,
+                    sourcePort, targetPort, sourceImageIndex: index, assetKey, dataUrl,
+                    name: `${node.name} [${node.id}] 第 ${index + 1} 张`, contextOrigin: '本轮 @节点原图' });
+            }
+            return result;
+        };
+        const inputs = new Map();
+        for (const id of mentioned) {
+            const node = canvasContext.nodes.find(item => item.id === id);
+            if (!node) continue;
+            if (node.type === 'ImageGenerate') {
+                const links = canvasContext.connections.map((link, index) => ({ link, index }))
+                    .filter(({ link }) => link.to.nodeId === id && /^(?:referenceImages|image|image_\d+)$/.test(link.to.port))
+                    .sort((a, b) => {
+                        const rank = ({ link, index }) => link.order ?? (/^image_\d+$/.test(link.to.port) ? Number(link.to.port.slice(6)) - 1 : index);
+                        return rank(a) - rank(b);
+                    });
+                const references = [];
+                for (const { link } of links) references.push(...await hydrateNode(canvasContext.nodes.find(item => item.id === link.from.nodeId), link.from.port, link.to.port, true));
+                inputs.set(id, references);
+                if (context?.nodeId !== id) workflowReferenceImages = [...workflowReferenceImages, ...references];
+            } else if (node.assets.length) {
+                workflowReferenceImages = [...workflowReferenceImages, ...await hydrateNode(node)];
+            }
+        }
+        if (context && inputs.has(context.nodeId)) {
+            context = { ...context, referenceImages: inputs.get(context.nodeId),
+                outputImages: await hydrateNode(canvasContext.nodes.find(item => item.id === context.nodeId)) };
+        }
+    }
     const base = { message, context, conversation, workflowMemory, sizeSettings, imageSizeCapabilities, referenceImages, workflowReferenceImages, model, canvasContext };
     const previousTurn = [...(conversation?.archivedMessages || []), ...(conversation?.messages || [])].findLast(item => item.canvasPlan || item.promptPlan);
     let previousReferences = previousTurn?.promptPlan?.referenceImages || conversation?.previousPromptPlan?.referenceImages || [];
