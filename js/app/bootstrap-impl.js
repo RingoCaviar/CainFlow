@@ -1110,6 +1110,11 @@ async function redo() {
     return getSessionManagerApi().redo();
 }
 
+function getRuntimeSnapshotMediaProtection() {
+    registry.runtimeSnapshotMediaProtection ||= createBrowserUndoMediaProtection(error => showToast(error.message, 'error'));
+    return registry.runtimeSnapshotMediaProtection;
+}
+
 function getSessionManagerApi() {
     if (!registry.sessionManagerApi) {
         registry.sessionManagerApi = createSessionManagerApi({
@@ -1128,7 +1133,7 @@ function getSessionManagerApi() {
                 || Object.freeze({ active: null, open: Object.freeze([]) }),
             removeMediaReference,
             mediaAssetExists,
-            undoMedia: createBrowserUndoMediaProtection(error => showToast(error.message, 'error')),
+            undoMedia: getRuntimeSnapshotMediaProtection(),
             clearOrphanedNodeAssets,
             beginMediaRestoreBatch,
             endMediaRestoreBatch,
@@ -1148,6 +1153,9 @@ function getClipboardControllerApi() {
             selectionApi,
             showToast,
             addNode,
+            pushHistory,
+            getWorkflowId: () => workflowManagerApi.getActiveWorkflowId(),
+            mediaProtection: getRuntimeSnapshotMediaProtection(),
             updateAllConnections,
             updatePortStyles,
             onConnectionsChanged: () => handleNodeGraphChanged(),
@@ -1503,6 +1511,7 @@ function getNodeLifecycleApi() {
             generateId,
             getImageAsset,
             getImageAssetList,
+            persistInlineImageImport: (id, data) => loadImageData(id, data),
             saveWorkflowImportMediaAsset,
             deleteImageImportAsset,
             showResolutionBadge,

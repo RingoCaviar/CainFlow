@@ -2882,11 +2882,11 @@ export function createNodeDomBindingsApi({
         else if (type === 'ImageSave') setupImageSave(id, el);
         else if (type === 'ImagePreview') setupImagePreview(id, el);
         else if (type === 'ImageMerge') {
-            refreshImageMergeInputPorts(id);
+            refreshImageMergeInputPorts(id, Math.max(state.nodes.get(id)?.data?.inputCount || 1, getImageMergeConnectedInputCount(id) + 1));
             fitNodeToContent(id);
         }
         else if (type === 'TextMerge') {
-            refreshTextMergeInputPorts(id);
+            refreshTextMergeInputPorts(id, Math.max(state.nodes.get(id)?.data?.inputCount || 1, getTextMergeConnectedInputCount(id) + 1));
             fitNodeToContent(id);
         }
         else if (type === 'ImageCompare') setupImageCompare(id, el);

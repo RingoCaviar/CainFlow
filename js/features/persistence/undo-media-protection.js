@@ -1,3 +1,5 @@
+import { getSnapshotMediaKeys } from './snapshot-media-keys.js';
+
 // History creation is synchronous across canvas controls. Only the small local
 // protection transaction is synchronous; release and physical cleanup are async.
 export function createUndoMediaProtection({ requestSync, request, pageId = crypto.randomUUID(), onError = () => {} } = {}) {
@@ -5,10 +7,7 @@ export function createUndoMediaProtection({ requestSync, request, pageId = crypt
     const pending = new Set();
     function protect(snapshot, workflowId) {
         if (ending) throw new Error('正在退出，不能创建撤销记录');
-        const assetKeys = [...new Set((snapshot.nodes || []).flatMap(node => [
-            ...(node.mediaAssetKeys || []), ...(node.data?.mediaAssetKeys || []),
-            node.imageAssetKey, node.imageImportAssetKey, node.data?.imageAssetKey, node.data?.imageImportAssetKey
-        ]).filter(key => typeof key === 'string' && key.startsWith('media:')))];
+        const assetKeys = [...new Set((snapshot.nodes || []).flatMap(getSnapshotMediaKeys))];
         if (!assetKeys.length) return;
         try {
             requestSync({ action: 'protect', pageId, recordId: snapshot.historyId, workflowId, assetKeys });

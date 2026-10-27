@@ -4,6 +4,7 @@
 import { NODE_DEFAULT_TYPES } from '../core/state.js';
 import { cleanupElementResources } from '../core/common-utils.js';
 import { createSelectionApi } from '../canvas/selection.js';
+import { appendMappedConnectionSnapshots } from '../canvas/connection-copy-utils.js';
 import {
     normalizeConcurrentRequestStatusPayload,
     renderConcurrentRequestStatusPanel
@@ -13,7 +14,8 @@ import {
     normalizeImageList,
     setCanonicalImageOutput
 } from '../features/execution/execution-data-utils.js';
-import { getReferenceImageCount } from './reference-image-ports.js';
+import { getReferenceImageCount, isMultiConnectionInput, orderInputConnections } from './reference-image-ports.js';
+import { getGenerationNodeInputConnectionPolicy } from './generation-input-projection.js';
 import { withMinimumMeasurementHeights } from './node-minimum-measurement.js';
 import { settleNodeContentLayout } from './node-layout-settlement.js';
 import { definitionHasCapability, NODE_CAPABILITIES } from './node-capabilities.js';
@@ -27,6 +29,7 @@ export function createNodeLifecycleApi({
     generateId,
     getImageAsset,
     getImageAssetList = async () => [],
+    persistInlineImageImport = null,
     deleteImageImportAsset = async () => false,
     showResolutionBadge,
     restoreImageResizePreview,
@@ -1087,6 +1090,13 @@ export function createNodeLifecycleApi({
         return state.runningNodeIds?.has(nodeId) || state.nodes.get(nodeId)?.el?.classList.contains('running');
     }
 
+    function hasRunningConnectionEndpoint(nodeId) {
+        return isNodeRunning(nodeId) || state.connections.some(link => (
+            (link.from.nodeId === nodeId && isNodeRunning(link.to.nodeId)) ||
+            (link.to.nodeId === nodeId && isNodeRunning(link.from.nodeId))
+        ));
+    }
+
     function normalizeCustomNodeTitle(value) {
         return typeof value === 'string' ? value.trim() : '';
     }
@@ -1535,6 +1545,9 @@ export function createNodeLifecycleApi({
                 }))
                 .filter((row) => row.key);
         }
+        if (normalizedType === 'ImageMerge' || normalizedType === 'TextMerge') {
+            nodeData.data.inputCount = Math.max(1, parseInt(effectiveRestoreData?.inputCount || '1', 10) || 1);
+        }
         if (nodeData.isSucceeded) el.classList.add('completed');
         if (!nodeData.enabled) el.classList.add('disabled');
         if (nodeData.collapsed) el.classList.add('collapsed');
@@ -1669,6 +1682,10 @@ export function createNodeLifecycleApi({
                 }
 
                 if (data) {
+                    if (normalizedType === 'ImageImport' && hasInitialData && !imageImportAssetKey && persistInlineImageImport) {
+                        await persistInlineImageImport(id, data);
+                        if (state.nodes.get(id) !== nodeData) return;
+                    }
                     console.info('[media-restore-render]', {
                         nodeId: id,
                         type: normalizedType,
@@ -1795,67 +1812,87 @@ export function createNodeLifecycleApi({
     function buildPreservedConnections(idsToRemove) {
         const removeSet = new Set(idsToRemove);
         const candidates = [];
-
-        idsToRemove.forEach((nid) => {
-            const incoming = state.connections.filter((connection) => (
-                connection.to.nodeId === nid &&
-                !removeSet.has(connection.from.nodeId)
-            ));
-            const outgoing = state.connections.filter((connection) => (
-                connection.from.nodeId === nid &&
-                !removeSet.has(connection.to.nodeId)
-            ));
-
-            incoming.forEach((inConn) => {
-                const inputType = getConnectionDataType(inConn);
-                outgoing.forEach((outConn) => {
-                    const outputType = getConnectionDataType(outConn);
-                    if (!inputType || inputType !== outputType) return;
-                    if (inConn.from.nodeId === outConn.to.nodeId) return;
-
-                    candidates.push({
-                        from: { nodeId: inConn.from.nodeId, port: inConn.from.port },
-                        to: { nodeId: outConn.to.nodeId, port: outConn.to.port },
-                        type: inputType
-                    });
-                });
+        const original = state.connections.slice();
+        const incoming = new Map();
+        for (const id of idsToRemove) {
+            const node = state.nodes.get(id);
+            const ports = Array.from(node?.el?.querySelectorAll('.node-port[data-direction="input"]') || []).map(port => port.dataset.port);
+            const links = orderInputConnections(node?.type, original.filter(link => link.to.nodeId === id));
+            incoming.set(id, links.sort((left, right) => ports.indexOf(left.to.port) - ports.indexOf(right.to.port)));
+        }
+        function sources(id, type, visited = new Set()) {
+            if (visited.has(id)) return [];
+            const nextVisited = new Set([...visited, id]);
+            return (incoming.get(id) || []).flatMap(link => {
+                if (getConnectionDataType(link) !== type) return [];
+                return removeSet.has(link.from.nodeId)
+                    ? sources(link.from.nodeId, type, nextVisited)
+                    : [{ ...link.from }];
+            });
+        }
+        original.filter(link => removeSet.has(link.from.nodeId) && !removeSet.has(link.to.nodeId)).forEach(link => {
+            const type = getConnectionDataType(link);
+            if (!type) return;
+            sources(link.from.nodeId, type).forEach(from => {
+                if (from.nodeId === link.to.nodeId) return;
+                candidates.push({ from, to: { ...link.to }, type, order: link.order, replaces: link.id });
             });
         });
-
-        return candidates;
+        return { candidates, original };
     }
 
-    function appendPreservedConnections(candidates) {
-        let added = 0;
-        candidates.forEach((candidate) => {
-            const hasSameConnection = state.connections.some((connection) => (
-                connection.from.nodeId === candidate.from.nodeId &&
-                connection.from.port === candidate.from.port &&
-                connection.to.nodeId === candidate.to.nodeId &&
-                connection.to.port === candidate.to.port
-            ));
-            const hasInputConnection = state.connections.some((connection) => (
-                connection.to.nodeId === candidate.to.nodeId &&
-                connection.to.port === candidate.to.port
-            ));
-            if (hasSameConnection || hasInputConnection) return;
-
-            state.connections.push({
-                id: createConnectionId(),
-                from: candidate.from,
-                to: candidate.to,
-                type: candidate.type
-            });
-            added += 1;
+    function appendPreservedConnections(plan) {
+        if (!plan) return 0;
+        const beforeIds = new Set(state.connections.map(link => link.id));
+        const result = appendMappedConnectionSnapshots({
+            state, idMap: new Map([...state.nodes.keys()].map(id => [id, id])), internalConnections: plan.candidates
         });
-        return added;
+        const added = state.connections.filter(link => !beforeIds.has(link.id));
+        const affected = new Map();
+        added.forEach(link => {
+            const node = state.nodes.get(link.to.nodeId);
+            const multiple = getGenerationNodeInputConnectionPolicy(node, link.to.port)?.multiple ?? isMultiConnectionInput(node?.type, link.to.port);
+            if (multiple) affected.set(`${link.to.nodeId}\0${link.to.port}`, link.to);
+        });
+        affected.forEach(to => {
+            const original = orderInputConnections(state.nodes.get(to.nodeId)?.type, plan.original.filter(link => link.to.nodeId === to.nodeId && link.to.port === to.port));
+            const sequence = [];
+            const seen = new Set();
+            original.forEach(link => {
+                const surviving = state.connections.find(current => current.id === link.id);
+                const replacements = surviving ? [surviving] : plan.candidates.filter(candidate => candidate.replaces === link.id).flatMap(candidate => (
+                    added.filter(current => current.from.nodeId === candidate.from.nodeId && current.from.port === candidate.from.port && current.to.nodeId === candidate.to.nodeId && current.to.port === candidate.to.port)
+                ));
+                replacements.forEach(current => {
+                    if (!seen.has(current.id)) { seen.add(current.id); sequence.push(current); }
+                });
+            });
+            sequence.forEach((link, order) => { link.order = order; });
+        });
+        return result.added;
+    }
+
+    function canPreserveConnections(plan, removedIds) {
+        const removed = new Set(removedIds);
+        const projected = { ...state, connections: state.connections.filter(link => !removed.has(link.from.nodeId) && !removed.has(link.to.nodeId)) };
+        const keyOf = link => JSON.stringify([link.from.nodeId, link.from.port, link.to.nodeId, link.to.port]);
+        const seen = new Set(projected.connections.map(keyOf));
+        const candidates = plan.candidates.filter(link => {
+            const key = keyOf(link);
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+        return appendMappedConnectionSnapshots({
+            state: projected, idMap: new Map([...state.nodes.keys()].map(id => [id, id])), internalConnections: candidates
+        }).skipped === 0;
     }
 
     function detachNodesFromConnections(idsToDetach, options = {}) {
         const ids = Array.from(new Set(Array.isArray(idsToDetach) ? idsToDetach : [idsToDetach]))
             .filter((nid) => state.nodes.has(nid));
         if (!ids.length) return { changed: false, removedConnectionCount: 0, preservedConnectionCount: 0 };
-        if (ids.some((nid) => isNodeRunning(nid))) {
+        if (ids.some((nid) => hasRunningConnectionEndpoint(nid))) {
             if (options.showToast !== false) {
                 showToast('节点正在运行，暂不能修改连线', 'warning');
             }
@@ -1864,6 +1901,10 @@ export function createNodeLifecycleApi({
 
         const detachSet = new Set(ids);
         const preservedConnectionCandidates = buildPreservedConnections(ids);
+        if (!canPreserveConnections(preservedConnectionCandidates, ids)) {
+            if (options.showToast !== false) showToast('无法完整保留连线，端口不兼容或连接数已满，未摘取节点', 'warning');
+            return { changed: false, removedConnectionCount: 0, preservedConnectionCount: 0 };
+        }
         const before = state.connections.length;
         state.connections = state.connections.filter((connection) => (
             !detachSet.has(connection.from.nodeId) &&
@@ -1891,16 +1932,20 @@ export function createNodeLifecycleApi({
 
     async function removeNode(id, options = {}) {
         const selectedIds = !options.onlyId && state.selectedNodes.has(id) ? Array.from(state.selectedNodes) : [id];
-        const lockedIds = selectedIds.filter((nid) => isNodeRunning(nid));
-        const idsToRemove = selectedIds.filter((nid) => !isNodeRunning(nid));
+        const lockedIds = selectedIds.filter((nid) => hasRunningConnectionEndpoint(nid));
+        const idsToRemove = selectedIds.filter((nid) => !hasRunningConnectionEndpoint(nid));
         if (lockedIds.length > 0) {
             showToast(lockedIds.length > 1 ? `有 ${lockedIds.length} 个节点正在运行，暂不能删除` : '节点正在运行，暂不能删除', 'warning');
         }
         if (idsToRemove.length === 0) return;
-        if (!options.skipHistory) pushHistory();
         const preservedConnectionCandidates = options.preserveConnections
             ? buildPreservedConnections(idsToRemove)
-            : [];
+            : null;
+        if (preservedConnectionCandidates && !canPreserveConnections(preservedConnectionCandidates, idsToRemove)) {
+            showToast('无法完整保留连线，端口不兼容或连接数已满，未删除节点', 'warning');
+            return;
+        }
+        if (!options.skipHistory) pushHistory();
         let removedConnections = false;
         const removingIds = new Set(idsToRemove);
         const removedIds = [];
@@ -2095,7 +2140,6 @@ export function createNodeLifecycleApi({
     }
 
     function appendIncomingConnectionsToClone(sourceNodeId, cloneNodeId) {
-        let added = 0;
         const incomingConnections = state.connections.filter((connection) => (
             connection?.to?.nodeId === sourceNodeId &&
             connection?.from?.nodeId &&
@@ -2103,37 +2147,12 @@ export function createNodeLifecycleApi({
             connection?.to?.port
         ));
 
-        incomingConnections.forEach((connection) => {
-            const from = {
-                nodeId: connection.from.nodeId,
-                port: connection.from.port
-            };
-            const to = {
-                nodeId: cloneNodeId,
-                port: connection.to.port
-            };
-            const hasSameConnection = state.connections.some((candidate) => (
-                candidate.from.nodeId === from.nodeId &&
-                candidate.from.port === from.port &&
-                candidate.to.nodeId === to.nodeId &&
-                candidate.to.port === to.port
-            ));
-            const hasInputConnection = state.connections.some((candidate) => (
-                candidate.to.nodeId === to.nodeId &&
-                candidate.to.port === to.port
-            ));
-            if (hasSameConnection || hasInputConnection) return;
-
-            state.connections.push({
-                id: createConnectionId(),
-                from,
-                to,
-                type: connection.type || getConnectionDataType(connection)
-            });
-            added += 1;
-        });
-
-        return added;
+        return appendMappedConnectionSnapshots({
+            state,
+            idMap: new Map([[sourceNodeId, cloneNodeId]]),
+            externalConnections: incomingConnections,
+            includeExternalConnections: true
+        }).added;
     }
 
     function cloneNode(sourceNodeId, count = 1, options = {}) {
@@ -2150,6 +2169,10 @@ export function createNodeLifecycleApi({
 
         const cloneCount = Math.max(1, Math.min(64, parseInt(count, 10) || 1));
         const includeUpstreamConnections = options?.includeUpstreamConnections === true;
+        if (includeUpstreamConnections && state.connections.some(link => link.to.nodeId === sourceNodeId && isNodeRunning(link.from.nodeId))) {
+            showToast('上游节点正在运行，暂不能携带上游连线克隆', 'warning');
+            return null;
+        }
         const snapshot = serializeOneNode(sourceNodeId);
         if (!snapshot) return null;
         pushHistory();

@@ -186,3 +186,24 @@ test('Undo keeps surviving images in a batch and updates the image count', async
     assert.equal(restored.imageCount, 1);
     assert.equal(restored.imagePreviewIndex, 0);
 });
+
+test('Undo removes missing video references without using a surviving video as an image', async () => {
+    const state={nodes:new Map(),selectedNodes:new Set(),connections:[],undoStack:[JSON.stringify({nodes:[{
+        id:'saved',type:'ImageSave',x:0,y:0,imageAssetKey:'media:gone-image',mediaAssetKeys:['media:gone-image'],
+        videoAssetKey:'media:gone-video',videoUrl:'/api/storage/assets/media%3Agone-video',
+        video:{assetKey:'media:gone-video'},videos:[{assetKey:'media:gone-video'},{assetKey:'media:live-video'}]
+    }],connections:[]})],redoStack:[],workflowTabs:[],workflowOrder:[],workflowFolders:[]};
+    const manager=createSessionManagerApi({
+        state,storageKey:'session',nodeSerializer:{buildStatePayload:()=>({nodes:[],connections:[]}),serializeNodes:()=>[]},
+        localStorageRef:{setItem(){},getItem:()=>null,length:0},documentRef:{getElementById:()=>null},showToast(){},
+        addNode(_type,_x,_y,data){state.nodes.set(data.id,{...data,el:{remove(){},querySelectorAll:()=>[]}})},
+        updateAllConnections(){},updatePortStyles(){},mediaAssetExists:async key=>key==='media:live-video'
+    });
+    await manager.undo();
+    const restored=state.nodes.get('saved');
+    assert.equal(restored.imageAssetKey,undefined,'a retained video is never substituted for an image');
+    assert.equal(restored.videoAssetKey,undefined);
+    assert.equal(restored.video,undefined);
+    assert.deepEqual(restored.videos,[{assetKey:'media:live-video'}]);
+    assert.equal(restored.videoUrl,'');
+});
