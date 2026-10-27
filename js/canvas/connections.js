@@ -11,7 +11,13 @@ import {
     orderInputConnections,
     MAX_REFERENCE_IMAGE_COUNT
 } from '../nodes/reference-image-ports.js';
-import { getGenerationNodeInputConnectionPolicy } from '../nodes/generation-input-projection.js';
+import {
+    getGenerationNodeInputConnectionPolicy,
+    getProjectedInputConnectionPolicy,
+    resolveGenerationInputProjection
+} from '../nodes/generation-input-projection.js';
+import { getGenerationInputProtocolId, getModelsForTask } from '../features/execution/provider-request-utils.js';
+import { getProtocol } from '../features/execution/protocols/index.js';
 
 export function createConnectionsApi({
     state,
@@ -751,7 +757,22 @@ export function createConnectionsApi({
         }
 
         // Match the rendered input contract instead of legacy image_1/image_2 definitions.
-        return getFirstCompatibleDefinitionPort(applyReferenceImagePorts(definition), direction, source.dataType);
+        let effectiveDefinition = applyReferenceImagePorts(definition);
+        if (definition.type === 'VideoGenerate' && direction === 'input') {
+            const models = getModelsForTask(state.models || [], 'video');
+            const selectedId = state.nodeDefaults?.VideoGenerate?.apiConfigId;
+            const model = selectedId ? models.find((entry) => entry.id === selectedId) : models[0];
+            const projection = resolveGenerationInputProjection({
+                protocol: getProtocol(getGenerationInputProtocolId(model)), modelId: model?.modelId, taskType: 'video'
+            });
+            effectiveDefinition = { ...effectiveDefinition, inputs: effectiveDefinition.inputs.filter((port) => (
+                getProjectedInputConnectionPolicy(projection, port.name).supported
+            )) };
+        }
+        if (direction === 'output' && source.dataType === 'any') {
+            return effectiveDefinition.outputs?.[0] || null;
+        }
+        return getFirstCompatibleDefinitionPort(effectiveDefinition, direction, source.dataType);
     }
 
     function getCompatibleNodeTypeCandidates(source) {
@@ -779,15 +800,41 @@ export function createConnectionsApi({
             return false;
         }
 
+        const sourceNode = getNodeById(source.nodeId);
+        const sourcePort = getPortElement(sourceNode, source.portName, source.isOutput ? 'output' : 'input');
+        if (!isPortElementVisible(sourcePort) || sourcePort.dataset.type !== source.dataType) {
+            showToast('拖线端口已变化，请重新拖线创建节点', 'warning');
+            return false;
+        }
+        const currentCandidate = getCompatibleNodeTypeCandidates(source).find((entry) => entry.type === candidate.type);
+        if (!currentCandidate) {
+            showToast('节点配置已变化，请重新拖线创建节点', 'warning');
+            return false;
+        }
+        if (!source.isOutput) {
+            const policy = getGenerationNodeInputConnectionPolicy(sourceNode, source.portName);
+            const multiple = policy?.multiple ?? isMultiConnectionInput(sourceNode.type, source.portName);
+            const count = state.connections.filter((connection) => (
+                connection.to.nodeId === source.nodeId && connection.to.port === source.portName
+            )).length;
+            const maximum = multiple ? (policy?.maxCount ?? MAX_REFERENCE_IMAGE_COUNT) : 1;
+            if (policy?.supported === false || count >= maximum) {
+                showToast('输入端口已不可用或连接数已满，请重新拖线', 'warning');
+                return false;
+            }
+        }
+
         const offsetX = source.isOutput ? 24 : -24;
-        const nodeId = addNode(candidate.type, x + offsetX, y);
+        const nodeId = addNode(currentCandidate.type, x + offsetX, y);
         if (!nodeId) return false;
 
+        const targetNode = getNodeById(nodeId);
+        const targetPort = getPortElement(targetNode, currentCandidate.matchPortName, currentCandidate.matchDirection);
         const target = {
             nodeId,
-            port: candidate.matchPortName,
-            type: source.dataType,
-            dir: candidate.matchDirection
+            port: currentCandidate.matchPortName,
+            type: targetPort?.dataset.type || source.dataType,
+            dir: currentCandidate.matchDirection
         };
 
         return finishConnection(source, target);
@@ -1408,12 +1455,14 @@ export function createConnectionsApi({
     function getConnectionTargetError(src, tgt) {
         if (!src || !tgt || !getNodeById(src.nodeId) || !getNodeById(tgt.nodeId)) return '端口不存在';
         if (isNodeRunning(src.nodeId) || isNodeRunning(tgt.nodeId)) return '节点正在运行，暂不能修改连线';
+        const rewiredConnection = src.rewiredFromConnection && state.connections.find((connection) => connection.id === src.rewiredFromConnection.id);
+        if (rewiredConnection && hasRunningEndpoint(rewiredConnection)) return '节点正在运行，暂不能修改连线';
         if (src.nodeId === tgt.nodeId) return '不能连接同一节点';
         if (src.isOutput && tgt.dir === 'output') return '不能连接两个输出';
         if (!src.isOutput && tgt.dir === 'input') return '不能连接两个输入';
 
-        const targetType = tgt.type || tgt.dataType;
-        const sourceType = src.dataType;
+        const targetType = src.isOutput ? (tgt.type || tgt.dataType) : src.dataType;
+        const sourceType = src.isOutput ? src.dataType : (tgt.type || tgt.dataType);
         if (targetType !== 'any' && sourceType !== targetType) {
             return '类型不匹配';
         }
@@ -1429,7 +1478,7 @@ export function createConnectionsApi({
         }
         const isMultiConnection = projectedPolicy?.multiple ?? isMultiConnectionInput(toNode?.type, toPort);
 
-        if (state.connections.find((conn) => conn.from.nodeId === fromId && conn.from.port === fromPort && conn.to.nodeId === toId && conn.to.port === toPort)) {
+        if (state.connections.find((conn) => (!src.rewiredFromConnection?.id || conn.id !== src.rewiredFromConnection.id) && conn.from.nodeId === fromId && conn.from.port === fromPort && conn.to.nodeId === toId && conn.to.port === toPort)) {
             return '连接已存在';
         }
 
@@ -1543,8 +1592,14 @@ export function createConnectionsApi({
         const isMultiConnection = projectedPolicy?.multiple ?? isMultiConnectionInput(toNode?.type, toPort);
         const inputConnections = state.connections.filter((conn) => conn.to.nodeId === toId && conn.to.port === toPort);
 
+        const rewiredConnection = src.rewiredFromConnection && state.connections.find((connection) => connection.id === src.rewiredFromConnection.id);
+        if (rewiredConnection?.to.nodeId === toId && rewiredConnection.to.port === toPort) return true;
+
         if (!src.historyPushed) {
             pushHistory();
+        }
+        if (rewiredConnection) {
+            state.connections = state.connections.filter((connection) => connection.id !== rewiredConnection.id);
         }
         if (!isMultiConnection) {
             state.connections = state.connections.filter((conn) => !(conn.to.nodeId === toId && conn.to.port === toPort));
@@ -1553,7 +1608,7 @@ export function createConnectionsApi({
             id: 'c_' + Math.random().toString(36).substr(2, 9),
             from: { nodeId: fromId, port: fromPort },
             to: { nodeId: toId, port: toPort },
-            type: src.dataType,
+            type: src.isOutput ? src.dataType : (tgt.type || tgt.dataType),
             ...(isMultiConnection ? {
                 order: getNextInputConnectionOrder(state.connections, { nodeId: toId, port: toPort })
             } : {})
