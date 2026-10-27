@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { withAppBrowser, delay } from './helpers/app-browser.mjs';
+import { withAppBrowser, delay, reloadAppBrowser as reloadApp } from './helpers/app-browser.mjs';
 import { parseColor, composite, contrastRatio } from './helpers/browser-theme-fixture.mjs';
 
 const session = {
@@ -27,20 +27,6 @@ function referenceSession({ empty = false } = {}) {
     if (empty) sources.push({ id: 'source-empty', type: 'ImageImport', x: 0, y: 720, customTitle: '待产出' });
     return { ...session, nodes: [...sources, { id: 'reference-target', type: 'ImageGenerate', x: 500, y: 120, apiConfigId: 'image', providerId: 'p', prompt: 'use these references' }],
         connections: sources.map((source,order)=>({ id: 'edge-'+source.id, from: { nodeId: source.id, port: 'image' }, to: { nodeId: 'reference-target', port: 'referenceImages' }, type: 'image', order })) };
-}
-
-async function reloadApp({ evaluate, send, waitFor }) {
-    const previous = await evaluate('performance.timeOrigin');
-    const reload = async (ignoreCache = false) => {
-        await send('Page.reload', { ignoreCache });
-        await waitFor(`performance.timeOrigin!==${previous} && window.__cainflowAppReady === true && document.getElementById('prompt-agent-model')?.options.length>0`);
-    };
-    try { await reload(); }
-    catch (error) {
-        if (!String(error).includes('Failed to fetch dynamically imported module')) throw error;
-        await reload(true);
-    }
-    await delay(500);
 }
 
 async function controlImages(app) {
@@ -914,6 +900,8 @@ test('partial Agent retries freeze successful upstream originals and full regene
         const upstream=await evaluate("[...document.querySelectorAll('.node-generate')].find(node=>node.querySelector('textarea[id$=prompt]')?.value==='chain-source').id");
         await evaluate(`window.alternateGeneratedImage=true;document.getElementById('${upstream}').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()`);
         await waitFor(`imageRequests.filter(r=>r.contents).length===4 && document.getElementById('${upstream}-run-status').textContent==='完成' && document.getElementById('btn-stop').disabled`);
+        await evaluate("document.getElementById('btn-save-workflow').click()");
+        await waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
         await evaluate("document.querySelector('#modal-error .modal-close')?.click();[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='重试未完成步骤').click()");
         await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已完成上游')");
         assert.equal(await evaluate('imageRequests.filter(r=>r.contents).length'),4,'changed successful upstream cannot silently enter a partial retry');
