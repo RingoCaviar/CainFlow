@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { withAppBrowser, delay } from './helpers/app-browser.mjs';
+import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -20,8 +20,7 @@ test('complete application previews, applies, executes and undoes a canvas plan 
                 return new Response(JSON.stringify({data:[{b64_json:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII='}]}),{headers:{'Content-Type':'application/json'}});
             } return window.nativeFetch(url,options);
         };` });
-        await send('Page.reload'); await delay(1000);
-        await waitFor("Boolean(document.getElementById('prompt-agent-model')?.options.length)");
+        await reloadAppBrowser({ evaluate, send, waitFor });
         await evaluate(` document.getElementById('btn-prompt-agent').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-provider-id=\"p\"]').click(); document.getElementById('prompt-agent-input').value='生成一张海报，调整尺寸后保存'; document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));`);
         await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
         assert.equal(await evaluate("document.querySelectorAll('#nodes-layer .node').length"), 0);
@@ -66,7 +65,7 @@ test('complete application previews, applies, executes and undoes a canvas plan 
         await waitFor("document.querySelectorAll('#nodes-layer .node').length===3");
         await waitFor("[...document.querySelectorAll('.toast')].some(toast => toast.textContent.includes('已重做上一步操作'))");
         assert.equal(await evaluate('window.agentRequests.length'), 2);
-        await send('Page.reload'); await waitFor('window.__cainflowAppReady === true');
+        await reloadAppBrowser({ evaluate, send, waitFor });
         await evaluate("document.getElementById('btn-prompt-agent').click()");
         await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
         await waitFor("Boolean(document.querySelector('.prompt-agent-result-image'))");
@@ -101,8 +100,7 @@ test('sequential graph stops on failure and retries only unfinished steps withou
                 generated.push(body.prompt);if(body.prompt==='two'&&generated.filter(p=>p==='two').length===1)return new Response('controlled failure',{status:500});
                 return new Response(JSON.stringify({data:[{b64_json:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII='}]}));
             }return nativeFetch(url,options)};` });
-        await send('Page.reload'); await delay(1000);
-        await waitFor("Boolean(document.getElementById('prompt-agent-model')?.options.length)");
+        await reloadAppBrowser({ evaluate, send, waitFor });
         await evaluate("document.getElementById('btn-prompt-agent').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-provider-id=\"p\"]').click();document.getElementById('prompt-agent-input').value='做三个独立方向';document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
         await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
         await evaluate("document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=\"image\"][data-provider-id=\"p\"]').click();[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='应用并执行').click()");

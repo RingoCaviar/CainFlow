@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {withAppBrowser,delay} from './helpers/app-browser.mjs';
+import {withAppBrowser,delay,reloadAppBrowser} from './helpers/app-browser.mjs';
 test('Agent imported references have visible connections and reach the actual image request in order',{timeout:60000},async()=>{
  await withAppBrowser({autoCheckUpdatesOnLoad:false,models:[
   {id:'chat',modelId:'chat',protocol:'openai',taskType:'chat',providerIds:['p'],autoCompactTokenLimit:100000},
@@ -12,8 +12,7 @@ test('Agent imported references have visible connections and reach the actual im
      return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({intent:'generate',message:'方案',promptPlan:{prompt:'poster',parameters:{},imageRoles:input.images.filter(i=>i.origins.includes('本轮附件')).map((i,index)=>({imageId:i.imageId,role:'reference',purpose:index===0?'主体':'只取配色'}))}})}}]}));}
     return new Response(JSON.stringify({candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:window.originals[0].split(',')[1]}}]}}]}));
    }return originalFetch(url,options);};`});
-  await send('Page.reload');await delay(1000);
-  await waitFor("Boolean(document.getElementById('prompt-agent-model')?.options.length)");
+  await reloadAppBrowser({evaluate,send,waitFor});
   await evaluate(`document.getElementById('btn-prompt-agent').click();
    for(const [id,model] of [['prompt-agent-model','chat'],['prompt-agent-image-model','image']]){document.querySelector('#'+id+' + button').click();document.querySelector('#'+id+'-menu [data-model-id="'+model+'"][data-provider-id="p"]').click();}
   `);

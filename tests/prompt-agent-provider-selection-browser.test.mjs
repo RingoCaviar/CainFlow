@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { withAppBrowser, delay } from './helpers/app-browser.mjs';
+import { withAppBrowser, delay, reloadAppBrowser } from './helpers/app-browser.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 const providers = [{ id: 'a', name: '供应商甲', endpoint: 'https://first.test/v1', apikey: 'first-key' },
@@ -16,8 +16,7 @@ test('four combined menus preserve model/provider identities; real requests and 
                 if(body.messages) return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({intent:'generate',message:'受控方案',canvasPlan:{version:1,steps:[{id:'gen',type:'ImageGenerate',title:'海报',parameters:{prompt:'poster'}}],connections:[]}})}}]}));
                 return new Response(JSON.stringify({data:[{b64_json:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII='}]}));
             }return realFetch(url,options);};` });
-        await send('Page.reload'); await delay(1000);
-        await waitFor("document.getElementById('prompt-agent-model')?.options.length>0");
+        await reloadAppBrowser({ evaluate, send, waitFor });
         await evaluate("document.getElementById('btn-prompt-agent').click();window.modelChanges=0;document.getElementById('prompt-agent-model').addEventListener('change',()=>modelChanges++)");
         const choose = async (id, model, provider) => {
             await evaluate(`document.querySelector('#${id} + button').click()`);
@@ -73,8 +72,7 @@ test('four combined menus preserve model/provider identities; real requests and 
         await evaluate("document.getElementById('btn-toggle-statistics').click()");
         assert.equal(await evaluate("document.getElementById('statistics-total-requests').textContent"),'2');
         assert.match(await evaluate("document.getElementById('statistics-source-counts').textContent"),/画布 0 · Agent 2/);
-        await delay(1200); await send('Page.reload'); await delay(1200);
-        await waitFor("document.getElementById('prompt-agent-model')?.options.length>0");
+        await delay(1200); await reloadAppBrowser({ evaluate, send, waitFor });
         await evaluate("document.getElementById('btn-prompt-agent').click()");
         await waitFor("document.querySelector('#prompt-agent-model + button')?.textContent.includes('供应商乙')");
         assert.match(await evaluate("document.querySelector('#prompt-agent-model + button').textContent"),/供应商乙/);

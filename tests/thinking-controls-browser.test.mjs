@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { withAppBrowser, delay } from './helpers/app-browser.mjs';
+import { withAppBrowser, delay, reloadAppBrowser } from './helpers/app-browser.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 const models = [
@@ -36,7 +36,7 @@ test('thinking controls persist Agent choices, apply to nodes and reach actual c
                 return new Response(JSON.stringify({candidates:[{content:{parts:[{thought:true,inlineData:{data:'NOT_AN_IMAGE',mimeType:'image/png'}},{inlineData:{data:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=',mimeType:'image/png'}}]}}]}),{headers:{'Content-Type':'application/json'}});
             }return original(url,options);
         };` });
-        await send('Page.reload'); await delay(1000); await waitFor("document.getElementById('prompt-agent-model')?.options.length>0");
+        await reloadAppBrowser({ evaluate, send, waitFor });
         await waitFor("document.querySelectorAll('.prompt-agent-settings .thinking-control').length===2");
         await evaluate(`document.getElementById('btn-prompt-agent').click(); document.getElementById('prompt-agent-panel').style.width='300px';
             for(const [id,model] of [['prompt-agent-model','chat'],['prompt-agent-image-model','image']]) {
@@ -95,7 +95,7 @@ test('thinking controls persist Agent choices, apply to nodes and reach actual c
         assert.equal(await evaluate("document.querySelectorAll('.prompt-agent-result-image').length"),1);
         assert.ok(await evaluate("document.querySelector('.prompt-agent-change-list').textContent.includes('思考设置')"));
         await delay(500);
-        await send('Page.reload'); await delay(1000); await waitFor("document.getElementById('prompt-agent-model')?.options.length>0");
+        await reloadAppBrowser({ evaluate, send, waitFor });
         await evaluate("document.getElementById('btn-prompt-agent').click()");
         assert.equal(await evaluate(`document.getElementById('prompt-agent-model').parentElement.querySelector('.thinking-control [data-thinking-value="level:high"]').getAttribute('aria-checked')`),'true');
         assert.equal(await evaluate("document.getElementById('prompt-agent-image-model').parentElement.querySelector('.thinking-control [data-thinking-value=\"level:high\"]')"),null);

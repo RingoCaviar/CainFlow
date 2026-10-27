@@ -1,6 +1,6 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { withAppBrowser } from './helpers/app-browser.mjs';
+import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 
 const session = {
     autoCheckUpdatesOnLoad: false,
@@ -49,9 +49,13 @@ async function assertConnected(app, fromId, toId, toPort, { fromPort = '', conne
     assert.equal(await app.evaluate(expression), true, 'a visible path must reach both connected port dots without moving or zooming');
 }
 
+async function savedConnectionRecords(app, count = 1, newNodeId = '') {
+    await app.waitFor(`(async()=>{const saved=await fetch('/api/storage/documents/session').then(r=>r.json());if(saved.value?.connections?.length!==${count} || (${JSON.stringify(newNodeId)} && !saved.value.connections.some(link=>[link.from.nodeId,link.to.nodeId].includes(${JSON.stringify(newNodeId)}))))return false;window.__cainflowTestConnectionSnapshot=saved.value.connections;return true})().catch(()=>false)`);
+    return app.evaluate('window.__cainflowTestConnectionSnapshot');
+}
+
 async function savedConnections(app, count = 1, newNodeId = '') {
-    await app.waitFor(`(async()=>{const saved=await fetch('/api/storage/documents/session').then(r=>r.json());return saved.value?.connections?.length===${count} && (!${JSON.stringify(newNodeId)} || saved.value.connections.some(link=>[link.from.nodeId,link.to.nodeId].includes(${JSON.stringify(newNodeId)})))})().catch(()=>false)`);
-    return app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(saved=>saved.value.connections.map(({from,to})=>({from,to})))");
+    return (await savedConnectionRecords(app, count, newNodeId)).map(({ from, to }) => ({ from, to }));
 }
 
 test('dragging an image output onto blank canvas creates a node with an immediately visible reference connection', { timeout: 30000 }, async () => {
@@ -71,9 +75,8 @@ test('dragging an image output onto blank canvas creates a node with an immediat
         await assertConnected(app, 'source', target, 'referenceImages');
         await savedConnections(app);
 
-        const previous = await app.evaluate('performance.timeOrigin');
-        await app.send('Page.reload', { ignoreCache: true });
-        await app.waitFor(`performance.timeOrigin!==${previous} && window.__cainflowAppReady===true && document.querySelectorAll('.image-reference-group').length===1`);
+        await reloadAppBrowser(app);
+        await app.waitFor("document.querySelectorAll('.image-reference-group').length===1");
         await app.waitFor("Boolean(document.querySelector('#connections-svg path[data-conn-id]')?.getAttribute('d'))");
         await assertConnected(app, 'source', target, 'referenceImages');
     });
@@ -130,8 +133,7 @@ for (const type of allTypes) for (const direction of ['input', 'output']) {
                     await click(app, `#connection-create-popup [data-popup-node-type="${candidate}"]`);
                     await app.waitFor("document.querySelectorAll('#nodes-layer > .node').length===5");
                     const id = await app.evaluate("[...document.querySelectorAll('#nodes-layer > .node')].find(n=>!['source','old-a','old-b','old-target'].includes(n.id)).id");
-                    await savedConnections(app, 3, id);
-                    const links = await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(s=>s.value.connections)");
+                    const links = await savedConnectionRecords(app, 3, id);
                     assert.deepEqual(links.filter(link => link.id.startsWith('retained-')), retained, `${type}.${port.name} -> ${candidate} leaves existing references and order intact`);
                     const link = links.find(link => !link.id.startsWith('retained-'));
                     assert.deepEqual(direction === 'output' ? link.from : link.to, { nodeId: 'source', port: port.name }, 'the connection retains the exact dragged port');
