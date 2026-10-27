@@ -2335,15 +2335,6 @@ export function createNodeDomBindingsApi({
     }
 
     function bindNodeInteractions({ id, type, el }) {
-        const boundNode = state.nodes.get(id);
-        documentRef.getElementById(`${id}-run-to-here`)?.addEventListener('click', event => {
-            event.stopPropagation();
-            if (state.nodes.get(id) !== boundNode || state.runningNodeIds?.has(id)) return;
-            void runToNode(id);
-        });
-        documentRef.getElementById(`${id}-run-log`)?.addEventListener('click', event => {
-            event.stopPropagation(); openNodeLog(id);
-        });
         const createNodeDraggingState = (nodeIds, pos, isCloneDrag) => {
             const startPositions = new Map();
             const draggedNodeIds = new Set(nodeIds);
