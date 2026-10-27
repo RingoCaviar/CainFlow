@@ -1,4 +1,4 @@
-import { normalizePlanInputs, projectPlanConnections, referenceManifest, isReferencePort } from './prompt-agent-reference-inputs.js';
+import { normalizePlanInputs, projectPlanConnections, referenceManifest, assertReferenceInputsPreserved, isReferencePort } from './prompt-agent-reference-inputs.js';
 import { resolveAgentSize, sizeFields } from './prompt-agent-size.js';
 import { getEffectiveProtocol } from '../execution/provider-request-utils.js';
 import { resolveThinking } from '../execution/thinking-config.js';
@@ -71,6 +71,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
     }
     function validateGraph(plan) {
         const ids = new Map(plan.steps.map(step => [step.id, step.nodeId || plan.bindings?.[step.id] || `new:${step.id}`]));
+        assertReferenceInputsPreserved(plan, state.connections, ref => ids.get(ref) || ref);
         const links = projectPlanConnections(plan, state.connections, ref => ids.get(ref) || ref);
         const visited = new Set(), visiting = new Set();
         const visit = id => {

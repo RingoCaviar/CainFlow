@@ -237,6 +237,18 @@
     cursor: pointer;
 }
 
+/* Generation failures must remain readable in narrow and manually resized cards. */
+.node-generate .node-failure-summary {
+    flex: 0 0 auto;
+    min-width: 0;
+    overflow: visible;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+    font-size: 13px;
+}
+.node-generate .node-error-msg { white-space: pre-wrap; overflow-wrap: anywhere; }
+
 .node-failure-summary.hidden { display: none; }
 
 .node-failures-list {

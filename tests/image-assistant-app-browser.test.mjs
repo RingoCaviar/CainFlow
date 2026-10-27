@@ -49,10 +49,10 @@ async function controlImages(app) {
             if(!body.messages && !body.contents && typeof body.prompt!=='string') return nativeFetch(url,options);
             imageRequests.push(body);
             if(window.holdPrompt && window.holdPrompt===body.prompt) await new Promise(resolve=>window.releasePromptResponse=resolve);
-            if(window.failImage && !body.messages) return new Response(JSON.stringify({error:{message:'受控失败：请检查模型配置'}}),{status:400,headers:{'Content-Type':'application/json'}});
+            if(window.failImage && !body.messages) return new Response(JSON.stringify({error:{message:window.failImageMessage||'受控失败：请检查模型配置'}}),{status:400,headers:{'Content-Type':'application/json'}});
             if(body.messages) {
                 const content=body.messages.at(-1).content,input=JSON.parse(Array.isArray(content)?content.find(p=>p.type==='text').text:content);
-                const plan=window.assistantBatch ? {canvasPlan:{version:1,steps:[{id:'generate',type:'ImageGenerate',parameters:{prompt:'source-a',generationCount:3}}],connections:[]}} : window.assistantGenerate ? {promptPlan:{prompt:'source-a',parameters:{},imageRoles:input.images.filter(i=>i.origins.includes('本轮附件')).map(i=>({imageId:i.imageId,role:'reference',purpose:'保留主体'}))}} : {canvasPlan:{version:1,steps:[{id:'revise',type:'ImageGenerate',nodeId:window.assistantTargetId||'context-one',parameters:{prompt:'助手优化后的提示词'}}],connections:[]}};
+                const plan=window.assistantLegacy ? {promptPlan:{targetNodeId:window.assistantTargetId,prompt:'助手优化后的提示词',parameters:{},imageRoles:[]}} : window.assistantBatch ? {canvasPlan:{version:1,steps:[{id:'generate',type:'ImageGenerate',parameters:{prompt:'source-a',generationCount:3}}],connections:[]}} : window.assistantGenerate ? {promptPlan:{prompt:'source-a',parameters:{},imageRoles:input.images.filter(i=>i.origins.includes('本轮附件')).map(i=>({imageId:i.imageId,role:'reference',purpose:'保留主体'}))}} : {canvasPlan:{version:1,steps:[{id:'revise',type:'ImageGenerate',nodeId:window.assistantTargetId||'context-one',parameters:{prompt:'助手优化后的提示词'}}],connections:[]}};
                 if(window.keepReferenceSources) plan.canvasPlan.connections=['source-b','source-a'].map((ref,order)=>({from:{ref,port:'image'},to:{ref:'revise',port:'referenceImages'},type:'image',order}));
                 return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({intent:'generate',message:'请核对修改方案',...plan})}}]}),{headers:{'Content-Type':'application/json'}});
             }
@@ -710,5 +710,36 @@ test('reordering a legacy reference batch taller than the gallery keeps its focu
         assert.equal(await evaluate("document.querySelector('[data-reference-connection=\"edge-many\"]').offsetHeight>document.querySelector('#target-reference-sources .image-reference-grid').clientHeight"),true,'legacy batch placeholders actually exceed the viewport');
         await evaluate("document.querySelector('[data-reference-connection=\"edge-many\"] .image-reference-move-down').click()");
         assert.equal(await evaluate("(()=>{const bounds=document.querySelector('#target-reference-sources .image-reference-grid').getBoundingClientRect(),r=document.activeElement.getBoundingClientRect();return document.activeElement.classList.contains('image-reference-locate')&&r.top>=bounds.top&&r.bottom<=bounds.bottom})()"),true,'a tall source must restore focus to a visible control');
+    });
+});
+
+
+test('long generation errors wrap fully inside a narrow image node', {timeout:30000},async()=>{
+    await withAppBrowser({...session,nodes:[{id:'error-wrap',type:'ImageGenerate',x:100,y:100,width:300,apiConfigId:'image',providerId:'p',prompt:'test error'}],connections:[]},async app=>{
+        const {evaluate,waitFor}=app;await controlImages(app);
+        const message='参考图请求失败，请检查供应商配置与上传限制。'.repeat(8)+' request_id='+'x'.repeat(120);
+        await evaluate(`window.failImage=true;window.failImageMessage=${JSON.stringify(message)};document.getElementById('error-wrap').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()`);
+        await waitFor("!document.querySelector('#error-wrap .node-failure-summary').classList.contains('hidden')");
+        const result=await evaluate("(()=>{const el=document.querySelector('#error-wrap .node-failure-summary');return {text:el.textContent,fits:el.scrollWidth<=el.clientWidth+1&&el.scrollHeight<=el.clientHeight+1,height:el.clientHeight}})()");
+        assert.ok(result.text.includes(message));
+        assert.equal(result.fits,true,'full red error text must wrap, including unbroken request identifiers');
+        assert.ok(result.height>40,'a long error must occupy multiple visible lines');
+    });
+});
+
+
+test('legacy Agent prompt reply preserves references by default and clears them only on explicit request', {timeout:30000},async()=>{
+    for (const removeReferences of [false,true]) await withAppBrowser(referenceSession(),async app=>{
+        const {evaluate,waitFor}=app;await generateReferenceSources(app);
+        await evaluate("window.assistantLegacy=true;window.assistantTargetId='reference-target';document.getElementById('reference-target-assistant').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click()");
+        await change(evaluate,'prompt-agent-input',removeReferences?'@图片生成[reference-target] 不要参考图，画蓝色背景':'@图片生成[reference-target] 把背景改成蓝色');
+        await evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
+        assert.match(await evaluate("document.querySelector('.prompt-agent-plan-inputs').textContent"),removeReferences?/纯文字/:/参考图/);
+        await evaluate("document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=google][data-provider-id=p]').click();[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='应用并执行').click()");
+        await waitFor("imageRequests.some(r=>r.contents)");
+        const received=await evaluate("imageRequests.find(r=>r.contents).contents.flatMap(c=>c.parts).filter(p=>p.inlineData).map(p=>p.inlineData.data)");
+        assert.deepEqual(received.map(image=>createHash('sha256').update(image).digest('hex')),(removeReferences?[]:referenceImages).map(image=>createHash('sha256').update(image.split(',')[1]).digest('hex')),'legacy reply follows the human reference request rather than omitted imageRoles');
+        assert.equal(await evaluate("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length"),removeReferences?0:2);
     });
 });

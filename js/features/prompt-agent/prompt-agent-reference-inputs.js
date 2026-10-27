@@ -1,4 +1,4 @@
-import { applyReferenceImagePorts } from '../../nodes/reference-image-ports.js';
+import { applyReferenceImagePorts, orderInputConnections } from '../../nodes/reference-image-ports.js';
 import { getNodeDefinition } from '../../nodes/registry.js';
 export const isReferencePort = port => port === 'referenceImages' || /^image(?:_\d+)?$/.test(port);
 export const agentNodeDefinition = type => applyReferenceImagePorts(getNodeDefinition(type), {type});
@@ -41,4 +41,19 @@ export function referenceManifest(nodes, connections, targets, internalIds=[]) {
             if(!upstream&&!node.assets?.length)throw new Error('参考图原图尚未保存，请恢复原图后重新应用方案。');
             return {nodeId:node.id,port:link.from.port,assets:upstream?[]:[...node.assets],upstream};
         })}));
+}
+
+
+export function assertReferenceInputsPreserved(plan, connections, identity) {
+    const targets = new Set(plan.steps.filter(step => step.type === 'ImageGenerate').map(step => identity(step.id)));
+    const projected = projectPlanConnections(plan, connections, identity);
+    for (const target of targets) {
+        const permission = plan.referenceInputChange;
+        if (['clear', 'replace'].includes(permission?.mode) && permission.targetNodeIds?.includes(target)) continue;
+        const inputs = links => orderInputConnections('ImageGenerate', links.filter(link => link.to.nodeId === target && isReferencePort(link.to.port)));
+        const previous = inputs(connections), next = inputs(projected);
+        if (!previous.every((link, index) => next[index]?.from.nodeId === link.from.nodeId && next[index]?.from.port === link.from.port)) {
+            throw new Error('方案试图断开已有参考图或改变输入顺序，但本轮没有明确要求；请重新生成保留参考图的方案。');
+        }
+    }
 }
