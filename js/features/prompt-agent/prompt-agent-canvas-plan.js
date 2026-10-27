@@ -1,6 +1,6 @@
-import { agentNodeDefinition as getNodeDefinition, isReferencePort, normalizePlanInputs } from './prompt-agent-reference-inputs.js';
+import { agentNodeDefinition as getNodeDefinition, isReferencePort, normalizePlanInputs, assertReferenceInputsPreserved } from './prompt-agent-reference-inputs.js';
 import { CANVAS_FIELDS, CANVAS_TYPES, canvasBaseline, cloneCanvasValue } from './prompt-agent-canvas-context.js';
-import { excludesReferenceImages, mayUseCandidate } from './prompt-agent-reference-policy.js';
+import { excludesReferenceImages, mayUseCandidate, referenceInputChangePermission } from './prompt-agent-reference-policy.js';
 
 const fail = message => { throw new Error(message); };
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
@@ -111,8 +111,8 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         return { ref: item.ref, port: item.port };
     });
     // A new generation uses exactly its proposed inputs, never hidden old edges.
-    const preserveExistingReferences = /(?:保留|沿用|保持|继续使用)[^。！？\n]{0,30}(?:参考(?:图|关系)?|连线)/.test(message);
-    if (referencePolicy && ((referencePolicy.intent === 'generate' && !preserveExistingReferences) || excludesReferenceImages(message, referencePolicy.selection))) {
+    const referenceInputChange = referenceInputChangePermission(message, steps.filter(step => step.type === 'ImageGenerate').map(step => step.nodeId));
+    if (referenceInputChange?.mode === 'clear') {
         for (const step of steps.filter(step => step.type === 'ImageGenerate' && step.nodeId)) {
             for (const link of context.connections.filter(link => link.to.nodeId === step.nodeId && isReferencePort(link.to.port))) {
                 if (!disconnects.some(item => item.ref === step.id && item.port === link.to.port)) disconnects.push({ ref: step.id, port: link.to.port });
@@ -132,8 +132,10 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         ...context.connections.filter(link => steps.some(step => step.nodeId === link.to.nodeId)).map(link => link.from.nodeId),
         ...context.connections.filter(link => steps.some(step => step.nodeId === link.from.nodeId && step.type === 'ImageGenerate')).map(link => link.to.nodeId),
         ...connections.map(link => ids.has(link.from.ref) ? null : link.from.ref)].filter(Boolean))];
-    return normalizePlanInputs({ version: 1, id: globalThis.crypto?.randomUUID?.() || `plan-${Date.now()}-${Math.random()}`, workflowId: context.workflowId,
+    const plan = normalizePlanInputs({ version: 1, referenceInputChange, id: globalThis.crypto?.randomUUID?.() || `plan-${Date.now()}-${Math.random()}`, workflowId: context.workflowId,
         steps, connections, disconnects, order, dependencies, baseline: canvasBaseline(context, dependencies), modelOverrides: {}, bindings: {}, runs: [] });
+    assertReferenceInputsPreserved(plan, context.connections, ref => steps.find(step => step.id === ref)?.nodeId || (ids.has(ref) ? `new:${ref}` : ref));
+    return plan;
 }
 
 export function describeCanvasPlan(plan, context) {
@@ -184,13 +186,17 @@ export function projectCanvasPlan(plan) {
         completedSteps: plan.completedSteps || [], latestAttempt: plan.runs?.at(-1) || null };
 }
 
-export function promptPlanToCanvas(prompt, context) {
+export function promptPlanToCanvas(prompt, context, { message = '' } = {}) {
     const target = prompt.targetNodeId && context.nodes.find(node => node.id === prompt.targetNodeId);
     const steps = [{ id: 'generate', type: 'ImageGenerate', title: '图片生成', parameters: { prompt: prompt.prompt },
         generationPatch: cloneCanvasValue(prompt.parameters || {}), ...(typeof prompt.negativePrompt === 'string' ? { negativePrompt: prompt.negativePrompt } : {}),
         ...(target ? { nodeId: target.id } : {}), execute: true }];
+    const referenceInputChange = referenceInputChangePermission(message, [target?.id]);
     const connections = [], dependencies = target ? [target.id] : [];
-    for (const [index, image] of (prompt.referenceImages || []).entries()) {
+    const existingReferences = target ? context.connections.filter(link => link.to.nodeId === target.id && isReferencePort(link.to.port)) : [];
+    existingReferences.forEach(link => dependencies.push(link.from.nodeId));
+    const references = target && existingReferences.length && !referenceInputChange ? [] : prompt.referenceImages || [];
+    for (const [index, image] of references.entries()) {
         const source = context.nodes.find(node => node.id === image.sourceNodeId);
         const key = image.assetKey || image.assetKeys?.[image.sourceImageIndex || 0] || source?.assets?.[image.sourceImageIndex || 0];
         let ref = source?.id;
@@ -202,8 +208,8 @@ export function promptPlanToCanvas(prompt, context) {
         else throw new Error('方案参考图已失效，请重新选择原图');
         connections.push({ from: { ref, port: image.sourcePort || 'image' }, to: { ref: 'generate', port: 'referenceImages' }, type: 'image', order: index });
     }
-    return normalizePlanInputs({ version: 1, id: globalThis.crypto?.randomUUID?.() || `plan-${Date.now()}`, workflowId: context.workflowId,
-        steps, connections, disconnects: target ? context.connections.filter(link => link.to.nodeId === target.id && isReferencePort(link.to.port)).map(link => ({ ref: 'generate', port: link.to.port })) : [],
+    return normalizePlanInputs({ version: 1, referenceInputChange, id: globalThis.crypto?.randomUUID?.() || `plan-${Date.now()}`, workflowId: context.workflowId,
+        steps, connections, disconnects: target && referenceInputChange ? existingReferences.map(link => ({ ref: 'generate', port: link.to.port })) : [],
         order: steps.map(step => step.id), dependencies: [...new Set(dependencies)],
         baseline: canvasBaseline(context, dependencies), modelOverrides: {}, bindings: {}, runs: [] });
 }

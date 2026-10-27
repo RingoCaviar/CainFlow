@@ -5,6 +5,7 @@ import { normalizeCanvasPlan, assertCanvasPlanCurrent, promptPlanToCanvas, descr
 import { createPromptAgentConversationStore } from '../js/features/prompt-agent/prompt-agent-conversation-store.js';
 import { createPromptAgentInput } from '../js/features/prompt-agent/prompt-agent-input.js';
 import { createPromptAgentModelReply } from '../js/features/prompt-agent/prompt-agent-model.js';
+import { projectPlanConnections } from '../js/features/prompt-agent/prompt-agent-reference-inputs.js';
 import { createPromptAgentCanvasAdapter } from '../js/features/prompt-agent/prompt-agent-canvas-adapter.js';
 
 const graph = (extra = {}) => createCanvasContext({ workflowId: 'workflow-a', nodes: [
@@ -231,4 +232,63 @@ test('prompt optimization retaining reference relationships does not silently di
     const options = {message:'请优化提示词，保留主体和现有参考关系。',mentionedIds:['target'],referencePolicy:{intent:'generate'}};
     assert.deepEqual(normalizeCanvasPlan(raw, context, options).disconnects, []);
     assert.deepEqual(normalizeCanvasPlan(raw, context, {...options,message:'优化提示词，但不要参考图'}).disconnects, [{ref:'generation',port:'referenceImages'}]);
+});
+
+
+test('legacy prompt-only revisions preserve connected references without relying on retention keywords',()=>{
+    const context=graph({connections:[{from:{nodeId:'source',port:'image'},to:{nodeId:'target',port:'referenceImages'},order:0}]});
+    const plan=promptPlanToCanvas({targetNodeId:'target',prompt:'新的背景',referenceImages:[]},context);
+    const projected=projectPlanConnections(plan,context.connections,ref=>ref==='generate'?'target':ref);
+    assert.equal(projected.length,1,'legacy prompt plans must retain an existing reference when the model omits imageRoles');
+    assert.equal(projected[0].from.nodeId,'source');
+});
+
+test('generate intent alone cannot remove references and model disconnects require a user request',()=>{
+    const context=graph({connections:[{from:{nodeId:'source',port:'image'},to:{nodeId:'target',port:'referenceImages'},order:0}]});
+    const raw={version:1,steps:[{id:'g',nodeId:'target',type:'ImageGenerate',parameters:{prompt:'蓝色背景'}}],connections:[]};
+    const options={message:'@图片生成[target] 背景改成蓝色',mentionedIds:['target'],referencePolicy:{intent:'generate'}};
+    assert.deepEqual(normalizeCanvasPlan(raw,context,options).disconnects,[]);
+    assert.throws(()=>normalizeCanvasPlan({...raw,disconnects:[{ref:'g',port:'referenceImages'}]},context,options),/参考图/);
+});
+
+
+test('reference protection handles negative instructions, partial replacement and explicit removal',()=>{
+    const context=graph({connections:[{from:{nodeId:'source',port:'image'},to:{nodeId:'target',port:'referenceImages'},order:0},{from:{nodeId:'second',port:'image'},to:{nodeId:'target',port:'referenceImages'},order:1}],
+        nodes:[...graph().nodes,{id:'second',type:'ImageImport',mediaAssetKeys:['media:second']}]});
+    const raw={version:1,steps:[{id:'g',nodeId:'target',type:'ImageGenerate',parameters:{prompt:'蓝色背景'}}],connections:[]};
+    for(const message of ['不要断开参考图','参考图不要删除','保留参考图并把背景换成蓝色','不要改成纯文字生图，保留参考图','不要不使用参考图','删除参考图1，保留参考图2']) {
+        const plan=normalizeCanvasPlan(raw,context,{message,mentionedIds:['target'],referencePolicy:{intent:'generate',selection:{mode:'none'}}});
+        assert.equal(plan.referenceInputChange,null,message);assert.deepEqual(plan.disconnects,[]);
+        assert.throws(()=>normalizeCanvasPlan({...raw,disconnects:[{ref:'g',port:'referenceImages'}]},context,{message,mentionedIds:['target']}),/参考图/);
+    }
+    const partial={...raw,connections:[{from:{ref:'source',port:'image'},to:{ref:'g',port:'referenceImages'}}]};
+    assert.throws(()=>normalizeCanvasPlan(partial,context,{message:'优化提示词',mentionedIds:['target']}),/参考图/);
+    const reversed={...raw,connections:[{from:{ref:'second',port:'image'},to:{ref:'g',port:'referenceImages'},order:0},{from:{ref:'source',port:'image'},to:{ref:'g',port:'referenceImages'},order:1}]};
+    assert.throws(()=>normalizeCanvasPlan(reversed,context,{message:'只改提示词，参考图保持原样',mentionedIds:['target'],referencePolicy:{intent:'edit'}}),/顺序/);
+
+    const cleared=normalizeCanvasPlan(raw,context,{message:'不要参考图，纯文字生成',mentionedIds:['target']});
+    assert.equal(cleared.referenceInputChange.mode,'clear');
+    for(const message of ['@图片生成[target] 不要参考图，纯文字生成','不要参考图了','@图片生成[target] 断开参考图','清空参考图','删除全部参考图']) {
+        const explicit=normalizeCanvasPlan(raw,context,{message,mentionedIds:['target']});
+        assert.equal(explicit.referenceInputChange.mode,'clear',message);
+        assert.deepEqual(projectPlanConnections(explicit,context.connections,ref=>ref==='g'?'target':ref),[]);
+    }
+
+    assert.deepEqual(projectPlanConnections(cleared,context.connections,ref=>ref==='g'?'target':ref),[]);
+    const replaced=normalizeCanvasPlan(partial,context,{message:'替换参考图，仅使用产品图',mentionedIds:['target']});
+    assert.equal(projectPlanConnections(replaced,context.connections,ref=>ref==='g'?'target':ref).length,1);
+});
+
+
+test('application guard blocks a historical destructive plan before any graph mutation',async()=>{
+    const nodes=[{id:'source',type:'ImageImport',mediaAssetKeys:['media:source']},{id:'target',type:'ImageGenerate',apiConfigId:'manual',providerId:'p',prompt:'old'}];
+    const connections=[{from:{nodeId:'source',port:'image'},to:{nodeId:'target',port:'referenceImages'},order:0}];
+    const state={nodes:new Map(nodes.map(node=>[node.id,node])),connections,models:[{id:'manual',modelId:'gpt-image',protocol:'openai',taskType:'image',providerIds:['p']}],providers:[{id:'p',endpoint:'https://controlled.test/v1',apikey:'test'}],runningNodeIds:new Set(),selectedNodes:new Set()};
+    const context=createCanvasContext({workflowId:'workflow-a',nodes,connections});
+    const plan=normalizeCanvasPlan({version:1,steps:[{id:'g',nodeId:'target',type:'ImageGenerate',parameters:{prompt:'new'}}]},context,{mentionedIds:['target'],message:'优化提示词'});
+    delete plan.referenceInputChange;plan.agentProviders={manual:'p'};plan.disconnects=[{ref:'g',port:'referenceImages'}];
+    let mutated=false;
+    const adapter=createPromptAgentCanvasAdapter({state,documentRef:{getElementById:()=>null},serializeNodes:()=>nodes,getWorkflowId:()=> 'workflow-a',nodeAdapter:{getContext:()=>({parameters:{}})},session:()=>({applyCanvasBatch:()=>{mutated=true;}})});
+    await assert.rejects(adapter.apply(plan,'manual'),/参考图/);
+    assert.equal(mutated,false);assert.equal(state.connections.length,1);
 });
