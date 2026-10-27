@@ -40,6 +40,11 @@ export function clearNodeExecutionFailure(node) {
     const summary = node.el?.querySelector?.('.node-failure-summary');
     summary?.classList.add('hidden');
     if (summary) summary.textContent = '';
+    const errorBody = node.el?.querySelector?.('.node-error-msg');
+    if (errorBody) {
+        errorBody.textContent = '';
+        errorBody.style.display = 'none';
+    }
 }
 
 export function showNodeExecutionFailure(node, error) {
@@ -491,6 +496,7 @@ export function createWorkflowRunnerApi({
     }
 
     function markNodeRunning(nodeId, node) {
+        clearNodeExecutionFailure(node);
         const startedAt = node?.runStartedAt || Date.now();
         if (node && !node.runStartedAt) node.runStartedAt = startedAt;
         getRunningNodeIds().add(nodeId);
@@ -588,15 +594,16 @@ export function createWorkflowRunnerApi({
         const geometryChangedNodeIds = [];
         for (const [nid, node] of state.nodes) {
             if (!shouldResetNodeData(plan, nid)) continue;
+            if (node.enabled === false) continue;
             if (runningNodeIds.has(nid)) continue;
 
             const fixedToggle = documentRef.getElementById(`${nid}-fixed`);
             const isFixed = fixedToggle ? fixedToggle.checked : false;
             const forceReset = forceResetNodeIds?.has(nid) === true;
             changedNodeIds.push(nid);
+            clearNodeExecutionFailure(node);
 
             if (!forceReset && preserveFixedCache && isFixed && node.isSucceeded && node.data && Object.keys(node.data).length > 0) {
-                clearNodeExecutionFailure(node);
                 node.el.classList.add('completed');
                 node.el.classList.remove('error', 'running');
                 continue;

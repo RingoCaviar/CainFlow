@@ -1189,6 +1189,9 @@ export function createWorkflowRuntimeManager({
         }
 
         node.runStatus = payload.status || 'idle';
+        if (payload.status === 'waiting' || payload.status === 'running' || payload.running === true) {
+            clearNodeExecutionFailure(node);
+        }
         if (payload.status === 'waiting') {
             node.isSucceeded = false;
             if (node.type === 'ImageGenerate') clearCanonicalImageOutput(node);

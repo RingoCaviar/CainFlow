@@ -453,16 +453,79 @@ test('node run-to-here limits the real scope and reports waiting, success, failu
         await waitFor("document.getElementById('btn-stop').disabled");
         await evaluate("document.querySelector('#modal-error .modal-close').click();window.failImage=false;window.holdPrompt='scope-up';document.getElementById('scope-up').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()");
         await waitFor("document.getElementById('scope-up-run-status').textContent==='运行中' && Boolean(window.releasePromptResponse)");
-        assert.match(await evaluate("document.querySelector('#scope-up .node-failure-summary').textContent"), /受控失败/, 'previous failure stays until success');
+        assert.equal(await evaluate("document.querySelector('#scope-up .node-failure-summary').classList.contains('hidden')"), true, 'a new run clears the previous failure immediately');
+        assert.equal(await evaluate("document.querySelector('#scope-up .node-failure-summary').textContent"), '');
+        assert.equal(await evaluate("document.querySelector('#scope-up .node-failure-indicator').classList.contains('hidden')"), true);
+        assert.equal(await evaluate("document.getElementById('scope-up-error').textContent"), '');
         await evaluate("document.querySelector('#scope-up .node-run-cancel-btn').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:1,pointerType:'mouse',clientX:5,clientY:5}))");
         await delay(2100);
         await evaluate("window.releasePromptResponse();window.holdPrompt=''");
         await waitFor("document.getElementById('scope-up-run-status').textContent==='已取消'");
         assert.equal(await evaluate("document.getElementById('scope-up-image-results').hidden"), true);
+        assert.equal(await evaluate("document.querySelector('#scope-up .node-failure-summary').classList.contains('hidden')"), true, 'cancellation must not restore the old failure');
         await waitFor("document.getElementById('btn-stop').disabled");
         await evaluate("document.getElementById('scope-up').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()");
         await waitFor("document.getElementById('scope-up-run-status').textContent==='完成'");
         assert.equal(await evaluate("document.querySelector('#scope-up .node-failure-summary').classList.contains('hidden')"), true);
+        await waitFor("document.getElementById('btn-stop').disabled");
+        await evaluate("window.failImage=true;window.failImageMessage='本轮新的错误';document.getElementById('scope-up').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()");
+        await waitFor("document.getElementById('scope-up-run-status').textContent==='失败'");
+        assert.match(await evaluate("document.querySelector('#scope-up .node-failure-summary').textContent"), /本轮新的错误/);
+        assert.doesNotMatch(await evaluate("document.querySelector('#scope-up .node-failure-summary').textContent"), /受控失败/);
+        await evaluate("[...document.querySelectorAll('#log-list .log-item.error')].at(-1).click()");
+        await waitFor("document.getElementById('modal-error').classList.contains('active')");
+        assert.match(await evaluate("document.getElementById('modal-error').textContent"), /受控失败/, 'previous failures remain available in historical log details');
+    });
+});
+
+test('a queued image node clears its old failure while errors outside the new run stay visible', { timeout: 30000 }, async () => {
+    await withAppBrowser({ ...session, nodes: ['queued-source','queued-target','outside-error'].map((id,index)=>({
+        id, type:'ImageGenerate', x:index*450, y:100, apiConfigId:index===1?'google':'image', providerId:'p', prompt:id
+    })), connections: [{id:'queued-reference',from:{nodeId:'queued-source',port:'image'},to:{nodeId:'queued-target',port:'referenceImages'},type:'image',order:0}] }, async app => {
+        const { evaluate, waitFor } = app;
+        await controlImages(app);
+        const runToHere = id => evaluate(`document.getElementById('${id}').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()`);
+        await runToHere('queued-target');
+        await waitFor("document.getElementById('queued-target-run-status').textContent==='完成' && document.getElementById('btn-stop').disabled");
+        await evaluate("window.failImage=true;(()=>{const node=document.getElementById('queued-target'),r=node.getBoundingClientRect();node.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,clientX:r.left+12,clientY:r.top+12}));window.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0}));node.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:600,clientY:180}));document.getElementById('context-menu-run-selected').click()})()");
+        await waitFor("document.getElementById('queued-target-run-status').textContent==='失败' && document.getElementById('btn-stop').disabled");
+        await runToHere('outside-error');
+        await waitFor("document.getElementById('outside-error-run-status').textContent==='失败' && document.getElementById('btn-stop').disabled");
+        await evaluate("window.failImage=false;window.holdPrompt='queued-source'");
+        await runToHere('queued-target');
+        await waitFor("document.getElementById('queued-source-run-status').textContent==='运行中' && Boolean(window.releasePromptResponse)");
+        assert.equal(await evaluate("document.getElementById('queued-target-run-status').textContent"), '待运行');
+        assert.equal(await evaluate("document.querySelector('#queued-target .node-failure-summary').classList.contains('hidden')"), true);
+        assert.equal(await evaluate("document.querySelector('#queued-target .node-failure-indicator').classList.contains('hidden')"), true);
+        assert.equal(await evaluate("document.getElementById('queued-target-error').textContent"), '');
+        assert.equal(await evaluate("document.querySelector('#outside-error .node-failure-summary').classList.contains('hidden')"), false);
+        assert.match(await evaluate("document.querySelector('#outside-error .node-failure-summary').textContent"), /受控失败/);
+        await evaluate("window.releasePromptResponse();window.holdPrompt=''");
+        await waitFor("document.getElementById('queued-target-run-status').textContent==='完成'");
+        await waitFor("document.getElementById('btn-stop').disabled");
+        await evaluate("document.querySelector('#outside-error .node-bypass-btn').click();window.holdPrompt='queued-source';document.getElementById('btn-run').click()");
+        await waitFor("document.getElementById('queued-source-run-status').textContent==='运行中' && Boolean(window.releasePromptResponse)");
+        assert.equal(await evaluate("document.getElementById('outside-error').classList.contains('disabled')"), true);
+        assert.equal(await evaluate("document.querySelector('#outside-error .node-failure-summary').classList.contains('hidden')"), false, 'disabled nodes do not join a full workflow run or lose their previous failure');
+        await evaluate("window.releasePromptResponse();window.holdPrompt=''");
+        await waitFor("document.getElementById('queued-target-run-status').textContent==='完成' && document.getElementById('btn-stop').disabled");
+    });
+});
+
+test('automatic image retry clears the failed attempt before the next response arrives', { timeout: 30000 }, async () => {
+    await withAppBrowser({ ...session, autoRetry:true, maxRetries:1, nodes:[{id:'auto-retry-image',type:'ImageGenerate',x:100,y:100,apiConfigId:'image',providerId:'p',prompt:'automatic retry'}], connections:[] }, async app => {
+        const { evaluate, waitFor } = app;
+        await controlImages(app);
+        await evaluate("window.failImage=true;document.getElementById('btn-run').click()");
+        await waitFor("document.getElementById('auto-retry-image-run-status').textContent==='失败'");
+        assert.match(await evaluate("document.querySelector('#auto-retry-image .node-failure-summary').textContent"), /受控失败/);
+        await evaluate("window.failImage=false;window.holdPrompt='automatic retry'");
+        await waitFor("imageRequests.length===2 && document.getElementById('auto-retry-image-run-status').textContent==='运行中' && Boolean(window.releasePromptResponse)");
+        assert.equal(await evaluate("document.querySelector('#auto-retry-image .node-failure-summary').classList.contains('hidden')"), true);
+        assert.equal(await evaluate("document.querySelector('#auto-retry-image .node-failure-indicator').classList.contains('hidden')"), true);
+        assert.equal(await evaluate("document.getElementById('auto-retry-image-error').textContent"), '');
+        await evaluate("window.releasePromptResponse();window.holdPrompt=''");
+        await waitFor("document.getElementById('auto-retry-image-run-status').textContent==='完成'");
     });
 });
 

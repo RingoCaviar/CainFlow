@@ -31,7 +31,7 @@ A workflow run that continues while another workflow is active in the editor. Re
 _Avoid_: Hidden run, inactive run
 
 **Node execution failure**:
-The durable visible state of the specific node whose execution ended with a non-cancellation error. It remains visible until that node next executes successfully, exposes a concise cause on the node, and links to the complete error details.
+The visible state of the specific node whose execution ended with a non-cancellation error. It exposes a concise cause and links to complete error details until that node enters a new execution attempt, including its waiting stage. Starting or retrying clears the previous failure; a new failure shows the current cause. Historical logs and errors on nodes outside the run, including disabled nodes, remain available.
 _Avoid_: Workflow error, global error
 
 **Workflow identity**:
