@@ -638,3 +638,24 @@ test('missing first asset never shifts later originals in node and reference pre
         assert.equal(await evaluate('imageRequests.length'),0,'missing-file inspection never regenerates or downloads a remote substitute');
     });
 });
+
+
+test('assistant optimization sends the mentioned generation target reference originals in connection order', { timeout: 30000 }, async () => {
+    const seeded = referenceSession();
+    seeded.connections[0].order = 1; seeded.connections[1].order = 0;
+    await withAppBrowser(seeded, async app => {
+        const { evaluate, waitFor } = app;
+        await generateReferenceSources(app);
+        await evaluate("window.assistantTargetId='reference-target';document.getElementById('reference-target-assistant').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click()");
+        await evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await waitFor("imageRequests.some(r=>r.messages)");
+        const images = await evaluate("imageRequests.find(r=>r.messages).messages.at(-1).content.filter(p=>p.type==='image_url').map(p=>p.image_url.url)");
+        assert.deepEqual(images.map(image=>createHash('sha256').update(image).digest('hex')), [...referenceImages.slice(3), ...referenceImages.slice(0,3)].map(image=>createHash('sha256').update(image).digest('hex')), 'mentioning a generation target supplies all five original reference images, not just topology or an unrelated selected output');
+        await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
+        await evaluate("document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=google][data-provider-id=p]').click();[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='应用并执行').click()");
+        await waitFor("imageRequests.some(r=>r.contents)");
+        const generationImages = await evaluate("imageRequests.find(r=>r.contents).contents.flatMap(c=>c.parts).filter(p=>p.inlineData).map(p=>p.inlineData.data)");
+        assert.deepEqual(generationImages.map(image=>createHash('sha256').update(image).digest('hex')), [...referenceImages.slice(3),...referenceImages.slice(0,3)].map(image=>createHash('sha256').update(image.split(',')[1]).digest('hex')), 'applying a prompt-only plan retains all ordered reference connections in the generation request');
+
+    });
+});

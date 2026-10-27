@@ -111,7 +111,8 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         return { ref: item.ref, port: item.port };
     });
     // A new generation uses exactly its proposed inputs, never hidden old edges.
-    if (referencePolicy && (referencePolicy.intent === 'generate' || excludesReferenceImages(message, referencePolicy.selection))) {
+    const preserveExistingReferences = /(?:保留|沿用|保持|继续使用)[^。！？\n]{0,30}(?:参考(?:图|关系)?|连线)/.test(message);
+    if (referencePolicy && ((referencePolicy.intent === 'generate' && !preserveExistingReferences) || excludesReferenceImages(message, referencePolicy.selection))) {
         for (const step of steps.filter(step => step.type === 'ImageGenerate' && step.nodeId)) {
             for (const link of context.connections.filter(link => link.to.nodeId === step.nodeId && isReferencePort(link.to.port))) {
                 if (!disconnects.some(item => item.ref === step.id && item.port === link.to.port)) disconnects.push({ ref: step.id, port: link.to.port });

@@ -223,3 +223,12 @@ test('Agent references use the actual visible multi-image port rather than invis
  const normalized=normalizeCanvasPlan(raw,context);
  assert.deepEqual(normalized.connections.filter(c=>c.to.ref==='hero').map(c=>[c.to.port,c.order]),[['referenceImages',0],['referenceImages',1]]);
 });
+
+
+test('prompt optimization retaining reference relationships does not silently disconnect inputs on generate intent', () => {
+    const context = graph({ connections: [{ from: { nodeId: 'source', port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, order: 0 }] });
+    const raw = {version:1,steps:[{id:'generation',nodeId:'target',type:'ImageGenerate',parameters:{prompt:'优化后的产品图'}}],connections:[]};
+    const options = {message:'请优化提示词，保留主体和现有参考关系。',mentionedIds:['target'],referencePolicy:{intent:'generate'}};
+    assert.deepEqual(normalizeCanvasPlan(raw, context, options).disconnects, []);
+    assert.deepEqual(normalizeCanvasPlan(raw, context, {...options,message:'优化提示词，但不要参考图'}).disconnects, [{ref:'generation',port:'referenceImages'}]);
+});
