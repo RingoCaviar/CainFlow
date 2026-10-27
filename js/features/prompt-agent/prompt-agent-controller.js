@@ -1712,7 +1712,16 @@ export function createPromptAgentController({
             renderPendingReferences();
             const previousPlan = conversation.messages.findLast((message) => message.promptPlan)?.promptPlan
                 || conversation.previousPromptPlan;
-            const context = (nodeMentions.length ? nodeMentions.map(item => nodeAdapter?.getContext?.(item.id)).find(Boolean) : nodeAdapter?.getSelectedContext?.())
+            const previousCanvas = [...(conversation.archivedMessages || []), ...conversation.messages].findLast(message => message.canvasPlan)?.canvasPlan;
+            const previousTargets = [...new Set((previousCanvas?.steps || []).filter(step => step.type === 'ImageGenerate')
+                .map(step => step.nodeId || previousCanvas.bindings?.[step.id]).filter(Boolean))];
+            const previousCanvasContext = previousTargets.length === 1 ? nodeAdapter?.getContext?.(previousTargets[0]) : null;
+            const selectedContext = nodeAdapter?.getSelectedContext?.();
+            const selectedNode = canvasContext?.nodes.find(node => node.id === selectedContext?.nodeId);
+            const explicitlyNamedSelection = selectedNode && text.includes(selectedNode.name)
+                && canvasContext.nodes.filter(node => node.name === selectedNode.name).length === 1;
+            const context = (nodeMentions.length ? nodeMentions.map(item => nodeAdapter?.getContext?.(item.id)).find(Boolean)
+                : explicitlyNamedSelection ? selectedContext : previousCanvasContext || selectedContext)
                 || (!nodeMentions.length && previousPlan?.targetNodeId ? nodeAdapter?.getContext?.(previousPlan.targetNodeId) : null)
                 || null;
             const reply = await createReply({

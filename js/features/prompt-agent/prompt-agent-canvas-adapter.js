@@ -1,8 +1,8 @@
-import { normalizePlanInputs, projectPlanConnections, referenceManifest, assertReferenceInputsPreserved, isReferencePort } from './prompt-agent-reference-inputs.js';
+import { normalizePlanInputs, projectPlanConnections, referenceManifest, assertReferenceInputsPreserved, isReferencePort, assertPromptOnlyReferenceRecipe } from './prompt-agent-reference-inputs.js';
 import { resolveAgentSize, sizeFields } from './prompt-agent-size.js';
 import { getEffectiveProtocol } from '../execution/provider-request-utils.js';
 import { resolveThinking } from '../execution/thinking-config.js';
-import { createCanvasContext, canvasBaseline, cloneCanvasValue } from './prompt-agent-canvas-context.js';
+import { createCanvasContext, canvasBaseline, cloneCanvasValue, canvasPlanExecutionNodeIds } from './prompt-agent-canvas-context.js';
 import { assertCanvasPlanCurrent, describeCanvasPlan } from './prompt-agent-canvas-plan.js';
 import { getAvailablePromptAgentImageModels } from './prompt-agent-node-adapter.js';
 import { resolveAgentProvider } from './prompt-agent-provider.js';
@@ -171,15 +171,15 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                 state.connections = projectPlanConnections(plan, state.connections, ref => bindings[ref] || ref).map(link => ({...link,id:link.id || `conn_${crypto.randomUUID()}`}));
                 graphChanged();
                 plan.bindings = bindings; plan.appliedSignature = signature; plan.appliedSizes = cloneCanvasValue(sizes);
-                plan.referenceManifest = referenceManifest(context().nodes, state.connections, plan.steps.filter(s=>s.type==='ImageGenerate').map(s=>bindings[s.id]),Object.values(bindings));
+                plan.referenceManifest = referenceManifest(context().nodes, state.connections, plan.steps.filter(s=>s.type==='ImageGenerate').map(s=>bindings[s.id]),canvasPlanExecutionNodeIds(plan));
                 plan.dependencies = [...new Set([...plan.dependencies, ...Object.values(bindings)])];
-                plan.baseline = canvasBaseline(context(), plan.dependencies, Object.values(bindings));
+                plan.baseline = canvasBaseline(context(), plan.dependencies, canvasPlanExecutionNodeIds(plan));
                 onPlanChange();
                 return {};
             }, save);
             plan.bindings = bindings; plan.historyId = result.historyId; plan.appliedSignature = signature;
             plan.dependencies = [...new Set([...plan.dependencies, ...Object.values(bindings)])];
-            plan.baseline = canvasBaseline(context(), plan.dependencies, Object.values(bindings));
+            plan.baseline = canvasBaseline(context(), plan.dependencies, canvasPlanExecutionNodeIds(plan));
         } catch (error) {
             Object.keys(plan).forEach(key => delete plan[key]); Object.assign(plan, originalPlan); onPlanChange(); throw error;
         } finally { locked.forEach(([element, inert]) => { element.inert = inert; }); }
@@ -201,15 +201,40 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         assertCanvasPlanCurrent(plan, context());
         const validateInputs = () => {
             assertCanvasPlanCurrent(plan, context());
-            const actual = referenceManifest(context().nodes, state.connections, plan.steps.filter(s=>s.type==='ImageGenerate').map(s=>plan.bindings[s.id]),Object.values(plan.bindings));
+            const actual = referenceManifest(context().nodes, state.connections, plan.steps.filter(s=>s.type==='ImageGenerate').map(s=>plan.bindings[s.id]),canvasPlanExecutionNodeIds(plan));
             if (!plan.referenceManifest || JSON.stringify(actual)!==JSON.stringify(plan.referenceManifest)) throw new Error('参考图输入与已确认方案不一致，请重新应用方案。');
+            if (retry) {
+                const skipped = new Set((plan.completedSteps || []).map(id => plan.bindings[id]));
+                for (const input of actual.flatMap(target => target.inputs).filter(input => input.upstream && skipped.has(input.nodeId))) {
+                    const step = plan.steps.find(step => plan.bindings[step.id] === input.nodeId);
+                    const saved = plan.completedReferenceOutputs?.[step.id];
+                    const current = context().nodes.find(node => node.id === input.nodeId)?.assets;
+                    if (!saved?.assets?.length || saved.nodeId !== input.nodeId || JSON.stringify(saved.assets) !== JSON.stringify(current)) {
+                        throw new Error('已完成上游的参考图已变化或缺少原图快照，请重新应用并完整执行方案。');
+                    }
+                }
+            }
+
         };
         validateInputs();
         const selectedNodeIds = plan.order.filter(id => plan.steps.find(step => step.id === id)?.execute !== false
             && (!retry || !plan.completedSteps?.includes(id))).map(id => plan.bindings[id]);
         if (!selectedNodeIds.length) throw new Error('没有待执行步骤');
+        if (!retry) plan.completedReferenceOutputs = {};
         activePlan = plan;
-        try { return await runWorkflow({ mode: 'selected-only', selectedNodeIds, agentSequential: true }, { retainResults, configurationSnapshot: executionConfigs.get(plan.id), validateBeforeRun: validateInputs }); }
+        try {
+            const completion = await runWorkflow({ mode: 'selected-only', selectedNodeIds, agentSequential: true }, { retainResults, configurationSnapshot: executionConfigs.get(plan.id), validateBeforeRun: validateInputs });
+            plan.completedReferenceOutputs ||= {};
+            const completed = (completion?.nodeResults || []).filter(entry => entry.succeeded);
+            for (const entry of completed) {
+                const step = plan.steps.find(step => plan.bindings[step.id] === entry.nodeId);
+                if (!step) continue;
+                const assets = entry.mediaAssetKeys?.length ? entry.mediaAssetKeys
+                    : getWorkflowId() === plan.workflowId ? context().nodes.find(node => node.id === entry.nodeId)?.assets || [] : [];
+                if (assets.length) plan.completedReferenceOutputs[step.id] = { nodeId: entry.nodeId, assets: [...assets] };
+            }
+            return completion;
+        }
         finally { activePlan = null; executionConfigs.delete(plan.id); }
     }
     return { context, prepare, describe: (plan, defaultModelId) => {
@@ -262,7 +287,8 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
             if (plan.workflowId !== getWorkflowId() || plan.dependencies.some(id => !state.nodes.has(id))) throw new Error('相关节点已删除或工作流已切换，请重新提出方案');
             if (prepare(cloneCanvasValue(plan)).steps.length !== plan.steps.length) throw new Error('自动保存节点需求已变化，请重新整理方案');
             validateGraph(plan);
-            plan.baseline = canvasBaseline(context(), plan.dependencies, Object.values(plan.bindings || {}));
+            assertPromptOnlyReferenceRecipe(plan, { ...cloneCanvasValue(plan), baseline: undefined, referenceManifest: undefined }, context());
+            plan.baseline = canvasBaseline(context(), plan.dependencies, canvasPlanExecutionNodeIds(plan));
             delete plan.appliedSignature;
         },
         focus: focusNode, stop: plan => Object.values(plan.bindings || {}).forEach(cancelNode),

@@ -1,3 +1,4 @@
+import { orderInputConnections } from '../../nodes/reference-image-ports.js';
 import { resolveAgentProvider } from './prompt-agent-provider.js';
 import { trackAgentRequest } from './prompt-agent-request.js';
 import { createChatRequestPlan, requestChatCompletion } from '../execution/chat-request-plan.js';
@@ -10,8 +11,8 @@ import { measurePromptAgentContext } from './prompt-agent-token-budget.js';
 import { getAgentSearchAvailability, normalizeAgentSearch, getConversationSearchSources } from './prompt-agent-search-data.js';
 import { searchPromptAgent } from './prompt-agent-search.js';
 import { normalizeCanvasPlan } from './prompt-agent-canvas-plan.js';
-import { excludesReferenceImages, mayUseCandidate } from './prompt-agent-reference-policy.js';
-import { isReferencePort } from './prompt-agent-reference-inputs.js';
+import { excludesReferenceImages, mayUseCandidate, referenceInputChangePermission } from './prompt-agent-reference-policy.js';
+import { canvasPlanReferenceImages, assertPromptOnlyReferenceRecipe } from './prompt-agent-reference-inputs.js';
 
 export function getAvailablePromptAgentModels(models = [], providers = []) {
     return getModelsForTask(models, 'chat').filter((model) => {
@@ -89,6 +90,8 @@ function normalizeReply(payload, context, images = [], userMessage = '', previou
     const noImages = excludesReferenceImages(userMessage, selection);
     if (noImages) selectedImages = [];
     else if (selection?.mode === 'prompt-only') {
+        if (previousReferences.some(image => image.referenceUnavailable === 'multiple-targets')) return clarify('上一方案包含多个生图目标，请明确要修改哪个节点，或保留完整多步骤方案。');
+        if (previousReferences.some(image => image.referenceUnavailable)) return clarify('上一方案的参考原图不可用或快照不完整，请恢复原图或保留完整多步骤方案。');
         if (!explicitEvidence) return clarify('请确认是否仅调整提示词。');
         selectedImages = previousReferences.map(image => ({ ...image }));
     }
@@ -122,7 +125,8 @@ function normalizeReply(payload, context, images = [], userMessage = '', previou
             prompt: withOrderedImageGuide(plan.prompt.trim(), selectedImages),
             ...(typeof plan.negativePrompt === 'string' ? { negativePrompt: plan.negativePrompt.trim() } : {}),
             parameters,
-            referenceImages: selectedImages
+            referenceImages: selectedImages,
+            ...(selection?.mode === 'prompt-only' ? { preserveReferenceSnapshot: true } : {})
         }
     };
 }
@@ -140,9 +144,19 @@ export async function createPromptAgentModelReply({
     if (!model) throw new Error('请先配置对话模型和供应商。');
     const provider = resolveAgentProvider(model, providers, providerId);
     if (!model || !provider) throw new Error('请先在设置中配置一个可用的对话模型和 Provider');
+    const originalReads = new Map();
+    const readOriginal = async (assetKey, name) => {
+        if (!originalReads.has(assetKey)) originalReads.set(assetKey, Promise.resolve(getCanvasImage(assetKey)));
+        const dataUrl = await originalReads.get(assetKey);
+        assertActive();
+        if (!/^data:image\/[^;]+;base64,/i.test(String(dataUrl || ''))) throw new Error(`「${name}」原图读取失败，不能确认图片内容`);
+        return dataUrl;
+    };
+
     // Explicit mentions bind visual context to the named node, independent of canvas selection.
     // Read durable originals before the first request; topology alone does not give the model pixels.
-    const mentioned = canvasContext?.summary.mentionedIds || [];
+    const mentioned = [...new Set([...(canvasContext?.summary.mentionedIds || []),
+        ...(context?.nodeId && canvasContext?.nodes.some(node => node.id === context.nodeId) ? [context.nodeId] : [])])];
     if (mentioned.length) {
         const hydrateNode = async (node, sourcePort = 'image', targetPort = '', requireAssets = false) => {
             if (!node) {
@@ -154,9 +168,7 @@ export async function createPromptAgentModelReply({
             if (requireAssets && !node.assets.length) throw new Error(`「${node.name}」参考原图尚不可用，请恢复后重试`);
             const result = [];
             for (const [index, assetKey] of node.assets.entries()) {
-                const dataUrl = await getCanvasImage(assetKey);
-                assertActive();
-                if (!/^data:image\/[^;]+;base64,/i.test(String(dataUrl || ''))) throw new Error(`「${node.name}」原图读取失败，不能确认图片内容`);
+                const dataUrl = await readOriginal(assetKey, node.name);
                 result.push({ referenceId: `canvas:${node.id}:${index}:${assetKey}`, sourceNodeId: node.id,
                     sourcePort, targetPort, sourceImageIndex: index, assetKey, dataUrl,
                     name: `${node.name} [${node.id}] 第 ${index + 1} 张`, contextOrigin: '本轮 @节点原图' });
@@ -168,14 +180,15 @@ export async function createPromptAgentModelReply({
             const node = canvasContext.nodes.find(item => item.id === id);
             if (!node) continue;
             if (node.type === 'ImageGenerate') {
-                const links = canvasContext.connections.map((link, index) => ({ link, index }))
-                    .filter(({ link }) => link.to.nodeId === id && /^(?:referenceImages|image|image_\d+)$/.test(link.to.port))
-                    .sort((a, b) => {
-                        const rank = ({ link, index }) => link.order ?? (/^image_\d+$/.test(link.to.port) ? Number(link.to.port.slice(6)) - 1 : index);
-                        return rank(a) - rank(b);
-                    });
+                if (referenceInputChangePermission(message, [id])?.mode === 'clear') {
+                    inputs.set(id, []);
+                    continue;
+                }
+
+                const links = orderInputConnections('ImageGenerate', canvasContext.connections
+                    .filter(link => link.to.nodeId === id && /^(?:referenceImages|image|image_\d+)$/.test(link.to.port)));
                 const references = [];
-                for (const { link } of links) references.push(...await hydrateNode(canvasContext.nodes.find(item => item.id === link.from.nodeId), link.from.port, link.to.port, true));
+                for (const link of links) references.push(...await hydrateNode(canvasContext.nodes.find(item => item.id === link.from.nodeId), link.from.port, link.to.port, true));
                 inputs.set(id, references);
                 if (context?.nodeId !== id) workflowReferenceImages = [...workflowReferenceImages, ...references];
             } else if (node.assets.length) {
@@ -184,29 +197,34 @@ export async function createPromptAgentModelReply({
         }
         if (context && inputs.has(context.nodeId)) {
             context = { ...context, referenceImages: inputs.get(context.nodeId),
-                outputImages: await hydrateNode(canvasContext.nodes.find(item => item.id === context.nodeId)) };
+                outputImages: referenceInputChangePermission(message, [context.nodeId])?.mode === 'clear' ? []
+                    : await hydrateNode(canvasContext.nodes.find(item => item.id === context.nodeId)) };
         }
     }
     const base = { message, context, conversation, workflowMemory, sizeSettings, imageSizeCapabilities, referenceImages, workflowReferenceImages, model, canvasContext };
     const previousTurn = [...(conversation?.archivedMessages || []), ...(conversation?.messages || [])].findLast(item => item.canvasPlan || item.promptPlan);
     let previousReferences = previousTurn?.promptPlan?.referenceImages || conversation?.previousPromptPlan?.referenceImages || [];
     const previousCanvas = previousTurn?.canvasPlan;
+    let previousReferenceTarget = null;
     if (previousCanvas) {
-        previousReferences = (previousCanvas.connections || []).filter(link => isReferencePort(link.to?.port)
-            && previousCanvas.steps.some(step => step.id === link.to.ref && step.type === 'ImageGenerate'))
-            .map((link, index) => ({ link, index }))
-            .sort((a, b) => {
-                const rank = ({ link, index }) => Number.isInteger(link.order) ? link.order
-                    : /^image_\d+$/.test(link.to.port) ? Number(link.to.port.slice(6)) - 1 : index;
-                return rank(a) - rank(b) || a.index - b.index;
-            }).map(({ link }) => {
-            const step = previousCanvas.steps.find(step => step.id === link.from.ref);
-            const nodeId = step?.nodeId || previousCanvas.bindings?.[link.from.ref] || (!step ? link.from.ref : null);
-            const source = canvasContext?.nodes.find(node => node.id === nodeId);
-            const assetKey = step?.assetKey || source?.assets?.[0];
-            return { referenceId: `plan:${previousCanvas.id}:${link.from.ref}`, sourceNodeId: nodeId || undefined,
-                assetKey, name: step?.title || source?.name, role: 'reference' };
-        });
+        const requestedTargets = (canvasContext?.nodes || []).filter(node => node.type === 'ImageGenerate'
+            && (canvasContext.summary.mentionedIds.includes(node.id) || (message.includes(node.name)
+                && canvasContext.nodes.filter(item => item.name === node.name).length === 1))).map(node => node.id);
+        const requested = requestedTargets.length === 1 ? requestedTargets[0] : null;
+        previousReferenceTarget = requested;
+        const priorTarget = requested && previousCanvas.steps.some(step => (step.nodeId || previousCanvas.bindings?.[step.id]) === requested);
+        previousReferences = requested && !priorTarget ? context?.referenceImages || []
+            : canvasPlanReferenceImages(previousCanvas, canvasContext, requested);
+        for (const reference of previousReferences.filter(reference => reference.assetKey)) {
+            try {
+                const dataUrl = await readOriginal(reference.assetKey, reference.name);
+                base.workflowReferenceImages = [...base.workflowReferenceImages, { ...reference, dataUrl, contextOrigin: '上一方案参考图' }];
+            } catch {
+                assertActive();
+                reference.referenceUnavailable = true;
+            }
+        }
+
     }
     const previousAssetKeys = [...new Set([...previousReferences.flatMap(image => [image.assetKey, ...(image.assetKeys || [])]),
         ...(previousCanvas?.steps || []).map(step => step.assetKey)].filter(Boolean))];
@@ -243,9 +261,7 @@ export async function createPromptAgentModelReply({
                 const index = item?.index ?? 0;
                 if (!node || !Number.isInteger(index) || index < 0 || !node.assets[index]) throw new Error('指定画布图片不存在或原图资产缺失');
                 const assetKey = node.assets[index];
-                const dataUrl = await getCanvasImage(assetKey);
-                assertActive();
-                if (typeof dataUrl !== 'string' || !/^data:image\/[^;]+;base64,/i.test(dataUrl)) throw new Error(`「${node.name}」原图读取失败，不能确认图片内容`);
+                const dataUrl = await readOriginal(assetKey, node.name);
                 const referenceId = `canvas:${node.id}:${index}:${assetKey}`;
                 if (!base.workflowReferenceImages.some(image => image.referenceId === referenceId)) {
                     base.workflowReferenceImages = [...base.workflowReferenceImages, { referenceId, sourceNodeId: node.id,
@@ -292,6 +308,13 @@ export async function createPromptAgentModelReply({
                 canvasPlan: normalizeCanvasPlan(payload.canvasPlan, canvasContext, { message, mentionedIds: canvasContext.summary.mentionedIds, images: input.images,
                     referencePolicy: { intent: payload.intent, selection: payload.targetSelection, previousAssetKeys } })
             } : normalizeReply(payload, context, input.images, message, previousReferences);
+            if (reply.canvasPlan && previousCanvas && payload.targetSelection?.mode === 'prompt-only') {
+                const evidence = payload.targetSelection.evidence;
+                if (typeof evidence !== 'string' || !evidence.trim() || !message.includes(evidence.trim())) throw new Error('仅改提示词需要当前用户的明确指令。');
+                if (previousReferences.some(reference => reference.referenceUnavailable === true)) throw new Error('上一方案参考原图不可用，请恢复原图后再沿用。');
+                assertPromptOnlyReferenceRecipe(previousCanvas, reply.canvasPlan, canvasContext, previousReferenceTarget);
+            }
+
         }
         catch (error) {
             if (!search) throw error;

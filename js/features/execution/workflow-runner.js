@@ -1051,7 +1051,7 @@ export function createWorkflowRunnerApi({
         if (!node || (node.type !== 'ImageGenerate' && node.type !== 'VideoGenerate' && node.type !== 'TextChat')) return;
 
         const missingConnections = (plan.inputConnectionsByNode[node.id] || [])
-            .filter((connection) => isReferenceImageInputPort(node, connection.to.port))
+            .filter((connection) => isReferenceImageInputPort(node, connection.to.port) && state.nodes.get(connection.from.nodeId)?.enabled !== false)
             .filter((connection) => normalizeImageList(inputs[connection.to.port]).length === 0);
 
         if (missingConnections.length === 0) return;
@@ -1082,6 +1082,7 @@ export function createWorkflowRunnerApi({
                 if (plan.scopeNodeSet.has(connection.from.nodeId)) continue;
 
                 const fromNode = state.nodes.get(connection.from.nodeId);
+                if (fromNode?.enabled === false) continue;
                 const toNode = state.nodes.get(nodeId);
                 const outputValue = await getEnabledNodeOutputValue(fromNode, toNode, connection.from.port);
                 if (plan.agentSequential && (outputValue === undefined || outputValue === null || outputValue === '' || (Array.isArray(outputValue) && outputValue.length === 0))) {

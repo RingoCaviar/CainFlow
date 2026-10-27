@@ -1,5 +1,5 @@
-import { agentNodeDefinition as getNodeDefinition, isReferencePort, normalizePlanInputs, assertReferenceInputsPreserved } from './prompt-agent-reference-inputs.js';
-import { CANVAS_FIELDS, CANVAS_TYPES, canvasBaseline, cloneCanvasValue } from './prompt-agent-canvas-context.js';
+import { agentNodeDefinition as getNodeDefinition, isReferencePort, normalizePlanInputs, assertReferenceInputsPreserved, referenceManifest } from './prompt-agent-reference-inputs.js';
+import { CANVAS_FIELDS, CANVAS_TYPES, canvasBaseline, cloneCanvasValue, canvasPlanExecutionNodeIds } from './prompt-agent-canvas-context.js';
 import { excludesReferenceImages, mayUseCandidate, referenceInputChangePermission } from './prompt-agent-reference-policy.js';
 
 const fail = message => { throw new Error(message); };
@@ -168,7 +168,7 @@ export function describeCanvasPlan(plan, context) {
 }
 
 export function assertCanvasPlanCurrent(plan, context) {
-    if (plan.workflowId !== context.workflowId || plan.baseline !== canvasBaseline(context, plan.dependencies, Object.values(plan.bindings || {}))) fail('相关画布内容已变化。请在下方 Agent 输入框发送“根据当前画布重新生成方案”，确认新方案后再点击“应用并执行”。');
+    if (plan.workflowId !== context.workflowId || plan.baseline !== canvasBaseline(context, plan.dependencies, canvasPlanExecutionNodeIds(plan))) fail('相关画布内容已变化。请在下方 Agent 输入框发送“根据当前画布重新生成方案”，确认新方案后再点击“应用并执行”。');
 }
 
 export function restoreCanvasPlan(value) {
@@ -195,6 +195,14 @@ export function promptPlanToCanvas(prompt, context, { message = '' } = {}) {
     const connections = [], dependencies = target ? [target.id] : [];
     const existingReferences = target ? context.connections.filter(link => link.to.nodeId === target.id && isReferencePort(link.to.port)) : [];
     existingReferences.forEach(link => dependencies.push(link.from.nodeId));
+    if (target && prompt.preserveReferenceSnapshot && !referenceInputChange) {
+        const actual = referenceManifest(context.nodes, context.connections, [target.id])[0].inputs
+            .flatMap(input => input.assets.map((assetKey, index) => [input.nodeId, input.port, index, assetKey]));
+        const expected = (prompt.referenceImages || []).map(image => [image.sourceNodeId, image.sourcePort || 'image',
+            image.sourceImageIndex || 0, image.assetKey || image.assetKeys?.[image.sourceImageIndex || 0]]);
+        if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error('参考图原图或输入顺序已变化，请根据当前画布重新生成方案。');
+    }
+
     const references = target && existingReferences.length && !referenceInputChange ? [] : prompt.referenceImages || [];
     for (const [index, image] of references.entries()) {
         const source = context.nodes.find(node => node.id === image.sourceNodeId);

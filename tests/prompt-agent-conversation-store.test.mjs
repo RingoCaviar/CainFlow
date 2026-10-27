@@ -263,7 +263,7 @@ test('compression preserves the complete latest draft, image roles and workflow 
     const store = createPromptAgentConversationStore({ maxContextCharacters: 80 });
     const draft = {
         targetNodeId: 'image-1', prompt: '详细画面'.repeat(40), parameters: { count: 2 },
-        referenceImages: [{ name: '照片', imageId: 'image-1', role: 'edit-target', purpose: '保留主体', dataUrl: 'data:image/png;base64,IMAGE' }]
+        referenceImages: [{ name: '照片', imageId: 'image-1', role: 'edit-target', purpose: '保留主体', assetKey: 'media:original', sourceImageIndex: 1, runId: 'original-run', dataUrl: 'data:image/png;base64,IMAGE' }]
     };
     store.append({ role: 'agent', intent: 'edit', text: '上版方案', promptPlan: draft });
     store.append({ role: 'user', text: '新的讨论'.repeat(40) });
@@ -277,6 +277,9 @@ test('compression preserves the complete latest draft, image roles and workflow 
     restored.restore(snapshot);
     assert.equal(restored.snapshot().previousPromptPlan.prompt, draft.prompt);
     assert.equal(restored.snapshot().previousPromptPlan.referenceImages[0].purpose, '保留主体');
+    assert.equal(restored.snapshot().previousPromptPlan.referenceImages[0].assetKey, 'media:original');
+    assert.equal(restored.snapshot().previousPromptPlan.referenceImages[0].sourceImageIndex, 1);
+    assert.equal(restored.snapshot().previousPromptPlan.referenceImages[0].runId, 'original-run');
     restored.restore(null);
     assert.equal(restored.snapshot().previousPromptPlan, undefined);
 });

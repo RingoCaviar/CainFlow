@@ -292,3 +292,9 @@ test('application guard blocks a historical destructive plan before any graph mu
     await assert.rejects(adapter.apply(plan,'manual'),/参考图/);
     assert.equal(mutated,false);assert.equal(state.connections.length,1);
 });
+
+
+test('prompt-only snapshot cannot be silently rebound to changed current source assets',()=>{
+    const context=graph({connections:[{from:{nodeId:'source',port:'image'},to:{nodeId:'target',port:'referenceImages'},order:0}]});
+    assert.throws(()=>promptPlanToCanvas({targetNodeId:'target',prompt:'new',preserveReferenceSnapshot:true,referenceImages:[{sourceNodeId:'source',sourcePort:'image',sourceImageIndex:0,assetKey:'media:old'}]},context),/参考图|原图/);
+});
