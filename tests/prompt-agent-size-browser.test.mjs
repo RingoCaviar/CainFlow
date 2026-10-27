@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { withAppBrowser, delay } from './helpers/app-browser.mjs';
+import { withAppBrowser, delay, reloadAppBrowser } from './helpers/app-browser.mjs';
 const providers=[{id:'p',name:'受控供应商',endpoint:'https://controlled.test/v1',apikey:'test-key'}];
 const models=[{id:'chat',name:'对话',modelId:'chat',taskType:'chat',protocol:'openai',providerIds:['p']},
  {id:'image',name:'生图',modelId:'gpt-image-1',taskType:'image',protocol:'openai-image',providerIds:['p']}];
@@ -40,7 +40,7 @@ test('Agent asks for resolution without creating nodes, retains ratio, executes 
     if(body.messages)return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({intent:'generate',message:'横幅方案',promptPlan:{prompt:'poster',parameters:{aspect:'16:9'}}})}}]}));
     return new Response(JSON.stringify({data:[{b64_json:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII='}]}));
    }return real(url,options);};`});
-  await send('Page.reload');await delay(1000);await waitFor('window.__cainflowAppReady===true');await waitFor("Boolean(document.querySelector('#prompt-agent-model + button'))");
+  await reloadAppBrowser({evaluate,send,waitFor});await waitFor("Boolean(document.querySelector('#prompt-agent-model + button'))");
   await evaluate("document.getElementById('btn-prompt-agent').click()");
   for(const [id,model] of [['prompt-agent-model','chat'],['prompt-agent-image-model','image']]){
    await evaluate(`document.querySelector('#${id} + button').click();document.querySelector('#${id}-menu [data-model-id="${model}"][data-provider-id="p"]').click()`);
@@ -90,7 +90,7 @@ test('Agent asks for resolution without creating nodes, retains ratio, executes 
   assert.equal(await evaluate("document.querySelector('#nodes-layer select[id$=aspect]').value"),'16:9');
   await evaluate("window.imageSettings.click();var r=document.getElementById('prompt-agent-size-resolution');r.value='4K';r.dispatchEvent(new Event('change',{bubbles:true}));window.imageSettings.click()");
   assert.match(await evaluate("window.imageSettings.title"),/4K/);
-  await delay(800);await send('Page.reload');await delay(1000);await waitFor('window.__cainflowAppReady===true');await waitFor("Boolean(document.querySelector('#prompt-agent-model + button'))");
+  await delay(800);await reloadAppBrowser({evaluate,send,waitFor});await waitFor("Boolean(document.querySelector('#prompt-agent-model + button'))");
   await evaluate("document.getElementById('btn-prompt-agent').click();document.querySelector('#prompt-agent-image-model').parentElement.querySelector('.thinking-control > summary').click()");
   assert.equal(await evaluate("document.getElementById('prompt-agent-size-resolution').value"),'4K');
   assert.ok(await evaluate("document.querySelector('.prompt-agent-size-summary').textContent.includes('2K')"),'completed plan retains executed size');

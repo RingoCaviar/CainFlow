@@ -6,6 +6,26 @@ import { join, resolve, sep } from 'node:path';
 import assert from 'node:assert/strict';
 
 export const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+export async function reloadAppBrowser({ evaluate, send, waitFor }) {
+    const previous = await evaluate('performance.timeOrigin');
+    const ready = `performance.timeOrigin!==${previous} && window.__cainflowAppReady===true && document.getElementById('prompt-agent-model')?.options.length>0`;
+    const waitUntilReady = async () => {
+        try { await waitFor(ready); }
+        catch (error) {
+            if (!String(error).includes('Inspected target navigated or closed')) throw error;
+            await waitFor(ready);
+        }
+    };
+    await send('Page.reload', { ignoreCache: true });
+    try { await waitUntilReady(); }
+    catch (error) {
+        if (!String(error).includes('Failed to fetch dynamically imported module')) throw error;
+        await send('Page.reload', { ignoreCache: true });
+        await waitUntilReady();
+    }
+    await delay(500);
+}
+
 export async function withAppBrowser(session, task, { repoDirectory } = {}) {
     const server = await startCainflowServer({ session, repoDirectory });
     const profile = await mkdtemp(join(tmpdir(), 'cainflow-canvas-browser-'));
