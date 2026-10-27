@@ -53,9 +53,15 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
         })) return;
         view.groups = groups; view.disabled = disabled; view.revision += 1;
         const revision = view.revision;
+        const scrollTop = container.querySelector('.image-reference-grid')?.scrollTop || 0;
         container.replaceChildren();
         if (!groups.length) { container.textContent = '连接参考图来源后，在此核对图片与输入顺序。'; onLayout(nodeId); return; }
-        let number = 0, hidden = 0;
+        container.dataset.expanded = String(view.expanded);
+        const gallery = documentRef.createElement('div'); gallery.className = 'image-reference-grid';
+        gallery.setAttribute('role', 'group'); gallery.setAttribute('aria-label', '参考图来源，图片较多时可滚动');
+        gallery.tabIndex = 0;
+        container.append(gallery);
+        let number = 0;
         const moveLocked = disabled || groups.some(group => group.running);
         const mutate = (operation, connectionId) => {
             if (state.nodes.get(nodeId) !== target) return;
@@ -64,15 +70,22 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
                 render(nodeId);
                 const row = [...container.querySelectorAll('.image-reference-group')].find(item => item.dataset.referenceConnection === connectionId);
                 const control = row?.querySelector('.image-reference-locate') || container.querySelector('.image-reference-locate') || target.el.querySelector('textarea');
+                const grid = row?.closest('.image-reference-grid');
+                if (grid) {
+                    if (row.offsetHeight > grid.clientHeight || row.offsetTop < grid.scrollTop) grid.scrollTop = row.offsetTop;
+                    else if (row.offsetTop + row.offsetHeight > grid.scrollTop + grid.clientHeight) {
+                        grid.scrollTop = row.offsetTop + row.offsetHeight - grid.clientHeight;
+                    }
+                }
                 control?.focus({ preventScroll: true });
             } catch (error) { showToast(error.message || '来源连接修改失败', 'warning'); }
         };
         for (const [groupIndex, group] of groups.entries()) {
-            const row = documentRef.createElement('div'); row.className = 'image-reference-group';
+            const row = documentRef.createElement('div'); row.className = `image-reference-group${group.count === 1 && group.enabled ? ' image-reference-single' : ''}`;
             row.dataset.referenceConnection = group.connection.id;
             const heading = documentRef.createElement('div'); heading.className = 'image-reference-heading';
             const locate = button(`${group.name} · ${group.count} 张`, () => focusNode(group.source.id), disabled || !group.source);
-            locate.className = 'image-reference-locate'; locate.title = '定位来源节点';
+            locate.className = 'image-reference-locate'; locate.title = `定位来源：${group.name} · ${group.count} 张`;
             const drag = connectionButton('⠿', () => {}, moveLocked, 'image-reference-drag');
             drag.setAttribute('aria-label', `拖动${group.name}来源组`); drag.draggable = !moveLocked;
             drag.addEventListener('dragstart', event => {
@@ -97,11 +110,10 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
             up.setAttribute('aria-label', `前移${group.name}来源组`); up.title = '前移来源组';
             const down = connectionButton('↓', () => mutate(() => moveSource(nodeId, group.connection.id, groups[groupIndex + 1]?.connection.id), group.connection.id), moveLocked || groupIndex === groups.length - 1, 'image-reference-move-down');
             down.setAttribute('aria-label', `后移${group.name}来源组`); down.title = '后移来源组';
-            heading.append(drag, locate, up, down); row.append(heading);
+            heading.append(drag, locate); row.append(heading);
             const strip = documentRef.createElement('div'); strip.className = 'image-reference-thumbnails';
             for (let index = 0; group.enabled && index < group.count; index += 1) {
                 number += 1;
-                if (!view.expanded && number > 4) { hidden += 1; continue; }
                 const label = `参考图 ${number}，来自${group.name}，源批次第 ${index + 1} 张`;
                 const asset = group.assets[index], original = group.images[index];
                 const missing = group.missingPositions.includes(index);
@@ -150,23 +162,25 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
             const disconnect = connectionButton(`断开 ${group.count} 张`, () => mutate(() => disconnectSource(nodeId, group.connection.id), group.connection.id), disabled || group.running, 'image-reference-disconnect');
             disconnect.title = '仅断开此来源连接，保留源节点和原图';
             disconnect.setAttribute('aria-label', `断开${group.name}来源连接，影响 ${group.count} 张图片，保留源节点和原图`);
-            row.append(disconnect);
+            const tools = documentRef.createElement('div'); tools.className = 'image-reference-tools';
+            tools.append(up, down, disconnect); row.append(tools);
             if (!group.source || !group.enabled || group.missing || !group.count) {
                 const status = documentRef.createElement('p'); status.className = 'image-reference-source-status';
                 status.textContent = !group.source ? '来源节点已不存在' : !group.enabled ? '来源已禁用，不参与本轮输入'
                     : group.missing ? '原图缺失，请定位来源恢复' : group.running ? '来源运行中，尚无本轮输出' : '尚无输出';
                 row.append(status);
             }
-            container.append(row);
+            gallery.append(row);
         }
-        if (hidden || view.expanded && number > 4) {
-            const expand = button(view.expanded ? '收起参考图' : `展开其余 ${hidden} 张`, () => {
+        if (number > 4 || groups.length > 4) {
+            const expand = button(view.expanded ? '收起参考图' : `展开查看 · ${number} 张 / ${groups.length} 个来源`, () => {
                 view.expanded = !view.expanded; view.disabled = undefined; render(nodeId);
                 container.querySelector('.image-reference-expand')?.focus(); onLayout(nodeId);
             }, disabled);
             expand.className = 'image-reference-expand'; expand.setAttribute('aria-expanded', String(view.expanded));
             container.append(expand);
         }
+        gallery.scrollTop = scrollTop;
         onLayout(nodeId);
     }
 
