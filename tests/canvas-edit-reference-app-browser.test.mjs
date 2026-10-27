@@ -232,6 +232,7 @@ test('copying generated reference sources retains the complete original batches 
         await saved(app,'s=>s.nodes.length===4');
         await action(app,target.id,'context-menu-run-to-here');
         await app.waitFor("controlledRequests.some(request=>request.prompt==='target')&&!document.getElementById('"+target.id+"-prompt').disabled");
+        await saved(app,`s=>s.nodes.find(n=>n.id==='${target.id}')?.mediaAssetKeys?.length===1`);
         await reload(app,`window.__cainflowAppReady===true&&!!document.getElementById('${target.id}-prompt')`);
         assert.deepEqual(await referenceOrder(app,target.id),['乙','甲']);
         for(const node of copies.filter(node=>node.customTitle!=='目标')) {

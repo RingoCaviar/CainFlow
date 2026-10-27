@@ -1607,6 +1607,8 @@ export function createExecutionCoreApi({
     async function buildOpenAiImageEditFormData(requestBody, inputs, signal) {
         const formData = new FormData();
         const referenceImages = getReferenceImageInputs(inputs);
+        // OpenAI encodes multiple files as an array; keep the scalar field for a single image.
+        const imageFieldName = referenceImages.length > 1 ? 'image[]' : 'image';
 
         formData.append('model', requestBody.model);
         formData.append('prompt', requestBody.prompt);
@@ -1619,7 +1621,7 @@ export function createExecutionCoreApi({
         for (let index = 0; index < referenceImages.length; index += 1) {
             const blob = await getReferenceImageBlob(referenceImages[index].value, signal);
             const extension = getImageFileExtension(blob?.type);
-            formData.append('image', blob, `reference_${index + 1}.${extension}`);
+            formData.append(imageFieldName, blob, `reference_${index + 1}.${extension}`);
         }
 
         if (requestBody.mask?.data) {
