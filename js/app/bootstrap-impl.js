@@ -720,6 +720,7 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     resumeImageGeneration: (nodeId) => getWorkflowRunnerApi().resumeImageNodeBranch(nodeId),
     setupImageImport,
     setupImageResize,
+    setupColorReset: (id, el) => mediaControllerApi.setupColorReset(id, el),
     setupImageSave,
     setupImagePreview,
     setupImageCompare,

@@ -590,14 +590,7 @@ export function createNodeDomBindingsApi({
                     'output'
                 );
 
-                pushHistory();
-                state.connections = state.connections.filter((connection) => connection.id !== existingInputConnection.id);
-                syncAllCollapsedUnusedPorts();
-                updateAllConnections();
-                updatePortStyles();
-                scheduleSave();
-                onConnectionsChanged();
-
+                // Keep the old topology until a valid replacement is committed.
                 state.connecting = {
                     nodeId: existingInputConnection.from.nodeId,
                     portName: existingInputConnection.from.port,
@@ -608,7 +601,6 @@ export function createNodeDomBindingsApi({
                     screenX: e.clientX,
                     screenY: e.clientY,
                     dragged: false,
-                    historyPushed: true,
                     rewiredFromConnection: {
                         id: existingInputConnection.id,
                         from: existingInputConnection.from,
