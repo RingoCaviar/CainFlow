@@ -5,6 +5,7 @@ import { getFirstCompatibleDefinitionPort, listNodeDefinitions } from '../nodes/
 import { createCanvasConnectionRenderer } from './canvas-connection-renderer.js';
 import { getBezierCurveGeometry } from './geometry.js';
 import {
+    applyReferenceImagePorts,
     getNextInputConnectionOrder,
     isMultiConnectionInput,
     orderInputConnections,
@@ -749,7 +750,8 @@ export function createConnectionsApi({
             if (preferredPort) return preferredPort;
         }
 
-        return getFirstCompatibleDefinitionPort(definition, direction, source.dataType);
+        // Match the rendered input contract instead of legacy image_1/image_2 definitions.
+        return getFirstCompatibleDefinitionPort(applyReferenceImagePorts(definition), direction, source.dataType);
     }
 
     function getCompatibleNodeTypeCandidates(source) {
