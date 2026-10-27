@@ -11,7 +11,8 @@ test('workflow execution state reports appearance intent for affected nodes', as
 
     assert.match(source, /function markNodeRunning[\s\S]{0,800}nodeAppearanceChanged\(nodeId\)/);
     assert.match(source, /function clearNodeRunning[\s\S]{0,900}nodeAppearanceChanged\(nodeId\)/);
-    assert.match(source, /function resetNodesForPlan[\s\S]{0,2200}nodeAppearanceChanged\(changedNodeIds\)/);
+    const resetNodesSource = source.match(/    function resetNodesForPlan[\s\S]*?(?=\n    function )/)?.[0] || '';
+    assert.match(resetNodesSource, /nodeAppearanceChanged\(changedNodeIds\)/);
     assert.match(source, /emptyImageNodes\.forEach[\s\S]{0,600}nodeAppearanceChanged\(emptyImageNodes\)/);
     assert.match(source, /emptyPromptNodes\.forEach[\s\S]{0,600}nodeAppearanceChanged\(emptyPromptNodes\)/);
     assert.doesNotMatch(source, /scheduleRunningConnectionRefresh|runningConnectionRefreshFrame/);

@@ -130,3 +130,13 @@
 ## 2026-10-27：复制删除与撤销核验（image-assistant-prototype#021）
 
 全面检查节点复制／克隆、多选粘贴、普通及保留连线删除、撤销／重做、跨工作流和媒体生命周期。修复多参考与动态端口丢线、粘贴漏记历史、删除后参考位置、复制媒体与任务状态及运行端点保护。完整矩阵、独立复核和验证记录见 `docs/qa/canvas-edit-reference-audit.md`。
+
+## 2026-10-27：新一轮执行清除旧报错（image-assistant-prototype#022）
+
+- 真实应用用例先复现“运行中仍显示上轮错误摘要”；原有“错误保留到成功”的断言按用户新要求修改。仅清理隐藏执行副本不足以消除画布提示，修复同时覆盖执行状态及可见节点状态。
+- 新一轮进入待运行／运行中时复用统一错误清理，清除失败状态、端口标记、错误指示、摘要和正文；自动重试及任务恢复走同一运行入口。再次失败显示本轮错误，取消不恢复旧错误，历史日志和运行范围外节点不清除。
+- 定向真实应用8项通过：手动重跑／取消／成功／再次失败与历史详情、排队等待与范围隔离、自动重试，以及原有布局请求、参考排序、Agent应用执行、保存重开和长错误折行。全部1217项非浏览器模块通过，0失败、0跳过。未调用真实模型服务。
+- 测试命令：`node --test --test-name-pattern='node run-to-here limits|a queued image node|automatic image retry|long generation errors|content-first|reference source moves|old workflow completes|assistant optimization sends' tests/image-assistant-app-browser.test.mjs`。模块日志位于本地tracker的 `verification/022-generation-error-modules.log`。
+- 首次修复验证遇到既有CDP重载时的“Inspected target navigated or closed”，未进入业务断言；重跑及最终8项整组通过。历史日志列表只展示标题，测试改为打开历史错误详情核对旧报错，未改产品日志行为。
+- Standards复核发现领域定义仍为旧规则，已同步CONTEXT.md；补充禁用节点参与全图运行的回归先失败，修复计划重置跳过禁用节点，保留其原报错及输出。
+- 最终禁用边界修正后，3项执行浏览器回归再次通过；模块检查中1项既有源码契约因新增语句超过2200字符窗口失败，改为按函数边界检查同一外观通知契约，避免函数长度影响结果。规范与需求两轴独立复核无剩余发现。
