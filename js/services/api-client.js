@@ -67,8 +67,8 @@ export function getProxyRequestInfo(state = {}) {
 export function sanitizeRequestUrl(url) {
     if (!url) return '';
     return String(url)
-        .replace(/([?&]key=)[^&]+/gi, '$1[REDACTED]')
-        .replace(/([?&]api[_-]?key=)[^&]+/gi, '$1[REDACTED]');
+        .replace(/([?&]key=)[^&\s"'<>]+/gi, '$1[REDACTED]')
+        .replace(/([?&]api[_-]?key=)[^&\s"'<>]+/gi, '$1[REDACTED]');
 }
 
 function inferProviderType(url = '', context = {}) {
@@ -780,6 +780,8 @@ export function sanitizeDetails(details, options = {}) {
     const { truncate = true } = options;
     if (!details) return null;
     if (typeof details === 'string') {
+        const parsed = safeParseJson(details);
+        if (parsed && typeof parsed === 'object') return sanitizeDetails(parsed, options);
         const sanitized = sanitizeStringValue(details, '', {
             truncate,
             stringLimit: truncate ? DETAILS_STRING_LIMIT : null

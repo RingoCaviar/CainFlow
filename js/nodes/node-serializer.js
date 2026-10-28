@@ -12,6 +12,8 @@ import { readImageSaveFilename } from './image-save-settings.js';
 import { hasNodeCapability, NODE_CAPABILITIES } from './registry.js';
 import { readImageGenerationSettings } from './image-generation-settings.js';
 import { readImageResizeSettings } from './image-resize-settings.js';
+import { applyNodePersistenceExtensions } from './node-persistence-extensions.js';
+import { readGenerationRevision } from './image-generation-revision.js';
 
 export function createNodeSerializer({ state, documentRef }) {
     function getOrderedNodes() {
@@ -196,6 +198,8 @@ export function createNodeSerializer({ state, documentRef }) {
                 serialized.prompt = documentRef.getElementById(`${id}-prompt`)?.value || '';
                 if (node.type === 'ImageGenerate') {
                     Object.assign(serialized, readImageGenerationSettings(node, documentRef));
+                    const revision = readGenerationRevision(node.data?.generationRevision);
+                    if (revision) serialized.generationRevision = revision;
                     serialized.customResolution = serialized.customWidth && serialized.customHeight
                         ? `${serialized.customWidth}x${serialized.customHeight}`
                         : '';
@@ -316,7 +320,7 @@ export function createNodeSerializer({ state, documentRef }) {
                 serialized.cameraPreviewImage = node.data?.cameraPreviewImage || '';
             }
 
-            nodes.push(serialized);
+            nodes.push(applyNodePersistenceExtensions(node, serialized));
         }
         return nodes;
     }

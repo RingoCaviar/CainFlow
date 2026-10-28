@@ -7,6 +7,7 @@ import { getCanonicalImageList, getCanonicalImageIndex } from '../execution/exec
 import { projectImageOutput } from '../../nodes/image-output-projection.js';
 import { normalizeCameraState } from '../camera/camera-prompt-utils.js';
 import { getSurfaceCoordinator } from './surface-coordinator.js';
+import { renderImageNodeRunState } from '../../nodes/image-node-run-state.js';
 
 const nodeLabels = { ImageGenerate: '图片生成', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比', ImageMerge: '多图合一', ImageSave: '保存节点', CameraControl: '视角控制' };
 const cameraFields = [['pitch', '俯仰角 Pitch'], ['yaw', '偏航角 Yaw'], ['distance', '距离 Distance'], ['fov', '视野角 FOV'], ['roll', '翻滚角 Roll']];
@@ -102,7 +103,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         panel.style.width = `${width}px`;
         panel.style.height = '';
         panel.style.left = `${rect.left + rect.width / 2 - width / 2}px`;
-        panel.style.top = `${rect.bottom + 50}px`;
+        const floatingBottoms = ['.image-first-run-feedback', '.image-result-actions']
+            .map(selector => current.el.querySelector(selector)).filter(element => element?.getClientRects().length)
+            .map(element => element.getBoundingClientRect().bottom + 12);
+        panel.style.top = `${Math.max(rect.bottom + 50, ...floatingBottoms)}px`;
         widthHandle.setAttribute('aria-valuenow', String(Math.round(width)));
     }
     function schedulePosition() {
@@ -159,10 +163,11 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (node.type === 'ImageGenerate') {
             const settings = readImageGenerationSettings(node, documentRef);
             const model = state.models.find(item => item.id === settings.apiConfigId);
-            view.model.textContent = `${model?.name || model?.modelId || '未选择模型'} · ${settings.aspect || '自动'} · ${settings.resolution || '自动'}`;
+            view.model.textContent = `当前设置：${model?.name || model?.modelId || '未选择模型'} · ${settings.aspect || '自动'} · ${settings.resolution || '自动'}`;
             const { count } = projectImageReferences({ state, targetId: node.id });
             view.references.textContent = `参考 ${count} 张`;
             view.placeholder.hidden = !view.result.hidden;
+            renderImageNodeRunState(node);
         } else if (node.type === 'ImageImport') {
             const mode = documentRef.getElementById(`${node.id}-import-mode`)?.value || node.importMode || 'upload';
             view.urlFields.hidden = mode !== 'url';
@@ -439,9 +444,24 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const runState = body.querySelector('.image-node-run-actions');
         const progress = body.querySelector('.node-generation-progress-field');
         if (runState && progress) runState.append(progress);
+        const runFeedback = documentRef.createElement('div'); runFeedback.className = 'image-first-run-feedback';
+        runFeedback.setAttribute('aria-label', '本轮生成状态');
+        if (runState) runFeedback.append(runState);
+        const dirty = documentRef.createElement('span'); dirty.dataset.imageGenerationDirty = '';
+        dirty.textContent = '设置待生成'; dirty.hidden = true; runFeedback.append(dirty);
+        const failureSummary = node.el.querySelector('.node-failure-summary');
+        if (failureSummary) runFeedback.append(failureSummary);
+        const failureDetails = documentRef.createElement('button'); failureDetails.type = 'button';
+        failureDetails.dataset.imageRunAction = 'details'; failureDetails.textContent = '查看详情'; failureDetails.hidden = true;
+        failureDetails.addEventListener('click', event => { event.stopPropagation(); failureSummary?.click(); });
+        runFeedback.append(failureDetails);
+        const cancel = node.el.querySelector('.node-run-cancel-btn');
+        if (cancel) runFeedback.append(cancel);
+        const fullError = body.querySelector(`[id="${nodeId}-error"]`);
+        if (fullError) { fullError.tabIndex = 0; fullError.setAttribute('aria-label', '完整运行错误'); form.append(fullError); }
         body.append(placeholder, result, summary);
-        if (runState) body.append(runState);
-        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, model, references, result, inputs, group: null }, [result]);
+        node.el.append(runFeedback);
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, model, references, result, inputs, group: null }, [result, progress]);
     }
     updateMode(); updateSwitcher();
     surfaces?.registerModeless?.(panel, { close: () => close(), isOpen: () => !panel.hidden, opener: () => returnFocusElement });

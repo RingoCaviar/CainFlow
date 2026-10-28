@@ -1,0 +1,122 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { withAppBrowser, reloadAppBrowser, delay } from './helpers/app-browser.mjs';
+
+const configuration = {
+    autoCheckUpdatesOnLoad: false, autoRetry: false,
+    models: [{ id: 'chat', modelId: 'chat', name: '受控对话', protocol: 'openai', taskType: 'chat', providerIds: ['p'] },
+        { id: 'image', modelId: 'gpt-image-1', name: '当前图片模型', protocol: 'openai-image', taskType: 'image', providerIds: ['p'] }],
+    providers: [{ id: 'p', endpoint: 'https://controlled.test/v1', apikey: 'test' }]
+};
+const generate = (id, x, y, width = 300) => ({ id, type: 'ImageGenerate', x, y, width, height: 220, userResized: true, apiConfigId: 'image', providerId: 'p', prompt: id });
+const failure = '测试失败：' + 'unbroken-error-token'.repeat(160) + '\n完整错误尾标：保留所有排查细节';
+
+async function controlled(app, held = false) {
+    await app.send('Page.addScriptToEvaluateOnNewDocument', { source: `window.feedbackRequests=[];window.feedbackAborted=false;window.feedbackSuccess=false;const feedbackFetch=window.fetch;window.fetch=async(url,options={})=>{if(String(url)==='/proxy'&&options.body){const body=JSON.parse(options.body);if(typeof body.prompt==='string'){feedbackRequests.push(body);const success=()=>new Response(JSON.stringify({data:[{b64_json:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII='}]}),{headers:{'Content-Type':'application/json'}});if(feedbackSuccess)return success();if(${held})return await new Promise((resolve,reject)=>{window.releaseFeedback=()=>resolve(success());options.signal.addEventListener('abort',()=>{feedbackAborted=true;reject(new DOMException('The operation was aborted','AbortError'))},{once:true})});return new Response(JSON.stringify({error:{message:${JSON.stringify(failure)}}}),{status:400,headers:{'Content-Type':'application/json'}});}}return feedbackFetch(url,options)};` });
+    await reloadAppBrowser(app);
+}
+
+async function open(app, id) {
+    await app.evaluate(`document.querySelectorAll('.notice-close').forEach(button=>button.click());document.getElementById(${JSON.stringify(id)}).click()`);
+    await app.waitFor(`!document.getElementById('image-parameter-panel').hidden&&document.getElementById('image-parameter-panel').dataset.nodeId===${JSON.stringify(id)}`);
+}
+
+async function point(app, selector) {
+    return app.evaluate(`(()=>{const rect=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:rect.x+rect.width/2,y:rect.y+rect.height/2}})()`);
+}
+
+async function press(app, selector, milliseconds = 0) {
+    const position = await point(app, selector);
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...position });
+    const hit = await app.evaluate(`(()=>{const target=document.elementFromPoint(${position.x},${position.y});return {reachable:document.querySelector(${JSON.stringify(selector)}).contains(target),target:target?.outerHTML.slice(0,250),position:${JSON.stringify(position)}}})()`);
+    assert.equal(hit.reachable, true, `the real control is reachable: ${selector} ${JSON.stringify(hit)}`);
+    await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...position, button: 'left', clickCount: 1 });
+    if (milliseconds) await delay(milliseconds);
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...position, button: 'left', clickCount: 1 });
+}
+
+test('the external failure row shows a short wrapping reason and original full detail remains readable in the modal and narrow parameter panel', { timeout: 45000 }, async () => {
+    await withAppBrowser({ ...configuration, nodes: [generate('failed', 40, 40, 260)], connections: [] }, async app => {
+        await controlled(app); await open(app, 'failed');
+        await app.evaluate("document.querySelector('[data-parameter-action=generate]').click()");
+        await app.waitFor("document.querySelector('#failed .image-node-run-status')?.dataset.status==='error'&&document.getElementById('btn-stop').disabled");
+        assert.equal(await app.evaluate("!!document.querySelector('#failed > .image-first-run-feedback')"), true);
+        const compact = await app.evaluate("(()=>{const node=document.getElementById('failed'),row=node.querySelector('.image-first-run-feedback'),summary=node.querySelector('.node-failure-summary'),rect=row.getBoundingClientRect();return {nodeBottom:node.getBoundingClientRect().bottom,top:rect.top,summary:summary.textContent,width:summary.clientWidth,scrollWidth:summary.scrollWidth,height:summary.getBoundingClientRect().height}})()");
+        assert.ok(compact.top >= compact.nodeBottom + 4);
+        assert.ok(compact.summary.length < 200 && compact.summary.includes('测试失败'));
+        assert.ok(compact.scrollWidth <= compact.width + 1 && compact.height <= 48);
+        if (await app.evaluate("document.getElementById('modal-error').classList.contains('active')")) {
+            await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+            await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
+            await app.waitFor("!document.getElementById('modal-error').classList.contains('active')");
+        }
+        await press(app, '#failed [data-image-run-action=details]');
+        await app.waitFor("document.getElementById('modal-error').classList.contains('active')");
+        await app.evaluate("if(!document.getElementById('btn-show-full-log').classList.contains('hidden'))document.getElementById('btn-show-full-log').click()");
+        assert.match(await app.evaluate("document.getElementById('error-modal-detail').textContent+document.getElementById('error-modal-msg').textContent"), /完整错误尾标：保留所有排查细节/);
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+        await app.waitFor("!document.getElementById('modal-error').classList.contains('active')");
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 500, deviceScaleFactor: 1, mobile: false });
+        await open(app, 'failed');
+        await app.evaluate("document.querySelector('[data-parameter-action=expand]').click();document.getElementById('failed-error').scrollIntoView({block:'nearest'})");
+        const full = await app.evaluate("(()=>{const error=document.getElementById('failed-error'),panel=document.getElementById('image-parameter-panel');return {inPanel:panel.contains(error),text:error.textContent,width:error.clientWidth,scrollWidth:error.scrollWidth,height:error.clientHeight,scrollHeight:error.scrollHeight,overflow:getComputedStyle(error).overflowY,model:document.querySelector('#failed .image-first-summary').textContent}})()");
+        assert.equal(full.inPanel, true); assert.ok(full.text.includes(failure));
+        assert.ok(full.scrollWidth <= full.width + 1 && full.scrollHeight > full.height);
+        assert.match(full.overflow, /auto|scroll/); assert.match(full.model, /当前设置.*当前图片模型/);
+    });
+});
+
+test('successful status never covers the original result operations or the parameter editor', { timeout: 45000 }, async () => {
+    await withAppBrowser({ ...configuration, nodes: [generate('success', 40, 40, 420)], connections: [] }, async app => {
+        await controlled(app); await open(app, 'success');
+        await app.evaluate("feedbackSuccess=true;document.querySelector('[data-parameter-action=generate]').click()");
+        await app.waitFor("document.querySelector('#success .image-node-run-status')?.dataset.status==='completed'&&document.querySelector('#success [data-result-action=reference]')");
+        const position = await point(app, '#success [data-result-action=reference]');
+        assert.equal(await app.evaluate(`document.querySelector('#success [data-result-action=reference]').contains(document.elementFromPoint(${position.x},${position.y}))`), true, 'the original result reference action remains reachable alongside the success row');
+        const geometry = await app.evaluate("(()=>{const row=document.querySelector('#success .image-first-run-feedback').getBoundingClientRect(),actions=document.querySelector('#success .image-result-actions').getBoundingClientRect(),panel=document.getElementById('image-parameter-panel').getBoundingClientRect();return {rowBottom:row.bottom,actionsTop:actions.top,actionsBottom:actions.bottom,panelTop:panel.top,font:parseFloat(getComputedStyle(document.getElementById('success-run-status')).fontSize)}})()");
+        assert.ok(geometry.actionsTop >= geometry.rowBottom + 4 && geometry.panelTop >= geometry.actionsBottom + 8);
+        assert.ok(geometry.font >= 13);
+    });
+});
+
+test('a genuinely incomplete batch says partially completed with its real progress and original failure details, then a complete attempt clears that presentation', { timeout: 45000 }, async () => {
+    await withAppBrowser({ ...configuration, nodes: [{ ...generate('partial', 40, 180, 420), generationCount: 2 }], connections: [] }, async app => {
+        await app.send('Page.addScriptToEvaluateOnNewDocument', { source: "window.partialRequests=0;window.partialFail=true;const partialFetch=window.fetch;window.fetch=async(url,options={})=>{if(String(url)==='/proxy'&&options.body){const body=JSON.parse(options.body);if(typeof body.prompt==='string'){partialRequests++;if(partialFail&&partialRequests===1)return new Response(JSON.stringify({error:{message:'partial-provider-failure-detail'}}),{status:400,headers:{'Content-Type':'application/json'}});return new Response(JSON.stringify({data:[{b64_json:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII='}]}),{headers:{'Content-Type':'application/json'}});}}return partialFetch(url,options)};" });
+        await reloadAppBrowser(app); await open(app, 'partial');
+        await app.evaluate("const prompt=document.getElementById('partial-prompt');prompt.value='partial edited pending prompt';prompt.dispatchEvent(new Event('input',{bubbles:true}));prompt.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('[data-parameter-action=generate]').click()");
+        await app.waitFor("partialRequests===2&&document.getElementById('partial-run-status').dataset.status==='completed'&&document.getElementById('btn-stop').disabled");
+        assert.equal(await app.evaluate("document.getElementById('partial-run-status').textContent"), '部分完成');
+        assert.equal(await app.evaluate("document.getElementById('partial-generation-progress').textContent"), '1/2');
+        assert.equal(await app.evaluate("document.getElementById('partial-generation-progress').checkVisibility()"), true, await app.evaluate("document.getElementById('partial-generation-progress').parentElement.outerHTML"));
+        assert.equal(await app.evaluate("document.querySelector('#partial [data-image-generation-dirty]').hidden"), false);
+        await press(app, '#partial .node-concurrent-status-dot[data-status=failed]');
+        assert.match(await app.evaluate("document.querySelector('.node-concurrent-status-error-popover:not(.hidden)').textContent"), /partial-provider-failure-detail/);
+        await app.evaluate("partialFail=false;document.querySelector('[data-parameter-action=generate]').click()");
+        await app.waitFor("partialRequests===4&&document.getElementById('partial-run-status').textContent==='完成'&&document.getElementById('btn-stop').disabled");
+        assert.equal(await app.evaluate("document.getElementById('partial-generation-progress').textContent"), '2/2');
+        assert.equal(await app.evaluate("document.getElementById('partial-generation-progress').checkVisibility()"), true);
+        assert.equal(await app.evaluate("document.querySelector('#partial [data-image-generation-dirty]').hidden"), true);
+        assert.equal(await app.evaluate("document.querySelector('#partial .node-concurrent-status-dot[data-status=failed]')===null"), true);
+    });
+});
+
+test('waiting has no fabricated progress and the original reachable two-second cancel still protects a held upstream run outside locked parameters', { timeout: 45000 }, async () => {
+    await withAppBrowser({ ...configuration, nodes: [generate('upstream', 40, 80), generate('target', 600, 80)], connections: [
+        { id: 'reference-edge', from: { nodeId: 'upstream', port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, type: 'image', order: 0 }
+    ] }, async app => {
+        await controlled(app, true); await open(app, 'target');
+        await app.evaluate("document.querySelector('[data-parameter-group-toggle=input]').click();document.querySelector('[data-parameter-action=generate]').click()");
+        await app.waitFor("feedbackRequests.length===1&&document.querySelector('#target .image-node-run-status')?.dataset.status==='waiting'");
+        assert.equal(await app.evaluate("document.getElementById('target-generation-progress').checkVisibility()"), false);
+        assert.equal(await app.evaluate("document.querySelector('[data-parameter-action=generate]').disabled"), true);
+        assert.equal(await app.evaluate("[...document.querySelectorAll('.image-input-detail select,.image-input-detail button')].every(control=>control.disabled)"), true);
+        assert.equal(await app.evaluate("document.querySelector('#upstream .node-run-cancel-btn').closest('fieldset[disabled]')===null"), true);
+        await press(app, '#upstream .node-run-cancel-btn', 150);
+        await delay(350);
+        assert.equal(await app.evaluate('feedbackAborted'), false, 'a normal click never cancels the request');
+        await press(app, '#upstream .node-run-cancel-btn', 2150);
+        await app.waitFor("feedbackAborted&&document.querySelector('#upstream .image-node-run-status')?.dataset.status==='aborted'&&document.getElementById('btn-stop').disabled");
+        assert.equal(await app.evaluate("document.querySelector('#upstream .node-run-cancel-btn').checkVisibility()"), false);
+        assert.equal(await app.evaluate("['upstream','target'].every(id=>document.getElementById(id))&&[...document.querySelectorAll('#nodes-layer>.node')].filter(node=>!['upstream','target'].includes(node.id)).every(node=>node.classList.contains('node-save'))"), true);
+    });
+});

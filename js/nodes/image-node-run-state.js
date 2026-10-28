@@ -4,5 +4,37 @@ export function renderImageNodeRunState(node) {
     if (node?.type !== 'ImageGenerate') return;
     const status = node.runStatus || (node.isFailed ? 'error' : node.isSucceeded ? 'completed' : 'waiting');
     const output = node.el?.querySelector('.image-node-run-status');
-    if (output) { output.textContent = RUN_LABELS[status] || RUN_LABELS.waiting; output.dataset.status = status; }
+    if (output) {
+        output.textContent = status === 'completed' && node.generationAttemptIncomplete === true ? '部分完成' : RUN_LABELS[status] || RUN_LABELS.waiting;
+        output.dataset.status = status;
+    }
+    const feedback = node.el?.querySelector('.image-first-run-feedback');
+    if (feedback) feedback.dataset.status = status;
+    const progress = node.el?.querySelector('.api-generation-progress');
+    if (progress) {
+        const { completed, total } = node.apiGenerationProgress || {};
+        const known = status !== 'waiting' && Number.isInteger(completed) && Number.isInteger(total) && total > 0 && completed >= 0 && completed <= total;
+        const field = progress.closest('.node-generation-progress-field');
+        if (progress.hidden !== !known) progress.hidden = !known;
+        if (field && field.hidden !== !known) field.hidden = !known;
+        const label = `${completed}/${total}`;
+        if (known && progress.textContent !== label) progress.textContent = label;
+    }
+    const dirty = node.el?.querySelector('[data-image-generation-dirty]');
+    if (dirty) dirty.hidden = node.generationDirty !== true;
+    const message = node.executionFailure?.message || '';
+    const summary = node.el?.querySelector('.node-failure-summary');
+    if (summary) {
+        const short = message.replace(/\s+/g, ' ').trim();
+        summary.textContent = short.length > 140 ? `${short.slice(0, 139)}…` : short;
+        summary.classList.toggle('hidden', !message);
+    }
+    const details = node.el?.querySelector('[data-image-run-action=details]');
+    if (details) details.hidden = !message;
+    const full = node.parameterRoot?.querySelector('.node-error-msg') || node.el?.querySelector('.node-error-msg');
+    if (full) {
+        if (full.textContent !== message) full.textContent = message;
+        full.classList.toggle('hidden', !message);
+        full.style.display = message ? 'block' : 'none';
+    }
 }

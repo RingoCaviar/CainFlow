@@ -39,10 +39,13 @@ import {
 import { readColorResetConfig } from '../media/color-reset-config.js';
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
 import { readImageSaveFilename } from '../../nodes/image-save-settings.js';
+import { createImageGenerationRevisionApi, readGenerationRevision } from '../../nodes/image-generation-revision.js';
+import { renderImageNodeRunState } from '../../nodes/image-node-run-state.js';
 import { createWorkflowRuntimeDisposer } from './workflow-runtime-disposal.js';
 import { applyProtocolVariantSnapshot } from '../../nodes/protocol-variant-drafts.js';
 import { saveGeneratedMediaToDirectory } from '../media/generated-media-directory-save.js';
 import { downloadGeneratedVideo } from '../media/video/video-download.js';
+import { applyNodePersistenceExtensions } from '../../nodes/node-persistence-extensions.js';
 import {
     buildImageSaveFilenameBases,
     buildVideoSaveFilenameBase,
@@ -111,19 +114,11 @@ function clonePlainValue(value) {
     if (value === undefined) return undefined;
     if (value === null || typeof value !== 'object') return value;
     if (Array.isArray(value)) return value.map((item) => clonePlainValue(item));
-    const cloned = {};
-    Object.entries(value).forEach(([key, item]) => {
-        cloned[key] = clonePlainValue(item);
-    });
-    return cloned;
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, clonePlainValue(item)]));
 }
 
 function cloneWorkflowNode(node = {}) {
-    const cloned = {};
-    Object.entries(node || {}).forEach(([key, value]) => {
-        cloned[key] = clonePlainValue(value);
-    });
-    return cloned;
+    return Object.fromEntries(Object.entries(node || {}).map(([key, value]) => [key, clonePlainValue(value)]));
 }
 
 function cloneWorkflowConnection(connection = {}) {
@@ -208,6 +203,12 @@ export function serializeRuntimeNode(node, doc) {
         lastDuration: node.lastDuration || null
     };
     if (node.data?.thinking) serialized.thinking = JSON.parse(JSON.stringify(node.data.thinking));
+    if (typeof node.data?.imageDescription === 'string' && node.data.imageDescription.trim()) {
+        serialized.imageDescription = node.data.imageDescription.trim().slice(0, 2000);
+    }
+    if (Array.isArray(node.data?.imageDescriptions) && node.data.imageDescriptions.some(Boolean)) {
+        serialized.imageDescriptions = Array.from(node.data.imageDescriptions, value => String(value || '').trim().slice(0, 2000));
+    }
     if (node.isClone === true && node.cloneSourceId) {
         serialized.isClone = true;
         serialized.cloneSourceId = node.cloneSourceId;
@@ -302,6 +303,8 @@ export function serializeRuntimeNode(node, doc) {
         serialized.prompt = readElementControlValue(doc, `${node.id}-prompt`, node.data?.prompt || '');
         serialized.generationCount = Math.max(1, parseInt(readElementControlValue(doc, `${node.id}-generation-count`, node.generationCount || node.data?.generationCount || '1'), 10) || 1);
         if (node.type === 'ImageGenerate') {
+            const revision = readGenerationRevision(node.data?.generationRevision);
+            if (revision) serialized.generationRevision = revision;
             serialized.aspect = readElementControlValue(doc, `${node.id}-aspect`, node.aspect || '');
             serialized.resolution = readElementControlValue(doc, `${node.id}-resolution`, node.resolution || '');
             serialized.customWidth = readElementControlValue(doc, `${node.id}-custom-resolution-width`, '');
@@ -404,7 +407,7 @@ export function serializeRuntimeNode(node, doc) {
         serialized.cameraPrompt = serialized.text;
         serialized.cameraPreviewImage = node.data?.cameraPreviewImage || '';
     }
-    return serialized;
+    return applyNodePersistenceExtensions(node, serialized);
 }
 
 function serializeRuntimeWorkflow(runtimeState, doc, workflowVersion = '1.3') {
@@ -690,6 +693,15 @@ export function createWorkflowRuntimeManager({
 
     function syncVisibleGenerationProgress(node, runtimeNode) {
         if (!node?.id || !runtimeNode) return;
+        if (node.type === 'ImageGenerate') {
+            const progress = runtimeNode.apiGenerationProgress;
+            if (progress && Number.isInteger(progress.completed) && Number.isInteger(progress.total)
+                && progress.total > 0 && progress.completed >= 0 && progress.completed <= progress.total) {
+                node.apiGenerationProgress = { completed: progress.completed, total: progress.total };
+            } else delete node.apiGenerationProgress;
+            renderImageNodeRunState(node);
+            return;
+        }
         const progressEl = documentRef.getElementById(`${node.id}-generation-progress`);
         if (!progressEl) return;
         const total = Math.max(
@@ -936,6 +948,10 @@ export function createWorkflowRuntimeManager({
                 await showResolutionBadge(runtimeNodeId, currentImage);
             }
         } else if (runtimeNode.type === 'ImageGenerate') {
+            const revision = readGenerationRevision(runtimeNode.data?.generationRevision);
+            if (revision) node.data.generationRevision = revision;
+            node.generationDirty = runtimeNode.generationDirty === true;
+            node.generationAttemptIncomplete = runtimeNode.generationAttemptIncomplete === true;
             const images = getCanonicalImageList(runtimeNode, { includeResizePreview: false });
             const currentImages = getCanonicalImageList(node, { includeResizePreview: false });
             const runtimeAssets = runtimeNode.data?.mediaAssetKeys || [];
@@ -971,6 +987,7 @@ export function createWorkflowRuntimeManager({
                 node.data.imageMemoryReleased = true;
             } else {
                 clearCanonicalImageOutput(node);
+                delete node.data.mediaAssetKeys;
                 node.imagePromptList = [];
             }
             syncVisibleImageGenerateAsyncUi(runtimeNode, node);
@@ -1228,7 +1245,13 @@ export function createWorkflowRuntimeManager({
         }
         if (payload.status === 'waiting') {
             node.isSucceeded = false;
-            if (node.type === 'ImageGenerate') clearCanonicalImageOutput(node);
+            if (node.type === 'ImageGenerate') {
+                clearCanonicalImageOutput(node);
+                delete node.data.mediaAssetKeys;
+                delete node.apiGenerationProgress;
+                node.generationCompletedCount = 0;
+                node.generationAttemptIncomplete = false;
+            }
             workflowRunViewNodeIds.add(nodeId);
             state.runningNodeIds.add(nodeId);
             setVisibleNodeControlsLocked(node, true);
@@ -1802,7 +1825,16 @@ export function createWorkflowRuntimeManager({
             fitNodeToContent: () => {},
             scheduleSave: () => syncRuntimeWorkflowSnapshot(context),
             getActiveWorkflowId: () => workflowId,
-            onNodeResultUpdated: (nodeId) => {
+            onNodeResultUpdated: (nodeId, { progressOnly = false } = {}) => {
+                if (progressOnly) {
+                    const runtimeNode = runtimeState.nodes.get(nodeId);
+                    const visibleNode = state.nodes.get(nodeId);
+                    if (runtimeNode && visibleNode && isActiveWorkflow({ workflowId, workflowName })) {
+                        syncVisibleGenerationProgress(visibleNode, runtimeNode);
+                        onVisibleNodeChanged(nodeId);
+                    }
+                    return;
+                }
                 syncRuntimeNodeSnapshot(context, nodeId, { applyToCanvas: false });
                 void syncVisibleNodeResult({ workflowId, workflowName }, nodeId);
             },
@@ -1843,6 +1875,12 @@ export function createWorkflowRuntimeManager({
                 runtimeConnectionsApi.updateAllConnections();
             }
         };
+        const runtimeGenerationRevisionApi = createImageGenerationRevisionApi({
+            state: runtimeState,
+            documentRef: runtimeDocument,
+            getActiveWorkflowId: () => workflowId,
+            getCachedOutputValue: runtimeExecutionCoreApi.getCachedOutputValue
+        });
         runtimeRunnerApi = createWorkflowRunnerApi({
             state: runtimeState,
             nodeConfigs,
@@ -1852,6 +1890,8 @@ export function createWorkflowRuntimeManager({
             normalizeRunOptions: (runInput) => runtimeExecutionCoreApi.normalizeRunOptions(runInput),
             getCachedOutputValue: (node, portName) => runtimeExecutionCoreApi.getCachedOutputValue(node, portName),
             executeNode: (node, inputs, signal, executionContext) => runtimeExecutionCoreApi.executeNode(node, inputs, signal, executionContext),
+            generationRevisionApi: runtimeGenerationRevisionApi,
+            waitForPendingImageAssetSaves: runtimeExecutionCoreApi.waitForPendingImageAssetSaves,
             resumeVideoGeneration: (nodeId, signal) => runtimeExecutionCoreApi.resumeVideoGeneration(nodeId, signal),
             resumeAsyncImageGeneration: (nodeId, signal) => runtimeExecutionCoreApi.resumeAsyncImageGeneration(nodeId, signal),
             addNode: (type, x, y, restoreData, silent = true) => runtimeNodeLifecycleApi.addNode(type, x, y, restoreData, silent),
@@ -1918,6 +1958,7 @@ export function createWorkflowRuntimeManager({
                 });
             }
         });
+        runtimeGenerationRevisionApi.observeAll({ initialize: true });
         if (editorPreparation) runtimeConnectionsApi.updateAllConnections();
         workflowRunContexts.set(contextId, context);
         return context;
