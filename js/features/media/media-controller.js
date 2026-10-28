@@ -111,6 +111,7 @@ export function createMediaControllerApi({
     addLog,
     scheduleSave,
     onMediaIntegrityChanged = () => {},
+    onImageDescriptionChanged = () => {},
     onMissingMediaAction = () => {},
     syncCameraControlNodePreview = () => {},
     syncClonesFromSource = () => {},
@@ -3926,6 +3927,7 @@ export function createMediaControllerApi({
                     if (getImageDescription(context.node, currentIndex) !== value) {
                         pushHistory();
                         setImageDescription(context.node, value, currentIndex);
+                        onImageDescriptionChanged(context.node);
                         scheduleSave();
                     }
                 } else {

@@ -19,7 +19,9 @@ import { getGenerationNodeInputConnectionPolicy } from './generation-input-proje
 import { withMinimumMeasurementHeights } from './node-minimum-measurement.js';
 import { settleNodeContentLayout } from './node-layout-settlement.js';
 import { definitionHasCapability, NODE_CAPABILITIES } from './node-capabilities.js';
-import { isImageFirstCardNode } from './image-first-presentation.js';
+import { isImageFirstCardNode, rememberImageFirstRestoredSize, getImageFirstRestoredSize } from './image-first-presentation.js';
+import { captureNodePersistenceExtensions } from './node-persistence-extensions.js';
+import { readGenerationRevision } from './image-generation-revision.js';
 
 export function createNodeLifecycleApi({
     state,
@@ -911,8 +913,9 @@ export function createNodeLifecycleApi({
         const config = nodeConfigs[node.type] || null;
         if (isImageFirstCardNode(node) && node.el?.classList.contains('image-first-card')) {
             const generation = node.type === 'ImageGenerate';
-            return { minWidth: Number(config?.minWidth) || getDefaultNodeWidth(config),
-                minHeight: node.userResized === true || node.collapsed === true ? (generation ? 248 : 200) : (generation ? 348 : 300) };
+            const restored = getImageFirstRestoredSize(node);
+            return { minWidth: Math.min(Number(config?.minWidth) || getDefaultNodeWidth(config), restored?.width || Infinity),
+                minHeight: Math.min(node.userResized === true || node.collapsed === true ? (generation ? 248 : 200) : (generation ? 348 : 300), restored?.height || Infinity) };
         }
         if (isImageImportUrlMode(node)) {
             return {
@@ -1180,7 +1183,9 @@ export function createNodeLifecycleApi({
         }
         el.style.left = x + 'px';
         el.style.top = y + 'px';
-        const initialWidth = clampNodeWidthToDefault(effectiveRestoreData?.width, config, {
+        const restoredManualWidth = isImageFirstCardNode(normalizedType) && restoredUserResized
+            && Number.isFinite(Number(effectiveRestoreData.width)) && Number(effectiveRestoreData.width) > 0;
+        const initialWidth = restoredManualWidth ? Number(effectiveRestoreData.width) : clampNodeWidthToDefault(effectiveRestoreData?.width, config, {
             userResized: restoredUserResized || (isImageFirstCardNode(normalizedType) && Number(effectiveRestoreData?.width) > 0)
         });
         el.style.width = initialWidth + 'px';
@@ -1273,6 +1278,10 @@ export function createNodeLifecycleApi({
             isClone: effectiveRestoreData?.isClone === true && typeof effectiveRestoreData?.cloneSourceId === 'string' && !!effectiveRestoreData.cloneSourceId,
             cloneSourceId: typeof effectiveRestoreData?.cloneSourceId === 'string' ? effectiveRestoreData.cloneSourceId : ''
         };
+        captureNodePersistenceExtensions(nodeData, effectiveRestoreData);
+        const restoredSize = rememberImageFirstRestoredSize(nodeData, effectiveRestoreData);
+        if (restoredSize?.width) el.style.minWidth = `${Math.min(restoredSize.width, Number(config.minWidth) || getDefaultNodeWidth(config))}px`;
+        if (restoredSize?.height) el.style.minHeight = `${Math.min(restoredSize.height, normalizedType === 'ImageGenerate' ? 248 : 200)}px`;
         if (typeof effectiveRestoreData?.imageDescription === 'string') {
             nodeData.data.imageDescription = effectiveRestoreData.imageDescription.trim().slice(0, 2000);
         }
@@ -1299,6 +1308,13 @@ export function createNodeLifecycleApi({
         }
         if (effectiveRestoreData?.protocolParams) {
             nodeData.data.protocolParams = clonePlainValue(effectiveRestoreData.protocolParams);
+        }
+        if (normalizedType === 'ImageGenerate') {
+            const revision = readGenerationRevision(effectiveRestoreData?.generationRevision);
+            if (revision) {
+                nodeData.data.generationRevision = revision;
+                nodeData.generationDirty = revision.dirty;
+            }
         }
         if (normalizedType === 'ImageGenerate' && typeof effectiveRestoreData?.advancedExpanded === 'boolean') {
             nodeData.data.advancedExpanded = effectiveRestoreData.advancedExpanded;

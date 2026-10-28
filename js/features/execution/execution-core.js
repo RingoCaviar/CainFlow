@@ -144,6 +144,7 @@ export function createExecutionCoreApi({
                 current: runtimeProgress.completed,
                 total: runtimeProgress.total
             });
+            if (node.type === 'ImageGenerate') onNodeResultUpdated(node.id, { progressOnly: true });
             return;
         }
 
@@ -167,6 +168,7 @@ export function createExecutionCoreApi({
             completed
         };
         renderApiGenerationProgressState(node.id, { current: completed, total });
+        if (node.type === 'ImageGenerate') onNodeResultUpdated(node.id, { progressOnly: true });
     }
 
     function completeNodeApiGenerationProgress(node, fallback = { current: 1, total: 1 }) {
@@ -182,6 +184,7 @@ export function createExecutionCoreApi({
             completed: total
         };
         renderApiGenerationProgressState(node.id, { current: total, total });
+        if (node.type === 'ImageGenerate') onNodeResultUpdated(node.id, { progressOnly: true });
     }
 
     function getConcurrentRequestRetryLimit() {
@@ -1999,6 +2002,7 @@ export function createExecutionCoreApi({
                     }
                     const completedImages = normalizeImageList(generatedImages);
                     if (rejectedRequests.length > 0) {
+                        node.generationAttemptIncomplete = true;
                         if (!executionContext.concurrentExecution) {
                             commitImageGenerateOutputs(node, completedImages, prompt, signal);
                             await refreshDependentImageResizePreviews(id);

@@ -29,6 +29,7 @@ import { resolveVideoExecutionInputRecord } from '../../nodes/video-execution-in
 import { getNodeImageResultPersistence, IMAGE_RESULT_PERSISTENCE } from '../../nodes/registry.js';
 import { appendReferenceDescriptions } from './reference-image-description.js';
 import { renderImageNodeRunState } from '../../nodes/image-node-run-state.js';
+import { orderImageReferenceConnections } from '../../nodes/image-reference-projection.js';
 
 export function clearNodeExecutionFailure(node) {
     if (!node) return;
@@ -46,11 +47,12 @@ export function clearNodeExecutionFailure(node) {
     const summary = node.el?.querySelector?.('.node-failure-summary');
     summary?.classList.add('hidden');
     if (summary) summary.textContent = '';
-    const errorBody = node.el?.querySelector?.('.node-error-msg');
+    const errorBody = node.parameterRoot?.querySelector?.('.node-error-msg') || node.el?.querySelector?.('.node-error-msg');
     if (errorBody) {
         errorBody.textContent = '';
         errorBody.style.display = 'none';
     }
+    renderImageNodeRunState(node);
 }
 
 export function showNodeExecutionFailure(node, error) {
@@ -72,6 +74,7 @@ export function showNodeExecutionFailure(node, error) {
         port?.setAttribute?.('aria-invalid', 'true');
         if (port) port.title = message;
     }
+    renderImageNodeRunState(node);
 }
 
 function isUnbatchedImageInput(node, portName) {
@@ -188,10 +191,13 @@ export function createWorkflowRunnerApi({
     getAbortMessage,
     playNotificationSound,
     onNodeRunStateChange = () => {},
+    generationRevisionApi = null,
+    waitForPendingImageAssetSaves = async () => {},
     focusCanvasNode = () => {},
     onWorkflowFailures = () => {}
 }) {
     const mediaOperationNodeTypes = new Set(['ImageGenerate', 'VideoGenerate']);
+    const recipeSourcesByInputs = new WeakMap();
     function isAbortLikeError(err) {
         if (!err) return false;
         if (err.name === 'AbortError') return true;
@@ -601,8 +607,8 @@ export function createWorkflowRunnerApi({
         if (node.type === 'ImageGenerate') {
             return {
                 ...readImageGenerationSettings(node, documentRef),
+                ...(node.data.generationRevision ? { generationRevision: { ...node.data.generationRevision } } : {}),
                 referenceImageCount: node.data.referenceImageCount,
-                generationCount: node.data.generationCount,
                 ...(node.data.thinking ? { thinking: { ...node.data.thinking } } : {})
             };
         }
@@ -623,24 +629,31 @@ export function createWorkflowRunnerApi({
             const isFixed = fixedToggle ? fixedToggle.checked : false;
             const forceReset = forceResetNodeIds?.has(nid) === true;
             changedNodeIds.push(nid);
-            clearNodeExecutionFailure(node);
-
             if (!forceReset && preserveFixedCache && isFixed && node.isSucceeded && node.data && Object.keys(node.data).length > 0) {
                 node.el.classList.add('completed');
                 node.el.classList.remove('error', 'running');
                 continue;
             }
 
+            clearNodeExecutionFailure(node);
             geometryChangedNodeIds.push(nid);
             node.el.classList.remove('completed', 'error', 'running');
             removeConcurrentRequestStatusPanel(node);
-            node.data = getPreservedNodeDataForReset(node);
+            const annotations = node.data || {};
+            node.data = {
+                ...getPreservedNodeDataForReset(node),
+                // User annotations configure references to this output. A new
+                // execution clears result pixels, never this persisted draft.
+                ...(typeof annotations.imageDescription === 'string' ? { imageDescription: annotations.imageDescription } : {}),
+                ...(Array.isArray(annotations.imageDescriptions) ? { imageDescriptions: annotations.imageDescriptions.slice() } : {})
+            };
             node.isSucceeded = false;
             if (node.type === 'ImageGenerate') {
                 node.imageData = null;
                 node.imageDataList = [];
                 node.generationCompletedCount = 0;
                 node.generatedImages = [];
+                node.generationAttemptIncomplete = false;
             }
             if (node.type === 'VideoGenerate') {
                 delete node.data.video;
@@ -1119,9 +1132,8 @@ export function createWorkflowRunnerApi({
     }
 
     function cloneInputValue(value) {
-        if (Array.isArray(value)) {
-            return value.slice();
-        }
+        if (Array.isArray(value)) return value.map(cloneInputValue);
+        if (value && Object.getPrototypeOf(value) === Object.prototype) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cloneInputValue(item)]));
         return value;
     }
 
@@ -1129,6 +1141,7 @@ export function createWorkflowRunnerApi({
         if (plan?.mode !== 'selected-only') return Object.create(null);
 
         const externalInputsByNode = Object.create(null);
+        plan.externalInputRecipesByNode = Object.create(null);
 
         for (const nodeId of plan.nodeIds || []) {
             for (const connection of plan.inputConnectionsByNode[nodeId] || []) {
@@ -1147,6 +1160,10 @@ export function createWorkflowRunnerApi({
                     externalInputsByNode[nodeId] = Object.create(null);
                 }
                 externalInputsByNode[nodeId][connection.id || connection.to.port] = cloneInputValue(outputValue);
+                if (generationRevisionApi) {
+                    plan.externalInputRecipesByNode[nodeId] ||= Object.create(null);
+                    plan.externalInputRecipesByNode[nodeId][connection.id || connection.to.port] = generationRevisionApi.captureInputIdentity(connection, outputValue);
+                }
             }
         }
 
@@ -1220,11 +1237,18 @@ export function createWorkflowRunnerApi({
 
     async function collectInputsForNode(plan, nodeId) {
         const inputs = {};
+        const identities = new Map();
         const node = state.nodes.get(nodeId);
         const connections = orderInputConnections(node?.type, plan.inputConnectionsByNode[nodeId]);
 
         for (const connection of connections) {
             const outputValue = await getInputValueForConnection(plan, nodeId, connection);
+            if (generationRevisionApi && node?.type === 'ImageGenerate') {
+                const captured = plan.externalInputRecipesByNode?.[nodeId];
+                const key = connection.id || connection.to.port;
+                identities.set(connection, captured && Object.hasOwn(captured, key)
+                    ? captured[key] : generationRevisionApi.captureInputIdentity(connection, outputValue));
+            }
             if (outputValue !== undefined) {
                 if (isMultiConnectionInput(node?.type, connection.to.port)) {
                     inputs[connection.to.port] = appendReferenceImages(
@@ -1237,6 +1261,12 @@ export function createWorkflowRunnerApi({
                     inputs[connection.to.port] = outputValue;
                 }
             }
+        }
+
+        if (identities.size) {
+            const references = orderImageReferenceConnections(connections);
+            const remaining = connections.filter(edge => !references.includes(edge)).sort((a, b) => a.to.port.localeCompare(b.to.port));
+            recipeSourcesByInputs.set(inputs, [...references, ...remaining].map(edge => identities.get(edge)).filter(Boolean));
         }
 
         if (node?.type === 'VideoGenerate') {
@@ -1728,6 +1758,7 @@ export function createWorkflowRunnerApi({
                 .filter((result) => result.status === 'fulfilled')
                 .map((result) => result.value || {});
             if (rejected.length > 0) {
+                if (node.type === 'ImageGenerate') node.generationAttemptIncomplete = true;
                 addLog(batchResults.length > 0 ? 'warning' : 'error', `并发请求部分失败: ${getNodeDisplayTitle(node)}`, `${settled.length} 个请求中 ${rejected.length} 个失败，${batchResults.length} 个成功。${batchResults.length > 0 ? '将仅把成功结果传递到下游。' : '没有可传递的成功结果。'}`, {
                     nodeId: node.id,
                     batchCount: settled.length,
@@ -1832,6 +1863,26 @@ export function createWorkflowRunnerApi({
         }
 
         return batches[batches.length - 1] || inputs;
+    }
+
+    async function executeNodeAttempt(node, inputs, signal, connections) {
+        node.generationAttemptIncomplete = false;
+        const token = generationRevisionApi?.beginAttempt(node, inputs, {
+            sources: recipeSourcesByInputs.get(inputs), runToken: node.activeMediaOperationId
+        });
+        try {
+            const result = await executeNodeWithInputBatches(node, inputs, signal, connections);
+            // Durable source identities must settle before a downstream recipe is captured.
+            await waitForPendingImageAssetSaves();
+            if (signal?.aborted) {
+                const error = new Error('Node run aborted'); error.name = 'AbortError'; throw error;
+            }
+            generationRevisionApi?.completeAttempt(token, { succeeded: true, partial: node.generationAttemptIncomplete === true });
+            return result;
+        } catch (error) {
+            generationRevisionApi?.completeAttempt(token, { succeeded: false });
+            throw error;
+        }
     }
 
     function collectDownstreamNodeIds(plan, sourceNodeId) {
@@ -2034,7 +2085,7 @@ export function createWorkflowRunnerApi({
 
             try {
                 const inputs = await collectInputsForNode(plan, nid);
-                const loggedInputs = await executeNodeWithInputBatches(currentNode, inputs, linkedAbort.signal, plan.inputConnectionsByNode[nid]);
+                const loggedInputs = await executeNodeAttempt(currentNode, inputs, linkedAbort.signal, plan.inputConnectionsByNode[nid]);
                 if (linkedAbort.signal?.aborted) {
                     const abortError = new Error('Node run aborted');
                     abortError.name = 'AbortError';
@@ -2502,7 +2553,7 @@ export function createWorkflowRunnerApi({
 
                                 try {
                                     const inputs = await collectInputsForNode(plan, nid);
-                                    const loggedInputs = await executeNodeWithInputBatches(node, inputs, linkedAbort.signal, plan.inputConnectionsByNode[nid]);
+                                    const loggedInputs = await executeNodeAttempt(node, inputs, linkedAbort.signal, plan.inputConnectionsByNode[nid]);
 
                                     if (session.canceledBranchNodeIds.has(nid) || nodeController.signal.aborted) {
                                         const abortError = new Error('Node run aborted');
@@ -2604,6 +2655,7 @@ export function createWorkflowRunnerApi({
                 addLog('warning', `自动重试开始（第 ${retryAttempt} 轮）`, `${actualFailures.length} 个节点未成功，正在准备重新执行相关分支...`);
                 showToast(`正在启动第 ${retryAttempt} 轮自动重试（${actualFailures.length} 个节点）...`, 'warning', 4000);
                 failedNodes.clear();
+                resetNodesForPlan({ ...plan, mode: 'selected-only', scopeNodeSet: new Set(actualFailures) }, { preserveFixedCache: false });
                 await new Promise((resolve) => setTimeout(resolve, 1500));
                 if (!isRunActive()) break;
             }

@@ -1,4 +1,5 @@
 import { createImageFirstCanvas } from '../features/ui/image-first-canvas.js';
+import { createImageGenerationRevisionApi } from '../nodes/image-generation-revision.js';
 import { createAgentChatModelPreference } from '../features/prompt-agent/prompt-agent-model-preference.js';
 /**
  * CainFlow 前端总装配入口，负责组合全局状态、核心服务、画布、节点、执行链路与各类 UI 控制器。
@@ -454,6 +455,7 @@ function handleNodeGraphChanged(options = {}) {
     nodeDomBindingsApi?.syncImageMergeNodes?.();
     nodeDomBindingsApi?.syncAllConnectedInputFieldVisibility?.();
     promptAgentController?.refreshPreparedNodeContext?.();
+    if (!isMediaRestoreBatchActive()) registry.imageGenerationRevisionApi?.observeAll();
     registry.imageFirstCanvasApi?.refresh();
     if (!force && isMediaRestoreBatchActive()) {
         return;
@@ -598,11 +600,17 @@ const mediaControllerApi = createMediaControllerApi({
     addLog,
     scheduleSave,
     onMediaIntegrityChanged: () => workflowManagerApi?.refreshActiveWorkflowIntegrityState?.(),
+    onImageDescriptionChanged: node => {
+        if (state.nodes.get(node.id) !== node) return;
+        registry.imageGenerationRevisionApi?.observeAll();
+        nodeDomBindingsApi?.refreshDependentReferenceSources(node.id);
+    },
     onMissingMediaAction: (request) => handleMissingMediaAction(request),
     syncCameraControlNodePreview: (nodeId, imageValue) => cameraControlNodeApi.syncCameraControlFromExecution(nodeId, imageValue),
     syncClonesFromSource: (nodeId) => {
         nodeDomBindingsApi?.syncClonesFromSource(nodeId);
         nodeDomBindingsApi?.refreshDependentReferenceSources(nodeId);
+        registry.imageGenerationRevisionApi?.observeAll();
         registry.imageFirstCanvasApi?.refreshSource(nodeId);
     },
     openImagePainter,
@@ -698,6 +706,17 @@ function buildImageResultActions(source, options = {}) {
         downloadImage: (image, item) => startHistoryDownload({ id: String(item.historyId || item.name || 'result').replace(/[^\p{L}\p{N}._-]/gu, '_'), image }, { downloadImage, documentRef: document, windowRef: window }),
         copyImage: uiUtils.copyImageToClipboard, showToast, ...options });
 }
+registry.imageGenerationRevisionApi = createImageGenerationRevisionApi({
+    state, documentRef: document,
+    getActiveWorkflowId: () => workflowManagerApi.getActiveWorkflowId?.() || '',
+    getCachedOutputValue: (node, port) => getExecutionCoreApi().getCachedOutputValue(node, port),
+    onChanged: node => { if (state.nodes.get(node.id) === node) registry.imageFirstCanvasApi?.refreshNode(node.id); }
+});
+const observeNodeInputRevision = event => {
+    if (event.target.closest?.('.node') && !isMediaRestoreBatchActive()) registry.imageGenerationRevisionApi.observeAll();
+};
+document.addEventListener('input', observeNodeInputRevision);
+document.addEventListener('change', observeNodeInputRevision);
 registry.imageFirstCanvasApi = createImageFirstCanvas({
     state, selectionApi, documentRef: document, windowRef: window, storage: diskStorage,
     panelManager,
@@ -708,10 +727,14 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
     updateInputConnection: (id, change) => connectionsApi.updateInputConnection(id, change),
     swapInputConnections: id => connectionsApi.swapInputConnections(id),
     moveMergeInputConnection: (id, direction) => connectionsApi.moveMergeInputConnection(id, direction),
-    onSettingsChanged: id => nodeDomBindingsApi.syncDependentPromptSources(id)
+    onSettingsChanged: id => {
+        nodeDomBindingsApi.syncDependentPromptSources(id);
+        registry.imageGenerationRevisionApi.onSettingsChanged(id);
+        registry.imageGenerationRevisionApi.observeAll();
+    }
 });
 const nodeDomBindingsApi = createNodeDomBindingsApi({
-    onNodeBound: id => registry.imageFirstCanvasApi.install(id),
+    onNodeBound: id => { registry.imageFirstCanvasApi.install(id); registry.imageGenerationRevisionApi.initializeNode(id); },
     state,
     selectionApi,
     canvasContainer,
@@ -976,7 +999,7 @@ const promptAgentNodeAdapter = createPromptAgentNodeAdapter({
     state,
     documentRef: document,
     getCachedOutputValue: (node, port) => getExecutionCoreApi().getCachedOutputValue(node, port),
-    scheduleSave,
+    scheduleSave: () => { registry.imageGenerationRevisionApi?.observeAll(); scheduleSave(); },
     commitReferenceConnections: (connections) => {
         pushHistory();
         state.connections = connections;
@@ -1684,6 +1707,8 @@ function getWorkflowRunnerApi() {
     if (!registry.workflowRunnerApi) {
         registry.workflowRunnerApi = createWorkflowRunnerApi({
             state,
+            generationRevisionApi: registry.imageGenerationRevisionApi,
+            waitForPendingImageAssetSaves: () => getExecutionCoreApi().waitForPendingImageAssetSaves(),
             nodeConfigs: NODE_CONFIGS,
             resolveExecutionPlan: (runInput) => getExecutionCoreApi().resolveExecutionPlan(runInput),
             normalizeRunOptions: (runInput) => getExecutionCoreApi().normalizeRunOptions(runInput),
@@ -1716,6 +1741,7 @@ function getWorkflowRunnerApi() {
             onNodeRunStateChange: (payload) => {
                 if (payload?.nodeId) nodeDomBindingsApi.syncDependentPromptSources(payload.nodeId);
                 if (payload?.nodeId) nodeDomBindingsApi.refreshDependentReferenceSources(payload.nodeId);
+                registry.imageGenerationRevisionApi?.observeAll();
                 if (payload?.nodeId) registry.imageFirstCanvasApi?.refreshSource(payload.nodeId);
                 const activeWorkflow = workflowManagerApi.getActiveWorkflow();
                 if (activeWorkflow?.workflowId) {
@@ -1790,6 +1816,7 @@ function getWorkflowRuntimeManagerApi() {
             onVisibleNodeChanged: nodeId => {
                 nodeDomBindingsApi.syncDependentPromptSources(nodeId);
                 nodeDomBindingsApi.refreshDependentReferenceSources(nodeId);
+                registry.imageGenerationRevisionApi?.observeAll();
                 registry.imageFirstCanvasApi?.refreshSource(nodeId);
             },
             visibleConnectionProjectionMaintenance: registry.connectionProjectionApi.maintenance,
@@ -1873,6 +1900,7 @@ const workflowManagerApi = createWorkflowManagerApi({
     }),
     onWorkflowViewApplied: (workflow) => {
         getWorkflowRuntimeManagerApi().refreshVisibleWorkflowRunState(workflow);
+        registry.imageGenerationRevisionApi?.observeAll({ initialize: true });
         const tab = (state.workflowTabs || []).find((candidate) => candidate.workflowId === workflow?.workflowId);
         promptAgentController.restoreWorkflow(tab?.data?.promptAgent || null);
         settingsControllerApi?.updateAgentCacheUsage();
@@ -1928,6 +1956,7 @@ function refreshImageGenerateNodes(protocolId) {
         }
     });
     connectionProjectionInteractions.nodeGeometryChanged(nodeIds);
+    if (window.__cainflowAppReady) registry.imageGenerationRevisionApi?.observeAll();
 }
 
 function refreshVideoGenerateNodes() {
@@ -1953,6 +1982,7 @@ settingsFeature = createSettingsFeature({
     deleteHandle,
     showToast,
     saveState: (...args) => {
+        registry.imageGenerationRevisionApi?.observeAll();
         const saved = saveState(...args);
         promptAgentController.refreshModels();
         return saved;

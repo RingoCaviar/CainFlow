@@ -35,6 +35,7 @@ import {
 } from './workflow-tab-revision.js';
 import { removeWorkflowTabsTransaction } from './workflow-tab-close.js';
 import { serializeConnection } from '../../canvas/connection-snapshot.js';
+import { applyWorkflowPersistenceExtensions } from '../../nodes/node-persistence-extensions.js';
 import { createLegacyMediaMigrationCoordinator } from '../media/legacy-media-migration.js';
 import {
     createMediaOwnershipCoordinator,
@@ -786,13 +787,13 @@ export function createWorkflowManagerApi({
     }
 
     function getWorkflowPayload() {
-        return {
+        return applyWorkflowPersistenceExtensions(getActiveWorkflowTab()?.data, {
             canvas: { x: state.canvas.x, y: state.canvas.y, zoom: state.canvas.zoom },
             nodes: nodeSerializer.serializeNodes(),
             connections: state.connections.map(serializeConnection),
             promptAgent: getPromptAgentState(),
             version: WORKFLOW_VERSION
-        };
+        });
     }
 
     function cloneWorkflowData(data) {

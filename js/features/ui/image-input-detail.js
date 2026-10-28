@@ -149,7 +149,8 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
                 select.append(option);
             }
             select.value = edge.to.port;
-            const disabled = running || editing || state.runningNodeIds?.has(description.source?.id) || !updateInputConnection || pending;
+            const disabled = running || editing || state.runningNodeIds?.has(description.source?.id)
+                || ['waiting', 'running'].includes(description.source?.runStatus) || !updateInputConnection || pending;
             select.disabled = disabled;
             select.addEventListener('change', event => { event.stopPropagation(); void edit(edge.id, { role: select.value }); });
             const replace = button('替换', 'replace', edge.id), disconnect = button('断开', 'disconnect', edge.id);
@@ -176,6 +177,7 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
                 const replacement = documentRef.createElement('div'); replacement.className = 'image-input-replacement';
                 const sources = documentRef.createElement('select'); sources.dataset.inputReplacementSource = '';
                 sources.setAttribute('aria-label', `替换${description.title}的来源输出`);
+                sources.disabled = disabled;
                 const placeholder = documentRef.createElement('option'); placeholder.value = ''; placeholder.textContent = '选择来源输出'; sources.append(placeholder);
                 for (const candidate of candidates.filter(candidate => candidate.type === description.type)) {
                     const option = documentRef.createElement('option'); option.value = JSON.stringify({ nodeId: candidate.nodeId, port: candidate.port }); option.textContent = candidate.title;
@@ -188,7 +190,7 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
                 }
                 const confirm = button('确认替换', 'confirm-replace', edge.id), cancel = button('取消', 'cancel-replace', edge.id);
                 confirm.disabled = true;
-                sources.addEventListener('change', event => { event.stopPropagation(); confirm.disabled = !sources.value || pending; });
+                sources.addEventListener('change', event => { event.stopPropagation(); confirm.disabled = disabled || !sources.value || pending; });
                 confirm.addEventListener('click', () => { if (sources.value) void edit(edge.id, { from: JSON.parse(sources.value) }); });
                 cancel.addEventListener('click', () => { replacing = null; refresh(true); });
                 replacement.append(sources, confirm, cancel); row.append(replacement);

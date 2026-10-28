@@ -544,11 +544,16 @@ test('seven themes and narrow panels keep creation actions legible and keyboard 
             await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,text:'\r'});
             await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
         };
-        await evaluate("document.querySelector('#reference-target-advanced-parameters > summary').focus()");
+        await openImageParameters(app, 'reference-target');
+        await evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=advanced]').focus()");
+        assert.equal(await evaluate("document.activeElement.checkVisibility()"), true, 'the current parameter group control is visible and keyboard reachable');
         await enter();
         assert.equal(await evaluate("document.getElementById('reference-target-advanced-parameters').open"),true);
         await enter();
         assert.equal(await evaluate("document.getElementById('reference-target-advanced-parameters').open"),false);
+        await evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=reference]').focus()");
+        await enter();
+        assert.equal(await evaluate("document.getElementById('reference-target-reference-sources').checkVisibility()"), true);
         await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-move-up').focus()");
         await enter();
         assert.equal(await evaluate("document.querySelector('#reference-target-reference-sources .image-reference-group').dataset.referenceConnection"),'edge-source-b');
@@ -559,6 +564,7 @@ test('seven themes and narrow panels keep creation actions legible and keyboard 
         await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});
         await waitFor("!document.querySelector('.fullscreen-overlay')");
         assert.equal(await evaluate('document.activeElement.dataset.referenceNumber'),'1');
+        await openImageParameters(app, 'source-a');
         await evaluate("document.getElementById('source-a-assistant').click()");
         const evidence = [];
         for (const theme of ['dark','pro','paper','light','glass-light','glass-dark','pink']) {
@@ -634,6 +640,7 @@ test('old workflow completes source review, ordered generation through Agent, un
         await delay(1000);await reloadApp(app);
         await waitFor("document.querySelector('#source-a-image-results .image-node-result-count')?.textContent.endsWith('/ 3')");
         assert.deepEqual(await evaluate("[...document.querySelectorAll('#reference-target-reference-sources .image-reference-locate')].map(el=>el.textContent.split(' · ')[0])"),['乙','甲']);
+        await openImageParameters(app,'reference-target');
         assert.deepEqual(await evaluate("(()=>{const node=document.getElementById('reference-target');return {x:node.style.left,y:node.style.top,width:node.offsetWidth,promptHeight:document.getElementById('reference-target-prompt').offsetHeight}})()"),{x:'500px',y:'120px',width:476,promptHeight:241});
         assert.equal(await evaluate("document.getElementById('reference-target-prompt').value"),'助手优化后的提示词');
         assert.equal(await evaluate('imageRequests.length'),0);
@@ -647,10 +654,12 @@ test('unsupported retained thinking remains reachable for explicit reset before 
         const {evaluate,waitFor}=app;
         await controlImages(app);
         await change(evaluate,'thinking-image-apiconfig','image');
-        assert.equal(await evaluate("document.querySelector('#thinking-image .thinking-control').hidden"),false);
-        await evaluate("document.querySelector('#thinking-image .thinking-control > summary').click()");
-        assert.ok(await evaluate("document.querySelector('#thinking-image .thinking-control select').checkVisibility()"));
-        const field=await evaluate("document.querySelector('#thinking-image .thinking-control select').id");
+        await openImageParameters(app,'thinking-image');
+        await evaluate("(()=>{const toggle=document.querySelector('#image-parameter-panel [data-parameter-group-toggle=advanced]');if(toggle.getAttribute('aria-expanded')!=='true')toggle.click()})()");
+        assert.equal(await evaluate("document.querySelector('#image-parameter-panel .thinking-control').hidden"),false);
+        await evaluate("document.querySelector('#image-parameter-panel .thinking-control > summary').click()");
+        assert.ok(await evaluate("document.querySelector('#image-parameter-panel .thinking-control select').checkVisibility()"));
+        const field=await evaluate("document.querySelector('#image-parameter-panel .thinking-control select').id");
         await change(evaluate,field,'inherit');
         await evaluate("document.getElementById('thinking-image').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()");
         await waitFor("document.getElementById('thinking-image-run-status').textContent==='完成'");
@@ -792,16 +801,22 @@ test('reordering a legacy reference batch taller than the gallery keeps its focu
 });
 
 
-test('long generation errors wrap fully inside a narrow image node', {timeout:30000},async()=>{
+test('long generation errors retain a compact wrapped summary and complete details', {timeout:30000},async()=>{
     await withAppBrowser({...session,nodes:[{id:'error-wrap',type:'ImageGenerate',x:100,y:100,width:300,apiConfigId:'image',providerId:'p',prompt:'test error'}],connections:[]},async app=>{
         const {evaluate,waitFor}=app;await controlImages(app);
         const message='参考图请求失败，请检查供应商配置与上传限制。'.repeat(8)+' request_id='+'x'.repeat(120);
         await evaluate(`window.failImage=true;window.failImageMessage=${JSON.stringify(message)};document.getElementById('error-wrap').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()`);
         await waitFor("!document.querySelector('#error-wrap .node-failure-summary').classList.contains('hidden')");
-        const result=await evaluate("(()=>{const el=document.querySelector('#error-wrap .node-failure-summary');return {text:el.textContent,fits:el.scrollWidth<=el.clientWidth+1&&el.scrollHeight<=el.clientHeight+1,height:el.clientHeight}})()");
-        assert.ok(result.text.includes(message));
-        assert.equal(result.fits,true,'full red error text must wrap, including unbroken request identifiers');
-        assert.ok(result.height>40,'a long error must occupy multiple visible lines');
+        const result=await evaluate("(()=>{const el=document.querySelector('#error-wrap .node-failure-summary');return {text:el.textContent,fits:el.scrollWidth<=el.clientWidth+1,height:el.clientHeight}})()");
+        assert.ok(result.text.startsWith(message.slice(0,30)));
+        assert.ok(result.text.length<=140,'card keeps the approved short failure reason');
+        assert.equal(result.fits,true,'summary has no horizontal overflow');
+        assert.ok(result.height>20 && result.height<=48,'summary wraps into a compact two-line area');
+        if(await evaluate("document.getElementById('modal-error').classList.contains('active')")) await app.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+        await evaluate("document.querySelector('#error-wrap [data-image-run-action=details]').click()");
+        await waitFor("document.getElementById('modal-error').classList.contains('active')");
+        await evaluate("if(!document.getElementById('btn-show-full-log').classList.contains('hidden'))document.getElementById('btn-show-full-log').click()");
+        assert.ok((await evaluate("document.getElementById('error-modal-msg').textContent+' '+document.getElementById('error-modal-detail').textContent")).includes(message),'complete technical error remains readable');
     });
 });
 
