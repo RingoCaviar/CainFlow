@@ -1,4 +1,4 @@
-const imageFirstCardTypes = new Set(['ImageGenerate', 'ImageImport', 'ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare']);
+const imageFirstCardTypes = new Set(['ImageGenerate', 'ImageImport', 'ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge']);
 
 /** Types whose image card owns geometry independently of its parameter editor. */
 export function isImageFirstCardNode(node) {

@@ -39,6 +39,7 @@ export function createNodeLifecycleApi({
     renderImagePreviewImage = null,
     renderImageSavePreview = null,
     renderImageComparePreview = null,
+    renderImageMergePreview = null,
     bindNodeInteractions,
     serializeOneNode = null,
     pushHistory,
@@ -442,7 +443,7 @@ export function createNodeLifecycleApi({
     }
 
     function isDisplayImageNodeType(type) {
-        return type === 'ImagePreview' || type === 'ImageSave';
+        return type === 'ImagePreview' || type === 'ImageSave' || type === 'ImageMerge';
     }
 
     function isCanonicalImageNodeType(type) {
@@ -1423,7 +1424,7 @@ export function createNodeLifecycleApi({
         if (restoredImages.length > 0) {
             if (isCanonicalImageNodeType(normalizedType)) {
                 const restoredIndex = isDisplayImageNodeType(normalizedType)
-                    ? Math.max(0, Math.min(restoredImages.length - 1, parseInt(effectiveRestoreData?.imagePreviewIndex || '0', 10) || 0))
+                    ? Math.max(0, Math.min((normalizedType === 'ImageMerge' ? Math.max(restoredImages.length, restoredMediaAssetKeys.length, Number(effectiveRestoreData?.imageCount) || 0) : restoredImages.length) - 1, parseInt(effectiveRestoreData?.imagePreviewIndex || '0', 10) || 0))
                     : restoredImages.length - 1;
                 setCanonicalImageOutput(nodeData, restoredImages, {
                     currentIndex: restoredIndex,
@@ -1432,6 +1433,7 @@ export function createNodeLifecycleApi({
                     assetReady: effectiveRestoreData?.imageAssetReady === true,
                     hydratedAt: effectiveRestoreData?.imageHydratedAt || undefined
                 });
+                if (normalizedType === 'ImageMerge') nodeData.imagePreviewIndex = restoredIndex;
             } else {
                 nodeData.data.images = restoredImages.slice();
                 nodeData.imageDataList = restoredImages.slice();
@@ -1664,7 +1666,7 @@ export function createNodeLifecycleApi({
                         const assetKey = restoredMediaAssetKeys[0] || canonicalImageAssetKey || id;
                         const currentIndex = isDisplayImageNodeType(normalizedType)
                             ? Math.max(0, Math.min(
-                                sourceImages.length - 1,
+                                (normalizedType === 'ImageMerge' ? Math.max(sourceImages.length, restoredMediaAssetKeys.length, canonicalImageCount) : sourceImages.length) - 1,
                                 Number.isFinite(nodeData.imagePreviewIndex) ? nodeData.imagePreviewIndex : 0
                             ))
                             : sourceImages.length - 1;
@@ -1675,6 +1677,7 @@ export function createNodeLifecycleApi({
                             assetReady: storedImages.length > 0 || effectiveRestoreData?.imageAssetReady === true ? true : undefined,
                             hydratedAt: storedImages.length > 0 ? Date.now() : (effectiveRestoreData?.imageHydratedAt || undefined)
                         });
+                        if (normalizedType === 'ImageMerge') nodeData.imagePreviewIndex = currentIndex;
                     } else {
                         nodeData.data.images = sourceImages.slice();
                         nodeData.imageDataList = sourceImages.slice();
@@ -1733,6 +1736,9 @@ export function createNodeLifecycleApi({
                             dropZone.innerHTML = `<img src="${data}" alt="已导入图片" draggable="false" style="pointer-events: none;" />`;
                         }
                         updateResolutionBadgeSoon(id, data);
+                        onConnectionsChanged();
+                    } else if (normalizedType === 'ImageMerge') {
+                        renderImageMergePreview?.(id, getCanonicalImageList(nodeData));
                         onConnectionsChanged();
                     } else if (normalizedType === 'ImagePreview') {
                         if (typeof renderImagePreviewImage === 'function') {

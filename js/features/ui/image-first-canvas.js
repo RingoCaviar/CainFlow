@@ -6,11 +6,11 @@ import { isImageFirstCardNode } from '../../nodes/image-first-presentation.js';
 import { getCanonicalImageList, getCanonicalImageIndex } from '../execution/execution-data-utils.js';
 import { projectImageOutput } from '../../nodes/image-output-projection.js';
 
-const nodeLabels = { ImageGenerate: '图片生成', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比' };
+const nodeLabels = { ImageGenerate: '图片生成', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比', ImageMerge: '多图合一' };
 
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
-    runToNode, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections }) {
+    runToNode, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection }) {
     const views = new Map();
     const panel = documentRef.createElement('section');
     panel.id = 'image-parameter-panel';
@@ -99,10 +99,11 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             view.urlFields.hidden = mode !== 'url';
             view.urlFields.classList.toggle('hidden', mode !== 'url');
             view.model.textContent = mode === 'url' ? 'URL 来源' : '本地素材';
-        } else if (node.type === 'ImagePreview') {
+        } else if (node.type === 'ImagePreview' || node.type === 'ImageMerge') {
             const { count } = projectImageOutput(node, getCanonicalImageList(node));
             const index = getCanonicalImageIndex(node, new Array(count));
-            view.model.textContent = count ? `图片预览 · ${index + 1} / ${count}` : '图片预览';
+            const message = node.type === 'ImageMerge' ? node.el.querySelector('.image-merge-preview')?.dataset.mergeMessage : '';
+            view.model.textContent = `${nodeLabels[node.type]}${count ? ` · ${index + 1} / ${count}` : ''}${message ? ` · ${message}` : ''}`;
             view.references.textContent = `输入 ${state.connections.filter(edge => edge.to.nodeId === node.id).length}`;
         } else if (node.type === 'ImageResize' || node.type === 'ColorReset') {
             const message = node.el.querySelector('.preview-container')?.dataset.processingMessage;
@@ -120,12 +121,14 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             generate.hidden = node.type === 'ImageImport';
             generate.textContent = node.type === 'ImagePreview' ? (running ? '更新中' : '更新预览')
                 : node.type === 'ImageCompare' ? (running ? '更新中' : '更新对比')
+                : node.type === 'ImageMerge' ? (running ? '合并中' : '更新合并')
                 : node.type === 'ImageResize' ? (running ? '处理中' : '处理图片')
                     : node.type === 'ColorReset' ? (running ? '调色中' : '应用调色') : (running ? '生成中' : '生成');
             generate.disabled = running || node.enabled === false;
             feedback.textContent = node.type === 'ImageImport' ? '在卡片选择文件，或切换 URL 输入链接。'
                 : node.type === 'ImagePreview' ? (node.previewInputState === 'stale' ? '未更新 · 当前无输入' : node.previewInputState === 'empty' ? '当前无输入' : '预览当前连接的图片')
                     : node.type === 'ImageCompare' ? node.el.querySelector('.image-compare-container')?.dataset.compareMessage || 'B 为必需输入；A 可选，移动指针调整分界。'
+                    : node.type === 'ImageMerge' ? node.el.querySelector('.image-merge-preview')?.dataset.mergeMessage || '按图片输入的数字顺序合并每个来源的完整批次。'
                     : node.type === 'ImageResize' || node.type === 'ColorReset' ? '修改即时预览；点击按钮执行当前节点。'
                     : documentRef.getElementById(`${node.id}-run-status`)?.textContent || '修改不会自动生成';
             schedulePosition();
@@ -158,16 +161,21 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     function installUniversalInput(node) {
         const inputSection = node.el.querySelector('.node-inputs-section');
         if (inputSection) {
+            let universal = inputSection.querySelector('.universal-input');
             for (const port of inputSection.querySelectorAll('.node-port[data-direction="input"]')) {
+                if (port === universal) continue;
                 port.hidden = true;
                 port.classList.add('image-first-canonical-input');
             }
-            const universal = documentRef.createElement('div');
-            universal.className = 'node-port input universal-input';
-            universal.dataset.nodeId = node.id; universal.dataset.port = 'auto';
-            universal.dataset.type = 'any'; universal.dataset.direction = 'input';
-            universal.innerHTML = '<div class="port-dot type-any"></div><span class="port-label">输入</span>';
-            inputSection.append(universal); bindPorts(universal.parentElement);
+            if (!universal) {
+                universal = documentRef.createElement('div');
+                universal.className = 'node-port input universal-input';
+                universal.dataset.nodeId = node.id; universal.dataset.port = 'auto';
+                universal.dataset.type = 'any'; universal.dataset.direction = 'input';
+                universal.innerHTML = '<div class="port-dot type-any"></div><span class="port-label">输入</span>';
+                inputSection.append(universal);
+            }
+            bindPorts(inputSection);
         }
     }
     function registerView(node, view, observed) {
@@ -222,15 +230,15 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             observed.push(body.querySelector(`[id="${node.id}-upload-section"]`), urlSection);
         } else {
             installUniversalInput(node);
-            inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, swapInputConnections, onChange: () => refreshNode(node.id) });
+            inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, swapInputConnections, moveMergeInputConnection, onChange: () => refreshNode(node.id) });
             inputs.element.dataset.parameterGroup = 'input'; sections.push(inputs.element); form.append(inputs.element);
             references = documentRef.createElement('button'); references.type = 'button';
             references.addEventListener('click', () => select(node, 'input')); summary.append(references);
-            observed.push(body.querySelector(`[id="${node.id}-${node.type === 'ImageCompare' ? 'compare' : 'preview'}"]`));
+            observed.push(body.querySelector(`[id="${node.id}-${node.type === 'ImageCompare' ? 'compare' : node.type === 'ImageMerge' ? 'merge-preview' : 'preview'}"]`));
         }
         body.append(summary);
         registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, model, references, inputs, urlFields,
-            group: node.type === 'ImagePreview' || node.type === 'ImageCompare' ? 'input' : null }, observed);
+            group: node.type !== 'ImageImport' ? 'input' : null }, observed);
     }
     function installProcessing(node) {
         const body = node.el.querySelector('.node-body');
@@ -269,7 +277,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         sweep();
         const node = state.nodes.get(nodeId);
         if (!isImageFirstCardNode(node) || views.has(node)) return;
-        if (node.type === 'ImageImport' || node.type === 'ImagePreview' || node.type === 'ImageCompare') { installMedia(node); return; }
+        if (node.type === 'ImageImport' || node.type === 'ImagePreview' || node.type === 'ImageCompare' || node.type === 'ImageMerge') { installMedia(node); return; }
         if (node.type === 'ImageResize' || node.type === 'ColorReset') { installProcessing(node); return; }
         if (node.type !== 'ImageGenerate') return;
         const body = node.el.querySelector('.node-body');

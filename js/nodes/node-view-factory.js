@@ -1118,6 +1118,9 @@ function renderTextBody(id, restoreData) {
 function renderImageMergeBody(id) {
     return `
         <div class="image-merge-panel">
+            <div class="preview-container image-merge-preview" id="${id}-merge-preview">
+                <div class="preview-placeholder">运行后查看合并图片</div>
+            </div>
             <div class="image-merge-summary" id="${id}-merge-summary">连接多个图片输入后，输出合并后的多图数据</div>
         </div>
     `;

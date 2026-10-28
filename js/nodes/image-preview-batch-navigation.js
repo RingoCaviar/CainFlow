@@ -168,7 +168,7 @@ export function createImagePreviewBatchNavigation({ state, documentRef, windowRe
         return view;
     }
     function render(node, previewContainer) {
-        if (node?.type !== 'ImagePreview' || !previewContainer) return;
+        if (!['ImagePreview', 'ImageMerge'].includes(node?.type) || !previewContainer) return;
         const batch = snapshot(node, views.get(node)?.open);
         if (batch.count <= 1) { destroy(node); return; }
         let view = views.get(node);

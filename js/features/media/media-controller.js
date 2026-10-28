@@ -158,6 +158,8 @@ export function createMediaControllerApi({
         return node ? null : documentRef.getElementById(`${nodeId}-${suffix}`);
     }
 
+    const isBatchPreviewNode = node => node?.type === 'ImagePreview' || node?.type === 'ImageMerge';
+
     function persistProcessingParameters(node, values) {
         node.data = node.data || {};
         Object.assign(node, values);
@@ -482,6 +484,14 @@ export function createMediaControllerApi({
     }
 
     async function restoreStoredImageList(node) {
+        if (node?.type === 'ImageMerge') {
+            const images = getCanonicalImageList(node), assets = getNodeMediaAssetKeys(node);
+            if (assets.length > images.length && !node.data?.mediaIntegrity?.missingItems?.length) {
+                const items = await readPreviewSlots(node, assets);
+                return items ? items.map(item => item.value).filter(Boolean) : [];
+            }
+            return images;
+        }
         if (node?.type === 'ImageImport' && node.importMode !== 'url') {
             const assetKey = node.imageImportAssetKey || node.data?.imageImportAssetKey || getNodeMediaAssetKeys(node)[0];
             if (assetKey) {
@@ -626,6 +636,7 @@ export function createMediaControllerApi({
 
     async function getNodeOutputImageListAsync(node) {
         if (!node) return [];
+        if (node.type === 'ImageMerge') return restoreStoredImageList(node);
         if (isManagedImageNode(node)) {
             return restoreStoredImageList(node);
         }
@@ -685,13 +696,13 @@ export function createMediaControllerApi({
     }
 
     function renderImagePreviewImage(nodeId, images, emptyMessage = '无输入图片') {
-        const previewContainer = getNodeElement(nodeId, 'preview');
         const node = getNodeById(nodeId);
+        const previewContainer = getNodeElement(nodeId, node?.type === 'ImageMerge' ? 'merge-preview' : 'preview');
         if (node?.type === 'ImageGenerate') return;
         if (!previewContainer) return;
         previewContainer.querySelector('.image-preview-batch-navigation')?.remove();
 
-        const assets = node?.type === 'ImagePreview' ? getNodeMediaAssetKeys(node) : [];
+        const assets = isBatchPreviewNode(node) ? getNodeMediaAssetKeys(node) : [];
         const hasUnknownPositions = assets.length > normalizeImageList(images).length
             && !node.data?.mediaIntegrity?.missingItems?.length;
         if (hasUnknownPositions && !previewSlotReads.has(node)) {
@@ -701,6 +712,9 @@ export function createMediaControllerApi({
                 if (previewSlotReads.get(node) !== read) return;
                 previewSlotReads.delete(node);
                 if (!items) return;
+                if (node.type === 'ImageMerge' && items.some(item => item.missing)) {
+                    setImageMergeInputState(node, 'stale', '来源原图缺失，缺失位置已保留，预览未更新');
+                }
                 renderImagePreviewImage(nodeId, items.map(item => item.value).filter(Boolean), emptyMessage);
             }).catch(() => { if (previewSlotReads.get(node) === read) previewSlotReads.delete(node); });
         }
@@ -718,7 +732,8 @@ export function createMediaControllerApi({
             if (image) image.style.transform = `scale(${node.previewZoom || 1})`;
         }
         setImagePreviewInputState(node, node?.previewInputState || (normalizeImageList(images).length ? 'current' : 'empty'));
-        if (node?.type === 'ImagePreview' && node.el) {
+        if (node?.type === 'ImageMerge') setImageMergeInputState(node, node.mergeInputState || (rendered.totalCount ? 'current' : 'empty'), node.mergeMessage || '');
+        if (isBatchPreviewNode(node) && node.el) {
             const batchNavigation = getPreviewBatchNavigation();
             batchNavigation.render(node, previewContainer);
             if (!node.imagePreviewBatchCleanupBound) {
@@ -785,7 +800,7 @@ export function createMediaControllerApi({
     }
 
     function getPreviewSlotImages(node, images) {
-        if (node?.type !== 'ImagePreview') return images;
+        if (!isBatchPreviewNode(node)) return images;
         const count = Math.max(images.length, getStoredImageCount(node), getNodeMediaAssetKeys(node).length);
         const missing = new Set((node.data?.mediaIntegrity?.missingItems || []).map(item => Number(item.position)));
         if (count <= images.length || !missing.size) return images;
@@ -807,7 +822,7 @@ export function createMediaControllerApi({
         let imageList = images.length > 0
             ? getPreviewSlotImages(node, images)
             : (normalizedFallback ? [normalizedFallback] : []);
-        const assets = node?.type === 'ImagePreview' ? getNodeMediaAssetKeys(node) : [];
+        const assets = isBatchPreviewNode(node) ? getNodeMediaAssetKeys(node) : [];
         if (assets.length > images.length && !node.data?.mediaIntegrity?.missingItems?.length) {
             // A compacted list has no reliable position map. Explicit original
             // viewing may resolve the existing local keys, never a substitute.
@@ -815,7 +830,7 @@ export function createMediaControllerApi({
             if (!items) return { node: null, images: [], index: 0, cancelled: true };
             imageList = items.map(item => item.value || '');
         }
-        if (node?.type === 'ImagePreview' && Number.isFinite(requestedIndex)) node.imagePreviewIndex = requestedIndex;
+        if (isBatchPreviewNode(node) && Number.isFinite(requestedIndex)) node.imagePreviewIndex = requestedIndex;
         const currentIndex = node?.type === 'ImageSave'
             ? getImageSavePreviewIndex(node, imageList)
             : getImagePreviewIndex(node, imageList);
@@ -831,7 +846,7 @@ export function createMediaControllerApi({
         if (!Array.isArray(context.images) || context.images.length === 0) {
             return false;
         }
-        if (context.node?.type === 'ImagePreview' || context.node?.type === 'ImageGenerate') {
+        if (isBatchPreviewNode(context.node) || context.node?.type === 'ImageGenerate') {
             renderImagePreviewImage(nodeId, context.images);
         } else if (context.node?.type === 'ImageSave') {
             renderImageSavePreview(nodeId, context.images);
@@ -854,7 +869,7 @@ export function createMediaControllerApi({
                 context.images[context.index] || context.images[0]
             );
         }
-        const currentImage = context.node?.type === 'ImagePreview' ? context.images[context.index] : context.images[context.index] || context.images[0];
+        const currentImage = isBatchPreviewNode(context.node) ? context.images[context.index] : context.images[context.index] || context.images[0];
         if (!currentImage) {
             return false;
         }
@@ -936,13 +951,13 @@ export function createMediaControllerApi({
             const selectedNodeId = getFocusedNodeId();
             if (!selectedNodeId) return;
             const node = getNodeById(selectedNodeId);
-            if (!node || (node.type !== 'ImagePreview' && node.type !== 'ImageGenerate' && node.type !== 'ImageSave')) return;
+            if (!node || (!isBatchPreviewNode(node) && node.type !== 'ImageGenerate' && node.type !== 'ImageSave')) return;
 
             const delta = event.key === 'ArrowLeft' ? -1 : 1;
             event.preventDefault();
             event.stopPropagation();
 
-            if (node.type === 'ImagePreview' || node.type === 'ImageGenerate') {
+            if (isBatchPreviewNode(node) || node.type === 'ImageGenerate') {
                 void stepImagePreviewNodeByDelta(selectedNodeId, delta);
             } else {
                 void stepImageSaveNodeByDelta(selectedNodeId, delta);
@@ -1776,6 +1791,114 @@ export function createMediaControllerApi({
         }
     }
 
+    function setImageMergeInputState(node, inputState, message = '') {
+        node.mergeInputState = inputState;
+        const count = Math.max(getStoredImageCount(node), getNodeMediaAssetKeys(node).length);
+        const text = message || (inputState === 'stale' ? '无有效输入，保留上次结果，未更新' : inputState === 'empty' ? '等待图片输入' : '');
+        node.mergeMessage = text;
+        const preview = getProcessingNodeElement(node.id, 'merge-preview');
+        if (preview) {
+            preview.dataset.mergeState = inputState;
+            if (text) preview.dataset.mergeMessage = text;
+            else delete preview.dataset.mergeMessage;
+        }
+        const summary = getProcessingNodeElement(node.id, 'merge-summary');
+        if (summary) summary.textContent = text || `已合并 ${count} 张图片`;
+    }
+
+    function renderImageMergePreview(nodeId, images, emptyMessage = '等待图片输入') {
+        renderImagePreviewImage(nodeId, images, emptyMessage);
+    }
+
+    async function syncImageMergeNode(nodeId, images) {
+        const node = getNodeById(nodeId);
+        if (!node || node.type !== 'ImageMerge') return;
+        node.data = node.data || {};
+        const token = (node.mergePreviewToken || 0) + 1;
+        node.mergePreviewToken = token;
+        const current = () => getNodeById(nodeId) === node && node.mergePreviewToken === token;
+        let nextImages = [], keys = [], missingItems = [], count = 0, completeKeys = true, waiting = false;
+        const explicit = arguments.length > 1;
+        if (explicit) {
+            nextImages = normalizeImageList(images);
+            missingItems = node.data.mediaIntegrity?.missingItems || [];
+            count = missingItems.length ? Math.max(nextImages.length, node.data.mediaAssetKeys?.length || 0, node.data.imageCount || 0) : nextImages.length;
+        } else {
+            const connections = state.connections.filter(edge => edge.to?.nodeId === nodeId && /^image_\d+$/.test(edge.to.port))
+                .sort((a, b) => Number(a.to.port.slice(6)) - Number(b.to.port.slice(6)));
+            for (const edge of connections) {
+                const source = getNodeById(edge.from?.nodeId);
+                if (!source || source.enabled === false) continue;
+                let values = await getNodeOutputImageListAsync(source);
+                if (!current()) return;
+                let missing = source.data?.mediaIntegrity?.missingItems || [];
+                const ready = source.data?.imageAssetReady === true || !values.length || missing.length > 0;
+                const assets = ready ? getNodeMediaAssetKeys(source) : [];
+                const size = Math.max(values.length, assets.length, ready ? Number(source.data?.imageCount) || 0 : 0);
+                if (!size) { waiting = true; continue; }
+                if (assets.length === size && values.length !== size && !missing.length) {
+                    const slots = await readPreviewSlots(source, assets);
+                    if (!current()) return;
+                    if (!slots) { waiting = true; continue; }
+                    values = slots.map(item => item.value).filter(Boolean);
+                    missing = source.data?.mediaIntegrity?.missingItems || [];
+                }
+                if (assets.length !== size) completeKeys = false;
+                keys.push(...assets);
+                nextImages.push(...values);
+                missingItems.push(...missing.map(item => ({ ...item, position: count + Number(item.position), sourceNodeId: source.id, nodeId,
+                    ownerId: `${getActiveWorkflowId()}:${nodeId}` })));
+                count += size;
+            }
+        }
+        if (!current()) return;
+        if (!count || waiting) {
+            const retained = Math.max(getStoredImageCount(node), getNodeMediaAssetKeys(node).length) > 0;
+            setImageMergeInputState(node, retained ? 'stale' : 'empty', waiting ? '等待来源完整图片，预览未更新' : '');
+            if (retained) renderImageMergePreview(nodeId, getCanonicalImageList(node));
+            else renderImageMergePreview(nodeId, []);
+            node.isSucceeded = false;
+            return;
+        }
+        const previousIndex = Number.isFinite(node.imagePreviewIndex) ? node.imagePreviewIndex : 0;
+        const previousKeys = getNodeMediaAssetKeys(node);
+        setCanonicalImageOutput(node, nextImages, { currentIndex: previousIndex, assetKey: node.data.imageAssetKey || node.id, imageCount: count });
+        node.imagePreviewIndex = Math.max(0, Math.min(count - 1, previousIndex));
+        if (missingItems.length) node.data.mediaIntegrity = { state: 'missing', mediaType: 'image', ownerType: 'workflow-node', itemCount: count, missingItems };
+        else if (!explicit) delete node.data.mediaIntegrity;
+        if (!explicit) {
+            if (completeKeys && keys.length === count) {
+                const unchanged = previousKeys.length === keys.length && keys.every((key, index) => key === previousKeys[index]);
+                if (unchanged || missingItems.length) {
+                    node.data.mediaAssetKeys = keys.slice(); node.data.imageAssetKey = keys[0]; node.data.imageCount = count; node.data.imageAssetReady = true;
+                } else {
+                    const forwarded = await syncForwardedMediaAssetKeys(node, keys);
+                    if (!current()) return;
+                    if (!forwarded) await persistUnownedDisplayImages(node, nextImages, beginDisplayImageAssetWrite(node), '合并预览已更新，但本地图片保存失败');
+                }
+            } else if (!missingItems.length) {
+                await persistUnownedDisplayImages(node, nextImages, beginDisplayImageAssetWrite(node), '合并预览已更新，但本地图片保存失败');
+            }
+            if (!current()) return;
+        }
+        setImageMergeInputState(node, missingItems.length ? 'stale' : 'current', missingItems.length ? '来源原图缺失，缺失位置已保留，预览未更新' : '');
+        renderImageMergePreview(nodeId, nextImages);
+        if (!explicit) scheduleSave();
+    }
+
+    function setupImageMerge(id, el) {
+        setupImagePreview(id, el);
+        const node = getNodeById(id);
+        if (!node) return;
+        const retained = getStoredImageCount(node) > 0 || getNodeMediaAssetKeys(node).length > 0;
+        const missing = node.data?.mediaIntegrity?.missingItems?.length;
+        setImageMergeInputState(node, missing ? 'stale' : retained ? 'current' : 'empty', missing ? '来源原图缺失，缺失位置已保留，预览未更新' : '');
+        renderImageMergePreview(id, getCanonicalImageList(node));
+        if (!state.connections.some(edge => edge.to?.nodeId === id && /^image_\d+$/.test(edge.to.port))) {
+            setImageMergeInputState(node, retained ? 'stale' : 'empty');
+        }
+    }
+
     function getConnectedImageInput(nodeId, portName) {
         const incoming = state.connections.find((conn) => conn.to.nodeId === nodeId && conn.to.port === portName);
         if (!incoming) return null;
@@ -1945,7 +2068,7 @@ export function createMediaControllerApi({
         const dependents = state.connections
             .filter((conn) => (
                 conn.from.nodeId === sourceNodeId
-                && (conn.to.port === 'image' || conn.to.port === 'imageA' || conn.to.port === 'imageB')
+                && (conn.to.port === 'image' || conn.to.port === 'imageA' || conn.to.port === 'imageB' || /^image_\d+$/.test(conn.to.port))
             ))
             .map((conn) => conn.to.nodeId)
             .filter((nodeId, index, list) => list.indexOf(nodeId) === index);
@@ -1991,6 +2114,11 @@ export function createMediaControllerApi({
                 }, visited);
                 continue;
             }
+            if (node.type === 'ImageMerge') {
+                await syncImageMergeNode(nodeId);
+                await refreshDependentImageResizePreviews(nodeId, options, visited);
+                continue;
+            }
 
             if (node.type === 'CameraControl') {
                 await syncCameraControlNodePreview(nodeId, sourceImage);
@@ -1999,12 +2127,13 @@ export function createMediaControllerApi({
     }
 
     async function refreshAllImageResizePreviews(options = {}) {
-        const processingTypes = ['ImageResize', 'ColorReset', 'ImageCompare'];
+        const processingTypes = ['ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge'];
         const imageResizeNodes = Array.from(state.nodes.values()).filter(node => processingTypes.includes(node.type));
         const refresh = async nodeId => {
             const type = getNodeById(nodeId)?.type;
-            if (type === 'ImageCompare') {
-                await syncImageCompareNode(nodeId);
+            if (type === 'ImageCompare' || type === 'ImageMerge') {
+                if (type === 'ImageMerge') await syncImageMergeNode(nodeId);
+                else await syncImageCompareNode(nodeId);
                 await refreshDependentImageResizePreviews(nodeId, options);
             } else if (type === 'ColorReset') await refreshColorResetPreview(nodeId, options);
             else await refreshImageResizePreview(nodeId, options);
@@ -2013,7 +2142,7 @@ export function createMediaControllerApi({
         const rest = [];
 
         imageResizeNodes.forEach((node) => {
-            const incoming = state.connections.find((conn) => conn.to.nodeId === node.id && ['image', 'imageA', 'imageB'].includes(conn.to.port));
+            const incoming = state.connections.find((conn) => conn.to.nodeId === node.id && (['image', 'imageA', 'imageB'].includes(conn.to.port) || /^image_\d+$/.test(conn.to.port)));
             const upstream = incoming ? getNodeById(incoming.from.nodeId) : null;
             if (!incoming || !upstream || !processingTypes.includes(upstream.type)) roots.push(node.id);
             else rest.push(node.id);
@@ -2756,7 +2885,8 @@ export function createMediaControllerApi({
     }
 
     function setupImagePreview(id, el) {
-        const previewContainer = queryNodeControl(el, `#${id}-preview`);
+        const nodeType = getNodeById(id)?.type;
+        const previewContainer = queryNodeControl(el, `#${id}-${nodeType === 'ImageMerge' ? 'merge-preview' : 'preview'}`);
         const zoomInBtn = queryNodeControl(el, `#${id}-zoom-in`);
         const zoomOutBtn = queryNodeControl(el, `#${id}-zoom-out`);
         const zoomResetBtn = queryNodeControl(el, `#${id}-zoom-reset`);
@@ -2852,7 +2982,7 @@ export function createMediaControllerApi({
             const node = getNodeById(id);
             if (state.justDragged || node?.imageFirstMediaDragged) return;
             if (e.target.closest('.image-save-preview-nav')) return;
-            if (node?.parameterRoot && e.detail === 1) { node.onImageFirstSelect?.(); return; }
+            if (node?.parameterRoot && e.detail < 2) { node.onImageFirstSelect?.(); return; }
             void openPreviewImage();
         });
         fullscreenBtn?.addEventListener('click', (e) => {
@@ -3605,7 +3735,7 @@ export function createMediaControllerApi({
         const flushNodePreviewState = () => {
             if (!nodeId || !context.node || !previewIndexDirty) return;
             context.node.imagePreviewIndex = currentIndex;
-            if (context.node.type === 'ImagePreview' || context.node.type === 'ImageGenerate') {
+            if (isBatchPreviewNode(context.node) || context.node.type === 'ImageGenerate') {
                 context.node.previewZoom = 1;
                 renderImagePreviewImage(nodeId, images);
             } else if (context.node.type === 'ImageSave') {
@@ -3663,7 +3793,7 @@ export function createMediaControllerApi({
                     button.className = `fullscreen-thumb-item${index === currentIndex ? ' is-active' : ''}`;
                     button.title = `第 ${index + 1} 张`;
                     button.setAttribute('aria-label', `查看第 ${index + 1} 张图片`);
-                    if (context.node?.type === 'ImagePreview' && !imageSrc) {
+                    if (isBatchPreviewNode(context.node) && !imageSrc) {
                         button.disabled = true; button.title += ' · 原图缺失';
                     }
                     button.addEventListener('click', (event) => {
@@ -3708,7 +3838,7 @@ export function createMediaControllerApi({
             let next = currentIndex;
             for (let offset = 0; offset < images.length; offset++) {
                 next = (next + delta + images.length) % images.length;
-                if (context.node?.type !== 'ImagePreview' || images[next]) break;
+                if (!isBatchPreviewNode(context.node) || images[next]) break;
             }
             currentIndex = next;
             renderCurrentImage();
@@ -3940,6 +4070,9 @@ export function createMediaControllerApi({
         setupImageSave,
         autoSaveToDir,
         setupImagePreview,
+        setupImageMerge,
+        syncImageMergeNode,
+        renderImageMergePreview,
         setupImageCompare,
         syncImageCompareNode,
         adjustPreviewZoom,

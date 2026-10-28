@@ -41,6 +41,7 @@ import {
 import { activateProtocolVariantDraft, getProtocolVariantDraftKey, saveProtocolVariantDraft } from './protocol-variant-drafts.js';
 import { getPrimaryImageImportMediaAssetReference, getPrimaryTextInput } from '../features/execution/execution-data-utils.js';
 import { getSurfaceCoordinator } from '../features/ui/surface-coordinator.js';
+import { isUniversalInputNode } from './universal-input-policy.js';
 
 export function createNodeDomBindingsApi({
     state,
@@ -82,6 +83,7 @@ export function createNodeDomBindingsApi({
     setupImageSave,
     setupImagePreview,
     setupImageCompare,
+    setupImageMerge = () => {},
     setupCameraControlNode,
     copyToClipboard,
     showToast,
@@ -550,9 +552,9 @@ export function createNodeDomBindingsApi({
             </div>`;
     }
 
-    function renderImageMergeInputPort(id, index) {
+    function renderImageMergeInputPort(id, index, hidden = false) {
         const portName = `image_${index + 1}`;
-        return `<div class="node-port input" data-node-id="${id}" data-port="${portName}" data-type="image" data-direction="input">
+        return `<div class="node-port input${hidden ? ' image-first-canonical-input' : ''}" ${hidden ? 'hidden' : ''} data-node-id="${id}" data-port="${portName}" data-type="image" data-direction="input">
                 <div class="port-dot type-image"></div>
                 <span class="port-label">图片 ${index + 1}</span>
             </div>`;
@@ -1236,6 +1238,8 @@ export function createNodeDomBindingsApi({
     function refreshImageMergeInputPorts(nodeId, nextCount = getImageMergeConnectedInputCount(nodeId) + 1) {
         const node = state.nodes.get(nodeId);
         if (!node?.el || node.type !== 'ImageMerge') return;
+        const savedCount = Number(node.data?.inputCount);
+        if (isUniversalInputNode(node) && Number.isSafeInteger(savedCount) && savedCount > nextCount) nextCount = savedCount;
         const inputsSection = queryNodeControl(node.el, '.node-inputs-section');
         if (!inputsSection) return;
 
@@ -1254,25 +1258,30 @@ export function createNodeDomBindingsApi({
                 : '连接多个图片输入后，输出合并后的多图数据';
         }
 
-        const currentPorts = Array.from(inputsSection.querySelectorAll('.node-port.input')).map((port) => port.dataset.port);
-        const unchanged = currentPorts.length === nextPorts.length && currentPorts.every((port, index) => port === nextPorts[index]);
+        const universal = isUniversalInputNode(node);
+        const current = Array.from(inputsSection.querySelectorAll('.node-port.input'));
+        const canonical = current.filter(port => port.dataset.port !== 'auto');
+        const unchanged = canonical.length === nextPorts.length && canonical.every((port, index) => port.dataset.port === nextPorts[index]
+            && (!universal || port.hidden && port.classList.contains('image-first-canonical-input')))
+            && (!universal || current.filter(port => port.dataset.port === 'auto').length === 1);
         if (unchanged) return;
 
-        inputsSection.innerHTML = nextPorts.map((_, index) => renderImageMergeInputPort(nodeId, index)).join('');
+        inputsSection.innerHTML = nextPorts.map((_, index) => renderImageMergeInputPort(nodeId, index, universal)).join('')
+            + (universal ? `<div class="node-port input universal-input" data-node-id="${nodeId}" data-port="auto" data-type="any" data-direction="input"><div class="port-dot type-any"></div><span class="port-label">输入</span></div>` : '');
         bindNodePorts(inputsSection);
         bindZoomSettleGuard(inputsSection);
 
         const validPortSet = new Set(nextPorts);
         const beforeConnectionCount = state.connections.length;
         state.connections = state.connections.filter((connection) => (
-            connection.to.nodeId !== nodeId || validPortSet.has(connection.to.port)
+            universal || connection.to.nodeId !== nodeId || validPortSet.has(connection.to.port)
         ));
         const removedConnections = beforeConnectionCount !== state.connections.length;
         syncCollapsedUnusedPorts(nodeId);
         refreshNodePortGeometry(nodeId, { force: removedConnections });
         updatePortStyles();
         if (removedConnections) onConnectionsChanged();
-        scheduleSave();
+        if (!universal || removedConnections) scheduleSave();
     }
 
     function refreshTextMergeInputPorts(nodeId, nextCount = getTextMergeConnectedInputCount(nodeId) + 1) {
@@ -2948,6 +2957,7 @@ export function createNodeDomBindingsApi({
         else if (type === 'ImagePreview') setupImagePreview(id, el);
         else if (type === 'ImageMerge') {
             refreshImageMergeInputPorts(id, Math.max(state.nodes.get(id)?.data?.inputCount || 1, getImageMergeConnectedInputCount(id) + 1));
+            setupImageMerge(id, el);
             fitNodeToContent(id);
         }
         else if (type === 'TextMerge') {

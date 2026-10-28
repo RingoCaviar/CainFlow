@@ -23,7 +23,7 @@ function describeSource(state, edge, referenceGroup) {
 }
 
 /** Presentation of the authoritative edges; edits are delegated to the graph API. */
-export function createImageInputDetail({ state, node, documentRef, updateInputConnection, swapInputConnections, onChange = () => {} }) {
+export function createImageInputDetail({ state, node, documentRef, updateInputConnection, swapInputConnections, moveMergeInputConnection, onChange = () => {} }) {
     const element = documentRef.createElement('section');
     element.className = 'image-input-detail';
     element.setAttribute('aria-label', '输入明细');
@@ -63,8 +63,23 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
             statusMessage = error?.message || '交换失败，请重试。';
         } finally { pending = false; refresh(true); }
     }
+    async function move(edgeId, direction) {
+        if (!moveMergeInputConnection || pending) return;
+        pending = true; statusMessage = ''; refresh(true);
+        try {
+            const result = await moveMergeInputConnection(edgeId, direction);
+            statusMessage = result?.error || '';
+            if (result?.changed) { replacing = null; onChange(node.id); }
+        } catch (error) {
+            statusMessage = error?.message || '排序失败，请重试。';
+        } finally { pending = false; refresh(true); }
+    }
     function refresh(force = false) {
         const edges = state.connections.filter(edge => edge.to.nodeId === node.id);
+        if (node.type === 'ImageMerge') edges.sort((left, right) => (
+            (Number(left.to.port.match(/^image_(\d+)$/)?.[1]) || Infinity)
+            - (Number(right.to.port.match(/^image_(\d+)$/)?.[1]) || Infinity)
+        ));
         const references = new Map(projectImageReferences({ state, targetId: node.id }).groups.map(group => [group.connection.id, group]));
         const descriptions = edges.map(edge => describeSource(state, edge, references.get(edge.id)));
         const candidates = replacing ? outputs() : [];
@@ -74,7 +89,7 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
             [id, from, to, type, order, maskConsumption]
         )), descriptions.map(({ type, count, title, status, source }) => (
             [type, count, title, status, state.runningNodeIds?.has(source?.id)]
-        )), candidates, running, editing, !!updateInputConnection, !!swapInputConnections, pending, statusMessage]);
+        )), candidates, running, editing, !!updateInputConnection, !!swapInputConnections, !!moveMergeInputConnection, pending, statusMessage]);
         if (!force && signature === nextSignature) return;
         signature = nextSignature;
         element.replaceChildren();
@@ -87,10 +102,10 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
                 || descriptions.some(({ source }) => state.runningNodeIds?.has(source?.id) || ['waiting', 'running'].includes(source?.runStatus));
             swapButton.addEventListener('click', () => { void swap(); });
             actions.append(description, swapButton); element.append(actions);
-            if (statusMessage) {
-                const status = documentRef.createElement('p'); status.className = 'image-input-feedback';
-                status.setAttribute('role', 'status'); status.textContent = statusMessage; element.append(status);
-            }
+        }
+        if (statusMessage) {
+            const status = documentRef.createElement('p'); status.className = 'image-input-feedback';
+            status.setAttribute('role', 'status'); status.textContent = statusMessage; element.append(status);
         }
         if (!edges.length) {
             const empty = documentRef.createElement('p'); empty.className = 'image-input-empty';
@@ -113,7 +128,7 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
             const controls = documentRef.createElement('div'); controls.className = 'image-input-controls';
             const select = documentRef.createElement('select'); select.dataset.inputRole = '';
             select.setAttribute('aria-label', `${description.title}的输入用途`);
-            const availableRoles = getUniversalInputRoles(node).filter(([role, , type]) => type === description.type || role === edge.to.port);
+            const availableRoles = getUniversalInputRoles(node, state).filter(([role, , type]) => type === description.type || role === edge.to.port);
             if (!availableRoles.some(([role]) => role === edge.to.port)) availableRoles.push([edge.to.port, edge.to.port]);
             for (const [role, label] of availableRoles) {
                 const option = documentRef.createElement('option'); option.value = role; option.textContent = label;
@@ -135,6 +150,17 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
             replace.addEventListener('click', () => { replacing = replacing === edge.id ? null : edge.id; refresh(true); });
             disconnect.addEventListener('click', () => { void edit(edge.id, { disconnect: true }); });
             controls.append(select, replace, disconnect); row.append(controls);
+            if (node.type === 'ImageMerge') {
+                const ordering = documentRef.createElement('div'); ordering.className = 'image-input-order-controls';
+                const locked = running || editing || pending || !moveMergeInputConnection
+                    || descriptions.some(({ source }) => state.runningNodeIds?.has(source?.id) || ['waiting', 'running'].includes(source?.runStatus));
+                const up = button('前移', 'move-up', edge.id), down = button('后移', 'move-down', edge.id);
+                up.disabled = locked || index === 0; down.disabled = locked || index === edges.length - 1;
+                up.setAttribute('aria-label', `前移${description.title}`); down.setAttribute('aria-label', `后移${description.title}`);
+                up.addEventListener('click', () => { void move(edge.id, -1); });
+                down.addEventListener('click', () => { void move(edge.id, 1); });
+                ordering.append(up, down); row.append(ordering);
+            }
             if (edge.to.port === 'mask' && edge.maskConsumption !== 'single') {
                 const compatibility = documentRef.createElement('span'); compatibility.className = 'image-input-compatibility';
                 compatibility.textContent = '使用来源第 1 张 · 旧连接兼容'; row.append(compatibility);

@@ -226,6 +226,7 @@ export function serializeRuntimeNode(node, doc) {
         ? node.data.mediaAssetKeys.filter((key) => typeof key === 'string' && key)
         : (imageAssetKey.startsWith('media:') ? [imageAssetKey] : []);
     if (mediaAssetKeys.length > 0 && !isTransientImageGeneration) serialized.mediaAssetKeys = mediaAssetKeys;
+    if (node.type === 'ImageMerge' && node.data?.mediaIntegrity?.state === 'missing') serialized.mediaIntegrity = clonePlainValue(node.data.mediaIntegrity);
     if (hasNodeCapability(node.type, NODE_CAPABILITIES.IMAGE_RESULT)) {
         if (usesCanonicalImages) {
             if (imageAssetKey && !isTransientImageGeneration) serialized.imageAssetKey = imageAssetKey;
@@ -363,6 +364,10 @@ export function serializeRuntimeNode(node, doc) {
     }
     if (node.type === 'ImageMerge' || node.type === 'TextMerge') {
         serialized.inputCount = Math.max(1, parseInt(node.data?.inputCount || '1', 10) || 1);
+        if (node.type === 'ImageMerge' && node.mergeInputState) {
+            serialized.mergeInputState = node.mergeInputState;
+            serialized.mergeMessage = node.mergeMessage || '';
+        }
     }
     if (node.type === 'Text') {
         serialized.text = readElementControlValue(doc, `${node.id}-text`, node.data?.text || '');
@@ -573,6 +578,8 @@ export function createWorkflowRuntimeManager({
     syncImagePreviewNode = async () => {},
     syncImageSaveNode = async () => {},
     syncImageCompareNode = async () => {},
+    syncImageMergeNode = async () => {},
+    renderImageMergePreview = () => {},
     syncCameraControlNode = () => {},
     refreshDependentImageResizePreviews = async () => {},
     restoreImageResizePreview = () => {},
@@ -971,20 +978,30 @@ export function createWorkflowRuntimeManager({
             syncVisibleVideoGenerateNode(runtimeNode, node);
         } else if (runtimeNode.type === 'Text') {
             syncVisibleTextNode(runtimeNode, node);
-        } else if (runtimeNode.type === 'TextMerge' || runtimeNode.type === 'ImageMerge') {
+        } else if (runtimeNode.type === 'ImageMerge') {
+            const images = getCanonicalImageList(runtimeNode);
+            for (const field of ['mediaAssetKeys', 'imageAssetKey', 'imageCount', 'imageAssetReady', 'mediaIntegrity']) {
+                if (runtimeNode.data?.[field] !== undefined) node.data[field] = clonePlainValue(runtimeNode.data[field]);
+                else delete node.data[field];
+            }
+            if (!Number.isFinite(node.imagePreviewIndex)) node.imagePreviewIndex = runtimeNode.imagePreviewIndex || 0;
+            if (!images.length && runtimeNode.isSucceeded === true && node.data.mediaAssetKeys?.length) {
+                node.mergeInputState = 'current'; node.mergeMessage = '';
+                renderImageMergePreview(runtimeNodeId, getCanonicalImageList(node));
+            } else await syncImageMergeNode(runtimeNodeId, images);
+            if (runtimeNode.mergeInputState === 'stale') {
+                node.mergeInputState = 'stale';
+                node.mergeMessage = runtimeNode.mergeMessage || '无有效输入，保留上次结果，未更新';
+                const preview = node.el?.querySelector?.(`#${runtimeNodeId}-merge-preview`);
+                if (preview) { preview.dataset.mergeState = 'stale'; preview.dataset.mergeMessage = node.mergeMessage; }
+            }
+        } else if (runtimeNode.type === 'TextMerge') {
             const summary = documentRef.getElementById(`${runtimeNodeId}-merge-summary`);
             if (summary) {
-                if (runtimeNode.type === 'ImageMerge') {
-                    const images = getCanonicalImageList(runtimeNode, { includeResizePreview: false });
-                    summary.textContent = images.length > 0
-                        ? `已合并 ${images.length} 张图片`
-                        : '连接多个图片输入后，输出合并后的多图数据';
-                } else {
-                    const texts = getTextInputList(runtimeNode?.data?.texts);
-                    summary.textContent = texts.length > 0
-                        ? `已合并 ${texts.length} 段文本`
-                        : '连接多个文本输入后，输出合并后的多文本数据';
-                }
+                const texts = getTextInputList(runtimeNode?.data?.texts);
+                summary.textContent = texts.length > 0
+                    ? `已合并 ${texts.length} 段文本`
+                    : '连接多个文本输入后，输出合并后的多文本数据';
             }
         } else if (runtimeNode.type === 'CameraControl') {
             const imageValue = typeof runtimeNode?.data?.image === 'string'
@@ -1356,6 +1373,37 @@ export function createWorkflowRuntimeManager({
                 placeholderWithIcon: false
             });
         };
+        const renderImageMergePreview = (nodeId, images) => {
+            const node = getRuntimeNode(nodeId);
+            if (!node) return;
+            const preview = doc.getElementById(`${nodeId}-merge-preview`);
+            const count = Math.max(getRuntimeDisplayImageCount(node), node.data?.mediaAssetKeys?.length || 0);
+            if (preview) {
+                renderDisplayImagePreview(preview, node, images, { totalCount: count, altPrefix: '合并结果', placeholderClass: 'preview-placeholder', emptyMessage: '等待图片输入', placeholderWithIcon: true });
+                preview.dataset.mergeState = node.mergeInputState || (count ? 'current' : 'empty');
+                if (node.mergeMessage) preview.dataset.mergeMessage = node.mergeMessage;
+                else delete preview.dataset.mergeMessage;
+            }
+            const summary = doc.getElementById(`${nodeId}-merge-summary`);
+            if (summary) summary.textContent = node.mergeMessage || (count ? `已合并 ${count} 张图片` : '等待图片输入');
+        };
+        const syncImageMergeNode = async (nodeId, images) => {
+            const node = getRuntimeNode(nodeId);
+            if (!node || node.type !== 'ImageMerge') return;
+            const values = normalizeImageList(images);
+            if (!values.length) {
+                node.mergeInputState = getCanonicalImageList(node).length || node.data?.mediaAssetKeys?.length ? 'stale' : 'empty';
+                node.mergeMessage = node.mergeInputState === 'stale' ? '无有效输入，保留上次结果，未更新' : '等待图片输入';
+                node.isSucceeded = false;
+            } else {
+                const index = node.imagePreviewIndex || 0;
+                setCanonicalImageOutput(node, values, { currentIndex: index, assetKey: node.data?.imageAssetKey || nodeId, imageCount: Math.max(values.length, node.data?.mediaAssetKeys?.length || 0), assetReady: node.data?.imageAssetReady === true });
+                node.imagePreviewIndex = Math.max(0, Math.min(Math.max(values.length, node.data?.mediaAssetKeys?.length || 0) - 1, index));
+                node.mergeInputState = node.data?.mediaIntegrity?.missingItems?.length ? 'stale' : 'current';
+                node.mergeMessage = node.mergeInputState === 'stale' ? '来源原图缺失，缺失位置已保留，预览未更新' : '';
+            }
+            renderImageMergePreview(nodeId, getCanonicalImageList(node));
+        };
         const renderImageComparePreview = (nodeId, imageA = null, imageB = null) => {
             const node = getRuntimeNode(nodeId);
             if (!node) return;
@@ -1430,6 +1478,8 @@ export function createWorkflowRuntimeManager({
             },
             renderImagePreviewImage,
             renderImageSavePreview,
+            renderImageMergePreview,
+            syncImageMergeNode,
             renderImageComparePreview,
             syncImagePreviewNode: async (nodeId, imageData) => {
                 const node = getRuntimeNode(nodeId);
@@ -1660,6 +1710,7 @@ export function createWorkflowRuntimeManager({
             setupImageSave: () => {},
             setupImagePreview: () => {},
             setupImageCompare: () => {},
+            setupImageMerge: () => {},
             setupCameraControlNode: (id) => runtimeCameraApi.setupCameraControlNode(id, runtimeDocument.getElementById(id)),
             copyToClipboard,
             showToast,
@@ -1692,6 +1743,7 @@ export function createWorkflowRuntimeManager({
             renderImagePreviewImage: runtimeMediaApi.renderImagePreviewImage,
             renderImageSavePreview: runtimeMediaApi.renderImageSavePreview,
             renderImageComparePreview: runtimeMediaApi.renderImageComparePreview,
+            renderImageMergePreview: runtimeMediaApi.renderImageMergePreview,
             bindNodeInteractions: editorPreparation
                 ? () => {}
                 : ({ id, type, el }) => runtimeNodeBindingsApi.bindNodeInteractions({ id, type, el }),
@@ -1743,6 +1795,7 @@ export function createWorkflowRuntimeManager({
             syncImagePreviewNode: runtimeMediaApi.syncImagePreviewNode,
             syncImageSaveNode: runtimeMediaApi.syncImageSaveNode,
             syncImageCompareNode: runtimeMediaApi.syncImageCompareNode,
+            syncImageMergeNode: runtimeMediaApi.syncImageMergeNode,
             syncCameraControlNode: (nodeId, imageValue) => runtimeCameraApi.syncCameraControlFromExecution(nodeId, imageValue),
             fitNodeToContent: () => {},
             scheduleSave: () => syncRuntimeWorkflowSnapshot(context),

@@ -18,7 +18,7 @@ import {
 } from '../nodes/generation-input-projection.js';
 import { getGenerationInputProtocolId, getModelsForTask } from '../features/execution/provider-request-utils.js';
 import { getProtocol } from '../features/execution/protocols/index.js';
-import { isUniversalInputNode, resolveUniversalInput, planCompareInputSwap } from '../nodes/universal-input-policy.js';
+import { isUniversalInputNode, resolveUniversalInput, planCompareInputSwap, planMoveMergeInput } from '../nodes/universal-input-policy.js';
 
 export function createConnectionsApi({
     state,
@@ -1723,16 +1723,23 @@ export function createConnectionsApi({
         return { changed: true, error: '' };
     }
 
-    function swapInputConnections(nodeId) {
+    function applyInputConnectionPlan(plan) {
         const fail = error => { showToast(error, 'warning'); return { changed: false, error }; };
-        const node = getNodeById(nodeId);
-        const plan = planCompareInputSwap({ state, node });
         if (plan.error) return fail(plan.error);
-        if (state.connections.some(edge => edge.to.nodeId === nodeId && hasRunningEndpoint(edge))) return fail('节点正在运行，暂不能交换输入');
+        if (!plan.connections) return { changed: false, error: '' };
+        if (state.connections.some((edge, index) => edge !== plan.connections[index] && hasRunningEndpoint(edge))) return fail('节点正在运行，暂不能修改输入顺序');
         try { pushHistory(); } catch (error) { return fail(error.message || '画布正在修改，请稍后再交换'); }
         state.connections = plan.connections;
         updateAllConnections(); updatePortStyles(); scheduleSave(); onConnectionsChanged();
         return { changed: true, error: '' };
+    }
+
+    function swapInputConnections(nodeId) {
+        return applyInputConnectionPlan(planCompareInputSwap({ state, node: getNodeById(nodeId) }));
+    }
+
+    function moveMergeInputConnection(connectionId, direction) {
+        return applyInputConnectionPlan(planMoveMergeInput({ state, connectionId, direction }));
     }
 
     function drawTempConnection(x1, y1, x2, y2, startsAtOutput = true) {
@@ -1822,6 +1829,7 @@ export function createConnectionsApi({
         finishConnection,
         updateInputConnection,
         swapInputConnections,
+        moveMergeInputConnection,
         drawTempConnection,
         updatePortStyles
     };

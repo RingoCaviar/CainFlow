@@ -15,10 +15,7 @@ export function createConnectionId() {
 
 function cloneEndpoint(endpoint) {
     if (!endpoint?.nodeId || !endpoint?.port) return null;
-    return {
-        nodeId: endpoint.nodeId,
-        port: endpoint.port
-    };
+    return { ...endpoint };
 }
 
 function cloneConnectionSnapshot(connection) {
@@ -121,6 +118,7 @@ function canAppendConnection(state, connection) {
 
 function mapEndpoint(endpoint, idMap) {
     return {
+        ...endpoint,
         nodeId: idMap.get(endpoint.nodeId) || endpoint.nodeId,
         port: endpoint.port
     };
@@ -133,14 +131,13 @@ function buildMappedConnection(snapshot, idMap, kind) {
     if (kind === 'internal' && (!hasMappedFrom || !hasMappedTo)) return null;
     if (kind === 'external' && hasMappedFrom === hasMappedTo) return null;
 
-    return {
+    return serializeConnection({
+        ...snapshot,
         id: createConnectionId(),
         from: mapEndpoint(snapshot.from, idMap),
         to: mapEndpoint(snapshot.to, idMap),
-        type: snapshot.type || '',
-        ...(snapshot.to.port === 'mask' ? { maskConsumption: snapshot.maskConsumption === 'single' ? 'single' : 'legacy-first' } : {}),
-        ...(Number.isFinite(Number(snapshot.order)) ? { order: Number(snapshot.order) } : {})
-    };
+        type: snapshot.type || ''
+    });
 }
 
 function appendConnectionList(state, idMap, entries) {
