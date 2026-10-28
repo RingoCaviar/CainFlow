@@ -4,7 +4,7 @@ const MEDIA_OWNER_TYPES = Object.freeze({
     ImageImport: 'workflow-import'
 });
 const MEDIA_OWNER_NODE_TYPES = new Set([
-    'ImageGenerate', 'ImagePreview', 'ImageImport', 'ImageResize', 'ImageSave', 'ImageCompare', 'ImageMerge'
+    'ImageGenerate', 'ImagePreview', 'ImageImport', 'ImageResize', 'ImageSave', 'ImageCompare', 'ImageMerge', 'VideoGenerate'
 ]);
 
 function readMediaAssetKeys(node) {
@@ -12,8 +12,22 @@ function readMediaAssetKeys(node) {
         ? node.data.mediaAssetKeys
         : (Array.isArray(node?.mediaAssetKeys) ? node.mediaAssetKeys : []);
     const importKey = node?.imageImportAssetKey || node?.data?.imageImportAssetKey;
-    return [...keys, ...(keys.length === 0 && importKey ? [importKey] : [])]
+    const result = [...keys, ...(keys.length === 0 && importKey ? [importKey] : [])]
         .filter((key) => typeof key === 'string' && key.startsWith('media:'));
+    const videos = node?.data?.videos ?? node?.videos;
+    const single = node?.data?.video ?? node?.video;
+    const videoKeys = (Array.isArray(videos) && videos.length ? videos.map(video => video?.assetKey)
+        : [single?.assetKey || node?.data?.videoAssetKey || node?.videoAssetKey])
+        .filter(key => typeof key === 'string' && key.startsWith('media:'));
+    // Existing video-node manifests may already contain the video list. Merge
+    // missing occurrences while keeping repeated batch positions and order.
+    const available = new Map(), required = new Map();
+    result.forEach(key => available.set(key, (available.get(key) || 0) + 1));
+    for (const key of videoKeys) {
+        const count = (required.get(key) || 0) + 1; required.set(key, count);
+        if (count > (available.get(key) || 0)) result.push(key);
+    }
+    return result;
 }
 
 export function getPromptAgentResultRuns(workflow) {

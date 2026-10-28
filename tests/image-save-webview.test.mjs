@@ -6,7 +6,9 @@ for (const mediaType of ['image', 'video']) test(`ImageSave button hands ${media
     const saved = [];
     const video = { url: '/api/storage/assets/media%3Avideo-1' };
     const image = 'data:image/png;base64,AAAA';
-    const node = { id: 'save-1', type: 'ImageSave', data: mediaType === 'video' ? { video } : { image } };
+    const node = { id: 'save-1', type: 'ImageSave', data: { ...(mediaType === 'video' ? { video } : { image }), filename: 'video' } };
+    const videoBytes = new Uint8Array(1024);
+    videoBytes.set([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70]);
     const listeners = new Map();
     const elements = {
         '#save-1-save-preview': { dataset: {}, addEventListener(type, handler) { listeners.set(`preview:${type}`, handler); } },
@@ -31,6 +33,10 @@ for (const mediaType of ['image', 'video']) test(`ImageSave button hands ${media
         getNodeById: () => node,
         showToast() {}, addLog() {}, scheduleSave() {},
         dataURLtoBlob: () => new Blob(['image'], { type: 'image/png' }), estimateDataUrlSize: () => 0,
+        fetchRef: async url => {
+            assert.equal(url, video.url);
+            return new Response(videoBytes, { headers: { 'Content-Type': 'video/mp4' } });
+        },
         documentRef, windowRef
     });
     api.setupImageSave(node.id, { querySelector: (selector) => elements[selector] });
@@ -38,5 +44,9 @@ for (const mediaType of ['image', 'video']) test(`ImageSave button hands ${media
     await listeners.get('save:click')();
 
     assert.equal(saved.length, 1);
-    assert.equal(saved[0][2], mediaType === 'video' ? video.url : image);
+    if (mediaType === 'video') {
+        assert.ok(saved[0][2] instanceof Blob);
+        assert.equal(saved[0][1], 'video/mp4');
+        assert.deepEqual(new Uint8Array(await saved[0][2].arrayBuffer()), videoBytes);
+    } else assert.equal(saved[0][2], image);
 });

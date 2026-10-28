@@ -126,6 +126,7 @@ for (const type of allTypes) for (const direction of ['input', 'output']) {
                 const selector = `#source .node-port[data-direction="${direction}"][data-port="${port.name}"] .port-dot`;
                 const expected = direction === 'input' && type === 'ImageGenerate' && port.name === 'auto'
                     ? allTypes.filter(type => type !== 'VideoGenerate')
+                    : direction === 'input' && type === 'ImageSave' && port.name === 'auto' ? [...new Set([...outputCandidates.image, ...outputCandidates.video])]
                     : direction === 'input' && ['ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge'].includes(type) && port.name === 'auto' ? outputCandidates.image
                     : (direction === 'output' ? inputCandidates : outputCandidates)[port.type];
                 assert.ok(expected?.length, `known compatibility contract for ${type}.${port.name}`);

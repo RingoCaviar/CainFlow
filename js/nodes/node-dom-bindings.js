@@ -42,6 +42,7 @@ import { activateProtocolVariantDraft, getProtocolVariantDraftKey, saveProtocolV
 import { getPrimaryImageImportMediaAssetReference, getPrimaryTextInput } from '../features/execution/execution-data-utils.js';
 import { getSurfaceCoordinator } from '../features/ui/surface-coordinator.js';
 import { isUniversalInputNode } from './universal-input-policy.js';
+import { readImageSaveFilename } from './image-save-settings.js';
 
 export function createNodeDomBindingsApi({
     state,
@@ -1738,6 +1739,8 @@ export function createNodeDomBindingsApi({
         if (!node) return;
         node.data = node.data || {};
 
+        if (type === 'ImageSave') node.filename = node.data.filename = readImageSaveFilename(node);
+
         const readValue = (suffix, fallback = '') => (
             documentRef.getElementById(`${id}-${suffix}`)?.value ?? fallback
         );
@@ -3266,7 +3269,7 @@ export function createNodeDomBindingsApi({
         el.addEventListener('input', () => syncDependentPromptSources(id));
         el.addEventListener('change', () => syncDependentPromptSources(id));
         queryNodeControls(el, 'input, select, textarea').forEach((input) => {
-            if (type === 'ImageGenerate') input.addEventListener('input', () => syncNodeFormData(id, type));
+            if (type === 'ImageGenerate' || type === 'ImageSave') input.addEventListener('input', () => syncNodeFormData(id, type));
             input.addEventListener('change', () => {
                 syncNodeFormData(id, type);
                 if (!state.nodes.get(id)?.isClone) syncClonesFromSource(id);

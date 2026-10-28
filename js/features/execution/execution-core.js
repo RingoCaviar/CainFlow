@@ -2467,6 +2467,10 @@ export function createExecutionCoreApi({
                 const payload = { images: imageList, video: previewVideo, videos: videoList };
                 await syncImageSaveNode(id, payload);
                 await autoSaveToDir(id, payload);
+            } else {
+                node.saveInputState = getCanonicalImageList(node).length || node.data?.videos?.length || node.data?.video ? 'stale' : 'empty';
+                const preview = node.el?.querySelector?.(`#${id}-save-preview`);
+                if (preview) { preview.dataset.saveState = node.saveInputState; preview.dataset.saveMessage = '无有效输入，保留原有媒体，未更新'; }
             }
             if (imageList.length > 0) {
                 await refreshDependentImageResizePreviews(id);

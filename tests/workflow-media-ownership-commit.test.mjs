@@ -8,6 +8,21 @@ import {
     prepareWorkflowMediaOwnershipCommit
 } from '../js/features/media/workflow-media-ownership-commit.js';
 
+test('mixed Save owners retain ordered image and video assets without duplicating the compatibility video', () => {
+    const videos = [{ assetKey: 'media:v1' }, { assetKey: 'media:v2' }, { assetKey: 'media:v2' }];
+    assert.deepEqual(collectWorkflowMediaOwnerLists({ nodes: [
+        { id: 'save', type: 'ImageSave', mediaAssetKeys: ['media:i1', 'media:i2'], videos, video: videos[2] },
+        { id: 'source', type: 'VideoGenerate', data: { mediaAssetKeys: ['media:v1', 'media:v2', 'media:v2'], videos, video: videos[2] } },
+        { id: 'legacy', type: 'ImageSave', video: { assetKey: 'media:legacy' } },
+        { id: 'empty', type: 'VideoGenerate', data: {} }
+    ] }), [
+        { ownerType: 'workflow-node', ownerId: 'save', assetKeys: ['media:i1', 'media:i2', 'media:v1', 'media:v2', 'media:v2'] },
+        { ownerType: 'workflow-node', ownerId: 'source', assetKeys: ['media:v1', 'media:v2', 'media:v2'] },
+        { ownerType: 'workflow-node', ownerId: 'legacy', assetKeys: ['media:legacy'] },
+        { ownerType: 'workflow-node', ownerId: 'empty', assetKeys: [] }
+    ]);
+});
+
 test('Agent archived and current results retain ordered independent owners after source deletion', async () => {
     const calls = [];
     const old = { runId: 'old', mediaAssetKeys: ['media:a', 'media:a'] };

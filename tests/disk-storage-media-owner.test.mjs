@@ -2,6 +2,35 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createDiskStorageApi } from '../js/services/storage-disk.js';
 
+test('binary node media is encoded for atomic owner materialization with its MIME, order and operation identity intact', async () => {
+    const originalFetch = globalThis.fetch, originalReader = globalThis.FileReader;
+    const requests = [];
+    globalThis.FileReader = class {
+        readAsDataURL(blob) { void blob.arrayBuffer().then(bytes => { this.result = `data:${blob.type};base64,${Buffer.from(bytes).toString('base64')}`; this.onload?.(); }); }
+    };
+    globalThis.fetch = async (_url, options) => {
+        const request = JSON.parse(options.body); requests.push(request);
+        return new Response(JSON.stringify({ success: true, assets: request.values.map((_value, index) => ({ asset_key: `media:${index}` })) }));
+    };
+    try {
+        const api = createDiskStorageApi(() => ({}));
+        const video = new Blob(['actual-binary'], { type: 'video/webm' });
+        const image = 'data:image/png;base64,aW1hZ2U=';
+        assert.equal((await api.saveWorkflowNodeMediaAsset(video, 'wf', 'single', 'one')).asset_key, 'media:0');
+        const result = await api.saveWorkflowNodeMediaAssets([video, image, video], 'wf', 'batch', 'many');
+        assert.equal(result.length, 3);
+        assert.deepEqual(requests.map(request => request.values), [
+            ['data:video/webm;base64,YWN0dWFsLWJpbmFyeQ=='],
+            ['data:video/webm;base64,YWN0dWFsLWJpbmFyeQ==', image, 'data:video/webm;base64,YWN0dWFsLWJpbmFyeQ==']
+        ]);
+        assert.equal(requests[1].ownerId, '["wf","batch","many"]');
+        assert.ok(result.every(asset => asset.mediaTemporaryOwnerId === requests[1].ownerId));
+    } finally {
+        globalThis.fetch = originalFetch;
+        if (originalReader === undefined) delete globalThis.FileReader; else globalThis.FileReader = originalReader;
+    }
+});
+
 test('history restore checks media metadata and treats transport errors as unknown', async () => {
     const originalFetch = globalThis.fetch;
     const requests = [];

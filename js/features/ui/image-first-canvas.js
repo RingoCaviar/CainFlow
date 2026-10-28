@@ -6,7 +6,7 @@ import { isImageFirstCardNode } from '../../nodes/image-first-presentation.js';
 import { getCanonicalImageList, getCanonicalImageIndex } from '../execution/execution-data-utils.js';
 import { projectImageOutput } from '../../nodes/image-output-projection.js';
 
-const nodeLabels = { ImageGenerate: '图片生成', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比', ImageMerge: '多图合一' };
+const nodeLabels = { ImageGenerate: '图片生成', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比', ImageMerge: '多图合一', ImageSave: '保存节点' };
 
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
@@ -114,6 +114,12 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             view.model.textContent = `${nodeLabels[node.type]}${message ? ` · ${message}` : ''}`;
             const edges = state.connections.filter(edge => edge.to.nodeId === node.id);
             view.references.textContent = `A ${edges.some(edge => edge.to.port === 'imageA') ? '已连接' : '可选'} · B ${edges.some(edge => edge.to.port === 'imageB') ? '已连接' : '必需'}`;
+        } else if (node.type === 'ImageSave') {
+            const { count } = projectImageOutput(node, getCanonicalImageList(node));
+            const videos = Array.isArray(node.data?.videos) && node.data.videos.length ? node.data.videos : node.data?.video ? [node.data.video] : [];
+            const message = node.el.querySelector('.save-preview-container')?.dataset.saveMessage;
+            view.model.textContent = `图片 ${count} 张 · 视频 ${videos.length} 个${message ? ` · ${message}` : ''}`;
+            view.references.textContent = `输入 ${state.connections.filter(edge => edge.to.nodeId === node.id).length}`;
         }
         view.inputs?.refresh();
         if (current === node) {
@@ -122,6 +128,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             generate.textContent = node.type === 'ImagePreview' ? (running ? '更新中' : '更新预览')
                 : node.type === 'ImageCompare' ? (running ? '更新中' : '更新对比')
                 : node.type === 'ImageMerge' ? (running ? '合并中' : '更新合并')
+                : node.type === 'ImageSave' ? (running ? '更新中' : '更新媒体')
                 : node.type === 'ImageResize' ? (running ? '处理中' : '处理图片')
                     : node.type === 'ColorReset' ? (running ? '调色中' : '应用调色') : (running ? '生成中' : '生成');
             generate.disabled = running || node.enabled === false;
@@ -129,6 +136,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 : node.type === 'ImagePreview' ? (node.previewInputState === 'stale' ? '未更新 · 当前无输入' : node.previewInputState === 'empty' ? '当前无输入' : '预览当前连接的图片')
                     : node.type === 'ImageCompare' ? node.el.querySelector('.image-compare-container')?.dataset.compareMessage || 'B 为必需输入；A 可选，移动指针调整分界。'
                     : node.type === 'ImageMerge' ? node.el.querySelector('.image-merge-preview')?.dataset.mergeMessage || '按图片输入的数字顺序合并每个来源的完整批次。'
+                    : node.type === 'ImageSave' ? node.el.querySelector('.save-preview-container')?.dataset.saveMessage || '修改文件名后，使用卡片上的保存按钮保存媒体。'
                     : node.type === 'ImageResize' || node.type === 'ColorReset' ? '修改即时预览；点击按钮执行当前节点。'
                     : documentRef.getElementById(`${node.id}-run-status`)?.textContent || '修改不会自动生成';
             schedulePosition();
@@ -197,7 +205,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         form.addEventListener('change', () => { refreshNode(node.id); onSettingsChanged(node.id); });
         node.el.addEventListener('click', event => {
             if (event.target.closest('.color-reset-preview.is-picking,.image-compare-divider')) return;
-            if (!event.target.closest('button,input,textarea,select,.node-port,.node-select')) select(node);
+            if (!event.target.closest('button,input,textarea,select,video,.node-port,.node-select')) select(node);
         });
         if (!Array.isArray(node.el._cleanupFns)) node.el._cleanupFns = [];
         node.el._cleanupFns.push(() => remove(node));
@@ -229,12 +237,19 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             form.append(urlFields);
             observed.push(body.querySelector(`[id="${node.id}-upload-section"]`), urlSection);
         } else {
+            if (node.type === 'ImageSave') {
+                const warning = body.querySelector(`[id="${node.id}-path-warning"]`);
+                const filename = body.querySelector(`[id="${node.id}-filename"]`)?.closest('.node-field');
+                if (warning) form.append(warning);
+                if (filename) form.append(filename);
+            }
             installUniversalInput(node);
             inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, swapInputConnections, moveMergeInputConnection, onChange: () => refreshNode(node.id) });
             inputs.element.dataset.parameterGroup = 'input'; sections.push(inputs.element); form.append(inputs.element);
             references = documentRef.createElement('button'); references.type = 'button';
             references.addEventListener('click', () => select(node, 'input')); summary.append(references);
-            observed.push(body.querySelector(`[id="${node.id}-${node.type === 'ImageCompare' ? 'compare' : node.type === 'ImageMerge' ? 'merge-preview' : 'preview'}"]`));
+            const suffix = { ImageCompare: 'compare', ImageMerge: 'merge-preview', ImageSave: 'save-preview' }[node.type] || 'preview';
+            observed.push(body.querySelector(`[id="${node.id}-${suffix}"]`));
         }
         body.append(summary);
         registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, model, references, inputs, urlFields,
@@ -277,7 +292,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         sweep();
         const node = state.nodes.get(nodeId);
         if (!isImageFirstCardNode(node) || views.has(node)) return;
-        if (node.type === 'ImageImport' || node.type === 'ImagePreview' || node.type === 'ImageCompare' || node.type === 'ImageMerge') { installMedia(node); return; }
+        if (node.type === 'ImageImport' || node.type === 'ImagePreview' || node.type === 'ImageCompare' || node.type === 'ImageMerge' || node.type === 'ImageSave') { installMedia(node); return; }
         if (node.type === 'ImageResize' || node.type === 'ColorReset') { installProcessing(node); return; }
         if (node.type !== 'ImageGenerate') return;
         const body = node.el.querySelector('.node-body');
