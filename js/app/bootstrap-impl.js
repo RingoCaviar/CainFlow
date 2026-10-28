@@ -700,6 +700,8 @@ function buildImageResultActions(source, options = {}) {
 }
 registry.imageFirstCanvasApi = createImageFirstCanvas({
     state, selectionApi, documentRef: document, windowRef: window, storage: diskStorage,
+    panelManager,
+    openAgent: () => promptAgentController.open(),
     runToNode: nodeId => runWorkflow({ mode: 'target-node', targetNodeId: nodeId }),
     fitNode: (id, options) => fitNodeToContent(id, options),
     bindPorts: container => nodeDomBindingsApi.bindNodePorts(container),

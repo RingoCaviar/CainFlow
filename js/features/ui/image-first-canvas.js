@@ -6,39 +6,104 @@ import { isImageFirstCardNode } from '../../nodes/image-first-presentation.js';
 import { getCanonicalImageList, getCanonicalImageIndex } from '../execution/execution-data-utils.js';
 import { projectImageOutput } from '../../nodes/image-output-projection.js';
 import { normalizeCameraState } from '../camera/camera-prompt-utils.js';
+import { getSurfaceCoordinator } from './surface-coordinator.js';
 
 const nodeLabels = { ImageGenerate: '图片生成', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比', ImageMerge: '多图合一', ImageSave: '保存节点', CameraControl: '视角控制' };
 const cameraFields = [['pitch', '俯仰角 Pitch'], ['yaw', '偏航角 Yaw'], ['distance', '距离 Distance'], ['fov', '视野角 FOV'], ['roll', '翻滚角 Roll']];
 
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
-    runToNode, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection }) {
+    runToNode, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
+    panelManager = null, openAgent = () => {} }) {
     const views = new Map();
+    const surfaces = getSurfaceCoordinator(documentRef);
     const panel = documentRef.createElement('section');
     panel.id = 'image-parameter-panel';
     panel.className = 'image-parameter-panel';
     panel.setAttribute('aria-label', '节点参数');
     panel.hidden = true;
-    panel.innerHTML = `<header class="image-parameter-header"><div class="image-parameter-tools"><button type="button" data-parameter-action="close" aria-label="关闭参数面板">×</button></div></header>
+    panel.innerHTML = `<header class="image-parameter-header"><span class="image-parameter-drag-handle" tabindex="0" role="button" aria-label="拖动参数浮窗" hidden>⠿</span><div class="image-parameter-tools"><button type="button" data-parameter-action="expand" aria-label="放大参数面板" aria-pressed="false">⤢</button><button type="button" data-parameter-action="close" aria-label="关闭参数面板">×</button></div></header>
         <div class="image-parameter-scroll"></div><footer class="image-parameter-footer"><span class="image-parameter-feedback"></span><button type="button" class="save-btn" data-parameter-action="generate">生成</button></footer>
-        <span class="image-parameter-resize" tabindex="0" role="separator" aria-orientation="vertical" aria-label="调整参数面板宽度"></span>`;
+        <span class="image-parameter-resize" data-parameter-resize="width" tabindex="0" role="separator" aria-orientation="vertical" aria-label="调整参数面板宽度"></span>
+        <span class="image-parameter-resize-height" data-parameter-resize="height" tabindex="0" role="separator" aria-orientation="horizontal" aria-label="调整参数浮窗高度" hidden></span>
+        <span class="image-parameter-resize-corner" data-parameter-resize="both" tabindex="0" role="button" aria-label="调整参数浮窗大小" hidden></span>`;
     const store = documentRef.createElement('div');
     store.hidden = true;
     store.className = 'image-parameter-store';
-    documentRef.body.append(store, panel);
+    const switcher = documentRef.createElement('nav'); switcher.className = 'image-panel-switcher';
+    switcher.setAttribute('aria-label', '面板置顶');
+    switcher.innerHTML = '<button type="button" data-parameter-action="front-parameters" aria-controls="image-parameter-panel" aria-expanded="false">打开参数</button><button type="button" data-parameter-action="front-agent" aria-controls="prompt-agent-panel" aria-expanded="false">打开助手</button>';
+    documentRef.body.append(store, panel, switcher);
     const scroll = panel.querySelector('.image-parameter-scroll');
     const feedback = panel.querySelector('.image-parameter-feedback');
     const generate = panel.querySelector('[data-parameter-action="generate"]');
-    let current = null, closed = null, preferredWidth = Number(storage?.getItem('cainflow_node_parameter_width')) || 480;
-    let positionFrame = null, resizing = null;
+    const storedWidth = Number(storage?.getItem('cainflow_node_parameter_width'));
+    let current = null, closed = null, preferredWidth = storedWidth >= 280 && storedWidth <= 960 ? storedWidth : 480;
+    let positionFrame = null, gesture = null, expanded = false, expandedRect = null, returnFocusElement = null;
+    const expandButton = panel.querySelector('[data-parameter-action="expand"]');
+    const dragHandle = panel.querySelector('.image-parameter-drag-handle');
+    const widthHandle = panel.querySelector('[data-parameter-resize="width"]');
+    const heightHandle = panel.querySelector('[data-parameter-resize="height"]');
+    const cornerHandle = panel.querySelector('[data-parameter-resize="both"]');
+    const parametersFront = switcher.querySelector('[data-parameter-action="front-parameters"]');
+    const agentFront = switcher.querySelector('[data-parameter-action="front-agent"]');
+    const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
+    const available = () => {
+        const toolbar = documentRef.getElementById('toolbar');
+        // The toolbar reveals itself on hover. Keep floating controls outside
+        // its full footprint even while its translated presentation is hidden.
+        const top = expanded && toolbar?.getClientRects().length
+            ? Math.min(toolbar.offsetHeight + 12, Math.max(12, windowRef.innerHeight - 12)) : 12;
+        return { width: Math.max(1, windowRef.innerWidth - 24), height: Math.max(1, windowRef.innerHeight - top - 12), top };
+    };
+    const selectedNode = () => state.selectedNodes.size === 1 ? state.nodes.get([...state.selectedNodes][0]) : null;
+    function updateSwitcher() {
+        const node = selectedNode(), agentOpen = documentRef.getElementById('prompt-agent-panel')?.classList.contains('active');
+        parametersFront.disabled = !node || !views.has(node);
+        parametersFront.textContent = panel.hidden ? '打开参数' : '参数置顶';
+        parametersFront.setAttribute('aria-expanded', String(!panel.hidden));
+        agentFront.textContent = agentOpen ? '助手置顶' : '打开助手';
+        agentFront.setAttribute('aria-expanded', String(!!agentOpen));
+    }
+    function updateMode() {
+        panel.classList.toggle('is-expanded', expanded); panel.dataset.mode = expanded ? 'expanded' : 'normal';
+        expandButton.setAttribute('aria-label', expanded ? '还原参数面板' : '放大参数面板');
+        expandButton.setAttribute('aria-pressed', String(expanded));
+        expandButton.textContent = expanded ? '⤡' : '⤢';
+        dragHandle.hidden = heightHandle.hidden = cornerHandle.hidden = !expanded;
+    }
+    function setReturnFocus(node, candidate = documentRef.activeElement) {
+        if (candidate?.isConnected && !panel.contains(candidate) && !candidate.closest?.('.image-parameter-store')
+            && (node.el.contains(candidate) || switcher.contains(candidate))
+            && candidate.matches?.('button,input,textarea,select,a[href],[tabindex]')) returnFocusElement = candidate;
+        else { node.el.setAttribute('tabindex', '-1'); returnFocusElement = node.el; }
+    }
 
     function position() {
         if (panel.hidden || !current?.el?.isConnected) return;
         const rect = current.el.getBoundingClientRect();
-        const width = Math.max(280, Math.min(preferredWidth, windowRef.innerWidth - 24));
+        const bounds = available();
+        if (expanded) {
+            if (!expandedRect) {
+                const width = Math.min(860, bounds.width);
+                const height = Math.min(680, bounds.height, Math.max(160, windowRef.innerHeight - bounds.top * 2));
+                expandedRect = { left: (windowRef.innerWidth - width) / 2, top: (windowRef.innerHeight - height) / 2, width, height };
+            }
+            const width = Math.min(expandedRect.width, bounds.width), height = Math.min(expandedRect.height, bounds.height);
+            panel.style.setProperty('--image-parameter-available-height', `${bounds.height}px`);
+            panel.style.width = `${width}px`; panel.style.height = `${height}px`;
+            panel.style.left = `${clamp(expandedRect.left, 12, Math.max(12, windowRef.innerWidth - width - 12))}px`;
+            panel.style.top = `${clamp(expandedRect.top, bounds.top, Math.max(bounds.top, windowRef.innerHeight - height - 12))}px`;
+            heightHandle.setAttribute('aria-valuenow', String(Math.round(height)));
+            widthHandle.setAttribute('aria-valuenow', String(Math.round(width)));
+            return;
+        }
+        const width = Math.min(preferredWidth, bounds.width);
         panel.style.width = `${width}px`;
-        panel.style.left = `${Math.max(12, Math.min(windowRef.innerWidth - width - 12, rect.left + rect.width / 2 - width / 2))}px`;
+        panel.style.height = '';
+        panel.style.left = `${rect.left + rect.width / 2 - width / 2}px`;
         panel.style.top = `${rect.bottom + 50}px`;
+        widthHandle.setAttribute('aria-valuenow', String(Math.round(width)));
     }
     function schedulePosition() {
         if (positionFrame !== null || panel.hidden) return;
@@ -50,8 +115,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     }
     function close({ remember = true } = {}) {
         if (remember) closed = current;
+        finishGesture(true); expanded = false; expandedRect = null; updateMode();
         park();
         panel.hidden = true;
+        panel.setAttribute('aria-hidden', 'true'); panel.inert = true; updateSwitcher();
     }
     function remove(node) {
         const view = views.get(node);
@@ -159,15 +226,18 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     function open(node, group) {
         if (!views.has(node) || state.nodes.get(node.id) !== node) return;
         sweep();
-        if (current !== node) park();
+        if (current !== node) { finishGesture(true); setReturnFocus(node); park(); }
+        panelManager?.beforeOpen?.('parameters');
         current = node; closed = null;
-        scroll.append(node.parameterRoot);
+        if (node.parameterRoot.parentNode !== scroll) scroll.append(node.parameterRoot);
         panel.hidden = false;
+        panel.setAttribute('aria-hidden', 'false'); panel.inert = false;
         panel.dataset.nodeId = node.id;
         panel.setAttribute('aria-label', `${node.customTitle || nodeLabels[node.type]} · 节点参数`);
         if (group) { const view = views.get(node); if (view.group !== group) setGroup(node, group); }
         refreshNode(node.id);
         position();
+        surfaces?.bringToFront?.(panel); updateSwitcher();
     }
     function select(node, group) {
         if (!state.selectedNodes.has(node.id) || state.selectedNodes.size !== 1) selectionApi.setSelection([node.id]);
@@ -175,6 +245,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     }
     function selectionChanged() {
         sweep();
+        updateSwitcher();
         const ids = Array.from(state.selectedNodes);
         const node = ids.length === 1 ? state.nodes.get(ids[0]) : null;
         if (!node || !views.has(node)) { close({ remember: false }); closed = null; return; }
@@ -372,7 +443,28 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (runState) body.append(runState);
         registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, model, references, result, inputs, group: null }, [result]);
     }
-    panel.querySelector('[data-parameter-action="close"]').addEventListener('click', () => close());
+    updateMode(); updateSwitcher();
+    surfaces?.registerModeless?.(panel, { close: () => close(), isOpen: () => !panel.hidden, opener: () => returnFocusElement });
+    panelManager?.registerAuxiliary?.('parameters', { close: () => close({ remember: false }) });
+    panel.querySelector('[data-parameter-action="close"]').addEventListener('click', () => {
+        if (surfaces?.closeModeless) surfaces.closeModeless(panel); else close();
+    });
+    expandButton.addEventListener('click', () => {
+        finishGesture(true); expanded = !expanded; expandedRect = null; updateMode(); position(); surfaces?.bringToFront?.(panel);
+    });
+    parametersFront.addEventListener('click', () => {
+        const node = selectedNode();
+        if (!node || !views.has(node)) return;
+        setReturnFocus(node, parametersFront); open(node);
+    });
+    agentFront.addEventListener('click', async () => {
+        if (!documentRef.getElementById('prompt-agent-panel')?.classList.contains('active')) await openAgent();
+        const agent = documentRef.getElementById('prompt-agent-panel');
+        if (agent?.classList.contains('active')) surfaces?.bringToFront?.(agent);
+        updateSwitcher();
+    });
+    const agent = documentRef.getElementById('prompt-agent-panel');
+    if (agent) new windowRef.MutationObserver(updateSwitcher).observe(agent, { attributes: true, attributeFilter: ['class', 'hidden'] });
     generate.addEventListener('click', () => {
         if (!current) return;
         if (generate.disabled) return;
@@ -380,25 +472,65 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         runToNode(current.id);
     });
     panel.addEventListener('mousedown', event => event.stopPropagation());
-    const resize = panel.querySelector('.image-parameter-resize');
-    resize.addEventListener('pointerdown', event => {
-        if (event.button !== 0) return;
-        event.preventDefault(); resizing = { x: event.clientX, width: panel.getBoundingClientRect().width };
-        resize.setPointerCapture?.(event.pointerId);
-    });
+    function finishGesture(cancelled = false) {
+        const previous = gesture;
+        if (!previous) return;
+        gesture = null; panel.classList.remove('is-dragging', 'is-resizing');
+        if (cancelled) { preferredWidth = previous.preferredWidth; expandedRect = previous.expandedRect; }
+        else if (!expanded && previous.changed) storage?.setItem('cainflow_node_parameter_width', String(Math.round(preferredWidth)));
+        if (previous.handle.hasPointerCapture?.(previous.id)) previous.handle.releasePointerCapture(previous.id);
+        position();
+    }
+    for (const [handle, kind] of [[dragHandle, 'drag'], [widthHandle, 'width'], [heightHandle, 'height'], [cornerHandle, 'both']]) {
+        handle.addEventListener('pointerdown', event => {
+            if (event.button !== 0 || panel.hidden || (!expanded && kind !== 'width')) return;
+            event.preventDefault(); event.stopPropagation(); finishGesture(true);
+            const rect = panel.getBoundingClientRect();
+            gesture = { kind, id: event.pointerId, handle, x: event.clientX, y: event.clientY,
+                rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+                preferredWidth, expandedRect: expandedRect ? { ...expandedRect } : null, changed: false };
+            panel.classList.add(kind === 'drag' ? 'is-dragging' : 'is-resizing'); handle.setPointerCapture?.(event.pointerId);
+        });
+        handle.addEventListener('lostpointercapture', event => { if (gesture?.id === event.pointerId) finishGesture(true); });
+        handle.addEventListener('keydown', event => {
+            if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+            if (!expanded && !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault(); event.stopPropagation(); finishGesture(true);
+            const rect = panel.getBoundingClientRect(), bounds = available();
+            const dx = event.key === 'ArrowRight' ? 10 : event.key === 'ArrowLeft' ? -10 : 0;
+            const dy = event.key === 'ArrowDown' ? 10 : event.key === 'ArrowUp' ? -10 : 0;
+            if (!expanded) {
+                preferredWidth = clamp(event.key === 'Home' ? 280 : event.key === 'End' ? 960 : rect.width + dx, 280, 960);
+                storage?.setItem('cainflow_node_parameter_width', String(Math.round(preferredWidth)));
+            } else if (kind === 'drag') {
+                expandedRect.left = clamp(rect.left + dx, 12, Math.max(12, windowRef.innerWidth - rect.width - 12));
+                expandedRect.top = clamp(rect.top + dy, bounds.top, Math.max(bounds.top, windowRef.innerHeight - rect.height - 12));
+            } else {
+                const maxWidth = Math.max(1, windowRef.innerWidth - rect.left - 12), maxHeight = Math.max(1, windowRef.innerHeight - rect.top - 12);
+                if (kind !== 'height') expandedRect.width = clamp(event.key === 'Home' ? 280 : event.key === 'End' ? maxWidth : rect.width + dx, Math.min(280, bounds.width), maxWidth);
+                if (kind !== 'width') expandedRect.height = clamp(event.key === 'Home' ? 160 : event.key === 'End' ? maxHeight : rect.height + dy, Math.min(160, bounds.height), maxHeight);
+            }
+            position();
+        });
+    }
     windowRef.addEventListener('pointermove', event => {
-        if (!resizing) return;
-        preferredWidth = Math.max(280, Math.min(960, resizing.width + event.clientX - resizing.x)); position();
+        if (!gesture || event.pointerId !== gesture.id) return;
+        event.preventDefault(); event.stopPropagation();
+        const { rect, kind } = gesture, dx = event.clientX - gesture.x, dy = event.clientY - gesture.y, bounds = available();
+        gesture.changed ||= Math.abs(dx) + Math.abs(dy) > 0;
+        if (!expanded) preferredWidth = clamp(rect.width + dx, 280, 960);
+        else if (kind === 'drag') {
+            expandedRect.left = clamp(rect.left + dx, 12, Math.max(12, windowRef.innerWidth - rect.width - 12));
+            expandedRect.top = clamp(rect.top + dy, bounds.top, Math.max(bounds.top, windowRef.innerHeight - rect.height - 12));
+        } else {
+            if (kind !== 'height') expandedRect.width = clamp(rect.width + dx, Math.min(280, bounds.width), Math.max(1, windowRef.innerWidth - rect.left - 12));
+            if (kind !== 'width') expandedRect.height = clamp(rect.height + dy, Math.min(160, bounds.height), Math.max(1, windowRef.innerHeight - rect.top - 12));
+        }
+        position();
     });
-    windowRef.addEventListener('pointerup', () => {
-        if (!resizing) return;
-        resizing = null; storage?.setItem('cainflow_node_parameter_width', String(Math.round(preferredWidth)));
-    });
-    resize.addEventListener('keydown', event => {
-        if (!['ArrowLeft','ArrowRight'].includes(event.key)) return;
-        event.preventDefault(); preferredWidth = Math.max(280, Math.min(960, preferredWidth + (event.key === 'ArrowRight' ? 10 : -10)));
-        storage?.setItem('cainflow_node_parameter_width', String(preferredWidth)); position();
-    });
+    windowRef.addEventListener('pointerup', event => { if (gesture?.id === event.pointerId) finishGesture(); });
+    windowRef.addEventListener('pointercancel', event => { if (gesture?.id === event.pointerId) finishGesture(true); });
+    windowRef.addEventListener('blur', () => finishGesture(true));
     documentRef.addEventListener('cainflow:canvas-transform', schedulePosition);
     windowRef.addEventListener('resize', schedulePosition);
     return { install, selectionChanged, close, refreshNode,

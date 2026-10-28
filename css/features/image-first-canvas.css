@@ -23,9 +23,9 @@
     flex-direction: column;
     box-sizing: border-box;
     width: 480px;
-    min-width: min(320px, calc(100vw - 24px));
+    min-width: min(280px, calc(100vw - 24px));
     max-width: calc(100vw - 24px);
-    min-height: 160px;
+    min-height: min(160px, calc(100vh - 24px));
     max-height: 60vh;
     overflow: hidden;
     border: 1px solid var(--border-color);
@@ -41,6 +41,19 @@
 }
 
 .image-parameter-panel[hidden] { display: none; }
+.image-parameter-panel.is-expanded { min-height: min(160px, var(--image-parameter-available-height, calc(100vh - 24px))); max-height: var(--image-parameter-available-height, calc(100vh - 24px)); }
+.image-parameter-panel :is(.image-parameter-drag-handle, [data-parameter-resize])[hidden] { display: none; }
+.image-parameter-drag-handle { display: flex; flex: 1 1 auto; min-height: 28px; align-items: center; color: var(--text-secondary); cursor: grab; touch-action: none; user-select: none; }
+.image-parameter-panel:is(.is-dragging, .is-resizing) { user-select: none; -webkit-user-select: none; }
+.image-parameter-panel.is-dragging .image-parameter-drag-handle { cursor: grabbing; }
+.image-parameter-drag-handle:focus-visible, .image-parameter-panel [data-parameter-resize]:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
+.image-parameter-resize-height { position: absolute; left: 0; right: 0; bottom: 0; height: 5px; cursor: ns-resize; touch-action: none; }
+.image-parameter-resize-corner { position: absolute; right: 0; bottom: 0; width: 12px; height: 12px; cursor: nwse-resize; touch-action: none; border-right: 2px solid var(--text-secondary); border-bottom: 2px solid var(--text-secondary); }
+.image-panel-switcher { position: fixed; z-index: calc(var(--layer-menu) - 1); left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; gap: 5px; padding: 4px; border: 1px solid var(--border-color); border-radius: 8px; background: linear-gradient(var(--surface-panel-strong, var(--panel-bg)), var(--surface-panel-strong, var(--panel-bg))), var(--bg-canvas); box-shadow: var(--panel-shadow-strong); }
+.image-panel-switcher button { min-height: 28px; padding: 3px 8px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.image-panel-switcher button:hover:not(:disabled) { border-color: var(--border-color); background: var(--panel-hover-bg); color: var(--text-primary); }
+.image-panel-switcher button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.image-panel-switcher button:disabled { opacity: .5; cursor: default; }
 
 .image-parameter-header {
     display: flex;
@@ -381,7 +394,7 @@ html:root #canvas-container .node.image-first-card > .node-body.is-collapsed { d
 .image-parameter-setting-bar{display:flex;flex-wrap:wrap;gap:5px}
 .image-parameter-setting-bar button{padding:4px 7px;border:1px solid var(--node-control-border);border-radius:6px;background:var(--node-control-surface);color:var(--text-secondary);font-size:12px;cursor:pointer}
 .image-parameter-setting-bar button[aria-expanded=true]{border-color:var(--accent-primary);color:var(--text-primary)}
-.image-parameter-resize{position:absolute;right:0;top:30px;bottom:0;width:5px;cursor:ew-resize}
+.image-parameter-resize{position:absolute;right:0;top:30px;bottom:0;width:5px;cursor:ew-resize;touch-action:none}
 .node.image-first-card .image-first-placeholder[hidden]{display:none}
 
 /* Media cards retain the original image surfaces and their dedicated controls. */

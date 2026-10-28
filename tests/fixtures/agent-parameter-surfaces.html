@@ -1,0 +1,44 @@
+<!doctype html><html data-app-theme="light"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../index.css"><link rel="stylesheet" href="../../css/prompt-agent.css">
+<style>#parameters{position:fixed;left:40px;top:100px;width:450px;height:400px;background:white}#surface-result{display:none}</style>
+</head><body><button id="parameter-opener">参数入口</button><section id="parameters" hidden><input value="保留节点草稿"></section><pre id="surface-result"></pre>
+<script type="module">
+import { getSurfaceCoordinator } from '../../js/features/ui/surface-coordinator.js';
+import { createPanelManager } from '../../js/features/ui/panel-manager.js';
+import { createPromptAgentController } from '../../js/features/prompt-agent/prompt-agent-controller.js';
+const result={},check=(condition,message)=>{if(!condition)throw Error(message)};
+try {
+    const original=new DOMParser().parseFromString(await(await fetch('../../index.html')).text(),'text/html');
+    for(const id of ['prompt-agent-panel','btn-prompt-agent'])document.body.append(document.importNode(original.getElementById(id),true));
+    const parameters=document.getElementById('parameters'),surfaces=getSurfaceCoordinator(document),manager=createPanelManager(document);
+    manager.registerAuxiliary('parameters',{close(){parameters.hidden=true}});
+    surfaces.registerModeless(parameters,{close(){parameters.hidden=true},opener:document.getElementById('parameter-opener')});
+    let finishReply;
+    const controller=createPromptAgentController({documentRef:document,panelManager:manager,resizeObserverFactory:()=>null,
+        getChatModels:()=>[{id:'chat',name:'chat',modelId:'chat',protocol:'openai',taskType:'chat',providerIds:['p']}],
+        getProviders:()=>[{id:'p',endpoint:'https://controlled.test',apikey:'controlled'}],getSelectedModelId:()=> 'chat',
+        createReply:()=>new Promise(resolve=>{finishReply=resolve})});
+    controller.init();
+    const panel=document.getElementById('prompt-agent-panel'),button=document.getElementById('btn-prompt-agent'),input=document.getElementById('prompt-agent-input');
+    const openParameters=()=>{manager.beforeOpen('parameters');parameters.hidden=false;surfaces.bringToFront(parameters)};
+    openParameters();controller.open();
+    check(!parameters.hidden&&panel.classList.contains('active'),'Agent and parameters remain open together');
+    check(surfaces.topModeless()===panel,'Agent opening raises its original modeless surface');
+    input.value='保留Agent草稿';input.dispatchEvent(new Event('input',{bubbles:true}));
+    openParameters();check(surfaces.topModeless()===parameters,'parameters can become top without closing Agent');
+    controller.toggle();check(panel.classList.contains('active')&&surfaces.topModeless()===panel,'toolbar toggle recovers an obscured Agent instead of closing it');
+    check(input.value==='保留Agent草稿'&&parameters.querySelector('input').value==='保留节点草稿','both original drafts survive alternation');
+    const pending=controller.submit();
+    for(let i=0;i<10&&!finishReply;i++)await new Promise(resolve=>setTimeout(resolve,0));
+    check(typeof finishReply==='function','the original Agent request starts');
+    openParameters();
+    finishReply({message:'原请求完成',intent:'chat'});await pending;
+    check(controller.snapshotWorkflow().messages.some(message=>message.text==='原请求完成'),'switching surfaces preserves the pending operation');
+    controller.open();
+    document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
+    check(!panel.classList.contains('active')&&!parameters.hidden,'Escape closes only the top Agent');
+    check(document.activeElement===button,'Agent explicit dismissal returns focus to its toolbar entry');
+    result.passed=true;
+}catch(error){result.error=error.stack}
+document.getElementById('surface-result').textContent=JSON.stringify(result);
+</script></body></html>

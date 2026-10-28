@@ -99,7 +99,9 @@ test('thinking controls persist Agent choices, apply to nodes and reach actual c
         await evaluate("document.getElementById('btn-prompt-agent').click()");
         assert.equal(await evaluate(`document.getElementById('prompt-agent-model').parentElement.querySelector('.thinking-control [data-thinking-value="level:high"]').getAttribute('aria-checked')`),'true');
         assert.equal(await evaluate("document.getElementById('prompt-agent-image-model').parentElement.querySelector('.thinking-control [data-thinking-value=\"level:high\"]')"),null);
-        assert.equal(await evaluate("document.querySelector('#nodes-layer .thinking-control select').value"),'level:minimal');
+        await evaluate("document.querySelector('#nodes-layer .node[data-image-first=true]').click()");
+        await waitFor("!document.getElementById('image-parameter-panel').hidden");
+        assert.equal(await evaluate("document.querySelector('#image-parameter-panel .thinking-control select').value"),'level:minimal');
     });
 });
 

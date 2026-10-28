@@ -15,6 +15,7 @@ export function createPanelManager(documentRef = document, canvasContainer = nul
         agent: { id: 'prompt-agent-panel', btn: 'btn-prompt-agent' },
         help: { id: 'help-panel', btn: 'btn-help' }
     };
+    const auxiliaryPanels = new Map();
     let canvasBlankCloseBound = false;
     documentRef.addEventListener?.('keydown', event => {
         if (event.key !== 'Escape' || event.defaultPrevented) return;
@@ -25,7 +26,7 @@ export function createPanelManager(documentRef = document, canvasContainer = nul
     }, true);
 
     function close(panelKey) {
-        const target = panels[panelKey];
+        const target = panels[panelKey] || auxiliaryPanels.get(panelKey);
         if (!target) return;
         if (target.close) { target.close(); return; }
         const button = documentRef.getElementById(target.btn);
@@ -63,14 +64,24 @@ export function createPanelManager(documentRef = document, canvasContainer = nul
 
     function closeAll() {
         Object.keys(panels).forEach((key) => close(key));
+        auxiliaryPanels.forEach((_entry, key) => close(key));
     }
 
     function beforeOpen(panelKey) {
         surfaces?.closePopovers();
-        Object.keys(panels).forEach(key => { if (key !== panelKey) close(key); });
+        Object.keys(panels).forEach(key => {
+            if (key !== panelKey && !(panelKey === 'parameters' && key === 'agent')) close(key);
+        });
+        auxiliaryPanels.forEach((_entry, key) => {
+            if (key !== panelKey && !(panelKey === 'agent' && key === 'parameters')) close(key);
+        });
     }
 
     function register(panelKey, callbacks) { Object.assign(panels[panelKey], callbacks); }
+    function registerAuxiliary(panelKey, callbacks) {
+        auxiliaryPanels.set(panelKey, callbacks);
+        return () => { if (auxiliaryPanels.get(panelKey) === callbacks) auxiliaryPanels.delete(panelKey); };
+    }
 
     function bindCanvasBlankClose() {
         if (!canvasContainer || canvasBlankCloseBound) return;
@@ -87,6 +98,7 @@ export function createPanelManager(documentRef = document, canvasContainer = nul
         closeAll,
         beforeOpen,
         register,
+        registerAuxiliary,
         bindCanvasBlankClose
     };
 }

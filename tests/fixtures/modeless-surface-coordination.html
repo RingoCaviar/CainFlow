@@ -1,0 +1,54 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+:root { --layer-drawer:7000; --layer-menu:7900; --layer-modal:10000 }
+button { width:100px; height:32px }
+.drawer { position:fixed; top:100px; width:300px; height:300px; background:white }
+#parameters { left:100px } #agent { left:260px } [hidden] { display:none!important }
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.1) }
+#menu { position:fixed; top:160px; left:200px; width:180px; height:120px; background:yellow }
+#surface-result { display:none }
+</style></head><body><button id="parameter-opener">参数入口</button><button id="agent-opener">Agent入口</button>
+<section id="parameters" class="drawer"><button id="parameter-control">参数控件</button></section>
+<section id="agent" class="drawer"><button id="agent-control">Agent控件</button></section><pre id="surface-result"></pre>
+<script type="module">
+import { getSurfaceCoordinator } from '../../js/features/ui/surface-coordinator.js';
+const result={}, check=(condition,message)=>{if(!condition)throw Error(message)};
+try {
+    const surfaces=getSurfaceCoordinator(document), parameters=document.getElementById('parameters'), agent=document.getElementById('agent');
+    surfaces.registerModeless(parameters,{close(){parameters.hidden=true},opener:document.getElementById('parameter-opener')});
+    surfaces.registerModeless(agent,{close(){agent.hidden=true},opener:document.getElementById('agent-opener')});
+    surfaces.bringToFront(agent);
+    check(surfaces.topModeless()===agent,'last opened surface is top modeless');
+    parameters.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true}));
+    check(surfaces.topModeless()===parameters,'pointerdown raises the visible surface');
+    check(Number(parameters.style.zIndex)>Number(agent.style.zIndex),'stack order follows last interaction');
+    check(Number(parameters.style.zIndex)<10000,'modeless never borrows modal priority');
+    check(parameters.contains(document.elementFromPoint(280,180)),'top surface receives the overlapping pointer hit');
+    const menu=document.createElement('div');menu.id='menu';menu.innerHTML='<button>菜单项</button>';document.body.append(menu);
+    const trigger=document.getElementById('parameter-control');
+    surfaces.openPopover('parameters-menu',{element:menu,trigger,close(){menu.remove()}});
+    check(Number(menu.style.zIndex)>Number(parameters.style.zIndex),'portal menu follows its modeless owner');
+    const toast=document.createElement('div');toast.id='toast-container';toast.style.cssText='position:fixed;left:200px;top:160px;width:180px;height:120px;z-index:7800;background:red';document.body.append(toast);
+    check(menu.contains(document.elementFromPoint(210,180)),'ordinary menus remain above transient notifications');
+    toast.remove();
+    const modal=document.createElement('div');modal.className='modal-overlay';modal.innerHTML='<button>模态控件</button>';document.body.append(modal);
+    surfaces.registerEscape(modal,()=>{modal.remove();surfaces.refresh()});surfaces.refresh();
+    check(!menu.isConnected,'opening a true modal closes background modeless menus');
+    check(parameters.inert&&agent.inert,'only a true modal masks both modeless surfaces');
+    surfaces.bringToFront(agent);
+    check(Number(modal.style.zIndex)>Number(agent.style.zIndex),'raising a modeless cannot cross a modal');
+    const escape=()=>document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
+    escape();check(!modal.isConnected&&!agent.hidden&&!parameters.hidden,'Escape first closes only the true modal');
+    check(!agent.inert&&!parameters.inert,'closing the modal restores both interactive surfaces');
+    const agentMenu=document.createElement('div');agentMenu.id='menu';document.body.append(agentMenu);
+    const agentTrigger=document.getElementById('agent-control');
+    surfaces.openPopover('agent-menu',{element:agentMenu,trigger:agentTrigger,close(){agentMenu.remove()}});
+    escape();check(!agentMenu.isConnected&&!agent.hidden,'Escape closes only the top owned popup');
+    check(document.activeElement===agentTrigger,'popup Escape returns focus to its own trigger');
+    escape();check(agent.hidden&&!parameters.hidden,'the next Escape closes only the top modeless');
+    check(document.activeElement===document.getElementById('agent-opener'),'explicit close returns valid opener focus');
+    parameters.hidden=true;document.getElementById('agent-opener').focus();surfaces.refresh();
+    check(document.activeElement===document.getElementById('agent-opener'),'lifecycle hiding never steals focus');
+    result.passed=true;
+}catch(error){result.error=error.stack}
+document.getElementById('surface-result').textContent=JSON.stringify(result);
+</script></body></html>

@@ -49,6 +49,8 @@ export function canUseCanvasShortcuts({
 } = {}) {
     const target = event?.target || documentRef.activeElement;
     if (isTextEditingTarget(target)) return false;
+    const element = target?.nodeType === 1 ? target : target?.parentElement;
+    if (element?.closest?.('.image-parameter-panel, #prompt-agent-panel, .image-panel-switcher')) return false;
     if (isModalOrFullscreenOpen({ documentRef, windowRef })) return false;
 
     const overCanvas = state?.isMouseOverCanvas === true;
