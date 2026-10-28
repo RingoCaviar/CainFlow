@@ -1,3 +1,4 @@
+import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
 import { applyThinking, resolveThinking } from './thinking-config.js';
 /**
  * 提供工作流执行所需的核心能力，包括拓扑排序、节点执行和运行时错误处理。
@@ -1241,10 +1242,10 @@ export function createExecutionCoreApi({
     }
 
     function resolveRequestNodeConfig(node, taskType) {
-        const configId = documentRef.getElementById(`${node.id}-apiconfig`)?.value || '';
+        const configId = node.type === 'ImageGenerate' ? readImageGenerationSettings(node, documentRef).apiConfigId : documentRef.getElementById(`${node.id}-apiconfig`)?.value || '';
         const modelCfg = state.models.find((model) => model.id === configId);
         if (!modelCfg) throw new Error('未找到选定的模型配置');
-        const selectedProviderId = documentRef.getElementById(`${node.id}-provider`)?.value || node.providerId || '';
+        const selectedProviderId = node.type === 'ImageGenerate' ? readImageGenerationSettings(node, documentRef).providerId : documentRef.getElementById(`${node.id}-provider`)?.value || node.providerId || '';
         const resolvedProviderId = getResolvedProviderIdForModel(modelCfg, state.providers, selectedProviderId);
         const apiCfg = getResolvedProviderForModel(modelCfg, state.providers, resolvedProviderId);
         if (!apiCfg) throw new Error('未找到绑定的 API 提供商');
@@ -1305,13 +1306,14 @@ export function createExecutionCoreApi({
 
     function buildImageGenerateRequestPreview(node, inputs) {
         const { id } = node;
+        const settings = readImageGenerationSettings(node, documentRef);
         const { modelCfg, apiCfg, protocol } = resolveRequestNodeConfig(node, 'image');
-        const { aspect, resolution } = readImageGenerateRequestSize(id, protocol);
-        const quality = documentRef.getElementById(`${id}-quality`)?.value ?? 'auto';
-        const moderation = documentRef.getElementById(`${id}-moderation`)?.value ?? 'auto';
-        const background = documentRef.getElementById(`${id}-background`)?.value ?? 'auto';
+        const { aspect, resolution } = readImageGenerateRequestSize(node, protocol);
+        const quality = settings.quality;
+        const moderation = settings.moderation;
+        const background = settings.background;
         const mask = getImageGenerateMask(inputs);
-        const searchEnabled = documentRef.getElementById(`${id}-search`)?.checked === true;
+        const searchEnabled = settings.search;
         const prompt = buildImageGeneratePrompt(node, inputs);
         const protocolParams = getImageGenerateProtocolParams(node);
         const isGoogle = protocol === 'google';
@@ -1356,14 +1358,10 @@ export function createExecutionCoreApi({
         };
     }
 
-    function readImageGenerateRequestSize(id, protocol) {
-        return resolveImageRequestSize({
-            protocol,
-            aspect: documentRef.getElementById(`${id}-aspect`)?.value || '',
-            resolution: documentRef.getElementById(`${id}-resolution`)?.value || '',
-            customWidth: documentRef.getElementById(`${id}-custom-resolution-width`)?.value || '',
-            customHeight: documentRef.getElementById(`${id}-custom-resolution-height`)?.value || ''
-        });
+    function readImageGenerateRequestSize(node, protocol) {
+        const settings = readImageGenerationSettings(node, documentRef);
+        return resolveImageRequestSize({ protocol, aspect: settings.aspect, resolution: settings.resolution,
+            customWidth: settings.customWidth, customHeight: settings.customHeight });
     }
 
     function buildVideoGenerateRequestPreview(node, inputs) {
@@ -1549,32 +1547,18 @@ export function createExecutionCoreApi({
     }
 
     function getImageGenerateProtocolParams(node) {
-        const id = node?.id || '';
-        const params = { ...(node?.data?.protocolParams || {}) };
-        documentRef.querySelectorAll(`#${id}-protocol-params [id^="${id}-param-"]`).forEach((element) => {
-            const rawParamId = element.id.slice(`${id}-param-`.length);
-            if (!rawParamId || rawParamId.endsWith('-custom')) return;
-            if (element.type === 'checkbox') {
-                params[rawParamId] = element.checked === true;
-                return;
-            }
-            if (element.tagName === 'SELECT' && element.value === 'custom') {
-                params[rawParamId] = documentRef.getElementById(`${id}-param-${rawParamId}-custom`)?.value || '';
-                return;
-            }
-            params[rawParamId] = element.value;
-        });
-        return params;
+        return readImageGenerationSettings(node, documentRef).protocolParams;
     }
 
     function buildImageGeneratePrompt(node, inputs = {}) {
         const id = node?.id || '';
+        const settings = readImageGenerationSettings(node, documentRef);
         const userPrompt = (getPrimaryTextInput(inputs.prompt)
-            || documentRef.getElementById(`${id}-param-prompt`)?.value
-            || documentRef.getElementById(`${id}-prompt`)?.value
+            || settings.protocolParams.prompt
+            || settings.prompt
             || '').trim();
         const cameraPrompt = getPrimaryTextInput(inputs.camera_prompt).trim();
-        const systemPrompt = (documentRef.getElementById(`${id}-param-systemPrompt`)?.value || node?.data?.protocolParams?.systemPrompt || '').trim();
+        const systemPrompt = (settings.protocolParams.systemPrompt || '').trim();
 
         const promptSections = [];
         if (userPrompt) {
@@ -1760,6 +1744,7 @@ export function createExecutionCoreApi({
         },
         ImageGenerate: async (node, inputs, signal, executionContext = {}) => {
             const { id } = node;
+            const settings = readImageGenerationSettings(node, documentRef);
             const errorEl = documentRef.getElementById(`${id}-error`);
             if (errorEl) {
                 errorEl.style.display = 'none';
@@ -1768,19 +1753,19 @@ export function createExecutionCoreApi({
             let targetGenerationCount = 1;
 
             try {
-                const configId = documentRef.getElementById(`${id}-apiconfig`).value;
+                const configId = settings.apiConfigId;
                 const modelCfg = state.models.find((model) => model.id === configId);
                 if (!modelCfg) throw new Error('未找到选定的模型配置');
-                const selectedProviderId = documentRef.getElementById(`${id}-provider`)?.value || node.providerId || '';
+                const selectedProviderId = settings.providerId;
                 const resolvedProviderId = getResolvedProviderIdForModel(modelCfg, state.providers, selectedProviderId);
                 const apiCfg = getResolvedProviderForModel(modelCfg, state.providers, resolvedProviderId);
                 if (!apiCfg) throw new Error('未找到绑定的 API 提供商');
                 node.providerId = resolvedProviderId;
 
-                const quality = documentRef.getElementById(`${id}-quality`)?.value ?? 'auto';
-                const moderation = documentRef.getElementById(`${id}-moderation`)?.value ?? 'auto';
-                const background = documentRef.getElementById(`${id}-background`)?.value ?? 'auto';
-                const searchEnabled = documentRef.getElementById(`${id}-search`).checked;
+                const quality = settings.quality;
+                const moderation = settings.moderation;
+                const background = settings.background;
+                const searchEnabled = settings.search;
                 const prompt = buildImageGeneratePrompt(node, inputs);
                 const protocolParams = getImageGenerateProtocolParams(node);
 
@@ -1789,12 +1774,12 @@ export function createExecutionCoreApi({
 
                 const protocol = getEffectiveProtocol(modelCfg, apiCfg);
                 resolveThinking({ model: modelCfg, provider: apiCfg, task: 'image', protocol }, node.data?.thinking);
-                const { aspect, resolution } = readImageGenerateRequestSize(id, protocol);
+                const { aspect, resolution } = readImageGenerateRequestSize(node, protocol);
                 const isGoogle = protocol === 'google';
                 const isTtapi = protocol === 'ttapi';
                 const isTtapiOpenAi = protocol === 'ttapi-openai';
                 const isNewApiAsyncImage = protocol === 'newapi-image-async';
-                const generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
+                const generationCount = settings.generationCount;
                 targetGenerationCount = generationCount;
 
                 if (isNewApiAsyncImage) {
@@ -2573,9 +2558,9 @@ export function createExecutionCoreApi({
         }
 
         if ((node.type === 'ImageGenerate' || node.type === 'VideoGenerate' || node.type === 'TextChat') && hasRemoteImageInput(inputs)) {
-            const configId = documentRef.getElementById(`${node.id}-apiconfig`)?.value || '';
+            const configId = node.type === 'ImageGenerate' ? readImageGenerationSettings(node, documentRef).apiConfigId : documentRef.getElementById(`${node.id}-apiconfig`)?.value || '';
             const modelCfg = state.models.find((model) => model.id === configId);
-            const selectedProviderId = documentRef.getElementById(`${node.id}-provider`)?.value || node.providerId || '';
+            const selectedProviderId = node.type === 'ImageGenerate' ? readImageGenerationSettings(node, documentRef).providerId : documentRef.getElementById(`${node.id}-provider`)?.value || node.providerId || '';
             const apiCfg = modelCfg ? getResolvedProviderForModel(modelCfg, state.providers, selectedProviderId) : null;
             const protocol = getEffectiveProtocol(modelCfg, apiCfg);
             if (protocol === 'google') {

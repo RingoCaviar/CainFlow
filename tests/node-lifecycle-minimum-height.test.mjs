@@ -449,3 +449,21 @@ test('reopening a node restores Missing Media asset state without Node execution
     assert.deepEqual(reopened.data.mediaIntegrity, mediaIntegrity);
     assert.equal(reopened.isFailed, false);
 });
+
+
+test('an unmounted image-generation form preserves its effective parameters in the saved workflow', () => {
+    const node = { id: 'unmounted', type: 'ImageGenerate', x: 15, y: 30, apiConfigId: 'image', providerId: 'provider',
+        data: { apiConfigId: 'image', providerId: 'provider', prompt: 'saved winter scene', aspect: '3:2', resolution: 'custom',
+            customWidth: '1536', customHeight: '1024', quality: 'high', moderation: 'low', background: 'transparent',
+            search: true, generationCount: 2, advancedExpanded: true, protocolParams: { systemPrompt: 'keep subject', seed: '42' } },
+        el: { classList: { contains: () => false } } };
+    const serializer = createNodeSerializer({ state: { nodes: new Map([[node.id, node]]), connections: [], canvas: { x: 0, y: 0 } },
+        documentRef: { getElementById: () => null, querySelectorAll: () => [] } });
+    const [saved] = serializer.serializeNodes();
+    assert.deepEqual(Object.fromEntries(['apiConfigId','providerId','prompt','aspect','resolution','customWidth','customHeight',
+        'quality','moderation','background','search','generationCount','advancedExpanded','protocolParams'].map(key => [key, saved[key]])), {
+        apiConfigId: 'image', providerId: 'provider', prompt: 'saved winter scene', aspect: '3:2', resolution: 'custom',
+        customWidth: '1536', customHeight: '1024', quality: 'high', moderation: 'low', background: 'transparent',
+        search: true, generationCount: 2, advancedExpanded: true, protocolParams: { systemPrompt: 'keep subject', seed: '42' }
+    });
+});

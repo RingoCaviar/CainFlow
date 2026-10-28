@@ -3191,6 +3191,7 @@ export function createNodeDomBindingsApi({
         el.addEventListener('input', () => syncDependentPromptSources(id));
         el.addEventListener('change', () => syncDependentPromptSources(id));
         el.querySelectorAll('input, select, textarea').forEach((input) => {
+            if (type === 'ImageGenerate') input.addEventListener('input', () => syncNodeFormData(id, type));
             input.addEventListener('change', () => {
                 syncNodeFormData(id, type);
                 if (!state.nodes.get(id)?.isClone) syncClonesFromSource(id);

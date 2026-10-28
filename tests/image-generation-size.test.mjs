@@ -146,3 +146,25 @@ test('OpenAI request preview and execution use the same combined resolution and 
     assert.equal(legacyEmptyAspectPreview.requestBody.size, '2048x2048');
     assert.deepEqual(sentBody, legacyEmptyAspectPreview.requestBody);
 });
+
+
+test('unmounted generation controls use the same saved request for preview and execution', async () => {
+    const node = { id: 'unmounted-image', type: 'ImageGenerate', apiConfigId: 'model', providerId: 'provider', enabled: true,
+        data: { prompt: 'winter station', resolution: 'custom', customWidth: '1536', customHeight: '1024', quality: 'high',
+            moderation: 'low', background: 'transparent', search: true, generationCount: 2 } };
+    let sentBody;
+    const api = createExecutionCoreApi({ state: { nodes: new Map([[node.id,node]]), connections: [],
+        models: [{ id: 'model', modelId: 'gpt-image-2', protocol: 'openai', providerIds: ['provider'] }],
+        providers: [{ id: 'provider', endpoint: 'https://controlled.test/v1', apikey: 'test', type: 'openai' }] }, nodeConfigs: {},
+        documentRef: { getElementById: () => null, querySelectorAll: () => [] },
+        windowRef: { requestAnimationFrame: callback => callback() },
+        fetchRef: async (_url,options) => { sentBody=JSON.parse(options.body); throw new Error('captured saved request'); },
+        showToast() {}, addLog() {}, getProxyHeaders: () => ({}), classifyProviderError: () => ({ message: 'captured saved request' }),
+        logRequestToPanel() {}, fitNodeToContent() {}, refreshDependentImageResizePreviews: async () => {}, getAbortMessage: () => '' });
+    const preview=api.buildNodeRequestPreview(node.id);
+    assert.deepEqual({prompt:preview.requestBody.prompt,size:preview.requestBody.size,quality:preview.requestBody.quality,
+        moderation:preview.requestBody.moderation,background:preview.requestBody.background},
+        {prompt:'winter station',size:'1536x1024',quality:'high',moderation:'low',background:'transparent'});
+    await assert.rejects(api.nodeHandlers.ImageGenerate(node,{},new AbortController().signal),/captured saved request/);
+    assert.deepEqual(sentBody,preview.requestBody);
+});
