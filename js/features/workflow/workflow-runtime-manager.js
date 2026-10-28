@@ -38,6 +38,7 @@ import {
 } from '../../nodes/registry.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
+import { readImageSaveFilename } from '../../nodes/image-save-settings.js';
 import { createWorkflowRuntimeDisposer } from './workflow-runtime-disposal.js';
 import { applyProtocolVariantSnapshot } from '../../nodes/protocol-variant-drafts.js';
 import { saveGeneratedMediaToDirectory } from '../media/generated-media-directory-save.js';
@@ -356,7 +357,9 @@ export function serializeRuntimeNode(node, doc) {
         }
     }
     if (node.type === 'ImageSave') {
-        serialized.filename = readElementControlValue(doc, `${node.id}-filename`, 'generated_image');
+        serialized.filename = readImageSaveFilename(node);
+        if (Number.isInteger(node.videoPreviewIndex ?? node.data?.videoPreviewIndex)) serialized.videoPreviewIndex = node.videoPreviewIndex ?? node.data.videoPreviewIndex;
+        if (['image', 'video'].includes(node.savePreviewMode ?? node.data?.savePreviewMode)) serialized.savePreviewMode = node.savePreviewMode ?? node.data.savePreviewMode;
         if (Array.isArray(node.data?.videos) && node.data.videos.length > 0) {
             serialized.videos = clonePlainValue(node.data.videos);
         }
@@ -458,16 +461,13 @@ export function applyImageSaveMediaState(node, imageData) {
         .filter((video) => video && typeof video === 'object' && (video.url || video.assetKey))
         .map((video) => clonePlainValue(video));
 
-    if (images.length > 0) {
-        delete node.data.video;
-        delete node.data.videos;
-    } else if (videos.length > 0) {
+    if (videos.length > 0) {
         node.data.videos = videos;
         node.data.video = clonePlainValue(videos[videos.length - 1]);
     }
 
     return {
-        images,
+        images: images.length ? images : getCanonicalImageList(node),
         videos: videos.length > 0 ? videos : clonePlainValue(node.data.videos || []),
         video: videos.length > 0 ? clonePlainValue(videos[videos.length - 1]) : clonePlainValue(node.data.video || null)
     };
@@ -505,9 +505,10 @@ export function createRuntimeAutoSaveToDir({
         if (!node) return;
         try {
             const videos = Array.isArray(payload?.videos) ? payload.videos : [payload?.video];
-            const prefix = runtimeDocument.getElementById(`${nodeId}-filename`)?.value || (videos.some((video) => video?.url) ? 'video' : 'image');
+            const prefix = node.type === 'ImageSave' ? readImageSaveFilename(node, '') || (videos.some(video => video?.url) ? 'video' : 'image')
+                : runtimeDocument.getElementById(`${nodeId}-filename`)?.value || (videos.some((video) => video?.url) ? 'video' : 'image');
             const result = await saveGeneratedMediaToDirectory({
-                payload, directoryHandle: runtimeState.globalSaveDirHandle, filenamePrefix: prefix,
+                payload: { images: normalizeImageList(payload?.images ?? payload), videos: videos.filter(Boolean).map(video => ({ ...video, url: video.assetKey ? `/api/storage/assets/${encodeURIComponent(video.assetKey)}` : video.url })) }, directoryHandle: runtimeState.globalSaveDirHandle, filenamePrefix: prefix,
                 dataURLtoBlob,
                 downloadVideo: (url, options) => downloadGeneratedVideo(url, options, { fetchRef, formatProxyErrorMessage, addLog, windowRef }),
                 buildImageFilenameBases: (images, name) => buildImageSaveFilenameBases(nodeId, images, name, runtimeState, (id) => runtimeState.nodes.get(id), { includeTimestamp: true }),
@@ -805,6 +806,8 @@ export function createWorkflowRuntimeManager({
         } else {
             delete node.data.video;
         }
+        if (Array.isArray(runtimeNode?.data?.videos) && runtimeNode.data.videos.length) node.data.videos = clonePlainValue(runtimeNode.data.videos);
+        else delete node.data.videos;
         const statusText = node.data.videoStatusText || '运行后显示视频结果';
         const statusEl = documentRef.getElementById(`${node.id}-video-status`);
         if (statusEl) {
@@ -1360,18 +1363,40 @@ export function createWorkflowRuntimeManager({
             if (image) image.style.transform = `scale(${node.previewZoom || 1})`;
             node.onImagePreviewRendered?.();
         };
+        const getSavePanes = nodeId => {
+            const container = doc.getElementById(`${nodeId}-save-preview`);
+            if (!container) return null;
+            let image = container.querySelector('.image-save-image-pane'), video = container.querySelector('.image-save-video-pane');
+            if (!image) { image = doc.createElement('div'); image.className = 'image-save-image-pane'; }
+            if (!video) { video = doc.createElement('div'); video.className = 'image-save-video-pane'; }
+            for (const child of Array.from(container.children || [])) {
+                if (child !== image && child !== video && !child.classList.contains('image-save-preview-tools')) (child.tagName === 'VIDEO' ? video : image).append(child);
+            }
+            if (image.parentNode !== container) container.append(image);
+            if (video.parentNode !== container) container.append(video);
+            return { container, image, video };
+        };
         const renderImageSavePreview = (nodeId, images, emptyMessage = '无输入图片') => {
-            const node = getRuntimeNode(nodeId);
-            if (!node) return;
-            const previewContainer = doc.getElementById(`${nodeId}-save-preview`);
-            if (!previewContainer) return;
-            renderDisplayImagePreview(previewContainer, node, images, {
-                totalCount: getRuntimeDisplayImageCount(node),
-                altPrefix: '待保存',
-                placeholderClass: 'save-preview-placeholder',
-                emptyMessage,
-                placeholderWithIcon: false
-            });
+            const node = getRuntimeNode(nodeId), panes = getSavePanes(nodeId);
+            if (!node || !panes) return;
+            renderDisplayImagePreview(panes.image, node, images, { totalCount: getRuntimeDisplayImageCount(node), altPrefix: '待保存', placeholderClass: 'save-preview-placeholder', emptyMessage, placeholderWithIcon: false });
+            const videos = Array.isArray(node.data?.videos) && node.data.videos.length ? node.data.videos : [node.data?.video].filter(Boolean);
+            const index = Math.max(0, Math.min(videos.length - 1, node.videoPreviewIndex ?? node.data?.videoPreviewIndex ?? videos.length - 1));
+            const video = videos[index], source = video?.assetKey ? `/api/storage/assets/${encodeURIComponent(video.assetKey)}` : /^\/api\/storage\/assets\//.test(video?.url || '') ? video.url : '';
+            let player = panes.video.querySelector('video');
+            if (source) {
+                if (!player) { player = doc.createElement('video'); player.className = 'save-preview-video'; player.controls = true; player.preload = 'metadata'; player.playsInline = true; panes.video.append(player); }
+                if (player.getAttribute('src') !== source) player.src = source;
+                player.hidden = false;
+                panes.video.querySelector('.save-preview-placeholder')?.remove();
+            } else {
+                if (player) { player.pause?.(); if (player.getAttribute('src')) player.removeAttribute('src'); player.hidden = true; }
+                const placeholder = ensureElement(panes.video, '.save-preview-placeholder', () => createPreviewPlaceholder('save-preview-placeholder', '本地视频缓存缺失；请确认后恢复原文件', { withIcon: false }));
+                updatePlaceholderText(placeholder, '本地视频缓存缺失；请确认后恢复原文件');
+            }
+            const mode = node.savePreviewMode ?? node.data?.savePreviewMode ?? (videos.length ? 'video' : 'image');
+            panes.container.dataset.saveMode = mode;
+            panes.image.hidden = mode !== 'image'; panes.video.hidden = mode !== 'video';
         };
         const renderImageMergePreview = (nodeId, images) => {
             const node = getRuntimeNode(nodeId);
@@ -1508,44 +1533,18 @@ export function createWorkflowRuntimeManager({
             syncImageSaveNode: async (nodeId, imageData) => {
                 const node = getRuntimeNode(nodeId);
                 if (!node || node.type !== 'ImageSave') return;
-                const imageList = normalizeRuntimeImageList(imageData?.images ?? imageData);
-                const video = imageData?.video && typeof imageData.video === 'object' ? imageData.video : null;
-                node.data = node.data || {};
-                if (imageList.length > 0) {
-                    setCanonicalImageOutput(node, imageList, {
-                        currentIndex: 0,
-                        assetKey: nodeId,
-                        trackImageCount: true,
-                        hydratedAt: Date.now(),
-                        assetReady: false
-                    });
-                    delete node.data.video;
-                    const forwarded = await syncForwardedKeys(node, getForwardedKeys(nodeId));
-                    node.data.imageAssetReady = forwarded;
-                    renderImageSavePreview(nodeId, imageList);
-                } else if (video?.url || video?.assetKey) {
-                    await syncForwardedKeys(node, []);
-                    clearCanonicalImageOutput(node);
-                    node.data.video = {
-                        id: video.id || '',
-                        url: video.url,
-                        assetKey: video.assetKey || '',
-                        status: video.status || '',
-                        prompt: video.prompt || ''
-                    };
-                    const preview = doc.getElementById(`${nodeId}-save-preview`);
-                    const source = video.assetKey
-                        ? `/api/storage/assets/${encodeURIComponent(video.assetKey)}`
-                        : '';
-                    if (preview) preview.innerHTML = source
-                        ? `<video src="${source}" controls preload="metadata" playsinline></video>`
-                        : '<div class="save-preview-placeholder">本地视频缓存缺失；请确认后从服务器拉取</div>';
-                } else {
-                    await syncForwardedKeys(node, []);
-                    clearCanonicalImageOutput(node);
-                    delete node.data.video;
-                    renderImageSavePreview(nodeId, []);
+                const supplied = normalizeImageList(imageData?.images ?? imageData);
+                const payload = applyImageSaveMediaState(node, imageData);
+                if (supplied.length) {
+                    setCanonicalImageOutput(node, supplied, { currentIndex: node.imagePreviewIndex || 0, assetKey: node.data?.imageAssetKey || nodeId, imageCount: supplied.length, hydratedAt: Date.now() });
+                    const keys = getForwardedKeys(nodeId, ['image']);
+                    if (keys.length) node.data.imageAssetReady = await syncForwardedKeys(node, keys);
                 }
+                const changed = supplied.length || (Array.isArray(imageData?.videos) ? imageData.videos.length : imageData?.video);
+                node.saveInputState = changed ? 'current' : payload.images.length || payload.videos.length ? 'stale' : 'empty';
+                renderImageSavePreview(nodeId, getCanonicalImageList(node));
+                const preview = doc.getElementById(`${nodeId}-save-preview`);
+                if (preview) { preview.dataset.saveState = node.saveInputState; if (node.saveInputState === 'stale') preview.dataset.saveMessage = '无有效输入，保留原有媒体，未更新'; else delete preview.dataset.saveMessage; }
             },
             syncImageCompareNode: async (nodeId, imageA, imageB) => {
                 const node = getRuntimeNode(nodeId);

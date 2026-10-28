@@ -322,8 +322,10 @@ export function createDiskStorageApi(getState) {
         const operationId = normalizeOrCreateWorkflowMediaOperationId(requestedOperationId);
         const ownerId = workflowOperationOwnerId(workflowId || '', nodeId || '', operationId);
         if (!workflowId || !nodeId) return null;
+        const encoded = value instanceof Blob ? await blobToDataUrl(value) : value;
+        if (!encoded) return null;
         const result = await postMediaAssetAction('materialize-owner-list', {
-            ownerType: 'workflow-operation', ownerId, values: [value]
+            ownerType: 'workflow-operation', ownerId, values: [encoded]
         });
         const asset = Array.isArray(result?.assets) && result.assets.length === 1 ? result.assets[0] : null;
         return asset ? { ...asset, mediaOperationId: operationId, mediaTemporaryOwnerId: ownerId } : null;
@@ -333,8 +335,10 @@ export function createDiskStorageApi(getState) {
         const stableOperationId = normalizeOrCreateWorkflowMediaOperationId(operationId);
         if (!workflowId || !nodeId || items.length === 0) return [];
         const ownerId = workflowOperationOwnerId(workflowId, nodeId, stableOperationId);
+        const encoded = await Promise.all(items.map(value => value instanceof Blob ? blobToDataUrl(value) : value));
+        if (encoded.some(value => !value)) return [];
         const result = await postMediaAssetAction('materialize-owner-list', {
-            ownerType: 'workflow-operation', ownerId, values: items
+            ownerType: 'workflow-operation', ownerId, values: encoded
         });
         return Array.isArray(result?.assets) && result.assets.length === items.length
             ? result.assets.map((asset) => ({ ...asset, mediaOperationId: stableOperationId, mediaTemporaryOwnerId: ownerId }))

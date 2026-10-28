@@ -1450,19 +1450,26 @@ export function createNodeLifecycleApi({
         }
         if (normalizedType === 'ImageSave' && Array.isArray(effectiveRestoreData?.videos)) {
             nodeData.data.videos = effectiveRestoreData.videos.map((video) => ({
+                ...video,
                 id: video?.id || '',
-                url: video?.assetKey ? `/api/storage/assets/${encodeURIComponent(video.assetKey)}` : (video?.url || ''),
+                url: video?.url || (video?.assetKey ? `/api/storage/assets/${encodeURIComponent(video.assetKey)}` : ''),
                 assetKey: video?.assetKey || '',
                 status: video?.status || '',
                 prompt: video?.prompt || ''
             }));
         }
+        if (normalizedType === 'ImageSave') {
+            if (effectiveRestoreData?.filename !== undefined) nodeData.filename = nodeData.data.filename = String(effectiveRestoreData.filename);
+            if (Number.isInteger(effectiveRestoreData?.videoPreviewIndex) && effectiveRestoreData.videoPreviewIndex >= 0) nodeData.videoPreviewIndex = nodeData.data.videoPreviewIndex = effectiveRestoreData.videoPreviewIndex;
+            if (['image', 'video'].includes(effectiveRestoreData?.savePreviewMode)) nodeData.savePreviewMode = nodeData.data.savePreviewMode = effectiveRestoreData.savePreviewMode;
+        }
         if (normalizedType === 'ImageSave' && effectiveRestoreData?.video && typeof effectiveRestoreData.video === 'object') {
             nodeData.data.video = {
+                ...effectiveRestoreData.video,
                 id: effectiveRestoreData.video.id || '',
-                url: effectiveRestoreData.video.assetKey
+                url: effectiveRestoreData.video.url || (effectiveRestoreData.video.assetKey
                     ? `/api/storage/assets/${encodeURIComponent(effectiveRestoreData.video.assetKey)}`
-                    : '',
+                    : ''),
                 assetKey: effectiveRestoreData.video.assetKey || '',
                 status: effectiveRestoreData.video.status || '',
                 prompt: effectiveRestoreData.video.prompt || ''
@@ -1471,6 +1478,7 @@ export function createNodeLifecycleApi({
                 nodeData.data.videoMissingLocalAsset = true;
             }
         }
+        if (normalizedType === 'ImageSave' && nodeData.data.videos?.length) nodeData.data.video = { ...nodeData.data.videos.at(-1) };
         if (normalizedType === 'CameraControl') {
             nodeData.data.pitch = Number.isFinite(Number(effectiveRestoreData?.pitch)) ? Number(effectiveRestoreData.pitch) : 12;
             nodeData.data.yaw = Number.isFinite(Number(effectiveRestoreData?.yaw)) ? Number(effectiveRestoreData.yaw) : 28;
@@ -1751,7 +1759,8 @@ export function createNodeLifecycleApi({
                         onConnectionsChanged();
                     } else if (normalizedType === 'ImageSave' && nodeData.data.video?.url && !data) {
                         const savePreview = el.querySelector(`#${id}-save-preview`);
-                        if (savePreview) {
+                        if (typeof renderImageSavePreview === 'function') renderImageSavePreview(id, getCanonicalImageList(nodeData));
+                        else if (savePreview) {
                             savePreview.classList.remove('has-multiple-images');
                             savePreview.dataset.saveMode = 'video';
                             savePreview.innerHTML = `<video src="${nodeData.data.video.url}" controls preload="metadata" playsinline style="width:100%;height:100%;object-fit:contain;border-radius:12px;background:rgba(0,0,0,0.08);"></video>`;

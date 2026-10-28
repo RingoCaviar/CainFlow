@@ -1209,7 +1209,7 @@ function renderImageSaveBody(id, restoreData, hasGlobalSaveDirHandle) {
         </div>
         <div class="image-resolution-badge" id="${id}-res" style="display:none"></div>
         <div class="node-field"><label>文件名前缀/文件名</label>
-            <input type="text" id="${id}-filename" value="${rd.filename || defaultFilename}" placeholder="不填则默认生成" /></div>
+            <input type="text" id="${id}-filename" value="${escapeHtml(rd.filename ?? defaultFilename)}" placeholder="不填则默认生成" /></div>
         <div class="save-btn-group">
             <button class="save-btn-secondary" id="${id}-view-full" ${(imageList.length > 0 || totalCount > 0 || hasVideo) ? '' : 'disabled'}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>

@@ -1,6 +1,7 @@
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 import { createImagePreviewBatchNavigation } from '../../nodes/image-preview-batch-navigation.js';
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
+import { readImageSaveFilename } from '../../nodes/image-save-settings.js';
 import { projectMissingMediaAssets } from './missing-media-integrity.js';
 ﻿/**
  * 管理图片导入、预览、保存与自动落盘等媒体节点共用行为。
@@ -51,7 +52,7 @@ import {
 
 export function getVideoPreviewSource(video) {
     const assetKey = String(video?.assetKey || '').trim();
-    return assetKey ? `/api/storage/assets/${encodeURIComponent(assetKey)}` : '';
+    return assetKey ? `/api/storage/assets/${encodeURIComponent(assetKey)}` : /^\/api\/storage\/assets\//.test(video?.url || '') ? video.url : '';
 }
 
 export function getCurrentFullscreenImage(images, currentIndex, fallback = '') {
@@ -159,6 +160,7 @@ export function createMediaControllerApi({
     }
 
     const isBatchPreviewNode = node => node?.type === 'ImagePreview' || node?.type === 'ImageMerge';
+    const isSlottedPreviewNode = node => isBatchPreviewNode(node) || node?.type === 'ImageSave';
 
     function persistProcessingParameters(node, values) {
         node.data = node.data || {};
@@ -208,7 +210,8 @@ export function createMediaControllerApi({
                 if (getNodeById(node.id) !== node || isNodeRunning(node.id)) return;
                 node.imagePreviewIndex = Math.max(0, Math.min(Math.max(getStoredImageCount(node), getNodeMediaAssetKeys(node).length) - 1, index));
                 node.previewZoom = 1;
-                renderImagePreviewImage(node.id, images);
+                if (node.type === 'ImageSave') renderImageSavePreview(node.id, images);
+                else renderImagePreviewImage(node.id, images);
                 scheduleSave();
             }
         });
@@ -546,10 +549,9 @@ export function createMediaControllerApi({
     }
 
     function getStoredSaveVideo(node) {
-        const video = getStoredSaveVideos(node).at(-1);
-        return video && typeof video === 'object' && typeof video.url === 'string' && video.url.trim()
-            ? video
-            : null;
+        const videos = getStoredSaveVideos(node);
+        const index = Math.max(0, Math.min(videos.length - 1, node?.videoPreviewIndex ?? node?.data?.videoPreviewIndex ?? videos.length - 1));
+        return videos[index] || null;
     }
 
     function getNodeMediaAssetKeys(node) {
@@ -611,7 +613,7 @@ export function createMediaControllerApi({
         const videos = Array.isArray(node?.data?.videos) && node.data.videos.length > 0
             ? node.data.videos
             : [node?.data?.video];
-        return videos.filter((video) => video && typeof video === 'object' && typeof video.url === 'string' && video.url.trim());
+        return videos.filter((video) => video && typeof video === 'object' && (video.assetKey || typeof video.url === 'string' && video.url.trim()));
     }
 
     function getStoredImagePreviewList(node) {
@@ -748,59 +750,122 @@ export function createMediaControllerApi({
         }
     }
 
-    function renderImageSavePreview(nodeId, images, emptyMessage = '无输入图片') {
-        const previewContainer = documentRef.getElementById(`${nodeId}-save-preview`);
-        const node = getNodeById(nodeId);
-        if (!previewContainer) return;
+    function getSavePreviewElements(nodeId) {
+        const node = getNodeById(nodeId), container = getProcessingNodeElement(nodeId, 'save-preview');
+        if (!container?.querySelector) return null;
+        let image = container.querySelector('.image-save-image-pane'), video = container.querySelector('.image-save-video-pane');
+        if (!image || !video) {
+            if (!image) { image = documentRef.createElement('div'); image.className = 'image-save-image-pane'; }
+            if (!video) { video = documentRef.createElement('div'); video.className = 'image-save-video-pane'; }
+            for (const child of Array.from(container.children || [])) {
+                if (child === image || child === video || child.classList?.contains('image-save-preview-tools')) continue;
+                (child.tagName === 'VIDEO' ? video : image).appendChild(child);
+            }
+            if (image.parentNode !== container) container.append(image);
+            if (video.parentNode !== container) container.append(video);
+        }
+        let tools = container.querySelector('.image-save-preview-tools');
+        if (!tools) {
+            tools = documentRef.createElement('div'); tools.className = 'image-save-preview-tools';
+            for (const mode of ['image', 'video']) {
+                const button = documentRef.createElement('button'); button.type = 'button'; button.dataset.savePreviewMode = mode;
+                button.dataset.nodeReadAction = 'true';
+                button.addEventListener('click', event => {
+                    event.stopPropagation();
+                    if (getNodeById(nodeId) !== node) return;
+                    persistProcessingParameters(node, { savePreviewMode: mode });
+                    renderImageSavePreview(nodeId, getStoredImageSaveList(node)); scheduleSave();
+                });
+                tools.append(button);
+            }
+            const select = documentRef.createElement('select'); select.dataset.saveVideoIndex = ''; select.dataset.nodeReadAction = 'true';
+            select.setAttribute('aria-label', '选择保存节点的视频');
+            select.addEventListener('change', event => {
+                event.stopPropagation();
+                if (getNodeById(nodeId) !== node) return;
+                persistProcessingParameters(node, { videoPreviewIndex: Number(select.value) });
+                renderVideoSavePreview(nodeId, getStoredSaveVideo(node)); scheduleSave();
+            });
+            tools.addEventListener('mousedown', event => event.stopPropagation());
+            tools.addEventListener('click', event => event.stopPropagation());
+            tools.append(select); container.append(tools);
+        }
+        return { container, image, video, tools };
+    }
 
-        const rendered = renderDisplayImagePreview(previewContainer, node, images, {
-            totalCount: getStoredImageCount(node),
-            altPrefix: '待保存',
-            placeholderClass: 'save-preview-placeholder',
-            emptyMessage,
-            placeholderWithIcon: false
-        });
+    function updateSavePreviewMode(node, elements) {
+        if (!elements) return;
+        const videos = getStoredSaveVideos(node), imageCount = Math.max(getStoredImageCount(node), getNodeMediaAssetKeys(node).length);
+        let mode = node.savePreviewMode ?? node.data?.savePreviewMode ?? (videos.length ? 'video' : 'image');
+        if (mode === 'video' && !videos.length) mode = 'image';
+        if (mode === 'image' && !imageCount && videos.length) mode = 'video';
+        elements.container.dataset.saveMode = mode;
+        elements.image.hidden = mode !== 'image'; elements.video.hidden = mode !== 'video';
+        for (const button of elements.tools.querySelectorAll('[data-save-preview-mode]')) {
+            const count = button.dataset.savePreviewMode === 'image' ? imageCount : videos.length;
+            button.textContent = `${button.dataset.savePreviewMode === 'image' ? '图片' : '视频'} ${count}`;
+            button.disabled = !count; button.setAttribute('aria-pressed', String(button.dataset.savePreviewMode === mode));
+        }
+        const select = elements.tools.querySelector('[data-save-video-index]');
+        if (select) {
+            const signature = JSON.stringify(videos.map(video => [video.id, video.assetKey, video.url]));
+            if (select.dataset.signature !== signature) {
+                select.replaceChildren();
+                videos.forEach((video, index) => { const option = documentRef.createElement('option'); option.value = String(index); option.textContent = `${index + 1}/${videos.length}${video.id ? ` · ${video.id}` : ''}`; select.append(option); });
+                select.dataset.signature = signature;
+            }
+            select.value = String(Math.max(0, Math.min(videos.length - 1, node.videoPreviewIndex ?? node.data?.videoPreviewIndex ?? videos.length - 1)));
+            select.hidden = mode !== 'video' || videos.length <= 1;
+        }
+    }
+
+    function renderImageSavePreview(nodeId, images, emptyMessage = '无输入图片') {
+        const node = getNodeById(nodeId), elements = getSavePreviewElements(nodeId);
+        if (!node || !elements) return;
+        const assets = getNodeMediaAssetKeys(node), unknown = assets.length > normalizeImageList(images).length && !node.data?.mediaIntegrity?.missingItems?.length;
+        if (unknown && !previewSlotReads.has(node)) {
+            const read = readPreviewSlots(node, assets); previewSlotReads.set(node, read);
+            void read.then(items => {
+                if (previewSlotReads.get(node) !== read) return;
+                previewSlotReads.delete(node);
+                if (items) renderImageSavePreview(nodeId, items.map(item => item.value).filter(Boolean), emptyMessage);
+            }).catch(() => { if (previewSlotReads.get(node) === read) previewSlotReads.delete(node); });
+        }
+        const rendered = renderDisplayImagePreview(elements.image, node, unknown ? [] : images, { totalCount: Math.max(getStoredImageCount(node), assets.length), altPrefix: '待保存', placeholderClass: 'save-preview-placeholder', emptyMessage: node.data?.mediaIntegrity?.missingItems?.some(item => item.position === node.imagePreviewIndex) ? '当前原图缺失，引用位置已保留' : emptyMessage, placeholderWithIcon: false });
+        getPreviewBatchNavigation().render(node, elements.image);
+        renderVideoSavePreview(nodeId, getStoredSaveVideo(node));
+        updateSavePreviewMode(node, elements);
         void showResolutionBadge(nodeId, rendered.image);
     }
 
-    function renderVideoSavePreview(nodeId, video, emptyMessage = '无输入视频') {
-        const previewContainer = documentRef.getElementById(`${nodeId}-save-preview`);
-        const node = getNodeById(nodeId);
-        if (!previewContainer) return;
-
-        const source = getVideoPreviewSource(video);
-        previewContainer.classList.remove('has-multiple-images');
-        previewContainer.dataset.saveMode = source ? 'video' : 'image';
-        if (node) {
-            clearCanonicalImageOutput(node);
+    function renderVideoSavePreview(nodeId, video, emptyMessage = '本地视频缓存缺失；请确认后从服务器拉取') {
+        const node = getNodeById(nodeId), elements = getSavePreviewElements(nodeId);
+        if (!node || !elements) return;
+        video = getStoredSaveVideo(node) || video;
+        const source = getVideoPreviewSource(video), pane = elements.video;
+        let player = pane.querySelector('video');
+        if (source) {
+            if (!player) { player = documentRef.createElement('video'); player.className = 'save-preview-video'; player.controls = true; player.preload = 'metadata'; player.playsInline = true; pane.append(player); }
+            if (player.getAttribute('src') !== source) player.src = source;
+            player.hidden = false; player.title = video?.status || video?.id || '可保存视频文件';
+            pane.querySelector('.save-preview-placeholder')?.remove();
             delete node.data.videoPreviewReleased;
+        } else {
+            if (player) { if (player.getAttribute('src')) { player.pause?.(); player.removeAttribute('src'); } player.hidden = true; }
+            const placeholder = ensureElement(pane, '.save-preview-placeholder', () => createPreviewPlaceholder('save-preview-placeholder', video ? emptyMessage : '无输入视频', { withIcon: false }));
+            updatePlaceholderText(placeholder, video ? emptyMessage : '无输入视频');
         }
-
-        if (!source) {
-            previewContainer.innerHTML = `<div class="save-preview-placeholder">${emptyMessage}</div>`;
-            return;
-        }
-
-        previewContainer.innerHTML = `
-            <video
-                src="${escapeHtml(source)}"
-                controls
-                preload="metadata"
-                playsinline
-                style="width:100%;height:100%;object-fit:contain;border-radius:12px;background:rgba(0,0,0,0.08);"
-                title="${escapeHtml(video.status || video.id || '可保存视频文件')}"
-            ></video>
-        `;
+        updateSavePreviewMode(node, elements);
     }
 
     function getCurrentImageSavePreviewImage(node) {
-        const images = getStoredImageSaveList(node);
+        const images = getPreviewSlotImages(node, getStoredImageSaveList(node));
         if (images.length === 0) return null;
-        return images[getImageSavePreviewIndex(node, images)] || images[0];
+        return images[getImageSavePreviewIndex(node, images)] || null;
     }
 
     function getPreviewSlotImages(node, images) {
-        if (!isBatchPreviewNode(node)) return images;
+        if (!isSlottedPreviewNode(node)) return images;
         const count = Math.max(images.length, getStoredImageCount(node), getNodeMediaAssetKeys(node).length);
         const missing = new Set((node.data?.mediaIntegrity?.missingItems || []).map(item => Number(item.position)));
         if (count <= images.length || !missing.size) return images;
@@ -822,7 +887,7 @@ export function createMediaControllerApi({
         let imageList = images.length > 0
             ? getPreviewSlotImages(node, images)
             : (normalizedFallback ? [normalizedFallback] : []);
-        const assets = isBatchPreviewNode(node) ? getNodeMediaAssetKeys(node) : [];
+        const assets = isSlottedPreviewNode(node) ? getNodeMediaAssetKeys(node) : [];
         if (assets.length > images.length && !node.data?.mediaIntegrity?.missingItems?.length) {
             // A compacted list has no reliable position map. Explicit original
             // viewing may resolve the existing local keys, never a substitute.
@@ -830,7 +895,7 @@ export function createMediaControllerApi({
             if (!items) return { node: null, images: [], index: 0, cancelled: true };
             imageList = items.map(item => item.value || '');
         }
-        if (isBatchPreviewNode(node) && Number.isFinite(requestedIndex)) node.imagePreviewIndex = requestedIndex;
+        if (isSlottedPreviewNode(node) && Number.isFinite(requestedIndex)) node.imagePreviewIndex = requestedIndex;
         const currentIndex = node?.type === 'ImageSave'
             ? getImageSavePreviewIndex(node, imageList)
             : getImagePreviewIndex(node, imageList);
@@ -869,7 +934,7 @@ export function createMediaControllerApi({
                 context.images[context.index] || context.images[0]
             );
         }
-        const currentImage = isBatchPreviewNode(context.node) ? context.images[context.index] : context.images[context.index] || context.images[0];
+        const currentImage = isSlottedPreviewNode(context.node) ? context.images[context.index] : context.images[context.index] || context.images[0];
         if (!currentImage) {
             return false;
         }
@@ -896,10 +961,12 @@ export function createMediaControllerApi({
             });
         };
 
-        container.addEventListener('pointerdown', () => {
+        container.addEventListener('pointerdown', event => {
+            if (event.target?.closest?.('video, .image-save-preview-tools')) return;
             container.focus({ preventScroll: true });
         });
         container.addEventListener('keydown', (event) => {
+            if (container.dataset.saveMode === 'video' || event.target?.closest?.('video, .image-save-preview-tools')) return;
             if (hasBlockingImmersiveOverlay()) return;
             if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
                 handleStep(-1, event);
@@ -930,11 +997,12 @@ export function createMediaControllerApi({
     async function stepImageSaveNodeByDelta(nodeId, delta) {
         const node = getNodeById(nodeId);
         const images = await getStoredImageSaveListAsync(node);
-        if (!node || images.length <= 1) return false;
-        const currentIndex = getImageSavePreviewIndex(node, images);
-        node.imagePreviewIndex = (currentIndex + delta + images.length) % images.length;
+        const slots = getPreviewSlotImages(node, images);
+        if (!node || slots.length <= 1) return false;
+        const currentIndex = getImageSavePreviewIndex(node, slots);
+        node.imagePreviewIndex = (currentIndex + delta + slots.length) % slots.length;
         renderImageSavePreview(nodeId, images);
-        await showResolutionBadge(nodeId, images[node.imagePreviewIndex]);
+        await showResolutionBadge(nodeId, slots[node.imagePreviewIndex]);
         schedulePreviewIndexSave(nodeId);
         return true;
     }
@@ -952,6 +1020,7 @@ export function createMediaControllerApi({
             if (!selectedNodeId) return;
             const node = getNodeById(selectedNodeId);
             if (!node || (!isBatchPreviewNode(node) && node.type !== 'ImageGenerate' && node.type !== 'ImageSave')) return;
+            if (node.type === 'ImageSave' && (getProcessingNodeElement(node.id, 'save-preview')?.dataset.saveMode === 'video' || event.target?.closest?.('video, .image-save-preview-tools'))) return;
 
             const delta = event.key === 'ArrowLeft' ? -1 : 1;
             event.preventDefault();
@@ -1685,110 +1754,49 @@ export function createMediaControllerApi({
     async function syncImageSaveNode(nodeId, imageData) {
         const node = getNodeById(nodeId);
         if (!node || node.type !== 'ImageSave') return;
-        const writeToken = beginDisplayImageAssetWrite(node);
-
-        const manualSaveBtn = documentRef.getElementById(`${nodeId}-manual-save`);
-        const viewFullBtn = documentRef.getElementById(`${nodeId}-view-full`);
-        const resolutionBadge = documentRef.getElementById(`${nodeId}-res`);
-
-        const imageList = normalizeImageList(imageData?.images ?? imageData);
-        const videoList = (Array.isArray(imageData?.videos) ? imageData.videos : [imageData?.video])
-            .filter((video) => video && typeof video === 'object' && (video.url || video.assetKey));
-        const videoData = videoList[videoList.length - 1] || null;
-        const currentImage = imageList.length > 0 ? imageList[0] : null;
-
         node.data = node.data || {};
-        if (videoData?.url || videoData?.assetKey) {
-            node.data.videos = videoList.map((video) => ({
-                id: video.id || '',
-                url: video.url || '',
-                assetKey: video.assetKey || '',
-                status: video.status || '',
-                prompt: video.prompt || ''
-            }));
-            node.data.video = {
-                id: videoData.id || '',
-                url: videoData.url,
-                assetKey: videoData.assetKey || '',
-                status: videoData.status || '',
-                prompt: videoData.prompt || ''
-            };
-        } else {
-            delete node.data.videos;
-            delete node.data.video;
+        const suppliedImages = normalizeImageList(imageData?.images ?? imageData);
+        const previousImages = getStoredImageSaveList(node);
+        const unchangedImages = node.data.imageAssetReady === true && previousImages.length === suppliedImages.length && suppliedImages.every((image, index) => image === previousImages[index]);
+        const writeToken = suppliedImages.length && !unchangedImages ? beginDisplayImageAssetWrite(node) : node.displayImageAssetWriteToken;
+        const current = () => getNodeById(nodeId) === node && (!suppliedImages.length || node.displayImageAssetWriteToken === writeToken);
+        const suppliedVideos = (Array.isArray(imageData?.videos) ? imageData.videos : [imageData?.video])
+            .filter(video => video && typeof video === 'object' && (video.url || video.assetKey));
+        if (suppliedVideos.length) {
+            node.data.videos = suppliedVideos.map(video => ({ ...video }));
+            node.data.video = { ...suppliedVideos[suppliedVideos.length - 1] };
         }
-
-        if (imageList.some((image) => isRemoteImageUrl(image))) {
-            await releaseForwardedMediaAssetKeys(node);
-            clearCanonicalImageOutput(node);
-            delete node.data.video;
-            clearDisplayImageAssetState(nodeId);
-            renderImageSavePreview(nodeId, [], 'URL 图片不支持保存节点');
-            if (manualSaveBtn) manualSaveBtn.disabled = true;
-            if (viewFullBtn) viewFullBtn.disabled = true;
-            if (resolutionBadge) {
-                resolutionBadge.textContent = '';
-                resolutionBadge.style.display = 'none';
-            }
-            if (shouldRequestFit(node, getPreviewLayoutSignature([]), 'savePreviewLayoutSignature')) {
-                requestNodeFit(nodeId);
-            }
-            return;
+        const remote = suppliedImages.some(image => isRemoteImageUrl(image));
+        if (suppliedImages.length && !remote && !unchangedImages) {
+            const previousIndex = node.imagePreviewIndex || 0;
+            setCanonicalImageOutput(node, suppliedImages, { currentIndex: previousIndex, assetKey: node.data.imageAssetKey || nodeId, imageCount: suppliedImages.length, hydratedAt: Date.now(), assetReady: false });
+            const keys = getForwardedMediaAssetKeys(nodeId);
+            const forwarded = keys.length ? await syncForwardedMediaAssetKeys(node, keys) : false;
+            if (!current()) return;
+            if (!forwarded) await persistUnownedDisplayImages(node, suppliedImages, writeToken, '保存节点图片持久化失败；请检查本地存储空间后重试');
+            if (!current()) return;
         }
-
-        if (currentImage) {
-            delete node.data.video;
-            setCanonicalImageOutput(node, imageList, {
-                currentIndex: 0,
-                assetKey: nodeId,
-                trackImageCount: true,
-                hydratedAt: Date.now(),
-                assetReady: false
-            });
-            renderImageSavePreview(nodeId, imageList);
-            if (manualSaveBtn) manualSaveBtn.disabled = false;
-            if (viewFullBtn) viewFullBtn.disabled = false;
-            const forwardedKeys = getForwardedMediaAssetKeys(nodeId);
-            const forwarded = forwardedKeys.length > 0
-                ? await syncForwardedMediaAssetKeys(node, forwardedKeys)
-                : false;
-            if (!forwarded) {
-                await persistUnownedDisplayImages(
-                    node, imageList, writeToken,
-                    '保存节点图片持久化失败；请检查本地存储空间后重试'
-                );
-            }
-            saveDisplayImageAssetSoon(nodeId, imageList);
-            updateResolutionBadgeSoon(nodeId, currentImage);
-        } else if (videoData?.url || videoData?.assetKey) {
-            await releaseForwardedMediaAssetKeys(node);
-            clearCanonicalImageOutput(node);
-            renderVideoSavePreview(nodeId, videoData);
-            if (manualSaveBtn) manualSaveBtn.disabled = false;
-            if (viewFullBtn) viewFullBtn.disabled = true;
-            clearDisplayImageAssetState(nodeId);
-            if (resolutionBadge) {
-                resolutionBadge.textContent = '';
-                resolutionBadge.style.display = 'none';
-            }
-        } else {
-            await releaseForwardedMediaAssetKeys(node);
-            clearCanonicalImageOutput(node);
-            delete node.data.video;
-            clearDisplayImageAssetState(nodeId);
-            renderImageSavePreview(nodeId, [], '无输入图片或视频');
-            if (manualSaveBtn) manualSaveBtn.disabled = true;
-            if (viewFullBtn) viewFullBtn.disabled = true;
-            if (resolutionBadge) {
-                resolutionBadge.textContent = '';
-                resolutionBadge.style.display = 'none';
-            }
+        const retainedImages = getStoredImageSaveList(node), videos = getStoredSaveVideos(node);
+        const retained = Math.max(getStoredImageCount(node), getNodeMediaAssetKeys(node).length) > 0 || videos.length > 0;
+        const staleImage = Object.prototype.hasOwnProperty.call(imageData || {}, 'images') && !suppliedImages.length && retainedImages.length;
+        const staleVideo = (Object.prototype.hasOwnProperty.call(imageData || {}, 'videos') || Object.prototype.hasOwnProperty.call(imageData || {}, 'video')) && !suppliedVideos.length && videos.length;
+        node.saveInputState = remote || staleImage || staleVideo || (!suppliedImages.length && !suppliedVideos.length) ? (retained ? 'stale' : 'empty') : 'current';
+        const preview = getProcessingNodeElement(nodeId, 'save-preview');
+        if (preview) {
+            preview.dataset.saveState = node.saveInputState;
+            if (remote) preview.dataset.saveMessage = 'URL 图片不支持保存，原有媒体未更新';
+            else if (staleImage && suppliedVideos.length) preview.dataset.saveMessage = '图片输入未更新，保留原图片；视频已更新';
+            else if (staleVideo && suppliedImages.length) preview.dataset.saveMessage = '视频输入未更新，保留原视频；图片已更新';
+            else if (node.saveInputState === 'stale') preview.dataset.saveMessage = '无有效输入，保留原有媒体，未更新';
+            else delete preview.dataset.saveMessage;
         }
+        renderImageSavePreview(nodeId, retainedImages);
+        const manual = getProcessingNodeElement(nodeId, 'manual-save'), full = getProcessingNodeElement(nodeId, 'view-full');
+        if (manual) manual.disabled = !retained;
+        if (full) full.disabled = !retained;
         scheduleDisplayImageMemorySweep({ delayMs: displayImageMemoryManager.releaseGraceMs });
-
-        if (shouldRequestFit(node, getPreviewLayoutSignature(imageList), 'savePreviewLayoutSignature')) {
-            requestNodeFit(nodeId);
-        }
+        scheduleSave();
+        if (shouldRequestFit(node, getPreviewLayoutSignature(retainedImages), 'savePreviewLayoutSignature')) requestNodeFit(nodeId);
     }
 
     function setImageMergeInputState(node, inputState, message = '') {
@@ -2167,18 +2175,16 @@ export function createMediaControllerApi({
     }
 
     async function refreshAllRecoverableMediaNodes(options = {}) {
-        let restoredLegacyVideoSave = false;
         for (const node of state.nodes.values()) {
-            if (node?.enabled === false || node?.type !== 'ImageSave' || node.data?.video?.assetKey) continue;
-            const incomingVideo = state.connections.find((connection) => (
-                connection?.to?.nodeId === node.id && connection.to.port === 'video'
-            ));
-            const sourceVideo = incomingVideo ? getNodeById(incomingVideo.from?.nodeId)?.data?.video : null;
-            if (!sourceVideo?.assetKey) continue;
-            await syncImageSaveNode(node.id, { images: [], video: sourceVideo });
-            restoredLegacyVideoSave = true;
+            if (node?.enabled === false || node.type !== 'ImageSave') continue;
+            const incomingImage = state.connections.find(edge => edge.to?.nodeId === node.id && edge.to.port === 'image');
+            const incomingVideo = state.connections.find(edge => edge.to?.nodeId === node.id && edge.to.port === 'video');
+            const imageSource = getNodeById(incomingImage?.from?.nodeId), videoSource = getNodeById(incomingVideo?.from?.nodeId);
+            const images = imageSource?.enabled !== false && imageSource ? await getNodeOutputImageListAsync(imageSource) : [];
+            if (getNodeById(node.id) !== node) continue;
+            const videos = videoSource?.enabled !== false && videoSource ? getStoredSaveVideos(videoSource) : [];
+            await syncImageSaveNode(node.id, { images, videos });
         }
-        if (restoredLegacyVideoSave) scheduleSave();
 
         const sourceNodeIds = Array.from(state.nodes.values())
             .filter((node) => (
@@ -2687,8 +2693,9 @@ export function createMediaControllerApi({
     }
 
     function setupImageSave(id, el) {
-        const previewContainer = el.querySelector(`#${id}-save-preview`);
-        const manualSaveBtn = el.querySelector(`#${id}-manual-save`);
+        const previewContainer = queryNodeControl(el, `#${id}-save-preview`);
+        const manualSaveBtn = queryNodeControl(el, `#${id}-manual-save`);
+        if (!previewContainer) return;
 
         const stepPreview = (delta, event) => {
             event?.stopPropagation();
@@ -2698,11 +2705,17 @@ export function createMediaControllerApi({
         const openSaveImagePreview = async () => {
             const node = getNodeById(id);
             const video = getStoredSaveVideo(node);
-            if (video?.url) {
-                windowRef.open(video.url, '_blank', 'noopener,noreferrer');
+            if (getProcessingNodeElement(id, 'save-preview')?.dataset.saveMode === 'video' || (!getStoredImageCount(node) && video)) {
+                const source = getVideoPreviewSource(video);
+                if (source) windowRef.open(source, '_blank', 'noopener,noreferrer');
+                else showToast('本地视频原文件缺失，请恢复后再查看', 'warning');
                 return;
             }
-            const image = getCurrentImageSavePreviewImage(node);
+            const index = node?.imagePreviewIndex || 0, assets = getNodeMediaAssetKeys(node);
+            if (node.data?.mediaIntegrity?.missingItems?.some(item => item.position === index)) return showToast('当前原图缺失，请恢复后再查看', 'warning');
+            const image = assets[index] ? await getImageAsset(assets[index]) : getCurrentImageSavePreviewImage(node);
+            if (getNodeById(id) !== node) return;
+            if (assets[index] && !image) return showToast('当前原图缺失，请恢复后再查看', 'warning');
             if (image) {
                 await openFullscreenPreview(image, id);
                 return;
@@ -2712,7 +2725,7 @@ export function createMediaControllerApi({
 
         bindPreviewKeyboardNavigation(
             previewContainer,
-            () => getStoredImageSaveListAsync(getNodeById(id)),
+            async () => { const node = getNodeById(id), images = await getStoredImageSaveListAsync(node); return getPreviewSlotImages(node, images); },
             (images) => getImageSavePreviewIndex(getNodeById(id), images),
             (nextIndex, images, event) => {
                 event?.stopPropagation();
@@ -2721,14 +2734,17 @@ export function createMediaControllerApi({
                 node.imagePreviewIndex = nextIndex;
                 renderImageSavePreview(id, images);
                 void showResolutionBadge(id, images[nextIndex]);
-            }
+                scheduleSave();
+            },
+            { preserveSlots: true }
         );
 
         previewContainer.addEventListener('pointerdown', (e) => {
-            if (e.target.closest('.image-save-preview-nav')) {
+            if (e.target.closest('.image-save-preview-nav, video, .image-save-preview-tools')) {
                 e.stopPropagation();
             }
         });
+        previewContainer.addEventListener('mousedown', e => { if (e.target.closest('video, .image-save-preview-tools')) e.stopPropagation(); });
 
         previewContainer.addEventListener('click', (e) => {
             const navButton = e.target.closest('.image-save-preview-nav');
@@ -2736,101 +2752,64 @@ export function createMediaControllerApi({
             stepPreview(parseInt(navButton.dataset.direction || '0', 10) || 0, e);
         });
 
-        manualSaveBtn.addEventListener('click', async () => {
+        manualSaveBtn?.addEventListener('click', async () => {
             const node = getNodeById(id);
-            let images;
+            if (!node) return;
             try {
-                images = await getStoredImageSaveListAsync(node);
-            } catch (error) {
-                showToast('读取待保存图片失败: ' + (error?.message || String(error)), 'error');
-                return;
-            }
-            const videos = getStoredSaveVideos(node);
-            if (!node || (images.length === 0 && videos.length === 0)) return showToast('没有可保存的内容', 'warning');
-            const filename = el.querySelector(`#${id}-filename`).value || 'image';
-            const desktop = windowRef.__cainflowDesktop?.saveFile ? windowRef.__cainflowDesktop : null;
-            if (images.length === 0 && videos.length > 0) {
-                try {
-                    let savedCount = 0;
-                    for (const [index, video] of videos.entries()) {
-                        const filenameBase = buildVideoSaveFilenameBase_local(id, video, filename || 'video');
-                        const saveFilename = `${filenameBase}${videos.length > 1 ? `_${index + 1}` : ''}${detectVideoExtensionFromSource(video)}`;
-                        if (desktop) {
-                            const destination = await desktop.saveFile(saveFilename, 'video/mp4', video.url);
-                            if (destination) savedCount += 1;
-                            continue;
-                        }
-                        const link = documentRef.createElement('a');
-                        link.href = video.url;
-                        link.download = saveFilename;
-                        link.rel = 'noopener noreferrer';
-                        link.target = '_blank';
-                        documentRef.body.appendChild(link);
-                        link.click();
-                        setTimeout(() => {
-                            if (link.parentNode) documentRef.body.removeChild(link);
-                        }, 100);
-                        addLog('info', '视频手动下载已发起', '浏览器已直接发起视频下载请求。', {
-                            sourceVideoUrl: video.url,
-                            filenameBase
-                        });
-                    }
-                    if (desktop) {
-                        if (savedCount > 0) showToast(`已保存 ${savedCount} 个视频`, 'success');
-                    } else {
-                        showToast(videos.length > 1 ? `已发起 ${videos.length} 个视频下载` : '已发起视频下载', 'success');
-                    }
-                } catch (err) {
-                    console.error('Manual save video error:', err);
-                    showToast('保存失败: ' + (err?.message || String(err)), 'error');
-                }
-                return;
-            }
-            try {
-                const filenameBases = buildImageSaveFilenameBases_local(id, images, filename);
-                let savedCount = 0;
+                const images = await getStoredImageSaveListAsync(node), videos = getStoredSaveVideos(node);
+                if (getNodeById(id) !== node) return;
+                if (!images.length && !videos.length) return showToast('没有可保存的内容', 'warning');
+                if (node.data?.mediaIntegrity?.missingItems?.length) return showToast('完整原图存在缺失，请恢复原图后再保存；引用位置已保留', 'warning');
+                const filename = readImageSaveFilename(node, '') || 'image';
+                const desktop = windowRef.__cainflowDesktop?.saveFile ? windowRef.__cainflowDesktop : null;
+                const imageBases = buildImageSaveFilenameBases_local(id, images, filename);
+                let savedImages = 0, savedVideos = 0;
                 for (const [index, image] of images.entries()) {
-                    if (desktop) {
-                        const destination = await desktop.saveFile(`${filenameBases[index]}.png`, 'image/png', image);
-                        if (destination) savedCount += 1;
-                        continue;
-                    }
-                    const blob = dataURLtoBlob(image);
-                    const pngBlob = new Blob([blob], { type: 'image/png' });
-                    const url = URL.createObjectURL(pngBlob);
-                    const link = documentRef.createElement('a');
-                    link.href = url;
-                    link.download = `${filenameBases[index]}.png`;
-                    documentRef.body.appendChild(link);
-                    link.click();
-                    setTimeout(() => {
-                        documentRef.body.removeChild(link);
-                        URL.revokeObjectURL(url);
-                    }, 100);
+                    if (desktop) { if (await desktop.saveFile(`${imageBases[index]}.png`, 'image/png', image)) savedImages++; continue; }
+                    const blob = dataURLtoBlob(image), url = URL.createObjectURL(new Blob([blob], { type: 'image/png' }));
+                    const link = documentRef.createElement('a'); link.href = url; link.download = `${imageBases[index]}.png`;
+                    documentRef.body.appendChild(link); link.click(); savedImages++;
+                    windowRef.setTimeout(() => { link.remove(); URL.revokeObjectURL(url); }, 100);
                 }
-                if (desktop) {
-                    if (savedCount > 0) showToast(`已保存 ${savedCount} 张图片为 PNG`, 'success');
-                } else {
-                    showToast(images.length > 1 ? `已手动保存 ${images.length} 张图片为 PNG` : '图片已手动保存为 PNG', 'success');
+                for (const [index, video] of videos.entries()) {
+                    const source = getVideoPreviewSource(video) || video.url;
+                    if (!source) throw new Error('本地视频缺失，请恢复后再保存');
+                    const blob = await downloadGeneratedVideo(source);
+                    const base = buildVideoSaveFilenameBase_local(id, video, filename || 'video');
+                    const name = `${base}${videos.length > 1 ? `_${index + 1}` : ''}${detectVideoExtensionFromSource(video, blob)}`;
+                    if (desktop) { if (await desktop.saveFile(name, blob.type || 'video/mp4', blob)) savedVideos++; continue; }
+                    const url = URL.createObjectURL(blob);
+                    const link = documentRef.createElement('a'); link.href = url; link.download = name; link.rel = 'noopener noreferrer';
+                    documentRef.body.appendChild(link); link.click(); savedVideos++;
+                    windowRef.setTimeout(() => { link.remove(); URL.revokeObjectURL(url); }, 100);
+                    addLog('info', '视频手动下载已发起', '浏览器已直接发起视频下载请求。', { sourceVideoUrl: source, filenameBase: base });
                 }
-            } catch (err) {
-                console.error('Manual save error:', err);
-                showToast('保存失败: ' + err.message, 'error');
-            }
+                if (savedImages || savedVideos) showToast(`已${desktop ? '保存' : '发起保存'} ${savedImages} 张图片和 ${savedVideos} 个视频`, 'success');
+            } catch (error) { showToast('保存失败: ' + (error?.message || String(error)), 'error'); }
         });
 
         previewContainer.addEventListener('click', (e) => {
             e.stopPropagation();
             if (state.justDragged) return;
             if (e.target.closest('.image-save-preview-nav')) return;
-            if (e.target.closest('video')) return;
+            if (e.target.closest('video, .image-save-preview-tools, .image-preview-batch-navigation')) return;
+            const node = getNodeById(id);
+            if (node?.imageFirstMediaDragged) return;
+            if (node?.parameterRoot && e.detail < 2) { node.onImageFirstSelect?.(); return; }
             void openSaveImagePreview();
         });
 
-        el.querySelector(`#${id}-view-full`).addEventListener('click', (e) => {
+        queryNodeControl(el, `#${id}-view-full`)?.addEventListener('click', (e) => {
             e.stopPropagation();
             void openSaveImagePreview();
         });
+        const node = getNodeById(id);
+        if (node?.el === el && previewContainer.querySelector) {
+            renderImageSavePreview(id, getStoredImageSaveList(node));
+            const rerender = () => { if (getNodeById(id) === node) renderImageSavePreview(id, getStoredImageSaveList(node)); };
+            node.onImageSaveRendered = rerender;
+            (el._cleanupFns ||= []).push(() => { if (node.onImageSaveRendered === rerender) delete node.onImageSaveRendered; imagePreviewBatchNavigation?.destroy(node); });
+        }
     }
 
     async function autoSaveToDir(nodeId, dataUrl) {
@@ -2838,12 +2817,14 @@ export function createMediaControllerApi({
         if (!node) return;
         const images = normalizeImageList(dataUrl?.images ?? dataUrl);
         const videos = (Array.isArray(dataUrl?.videos) ? dataUrl.videos : [dataUrl?.video])
-            .filter((video) => video && typeof video === 'object' && video.url);
+            .filter((video) => video && typeof video === 'object' && (video.url || video.assetKey))
+            .map(video => ({ ...video, url: getVideoPreviewSource(video) || video.url }));
         const video = videos[videos.length - 1] || null;
         try {
-            const prefix = documentRef.getElementById(`${nodeId}-filename`)?.value || (video?.url ? 'video' : 'image');
+            const prefix = node.type === 'ImageSave' ? readImageSaveFilename(node, '') || (video?.url ? 'video' : 'image')
+                : documentRef.getElementById(`${nodeId}-filename`)?.value || (video?.url ? 'video' : 'image');
             const result = await saveGeneratedMediaToDirectory({
-                payload: dataUrl, directoryHandle: state.globalSaveDirHandle, filenamePrefix: prefix,
+                payload: videos.length ? { images, videos, video } : dataUrl, directoryHandle: state.globalSaveDirHandle, filenamePrefix: prefix,
                 dataURLtoBlob, downloadVideo: downloadGeneratedVideo,
                 buildImageFilenameBases: (items, name) => buildImageSaveFilenameBases_local(nodeId, items, name, { includeTimestamp: true }),
                 buildVideoFilenameBase: (currentVideo, name) => buildVideoSaveFilenameBase_local(nodeId, currentVideo, name, { includeTimestamp: true }),
@@ -3793,7 +3774,7 @@ export function createMediaControllerApi({
                     button.className = `fullscreen-thumb-item${index === currentIndex ? ' is-active' : ''}`;
                     button.title = `第 ${index + 1} 张`;
                     button.setAttribute('aria-label', `查看第 ${index + 1} 张图片`);
-                    if (isBatchPreviewNode(context.node) && !imageSrc) {
+                    if (isSlottedPreviewNode(context.node) && !imageSrc) {
                         button.disabled = true; button.title += ' · 原图缺失';
                     }
                     button.addEventListener('click', (event) => {
@@ -3838,7 +3819,7 @@ export function createMediaControllerApi({
             let next = currentIndex;
             for (let offset = 0; offset < images.length; offset++) {
                 next = (next + delta + images.length) % images.length;
-                if (!isBatchPreviewNode(context.node) || images[next]) break;
+                if (!isSlottedPreviewNode(context.node) || images[next]) break;
             }
             currentIndex = next;
             renderCurrentImage();

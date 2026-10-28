@@ -8,6 +8,7 @@ import {
 } from '../features/execution/execution-data-utils.js';
 import { applyProtocolVariantSnapshot } from './protocol-variant-drafts.js';
 import { readColorResetConfig } from '../features/media/color-reset-config.js';
+import { readImageSaveFilename } from './image-save-settings.js';
 import { hasNodeCapability, NODE_CAPABILITIES } from './registry.js';
 import { readImageGenerationSettings } from './image-generation-settings.js';
 import { readImageResizeSettings } from './image-resize-settings.js';
@@ -248,7 +249,11 @@ export function createNodeSerializer({ state, documentRef }) {
 
             if (node.type === 'ImageSave') {
                 if (node.autoAddedForGeneration === true) serialized.autoAddedForGeneration = true;
-                serialized.filename = documentRef.getElementById(`${id}-filename`)?.value || 'generated_image';
+                serialized.filename = readImageSaveFilename(node);
+                const videoIndex = node.videoPreviewIndex ?? node.data?.videoPreviewIndex;
+                if (videoIndex !== undefined && videoIndex !== null && Number.isFinite(Number(videoIndex))) serialized.videoPreviewIndex = Math.max(0, Math.floor(Number(videoIndex)));
+                const previewMode = node.savePreviewMode ?? node.data?.savePreviewMode;
+                if (previewMode === 'image' || previewMode === 'video') serialized.savePreviewMode = previewMode;
                 if (Array.isArray(node.data?.videos) && node.data.videos.length > 0) {
                     serialized.videos = node.data.videos.map((video) => ({
                         id: video?.id || '', url: video?.url || '', assetKey: video?.assetKey || '',

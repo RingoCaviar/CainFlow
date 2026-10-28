@@ -12,13 +12,18 @@ function describeSource(state, edge, referenceGroup) {
         .find(port => port.dataset.port === edge.from.port);
     const type = output?.dataset.type || edge.type || '';
     const projection = type === 'image' ? referenceGroup || projectImageOutput(source, getCanonicalImageList(source)) : null;
-    const count = projection?.count || 0;
+    const videos = Array.isArray(source?.data?.videos) && source.data.videos.length ? source.data.videos
+        : source?.data?.video ? [source.data.video] : [];
+    const count = type === 'video' ? videos.length : projection?.count || 0;
     const integrity = source?.data?.mediaIntegrity;
-    const missing = !source || !projection?.remote && (integrity?.state === 'missing' || integrity?.missingItems?.length > 0);
+    const missing = !source || (type === 'video'
+        ? source.data?.videoMissingLocalAsset === true || integrity?.mediaType === 'video' && (integrity?.state === 'missing' || integrity?.missingItems?.length > 0)
+        : !projection?.remote && (integrity?.state === 'missing' || integrity?.missingItems?.length > 0));
     const title = source?.customTitle || source?.el?.dataset.nodeTitle || getNodeDefinition(source?.type)?.title || edge.from.nodeId;
     const sourceRunning = referenceGroup?.running || state.runningNodeIds?.has(source?.id) || ['waiting', 'running'].includes(source?.runStatus);
     const status = !source ? '来源缺失' : source.enabled === false ? '已停用'
-        : sourceRunning ? '来源运行中' : missing ? '原图缺失' : type === 'image' && !count ? '尚无输出' : '已连接';
+        : sourceRunning ? '来源运行中' : missing ? (type === 'video' ? '本地视频缺失' : '原图缺失')
+            : ['image', 'video'].includes(type) && !count ? '尚无输出' : '已连接';
     return { source, type, count, title, status, missing };
 }
 
@@ -112,6 +117,7 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
             empty.textContent = node.type === 'ImageGenerate'
                 ? '将图片、文本、视角或参数接到输入口，自动识别用途。'
                 : node.type === 'ImageCompare' ? '将图片接到输入口，依次分配空闲 A、B。'
+                    : node.type === 'ImageSave' ? '将图片或视频接到输入口，分别保留图片和视频用途。'
                     : '将图片接到输入口，保留来源的完整批次。';
             element.append(empty); return;
         }
@@ -123,7 +129,7 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
             const title = documentRef.createElement('span'); title.className = 'image-input-source-title';
             title.textContent = description.title; title.title = `${description.title} · ${edge.from.nodeId} / ${edge.from.port}`;
             const facts = documentRef.createElement('span'); facts.className = 'image-input-facts';
-            facts.textContent = `${typeLabels[description.type] || description.type || '未知类型'}${description.type === 'image' ? ` · ${description.count} 张` : ''} · ${description.status}`;
+            facts.textContent = `${typeLabels[description.type] || description.type || '未知类型'}${description.type === 'image' ? ` · ${description.count} 张` : description.type === 'video' ? ` · ${description.count} 个` : ''} · ${description.status}`;
             top.append(title, facts); row.append(top);
             const controls = documentRef.createElement('div'); controls.className = 'image-input-controls';
             const select = documentRef.createElement('select'); select.dataset.inputRole = '';

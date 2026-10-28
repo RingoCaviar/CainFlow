@@ -1,5 +1,6 @@
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
+import { readImageSaveFilename } from '../../nodes/image-save-settings.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
 import { readPrimaryImageOutput } from '../../nodes/image-output-projection.js';
 import { validateUniversalImageInputs } from '../../nodes/universal-input-policy.js';
@@ -551,6 +552,7 @@ export function createWorkflowRunnerApi({
     }
 
     function getPreservedNodeDataForReset(node) {
+        if (node?.type === 'ImageSave') return { ...(node.data || {}), filename: readImageSaveFilename(node) };
         if (node?.type === 'ImageMerge') return { ...(node.data || {}) };
         if (node?.type === 'ImageCompare') return { ...(node.data || {}), comparePosition: node.comparePosition ?? node.data?.comparePosition ?? 50 };
         if (node?.type === 'ImageResize') return { ...(node.data || {}), ...readImageResizeSettings(node) };
@@ -574,7 +576,7 @@ export function createWorkflowRunnerApi({
 
         if (!node?.data || typeof node.data !== 'object') return {};
 
-        if (node.type === 'ImagePreview' || node.type === 'ImageSave') {
+        if (node.type === 'ImagePreview') {
             return { ...node.data };
         }
 

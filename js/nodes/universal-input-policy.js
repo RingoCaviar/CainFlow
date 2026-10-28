@@ -7,7 +7,7 @@ import { resolveDeclarativeProtocolVariant } from '../features/execution/protoco
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 
 // Each node type opts in when its card and input details use this contract.
-const UNIVERSAL_INPUT_NODE_TYPES = new Set(['ImageGenerate', 'ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge']);
+const UNIVERSAL_INPUT_NODE_TYPES = new Set(['ImageGenerate', 'ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge', 'ImageSave']);
 
 function mergeRoleCount(node, connections = []) {
     const indices = connections.filter(edge => edge.to?.nodeId === node.id && /^image_\d+$/.test(edge.to.port))
@@ -17,6 +17,7 @@ function mergeRoleCount(node, connections = []) {
 }
 
 export function getUniversalInputRoles(node, state = null) {
+    if (node?.type === 'ImageSave') return [['image', '图片输入', 'image'], ['video', '视频输入', 'video']];
     if (node?.type === 'ImageMerge') return Array.from({ length: mergeRoleCount(node, state?.connections) }, (_, index) => [`image_${index + 1}`, `图片 ${index + 1}`, 'image']);
     if (node?.type === 'ImageCompare') return [['imageA', '对比 A（可选）', 'image'], ['imageB', '结果 B（必需）', 'image']];
     if (isUniversalInputNode(node) && node.type !== 'ImageGenerate') return [['image', '图片输入', 'image']];
@@ -116,6 +117,7 @@ export function resolveUniversalInput({ state, sourceNode, sourcePort, sourceTyp
     let port = role;
     if (role === 'auto') {
         if (targetNode.type === 'ImageCompare') port = compareRole;
+        else if (targetNode.type === 'ImageSave') port = { image: 'image', video: 'video' }[type];
         else if (targetNode.type === 'ImageMerge') {
             const indices = connections.filter(edge => edge.to?.nodeId === targetNode.id && /^image_\d+$/.test(edge.to.port))
                 .map(edge => Number(edge.to.port.slice(6))).filter(index => Number.isSafeInteger(index) && index > 0);
