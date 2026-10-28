@@ -985,6 +985,7 @@ export function createPromptAgentController({
         // Refresh here so the first request always sees the current chat models.
         renderModelOptions();
         setOpen(true);
+        surfaces?.bringToFront(getElements().panel);
         if (documentRef.activeElement === getElements().button) getElements().input?.focus?.();
         panelWidthController?.apply();
         if (scrollToLatestOnOpen) scrollToLatest();
@@ -1082,10 +1083,17 @@ export function createPromptAgentController({
         renderPreparedImageRequest(); input?.focus();
         return true;
     }
-    function close() { canvasMentions?.close(); canvasViews.forEach(view => view.close()); setOpen(false); }
+    function close() {
+        const panel = getElements().panel;
+        if (panel) surfaces?.closePopovers(panel);
+        canvasMentions?.close(); canvasViews.forEach(view => view.close()); setOpen(false);
+    }
     function toggle() {
         const { panel } = getElements();
-        if (panel?.classList.contains('active')) close();
+        if (panel?.classList.contains('active') && (!surfaces || surfaces.topModeless() === panel)) {
+            if (surfaces) surfaces.closeModeless(panel);
+            else close();
+        }
         else open();
     }
 
@@ -1785,6 +1793,9 @@ export function createPromptAgentController({
     function init() {
         if (initialized) return;
         panelManager?.register?.('agent', { close });
+        const surfacePanel = getElements().panel;
+        if (surfacePanel) surfaces?.registerModeless(surfacePanel, { close,
+            isOpen: () => surfacePanel.classList.contains('active'), opener: () => getElements().button });
         const { messages, scrollBottomButton } = getElements();
         messages?.addEventListener('scroll', () => {
             if (messages.scrollTop < lastScrollTop - 1) followLatestContent = false;
@@ -1836,7 +1847,7 @@ export function createPromptAgentController({
             input.dispatchEvent(new Event('input', { bubbles: true })); input.focus();
         });
         button?.addEventListener('click', toggle);
-        closeButton?.addEventListener('click', close);
+        closeButton?.addEventListener('click', () => surfaces ? surfaces.closeModeless(getElements().panel) : close());
         form?.addEventListener('submit', async (event) => {
             event.preventDefault();
             await submit();

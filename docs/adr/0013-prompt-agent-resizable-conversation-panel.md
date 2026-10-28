@@ -28,6 +28,30 @@ Existing modal, confirmation, protocol editor, preview and painter lifecycles re
 
 Ordinary menus sit above transient notifications but below immersive and modal windows. Agent menu surfaces composite the theme's surface color over the canvas color, preventing text from underlying notifications bleeding through glass themes. Both top notices and bottom notifications constrain their width to the space beside the Agent, following deliberate width changes immediately.
 
+## Image parameter windows and Agent coexistence (2026-10-28, image-first-canvas#016)
+
+The image parameter editor is a modeless window. It can coexist and overlap with
+Agent, including at narrow viewport widths. Clicking either visible surface brings
+it to the front; explicit parameter and assistant controls recover a fully covered
+surface without closing the other or changing conversation drafts and tasks.
+Other primary panels retain their mutual exclusion and dismiss the parameter
+presentation when opened. This is a narrow exception to the primary-panel rule
+above, not a second modal stack.
+
+The shared surface coordinator owns the ordering of these modeless windows and
+their portal menus below real modal windows. Real modals continue to mask unrelated
+content with `inert` and constrain focus. Escape dismisses the top menu, then the
+top modal, then the front modeless window; explicit closing restores a still-valid
+opener without scrolling the canvas. Node or workflow changes do not steal focus.
+
+Normal parameters remain anchored below their node in screen coordinates. Opening,
+resizing, or bringing them forward never pans the canvas or flips the anchor. Only
+deliberate ordinary width changes update the global width preference. The enlarged
+mode starts centered and has an ephemeral, draggable and resizable rectangle;
+switching nodes retains that mode for the current open session. Restoring returns
+to the current node, and closing ends the enlarged session. The original control
+DOM remains the sole editor, including while the window is moved or resized.
+
 ## Original consequences (historical)
 
 - The canvas remains visible while the assistant is used, and users can tune the panel width to their workspace.
