@@ -127,7 +127,7 @@ for (const type of allTypes) for (const direction of ['input', 'output']) {
                 const expected = direction === 'input' && type === 'ImageGenerate' && port.name === 'auto'
                     ? allTypes.filter(type => type !== 'VideoGenerate')
                     : direction === 'input' && type === 'ImageSave' && port.name === 'auto' ? [...new Set([...outputCandidates.image, ...outputCandidates.video])]
-                    : direction === 'input' && ['ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge'].includes(type) && port.name === 'auto' ? outputCandidates.image
+                    : direction === 'input' && ['ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge', 'CameraControl'].includes(type) && port.name === 'auto' ? outputCandidates.image
                     : (direction === 'output' ? inputCandidates : outputCandidates)[port.type];
                 assert.ok(expected?.length, `known compatibility contract for ${type}.${port.name}`);
                 for (const [index, candidate] of expected.entries()) {

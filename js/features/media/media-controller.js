@@ -2129,7 +2129,7 @@ export function createMediaControllerApi({
             }
 
             if (node.type === 'CameraControl') {
-                await syncCameraControlNodePreview(nodeId, sourceImage);
+                await syncCameraControlNodePreview(nodeId, processingSourceImage || '');
             }
         }
     }

@@ -1,4 +1,5 @@
 import * as THREE from '../../vendor/three.module.js';
+import { createCameraControlState, CAMERA_VIEW_MODES, normalizeCameraViewMode } from './camera-control-state.js';
 import {
     CAMERA_LIMITS,
     DEFAULT_CAMERA_STATE,
@@ -7,11 +8,6 @@ import {
     normalizeCameraState,
     roundTo
 } from './camera-prompt-utils.js';
-
-const CAMERA_VIEW_MODES = Object.freeze({
-    FIRST_PERSON: 'firstPerson',
-    THIRD_PERSON: 'thirdPerson'
-});
 
 const SUBJECT_TARGET = Object.freeze({ x: 0, y: 1.2, z: 0 });
 
@@ -39,12 +35,6 @@ const CANVAS_UI_FONT = 'Arial, "Microsoft YaHei UI", sans-serif';
 
 function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
-}
-
-function normalizeCameraViewMode(value) {
-    return value === CAMERA_VIEW_MODES.THIRD_PERSON
-        ? CAMERA_VIEW_MODES.THIRD_PERSON
-        : CAMERA_VIEW_MODES.FIRST_PERSON;
 }
 
 function buildBackTexture() {
@@ -142,23 +132,14 @@ function loadImageElement(src) {
     });
 }
 
-function getNodeImageOutput(node) {
-    if (!node) return '';
-    if (typeof node.imageData === 'string' && node.imageData) return node.imageData;
-    if (typeof node.resizePreviewData === 'string' && node.resizePreviewData) return node.resizePreviewData;
-    if (typeof node.imageUrl === 'string' && node.imageUrl) return node.imageUrl;
-    if (typeof node.data?.image === 'string' && node.data.image) return node.data.image;
-    return '';
-}
-
-export function createCameraControlNodeApi({
-    state,
-    fitNodeToContent = () => {},
-    scheduleSave = () => {},
-    showToast = () => {},
-    documentRef = document
-}) {
+export function createCameraControlNodeApi(options = {}) {
+    const { state, fitNodeToContent = () => {}, scheduleSave = () => {},
+        showToast = () => {}, documentRef = document } = options;
+    const cameraStateApi = createCameraControlState(options);
+    const { getNodeCameraState, getNodeCameraViewMode, updateNodeSummary,
+        syncNodeData, syncNodeCameraViewMode } = cameraStateApi;
     let activeEditor = null;
+    let editorOpenVersion = 0;
     const SLIDER_META = {
         pitch: { label: '俯仰角 Pitch', min: CAMERA_LIMITS.pitch.min, max: CAMERA_LIMITS.pitch.max, step: 0.5 },
         yaw: { label: '偏航角 Yaw', min: CAMERA_LIMITS.yaw.min, max: CAMERA_LIMITS.yaw.max, step: 0.5 },
@@ -167,99 +148,14 @@ export function createCameraControlNodeApi({
         roll: { label: '翻滚角 Roll', min: CAMERA_LIMITS.roll.min, max: CAMERA_LIMITS.roll.max, step: 0.5 }
     };
 
-    function getCameraDefaultsStore() {
-        if (!state.nodeDefaults || typeof state.nodeDefaults !== 'object') {
-            state.nodeDefaults = {};
-        }
-        if (!state.nodeDefaults.CameraControl || typeof state.nodeDefaults.CameraControl !== 'object') {
-            state.nodeDefaults.CameraControl = { ...DEFAULT_CAMERA_STATE };
-        }
-        return state.nodeDefaults.CameraControl;
+    function isEditorCurrent(editor) {
+        return !!editor && !editor.disposed && cameraStateApi.isCurrent(editor.identity);
     }
 
-    function getNodeCameraState(nodeId) {
-        const node = state.nodes.get(nodeId);
-        if (!node) return normalizeCameraState(DEFAULT_CAMERA_STATE);
-        return normalizeCameraState({
-            pitch: node.data?.pitch ?? node.pitch ?? DEFAULT_CAMERA_STATE.pitch,
-            yaw: node.data?.yaw ?? node.yaw ?? DEFAULT_CAMERA_STATE.yaw,
-            distance: node.data?.distance ?? node.distance ?? DEFAULT_CAMERA_STATE.distance,
-            fov: node.data?.fov ?? node.fov ?? DEFAULT_CAMERA_STATE.fov,
-            roll: node.data?.roll ?? node.roll ?? DEFAULT_CAMERA_STATE.roll
-        });
-    }
-
-    function getNodeCameraViewMode(nodeId) {
-        const node = state.nodes.get(nodeId);
-        return normalizeCameraViewMode(node?.data?.cameraViewMode ?? node?.cameraViewMode);
-    }
-
-    function isNodeRunning(nodeId) {
-        return state.runningNodeIds?.has(nodeId) || state.nodes.get(nodeId)?.el?.classList.contains('running');
-    }
-
-    function updateNodeSummary(nodeId) {
-        const node = state.nodes.get(nodeId);
-        if (!node) return;
-        const previewContainer = documentRef.getElementById(`${nodeId}-camera-preview`);
-        if (!previewContainer) return;
-        const previewImage = typeof node.data?.cameraPreviewImage === 'string' ? node.data.cameraPreviewImage.trim() : '';
-        const hasReferenceImage = typeof node.data?.image === 'string' && node.data.image.trim() !== '';
-        if (previewImage) {
-            previewContainer.classList.add('has-image');
-            previewContainer.innerHTML = '<img alt="视角预览图" draggable="false" />';
-            const img = previewContainer.querySelector('img');
-            if (img) img.src = previewImage;
-            return;
-        }
-        previewContainer.classList.remove('has-image');
-        previewContainer.innerHTML = `<div class="camera-control-node-preview-placeholder">${
-            hasReferenceImage ? '点击“编辑视角”生成当前角度预览' : '等待参考图输入'
-        }</div>`;
-    }
-    function syncNodeDefaults(cameraState) {
-        const defaults = getCameraDefaultsStore();
-        defaults.pitch = cameraState.pitch;
-        defaults.yaw = cameraState.yaw;
-        defaults.distance = cameraState.distance;
-        defaults.fov = cameraState.fov;
-        defaults.roll = cameraState.roll;
-        defaults.cameraViewMode = normalizeCameraViewMode(defaults.cameraViewMode);
-    }
-
-    function syncNodeCameraViewMode(nodeId, mode, options = {}) {
-        const node = state.nodes.get(nodeId);
-        if (!node) return CAMERA_VIEW_MODES.FIRST_PERSON;
-        node.data = node.data || {};
-        const normalizedMode = normalizeCameraViewMode(mode);
-        node.data.cameraViewMode = normalizedMode;
-        const defaults = getCameraDefaultsStore();
-        defaults.cameraViewMode = normalizedMode;
-        if (options.save !== false) {
-            scheduleSave();
-        }
-        return normalizedMode;
-    }
-
-    function syncNodeData(nodeId, cameraState, options = {}) {
-        const node = state.nodes.get(nodeId);
-        if (!node) return '';
-        node.data = node.data || {};
-        const normalized = normalizeCameraState(cameraState);
-        const promptText = generateCameraPrompt(normalized);
-        node.data.pitch = normalized.pitch;
-        node.data.yaw = normalized.yaw;
-        node.data.distance = normalized.distance;
-        node.data.fov = normalized.fov;
-        node.data.roll = normalized.roll;
-        node.data.text = promptText;
-        node.data.cameraPrompt = promptText;
-        syncNodeDefaults(normalized);
-        updateNodeSummary(nodeId);
-        if (options.save !== false) {
-            scheduleSave();
-        }
-        return promptText;
+    function canEditEditor(editor) {
+        if (isEditorCurrent(editor) && cameraStateApi.canEdit(editor.identity)) return true;
+        if (activeEditor === editor) closeCameraControlEditor({ savePreview: false, restoreFocus: false });
+        return false;
     }
 
     function updateCameraViewModeUi(editor) {
@@ -360,11 +256,12 @@ export function createCameraControlNodeApi({
     }
 
     function syncCamera(editor, options = {}) {
+        if (!canEditEditor(editor)) return;
         const { cameraState, camera } = editor;
         applyCameraStateToCamera(camera, cameraState, editor.camera.aspect);
         syncCameraHelper(editor);
 
-        const promptText = syncNodeData(editor.nodeId, cameraState, options);
+        const promptText = syncNodeData(editor.nodeId, cameraState, { ...options, identity: editor.identity });
         updateEditorControls(editor, promptText);
         requestRender(editor);
     }
@@ -451,12 +348,12 @@ export function createCameraControlNodeApi({
     }
 
     function requestRender(editor) {
-        if (!editor || editor.disposed || editor.renderQueued) return;
+        if (!isEditorCurrent(editor) || editor.renderQueued) return;
         editor.renderQueued = true;
         const view = documentRef.defaultView || window;
         view.requestAnimationFrame(() => {
             editor.renderQueued = false;
-            if (editor.disposed) return;
+            if (!isEditorCurrent(editor)) return;
             resizeRenderer(editor);
             syncCameraHelper(editor);
             editor.renderer.render(editor.scene, getActiveRenderCamera(editor));
@@ -475,8 +372,9 @@ export function createCameraControlNodeApi({
         return previewCanvas.toDataURL('image/png');
     }
     function storeNodePreviewImage(nodeId, previewImage, options = {}) {
-        const node = state.nodes.get(nodeId);
-        if (!node) return;
+        const identity = options.identity || cameraStateApi.capture(nodeId);
+        if (!cameraStateApi.canEdit(identity)) return;
+        const node = identity.node;
         node.data = node.data || {};
         node.data.cameraPreviewImage = typeof previewImage === 'string' ? previewImage : '';
         updateNodeSummary(nodeId);
@@ -486,6 +384,7 @@ export function createCameraControlNodeApi({
     }
 
     async function setStageImage(editor, imageValue) {
+        if (!isEditorCurrent(editor)) return;
         const nextImageValue = typeof imageValue === 'string' ? imageValue : '';
         if (editor.imageValue === nextImageValue) {
             return;
@@ -510,7 +409,7 @@ export function createCameraControlNodeApi({
 
         try {
             const image = await loadImageElement(nextImageValue);
-            if (editor.disposed || requestVersion !== editor.textureVersion) return;
+            if (!isEditorCurrent(editor) || requestVersion !== editor.textureVersion) return;
 
             const texture = new THREE.Texture(image);
             texture.colorSpace = THREE.SRGBColorSpace;
@@ -527,43 +426,37 @@ export function createCameraControlNodeApi({
             editor.subjectGroup.scale.set(clamp(aspect, 0.45, 2.4), 1, 1);
             requestRender(editor);
         } catch {
-            if (editor.disposed || requestVersion !== editor.textureVersion) return;
+            if (!isEditorCurrent(editor) || requestVersion !== editor.textureVersion) return;
             usePlaceholderTexture();
         }
     }
 
-    function findConnectedInputImage(nodeId) {
-        const connection = state.connections.find((candidate) => (
-            candidate.to.nodeId === nodeId &&
-            candidate.to.port === 'image'
-        ));
-        if (!connection) return '';
-        return getNodeImageOutput(state.nodes.get(connection.from.nodeId));
-    }
-
-    function refreshCameraControlPreview(nodeId, imageValue = null) {
-        const node = state.nodes.get(nodeId);
-        if (!node || node.type !== 'CameraControl') return;
-        node.data = node.data || {};
-        const resolvedImage = imageValue !== null ? imageValue : findConnectedInputImage(nodeId);
-        node.data.image = typeof resolvedImage === 'string' ? resolvedImage : '';
-        updateNodeSummary(nodeId);
-        if (activeEditor?.nodeId === nodeId) {
-            void setStageImage(activeEditor, node.data.image);
+    async function refreshCameraControlPreview(nodeId, imageValue = null) {
+        const identity = cameraStateApi.capture(nodeId);
+        const image = await cameraStateApi.refreshCameraControlPreview(nodeId, imageValue);
+        if (image === null || !cameraStateApi.isCurrent(identity)) return;
+        if (activeEditor && !isEditorCurrent(activeEditor)) {
+            closeCameraControlEditor({ savePreview: false, restoreFocus: false });
         }
+        if (activeEditor?.identity.node === identity.node && isEditorCurrent(activeEditor)) {
+            await setStageImage(activeEditor, image);
+        }
+        return image;
     }
 
     function refreshAllCameraControlPreviews() {
-        state.nodes.forEach((node, nodeId) => {
-            if (node.type === 'CameraControl') {
-                refreshCameraControlPreview(nodeId);
-            }
-        });
+        if (activeEditor && !isEditorCurrent(activeEditor)) {
+            closeCameraControlEditor({ savePreview: false, restoreFocus: false });
+        }
+        return Promise.all([...state.nodes.values()].filter(node => node.type === 'CameraControl')
+            .map(node => refreshCameraControlPreview(node.id)));
     }
 
-    function syncCameraControlFromExecution(nodeId, imageValue) {
-        refreshCameraControlPreview(nodeId, typeof imageValue === 'string' ? imageValue : '');
-        return syncNodeData(nodeId, getNodeCameraState(nodeId), { save: false });
+    async function syncCameraControlFromExecution(nodeId, imageValue) {
+        const identity = cameraStateApi.capture(nodeId);
+        await refreshCameraControlPreview(nodeId, imageValue ?? '');
+        if (!cameraStateApi.isCurrent(identity)) return '';
+        return syncNodeData(nodeId, getNodeCameraState(nodeId), { save: false, identity });
     }
 
     function buildScene() {
@@ -732,15 +625,15 @@ export function createCameraControlNodeApi({
         activeEditor = null;
         if (editor.disposed) return;
 
-        try {
-            resizeRenderer(editor);
-            renderSnapshotFrame(editor);
-            const previewImage = createPreviewSnapshot(editor.renderer.domElement);
-            if (previewImage) {
-                storeNodePreviewImage(editor.nodeId, previewImage, { save: options.savePreview !== false });
+        if (cameraStateApi.canEdit(editor.identity) && options.savePreview !== false) {
+            try {
+                resizeRenderer(editor);
+                renderSnapshotFrame(editor);
+                const previewImage = createPreviewSnapshot(editor.renderer.domElement);
+                if (previewImage) storeNodePreviewImage(editor.nodeId, previewImage, { save: true, identity: editor.identity });
+            } catch {
+                // Ignore snapshot capture failures such as a tainted canvas.
             }
-        } catch {
-            // Ignore snapshot capture failures such as a tainted canvas.
         }
 
         editor.disposed = true;
@@ -760,7 +653,9 @@ export function createCameraControlNodeApi({
     }
 
     function closeCameraControlEditorForNode(nodeId, options = {}) {
-        if (activeEditor?.nodeId === nodeId) {
+        if (activeEditor?.nodeId === nodeId && (!options.expectedNode || activeEditor.identity.node === options.expectedNode)
+            && (!options.identity || activeEditor.identity.node === options.identity.node
+            && activeEditor.identity.workflowId === options.identity.workflowId)) {
             closeCameraControlEditor(options);
         }
     }
@@ -792,6 +687,7 @@ export function createCameraControlNodeApi({
 
         const editor = {
             nodeId,
+            identity: cameraStateApi.capture(nodeId),
             overlay,
             panel,
             stage,
@@ -842,10 +738,12 @@ export function createCameraControlNodeApi({
         let promptResizeStart = null;
         let suppressNextOverlayClick = false;
         const applyState = (patch, options = {}) => {
+            if (!canEditEditor(editor)) return;
             editor.cameraState = normalizeCameraState({ ...editor.cameraState, ...patch });
             syncCamera(editor, options);
         };
         const applyObserverState = (patch) => {
+            if (!canEditEditor(editor)) return;
             editor.observerState = {
                 ...editor.observerState,
                 ...patch
@@ -857,7 +755,7 @@ export function createCameraControlNodeApi({
         editor.closeButton?.addEventListener('click', (event) => {
             event.preventDefault();
             event.stopPropagation();
-            closeCameraControlEditor();
+            if (activeEditor === editor) closeCameraControlEditor();
         });
 
         editor.resetButton?.addEventListener('click', (event) => {
@@ -870,7 +768,8 @@ export function createCameraControlNodeApi({
             button.addEventListener('click', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                editor.viewMode = syncNodeCameraViewMode(editor.nodeId, mode, { save: true });
+                if (!canEditEditor(editor)) return;
+                editor.viewMode = syncNodeCameraViewMode(editor.nodeId, mode, { save: true, identity: editor.identity });
                 updateCameraViewModeUi(editor);
                 syncObserverCamera(editor);
                 syncCameraHelper(editor);
@@ -886,7 +785,7 @@ export function createCameraControlNodeApi({
                     event.preventDefault();
                     return;
                 }
-                closeCameraControlEditor();
+                if (activeEditor === editor) closeCameraControlEditor();
             }
         });
 
@@ -898,7 +797,7 @@ export function createCameraControlNodeApi({
             event.stopPropagation();
             if (event.key === 'Escape') {
                 event.preventDefault();
-                closeCameraControlEditor();
+                if (activeEditor === editor) closeCameraControlEditor();
             }
         });
         editor.overlay.addEventListener('keyup', (event) => {
@@ -978,6 +877,7 @@ export function createCameraControlNodeApi({
         });
 
         editor.stage.addEventListener('pointerdown', (event) => {
+            if (!canEditEditor(editor)) return;
             if (event.button !== 0) return;
             dragState = {
                 pointerId: event.pointerId,
@@ -1039,6 +939,7 @@ export function createCameraControlNodeApi({
             event.stopPropagation();
         }, { passive: false });
         editor.stage.addEventListener('contextmenu', (event) => {
+            if (!canEditEditor(editor)) return;
             event.preventDefault();
             event.stopPropagation();
             if (editor.viewMode === CAMERA_VIEW_MODES.THIRD_PERSON) {
@@ -1053,42 +954,40 @@ export function createCameraControlNodeApi({
         }
     }
 
-    function openCameraControlEditor(nodeId, returnFocusEl = null) {
-        if (activeEditor?.nodeId === nodeId) {
+    async function openCameraControlEditor(nodeId, returnFocusEl = null) {
+        const requestVersion = ++editorOpenVersion;
+        const identity = cameraStateApi.capture(nodeId);
+        if (!cameraStateApi.canEdit(identity)) {
+            if (cameraStateApi.isCurrent(identity)) showToast('节点暂不能修改', 'warning');
+            return;
+        }
+        if (activeEditor?.identity.node === identity.node && isEditorCurrent(activeEditor)) {
             activeEditor.overlay.focus({ preventScroll: true });
             return;
         }
-
-        if (isNodeRunning(nodeId)) {
-            showToast('节点正在运行，暂不能修改', 'warning');
-            return;
-        }
-
         closeCameraControlEditor({ restoreFocus: false });
-
-        const node = state.nodes.get(nodeId);
-        if (!node || node.type !== 'CameraControl') return;
-
-        refreshCameraControlPreview(nodeId);
+        await refreshCameraControlPreview(nodeId);
+        if (requestVersion !== editorOpenVersion || !cameraStateApi.canEdit(identity)) return;
+        const node = identity.node;
         const editor = createEditor(nodeId, returnFocusEl);
         activeEditor = editor;
         bindEditorInteractions(editor);
         updateEditorControls(editor, node.data?.cameraPrompt || node.data?.text || '');
         syncCamera(editor, { save: false });
-        void setStageImage(editor, node.data?.image || '');
-        editor.overlay.focus({ preventScroll: true });
+        await setStageImage(editor, node.data?.image || '');
+        if (isEditorCurrent(editor)) editor.overlay.focus({ preventScroll: true });
     }
 
     function setupCameraControlNode(nodeId, el) {
-        const node = state.nodes.get(nodeId);
-        if (!node || node.type !== 'CameraControl') return;
+        const identity = cameraStateApi.capture(nodeId);
+        if (!cameraStateApi.isCurrent(identity)) return;
 
         const openButton = el.querySelector(`#${nodeId}-camera-open`);
         if (openButton && openButton.dataset.bound !== '1') {
             const handleOpen = (event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                openCameraControlEditor(nodeId, openButton);
+                if (state.nodes.get(nodeId) === identity.node) void openCameraControlEditor(nodeId, openButton);
             };
             openButton.addEventListener('click', handleOpen);
             openButton.dataset.bound = '1';
@@ -1104,9 +1003,7 @@ export function createCameraControlNodeApi({
             el._cleanupFns = [];
         }
         el._cleanupFns.push(() => {
-            if (activeEditor?.nodeId === nodeId) {
-                closeCameraControlEditor({ restoreFocus: false });
-            }
+            closeCameraControlEditorForNode(nodeId, { restoreFocus: false, expectedNode: identity.node });
         });
 
         syncNodeData(nodeId, getNodeCameraState(nodeId), { save: false });

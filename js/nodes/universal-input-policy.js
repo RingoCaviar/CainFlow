@@ -7,7 +7,7 @@ import { resolveDeclarativeProtocolVariant } from '../features/execution/protoco
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 
 // Each node type opts in when its card and input details use this contract.
-const UNIVERSAL_INPUT_NODE_TYPES = new Set(['ImageGenerate', 'ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge', 'ImageSave']);
+const UNIVERSAL_INPUT_NODE_TYPES = new Set(['ImageGenerate', 'ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge', 'ImageSave', 'CameraControl']);
 
 function mergeRoleCount(node, connections = []) {
     const indices = connections.filter(edge => edge.to?.nodeId === node.id && /^image_\d+$/.test(edge.to.port))

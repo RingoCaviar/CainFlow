@@ -24,6 +24,12 @@ _storage_recovery_thread = None
 _storage_recovery_stop = threading.Event()
 
 
+class CainFlowHTTPServer(socketserver.ThreadingTCPServer):
+    # Page reloads request the modular styles and scripts in a burst. Python
+    # versions with the default backlog of five can refuse those connections.
+    request_queue_size = 128
+
+
 def run_command(command):
     try:
         return subprocess.check_output(
@@ -333,7 +339,7 @@ def initialize_runtime():
 def create_server(host=None, port=None):
     bind_host = config.HOST if host is None else host
     bind_port = config.PORT if port is None else port
-    return socketserver.ThreadingTCPServer((bind_host, bind_port), ProxyHTTPRequestHandler)
+    return CainFlowHTTPServer((bind_host, bind_port), ProxyHTTPRequestHandler)
 
 
 def run_browser(port=None):

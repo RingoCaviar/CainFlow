@@ -76,7 +76,7 @@ export function showNodeExecutionFailure(node, error) {
 
 function isUnbatchedImageInput(node, portName) {
     return isMultiConnectionInput(node?.type, portName) || (node?.type === 'ImageGenerate' && portName === 'mask')
-        || (['ImageResize', 'ColorReset'].includes(node?.type) && portName === 'image')
+        || (['ImageResize', 'ColorReset', 'CameraControl'].includes(node?.type) && portName === 'image')
         || (node?.type === 'ImageCompare' && ['imageA', 'imageB'].includes(portName));
 }
 
@@ -1037,7 +1037,7 @@ export function createWorkflowRunnerApi({
             if (videos) return videos;
         }
         if (portName === 'image') {
-            if (['ImageResize', 'ColorReset', 'ImageCompare'].includes(toNode?.type)) {
+            if (['ImageResize', 'ColorReset', 'ImageCompare', 'CameraControl'].includes(toNode?.type)) {
                 return await readPrimaryImageOutput(fromNode, getNodeImageOutputList(fromNode), async key => {
                     if (key.startsWith('media:')) return await getImageAsset(key);
                     const legacy = await getImageAssetList(key);
