@@ -113,12 +113,12 @@ test('batch mode retains reverse-direction discovery and the existing unmigrated
         destination: { nodeId: 'anchor', port: 'auto', type: 'any', dir: 'input' }
     }]);
     const source = node('source', 'ImageImport', [port('source', 'image', 'image', 'output')]);
-    const preview = node('preview', 'ImagePreview', [port('preview', 'image', 'image', 'input')]);
-    const old = harness([source, preview]);
-    old.api.enter('source'); old.api.connectTo('preview');
+    const chat = node('chat', 'TextChat', [port('chat', 'image', 'image', 'input')]);
+    const old = harness([source, chat]);
+    old.api.enter('source'); old.api.connectTo('chat');
     assert.equal(old.history(), 1);
     assert.equal(old.state.connections.length, 1);
-    assert.deepEqual(old.state.connections[0].to, { nodeId: 'preview', port: 'image' });
+    assert.deepEqual(old.state.connections[0].to, { nodeId: 'chat', port: 'image' });
     assert.deepEqual(old.submissions, []);
 });
 

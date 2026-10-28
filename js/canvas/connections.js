@@ -18,7 +18,7 @@ import {
 } from '../nodes/generation-input-projection.js';
 import { getGenerationInputProtocolId, getModelsForTask } from '../features/execution/provider-request-utils.js';
 import { getProtocol } from '../features/execution/protocols/index.js';
-import { isUniversalInputNode, resolveUniversalInput } from '../nodes/universal-input-policy.js';
+import { isUniversalInputNode, resolveUniversalInput, planCompareInputSwap } from '../nodes/universal-input-policy.js';
 
 export function createConnectionsApi({
     state,
@@ -1723,6 +1723,18 @@ export function createConnectionsApi({
         return { changed: true, error: '' };
     }
 
+    function swapInputConnections(nodeId) {
+        const fail = error => { showToast(error, 'warning'); return { changed: false, error }; };
+        const node = getNodeById(nodeId);
+        const plan = planCompareInputSwap({ state, node });
+        if (plan.error) return fail(plan.error);
+        if (state.connections.some(edge => edge.to.nodeId === nodeId && hasRunningEndpoint(edge))) return fail('节点正在运行，暂不能交换输入');
+        try { pushHistory(); } catch (error) { return fail(error.message || '画布正在修改，请稍后再交换'); }
+        state.connections = plan.connections;
+        updateAllConnections(); updatePortStyles(); scheduleSave(); onConnectionsChanged();
+        return { changed: true, error: '' };
+    }
+
     function drawTempConnection(x1, y1, x2, y2, startsAtOutput = true) {
         const { x, y, zoom } = state.canvas;
         const sx1 = x1 * zoom + x;
@@ -1809,6 +1821,7 @@ export function createConnectionsApi({
         disconnectImageReferenceConnection,
         finishConnection,
         updateInputConnection,
+        swapInputConnections,
         drawTempConnection,
         updatePortStyles
     };

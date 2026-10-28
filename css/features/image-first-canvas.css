@@ -435,6 +435,20 @@ html:root #canvas-container .node.image-first-media > .node-body {
 .node.image-first-media .preview-controls { position: relative; inset: auto; z-index: auto; flex: 0 0 auto; min-height: 28px; margin: 0; }
 .node.image-first-media .image-first-summary { flex: 0 0 auto; }
 .node.image-first-media .image-preview-input-status { flex: 0 0 auto; margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.node.image-first-media .image-compare-container {
+    flex: 1 1 auto;
+    width: 100%;
+    height: 0;
+    min-height: 100px;
+    max-height: none;
+    margin: 0;
+    box-sizing: border-box;
+    border-color: var(--node-control-border);
+    background: var(--node-control-surface);
+}
+.node.image-first-media .image-compare-img { width: 100%; height: 100%; object-fit: contain; }
+.image-input-compare-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.image-input-feedback { margin: 0; color: var(--accent-warning, var(--text-secondary)); font-size: 12px; overflow-wrap: anywhere; }
 .node.image-first-processing .image-resize-preview-frame {
     display: flex;
     flex-direction: column;

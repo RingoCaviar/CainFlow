@@ -250,6 +250,9 @@ export function serializeRuntimeNode(node, doc) {
     }
 
     if (node.type === 'ImageCompare') {
+        const position = Number(node.comparePosition ?? node.data?.comparePosition ?? 50);
+        serialized.comparePosition = Number.isFinite(position) ? Math.max(0, Math.min(100, position)) : 50;
+        if (node.compareInputState) serialized.compareInputState = node.compareInputState;
         const compareA = node.compareImageA || node.data?.compareImageA || '';
         const compareB = node.compareImageB || node.data?.compareImageB || node.data?.image || '';
         if (compareA) serialized.compareImageA = compareA;
@@ -869,7 +872,17 @@ export function createWorkflowRuntimeManager({
             });
             if (images[0]) await showResolutionBadge(runtimeNodeId, images[0]);
         } else if (runtimeNode.type === 'ImageCompare') {
+            node.comparePosition = runtimeNode.comparePosition ?? runtimeNode.data?.comparePosition ?? node.comparePosition ?? 50;
+            node.data.comparePosition = node.comparePosition;
             await syncImageCompareNode(runtimeNodeId, runtimeNode.compareImageA || runtimeNode?.data?.compareImageA || null, runtimeNode.compareImageB || runtimeNode?.data?.compareImageB || runtimeNode?.data?.image || null);
+            if (runtimeNode.compareInputState === 'stale' || runtimeNode.compareInputState === 'empty') {
+                node.compareInputState = runtimeNode.compareInputState;
+                const preview = node.el?.querySelector?.(`#${runtimeNodeId}-compare`);
+                if (preview) {
+                    preview.dataset.compareState = runtimeNode.compareInputState;
+                    preview.dataset.compareMessage = 'B 输入未连接有效原图，预览未更新';
+                }
+            }
             const previewImage = runtimeNode.compareImageB || runtimeNode?.data?.compareImageB || runtimeNode?.data?.image || '';
             if (previewImage) await showResolutionBadge(runtimeNodeId, previewImage);
         } else if (runtimeNode.type === 'ImageResize') {
@@ -1343,6 +1356,45 @@ export function createWorkflowRuntimeManager({
                 placeholderWithIcon: false
             });
         };
+        const renderImageComparePreview = (nodeId, imageA = null, imageB = null) => {
+            const node = getRuntimeNode(nodeId);
+            if (!node) return;
+            const retained = node.compareImageB || node.data?.compareImageB || node.data?.image;
+            const stale = !imageB && Boolean(retained);
+            node.compareInputState = stale ? 'stale' : imageB ? 'current' : 'empty';
+            if (stale) { imageA = node.compareImageA || node.data?.compareImageA || null; imageB = retained; }
+            node.compareImageA = imageA || null;
+            node.compareImageB = imageB || null;
+            node.data = node.data || {};
+            if (imageA) node.data.compareImageA = imageA;
+            else delete node.data.compareImageA;
+            if (imageB) node.data.compareImageB = imageB;
+            else delete node.data.compareImageB;
+            if (imageB) {
+                node.imageData = imageB;
+                node.data.image = imageB;
+            }
+            const container = doc.getElementById(`${nodeId}-compare`);
+            if (container) {
+                container.classList.toggle('has-images', !!imageB);
+                container.classList.toggle('has-a-image', Boolean(imageA));
+                container.classList.remove('is-comparing');
+                const position = Number(node.comparePosition ?? node.data?.comparePosition ?? 50);
+                container.style.setProperty('--compare-x', `${Number.isFinite(position) ? Math.max(0, Math.min(100, position)) : 50}%`);
+                container.dataset.compareState = stale ? 'stale' : imageB ? 'current' : 'empty';
+                if (stale || !imageB) container.dataset.compareMessage = stale ? 'B 输入未连接有效原图，预览未更新' : 'B 输入未连接有效原图';
+                else delete container.dataset.compareMessage;
+                if (imageB) {
+                    removeElements(container, '.preview-placeholder');
+                    renderReusableComparePreview(container, imageA, imageB);
+                } else {
+                    removeElements(container, '.image-compare-img, .image-compare-divider');
+                    const message = imageA ? '等待 B 输入' : '等待 A / B 输入';
+                    const placeholder = ensureElement(container, '.preview-placeholder', () => createPreviewPlaceholder('preview-placeholder', message));
+                    updatePlaceholderText(placeholder, message);
+                }
+            }
+        };
         return {
             restoreColorResetPreview: (nodeId, dataUrl, meta = {}) => {
                 const node = getRuntimeNode(nodeId);
@@ -1378,37 +1430,7 @@ export function createWorkflowRuntimeManager({
             },
             renderImagePreviewImage,
             renderImageSavePreview,
-            renderImageComparePreview: (nodeId, imageA = null, imageB = null) => {
-                const node = getRuntimeNode(nodeId);
-                if (!node) return;
-                node.compareImageA = imageA || null;
-                node.compareImageB = imageB || null;
-                node.data = node.data || {};
-                if (imageA) node.data.compareImageA = imageA;
-                else delete node.data.compareImageA;
-                if (imageB) node.data.compareImageB = imageB;
-                else delete node.data.compareImageB;
-                if (imageB) {
-                    node.imageData = imageB;
-                    node.data.image = imageB;
-                }
-                const container = doc.getElementById(`${nodeId}-compare`);
-                if (container) {
-                    container.classList.toggle('has-images', !!imageB);
-                    container.classList.toggle('has-a-image', Boolean(imageA));
-                    container.classList.remove('is-comparing');
-                    container.style.setProperty('--compare-x', '50%');
-                    if (imageB) {
-                        removeElements(container, '.preview-placeholder');
-                        renderReusableComparePreview(container, imageA, imageB);
-                    } else {
-                        removeElements(container, '.image-compare-img, .image-compare-divider');
-                        const message = imageA ? '等待 B 输入' : '等待 A / B 输入';
-                        const placeholder = ensureElement(container, '.preview-placeholder', () => createPreviewPlaceholder('preview-placeholder', message));
-                        updatePlaceholderText(placeholder, message);
-                    }
-                }
-            },
+            renderImageComparePreview,
             syncImagePreviewNode: async (nodeId, imageData) => {
                 const node = getRuntimeNode(nodeId);
                 if (!node || node.type !== 'ImagePreview') return;
@@ -1478,25 +1500,29 @@ export function createWorkflowRuntimeManager({
             syncImageCompareNode: async (nodeId, imageA, imageB) => {
                 const node = getRuntimeNode(nodeId);
                 if (!node || node.type !== 'ImageCompare') return;
+                node.data = node.data || {};
+                if (!imageB) {
+                    renderImageComparePreview(nodeId, imageA, null);
+                    node.isSucceeded = false;
+                    return;
+                }
+                node.compareInputState = 'current';
                 node.compareImageA = imageA || null;
                 node.compareImageB = imageB || null;
                 node.imageData = imageB || null;
-                node.data = node.data || {};
+                node.imageDataList = [imageB];
+                node.generatedImages = [];
+                delete node.data.imageList;
+                delete node.data.images;
                 if (imageA) node.data.compareImageA = imageA;
                 else delete node.data.compareImageA;
                 if (imageB) {
                     node.data.compareImageB = imageB;
                     node.data.image = imageB;
-                    const forwarded = await syncForwardedKeys(node, getForwardedKeys(nodeId, ['imageB']));
+                    const forwarded = await syncForwardedKeys(node, getForwardedKeys(nodeId, ['imageB']).slice(0, 1));
                     node.data.imageAssetReady = forwarded;
-                } else {
-                    await syncForwardedKeys(node, []);
-                    delete node.data.compareImageB;
-                    delete node.data.image;
-                    delete node.data.imageAssetKey;
-                    delete node.data.imageCount;
-                    delete node.data.imageAssetReady;
                 }
+                renderImageComparePreview(nodeId, imageA, imageB);
             }
         };
     }
@@ -1630,6 +1656,7 @@ export function createWorkflowRuntimeManager({
             resumeImageGeneration: (nodeId) => runtimeRunnerApi?.resumeImageNodeBranch?.(nodeId),
             setupImageImport: () => {},
             setupImageResize: () => {},
+            setupColorReset: () => {},
             setupImageSave: () => {},
             setupImagePreview: () => {},
             setupImageCompare: () => {},
@@ -1824,7 +1851,10 @@ export function createWorkflowRuntimeManager({
         runtimeState.canvas.x = data.canvas.x;
         runtimeState.canvas.y = data.canvas.y;
         runtimeState.canvas.zoom = data.canvas.zoom;
-        data.nodes.forEach((nodeData) => runtimeNodeLifecycleApi.addNode(nodeData.type, nodeData.x, nodeData.y, nodeData, true));
+        for (const nodeData of data.nodes) {
+            const created = runtimeNodeLifecycleApi.addNode(nodeData.type, nodeData.x, nodeData.y, nodeData, true);
+            if (!created) throw new Error(`无法准备工作流节点：${nodeData.type}（${nodeData.id}）`);
+        }
         data.connections.forEach((connection) => {
             if (runtimeState.nodes.has(connection.from.nodeId) && runtimeState.nodes.has(connection.to.nodeId)) {
                 runtimeState.connections.push({

@@ -23,11 +23,11 @@ function describeSource(state, edge, referenceGroup) {
 }
 
 /** Presentation of the authoritative edges; edits are delegated to the graph API. */
-export function createImageInputDetail({ state, node, documentRef, updateInputConnection, onChange = () => {} }) {
+export function createImageInputDetail({ state, node, documentRef, updateInputConnection, swapInputConnections, onChange = () => {} }) {
     const element = documentRef.createElement('section');
     element.className = 'image-input-detail';
     element.setAttribute('aria-label', '输入明细');
-    let signature = '', replacing = null, pending = false;
+    let signature = '', replacing = null, pending = false, statusMessage = '';
 
     function outputs() {
         return Array.from(state.nodes.values()).filter(source => source !== node).flatMap(source => (
@@ -40,7 +40,8 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
     function button(label, action, edgeId) {
         const control = documentRef.createElement('button');
         control.type = 'button'; control.textContent = label;
-        control.dataset.inputAction = action; control.dataset.inputEdgeId = edgeId;
+        control.dataset.inputAction = action;
+        if (edgeId !== undefined) control.dataset.inputEdgeId = edgeId;
         return control;
     }
     async function edit(edgeId, changes) {
@@ -49,6 +50,17 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
         try {
             const result = await updateInputConnection(edgeId, changes);
             if (result?.changed) { replacing = null; onChange(node.id); }
+        } finally { pending = false; refresh(true); }
+    }
+    async function swap() {
+        if (!swapInputConnections || pending) return;
+        pending = true; statusMessage = ''; refresh(true);
+        try {
+            const result = await swapInputConnections(node.id);
+            statusMessage = result?.error || '';
+            if (result?.changed) { replacing = null; onChange(node.id); }
+        } catch (error) {
+            statusMessage = error?.message || '交换失败，请重试。';
         } finally { pending = false; refresh(true); }
     }
     function refresh(force = false) {
@@ -62,15 +74,30 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
             [id, from, to, type, order, maskConsumption]
         )), descriptions.map(({ type, count, title, status, source }) => (
             [type, count, title, status, state.runningNodeIds?.has(source?.id)]
-        )), candidates, running, editing, !!updateInputConnection]);
+        )), candidates, running, editing, !!updateInputConnection, !!swapInputConnections, pending, statusMessage]);
         if (!force && signature === nextSignature) return;
         signature = nextSignature;
         element.replaceChildren();
+        if (node.type === 'ImageCompare') {
+            const actions = documentRef.createElement('div'); actions.className = 'image-input-compare-actions';
+            const description = documentRef.createElement('span'); description.className = 'image-input-empty'; description.textContent = 'A 可选 · B 为必需输入';
+            const swapButton = button('交换 A/B', 'swap');
+            swapButton.disabled = pending || running || editing || !swapInputConnections
+                || !edges.some(edge => ['imageA', 'imageB'].includes(edge.to.port))
+                || descriptions.some(({ source }) => state.runningNodeIds?.has(source?.id) || ['waiting', 'running'].includes(source?.runStatus));
+            swapButton.addEventListener('click', () => { void swap(); });
+            actions.append(description, swapButton); element.append(actions);
+            if (statusMessage) {
+                const status = documentRef.createElement('p'); status.className = 'image-input-feedback';
+                status.setAttribute('role', 'status'); status.textContent = statusMessage; element.append(status);
+            }
+        }
         if (!edges.length) {
             const empty = documentRef.createElement('p'); empty.className = 'image-input-empty';
             empty.textContent = node.type === 'ImageGenerate'
                 ? '将图片、文本、视角或参数接到输入口，自动识别用途。'
-                : '将图片接到输入口，保留来源的完整批次。';
+                : node.type === 'ImageCompare' ? '将图片接到输入口，依次分配空闲 A、B。'
+                    : '将图片接到输入口，保留来源的完整批次。';
             element.append(empty); return;
         }
         edges.forEach((edge, index) => {
