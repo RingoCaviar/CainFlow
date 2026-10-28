@@ -3,6 +3,7 @@ import { createImagePreviewBatchNavigation } from '../../nodes/image-preview-bat
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
 import { readImageSaveFilename } from '../../nodes/image-save-settings.js';
 import { projectMissingMediaAssets, renderMissingMediaPlaceholders } from './missing-media-integrity.js';
+import { applyImageDisplayResultProjection, applyImageSaveMediaState, resolveImagePreviewInputState } from './image-display-input-state.js';
 ﻿/**
  * 管理图片导入、预览、保存与自动落盘等媒体节点共用行为。
  */
@@ -1776,6 +1777,18 @@ export function createMediaControllerApi({
         const node = getNodeById(nodeId);
         if (!node || node.type !== 'ImagePreview') return;
 
+        if (imageData?.resultProjection) {
+            if (!applyImageDisplayResultProjection(node, imageData.resultProjection)) return;
+            setImagePreviewInputState(node, node.previewInputState);
+            renderImagePreviewImage(nodeId, getCanonicalImageList(node));
+            const retained = Math.max(getStoredImageCount(node), getNodeMediaAssetKeys(node).length) > 0;
+            const controls = getNodeElement(nodeId, 'controls'), badge = getNodeElement(nodeId, 'res');
+            if (controls) controls.style.display = retained ? 'flex' : 'none';
+            if (!retained && badge) { badge.textContent = ''; badge.style.display = 'none'; }
+            scheduleDisplayImageMemorySweep({ delayMs: displayImageMemoryManager.releaseGraceMs });
+            return;
+        }
+
         const previewContainer = getNodeElement(nodeId, 'preview');
         const controls = getNodeElement(nodeId, 'controls');
         const resolutionBadge = getNodeElement(nodeId, 'res');
@@ -1790,7 +1803,7 @@ export function createMediaControllerApi({
                 && previousImages.every((image, index) => image === imageList[index]));
             const currentIndex = unchanged ? getImagePreviewIndex(node, imageList) : 0;
             if (!unchanged) node.previewZoom = 1;
-            setImagePreviewInputState(node, 'current');
+            setImagePreviewInputState(node, resolveImagePreviewInputState(node, imageList));
             setCanonicalImageOutput(node, imageList, {
                 currentIndex,
                 assetKey: nodeId,
@@ -1814,8 +1827,8 @@ export function createMediaControllerApi({
             updateResolutionBadgeSoon(nodeId, currentImage);
         } else {
             const retainedImages = getStoredImagePreviewList(node);
-            const hasRetainedOutput = retainedImages.length > 0 || getStoredImageCount(node) > 0;
-            setImagePreviewInputState(node, hasRetainedOutput ? 'stale' : 'empty');
+            const hasRetainedOutput = Math.max(retainedImages.length, getStoredImageCount(node), getNodeMediaAssetKeys(node).length) > 0;
+            setImagePreviewInputState(node, resolveImagePreviewInputState(node, []));
             if (retainedImages.length) renderImagePreviewImage(nodeId, retainedImages);
             else if (!hasRetainedOutput) renderImagePreviewImage(nodeId, [], '无输入图片');
             if (controls) controls.style.display = hasRetainedOutput ? 'flex' : 'none';
@@ -1834,20 +1847,21 @@ export function createMediaControllerApi({
     async function syncImageSaveNode(nodeId, imageData) {
         const node = getNodeById(nodeId);
         if (!node || node.type !== 'ImageSave') return;
+        const project = imageData?.resultProjection;
+        if (project) {
+            if (!applyImageDisplayResultProjection(node, project)) return;
+            renderImageSaveInputState(node);
+            renderImageSavePreview(nodeId, getCanonicalImageList(node));
+            return;
+        }
         node.data = node.data || {};
-        const suppliedImages = normalizeImageList(imageData?.images ?? imageData);
+        const { input } = applyImageSaveMediaState(node, imageData);
+        const suppliedImages = input.images;
         const previousImages = getStoredImageSaveList(node);
         const unchangedImages = node.data.imageAssetReady === true && previousImages.length === suppliedImages.length && suppliedImages.every((image, index) => image === previousImages[index]);
         const writeToken = suppliedImages.length && !unchangedImages ? beginDisplayImageAssetWrite(node) : node.displayImageAssetWriteToken;
         const current = () => getNodeById(nodeId) === node && (!suppliedImages.length || node.displayImageAssetWriteToken === writeToken);
-        const suppliedVideos = (Array.isArray(imageData?.videos) ? imageData.videos : [imageData?.video])
-            .filter(video => video && typeof video === 'object' && (video.url || video.assetKey));
-        if (suppliedVideos.length) {
-            node.data.videos = suppliedVideos.map(video => ({ ...video }));
-            node.data.video = { ...suppliedVideos[suppliedVideos.length - 1] };
-        }
-        const remote = suppliedImages.some(image => isRemoteImageUrl(image));
-        if (suppliedImages.length && !remote && !unchangedImages) {
+        if (suppliedImages.length && !unchangedImages) {
             const previousIndex = node.imagePreviewIndex || 0;
             setCanonicalImageOutput(node, suppliedImages, { currentIndex: previousIndex, assetKey: node.data.imageAssetKey || nodeId, imageCount: suppliedImages.length, hydratedAt: Date.now(), assetReady: false });
             const keys = getForwardedMediaAssetKeys(nodeId);
@@ -1856,27 +1870,24 @@ export function createMediaControllerApi({
             if (!forwarded) await persistUnownedDisplayImages(node, suppliedImages, writeToken, '保存节点图片持久化失败；请检查本地存储空间后重试');
             if (!current()) return;
         }
-        const retainedImages = getStoredImageSaveList(node), videos = getStoredSaveVideos(node);
-        const retained = Math.max(getStoredImageCount(node), getNodeMediaAssetKeys(node).length) > 0 || videos.length > 0;
-        const staleImage = Object.prototype.hasOwnProperty.call(imageData || {}, 'images') && !suppliedImages.length && retainedImages.length;
-        const staleVideo = (Object.prototype.hasOwnProperty.call(imageData || {}, 'videos') || Object.prototype.hasOwnProperty.call(imageData || {}, 'video')) && !suppliedVideos.length && videos.length;
-        node.saveInputState = remote || staleImage || staleVideo || (!suppliedImages.length && !suppliedVideos.length) ? (retained ? 'stale' : 'empty') : 'current';
-        const preview = getProcessingNodeElement(nodeId, 'save-preview');
-        if (preview) {
-            preview.dataset.saveState = node.saveInputState;
-            if (remote) preview.dataset.saveMessage = 'URL 图片不支持保存，原有媒体未更新';
-            else if (staleImage && suppliedVideos.length) preview.dataset.saveMessage = '图片输入未更新，保留原图片；视频已更新';
-            else if (staleVideo && suppliedImages.length) preview.dataset.saveMessage = '视频输入未更新，保留原视频；图片已更新';
-            else if (node.saveInputState === 'stale') preview.dataset.saveMessage = '无有效输入，保留原有媒体，未更新';
-            else delete preview.dataset.saveMessage;
-        }
+        const retainedImages = getStoredImageSaveList(node);
+        renderImageSaveInputState(node);
         renderImageSavePreview(nodeId, retainedImages);
-        const manual = getProcessingNodeElement(nodeId, 'manual-save'), full = getProcessingNodeElement(nodeId, 'view-full');
-        if (manual) manual.disabled = !retained;
-        if (full) full.disabled = !retained;
         scheduleDisplayImageMemorySweep({ delayMs: displayImageMemoryManager.releaseGraceMs });
         scheduleSave();
         if (shouldRequestFit(node, getPreviewLayoutSignature(retainedImages), 'savePreviewLayoutSignature')) requestNodeFit(nodeId);
+    }
+
+    function renderImageSaveInputState(node) {
+        const retained = Math.max(getStoredImageCount(node), getNodeMediaAssetKeys(node).length) > 0 || getStoredSaveVideos(node).length > 0;
+        const manual = getProcessingNodeElement(node.id, 'manual-save'), full = getProcessingNodeElement(node.id, 'view-full');
+        if (manual) manual.disabled = !retained;
+        if (full) full.disabled = !retained;
+        const preview = getProcessingNodeElement(node.id, 'save-preview');
+        if (!preview) return;
+        preview.dataset.saveState = node.saveInputState;
+        if (node.saveInputMessage) preview.dataset.saveMessage = node.saveInputMessage;
+        else delete preview.dataset.saveMessage;
     }
 
     function setImageMergeInputState(node, inputState, message = '') {
@@ -2362,17 +2373,36 @@ export function createMediaControllerApi({
         }
     }
 
-    async function syncAspectLinkedDimension(nodeId, changedField) {
+    async function syncAspectLinkedDimension(nodeId, changedField, isCurrent = () => true) {
         const node = getNodeById(nodeId);
         if (!node) return;
         const keepAspect = getProcessingNodeElement(nodeId, `keep-aspect`)?.checked;
         if (!keepAspect) return;
 
+        const incoming = state.connections.find(conn => conn.to.nodeId === nodeId && conn.to.port === 'image');
+        const sourceNode = getNodeById(incoming?.from?.nodeId);
+        if (!incoming || !sourceNode || sourceNode.enabled === false) return;
+        const sourceId = incoming.from.nodeId, sourcePort = incoming.from.port;
+        const assetKey = () => getNodeMediaAssetKeys(sourceNode)[0] || sourceNode.data?.imageAssetKey
+            || sourceNode.imageImportAssetKey || sourceNode.data?.imageImportAssetKey || '';
+        const sourceAsset = assetKey(), sourceMode = sourceNode.importMode ?? sourceNode.data?.importMode;
+        let sourcePreview = getResizeSourceImage(nodeId);
+        // Check the effective input through metadata and already loaded pixels;
+        // validating this edit must never load a second original.
+        const inputIsCurrent = () => getNodeById(nodeId) === node && isCurrent()
+            && state.connections.find(conn => conn.to.nodeId === nodeId && conn.to.port === 'image') === incoming
+            && incoming.from.nodeId === sourceId && incoming.from.port === sourcePort
+            && getNodeById(sourceId) === sourceNode && sourceNode.enabled !== false
+            && assetKey() === sourceAsset && (sourceNode.importMode ?? sourceNode.data?.importMode) === sourceMode
+            && (!sourcePreview || getResizeSourceImage(nodeId) === sourcePreview);
+
         const sourceImage = await getResizeSourceImageAsync(nodeId);
-        if (getNodeById(nodeId) !== node) return;
+        if (!inputIsCurrent()) return false;
         if (!sourceImage) return;
+        sourcePreview = getResizeSourceImage(nodeId) || sourceImage;
 
         const res = parseResolutionText(await getImageResolution(sourceImage));
+        if (!inputIsCurrent()) return false;
         if (!res?.width || !res?.height) return;
 
         const widthInput = getProcessingNodeElement(nodeId, `target-width`);
@@ -2615,6 +2645,7 @@ export function createMediaControllerApi({
         const keepAspectInput = queryNodeControl(el, `#${id}-keep-aspect`);
 
         const node = getNodeById(id);
+        let dimensionEditSequence = 0;
 
         const persistControls = () => {
             node.resizePreviewToken = (node.resizePreviewToken || 0) + 1;
@@ -2682,27 +2713,33 @@ export function createMediaControllerApi({
 
         widthInput?.addEventListener('input', async () => {
             if (!canEditProcessingNode(node)) return;
+            const editSequence = ++dimensionEditSequence;
+            const isCurrent = () => canEditProcessingNode(node) && editSequence === dimensionEditSequence;
             persistControls();
-            await syncAspectLinkedDimension(id, 'width');
-            if (!canEditProcessingNode(node)) return;
+            const synced = await syncAspectLinkedDimension(id, 'width', isCurrent);
+            if (synced === false || !isCurrent()) return;
             persistControls();
             queuePreviewRefresh();
         });
         heightInput?.addEventListener('input', async () => {
             if (!canEditProcessingNode(node)) return;
+            const editSequence = ++dimensionEditSequence;
+            const isCurrent = () => canEditProcessingNode(node) && editSequence === dimensionEditSequence;
             persistControls();
-            await syncAspectLinkedDimension(id, 'height');
-            if (!canEditProcessingNode(node)) return;
+            const synced = await syncAspectLinkedDimension(id, 'height', isCurrent);
+            if (synced === false || !isCurrent()) return;
             persistControls();
             queuePreviewRefresh();
         });
         keepAspectInput?.addEventListener('change', async () => {
             if (!canEditProcessingNode(node)) return;
+            const editSequence = ++dimensionEditSequence;
+            const isCurrent = () => canEditProcessingNode(node) && editSequence === dimensionEditSequence;
             persistControls();
             if (keepAspectInput.checked && widthInput?.value) {
-                await syncAspectLinkedDimension(id, 'width');
+                if (await syncAspectLinkedDimension(id, 'width', isCurrent) === false) return;
             }
-            if (!canEditProcessingNode(node)) return;
+            if (!isCurrent()) return;
             persistControls();
             void refreshImageResizePreview(id);
         });
@@ -2777,6 +2814,7 @@ export function createMediaControllerApi({
         const previewContainer = queryNodeControl(el, `#${id}-save-preview`);
         const manualSaveBtn = queryNodeControl(el, `#${id}-manual-save`);
         if (!previewContainer) return;
+        const boundNode = getNodeById(id);
 
         const stepPreview = (delta, event) => {
             event?.stopPropagation();
@@ -2806,12 +2844,16 @@ export function createMediaControllerApi({
 
         bindPreviewKeyboardNavigation(
             previewContainer,
-            async () => { const node = getNodeById(id), images = await getStoredImageSaveListAsync(node); return getPreviewSlotImages(node, images); },
-            (images) => getImageSavePreviewIndex(getNodeById(id), images),
+            async () => {
+                if (getNodeById(id) !== boundNode) return [];
+                const images = await getStoredImageSaveListAsync(boundNode);
+                return getNodeById(id) === boundNode ? getPreviewSlotImages(boundNode, images) : [];
+            },
+            (images) => getImageSavePreviewIndex(boundNode, images),
             (nextIndex, images, event) => {
                 event?.stopPropagation();
                 const node = getNodeById(id);
-                if (!node) return;
+                if (!node || node !== boundNode) return;
                 node.imagePreviewIndex = nextIndex;
                 renderImageSavePreview(id, images);
                 void showResolutionBadge(id, images[nextIndex]);

@@ -5,22 +5,27 @@ import { excludesReferenceImages, mayUseCandidate, referenceInputChangePermissio
 const fail = message => { throw new Error(message); };
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 
-function promptInputChangePermission(message, steps, context, mentionedIds) {
+function promptInputChangePermission(message, steps, context, mentionedIds, connections) {
     const targets = steps.filter(step => step.type === 'ImageGenerate' && step.nodeId);
     if (targets.length !== 1) return null;
     const targetId = targets[0].nodeId;
     const sourceId = context.connections.filter(edge => edge.to.nodeId === targetId && edge.to.port === 'prompt').at(-1)?.from.nodeId;
-    const allowedIds = new Set([targetId, sourceId]);
+    const proposed = connections.find(link => link.to.ref === targets[0].id && link.to.port === 'prompt');
+    const nextSourceId = steps.find(step => step.id === proposed?.from.ref)?.nodeId || proposed?.from.ref;
+    const allowedIds = new Set([targetId, sourceId, nextSourceId]);
     const clauses = String(message).split(/[。！!；;\n]/);
     const allowed = clauses.some(clause => {
-        if (!/(?:断开|移除|解除|清除|替换).{0,18}(?:提示词|prompt)/i.test(clause)
+        // Text edits such as ‘清除提示词中的水印’ never authorize changing its source.
+        const relation = clause.match(/(?:断开|解除).{0,18}(?:提示词|prompt)\s*(?:输入(?!框|栏|区)|来源|连线|连接)(?!\s*(?:中|里|内|的?(?:文字|文本|内容|描述)))/i)
+            || clause.match(/(?:移除|清除|替换).{0,18}(?:提示词|prompt)\s*(?:输入(?:连线|连接)|来源|连线|连接)(?!\s*(?:中|里|内|的?(?:文字|文本|内容|描述)))/i);
+        if (!relation
             || /(?:不(?:要|能|许|准|得|必)?|别|勿|保留|保持).{0,12}(?:断开|移除|解除|清除|替换)/.test(clause)) return false;
         const named = context.nodes.filter(node => clause.includes(`[${node.id}]`)
             || node.name?.length > 1 && clause.includes(node.name) && context.nodes.filter(item => item.name === node.name).length === 1);
         if (named.some(node => !allowedIds.has(node.id))) return false;
         return named.some(node => node.id === targetId) || !named.length && mentionedIds.includes(targetId) && mentionedIds.every(id => allowedIds.has(id));
     });
-    return allowed ? { targetNodeIds: [targets[0].nodeId] } : null;
+    return allowed ? { authorizationVersion: 1, targetNodeIds: [targets[0].nodeId] } : null;
 }
 
 // A prompt proposal cannot become effective by silently replacing its real source.
@@ -34,7 +39,9 @@ export function assertCanvasPlanPromptInputs(plan, context) {
         const previous = context.connections.filter(link => link.to.nodeId === node.id && link.to.port === 'prompt').at(-1);
         const next = links.filter(link => link.to.nodeId === node.id && link.to.port === 'prompt').at(-1);
         const changed = previous && (!next || previous.from.nodeId !== next.from.nodeId || previous.from.port !== next.from.port);
-        const permitted = plan.promptInputChange?.targetNodeIds?.includes(node.id);
+        // Old stored flags used a broader text-edit matcher and cannot prove input authorization.
+        const permitted = plan.promptInputChange?.authorizationVersion === 1 && plan.promptInputChange.targetNodeIds?.includes(node.id);
+        if (changed && plan.promptInputChange && !permitted) throw new Error('旧方案的提示词输入授权无法核验，请重新生成方案并确认输入关系。');
         if (changed && !permitted) throw new Error('方案不能擅自断开或替换上游提示词来源；请明确要求修改输入关系。');
         if (!changed && node.promptSource?.active && Object.hasOwn(step.parameters || {}, 'prompt')
             && step.parameters.prompt !== node.effectivePrompt) {
@@ -165,7 +172,7 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
             }
         }
     }
-    const promptInputChange = promptInputChangePermission(message, steps, context, mentionedIds);
+    const promptInputChange = promptInputChangePermission(message, steps, context, mentionedIds, connections);
     const identity = ref => steps.find(step => step.id === ref)?.nodeId || (ids.has(ref) ? `new:${ref}` : ref);
     const projectedLinks = projectPlanConnections({ steps, connections, disconnects }, context.connections, identity);
     const order = []; const visiting = new Set(); const visited = new Set();

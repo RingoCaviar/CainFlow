@@ -59,6 +59,13 @@ test('non-JSON runtime objects and accessors never enter opaque persistence', ()
     assert.deepEqual(applyNodePersistenceExtensions(node, {}), { safe: [null, 0, false] });
 });
 
+test('derived Preview and Save input state cannot return through opaque restored extensions', () => {
+    const node = {};
+    captureNodePersistenceExtensions(node, { previewInputState: 'current', saveInputState: 'empty', saveInputMessage: 'old result',
+        data: { previewInputState: 'stale', saveInputState: 'current', saveInputMessage: 'old nested result', plugin: false } });
+    assert.deepEqual(applyNodePersistenceExtensions(node, { id: 'display' }), { id: 'display', data: { plugin: false } });
+});
+
 test('workflow and canvas extensions preserve own JSON while current graph state and private application settings stay authoritative', () => {
     const previous = JSON.parse('{"__proto__":{"rootFlag":false},"vendorWorkflow":[null,0,false],"canvas":{"x":88,"y":99,"zoom":2,"__proto__":{"viewportFlag":0},"vendorViewport":{"values":[0,false,null]}},"nodes":[{"id":"old"}],"connections":[{"id":"old-edge"}],"promptAgent":{"draft":"old chat"},"version":"old","providers":[{"apikey":"old-secret"}],"models":[{"id":"old-model"}],"apikey":"old-secret"}');
     const current = { canvas: { x: 1, y: 2, zoom: 0.75 }, nodes: [], connections: [], promptAgent: null, version: 'current' };

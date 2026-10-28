@@ -360,3 +360,31 @@ test('an explicit request can atomically disconnect the prompt source and use a 
         assert.ok(!after.connections.some(connection => connection.to.nodeId === 'switch-target' && connection.to.port === 'prompt'));
     });
 });
+
+
+test('editing prompt prose cannot authorize an Agent proposal to disconnect its effective upstream source', { timeout: 45000 }, async () => {
+    const edge = { id: 'kept-prompt', from: { nodeId: 'source', port: 'text', extra: { keep: true } },
+        to: { nodeId: 'target', port: 'prompt' }, type: 'text', order: 9, extension: { keep: ['the source', 'and order'] } };
+    const reply = { intent: 'generate', message: '尝试断开来源并改写本地稿', canvasPlan: { version: 1,
+        steps: [{ id: 'generate', type: 'ImageGenerate', nodeId: 'target', parameters: { prompt: 'must never replace the source' } }],
+        disconnects: [{ ref: 'generate', port: 'prompt' }], connections: [] } };
+    for (const request of ['清除提示词中的水印描述', '替换提示词为蓝色背景']) {
+        await withAppBrowser({ ...configuration, nodes: [
+            { id: 'source', type: 'Text', x: 20, y: 100, text: 'actual upstream prompt with watermark wording' },
+            generateNode('target', 430, 100, { customTitle: '输入目标', prompt: 'unchanged inactive draft' })
+        ], connections: [edge] }, async app => {
+            await controlled(app, reply); await open(app, 'target');
+            const before = await saved(app);
+            await click(app, '#target-assistant'); await chooseModel(app, 'chat', 'chat');
+            await change(app, 'prompt-agent-input', '@输入目标[target] ' + request);
+            await app.evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+            await app.waitFor("agentWorkflowRequests.filter(request=>request.messages).length===1&&document.getElementById('prompt-agent-cancel').hidden");
+            assert.equal(await app.evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].some(button=>['仅应用','应用并执行'].includes(button.textContent)&&!button.disabled)"), false);
+            const after = await saved(app);
+            assert.deepEqual(after.connections, before.connections, 'the malicious proposed disconnect never reaches the real graph');
+            assert.equal(after.nodes.find(node => node.id === 'source').text, before.nodes.find(node => node.id === 'source').text);
+            assert.equal(after.nodes.find(node => node.id === 'target').prompt, 'unchanged inactive draft');
+            assert.equal(await app.evaluate('agentWorkflowRequests.length'), 1, 'no image generation is triggered');
+        });
+    }
+});

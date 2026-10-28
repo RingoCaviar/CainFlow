@@ -195,6 +195,61 @@ function createRestorationProjection(connections, overrides = {}) {
     });
 }
 
+test('repeated connection projection only changes insertion highlight classes when the candidate changes', () => {
+    const { api, state, paths } = createHarness(2);
+    api.updateAllConnections();
+    const input = createPort('text', 'input', 160);
+    const output = createPort('text', 'output', 280);
+    const first = createNode('insert-first', 140, output, input);
+    const second = createNode('insert-second', 140, output, input);
+    state.nodes.set(first.id, first);
+    state.nodes.set(second.id, second);
+    const writes = [];
+    for (const [id, element] of [...state.nodes].map(([id, node]) => [id, node.el]).concat(paths.map((path, index) => [`path-${index}`, path]))) {
+        for (const method of ['add', 'remove']) {
+            const original = element.classList[method];
+            element.classList[method] = (...names) => {
+                for (const name of names) if (name.startsWith('connection-insert-')) writes.push({ id, method, name });
+                return original(...names);
+            };
+        }
+        const toggle = element.classList.toggle;
+        element.classList.toggle = (name, enabled) => {
+            if (name.startsWith('connection-insert-')) writes.push({ id, method: 'toggle', name, enabled });
+            return toggle(name, enabled);
+        };
+    }
+    api.updateAllConnections();
+    api.markNodeConnectionsDirty('from');
+    api.updateDirtyConnections();
+    assert.deepEqual(writes, [], 'refreshing a graph without an insertion candidate must not write identical class attributes');
+
+    state.connectionInsertPreview = { connectionId: 'connection-1', nodeId: first.id, inputPort: 'text', outputPort: 'text' };
+    api.updateAllConnections();
+    assert.equal(first.el.classList.contains('connection-insert-candidate'), true);
+    assert.equal(paths[0].classList.contains('connection-insert-target'), true);
+    writes.length = 0;
+    api.updateAllConnections();
+    assert.deepEqual(writes, [], 'an unchanged visible candidate retains its highlight without removing and readding classes');
+
+    state.connectionInsertPreview = { connectionId: 'connection-2', nodeId: second.id, inputPort: 'text', outputPort: 'text' };
+    api.updateAllConnections();
+    assert.equal(first.el.classList.contains('connection-insert-candidate'), false);
+    assert.equal(paths[0].classList.contains('connection-insert-target'), false);
+    assert.equal(second.el.classList.contains('connection-insert-candidate'), true);
+    assert.equal(paths[1].classList.contains('connection-insert-target'), true);
+    assert.equal(writes.length, 4, 'switching candidate updates only the old and new node and path');
+    writes.length = 0;
+    api.clearConnectionInsertPreview();
+    assert.equal(second.el.classList.contains('connection-insert-candidate'), false);
+    assert.equal(paths[1].classList.contains('connection-insert-target'), false);
+    assert.equal(writes.length, 2, 'clearing removes both actual highlights');
+    writes.length = 0;
+    api.clearConnectionInsertPreview();
+    api.updateAllConnections();
+    assert.deepEqual(writes, [], 'a cleared preview does not resume writing empty highlights');
+});
+
 test('node dirty intents defer index validation and dirty rendering scans linearly', () => {
     const { api, state } = createHarness(40);
     api.updateAllConnections();
