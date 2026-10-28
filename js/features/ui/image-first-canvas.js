@@ -1,6 +1,6 @@
 import { cleanupElementResources } from '../../core/common-utils.js';
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
-import { getCanonicalImageList } from '../execution/execution-data-utils.js';
+import { projectImageReferences } from '../../nodes/image-reference-projection.js';
 import { createImageInputDetail } from './image-input-detail.js';
 
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
@@ -85,11 +85,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const settings = readImageGenerationSettings(node, documentRef);
         const model = state.models.find(item => item.id === settings.apiConfigId);
         view.model.textContent = `${model?.name || model?.modelId || '未选择模型'} · ${settings.aspect || '自动'} · ${settings.resolution || '自动'}`;
-        const references = state.connections.filter(edge => edge.to.nodeId === node.id && (edge.to.port === 'referenceImages' || /^image_\d+$/.test(edge.to.port)));
-        const count = references.reduce((sum, edge) => {
-            const source = state.nodes.get(edge.from.nodeId);
-            return sum + (source?.enabled === false ? 0 : Math.max(getCanonicalImageList(source).length, Number(source?.data?.imageCount) || 0));
-        }, 0);
+        const { count } = projectImageReferences({ state, targetId: node.id });
         view.references.textContent = `参考 ${count} 张`;
         view.inputs.refresh();
         view.placeholder.hidden = !view.result.hidden;
@@ -239,5 +235,9 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     documentRef.addEventListener('cainflow:canvas-transform', schedulePosition);
     windowRef.addEventListener('resize', schedulePosition);
     return { install, selectionChanged, close, refreshNode,
+        refreshSource: sourceId => {
+            const targets = new Set(state.connections.filter(edge => edge.from.nodeId === sourceId).map(edge => edge.to.nodeId));
+            targets.add(sourceId); targets.forEach(refreshNode);
+        },
         refresh: () => { sweep(); for (const node of views.keys()) if (state.nodes.get(node.id) === node) refreshNode(node.id); } };
 }

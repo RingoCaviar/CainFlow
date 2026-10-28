@@ -1,6 +1,4 @@
-import { getCanonicalImageList } from './execution-data-utils.js';
-
-const isImagePort = port => port === 'image' || port === 'referenceImages' || /^image_\d+$/.test(port);
+import { projectImageReferences } from '../../nodes/image-reference-projection.js';
 
 export function getImageDescription(node, index = 0) {
     const description = index === 0
@@ -25,25 +23,10 @@ export function setImageDescription(node, description, index = 0) {
 }
 
 export function appendReferenceDescriptions(prompt, state, targetNodeId, inputConnections = state?.connections || []) {
-    const connections = inputConnections
-        .filter(link => link?.to?.nodeId === targetNodeId && isImagePort(link.to.port))
-        .map((link, index) => ({ link, index }))
-        .sort((a, b) => {
-            const rank = entry => entry.link.to.port === 'image' ? 0
-                : entry.link.to.port === 'referenceImages' ? 100 + (entry.link.order ?? entry.index)
-                : Number(entry.link.to.port.slice(6)) || 0;
-            return rank(a) - rank(b) || a.index - b.index;
-        });
-    let imageNumber = 0;
-    const descriptions = connections.flatMap(({ link }) => {
-        const source = state.nodes?.get(link.from?.nodeId);
-        const availableCount = Math.max(getCanonicalImageList(source).length, source?.data?.mediaAssetKeys?.length || 0);
-        const count = link.to.port === 'referenceImages' ? Math.max(1, availableCount || source?.data?.imageCount || 0) : 1;
-        return Array.from({ length: count }, (_, index) => {
-            const description = getImageDescription(source, index);
-            imageNumber += 1;
-            return description ? `参考图 ${imageNumber}：${description}` : '';
-        }).filter(Boolean);
-    });
+    const { slots } = projectImageReferences({ state, targetId: targetNodeId, connections: inputConnections });
+    const descriptions = slots.map(slot => {
+        const description = getImageDescription(slot.source, slot.index);
+        return description ? `参考图 ${slot.number}：${description}` : '';
+    }).filter(Boolean);
     return descriptions.length ? `${String(prompt || '').trim()}\n\n${descriptions.join('\n')}` : prompt;
 }

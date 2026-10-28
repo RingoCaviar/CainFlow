@@ -110,6 +110,14 @@ export function createNodeDomBindingsApi({
         readAsset: readResultAsset,
         openPreview: openReferencePreview, focusNode: focusReferenceSource, getWorkflowId, showToast,
         moveSource: moveReferenceSource, disconnectSource: disconnectReferenceSource,
+        toggleSourceEnabled: sourceId => {
+            const source = state.nodes.get(sourceId);
+            const endpoints = [sourceId, ...state.connections.filter(edge => edge.from.nodeId === sourceId).map(edge => edge.to.nodeId)];
+            if (!source || state.canvasPlanApplying || state.historyTransitionInProgress || endpoints.some(isNodeRunning)) {
+                showToast('来源或下游正在运行或修改，暂不能启停来源', 'warning'); return false;
+            }
+            pushHistory(); toggleNodesEnabled([sourceId], sourceId); return true;
+        },
         onLayout: scheduleConnectedInputFieldLayout });
     const nodeResults = createImageNodeResults({ state, documentRef, createActions: createImageResultActions,
         readAsset: readResultAsset, readSourceImages: readReferenceSourceImages, createThumbnail: createResultThumbnail,

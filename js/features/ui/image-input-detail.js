@@ -1,4 +1,6 @@
-import { getCanonicalImageList, getImageImportMediaAssetReferences } from '../execution/execution-data-utils.js';
+import { getCanonicalImageList } from '../execution/execution-data-utils.js';
+import { projectImageReferences } from '../../nodes/image-reference-projection.js';
+import { projectImageOutput } from '../../nodes/image-output-projection.js';
 import { getNodeDefinition } from '../../nodes/registry.js';
 import { resolveUniversalInput } from '../../nodes/universal-input-policy.js';
 
@@ -11,20 +13,18 @@ const roles = [
 ];
 const typeLabels = { image: '图片', text: '文本', params: '参数', video: '视频', any: '任意类型' };
 
-function describeSource(state, edge) {
+function describeSource(state, edge, referenceGroup) {
     const source = state.nodes.get(edge.from.nodeId);
     const output = Array.from(source?.el?.querySelectorAll('.node-port[data-direction="output"]') || [])
         .find(port => port.dataset.port === edge.from.port);
     const type = output?.dataset.type || edge.type || '';
-    const images = type === 'image' ? getCanonicalImageList(source) : [];
-    const durableCount = Math.max(getImageImportMediaAssetReferences(source).length,
-        source?.data?.mediaAssetKeys?.length || 0, Number(source?.data?.imageCount) || 0);
-    const count = type === 'image' ? Math.max(images.length, durableCount) : 0;
+    const count = type === 'image' ? (referenceGroup || projectImageOutput(source, getCanonicalImageList(source))).count : 0;
     const integrity = source?.data?.mediaIntegrity;
     const missing = !source || integrity?.state === 'missing' || integrity?.missingItems?.length > 0;
     const title = source?.customTitle || source?.el?.dataset.nodeTitle || getNodeDefinition(source?.type)?.title || edge.from.nodeId;
+    const sourceRunning = referenceGroup?.running || state.runningNodeIds?.has(source?.id) || ['waiting', 'running'].includes(source?.runStatus);
     const status = !source ? '来源缺失' : source.enabled === false ? '已停用'
-        : missing ? '原图缺失' : type === 'image' && !count ? '尚无输出' : '已连接';
+        : sourceRunning ? '来源运行中' : missing ? '原图缺失' : type === 'image' && !count ? '尚无输出' : '已连接';
     return { source, type, count, title, status, missing };
 }
 
@@ -59,7 +59,8 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
     }
     function refresh(force = false) {
         const edges = state.connections.filter(edge => edge.to.nodeId === node.id);
-        const descriptions = edges.map(edge => describeSource(state, edge));
+        const references = new Map(projectImageReferences({ state, targetId: node.id }).groups.map(group => [group.connection.id, group]));
+        const descriptions = edges.map(edge => describeSource(state, edge, references.get(edge.id)));
         const candidates = replacing ? outputs() : [];
         const running = state.runningNodeIds?.has(node.id) || ['waiting', 'running'].includes(node.runStatus);
         const editing = state.historyTransitionInProgress || state.canvasPlanApplying;

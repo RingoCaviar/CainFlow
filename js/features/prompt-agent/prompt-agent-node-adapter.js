@@ -6,7 +6,8 @@ import { normalizeImageSizeControls } from '../execution/image-generation-size.j
 import { normalizePromptAgentParameters, readPromptAgentParameterSchema } from './prompt-agent-parameters.js';
 import { getCanonicalImageList, getImageImportMediaAssetReferences } from '../execution/execution-data-utils.js';
 import { projectImageOutput } from '../../nodes/image-output-projection.js';
-import { MAX_REFERENCE_IMAGE_COUNT, orderInputConnections } from '../../nodes/reference-image-ports.js';
+import { projectImageReferences } from '../../nodes/image-reference-projection.js';
+import { MAX_REFERENCE_IMAGE_COUNT } from '../../nodes/reference-image-ports.js';
 import { getImageDescription, setImageDescription } from '../execution/reference-image-description.js';
 
 export function getAvailablePromptAgentImageModels(models = [], providers = []) {
@@ -44,10 +45,12 @@ function writeBoolean(documentRef, id, value, createEvent) {
     return true;
 }
 
-function getReferenceImageDescriptor(state, connection) {
-    const sourceNode = state.nodes?.get(connection.from?.nodeId);
-    const { images, assets: assetKeys } = projectImageOutput(sourceNode, getCanonicalImageList(sourceNode));
-    const descriptions = Array.from({ length: Math.max(images.length, assetKeys.length) }, (_, index) => getImageDescription(sourceNode, index));
+function getReferenceImageDescriptor(state, connection, projected = null) {
+    const sourceNode = projected?.source || state.nodes?.get(connection.from?.nodeId);
+    const { images: originals, assets: assetKeys, count } = projected || projectImageOutput(sourceNode, getCanonicalImageList(sourceNode));
+    const images = Math.max(originals.length, assetKeys.length) < count
+        ? Array.from({ length: count }, (_, index) => originals[index] || '') : originals;
+    const descriptions = Array.from({ length: count }, (_, index) => getImageDescription(sourceNode, index));
     return {
         sourceNodeId: connection.from?.nodeId || '',
         name: sourceNode?.customTitle || sourceNode?.type || '来源已不存在',
@@ -137,10 +140,9 @@ export function createPromptAgentNodeAdapter({
     function getContext(nodeId) {
         const node = state?.nodes?.get(nodeId);
         if (node?.type !== 'ImageGenerate') return null;
-        const referenceImages = orderInputConnections('ImageGenerate', (state.connections || [])
-            .filter((connection) => connection?.to?.nodeId === node.id && state.nodes.get(connection.from?.nodeId)?.enabled !== false
-                && /^(?:referenceImages|image|image_\d+)$/.test(connection?.to?.port || '')))
-            .map((connection) => getReferenceImageDescriptor(state, connection));
+        const referenceImages = projectImageReferences({ state, targetId: node.id }).groups
+            .filter(group => group.enabled && !group.running && group.count > 0)
+            .map(group => getReferenceImageDescriptor(state, group.connection, group));
         const protocolParams = { ...(node.data?.protocolParams || {}) };
         const modelId = readValue(documentRef, `${node.id}-apiconfig`, node.apiConfigId || '');
         const model = state.models?.find((candidate) => candidate.id === modelId);
@@ -342,6 +344,11 @@ export function createPromptAgentNodeAdapter({
             providerId: readValue(documentRef, `${nodeId}-provider`, node.providerId || '') };
     }
     function getReferenceSnapshot(id) {
+        const { groups, slots } = projectImageReferences({ state, targetId: id });
+        if (groups.some(group => !group.source || (group.enabled && group.running))) {
+            throw new Error('参考图来源已删除、禁用或正在运行。');
+        }
+        if (slots.some(slot => slot.missing)) throw new Error('参考图原图存在缺失，请恢复完整批次后重试。');
         const references = getContext(id)?.referenceImages || [];
         for (const ref of references) {
             const source=state.nodes.get(ref.sourceNodeId);
