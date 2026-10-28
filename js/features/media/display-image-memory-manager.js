@@ -6,13 +6,6 @@ import {
     getCanonicalImageList,
     setCanonicalImageOutput
 } from '../execution/execution-data-utils.js';
-import { hasNodeCapability, NODE_CAPABILITIES } from '../../nodes/registry.js';
-import {
-    clearDerivedImagePreview,
-    getDerivedImagePreview,
-    isDerivedImagePreviewNode,
-    setDerivedImagePreview
-} from '../../nodes/derived-image-preview.js';
 import { projectMissingMediaAssets, renderMissingMediaPlaceholders } from './missing-media-integrity.js';
 
 const DISPLAY_IMAGE_RELEASE_PADDING = 900;
@@ -45,6 +38,8 @@ export function createDisplayImageMemoryManager({
     renderImageImportUploadState = () => {},
     renderImageResizeResult = () => {},
     renderImageComparePreview = () => {},
+    restoreImageMergePreview = async () => false,
+    releaseImageMergePreview = () => {},
     showResolutionBadge = async () => {},
     ensureElement = null,
     removeElements = null,
@@ -79,7 +74,7 @@ export function createDisplayImageMemoryManager({
     }
 
     function isDisplayImageNode(node) {
-        return node?.type === 'ImagePreview' || node?.type === 'ImageSave';
+        return node?.type === 'ImagePreview' || node?.type === 'ImageSave' || node?.type === 'ImageMerge';
     }
 
     function isImageImportUploadNode(node) {
@@ -131,7 +126,7 @@ export function createDisplayImageMemoryManager({
     function getStoredImageCount(node) {
         const explicitCount = Math.max(0, parseInt(node?.data?.imageCount || '0', 10) || 0);
         const inMemoryCount = getManagedNodeImageList(node).length;
-        return Math.max(explicitCount, inMemoryCount);
+        return Math.max(explicitCount, inMemoryCount, node?.type === 'ImageMerge' ? node.data?.mediaAssetKeys?.length || 0 : 0);
     }
 
     function getManagedNodeImageList(node) {
@@ -295,11 +290,11 @@ export function createDisplayImageMemoryManager({
                 removeSelector: 'img, .image-save-preview-nav, .image-save-preview-counter'
             };
         }
-        if (node.type === 'ImagePreview') {
+        if (node.type === 'ImagePreview' || node.type === 'ImageMerge') {
             return {
-                containerId: `${node.id}-preview`,
+                containerId: `${node.id}-${node.type === 'ImageMerge' ? 'merge-preview' : 'preview'}`,
                 placeholderClass: 'preview-placeholder',
-                removeSelector: 'img, .image-save-preview-nav, .image-save-preview-counter'
+                removeSelector: 'img, .image-save-preview-nav, .image-save-preview-counter, .image-preview-batch-navigation'
             };
         }
         if (node.type === 'ImageResize') {
@@ -571,8 +566,9 @@ export function createDisplayImageMemoryManager({
         }
     }
 
-    function clearManagedImageFields(node) {
+    function clearManagedImageFields(node, releasePreview = false) {
         if (!node?.data) return;
+        if (node.type === 'ImageMerge' && releasePreview) releaseImageMergePreview(node);
         delete node.data.image;
         delete node.data.imageList;
         delete node.data.images;
@@ -634,7 +630,7 @@ export function createDisplayImageMemoryManager({
         node.data.imageCount = count;
         node.data.imageMemoryReleased = true;
         node.data.imageAssetReady = true;
-        clearManagedImageFields(node);
+        clearManagedImageFields(node, true);
         renderReleasedDisplayImagePlaceholder(node);
         return true;
     }
@@ -651,6 +647,13 @@ export function createDisplayImageMemoryManager({
 
     async function hydrateReleasedDisplayNodeImages(node) {
         if (!node?.data?.imageMemoryReleased || !getStoredImageAssetKey(node)) return false;
+        if (node.type === 'ImageMerge') {
+            if (!(await restoreImageMergePreview(node))) return false;
+            delete node.data.imageMemoryReleased;
+            node.data.imageAssetReady = true;
+            node.data.imageHydratedAt = Date.now();
+            return true;
+        }
         const images = await restoreStoredImageList(node);
         if (images.length === 0) return false;
         node.data.imageAssetReady = true;

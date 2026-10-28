@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer as createNetServer } from 'node:net';
 import { inflateSync } from 'node:zlib';
@@ -32,29 +32,46 @@ export async function startCainflowServer({ session = null, repoDirectory = repo
     const workflowsDir = mkdtempSync(join(tmpdir(), 'cainflow-browser-workflows-'));
     const port = await findFreePort();
     const python = process.env.CAINFLOW_PYTHON || 'python';
-    const child = spawn(python, ['server.py', '--browser', '--port', String(port)], {
-        cwd: repoDirectory,
-        env: {
-            ...process.env,
-            CAINFLOW_DATA_DIR: dataDir,
-            CAINFLOW_WORKFLOWS_DIR: workflowsDir,
-            CAINFLOW_SKIP_BROWSER_AUTO_OPEN: '1'
-        },
-        stdio: ['ignore', 'pipe', 'pipe']
-    });
-    let startupLog = '';
-    for (const output of [child.stdout, child.stderr]) output.on('data', chunk => { startupLog = (startupLog + chunk).slice(-4000); });
     const baseUrl = `http://127.0.0.1:${port}`;
-    try {
+    let child, childClosed = Promise.resolve(), cleaned = false;
+    async function startProcess() {
+        if (cleaned) throw new Error('The isolated backend has already been cleaned up');
+        let startupLog = '', startupError;
+        child = spawn(python, ['server.py', '--browser', '--port', String(port)], {
+            cwd: repoDirectory,
+            env: { ...process.env, CAINFLOW_DATA_DIR: dataDir, CAINFLOW_WORKFLOWS_DIR: workflowsDir, CAINFLOW_SKIP_BROWSER_AUTO_OPEN: '1' },
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
+        const backendProcess = child;
+        childClosed = new Promise(resolve => backendProcess.once('close', resolve));
+        backendProcess.once('error', error => { startupError = error; });
+        for (const output of [backendProcess.stdout, backendProcess.stderr]) output.on('data', chunk => { startupLog = (startupLog + chunk).slice(-4000); });
         for (let attempt = 0; attempt < 120; attempt += 1) {
+            if (startupError) throw startupError;
+            if (backendProcess.exitCode !== null || backendProcess.signalCode !== null) throw new Error(`CainFlow server exited with code ${backendProcess.exitCode}: ${startupLog}`);
             try {
                 const response = await fetch(`${baseUrl}/`);
-                if (response.ok) break;
+                if (response.ok) return;
             } catch {}
             await new Promise((resolve) => setTimeout(resolve, 50));
-            if (child.exitCode !== null) throw new Error(`CainFlow server exited with code ${child.exitCode}: ${startupLog}`);
             if (attempt === 119) throw new Error('CainFlow server did not become ready');
         }
+    }
+    async function stopProcess() {
+        if (child?.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+        await childClosed;
+    }
+    async function stop() {
+        await stopProcess();
+        if (cleaned) return;
+        cleaned = true;
+        for (const directory of [dataDir, workflowsDir]) {
+            assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + sep), 'only the isolated temporary directories may be removed');
+            rmSync(directory, { recursive: true, force: true });
+        }
+    }
+    try {
+        await startProcess();
         if (session) {
             const response = await fetch(`${baseUrl}/api/storage/documents/session`, {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -65,20 +82,19 @@ export async function startCainflowServer({ session = null, repoDirectory = repo
         return {
             baseUrl,
             dataDir,
-            async stop() {
-                if (child.exitCode === null) child.kill('SIGTERM');
-                await new Promise((resolve) => {
-                    if (child.exitCode !== null) resolve();
-                    else child.once('exit', resolve);
-                });
-                rmSync(dataDir, { recursive: true, force: true });
-                rmSync(workflowsDir, { recursive: true, force: true });
-            }
+            workflowsDir,
+            get pid() { return child.pid; },
+            stopProcess,
+            async restart() {
+                const previousPid = child.pid;
+                await stopProcess();
+                await startProcess();
+                return { previousPid, pid: child.pid, baseUrl, dataDir, workflowsDir };
+            },
+            stop
         };
     } catch (error) {
-        if (child.exitCode === null) child.kill('SIGTERM');
-        rmSync(dataDir, { recursive: true, force: true });
-        rmSync(workflowsDir, { recursive: true, force: true });
+        await stop();
         throw error;
     }
 }
