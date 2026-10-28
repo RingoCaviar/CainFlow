@@ -1120,6 +1120,10 @@ export function createConnectionsApi({
         return path;
     }
 
+    function setSvgAttribute(element, name, value) {
+        if (element && element.getAttribute?.(name) !== value) element.setAttribute(name, value);
+    }
+
     function renderConnectionPath(conn, context = {}) {
         if (!conn?.id) return false;
         const {
@@ -1134,7 +1138,7 @@ export function createConnectionsApi({
         const toNode = getNodeById(conn.to?.nodeId);
         if (!fromNode || !toNode) {
             if (path) {
-                path.setAttribute('d', '');
+                setSvgAttribute(path, 'd', '');
                 updateFlowDecoration(path, conn.id, false);
             }
             return false;
@@ -1143,7 +1147,7 @@ export function createConnectionsApi({
         const isFromVisible = isNodeVisibleInViewport(fromNode, viewport, padding);
         const isToVisible = isNodeVisibleInViewport(toNode, viewport, padding);
         if (!isFromVisible && !isToVisible && path) {
-            path.setAttribute('d', '');
+            setSvgAttribute(path, 'd', '');
             updateFlowDecoration(path, conn.id, false);
             return false;
         }
@@ -1151,7 +1155,7 @@ export function createConnectionsApi({
         const endpointsVisible = isConnectionEndpointVisible(conn.from.nodeId, conn.from.port, 'output') &&
             isConnectionEndpointVisible(conn.to.nodeId, conn.to.port, 'input');
         if (!endpointsVisible && path) {
-            path.setAttribute('d', '');
+            setSvgAttribute(path, 'd', '');
             updateFlowDecoration(path, conn.id, false);
             return false;
         }
@@ -1200,10 +1204,8 @@ export function createConnectionsApi({
         invalidateNodePortCache(null, { markDirty: false });
         invalidateConnectionLaneCache();
 
-        connectionsGroup.setAttribute('transform', `translate(${x}, ${y}) scale(${zoom})`);
-        if (originAxes) {
-            originAxes.setAttribute('transform', `translate(${x}, ${y}) scale(${zoom})`);
-        }
+        setSvgAttribute(connectionsGroup, 'transform', `translate(${x}, ${y}) scale(${zoom})`);
+        setSvgAttribute(originAxes, 'transform', `translate(${x}, ${y}) scale(${zoom})`);
 
         if (reflectInteractionState && (isDragging || isPanning)) {
             connectionsGroup.classList.add('is-dragging');
@@ -1318,10 +1320,8 @@ export function createConnectionsApi({
         if (dirtyConnectionIds.size === 0) return false;
 
         const { x, y, zoom } = state.canvas;
-        connectionsGroup.setAttribute('transform', `translate(${x}, ${y}) scale(${zoom})`);
-        if (originAxes) {
-            originAxes.setAttribute('transform', `translate(${x}, ${y}) scale(${zoom})`);
-        }
+        setSvgAttribute(connectionsGroup, 'transform', `translate(${x}, ${y}) scale(${zoom})`);
+        setSvgAttribute(originAxes, 'transform', `translate(${x}, ${y}) scale(${zoom})`);
 
         const containerRect = canvasContainer.getBoundingClientRect();
         const context = {
@@ -1421,10 +1421,8 @@ export function createConnectionsApi({
         }
 
         const { x, y, zoom } = state.canvas;
-        connectionsGroup.setAttribute('transform', `translate(${x}, ${y}) scale(${zoom})`);
-        if (originAxes) {
-            originAxes.setAttribute('transform', `translate(${x}, ${y}) scale(${zoom})`);
-        }
+        setSvgAttribute(connectionsGroup, 'transform', `translate(${x}, ${y}) scale(${zoom})`);
+        setSvgAttribute(originAxes, 'transform', `translate(${x}, ${y}) scale(${zoom})`);
         connectionsGroup.classList.add('is-dragging');
 
         invalidateConnectionLaneCache();

@@ -22,6 +22,9 @@ test('版本库文件不再包含已移除的合作方标识或域名', async ()
             if (error?.code === 'ENOENT') continue;
             throw error;
         }
+        // Match Git's NUL-byte binary heuristic while retaining legacy-encoded
+        // repository text (such as Windows batch files) in this ASCII-token scan.
+        if (content.subarray(0, 8000).includes(0)) continue;
         const text = content.toString('utf8');
         if (removedContentPattern.test(text)) violations.push(file);
     }

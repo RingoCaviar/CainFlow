@@ -146,3 +146,20 @@ test('restoring a complete migrated reference graph is not truncated by the old 
     assert.deepEqual(state.connections.slice(0, 64), existing.slice(0, 64));
     assert.equal(state.connections.at(-1).order, 64);
 });
+
+test('preserving-connection preflight checks complete reference batches without changing retained edge metadata', () => {
+    const source = node('source', 'ImageImport', [port('source', 'image', 'image', 'output')], { imageList: ['a', 'b'] });
+    const old = node('old', 'ImagePreview', [port('old', 'image', 'image', 'output')], { imageList: ['c', 'd', 'e', 'f'] });
+    const destination = target();
+    const retained = { id: 'retained', from: { nodeId: 'old', port: 'image', vendor: { preserve: true } },
+        to: { nodeId: 'target', port: 'referenceImages' }, type: 'image', order: 12, vendor: { batch: 'originals' } };
+    const { state } = harness([source, old, destination], [structuredClone(retained)]);
+    const result = appendMappedConnectionSnapshots({ state,
+        idMap: new Map([...state.nodes.keys()].map(id => [id, id])),
+        internalConnections: [{ id: 'bypass', from: { nodeId: 'source', port: 'image' },
+            to: { nodeId: 'target', port: 'referenceImages' }, type: 'image', order: 0 }],
+        validateUniversalInputs: true });
+    assert.equal(result.added, 0, 'the new two-image batch cannot expand four originals beyond the protocol maximum of five');
+    assert.equal(result.skipped, 1);
+    assert.deepEqual(state.connections, [retained], 'existing connections remain intact instead of being pruned to the current capacity');
+});

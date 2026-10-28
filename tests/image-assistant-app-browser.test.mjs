@@ -938,7 +938,7 @@ test('partial Agent retries freeze successful upstream originals and full regene
         await waitFor("imageRequests.filter(r=>r.contents).length===3 && document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('未完成') && ![...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='重试未完成步骤').disabled");
         const unchanged=await evaluate("imageRequests.filter(r=>r.contents).at(-1).contents.flatMap(c=>c.parts).filter(p=>p.inlineData).map(p=>p.inlineData.data)");
         assert.deepEqual(unchanged,[png],'retry skipped the successful upstream and used its original pixels');
-        const upstream=await evaluate("[...document.querySelectorAll('.node-generate')].find(node=>node.querySelector('textarea[id$=prompt]')?.value==='chain-source').id");
+        const upstream=await evaluate("[...document.querySelectorAll('.node-generate')].find(node=>document.getElementById(node.id+'-prompt')?.value==='chain-source').id");
         await evaluate(`window.alternateGeneratedImage=true;document.getElementById('${upstream}').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()`);
         await waitFor(`imageRequests.filter(r=>r.contents).length===4 && document.getElementById('${upstream}-run-status').textContent==='完成' && document.getElementById('btn-stop').disabled`);
         await evaluate("document.getElementById('btn-save-workflow').click()");

@@ -261,17 +261,49 @@ test('preserving deletion traverses multiple selected bridge nodes without losin
 });
 
 test('preserving deletion rejects expansion beyond reference capacity without removing nodes or edges', {timeout:30000}, async()=>{
-    const sources=Array.from({length:63},(_,i)=>({id:'old-'+i,type:'ImageImport',x:1800,y:i*400}));
+    const images=referencePixels.slice(0,4).map(base64=>`data:image/png;base64,${base64}`);
     const connections=[
         {id:'merge-a',from:{nodeId:'a',port:'image'},to:{nodeId:'merge',port:'image_1'},type:'image'},
         {id:'merge-b',from:{nodeId:'b',port:'image'},to:{nodeId:'merge',port:'image_2'},type:'image'},
         {id:'merge-out',from:{nodeId:'merge',port:'image'},to:{nodeId:'target',port:'referenceImages'},type:'image',order:0},
-        ...sources.map((n,i)=>({id:'old-edge-'+i,from:{nodeId:n.id,port:'image'},to:{nodeId:'target',port:'referenceImages'},type:'image',order:i+1}))
+        {id:'old-batch',from:{nodeId:'old',port:'image'},to:{nodeId:'target',port:'referenceImages'},type:'image',order:1,extension:{keep:'four-originals'}}
     ];
-    await withAppBrowser({...session,nodes:[...session.nodes,...sources,{id:'merge',type:'ImageMerge',x:300,y:260}],connections},async app=>{
+    const nodes=[
+        {id:'a',type:'ImageImport',x:40,y:400},
+        {id:'b',type:'ImageImport',x:40,y:740},
+        {id:'old',type:'ImagePreview',x:40,y:80,images,imageCount:4},
+        {id:'target',type:'ImageGenerate',x:600,y:80,apiConfigId:'image',providerId:'p',referenceImageCount:5,prompt:'must not execute'},
+        {id:'merge',type:'ImageMerge',x:300,y:400,inputCount:2,enabled:false}
+    ];
+    await withAppBrowser({...session,models:session.models.map(model=>model.id==='image'?{...model,protocol:'openai'}:model),nodes:[],connections:[]},async app=>{
+        // Legacy inline originals enter through workflow migration. Session
+        // snapshots intentionally omit pixels and require durable asset keys.
+        assert.equal(await app.evaluate(`fetch('/api/workflows/Capacity',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(${JSON.stringify({workflowId:'capacity-workflow',nodes,connections})})}).then(response=>response.ok)`),true);
+        await app.evaluate("document.getElementById('btn-toggle-workflow').click()");
+        await app.waitFor("Boolean(document.querySelector('.workflow-item[data-name=Capacity]'))");
+        await app.evaluate("document.querySelector('.workflow-item[data-name=Capacity]').click()");
+        await app.waitFor("document.querySelector('.workflow-item[data-name=Capacity]').classList.contains('is-active')&&!!document.getElementById('merge')");
+        await app.evaluate("document.getElementById('btn-close-workflow').click()");
+        assert.equal(await app.evaluate("import('/js/features/execution/protocols/index.js').then(({getProtocol})=>getProtocol('openai').parameters.referenceImages.portCount)"),5);
+        for (const [index,id] of ['a','b'].entries()) {
+            await app.evaluate(`(async()=>{const transfer=new DataTransfer();transfer.items.add(new File([await(await fetch(${JSON.stringify(images[index])})).blob()],'source.png',{type:'image/png'}));const input=document.getElementById('${id}-file');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}))})()`);
+        }
+        await app.waitFor("document.querySelector('#old-preview img')?.naturalWidth>0&&document.querySelector('#old-preview .image-save-preview-counter')?.textContent.endsWith('/4')");
+        await app.evaluate("document.querySelector('#old-preview .image-save-preview-counter').click()");
+        await app.waitFor("document.querySelectorAll('#old-preview [data-preview-batch-index]').length===4");
+        await saved(app,"s=>['a','b'].every(id=>s.nodes.find(node=>node.id===id)?.mediaAssetKeys?.length===1)");
+        await app.evaluate("document.getElementById('btn-save').click()");
+        await app.waitFor("fetch('/api/workflows/'+encodeURIComponent(document.getElementById('toolbar-workflow-name').textContent.trim())).then(response=>response.json()).then(graph=>graph.nodes?.find(node=>node.id==='old')?.imageCount===4&&graph.nodes.find(node=>node.id==='merge')?.enabled===false)");
+        const before=await saved(app,"s=>s.nodes.length===5&&s.nodes.find(node=>node.id==='old')?.imageCount===4&&s.nodes.find(node=>node.id==='old')?.mediaAssetKeys?.length===4");
+        assert.deepEqual(before.connections,connections);
+        // Four active originals fit the declared five-image protocol. Bypassing
+        // the disabled Merge would activate A and B as two more originals: six.
         await app.evaluate("document.querySelector('#merge .node-delete').dispatchEvent(new MouseEvent('click',{bubbles:true,altKey:true}))");
+        await app.waitFor("[...document.querySelectorAll('.toast')].some(toast=>toast.textContent.includes('无法完整保留连线'))");
         assert.ok(await app.evaluate("!!document.getElementById('merge')"),'a full input cannot silently drop one source when bypassing a merge');
-        assert.deepEqual((await saved(app,'s=>s.nodes.length===67')).connections,connections);
+        const after=await saved(app,'s=>s.nodes.length===5');
+        assert.deepEqual(after.nodes,before.nodes,'rejection preserves every node and its metadata');
+        assert.deepEqual(after.connections,before.connections,'rejection preserves the complete ordered graph and edge metadata');
     });
 });
 
