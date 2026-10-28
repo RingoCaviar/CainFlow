@@ -1235,7 +1235,8 @@ export function createExecutionCoreApi({
                     inputs[connection.to.port] = appendReferenceImages(
                         inputs[connection.to.port],
                         value,
-                        MAX_REFERENCE_IMAGE_COUNT
+                        // Image generation validates the complete batch against its active protocol below.
+                        node?.type === 'ImageGenerate' ? Infinity : MAX_REFERENCE_IMAGE_COUNT
                     );
                 } else {
                     inputs[connection.to.port] = value;

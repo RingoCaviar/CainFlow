@@ -101,6 +101,8 @@ test('reads one explicitly selected image-generation node as Agent context', () 
     assert.deepEqual(adapter.getSelectedContext(), {
         nodeId: 'image-1',
         prompt: '原始提示词',
+        localPrompt: '原始提示词',
+        promptSource: null,
         negativePrompt: '原始负面提示词',
         parameterSchema: {
             aspectRatio: { type: 'string' }, resolution: { type: 'string' }, count: { type: 'integer', minimum: 1 }

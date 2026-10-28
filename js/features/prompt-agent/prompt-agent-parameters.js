@@ -28,14 +28,34 @@ function readControlSchema(control, type) {
     return schema;
 }
 
-export function readPromptAgentParameterSchema(documentRef, nodeId) {
+export function getPromptAgentControl(documentRef, node, id) {
+    const roots = [...new Set([node?.parameterRoot, node?.el].filter(Boolean))];
+    for (const root of roots) {
+        if (root.id === id) return root;
+        const control = root.querySelector?.(`[id="${id.replaceAll('"', '\\"')}"]`);
+        if (control) return control;
+    }
+    return roots.length ? null : documentRef.getElementById(id);
+}
+
+function hiddenByCapability(control, node) {
+    const boundaries = [node?.parameterRoot, node?.el].filter(Boolean);
+    if (!boundaries.length) return !!control.closest?.('[hidden], .hidden');
+    for (let element = control; element; element = element.parentElement) {
+        if ((element.hidden && element.dataset?.parameterGroup === undefined) || element.classList?.contains('hidden')) return true;
+        if (boundaries.includes(element)) break;
+    }
+    return false;
+}
+
+export function readPromptAgentParameterSchema(documentRef, nodeId, node = null) {
     const schema = {};
     for (const [key, suffix] of Object.entries(PROMPT_AGENT_PARAMETER_CONTROLS)) {
-        const control = documentRef.getElementById(`${nodeId}-${suffix}`);
+        const control = getPromptAgentControl(documentRef, node, `${nodeId}-${suffix}`);
         if (!control || control.type === 'hidden' || control.hidden) continue;
         // Custom dimensions and aspect can be enabled by a resolution change.
         const conditionalSize = ['customWidth', 'customHeight', 'aspectRatio'].includes(key);
-        if (!conditionalSize && (control.disabled || control.closest?.('[hidden], .hidden'))) continue;
+        if (!conditionalSize && (control.disabled || hiddenByCapability(control, node))) continue;
         schema[key] = readControlSchema(control, PARAMETER_TYPES[key]);
     }
     if (schema.resolution?.enum && !schema.resolution.enum.includes('custom')) {
@@ -44,10 +64,12 @@ export function readPromptAgentParameterSchema(documentRef, nodeId) {
     }
     const prefix = `${nodeId}-param-`;
     const protocolProperties = {};
-    const nodeElement = documentRef.getElementById(nodeId);
-    for (const control of nodeElement?.querySelectorAll?.('input[id], select[id], textarea[id]') || []) {
+    const roots = [...new Set([node?.parameterRoot, node?.el].filter(Boolean))];
+    if (!roots.length && documentRef.getElementById(nodeId)) roots.push(documentRef.getElementById(nodeId));
+    const controls = new Set(roots.flatMap(root => [...(root.querySelectorAll?.('input[id], select[id], textarea[id]') || [])]));
+    for (const control of controls) {
         if (!control.id.startsWith(prefix) || control.type === 'hidden' || control.hidden
-            || control.disabled || control.closest?.('[hidden], .hidden')) continue;
+            || control.disabled || hiddenByCapability(control, node)) continue;
         const key = control.id.slice(prefix.length);
         if (key === 'negative_prompt' || ['__proto__', 'prototype', 'constructor'].includes(key)) continue;
         protocolProperties[key] = readControlSchema(control, 'string');

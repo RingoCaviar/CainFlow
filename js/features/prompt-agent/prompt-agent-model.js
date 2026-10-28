@@ -1,4 +1,4 @@
-import { orderInputConnections } from '../../nodes/reference-image-ports.js';
+import { orderImageReferenceConnections } from '../../nodes/image-reference-projection.js';
 import { resolveAgentProvider } from './prompt-agent-provider.js';
 import { trackAgentRequest } from './prompt-agent-request.js';
 import { createChatRequestPlan, requestChatCompletion } from '../execution/chat-request-plan.js';
@@ -185,7 +185,7 @@ export async function createPromptAgentModelReply({
                     continue;
                 }
 
-                const links = orderInputConnections('ImageGenerate', canvasContext.connections
+                const links = orderImageReferenceConnections( canvasContext.connections
                     .filter(link => link.to.nodeId === id && /^(?:referenceImages|image|image_\d+)$/.test(link.to.port)));
                 const references = [];
                 for (const link of links) references.push(...await hydrateNode(canvasContext.nodes.find(item => item.id === link.from.nodeId), link.from.port, link.to.port, true));

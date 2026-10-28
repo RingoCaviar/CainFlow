@@ -16,7 +16,7 @@ export function projectCanvasNode(node, running = false) {
     return {
         id: node.id, type: node.type, name: node.customTitle || definition?.title || node.type,
         position: { x: Number(node.x) || 0, y: Number(node.y) || 0, width: Number(node.width) || definition?.defaultWidth || 0, height: Number(node.height) || definition?.defaultHeight || 0 },
-        enabled: node.enabled !== false, running, editable: CANVAS_TYPES.includes(node.type), parameters,
+        enabled: node.enabled !== false, running, editable: CANVAS_TYPES.includes(node.type) && node.isClone !== true, parameters,
         ...(node.type === 'ImageImport' && node.data?.imageDescription ? { imageDescription: String(node.data.imageDescription).slice(0, 2000) } : {}),
         inputs: definition?.inputs || [], outputs: definition?.outputs || [],
         assets: node.mediaAssetKeys?.length ? node.mediaAssetKeys.filter(key => typeof key === 'string' && key.startsWith('media:')) : [...new Set([node.imageImportAssetKey, node.imageAssetKey].filter(key => typeof key === 'string' && key.startsWith('media:')))],
@@ -26,9 +26,19 @@ export function projectCanvasNode(node, running = false) {
     };
 }
 
-export function createCanvasContext({ workflowId, nodes, connections, selectedIds = [], mentionedIds = [], runningIds = [] }) {
+export function createCanvasContext({ workflowId, nodes, connections, selectedIds = [], mentionedIds = [], runningIds = [], getGenerationContext = null }) {
     const projected = nodes.map(node => projectCanvasNode(node, runningIds.includes(node.id)));
     const links = connections.map(link => ({ id: link.id, ...(Number.isInteger(link.order)?{order:link.order}:{}), from: { nodeId: link.from?.nodeId, port: link.from?.port }, to: { nodeId: link.to?.nodeId, port: link.to?.port } }));
+    for (const node of projected.filter(node => node.type === 'ImageGenerate')) {
+        const actual = getGenerationContext?.(node.id);
+        const input = links.filter(link => link.to.nodeId === node.id && link.to.port === 'prompt').at(-1);
+        const source = projected.find(candidate => candidate.id === input?.from.nodeId);
+        const text = source?.enabled && !source.running ? String(source.parameters.text || '') : '';
+        node.effectivePrompt = actual?.prompt ?? (text.trim() ? text : node.parameters.prompt || '');
+        node.promptSource = actual?.promptSource ?? (input ? { nodeId: input.from.nodeId, port: input.from.port,
+            type: source?.type || '', name: source?.name || input.from.nodeId, text, connected: true, active: Boolean(text.trim()),
+            editable: source?.type === 'Text' && source.editable && source.enabled && !source.running } : null);
+    }
     const read = ({ offset = 0, nodeIds = [], connectionOffset = 0, textOffset = 0, assetOffset = 0 } = {}) => {
         if (![offset, connectionOffset, textOffset, assetOffset].every(value => Number.isInteger(value) && value >= 0) || !Array.isArray(nodeIds)) throw new Error('画布读取参数无效');
         const candidates = nodeIds.length ? projected.filter(node => nodeIds.includes(node.id)) : projected;
@@ -41,6 +51,12 @@ export function createCanvasContext({ workflowId, nodes, connections, selectedId
             for (const [key, value] of Object.entries(safe.parameters)) if (typeof value === 'string' && value.length > 2000) {
                 safe.parameters[key] = value.slice(textOffset, textOffset + 2000); safe.parameterTextOmitted = true;
                 (safe.parameterTextRanges ||= {})[key] = { offset: textOffset, total: value.length, nextOffset: textOffset + 2000 < value.length ? textOffset + 2000 : null };
+            }
+            for (const [owner, key, name] of [[safe, 'effectivePrompt', 'effectivePrompt'], [safe.promptSource, 'text', 'promptSource.text']]) {
+                const value = owner?.[key];
+                if (typeof value !== 'string' || value.length <= 2000) continue;
+                owner[key] = value.slice(textOffset, textOffset + 2000); safe.parameterTextOmitted = true;
+                (safe.parameterTextRanges ||= {})[name] = { offset: textOffset, total: value.length, nextOffset: textOffset + 2000 < value.length ? textOffset + 2000 : null };
             }
             const textSize = JSON.stringify(safe).length;
             if (page.length && size + textSize > 14000) break;
@@ -62,7 +78,7 @@ export function createCanvasContext({ workflowId, nodes, connections, selectedId
 
 export function canvasBaseline(context, ids, ignoreOutputIds = []) {
     const relevant = new Set(ids);
-    return JSON.stringify({ nodes: context.nodes.filter(node => relevant.has(node.id)).map(({ running, position, ...node }) =>
+    return JSON.stringify({ nodes: context.nodes.filter(node => relevant.has(node.id)).map(({ running, position, effectivePrompt, promptSource, ...node }) =>
         ignoreOutputIds.includes(node.id) ? { ...node, assets: [], missing: false } : node),
         connections: context.connections.filter(link => relevant.has(link.to.nodeId) || relevant.has(link.from.nodeId)) });
 }

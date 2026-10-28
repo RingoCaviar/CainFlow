@@ -12,13 +12,20 @@ function orderRank(connection, index, video = false) {
     return video ? 100 + rank : rank;
 }
 
+/** Shared semantic source order, independent of DOM order or legacy socket presentation. */
+export function orderImageReferenceConnections(connections, nodeType = 'ImageGenerate') {
+    const video = nodeType === 'VideoGenerate';
+    return connections.filter(connection => isReferencePort(connection?.to?.port))
+        .map((connection, index) => ({ connection, index, rank: orderRank(connection, index, video), canonical: !video && connection.to.port === 'referenceImages' ? 1 : 0 }))
+        .sort((left, right) => left.canonical - right.canonical || left.rank - right.rank || left.index - right.index)
+        .map(({ connection }) => connection);
+}
+
 /** A cheap view of reference identities and durable positions, with no media I/O. */
 export function projectImageReferences({ state, targetId, connections = state?.connections || [], getOutput = source => getCanonicalImageList(source) }) {
     const video = state.nodes?.get(targetId)?.type === 'VideoGenerate';
-    const groups = connections.filter(connection => connection?.to?.nodeId === targetId && isReferencePort(connection.to.port))
-        .map((connection, index) => ({ connection, index, rank: orderRank(connection, index, video), canonical: !video && connection.to.port === 'referenceImages' ? 1 : 0 }))
-        .sort((left, right) => left.canonical - right.canonical || left.rank - right.rank || left.index - right.index)
-        .map(({ connection }) => {
+    const groups = orderImageReferenceConnections(connections.filter(connection => connection?.to?.nodeId === targetId), video ? 'VideoGenerate' : 'ImageGenerate')
+        .map(connection => {
             const source = state.nodes?.get(connection.from?.nodeId);
             const output = projectImageOutput(source, source ? getOutput(source, connection.from?.port) : []);
             // Video frame roles still consume their primary image; only its
