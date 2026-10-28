@@ -46,6 +46,8 @@ import { applyProtocolVariantSnapshot } from '../../nodes/protocol-variant-draft
 import { saveGeneratedMediaToDirectory } from '../media/generated-media-directory-save.js';
 import { downloadGeneratedVideo } from '../media/video/video-download.js';
 import { applyNodePersistenceExtensions } from '../../nodes/node-persistence-extensions.js';
+import { applyImageSaveMediaState, resolveImagePreviewInputState } from '../media/image-display-input-state.js';
+export { applyImageSaveMediaState } from '../media/image-display-input-state.js';
 import {
     buildImageSaveFilenameBases,
     buildVideoSaveFilenameBase,
@@ -454,28 +456,6 @@ function normalizeRuntimeImageList(value) {
     return normalizeImageList(value);
 }
 
-export function applyImageSaveMediaState(node, imageData) {
-    node.data = node.data || {};
-    const images = normalizeRuntimeImageList(imageData?.images ?? imageData);
-    const suppliedVideos = Array.isArray(imageData?.videos)
-        ? imageData.videos
-        : [imageData?.video];
-    const videos = suppliedVideos
-        .filter((video) => video && typeof video === 'object' && (video.url || video.assetKey))
-        .map((video) => clonePlainValue(video));
-
-    if (videos.length > 0) {
-        node.data.videos = videos;
-        node.data.video = clonePlainValue(videos[videos.length - 1]);
-    }
-
-    return {
-        images: images.length ? images : getCanonicalImageList(node),
-        videos: videos.length > 0 ? videos : clonePlainValue(node.data.videos || []),
-        video: videos.length > 0 ? clonePlainValue(videos[videos.length - 1]) : clonePlainValue(node.data.video || null)
-    };
-}
-
 function getRuntimeDisplayImageCount(node) {
     return Math.max(
         getCanonicalImageList(node, { includeResizePreview: false }).length,
@@ -879,19 +859,11 @@ export function createWorkflowRuntimeManager({
 
         if (runtimeNode.type === 'ImagePreview') {
             const images = getCanonicalImageList(runtimeNode, { includeResizePreview: false });
-            await syncImagePreviewNode(runtimeNodeId, images);
+            await syncImagePreviewNode(runtimeNodeId, { resultProjection: runtimeNode });
             if (images[0]) await showResolutionBadge(runtimeNodeId, images[0]);
         } else if (runtimeNode.type === 'ImageSave') {
             const images = getCanonicalImageList(runtimeNode, { includeResizePreview: false });
-            await syncImageSaveNode(runtimeNodeId, {
-                images,
-                videos: Array.isArray(runtimeNode?.data?.videos)
-                    ? clonePlainValue(runtimeNode.data.videos)
-                    : [],
-                video: runtimeNode?.data?.video && typeof runtimeNode.data.video === 'object'
-                    ? clonePlainValue(runtimeNode.data.video)
-                    : null
-            });
+            await syncImageSaveNode(runtimeNodeId, { resultProjection: runtimeNode });
             if (images[0]) await showResolutionBadge(runtimeNodeId, images[0]);
         } else if (runtimeNode.type === 'ImageCompare') {
             node.comparePosition = runtimeNode.comparePosition ?? runtimeNode.data?.comparePosition ?? node.comparePosition ?? 50;
@@ -1548,26 +1520,24 @@ export function createWorkflowRuntimeManager({
                     });
                     const forwarded = await syncForwardedKeys(node, keys);
                     node.data.imageAssetReady = forwarded;
-                    node.previewInputState = 'current';
+                    node.previewInputState = resolveImagePreviewInputState(node, imageList);
                 } else {
-                    node.previewInputState = getCanonicalImageList(node).length || node.data?.imageCount ? 'stale' : 'empty';
+                    node.previewInputState = resolveImagePreviewInputState(node, []);
                 }
             },
             syncImageSaveNode: async (nodeId, imageData) => {
                 const node = getRuntimeNode(nodeId);
                 if (!node || node.type !== 'ImageSave') return;
-                const supplied = normalizeImageList(imageData?.images ?? imageData);
                 const payload = applyImageSaveMediaState(node, imageData);
+                const supplied = payload.input.images;
                 if (supplied.length) {
                     setCanonicalImageOutput(node, supplied, { currentIndex: node.imagePreviewIndex || 0, assetKey: node.data?.imageAssetKey || nodeId, imageCount: supplied.length, hydratedAt: Date.now() });
                     const keys = getForwardedKeys(nodeId, ['image']);
                     if (keys.length) node.data.imageAssetReady = await syncForwardedKeys(node, keys);
                 }
-                const changed = supplied.length || (Array.isArray(imageData?.videos) ? imageData.videos.length : imageData?.video);
-                node.saveInputState = changed ? 'current' : payload.images.length || payload.videos.length ? 'stale' : 'empty';
                 renderImageSavePreview(nodeId, getCanonicalImageList(node));
                 const preview = doc.getElementById(`${nodeId}-save-preview`);
-                if (preview) { preview.dataset.saveState = node.saveInputState; if (node.saveInputState === 'stale') preview.dataset.saveMessage = '无有效输入，保留原有媒体，未更新'; else delete preview.dataset.saveMessage; }
+                if (preview) { preview.dataset.saveState = node.saveInputState; if (node.saveInputMessage) preview.dataset.saveMessage = node.saveInputMessage; else delete preview.dataset.saveMessage; }
             },
             syncImageCompareNode: async (nodeId, imageA, imageB) => {
                 const node = getRuntimeNode(nodeId);

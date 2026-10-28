@@ -9,6 +9,7 @@ const knownFields = new Set(`
     apiGenerationProgress executionFailure isSucceeded isFailed runStatus runStartedAt lastResponse lastText
     image imageData imageDataList images imageList imagePromptList imageAssetKey imageImportAssetKey mediaAssetKeys imageAssetReady imageCount
     imagePreviewIndex imagePreviewThumbnail imageHydratedAt imageMemoryReleased imageResultPersistence mediaIntegrity
+    previewInputState saveInputState saveInputMessage
     resizePreviewData resizePreviewMeta colorResetPreviewData colorResetPreviewMeta
     imageDescription imageDescriptions importMode imageUrl previewZoom
     imageTaskId imageTaskStatus imageTaskStatusText imageTaskUrl imageTaskCreateHttpStatus imageTaskCreateStatus imageTaskProgress concurrentRequestStatus

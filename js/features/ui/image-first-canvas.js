@@ -157,74 +157,77 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         });
         schedulePosition();
     }
+    function setText(element, text) {
+        if (element.textContent !== text) element.textContent = text;
+    }
     function refreshNode(nodeId) {
         const node = state.nodes.get(nodeId), view = views.get(node);
         if (!view) return;
         if (node.type === 'ImageGenerate') {
             const settings = readImageGenerationSettings(node, documentRef);
             const model = state.models.find(item => item.id === settings.apiConfigId);
-            view.model.textContent = `当前设置：${model?.name || model?.modelId || '未选择模型'} · ${settings.aspect || '自动'} · ${settings.resolution || '自动'}`;
+            setText(view.model, `当前设置：${model?.name || model?.modelId || '未选择模型'} · ${settings.aspect || '自动'} · ${settings.resolution || '自动'}`);
             const { count } = projectImageReferences({ state, targetId: node.id });
-            view.references.textContent = `参考 ${count} 张`;
+            setText(view.references, `参考 ${count} 张`);
             view.placeholder.hidden = !view.result.hidden;
             renderImageNodeRunState(node);
         } else if (node.type === 'ImageImport') {
             const mode = documentRef.getElementById(`${node.id}-import-mode`)?.value || node.importMode || 'upload';
-            view.urlFields.hidden = mode !== 'url';
+            if (view.urlFields.hidden !== (mode !== 'url')) view.urlFields.hidden = mode !== 'url';
             view.urlFields.classList.toggle('hidden', mode !== 'url');
-            view.model.textContent = mode === 'url' ? 'URL 来源' : '本地素材';
+            setText(view.model, mode === 'url' ? 'URL 来源' : '本地素材');
         } else if (node.type === 'ImagePreview' || node.type === 'ImageMerge') {
             const { count } = projectImageOutput(node, getCanonicalImageList(node));
             const index = getCanonicalImageIndex(node, new Array(count));
             const message = node.type === 'ImageMerge' ? node.el.querySelector('.image-merge-preview')?.dataset.mergeMessage : '';
-            view.model.textContent = `${nodeLabels[node.type]}${count ? ` · ${index + 1} / ${count}` : ''}${message ? ` · ${message}` : ''}`;
-            view.references.textContent = `输入 ${state.connections.filter(edge => edge.to.nodeId === node.id).length}`;
+            setText(view.model, `${nodeLabels[node.type]}${count ? ` · ${index + 1} / ${count}` : ''}${message ? ` · ${message}` : ''}`);
+            setText(view.references, `输入 ${state.connections.filter(edge => edge.to.nodeId === node.id).length}`);
         } else if (node.type === 'ImageResize' || node.type === 'ColorReset') {
             const message = node.el.querySelector('.preview-container')?.dataset.processingMessage;
-            view.model.textContent = `${nodeLabels[node.type]}${message ? ` · ${message}` : ''}`;
-            view.references.textContent = `输入 ${state.connections.filter(edge => edge.to.nodeId === node.id).length}`;
+            setText(view.model, `${nodeLabels[node.type]}${message ? ` · ${message}` : ''}`);
+            setText(view.references, `输入 ${state.connections.filter(edge => edge.to.nodeId === node.id).length}`);
         } else if (node.type === 'ImageCompare') {
             const message = node.el.querySelector('.image-compare-container')?.dataset.compareMessage;
-            view.model.textContent = `${nodeLabels[node.type]}${message ? ` · ${message}` : ''}`;
+            setText(view.model, `${nodeLabels[node.type]}${message ? ` · ${message}` : ''}`);
             const edges = state.connections.filter(edge => edge.to.nodeId === node.id);
-            view.references.textContent = `A ${edges.some(edge => edge.to.port === 'imageA') ? '已连接' : '可选'} · B ${edges.some(edge => edge.to.port === 'imageB') ? '已连接' : '必需'}`;
+            setText(view.references, `A ${edges.some(edge => edge.to.port === 'imageA') ? '已连接' : '可选'} · B ${edges.some(edge => edge.to.port === 'imageB') ? '已连接' : '必需'}`);
         } else if (node.type === 'ImageSave') {
             const { count } = projectImageOutput(node, getCanonicalImageList(node));
             const videos = Array.isArray(node.data?.videos) && node.data.videos.length ? node.data.videos : node.data?.video ? [node.data.video] : [];
             const message = node.el.querySelector('.save-preview-container')?.dataset.saveMessage;
-            view.model.textContent = `图片 ${count} 张 · 视频 ${videos.length} 个${message ? ` · ${message}` : ''}`;
-            view.references.textContent = `输入 ${state.connections.filter(edge => edge.to.nodeId === node.id).length}`;
+            setText(view.model, `图片 ${count} 张 · 视频 ${videos.length} 个${message ? ` · ${message}` : ''}`);
+            setText(view.references, `输入 ${state.connections.filter(edge => edge.to.nodeId === node.id).length}`);
         } else if (node.type === 'CameraControl') {
             const settings = normalizeCameraState(Object.fromEntries(cameraFields.map(([key]) => [key, node.data?.[key] ?? node[key]])));
             const message = node.el.querySelector('.camera-control-node-preview')?.dataset.cameraMessage;
-            view.model.textContent = `俯仰 ${settings.pitch}° · 偏航 ${settings.yaw}°${message ? ` · ${message}` : ''}`;
-            view.references.textContent = `输入 ${state.connections.filter(edge => edge.to.nodeId === node.id).length}`;
+            setText(view.model, `俯仰 ${settings.pitch}° · 偏航 ${settings.yaw}°${message ? ` · ${message}` : ''}`);
+            setText(view.references, `输入 ${state.connections.filter(edge => edge.to.nodeId === node.id).length}`);
             for (const [key, element] of view.cameraValues) {
-                element.textContent = key === 'viewMode' ? (node.data?.cameraViewMode === 'thirdPerson' ? '第三人称' : '第一人称')
-                    : `${settings[key]}${key === 'distance' ? '' : '°'}`;
+                setText(element, key === 'viewMode' ? (node.data?.cameraViewMode === 'thirdPerson' ? '第三人称' : '第一人称')
+                    : `${settings[key]}${key === 'distance' ? '' : '°'}`);
             }
-            view.cameraPrompt.textContent = node.data?.cameraPrompt || node.data?.text || '';
+            setText(view.cameraPrompt, node.data?.cameraPrompt || node.data?.text || '');
         }
         view.inputs?.refresh();
         if (current === node) {
             const running = state.runningNodeIds?.has(node.id) || ['waiting', 'running'].includes(node.runStatus) || node.el.classList.contains('running');
             generate.hidden = node.type === 'ImageImport';
-            generate.textContent = node.type === 'ImagePreview' ? (running ? '更新中' : '更新预览')
+            setText(generate, node.type === 'ImagePreview' ? (running ? '更新中' : '更新预览')
                 : node.type === 'ImageCompare' ? (running ? '更新中' : '更新对比')
                 : node.type === 'ImageMerge' ? (running ? '合并中' : '更新合并')
                 : node.type === 'ImageSave' ? (running ? '更新中' : '更新媒体')
                 : node.type === 'CameraControl' ? '编辑视角'
                 : node.type === 'ImageResize' ? (running ? '处理中' : '处理图片')
-                    : node.type === 'ColorReset' ? (running ? '调色中' : '应用调色') : (running ? '生成中' : '生成');
+                    : node.type === 'ColorReset' ? (running ? '调色中' : '应用调色') : (running ? '生成中' : '生成'));
             generate.disabled = running || node.enabled === false || (node.type === 'CameraControl' && (node.isClone || view.cameraOpen?.disabled));
-            feedback.textContent = node.type === 'ImageImport' ? '在卡片选择文件，或切换 URL 输入链接。'
+            setText(feedback, node.type === 'ImageImport' ? '在卡片选择文件，或切换 URL 输入链接。'
                 : node.type === 'ImagePreview' ? (node.previewInputState === 'stale' ? '未更新 · 当前无输入' : node.previewInputState === 'empty' ? '当前无输入' : '预览当前连接的图片')
                     : node.type === 'ImageCompare' ? node.el.querySelector('.image-compare-container')?.dataset.compareMessage || 'B 为必需输入；A 可选，移动指针调整分界。'
                     : node.type === 'ImageMerge' ? node.el.querySelector('.image-merge-preview')?.dataset.mergeMessage || '按图片输入的数字顺序合并每个来源的完整批次。'
                     : node.type === 'ImageSave' ? node.el.querySelector('.save-preview-container')?.dataset.saveMessage || '修改文件名后，使用卡片上的保存按钮保存媒体。'
                     : node.type === 'CameraControl' ? '在独立编辑器调整相机；参数即时保存，输出为相机提示词。'
                     : node.type === 'ImageResize' || node.type === 'ColorReset' ? '修改即时预览；点击按钮执行当前节点。'
-                    : documentRef.getElementById(`${node.id}-run-status`)?.textContent || '修改不会自动生成';
+                    : documentRef.getElementById(`${node.id}-run-status`)?.textContent || '修改不会自动生成');
             schedulePosition();
         }
     }
@@ -281,12 +284,26 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         node.parameterRoot = form;
         node.el.classList.add('image-first-card');
         node.el.dataset.imageFirst = 'true';
-        const observer = new MutationObserver(() => { if (state.nodes.get(node.id) === node) refreshNode(node.id); });
+        const observer = new MutationObserver(records => {
+            if (state.nodes.get(node.id) !== node) return;
+            let presentationChanged = false, geometryChanged = false;
+            for (const record of records) {
+                if (record.target === node.el && record.type === 'attributes') {
+                    if (record.oldValue === node.el.getAttribute(record.attributeName)) continue;
+                    // Canvas geometry does not change the graph or settings.
+                    // Only the current editor needs to follow its anchor.
+                    if (record.attributeName === 'style') geometryChanged = true;
+                    else presentationChanged = true;
+                } else presentationChanged = true;
+            }
+            if (presentationChanged) refreshNode(node.id);
+            else if (geometryChanged && current === node) schedulePosition();
+        });
         for (const element of observed.filter(Boolean)) observer.observe(element, {
             attributes: true, childList: true, subtree: true,
             ...(node.type === 'ImageCompare' ? { attributeFilter: ['src', 'data-compare-state', 'data-compare-message'] } : {})
         });
-        observer.observe(node.el, { attributes: true, attributeFilter: ['style','class'] });
+        observer.observe(node.el, { attributes: true, attributeOldValue: true, attributeFilter: ['style','class'] });
         view.observer = observer;
         views.set(node, view); store.append(form);
         node.onImageFirstSelect = () => select(node);

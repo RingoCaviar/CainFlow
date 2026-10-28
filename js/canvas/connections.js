@@ -943,10 +943,24 @@ export function createConnectionsApi({
         return path;
     }
 
+    function syncConnectionInsertHighlight(connectionId = null, nodeId = null) {
+        pathById.forEach((path, id) => {
+            const highlighted = id === connectionId;
+            if (path.classList.contains('connection-insert-target') !== highlighted) {
+                path.classList.toggle('connection-insert-target', highlighted);
+            }
+        });
+        state.nodes.forEach((node) => {
+            const highlighted = node.id === nodeId;
+            if (node.el && node.el.classList.contains('connection-insert-candidate') !== highlighted) {
+                node.el.classList.toggle('connection-insert-candidate', highlighted);
+            }
+        });
+    }
+
     function clearConnectionInsertPreview() {
         if (!state.connectionInsertPreview && insertionPreviewPaths.length === 0) return;
-        pathById.forEach((path) => path.classList.remove('connection-insert-target'));
-        state.nodes.forEach((node) => node.el?.classList.remove('connection-insert-candidate'));
+        syncConnectionInsertHighlight();
         insertionPreviewPaths.forEach((path) => path?.remove());
         insertionPreviewPaths.length = 0;
         state.connectionInsertPreview = null;
@@ -954,10 +968,8 @@ export function createConnectionsApi({
 
     function renderConnectionInsertPreview() {
         const preview = state.connectionInsertPreview;
-        pathById.forEach((path) => path.classList.remove('connection-insert-target'));
-        state.nodes.forEach((node) => node.el?.classList.remove('connection-insert-candidate'));
-
         if (!preview) {
+            syncConnectionInsertHighlight();
             insertionPreviewPaths.forEach((path) => path.setAttribute('d', ''));
             return;
         }
@@ -981,8 +993,7 @@ export function createConnectionsApi({
         inboundPath.setAttribute('d', createBezierPath(from.x, from.y, nodeInput.x, nodeInput.y, pathOptions));
         outboundPath.setAttribute('d', createBezierPath(nodeOutput.x, nodeOutput.y, to.x, to.y, pathOptions));
 
-        pathById.get(conn.id)?.classList.add('connection-insert-target');
-        node.el?.classList.add('connection-insert-candidate');
+        syncConnectionInsertHighlight(conn.id, node.id);
     }
 
     function updateConnectionInsertPreview(draggingState) {

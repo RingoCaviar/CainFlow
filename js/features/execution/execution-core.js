@@ -1,6 +1,7 @@
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
 import { validateUniversalImageInputs } from '../../nodes/universal-input-policy.js';
+import { applyImageSaveMediaState, resolveImagePreviewInputState } from '../media/image-display-input-state.js';
 import { applyThinking, resolveThinking } from './thinking-config.js';
 /**
  * 提供工作流执行所需的核心能力，包括拓扑排序、节点执行和运行时错误处理。
@@ -2408,7 +2409,7 @@ export function createExecutionCoreApi({
             if (imgData) {
                 await syncImagePreviewNode(id, imageList);
                 await refreshDependentImageResizePreviews(id);
-            }
+            } else node.previewInputState = resolveImagePreviewInputState(node, []);
             requestNodeFit(id);
         },
         ImageCompare: async (node, inputs) => {
@@ -2468,14 +2469,18 @@ export function createExecutionCoreApi({
             const videoList = (Array.isArray(inputs.video) ? inputs.video : [inputs.video])
                 .filter((video) => video && typeof video === 'object' && (video.url || video.assetKey));
             const previewVideo = videoList[videoList.length - 1] || null;
+            const payload = { images: imageList, video: previewVideo, videos: videoList };
             if (imageList.length > 0 || videoList.length > 0) {
-                const payload = { images: imageList, video: previewVideo, videos: videoList };
                 await syncImageSaveNode(id, payload);
                 await autoSaveToDir(id, payload);
             } else {
-                node.saveInputState = getCanonicalImageList(node).length || node.data?.videos?.length || node.data?.video ? 'stale' : 'empty';
+                applyImageSaveMediaState(node, payload);
                 const preview = node.el?.querySelector?.(`#${id}-save-preview`);
-                if (preview) { preview.dataset.saveState = node.saveInputState; preview.dataset.saveMessage = '无有效输入，保留原有媒体，未更新'; }
+                if (preview) {
+                    preview.dataset.saveState = node.saveInputState;
+                    if (node.saveInputMessage) preview.dataset.saveMessage = node.saveInputMessage;
+                    else delete preview.dataset.saveMessage;
+                }
             }
             if (imageList.length > 0) {
                 await refreshDependentImageResizePreviews(id);
