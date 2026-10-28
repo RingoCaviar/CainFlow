@@ -664,6 +664,8 @@ const {
     setupImagePreview,
     setupImageCompare,
     syncImageCompareNode,
+    setupImageMerge,
+    syncImageMergeNode,
     adjustPreviewZoom,
     openFullscreenPreview
 } = mediaControllerApi;
@@ -700,6 +702,7 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
     bindPorts: container => nodeDomBindingsApi.bindNodePorts(container),
     updateInputConnection: (id, change) => connectionsApi.updateInputConnection(id, change),
     swapInputConnections: id => connectionsApi.swapInputConnections(id),
+    moveMergeInputConnection: (id, direction) => connectionsApi.moveMergeInputConnection(id, direction),
     onSettingsChanged: id => nodeDomBindingsApi.syncDependentPromptSources(id)
 });
 const nodeDomBindingsApi = createNodeDomBindingsApi({
@@ -747,6 +750,7 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     setupImageSave,
     setupImagePreview,
     setupImageCompare,
+    setupImageMerge,
     setupCameraControlNode: (id, el) => cameraControlNodeApi.setupCameraControlNode(id, el),
     copyToClipboard,
     showToast,
@@ -1550,6 +1554,7 @@ function getNodeLifecycleApi() {
             renderImagePreviewImage: (nodeId, images, emptyMessage) => mediaControllerApi.renderImagePreviewImage(nodeId, images, emptyMessage),
             renderImageSavePreview: (nodeId, images, emptyMessage) => mediaControllerApi.renderImageSavePreview(nodeId, images, emptyMessage),
             renderImageComparePreview: (nodeId, imageA, imageB) => mediaControllerApi.renderImageComparePreview(nodeId, imageA, imageB),
+            renderImageMergePreview: (nodeId, images) => mediaControllerApi.renderImageMergePreview(nodeId, images),
             bindNodeInteractions: ({ id, type, el }) => nodeDomBindingsApi.bindNodeInteractions({ id, type, el }),
             onNodesRemoved: (ids) => { registry.imageFirstCanvasApi.selectionChanged(); registry.promptAgentController?.removeNodeReferences(ids); },
             serializeOneNode,
@@ -1656,6 +1661,7 @@ function getExecutionCoreApi() {
             syncImagePreviewNode: (nodeId, imageValue) => mediaControllerApi.syncImagePreviewNode(nodeId, imageValue),
             syncImageSaveNode: (nodeId, imageValue) => mediaControllerApi.syncImageSaveNode(nodeId, imageValue),
             syncImageCompareNode,
+            syncImageMergeNode,
             syncCameraControlNode: (nodeId, imageValue) => cameraControlNodeApi.syncCameraControlFromExecution(nodeId, imageValue),
             fitNodeToContent,
             scheduleSave,
@@ -1766,6 +1772,8 @@ function getWorkflowRuntimeManagerApi() {
             syncImagePreviewNode: (nodeId, imageData) => mediaControllerApi.syncImagePreviewNode(nodeId, imageData),
             syncImageSaveNode: (nodeId, imageData) => mediaControllerApi.syncImageSaveNode(nodeId, imageData),
             syncImageCompareNode: (nodeId, imageA, imageB) => mediaControllerApi.syncImageCompareNode(nodeId, imageA, imageB),
+            syncImageMergeNode: (nodeId, images) => mediaControllerApi.syncImageMergeNode(nodeId, images),
+            renderImageMergePreview: (nodeId, images) => mediaControllerApi.renderImageMergePreview(nodeId, images),
             syncCameraControlNode: (nodeId, imageValue) => cameraControlNodeApi.syncCameraControlFromExecution(nodeId, imageValue),
             refreshDependentImageResizePreviews,
             restoreImageResizePreview,

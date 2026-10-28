@@ -551,6 +551,7 @@ export function createWorkflowRunnerApi({
     }
 
     function getPreservedNodeDataForReset(node) {
+        if (node?.type === 'ImageMerge') return { ...(node.data || {}) };
         if (node?.type === 'ImageCompare') return { ...(node.data || {}), comparePosition: node.comparePosition ?? node.data?.comparePosition ?? 50 };
         if (node?.type === 'ImageResize') return { ...(node.data || {}), ...readImageResizeSettings(node) };
         if (node?.type === 'ColorReset') {
@@ -844,7 +845,7 @@ export function createWorkflowRunnerApi({
             if (!node || node.enabled === false) continue;
             if (!completed.has(nodeId) && plan.scopeNodeSet?.has(nodeId)) continue;
 
-            if (node.type === 'ImagePreview' || node.type === 'ImageSave' || node.type === 'ImageCompare') {
+            if (node.type === 'ImagePreview' || node.type === 'ImageSave' || node.type === 'ImageCompare' || node.type === 'ImageMerge') {
                 protectedIds.add(nodeId);
             } else if (isNodeResultFixed(nodeId) && hasImageResultInMemory(node)) {
                 protectedIds.add(nodeId);
@@ -864,7 +865,7 @@ export function createWorkflowRunnerApi({
                 delete img.dataset.originalSrc;
             }
         });
-        clearCanonicalImageOutput(node, { clearPromptList: true });
+        clearCanonicalImageOutput(node, { clearPromptList: true, preservePreviewIndex: node.type === 'ImageMerge' });
         if (node.data && typeof node.data === 'object') {
             delete node.data.compareImageA;
             delete node.data.compareImageB;
@@ -961,7 +962,7 @@ export function createWorkflowRunnerApi({
         if (restoredImages.length === 0) return null;
 
         setCanonicalImageOutput(node, restoredImages, {
-            currentIndex: restoredImages.length - 1,
+            currentIndex: node.type === 'ImageMerge' ? node.imagePreviewIndex ?? node.data?.imagePreviewIndex ?? restoredImages.length - 1 : restoredImages.length - 1,
             assetKey,
             imageCount: Math.max(
                 restoredImages.length,
@@ -1663,6 +1664,10 @@ export function createWorkflowRunnerApi({
     }
 
     async function executeNodeWithInputBatches(node, inputs, signal, connections = []) {
+        if (node?.type === 'ImageMerge') {
+            const reason = validateUniversalImageInputs({ state, node, inputs });
+            if (reason) throw new Error(reason);
+        }
         if (node?.type === 'ImageGenerate') {
             const settings = readImageGenerationSettings(node, documentRef);
             const reason = validateUniversalImageInputs({ state, node: { ...node, apiConfigId: settings.apiConfigId }, inputs });

@@ -83,6 +83,7 @@ export function createExecutionCoreApi({
     syncImagePreviewNode = async () => {},
     syncImageSaveNode = async () => {},
     syncImageCompareNode,
+    syncImageMergeNode = async () => {},
     syncCameraControlNode = () => '',
     fitNodeToContent,
     scheduleSave = () => {},
@@ -1683,6 +1684,23 @@ export function createExecutionCoreApi({
         requestNodeFit
     });
 
+    async function readMergeInputImages(node, inputs) {
+        const entries = Object.entries(inputs)
+            .filter(([key]) => /^image_\d+$/.test(key))
+            .sort(([a], [b]) => parseInt(a.replace('image_', ''), 10) - parseInt(b.replace('image_', ''), 10));
+        for (const [port, value] of entries) {
+            const edge = state.connections.find(connection => connection.to?.nodeId === node.id && connection.to?.port === port);
+            const source = state.nodes.get(edge?.from?.nodeId);
+            if ((Array.isArray(value) && value.some(item => !item)) || source?.data?.mediaIntegrity?.missingItems?.length) {
+                await syncImageMergeNode(node.id, []);
+                const error = new Error('来源批次存在缺失原图，完整位置已保留，请恢复原图后重试');
+                error.inputPort = port;
+                throw error;
+            }
+        }
+        return entries.flatMap(([, value]) => normalizeImageList(value));
+    }
+
     const nodeHandlers = {
         ImageImport: async (node) => {
             const imageValue = await restoreImageImportOutputValue(node);
@@ -2409,16 +2427,18 @@ export function createExecutionCoreApi({
             await refreshDependentImageResizePreviews(id);
         },
         ImageMerge: async (node, inputs = {}) => {
-            const images = Object.entries(inputs)
-                .filter(([key]) => /^image_\d+$/.test(key))
-                .sort(([a], [b]) => parseInt(a.replace('image_', ''), 10) - parseInt(b.replace('image_', ''), 10))
-                .flatMap(([, value]) => normalizeImageList(value));
-            if (images.length === 0) throw new Error('请至少连接一张图片');
+            const previousIndex = Number.isFinite(node.imagePreviewIndex) ? node.imagePreviewIndex : 0;
+            const images = await readMergeInputImages(node, inputs);
+            if (images.length === 0) {
+                await syncImageMergeNode(node.id, []);
+                throw new Error('请至少连接一张图片');
+            }
             setCanonicalImageOutput(node, images, {
-                currentIndex: images.length - 1,
+                currentIndex: previousIndex,
                 assetKey: node.id
             });
             await saveNodeImageAssetNow(node, images, node.id);
+            await syncImageMergeNode(node.id, images);
             const summary = documentRef.getElementById(`${node.id}-merge-summary`);
             if (summary) summary.textContent = `已合并 ${images.length} 张图片`;
             await refreshDependentImageResizePreviews(node.id);

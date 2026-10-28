@@ -126,7 +126,7 @@ for (const type of allTypes) for (const direction of ['input', 'output']) {
                 const selector = `#source .node-port[data-direction="${direction}"][data-port="${port.name}"] .port-dot`;
                 const expected = direction === 'input' && type === 'ImageGenerate' && port.name === 'auto'
                     ? allTypes.filter(type => type !== 'VideoGenerate')
-                    : direction === 'input' && ['ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare'].includes(type) && port.name === 'auto' ? outputCandidates.image
+                    : direction === 'input' && ['ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge'].includes(type) && port.name === 'auto' ? outputCandidates.image
                     : (direction === 'output' ? inputCandidates : outputCandidates)[port.type];
                 assert.ok(expected?.length, `known compatibility contract for ${type}.${port.name}`);
                 for (const [index, candidate] of expected.entries()) {
@@ -314,7 +314,7 @@ for (const [type, sourceType, prefix, mediaType] of [['ImageMerge', 'ImageImport
         ], connections }, async app => {
             const port = `${prefix}_3`;
             await app.waitFor(`Boolean(document.querySelector('#target .node-port[data-port="${port}"]'))`);
-            await dragFromPort(app, `#target .node-port[data-port="${port}"] .port-dot`, { x: 200, y: 240 });
+            await dragFromPort(app, type === 'ImageMerge' ? '#target .universal-input .port-dot' : `#target .node-port[data-port="${port}"] .port-dot`, { x: 200, y: 240 });
             await click(app, `#connection-create-popup [data-popup-node-type="${sourceType}"]`);
             await savedConnections(app, 3);
             const links = await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(s=>s.value.connections)");

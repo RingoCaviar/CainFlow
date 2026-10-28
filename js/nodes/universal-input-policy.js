@@ -7,9 +7,17 @@ import { resolveDeclarativeProtocolVariant } from '../features/execution/protoco
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 
 // Each node type opts in when its card and input details use this contract.
-const UNIVERSAL_INPUT_NODE_TYPES = new Set(['ImageGenerate', 'ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare']);
+const UNIVERSAL_INPUT_NODE_TYPES = new Set(['ImageGenerate', 'ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge']);
 
-export function getUniversalInputRoles(node) {
+function mergeRoleCount(node, connections = []) {
+    const indices = connections.filter(edge => edge.to?.nodeId === node.id && /^image_\d+$/.test(edge.to.port))
+        .map(edge => Number(edge.to.port.slice(6))).filter(index => Number.isSafeInteger(index) && index > 0);
+    const configured = Number(node.data?.inputCount ?? node.inputCount ?? 1);
+    return Math.max(1, Number.isSafeInteger(configured) ? configured : 1, ...(indices.map(index => index + 1)));
+}
+
+export function getUniversalInputRoles(node, state = null) {
+    if (node?.type === 'ImageMerge') return Array.from({ length: mergeRoleCount(node, state?.connections) }, (_, index) => [`image_${index + 1}`, `图片 ${index + 1}`, 'image']);
     if (node?.type === 'ImageCompare') return [['imageA', '对比 A（可选）', 'image'], ['imageB', '结果 B（必需）', 'image']];
     if (isUniversalInputNode(node) && node.type !== 'ImageGenerate') return [['image', '图片输入', 'image']];
     return node?.type === 'ImageGenerate' ? [
@@ -105,15 +113,27 @@ export function resolveUniversalInput({ state, sourceNode, sourcePort, sourceTyp
     const compareRole = targetNode.type === 'ImageCompare' && type === 'image'
         ? ['imageA', 'imageB'].find(name => !connections.some(edge => edge.to?.nodeId === targetNode.id && edge.to.port === name)) : null;
     if (targetNode.type === 'ImageCompare' && type === 'image' && role === 'auto' && !compareRole) return failure('对比 A/B 已满，请在输入明细中明确替换。');
-    const port = role === 'auto'
-        ? (targetNode.type === 'ImageCompare' ? compareRole : (targetNode.type !== 'ImageGenerate' ? { image: 'image' } : { image: 'referenceImages', text: sourceNode.type === 'CameraControl' ? 'camera_prompt' : 'prompt', params: 'params' })[type])
-        : role;
-    if (!getUniversalInputRoles(targetNode).some(([name, , acceptedType]) => name === port && acceptedType === type)) return failure('来源类型不兼容所选输入用途。');
+    let port = role;
+    if (role === 'auto') {
+        if (targetNode.type === 'ImageCompare') port = compareRole;
+        else if (targetNode.type === 'ImageMerge') {
+            const indices = connections.filter(edge => edge.to?.nodeId === targetNode.id && /^image_\d+$/.test(edge.to.port))
+                .map(edge => Number(edge.to.port.slice(6))).filter(index => Number.isSafeInteger(index) && index > 0);
+            port = type === 'image' ? `image_${Math.max(0, ...indices) + 1}` : null;
+        } else port = (targetNode.type !== 'ImageGenerate' ? { image: 'image' }
+            : { image: 'referenceImages', text: sourceNode.type === 'CameraControl' ? 'camera_prompt' : 'prompt', params: 'params' })[type];
+    }
+    if (!getUniversalInputRoles(targetNode, state).some(([name, , acceptedType]) => name === port && acceptedType === type)) return failure('来源类型不兼容所选输入用途。');
     if (sourceNode.id === targetNode.id) return failure('节点不能连接到自身。');
     if ([sourceNode, targetNode].some(node => state.runningNodeIds?.has(node.id) || ['waiting','running'].includes(node.runStatus))) {
         return failure('节点正在运行，暂不能修改输入连接。');
     }
     const incoming = connections.filter(edge => edge.to?.nodeId === targetNode.id && (targetNode.type === 'ImageGenerate' ? logicalPort(edge.to.port) : edge.to.port) === port);
+    if (targetNode.type === 'ImageMerge') {
+        const original = state.connections.find(edge => edge.id === ignoreConnectionId);
+        const keepsSource = original?.from.nodeId === sourceNode.id && original.from.port === sourcePort;
+        if (!keepsSource && connections.some(edge => edge.to?.nodeId === targetNode.id && edge.from?.nodeId === sourceNode.id && edge.from.port === sourcePort)) return failure('不能重复连接相同来源输出。');
+    }
     if (incoming.some(edge => edge.from?.nodeId === sourceNode.id && edge.from?.port === sourcePort)) return failure('不能重复连接相同来源输出。');
     if (port !== 'referenceImages' && incoming.length) return failure('该输入用途已占用，请在输入明细中明确替换。');
     if (createsCycle(connections, sourceNode.id, targetNode.id)) return failure('此连接会形成循环，请选择其他来源。');
@@ -152,10 +172,42 @@ export function planCompareInputSwap({ state, node }) {
     return { connections, error: '' };
 }
 
+export function planMoveMergeInput({ state, connectionId, direction }) {
+    const fail = error => ({ error, connections: null });
+    if (state.historyTransitionInProgress || state.canvasPlanApplying) return fail('画布正在修改，请稍后再排序。');
+    const edge = state.connections.find(item => item.id === connectionId), node = state.nodes.get(edge?.to?.nodeId);
+    if (node?.type !== 'ImageMerge' || !/^image_\d+$/.test(edge.to.port)) return fail('合并输入已变化，请重新查看。');
+    if (![-1, 1].includes(direction)) return fail('请选择前移或后移。');
+    const incoming = state.connections.filter(item => item.to?.nodeId === node.id && /^image_\d+$/.test(item.to.port))
+        .sort((a, b) => Number(a.to.port.slice(6)) - Number(b.to.port.slice(6)));
+    if (new Set(incoming.map(item => item.to.port)).size !== incoming.length) return fail('动态输入存在冲突，请先检查连接。');
+    const neighbor = incoming[incoming.indexOf(edge) + direction];
+    if (!neighbor) return { connections: null, error: '' };
+    const changes = new Map([[edge, { ...edge, to: { ...edge.to, port: neighbor.to.port } }],
+        [neighbor, { ...neighbor, to: { ...neighbor.to, port: edge.to.port } }]]);
+    const connections = state.connections.map(item => changes.get(item) || item);
+    for (const next of changes.values()) {
+        const policy = resolveUniversalInput({ state: { ...state, connections }, sourceNode: state.nodes.get(next.from.nodeId),
+            sourcePort: next.from.port, sourceType: next.type, targetNode: node, role: next.to.port, ignoreConnectionId: next.id });
+        if (policy.error) return fail(policy.error);
+    }
+    return { connections, error: '' };
+}
+
 export function validateUniversalImageInputs({ state, node, inputs }) {
-    if (node?.type !== 'ImageGenerate') return '';
+    if (!['ImageGenerate', 'ImageMerge'].includes(node?.type)) return '';
     const incoming = (state.connections || []).filter(edge => edge.to?.nodeId === node.id
         && state.nodes.get(edge.from?.nodeId)?.enabled !== false);
+    if (node.type === 'ImageMerge') {
+        for (const edge of incoming.filter(edge => /^image_\d+$/.test(edge.to.port))) {
+            const source = state.nodes.get(edge.from.nodeId), output = imageOutput(source);
+            const raw = output.remote ? null : [source?.data?.imageList, source?.data?.images, source?.imageDataList].find(list => Array.isArray(list) && list.length);
+            const actual = inputs ? normalizeImageList(inputs[edge.to.port]).length : output.images.length;
+            if (!source || output.missingPositions.length || output.compacted || raw?.some(value => !value)
+                || Math.max(output.count, raw?.length || 0) > actual) return `合并输入 ${edge.to.port} 的原图存在缺失，请恢复完整批次后再运行。`;
+        }
+        return '';
+    }
     const references = incoming.filter(edge => referencePort(edge.to.port));
     const masks = incoming.filter(edge => edge.to.port === 'mask');
     const inputReferenceCount = inputs ? Object.entries(inputs).filter(([port]) => referencePort(port))
