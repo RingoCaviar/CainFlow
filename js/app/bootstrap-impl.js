@@ -1,3 +1,4 @@
+import { createImageFirstCanvas } from '../features/ui/image-first-canvas.js';
 import { createAgentChatModelPreference } from '../features/prompt-agent/prompt-agent-model-preference.js';
 /**
  * CainFlow 前端总装配入口，负责组合全局状态、核心服务、画布、节点、执行链路与各类 UI 控制器。
@@ -392,7 +393,8 @@ const interactionPerformanceGuard = createInteractionPerformanceGuard({
 });
 const selectionApi = createSelectionApi({
     state,
-    connectionProjection: connectionProjectionInteractions
+    connectionProjection: connectionProjectionInteractions,
+    onChange: () => registry.imageFirstCanvasApi?.selectionChanged()
 });
 const nodeSerializer = createNodeSerializer({
     state,
@@ -445,6 +447,7 @@ function handleNodeGraphChanged(options = {}) {
     nodeDomBindingsApi?.syncImageMergeNodes?.();
     nodeDomBindingsApi?.syncAllConnectedInputFieldVisibility?.();
     promptAgentController?.refreshPreparedNodeContext?.();
+    registry.imageFirstCanvasApi?.refresh();
     if (!force && isMediaRestoreBatchActive()) {
         return;
     }
@@ -680,7 +683,14 @@ function buildImageResultActions(source, options = {}) {
         downloadImage: (image, item) => startHistoryDownload({ id: String(item.historyId || item.name || 'result').replace(/[^\p{L}\p{N}._-]/gu, '_'), image }, { downloadImage, documentRef: document, windowRef: window }),
         copyImage: uiUtils.copyImageToClipboard, showToast, ...options });
 }
+registry.imageFirstCanvasApi = createImageFirstCanvas({
+    state, selectionApi, documentRef: document, windowRef: window, storage: diskStorage,
+    runToNode: nodeId => runWorkflow({ mode: 'target-node', targetNodeId: nodeId }),
+    fitNode: (id, options) => fitNodeToContent(id, options),
+    onSettingsChanged: id => nodeDomBindingsApi.syncDependentPromptSources(id)
+});
 const nodeDomBindingsApi = createNodeDomBindingsApi({
+    onNodeBound: id => registry.imageFirstCanvasApi.install(id),
     state,
     selectionApi,
     canvasContainer,
@@ -819,12 +829,16 @@ getBatchConnectionModeApi().initBatchConnectionMode();
  * 当错误信息、AI 回复等动态内容加入节点时会调用此函数。
  */
 function fitNodeToContent(nodeId, options) {
-    return getNodeLifecycleApi().fitNodeToContent(nodeId, options);
+    const result = getNodeLifecycleApi().fitNodeToContent(nodeId, options);
+    registry.imageFirstCanvasApi?.refreshNode(nodeId);
+    return result;
 }
 
 // ===== 节点创建 =====
 function addNode(type, x, y, restoreData, silent = false) {
-    return getNodeLifecycleApi().addNode(type, x, y, restoreData, silent);
+    const id = getNodeLifecycleApi().addNode(type, x, y, restoreData, silent);
+    if (id && !restoreData && !silent && state.nodes.get(id)?.parameterRoot) selectionApi.setSelection([id]);
+    return id;
 }
 
 function removeNode(id, options) {
@@ -1521,7 +1535,7 @@ function getNodeLifecycleApi() {
             renderImageSavePreview: (nodeId, images, emptyMessage) => mediaControllerApi.renderImageSavePreview(nodeId, images, emptyMessage),
             renderImageComparePreview: (nodeId, imageA, imageB) => mediaControllerApi.renderImageComparePreview(nodeId, imageA, imageB),
             bindNodeInteractions: ({ id, type, el }) => nodeDomBindingsApi.bindNodeInteractions({ id, type, el }),
-            onNodesRemoved: (ids) => registry.promptAgentController?.removeNodeReferences(ids),
+            onNodesRemoved: (ids) => { registry.imageFirstCanvasApi.selectionChanged(); registry.promptAgentController?.removeNodeReferences(ids); },
             serializeOneNode,
             pushHistory,
             scheduleSave,

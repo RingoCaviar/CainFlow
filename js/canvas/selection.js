@@ -7,7 +7,8 @@
  */
 export function createSelectionApi({
     state,
-    connectionProjection
+    connectionProjection,
+    onChange = () => {}
 }) {
     function setNodeSelectedClass(nodeId, selected) {
         const node = state.nodes.get(nodeId);
@@ -20,6 +21,7 @@ export function createSelectionApi({
     }
 
     function notifyChanged(nodeIds, notify = true) {
+        onChange();
         if (notify && nodeIds.length && connectionProjection) {
             connectionProjection.nodeAppearanceChanged(nodeIds);
         }
@@ -111,6 +113,7 @@ export function createSelectionApi({
 
     function reset() {
         state.selectedNodes.clear();
+        onChange();
     }
 
     return {

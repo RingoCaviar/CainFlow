@@ -1090,7 +1090,10 @@ export function createWorkflowRuntimeManager({
     function setVisibleNodeControlsLocked(node, locked) {
         if (!node?.el) return;
         node.el.classList.toggle('running-locked', locked);
-        node.el.querySelectorAll('input, select, textarea, button:not(.node-run-cancel-btn)').forEach((control) => {
+        const selector = 'input, select, textarea, button:not(.node-run-cancel-btn)';
+        const controls = new Set(node.el.querySelectorAll(selector));
+        node.parameterRoot?.querySelectorAll(selector).forEach(control => controls.add(control));
+        controls.forEach((control) => {
             if (locked) {
                 if (control.dataset.runningLockApplied !== '1') {
                     control.dataset.runningLockApplied = '1';
