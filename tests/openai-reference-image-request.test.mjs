@@ -5,6 +5,7 @@ import { createPromptAgentNodeAdapter } from '../js/features/prompt-agent/prompt
 import { createPromptAgentExecutionAdapter } from '../js/features/prompt-agent/prompt-agent-execution-adapter.js';
 import { orderInputConnections } from '../js/nodes/reference-image-ports.js';
 import { createProxyHeadersGetter } from '../js/services/api-client.js';
+import '../js/features/execution/protocols/openai.js';
 
 function createImageRequestHarness({ captureOnly = false, generationCount = 1, concurrent = false } = {}) {
     const node = { id: 'image-generate', type: 'ImageGenerate', data: {}, enabled: true };

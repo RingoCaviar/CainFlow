@@ -478,10 +478,12 @@ export function createSessionManagerApi({
     function captureHistorySnapshot() {
         const workflowId = getWorkflowSnapshot()?.active?.workflowId || 'workflow';
         const historyId = `${workflowId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
-        const snapshot = sanitizeWorkflowDataForSessionCache({
+        // A prepared edit keeps this snapshot until its connection validates.
+        // Detach nested endpoints and parameter objects before the graph changes.
+        const snapshot = JSON.parse(JSON.stringify(sanitizeWorkflowDataForSessionCache({
             nodes: nodeSerializer.serializeNodes(),
             connections: state.connections.map((connection) => ({ ...connection }))
-        });
+        })));
         snapshot.historyId = historyId;
         undoMedia.protect(snapshot, workflowId);
         return snapshot;
@@ -507,6 +509,40 @@ export function createSessionManagerApi({
         pushSnapshot(state.undoStack, snapshot);
         updateHistoryButtons();
         return snapshot.historyId;
+    }
+
+    function assertPreparedHistoryEditAllowed() {
+        if (historyTransition) throw new Error('撤销或重做正在保存，请稍后再修改');
+        if (state.canvasPlanApplying) throw new Error('画布方案正在应用，请稍后再修改');
+    }
+
+    // The caller performs a synchronous, reversible graph mutation and rolls it
+    // back on failure. Only successful validation commits its before snapshot.
+    function prepareHistoryEdit() {
+        assertPreparedHistoryEditAllowed();
+        const snapshot = captureHistorySnapshot();
+        let outcome = 'pending';
+        function cancel() {
+            if (outcome !== 'pending') return false;
+            outcome = 'cancelled';
+            void releaseLegacySnapshotMediaOwners([snapshot]);
+            return true;
+        }
+        function commit() {
+            if (outcome === 'committed') return snapshot.historyId;
+            if (outcome !== 'pending') return null;
+            try { assertPreparedHistoryEditAllowed(); }
+            catch (error) { cancel(); throw error; }
+            const discardedRedoSnapshots = getRedoStack().splice(0).flatMap((raw) => {
+                try { return [JSON.parse(raw)]; } catch { return []; }
+            });
+            if (discardedRedoSnapshots.length > 0) void releaseLegacySnapshotMediaOwners(discardedRedoSnapshots);
+            pushSnapshot(state.undoStack, snapshot);
+            outcome = 'committed';
+            updateHistoryButtons();
+            return snapshot.historyId;
+        }
+        return { commit, cancel };
     }
 
     function discardLatestHistory(historyId) {
@@ -662,6 +698,7 @@ export function createSessionManagerApi({
         loadViewportState,
         setBeforeSave,
         pushHistory,
+        prepareHistoryEdit,
         discardLatestHistory,
         updateUndoButton: updateHistoryButtons,
         undo,

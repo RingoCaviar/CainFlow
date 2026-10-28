@@ -1,4 +1,5 @@
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
+import { validateUniversalImageInputs } from '../../nodes/universal-input-policy.js';
 import { applyThinking, resolveThinking } from './thinking-config.js';
 /**
  * 提供工作流执行所需的核心能力，包括拓扑排序、节点执行和运行时错误处理。
@@ -1304,10 +1305,16 @@ export function createExecutionCoreApi({
         }
     }
 
+    function assertImageInputCompatibility(node, inputs, settings) {
+        const reason = validateUniversalImageInputs({ state, node: { ...node, apiConfigId: settings.apiConfigId }, inputs });
+        if (reason) throw new Error(reason);
+    }
+
     function buildImageGenerateRequestPreview(node, inputs) {
         const { id } = node;
         const settings = readImageGenerationSettings(node, documentRef);
         const { modelCfg, apiCfg, protocol } = resolveRequestNodeConfig(node, 'image');
+        assertImageInputCompatibility(node, inputs, settings);
         const { aspect, resolution } = readImageGenerateRequestSize(node, protocol);
         const quality = settings.quality;
         const moderation = settings.moderation;
@@ -1753,6 +1760,7 @@ export function createExecutionCoreApi({
             let targetGenerationCount = 1;
 
             try {
+                assertImageInputCompatibility(node, inputs, settings);
                 const configId = settings.apiConfigId;
                 const modelCfg = state.models.find((model) => model.id === configId);
                 if (!modelCfg) throw new Error('未找到选定的模型配置');

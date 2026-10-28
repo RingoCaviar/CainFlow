@@ -93,6 +93,7 @@ export function migrateReferenceImageConnections(nodes = [], connections = []) {
                 to: { ...connection.to, port: REFERENCE_IMAGES_PORT }
             },
             index,
+            canonicalOrder: portName === REFERENCE_IMAGES_PORT && Number.isFinite(Number(connection.order)) ? Number(connection.order) : null,
             rank: Number.isFinite(Number(connection.order))
                 ? Number(connection.order)
                 : getLegacyReferencePortRank(nodeType, portName, index)
@@ -101,12 +102,13 @@ export function migrateReferenceImageConnections(nodes = [], connections = []) {
 
     candidatesByTarget.forEach((items) => {
         const seenSources = new Set();
+        const preserveExplicitOrders = items.every(item => item.canonicalOrder !== null);
         items.sort((a, b) => a.rank - b.rank || a.index - b.index).forEach((item) => {
             const sourceKey = `${item.connection.from?.nodeId || ''}:${item.connection.from?.port || ''}`;
             if (seenSources.has(sourceKey)) return;
             seenSources.add(sourceKey);
             migrated.push({
-                connection: { ...item.connection, order: seenSources.size - 1 },
+                connection: { ...item.connection, order: preserveExplicitOrders ? item.canonicalOrder : seenSources.size - 1 },
                 index: item.index
             });
         });

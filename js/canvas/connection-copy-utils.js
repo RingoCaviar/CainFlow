@@ -8,6 +8,7 @@ import {
     MAX_REFERENCE_IMAGE_COUNT
 } from '../nodes/reference-image-ports.js';
 import { getGenerationNodeInputConnectionPolicy } from '../nodes/generation-input-projection.js';
+import { isUniversalInputNode } from '../nodes/universal-input-policy.js';
 export function createConnectionId() {
     return 'c_' + Math.random().toString(36).substr(2, 9);
 }
@@ -113,7 +114,7 @@ function canAppendConnection(state, connection) {
             existingConnection.to.nodeId === connection.to.nodeId &&
             existingConnection.to.port === connection.to.port
         )).length;
-        if (connectionCount >= (projectedPolicy?.maxCount ?? MAX_REFERENCE_IMAGE_COUNT)) return false;
+        if (!isUniversalInputNode(targetNode) && connectionCount >= (projectedPolicy?.maxCount ?? MAX_REFERENCE_IMAGE_COUNT)) return false;
     }
     return true;
 }
@@ -137,6 +138,7 @@ function buildMappedConnection(snapshot, idMap, kind) {
         from: mapEndpoint(snapshot.from, idMap),
         to: mapEndpoint(snapshot.to, idMap),
         type: snapshot.type || '',
+        ...(snapshot.to.port === 'mask' ? { maskConsumption: snapshot.maskConsumption === 'single' ? 'single' : 'legacy-first' } : {}),
         ...(Number.isFinite(Number(snapshot.order)) ? { order: Number(snapshot.order) } : {})
     };
 }

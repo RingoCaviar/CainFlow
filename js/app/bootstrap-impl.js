@@ -621,6 +621,9 @@ const connectionsApi = createConnectionsApi({
     scheduleSave,
     onConnectionsChanged: () => handleNodeGraphChanged(),
     addNode,
+    prepareHistoryEdit: () => getSessionManagerApi().prepareHistoryEdit(),
+    discardCreatedNode: id => removeNode(id, { onlyId: true, skipHistory: true, showToast: false }),
+    selectCreatedNode: id => { if (state.nodes.get(id)?.parameterRoot) selectionApi.setSelection([id]); },
     performanceMonitor: canvasPerformanceMonitor
 });
 const diagnosticClient = createDiagnosticClient({ localStorageRef: diskStorage });
@@ -687,6 +690,8 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
     state, selectionApi, documentRef: document, windowRef: window, storage: diskStorage,
     runToNode: nodeId => runWorkflow({ mode: 'target-node', targetNodeId: nodeId }),
     fitNode: (id, options) => fitNodeToContent(id, options),
+    bindPorts: container => nodeDomBindingsApi.bindNodePorts(container),
+    updateInputConnection: (id, change) => connectionsApi.updateInputConnection(id, change),
     onSettingsChanged: id => nodeDomBindingsApi.syncDependentPromptSources(id)
 });
 const nodeDomBindingsApi = createNodeDomBindingsApi({
@@ -804,6 +809,8 @@ function getBatchConnectionModeApi() {
         registry.batchConnectionModeApi = createBatchConnectionModeApi({
             state,
             canvasContainer,
+            connectPorts: (source, target) => connectionsApi.finishConnection(source, target),
+            validateConnection: (source, target) => connectionsApi.getConnectionTargetError(source, target),
             pushHistory,
             updateAllConnections,
             updatePortStyles,

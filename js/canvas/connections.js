@@ -18,6 +18,7 @@ import {
 } from '../nodes/generation-input-projection.js';
 import { getGenerationInputProtocolId, getModelsForTask } from '../features/execution/provider-request-utils.js';
 import { getProtocol } from '../features/execution/protocols/index.js';
+import { isUniversalInputNode, resolveUniversalInput } from '../nodes/universal-input-policy.js';
 
 export function createConnectionsApi({
     state,
@@ -33,6 +34,9 @@ export function createConnectionsApi({
     scheduleSave,
     onConnectionsChanged = () => {},
     addNode = null,
+    prepareHistoryEdit = null,
+    discardCreatedNode = null,
+    selectCreatedNode = null,
     documentRef = document,
     performanceMonitor = null,
     connectionRenderer = null
@@ -329,6 +333,10 @@ export function createConnectionsApi({
 
     function getPortElement(node, portName, direction) {
         if (!node?.el) return null;
+        if (direction === 'input' && isUniversalInputNode(node)) {
+            const universal = node.el.querySelector?.('.universal-input[data-direction="input"]');
+            if (universal) return universal;
+        }
         return Array.from(node.el.querySelectorAll?.('.node-port[data-direction]') || [])
             .find((portEl) => (
                 portEl.dataset.port === portName &&
@@ -593,6 +601,7 @@ export function createConnectionsApi({
     function getPortPosition(nodeId, portName, direction, containerRectOverride = null) {
         const node = getNodeById(nodeId);
         if (!node) return { x: 0, y: 0 };
+        if (direction === 'input' && isUniversalInputNode(node) && node.el?.querySelector?.('.universal-input')) portName = 'auto';
 
         if (state.dragging && state.dragging.portOffsets) {
             const offset = state.dragging.portOffsets.get(`${nodeId}-${portName}-${direction}`);
@@ -617,6 +626,7 @@ export function createConnectionsApi({
     function isConnectionEndpointVisible(nodeId, portName, direction) {
         const node = getNodeById(nodeId);
         if (!node?.el) return false;
+        if (direction === 'input' && isUniversalInputNode(node) && node.el.querySelector?.('.universal-input')) portName = 'auto';
         if (!state.dragging && !state.canvas?.isPanning) {
             const cache = node._portPositionCache || measureNodePorts(nodeId);
             const cachedPort = cache?.ports.get(getPortKey(nodeId, portName, direction));
@@ -743,19 +753,21 @@ export function createConnectionsApi({
     }
 
     function getPopupCandidatePort(source, definition, direction) {
-        if (
-            direction === 'input' &&
-            source?.isOutput &&
-            source.dataType === 'text' &&
-            definition?.type === 'ImageGenerate'
-        ) {
-            const sourceNode = getNodeById(source.nodeId);
-            const preferredPortName = sourceNode?.type === 'CameraControl' ? 'camera_prompt' : 'prompt';
-            const ports = Array.isArray(definition.inputs) ? definition.inputs : [];
-            const preferredPort = ports.find((port) => port?.name === preferredPortName && port?.type === 'text');
-            if (preferredPort) return preferredPort;
+        if (direction === 'output' && isUniversalInputNode(getNodeById(source.nodeId))) {
+            const targetNode = getNodeById(source.nodeId);
+            return (definition.outputs || []).find(port => !resolveUniversalInput({ state,
+                sourceNode: { id: Symbol('candidate-source'), type: definition.type, data: {} }, sourcePort: port.name,
+                sourceType: port.type, targetNode, role: source.portName }).error) || null;
         }
-
+        if (direction === 'input' && definition.type === 'ImageGenerate') {
+            const models = getModelsForTask(state.models || [], 'image');
+            const model = models.find(item => item.id === state.nodeDefaults?.ImageGenerate?.apiConfigId) || models[0];
+            const policy = resolveUniversalInput({ state, sourceNode: getNodeById(source.nodeId),
+                sourcePort: source.portName, sourceType: source.dataType,
+                targetNode: { id: Symbol('candidate-target'), type: definition.type, apiConfigId: model?.id, data: {} } });
+            if (policy.error) return null;
+            return applyReferenceImagePorts(definition).inputs.find(port => port.name === policy.port) || null;
+        }
         // Match the rendered input contract instead of legacy image_1/image_2 definitions.
         let effectiveDefinition = applyReferenceImagePorts(definition);
         if (definition.type === 'VideoGenerate' && direction === 'input') {
@@ -795,6 +807,7 @@ export function createConnectionsApi({
 
     function createNodeFromConnectionCandidate(source, candidate, x, y) {
         if (!addNode || !source || !candidate) return false;
+        if (state.canvasPlanApplying || state.historyTransitionInProgress) { showToast('画布正在修改，请稍后再连接', 'warning'); return false; }
         if (isNodeRunning(source.nodeId)) {
             showToast('节点正在运行，暂不能修改连线', 'warning');
             return false;
@@ -811,7 +824,7 @@ export function createConnectionsApi({
             showToast('节点配置已变化，请重新拖线创建节点', 'warning');
             return false;
         }
-        if (!source.isOutput) {
+        if (!source.isOutput && !isUniversalInputNode(sourceNode)) {
             const policy = getGenerationNodeInputConnectionPolicy(sourceNode, source.portName);
             const multiple = policy?.multiple ?? isMultiConnectionInput(sourceNode.type, source.portName);
             const count = state.connections.filter((connection) => (
@@ -824,20 +837,39 @@ export function createConnectionsApi({
             }
         }
 
-        const offsetX = source.isOutput ? 24 : -24;
-        const nodeId = addNode(currentCandidate.type, x + offsetX, y);
-        if (!nodeId) return false;
-
-        const targetNode = getNodeById(nodeId);
-        const targetPort = getPortElement(targetNode, currentCandidate.matchPortName, currentCandidate.matchDirection);
-        const target = {
-            nodeId,
-            port: currentCandidate.matchPortName,
-            type: targetPort?.dataset.type || source.dataType,
-            dir: currentCandidate.matchDirection
+        let edit = null;
+        const beforeConnections = state.connections.slice();
+        let nodeId = null;
+        const rollback = () => {
+            if (nodeId) {
+                state.connections = beforeConnections;
+                discardCreatedNode?.(nodeId);
+                updateAllConnections(); updatePortStyles(); onConnectionsChanged();
+            }
+            edit?.cancel();
         };
-
-        return finishConnection(source, target);
+        try {
+            edit = prepareHistoryEdit?.();
+            const offsetX = source.isOutput ? 24 : -24;
+            nodeId = addNode(currentCandidate.type, x + offsetX, y, undefined, Boolean(edit));
+            if (!nodeId) { edit?.cancel(); return false; }
+            const targetNode = getNodeById(nodeId);
+            const targetPort = getPortElement(targetNode, currentCandidate.matchPortName, currentCandidate.matchDirection);
+            const target = { nodeId, port: currentCandidate.matchPortName,
+                type: targetPort?.dataset.type || source.dataType, dir: currentCandidate.matchDirection };
+            const connected = finishConnection({ ...source, historyPushed: true }, target);
+            if (!connected) {
+                rollback();
+                return false;
+            }
+            edit?.commit();
+            selectCreatedNode?.(nodeId);
+            return true;
+        } catch (error) {
+            rollback();
+            showToast(error.message || '新建连接失败，原图已保留', 'warning');
+            return false;
+        }
     }
 
     function getConnectionInsertScore(conn, node, containerRect, laneById = null) {
@@ -1406,6 +1438,7 @@ export function createConnectionsApi({
     function commitConnectionInsertPreview() {
         const preview = state.connectionInsertPreview;
         if (!preview) return false;
+        if (state.canvasPlanApplying || state.historyTransitionInProgress) { clearConnectionInsertPreview(); return false; }
 
         const conn = state.connections.find((candidate) => candidate.id === preview.connectionId);
         const node = getNodeById(preview.nodeId);
@@ -1427,19 +1460,39 @@ export function createConnectionsApi({
             return false;
         }
 
+        let inputPort = preview.inputPort, outputTargetPort = conn.to.port, inputPolicy = null, outputPolicy = null;
+        if (isUniversalInputNode(node)) {
+            inputPolicy = resolveUniversalInput({ state, sourceNode: getNodeById(conn.from.nodeId),
+                sourcePort: conn.from.port, sourceType: conn.type, targetNode: node, role: 'auto', ignoreConnectionId: conn.id });
+            if (inputPolicy.error) { clearConnectionInsertPreview(); showToast(inputPolicy.error, 'warning'); return false; }
+            inputPort = inputPolicy.port;
+        }
+        const targetNode = getNodeById(conn.to.nodeId);
+        if (isUniversalInputNode(targetNode)) {
+            const projectedState = { ...state, connections: [...state.connections.filter(edge => edge.id !== conn.id),
+                { from: { ...conn.from }, to: { nodeId: node.id, port: inputPort }, type: conn.type }] };
+            outputPolicy = resolveUniversalInput({ state: projectedState, sourceNode: node, sourcePort: preview.outputPort,
+                sourceType: conn.type, targetNode, role: conn.to.port, ignoreConnectionId: conn.id });
+            if (outputPolicy.error) { clearConnectionInsertPreview(); showToast(outputPolicy.error, 'warning'); return false; }
+            outputTargetPort = outputPolicy.port;
+        }
+
         state.connections = state.connections.filter((candidate) => candidate.id !== conn.id);
         state.connections.push(
             {
                 id: createConnectionId(),
                 from: { nodeId: conn.from.nodeId, port: conn.from.port },
-                to: { nodeId: preview.nodeId, port: preview.inputPort },
-                type: conn.type
+                to: { nodeId: preview.nodeId, port: inputPort },
+                type: conn.type,
+                ...(inputPolicy?.multiple ? { order: 0 } : {})
             },
             {
                 id: createConnectionId(),
                 from: { nodeId: preview.nodeId, port: preview.outputPort },
-                to: { nodeId: conn.to.nodeId, port: conn.to.port },
-                type: conn.type
+                to: { nodeId: conn.to.nodeId, port: outputTargetPort },
+                type: conn.type,
+                ...(conn.order !== undefined ? { order: conn.order } : {}),
+                ...(outputPolicy?.maskConsumption ? { maskConsumption: outputPolicy.maskConsumption } : {})
             }
         );
 
@@ -1452,7 +1505,28 @@ export function createConnectionsApi({
         return true;
     }
 
+    function resolveConnection(src, tgt) {
+        const fromId = src.isOutput ? src.nodeId : tgt.nodeId;
+        const fromPort = src.isOutput ? src.portName : tgt.port;
+        const toId = src.isOutput ? tgt.nodeId : src.nodeId;
+        let toPort = src.isOutput ? tgt.port : src.portName;
+        const sourceNode = getNodeById(fromId), targetNode = getNodeById(toId);
+        const output = getPortElement(sourceNode, fromPort, 'output');
+        const type = output?.dataset.type || (src.isOutput ? src.dataType : (tgt.type || tgt.dataType));
+        let policy = null;
+        if (isUniversalInputNode(targetNode)) {
+            if (!output) return { error: '来源输出已变化，请重新连接' };
+            if (src.isOutput && src.dataType !== type) return { error: '来源输出类型已变化，请重新拖线' };
+            policy = resolveUniversalInput({ state, sourceNode, sourcePort: fromPort, sourceType: type,
+                targetNode, role: toPort, ignoreConnectionId: src.rewiredFromConnection?.id || null });
+            if (policy.error) return policy;
+            toPort = policy.port;
+        }
+        return { fromId, fromPort, toId, toPort, type, policy, error: '' };
+    }
+
     function getConnectionTargetError(src, tgt) {
+        if (state.canvasPlanApplying || state.historyTransitionInProgress) return '画布正在修改，请稍后再连接';
         if (!src || !tgt || !getNodeById(src.nodeId) || !getNodeById(tgt.nodeId)) return '端口不存在';
         if (isNodeRunning(src.nodeId) || isNodeRunning(tgt.nodeId)) return '节点正在运行，暂不能修改连线';
         const rewiredConnection = src.rewiredFromConnection && state.connections.find((connection) => connection.id === src.rewiredFromConnection.id);
@@ -1463,14 +1537,13 @@ export function createConnectionsApi({
 
         const targetType = src.isOutput ? (tgt.type || tgt.dataType) : src.dataType;
         const sourceType = src.isOutput ? src.dataType : (tgt.type || tgt.dataType);
-        if (targetType !== 'any' && sourceType !== targetType) {
+        const resolved = resolveConnection(src, tgt);
+        if (resolved.error) return resolved.error;
+        if (!resolved.policy && targetType !== 'any' && sourceType !== targetType) {
             return '类型不匹配';
         }
 
-        const fromId = src.isOutput ? src.nodeId : tgt.nodeId;
-        const fromPort = src.isOutput ? src.portName : tgt.port;
-        const toId = src.isOutput ? tgt.nodeId : src.nodeId;
-        const toPort = src.isOutput ? tgt.port : src.portName;
+        const { fromId, fromPort, toId, toPort } = resolved;
         const toNode = getNodeById(toId);
         const projectedPolicy = getGenerationNodeInputConnectionPolicy(toNode, toPort);
         if (projectedPolicy && !projectedPolicy.supported) {
@@ -1484,7 +1557,7 @@ export function createConnectionsApi({
 
         const inputConnections = state.connections.filter((conn) => conn.to.nodeId === toId && conn.to.port === toPort);
         const maximumConnections = projectedPolicy?.maxCount ?? MAX_REFERENCE_IMAGE_COUNT;
-        if (isMultiConnection && inputConnections.length >= maximumConnections) {
+        if (!resolved.policy && isMultiConnection && inputConnections.length >= maximumConnections) {
             return `此输入端口最多连接 ${maximumConnections} 张图片`;
         }
 
@@ -1581,12 +1654,9 @@ export function createConnectionsApi({
 
     function finishConnection(src, tgt) {
         const error = getConnectionTargetError(src, tgt);
-        if (error) return showToast(error, 'warning');
+        if (error) { showToast(error, 'warning'); return false; }
 
-        const fromId = src.isOutput ? src.nodeId : tgt.nodeId;
-        const fromPort = src.isOutput ? src.portName : tgt.port;
-        const toId = src.isOutput ? tgt.nodeId : src.nodeId;
-        const toPort = src.isOutput ? tgt.port : src.portName;
+        const { fromId, fromPort, toId, toPort, type, policy } = resolveConnection(src, tgt);
         const toNode = getNodeById(toId);
         const projectedPolicy = getGenerationNodeInputConnectionPolicy(toNode, toPort);
         const isMultiConnection = projectedPolicy?.multiple ?? isMultiConnectionInput(toNode?.type, toPort);
@@ -1608,7 +1678,8 @@ export function createConnectionsApi({
             id: 'c_' + Math.random().toString(36).substr(2, 9),
             from: { nodeId: fromId, port: fromPort },
             to: { nodeId: toId, port: toPort },
-            type: src.isOutput ? src.dataType : (tgt.type || tgt.dataType),
+            type,
+            ...(policy?.maskConsumption ? { maskConsumption: policy.maskConsumption } : {}),
             ...(isMultiConnection ? {
                 order: getNextInputConnectionOrder(state.connections, { nodeId: toId, port: toPort })
             } : {})
@@ -1619,6 +1690,37 @@ export function createConnectionsApi({
         scheduleSave();
         onConnectionsChanged();
         return true;
+    }
+
+    function updateInputConnection(connectionId, { role, from, disconnect = false } = {}) {
+        const index = state.connections.findIndex(edge => edge.id === connectionId);
+        const edge = state.connections[index], targetNode = getNodeById(edge?.to?.nodeId);
+        const fail = error => { showToast(error, 'warning'); return { changed: false, error }; };
+        const recordHistory = () => { try { pushHistory(); return ''; } catch (error) { return error.message || '画布正在修改，请稍后重试'; } };
+        if (!edge || !isUniversalInputNode(targetNode)) return fail('输入连接已变化，请重新查看');
+        if (state.canvasPlanApplying) return fail('画布方案正在应用，请稍后再修改');
+        if (hasRunningEndpoint(edge)) return fail('节点正在运行，暂不能修改输入连接');
+        if (disconnect) {
+            const error = recordHistory(); if (error) return fail(error);
+            state.connections.splice(index, 1);
+        } else {
+            const endpoint = from || edge.from, sourceNode = getNodeById(endpoint.nodeId);
+            const sourceType = getPortElement(sourceNode, endpoint.port, 'output')?.dataset.type;
+            if (!sourceType) return fail('来源输出已变化，请重新选择');
+            const policy = resolveUniversalInput({ state, sourceNode, sourcePort: endpoint.port, sourceType,
+                targetNode, role: role || edge.to.port, ignoreConnectionId: edge.id });
+            if (policy.error) return fail(policy.error);
+            if (endpoint.nodeId === edge.from.nodeId && endpoint.port === edge.from.port && policy.port === edge.to.port
+                && (!from || policy.maskConsumption === edge.maskConsumption)) return { changed: false, error: '' };
+            const error = recordHistory(); if (error) return fail(error);
+            const next = { ...edge, from: { ...endpoint }, to: { ...edge.to, port: policy.port }, type: policy.type };
+            delete next.maskConsumption;
+            if (policy.maskConsumption) next.maskConsumption = policy.maskConsumption;
+            if (policy.multiple && !Number.isFinite(Number(next.order))) next.order = getNextInputConnectionOrder(state.connections, next.to);
+            state.connections[index] = next;
+        }
+        updateAllConnections(); updatePortStyles(); scheduleSave(); onConnectionsChanged();
+        return { changed: true, error: '' };
     }
 
     function drawTempConnection(x1, y1, x2, y2, startsAtOutput = true) {
@@ -1649,7 +1751,7 @@ export function createConnectionsApi({
                 if (fromDot) fromDot.classList.add('connected');
             }
             if (toNode) {
-                const toDot = toNode.el.querySelector(`.node-port[data-port="${conn.to.port}"][data-direction="input"] .port-dot`);
+                const toDot = getPortElement(toNode, conn.to.port, 'input')?.querySelector('.port-dot');
                 if (toDot) toDot.classList.add('connected');
             }
         }
@@ -1665,7 +1767,7 @@ export function createConnectionsApi({
         state.nodes.forEach((node) => {
             if (!node?.el || !(node.collapsed === true || node.el.classList.contains('collapsed'))) return;
             node.el.querySelectorAll('.node-port').forEach((portEl) => {
-                if (portEl.dataset.direction !== 'input') return;
+                if (portEl.dataset.direction !== 'input' || portEl.classList.contains('universal-input')) return;
                 const dot = portEl.querySelector('.port-dot');
                 const isConnected = dot?.classList.contains('connected') === true;
                 if (isConnected) return;
@@ -1706,6 +1808,7 @@ export function createConnectionsApi({
         moveImageReferenceConnection,
         disconnectImageReferenceConnection,
         finishConnection,
+        updateInputConnection,
         drawTempConnection,
         updatePortStyles
     };
