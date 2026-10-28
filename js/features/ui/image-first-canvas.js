@@ -1,14 +1,15 @@
 import { cleanupElementResources } from '../../core/common-utils.js';
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
 import { getCanonicalImageList } from '../execution/execution-data-utils.js';
+import { createImageInputDetail } from './image-input-detail.js';
 
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
-    runToNode, fitNode, onSettingsChanged = () => {} }) {
+    runToNode, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection }) {
     const views = new Map();
     const panel = documentRef.createElement('section');
     panel.id = 'image-parameter-panel';
-    panel.className = 'image-parameter-panel node-generate';
+    panel.className = 'image-parameter-panel';
     panel.setAttribute('aria-label', '节点参数');
     panel.hidden = true;
     panel.innerHTML = `<header class="image-parameter-header"><div class="image-parameter-tools"><button type="button" data-parameter-action="close" aria-label="关闭参数面板">×</button></div></header>
@@ -90,6 +91,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             return sum + (source?.enabled === false ? 0 : Math.max(getCanonicalImageList(source).length, Number(source?.data?.imageCount) || 0));
         }, 0);
         view.references.textContent = `参考 ${count} 张`;
+        view.inputs.refresh();
         view.placeholder.hidden = !view.result.hidden;
         if (current === node) {
             const running = state.runningNodeIds?.has(node.id) || ['waiting', 'running'].includes(node.runStatus) || node.el.classList.contains('running');
@@ -140,12 +142,28 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         node.parameterRoot = form;
         node.el.classList.add('image-first-card');
         node.el.dataset.imageFirst = 'true';
+        const inputSection = node.el.querySelector('.node-inputs-section');
+        if (inputSection) {
+            for (const port of inputSection.querySelectorAll('.node-port[data-direction="input"]')) {
+                port.hidden = true;
+                port.classList.add('image-first-canonical-input');
+            }
+            const universal = documentRef.createElement('div');
+            universal.className = 'node-port input universal-input';
+            universal.dataset.nodeId = node.id; universal.dataset.port = 'auto';
+            universal.dataset.type = 'any'; universal.dataset.direction = 'input';
+            universal.innerHTML = '<div class="port-dot type-any"></div><span class="port-label">输入</span>';
+            inputSection.append(universal); bindPorts(universal.parentElement);
+        }
         const sections = [];
         function group(element, name) {
             if (!element) return;
             element.dataset.parameterGroup = name; element.hidden = true; sections.push(element);
         }
         group(form.querySelector('.image-reference-overview'), 'reference');
+        const inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection,
+            onChange: () => refreshNode(node.id) });
+        form.append(inputs.element); group(inputs.element, 'input');
         const grids = Array.from(form.querySelectorAll(':scope > .node-parameter-grid'));
         group(grids[0], 'model');
         const countField = form.querySelector(`[id="${nodeId}-generation-count"]`)?.closest('.node-field');
@@ -153,7 +171,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         group(grids[1], 'size');
         group(form.querySelector('.node-advanced-parameters'), 'advanced');
         const bar = documentRef.createElement('div'); bar.className = 'image-parameter-setting-bar';
-        for (const [name, label] of [['reference','参考图'],['model','模型 / 供应商'],['size','尺寸 / 质量'],['count','次数'],['advanced','更多参数']]) {
+        for (const [name, label] of [['input','输入'],['reference','参考图'],['model','模型 / 供应商'],['size','尺寸 / 质量'],['count','次数'],['advanced','更多参数']]) {
             const button = documentRef.createElement('button'); button.type = 'button'; button.textContent = label;
             button.dataset.parameterGroupToggle = name; button.setAttribute('aria-expanded', 'false');
             button.addEventListener('click', () => setGroup(node, name)); bar.append(button);
@@ -177,7 +195,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const observer = new MutationObserver(() => { if (state.nodes.get(node.id) === node) refreshNode(node.id); });
         observer.observe(result, { attributes: true, childList: true, subtree: true });
         observer.observe(node.el, { attributes: true, attributeFilter: ['style','class'] });
-        const view = { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, model, references, result, observer, group: null };
+        const view = { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, model, references, result, observer, inputs, group: null };
         views.set(node, view); store.append(form);
         node.onImageFirstSelect = () => select(node);
         form.addEventListener('mousedown', event => event.stopPropagation());

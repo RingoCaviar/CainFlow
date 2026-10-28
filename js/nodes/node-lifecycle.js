@@ -1841,7 +1841,8 @@ export function createNodeLifecycleApi({
             if (!type) return;
             sources(link.from.nodeId, type).forEach(from => {
                 if (from.nodeId === link.to.nodeId) return;
-                candidates.push({ from, to: { ...link.to }, type, order: link.order, replaces: link.id });
+                candidates.push({ from, to: { ...link.to }, type, order: link.order, replaces: link.id,
+                    ...(link.to.port === 'mask' ? { maskConsumption: link.maskConsumption === 'single' ? 'single' : 'legacy-first' } : {}) });
             });
         });
         return { candidates, original };

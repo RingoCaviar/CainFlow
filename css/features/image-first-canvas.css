@@ -383,6 +383,59 @@ html:root #canvas-container .node.image-first-card > .node-body.is-collapsed { d
 .image-parameter-setting-bar button[aria-expanded=true]{border-color:var(--accent-primary);color:var(--text-primary)}
 .image-parameter-resize{position:absolute;right:0;top:30px;bottom:0;width:5px;cursor:ew-resize}
 .node.image-first-card .image-first-placeholder[hidden]{display:none}
+
+/* A single visible anchor represents canonical workflow input roles. */
+.node.image-first-card .image-first-canonical-input { display: none !important; }
+.node.image-first-card .universal-input { display: flex !important; }
+.node.image-first-card .universal-input .port-label { display: inline !important; }
+.node.image-first-card .universal-input .port-dot { visibility: visible; }
+
+.image-input-detail { display: flex; flex-direction: column; gap: 6px; }
+.image-input-empty { margin: 0; color: var(--text-secondary); font-size: 12px; }
+.image-input-row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+    padding: 8px;
+    border: 1px solid var(--node-control-border);
+    border-radius: 7px;
+    background: var(--node-control-surface);
+}
+.image-input-source { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 8px; }
+.image-input-source-title { min-width: 0; overflow-wrap: anywhere; color: var(--text-primary); font-size: 12px; }
+.image-input-facts, .image-input-compatibility { color: var(--text-secondary); font-size: 11px; overflow-wrap: anywhere; }
+.image-input-controls { display: flex; align-items: center; gap: 5px; }
+.image-input-detail select {
+    min-width: 0;
+    min-height: 28px;
+    max-width: 100%;
+    padding: 3px 6px;
+    border: 1px solid var(--node-control-border);
+    border-radius: 5px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 12px;
+}
+.image-input-controls > select { flex: 1 1 auto; }
+.image-input-detail button {
+    flex: 0 0 auto;
+    min-height: 28px;
+    padding: 3px 7px;
+    border: 1px solid var(--node-control-border);
+    border-radius: 5px;
+    background: var(--bg-input);
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+.image-input-detail button:hover:not(:disabled) { color: var(--text-primary); border-color: var(--accent-primary); }
+.image-input-detail :is(button, select):disabled { opacity: .5; cursor: default; }
+.image-input-replacement { display: flex; flex-wrap: wrap; gap: 5px; padding-top: 4px; border-top: 1px solid var(--node-control-border); }
+.image-input-replacement > select { flex: 1 0 100%; width: 100%; }
+.image-input-detail :is(button, select):focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
 .node.image-first-card .image-result-actions{position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);width:max-content;max-width:600px;flex-wrap:nowrap;margin:0;z-index:3}
 .node.image-first-card:not(.selected) .image-result-actions{top:12px;right:76px;left:auto;transform:none;max-width:80px}
 .image-parameter-panel .node-advanced-parameters>summary{display:none}

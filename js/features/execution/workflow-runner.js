@@ -1,4 +1,5 @@
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
+import { validateUniversalImageInputs } from '../../nodes/universal-input-policy.js';
 import { getResolvedProviderForModel } from './provider-request-utils.js';
 import { getNodeRunTimeoutSeconds } from './async-media-execution.js';
 import {
@@ -69,11 +70,15 @@ export function showNodeExecutionFailure(node, error) {
     }
 }
 
+function isUnbatchedImageInput(node, portName) {
+    return isMultiConnectionInput(node?.type, portName) || (node?.type === 'ImageGenerate' && portName === 'mask');
+}
+
 export function shouldRunNodeForEachInput(node, inputs) {
     if (!node) return false;
     if (node.type === 'ImageMerge' || node.type === 'TextMerge' || node.type === 'ImagePreview' || node.type === 'ImageSave' || node.type === 'Text') return false;
     return Object.entries(inputs || {}).some(([portName, value]) => (
-        Array.isArray(value) && value.length > 0 && !isMultiConnectionInput(node.type, portName)
+        Array.isArray(value) && value.length > 0 && !isUnbatchedImageInput(node, portName)
     ));
 }
 
@@ -82,7 +87,7 @@ export function buildInputBatches(node, inputs) {
     if (entries.length === 0) return [{}];
 
     return entries.reduce((batches, [key, value]) => {
-        const values = Array.isArray(value) && value.length > 0 && !isMultiConnectionInput(node?.type, key)
+        const values = Array.isArray(value) && value.length > 0 && !isUnbatchedImageInput(node, key)
             ? value
             : [value];
         const nextBatches = [];
@@ -1623,6 +1628,11 @@ export function createWorkflowRunnerApi({
     }
 
     async function executeNodeWithInputBatches(node, inputs, signal, connections = []) {
+        if (node?.type === 'ImageGenerate') {
+            const settings = readImageGenerationSettings(node, documentRef);
+            const reason = validateUniversalImageInputs({ state, node: { ...node, apiConfigId: settings.apiConfigId }, inputs });
+            if (reason) throw new Error(reason);
+        }
         const shouldRunBatches = !isFixedTextChatWithCachedResult(node) && shouldRunNodeForEachInput(node, inputs);
         const batches = shouldRunBatches ? buildInputBatches(node, inputs) : [inputs || {}];
         prepareApiNodeGenerationProgress(node, batches.length);

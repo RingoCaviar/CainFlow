@@ -266,7 +266,7 @@ export function createNodeDomBindingsApi({
         ports.forEach((portEl) => {
             const direction = portEl.dataset.direction || '';
             const portName = portEl.dataset.port || '';
-            const shouldHideForCollapse = direction === 'input' && isCollapsed && !hasPortConnection(nodeId, portName, direction);
+            const shouldHideForCollapse = direction === 'input' && !portEl.classList.contains('universal-input') && isCollapsed && !hasPortConnection(nodeId, portName, direction);
             if (portEl.classList.contains('is-hidden-by-collapse') !== shouldHideForCollapse) changed = true;
             portEl.classList.toggle('is-hidden-by-collapse', shouldHideForCollapse);
             portEl.setAttribute('aria-hidden', shouldHideForCollapse ? 'true' : 'false');
@@ -3255,6 +3255,7 @@ export function createNodeDomBindingsApi({
 
     return {
         bindNodeInteractions,
+        bindNodePorts,
         syncVideoGenerateProtocolFields,
         syncTextSplitNodeData,
         syncImageMergeNodes,

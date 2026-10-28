@@ -5,6 +5,7 @@ export function serializeConnection(connection = {}) {
         from: { ...(connection.from || {}) },
         to: { ...(connection.to || {}) },
         type: connection.type,
+        ...(connection.to?.port === 'mask' ? { maskConsumption: connection.maskConsumption === 'single' ? 'single' : 'legacy-first' } : {}),
         ...(Number.isFinite(numericOrder) ? { order: numericOrder } : {})
     };
 }

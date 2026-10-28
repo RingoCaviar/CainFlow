@@ -39,7 +39,7 @@ async function assertConnected(app, fromId, toId, toPort, { fromPort = '', conne
     const expression = `(()=>{
         const path=document.querySelector('#connections-svg path[data-conn-id${connectionId ? `="${connectionId}"` : ''}]');
         const from=document.querySelector('#${fromId} .node-port[data-direction="output"]${fromPort ? `[data-port="${fromPort}"]` : ''} .port-dot');
-        const to=document.querySelector('#${toId} .node-port[data-direction="input"][data-port="${toPort}"] .port-dot');
+        const to=document.querySelector('#${toId} .universal-input .port-dot') || document.querySelector('#${toId} .node-port[data-direction="input"][data-port="${toPort}"] .port-dot');
         if(!path?.getAttribute('d') || !from || !to) return false;
         const matrix=path.getScreenCTM(),start=path.getPointAtLength(0).matrixTransform(matrix),end=path.getPointAtLength(path.getTotalLength()).matrixTransform(matrix);
         const a=from.getBoundingClientRect(),b=to.getBoundingClientRect();
@@ -69,7 +69,7 @@ test('dragging an image output onto blank canvas creates a node with an immediat
         assert.deepEqual(await savedConnections(app), [{ from: { nodeId: 'source', port: 'image' }, to: { nodeId: target, port: 'referenceImages' } }]);
 
         await app.evaluate("document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,bubbles:true,cancelable:true}))");
-        await app.waitFor("document.querySelectorAll('#connections-svg path[data-conn-id]').length===0 && document.querySelectorAll('.image-reference-group').length===0 && [...document.querySelectorAll('.toast')].some(t=>t.textContent.includes('已撤回上一步操作'))");
+        await app.waitFor("document.querySelectorAll('.node.node-generate').length===0 && document.querySelectorAll('#connections-svg path[data-conn-id]').length===0 && document.querySelectorAll('.image-reference-group').length===0 && [...document.querySelectorAll('.toast')].some(t=>t.textContent.includes('已撤回上一步操作'))");
         await app.evaluate("document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'y',ctrlKey:true,bubbles:true,cancelable:true}))");
         await app.waitFor("document.querySelectorAll('.image-reference-group').length===1");
         await assertConnected(app, 'source', target, 'referenceImages');
@@ -124,7 +124,9 @@ for (const type of allTypes) for (const direction of ['input', 'output']) {
             let checked = 0;
             for (const port of ports) {
                 const selector = `#source .node-port[data-direction="${direction}"][data-port="${port.name}"] .port-dot`;
-                const expected = (direction === 'output' ? inputCandidates : outputCandidates)[port.type];
+                const expected = direction === 'input' && type === 'ImageGenerate' && port.name === 'auto'
+                    ? allTypes.filter(type => type !== 'VideoGenerate')
+                    : (direction === 'output' ? inputCandidates : outputCandidates)[port.type];
                 assert.ok(expected?.length, `known compatibility contract for ${type}.${port.name}`);
                 for (const [index, candidate] of expected.entries()) {
                     t.diagnostic(`${type}.${port.name} ${direction}: create ${candidate}`);
@@ -136,7 +138,10 @@ for (const type of allTypes) for (const direction of ['input', 'output']) {
                     const links = await savedConnectionRecords(app, 3, id);
                     assert.deepEqual(links.filter(link => link.id.startsWith('retained-')), retained, `${type}.${port.name} -> ${candidate} leaves existing references and order intact`);
                     const link = links.find(link => !link.id.startsWith('retained-'));
-                    assert.deepEqual(direction === 'output' ? link.from : link.to, { nodeId: 'source', port: port.name }, 'the connection retains the exact dragged port');
+                    if (direction === 'input' && port.name === 'auto') {
+                        assert.equal(link.to.nodeId, 'source');
+                        assert.notEqual(link.to.port, 'auto', 'a visual universal input stores its real logical role');
+                    } else assert.deepEqual(direction === 'output' ? link.from : link.to, { nodeId: 'source', port: port.name }, 'the connection retains the exact dragged port');
                     assert.equal(direction === 'output' ? link.to.nodeId : link.from.nodeId, id, 'the other endpoint is the newly created node');
                     const types = await app.evaluate(`(()=>{const from=document.querySelector('#${link.from.nodeId} .node-port[data-direction="output"][data-port="${link.from.port}"]'),to=document.querySelector('#${link.to.nodeId} .node-port[data-direction="input"][data-port="${link.to.port}"]');return {from:from?.dataset.type,to:to?.dataset.type}})()`);
                     assert.ok(types.from && types.to && (types.to === 'any' || types.from === types.to), `${type}.${port.name} -> ${candidate} uses actual compatible ports`);
@@ -167,7 +172,7 @@ test('dragging an image output to create a chat node connects its current multi-
 
 test('dragging a reference input to create an image source keeps the connection direction', { timeout: 30000 }, async () => {
     await withAppBrowser({ ...session, nodes: [{ id: 'target', type: 'ImageGenerate', x: 620, y: 320 }] }, async app => {
-        await dragFromPort(app, '#target .node-port[data-port="referenceImages"] .port-dot', { x: 200, y: 260 });
+        await dragFromPort(app, '#target .universal-input .port-dot', { x: 200, y: 260 });
         await click(app, '#connection-create-popup [data-popup-node-type="ImageImport"]');
         await app.waitFor("document.querySelectorAll('.node-import').length===1");
         const source = await app.evaluate("document.querySelector('.node-import').id");
@@ -191,7 +196,7 @@ for (const [type, port] of [['Text', 'prompt'], ['CameraControl', 'camera_prompt
 
 test('creating a text split node from a prompt input connects the actual initial output', { timeout: 30000 }, async () => {
     await withAppBrowser({ ...session, nodes: [{ id: 'target', type: 'ImageGenerate', x: 620, y: 320 }] }, async app => {
-        await dragFromPort(app, '#target .node-port[data-port="prompt"] .port-dot', { x: 200, y: 260 });
+        await dragFromPort(app, '#target .universal-input .port-dot', { x: 200, y: 260 });
         await click(app, '#connection-create-popup [data-popup-node-type="TextSplit"]');
         await app.waitFor("document.querySelectorAll('.node-text-split').length===1");
         const source = await app.evaluate("document.querySelector('.node-text-split').id");
@@ -241,8 +246,8 @@ test('a full reference input rejects creation before adding an orphan node and p
     const sources = Array.from({ length: 64 }, (_, index) => ({ id: `ref-${index}`, type: 'ImageImport', x: 1800, y: index * 400 }));
     const connections = sources.map((node, order) => ({ id: `ref-edge-${order}`, from: { nodeId: node.id, port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, type: 'image', order }));
     await withAppBrowser({ ...session, nodes: [...sources, { id: 'target', type: 'ImageGenerate', x: 620, y: 260 }], connections }, async app => {
-        await dragFromPort(app, '#target .node-port[data-port="referenceImages"] .port-dot', { x: 200, y: 240 });
-        await click(app, '#connection-create-popup [data-popup-node-type="ImageImport"]');
+        await dragFromPort(app, '#target .universal-input .port-dot', { x: 200, y: 240 });
+        assert.equal(await app.evaluate("Boolean(document.querySelector('#connection-create-popup [data-popup-node-type=ImageImport]'))"), false, 'the menu excludes an image source when the current protocol capacity is full');
         assert.equal(await app.evaluate("document.querySelectorAll('#nodes-layer > .node').length"), 65, 'no source node is created when the input is full');
         await savedConnections(app, 64);
         assert.deepEqual(await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(s=>s.value.connections)"), connections);
@@ -283,11 +288,11 @@ test('a successful rewire replaces only its original edge and supports undo and 
 test('creating another reference source appends after existing sources and cancellation leaves their order intact', { timeout: 30000 }, async () => {
     const connections = retained.map(link => ({ ...link, to: { nodeId: 'target', port: 'referenceImages' } }));
     await withAppBrowser({ ...session, nodes: [...protectedNodes.slice(0, 2), { id: 'target', type: 'ImageGenerate', x: 620, y: 260 }], connections }, async app => {
-        await dragFromPort(app, '#target .node-port[data-port="referenceImages"] .port-dot', { x: 200, y: 240 });
+        await dragFromPort(app, '#target .universal-input .port-dot', { x: 200, y: 240 });
         await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
         await app.waitFor("document.getElementById('connection-create-popup').classList.contains('hidden')");
         assert.equal(await app.evaluate("document.querySelectorAll('#target-reference-sources .image-reference-group').length"), 2);
-        await dragFromPort(app, '#target .node-port[data-port="referenceImages"] .port-dot', { x: 200, y: 240 });
+        await dragFromPort(app, '#target .universal-input .port-dot', { x: 200, y: 240 });
         await click(app, '#connection-create-popup [data-popup-node-type="ImageImport"]');
         await savedConnections(app, 3);
         const links = await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(s=>s.value.connections)");

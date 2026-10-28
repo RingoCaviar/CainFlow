@@ -153,7 +153,7 @@ test('pasted multi-connections retain one explicit order across internal and ext
     );
 });
 
-test('pasting cannot exceed the multi-connection input limit', () => {
+test('pasting cannot exceed the legacy limit on an unmigrated multi-connection input', () => {
     const portElement = (port, direction, multiple = false) => ({
         dataset: { port, direction, ...(multiple ? { multiple: 'true' } : {}) }
     });
@@ -172,7 +172,7 @@ test('pasting cannot exceed the multi-connection input limit', () => {
         connections: existingConnections,
         nodes: new Map([
             ['new-source', { type: 'ImageImport', el: nodeElement([portElement('image', 'output')]) }],
-            ['target', { type: 'ImageGenerate', el: nodeElement([portElement('referenceImages', 'input', true)]) }]
+            ['target', { type: 'TextChat', el: nodeElement([portElement('referenceImages', 'input', true)]) }]
         ]),
         runningNodeIds: new Set()
     };

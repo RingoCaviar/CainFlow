@@ -2,6 +2,7 @@
  * 管理从单个锚点节点出发的批量连线模式。
  */
 import { isMultiConnectionInput } from '../nodes/reference-image-ports.js';
+import { isUniversalInputNode, resolveUniversalInput } from '../nodes/universal-input-policy.js';
 export function createBatchConnectionModeApi({
     state,
     canvasContainer,
@@ -13,6 +14,8 @@ export function createBatchConnectionModeApi({
     showToast,
     floatingNoticesApi = null,
     onConnectionsChanged = () => {},
+    connectPorts = null,
+    validateConnection = null,
     documentRef = document
 }) {
     const modeNoticeId = 'batch-connection-mode';
@@ -27,7 +30,9 @@ export function createBatchConnectionModeApi({
 
     function isPortVisible(portEl) {
         return portEl &&
-            !portEl.classList.contains('hidden');
+            portEl.hidden !== true &&
+            !portEl.classList.contains('hidden') &&
+            !portEl.classList.contains('image-first-canonical-input');
     }
 
     function getPorts(nodeId, direction) {
@@ -88,6 +93,7 @@ export function createBatchConnectionModeApi({
     }
 
     function findPortPair(fromNodeId, toNodeId) {
+        let error = '';
         const attempts = [
             {
                 outputs: getPorts(fromNodeId, 'output'),
@@ -102,16 +108,24 @@ export function createBatchConnectionModeApi({
         for (const attempt of attempts) {
             for (const output of attempt.outputs) {
                 if (!isPortFree(output)) continue;
-                const input = attempt.inputs.find((candidate) => (
-                    candidate.type === output.type &&
-                    isPortFree(candidate) &&
-                    !connectionExists(output, candidate)
-                ));
-                if (input) return { output, input };
+                for (const input of attempt.inputs) {
+                    if (isUniversalInputNode(getNode(input.nodeId))) {
+                        if (input.port !== 'auto') continue;
+                        const policy = resolveUniversalInput({ state, sourceNode: getNode(output.nodeId),
+                            sourcePort: output.port, sourceType: output.type, targetNode: getNode(input.nodeId) });
+                        if (policy.error) { error = policy.error; continue; }
+                        const source = { nodeId: output.nodeId, portName: output.port, dataType: output.type, isOutput: true };
+                        const target = { nodeId: input.nodeId, port: 'auto', type: 'any', dir: 'input' };
+                        const invalid = validateConnection?.(source, target);
+                        if (invalid) { error = invalid; continue; }
+                        return { output, input, source, target };
+                    }
+                    if (input.type === output.type && isPortFree(input) && !connectionExists(output, input)) return { output, input };
+                }
             }
         }
 
-        return null;
+        return error ? { error } : null;
     }
 
     function setModeVisual(active) {
@@ -178,6 +192,10 @@ export function createBatchConnectionModeApi({
     }
 
     function enter(sourceNodeId) {
+        if (state.canvasPlanApplying || state.historyTransitionInProgress) {
+            showToast?.('画布正在修改，请稍后再连接', 'warning');
+            return false;
+        }
         const sourceNode = getNode(sourceNodeId);
         if (!sourceNode) {
             showToast?.('批量连线模式启动失败：节点不存在', 'warning');
@@ -216,6 +234,10 @@ export function createBatchConnectionModeApi({
     function connectTo(targetNodeId) {
         const sourceNodeId = state.batchConnectionMode?.sourceNodeId;
         if (!sourceNodeId) return false;
+        if (state.canvasPlanApplying || state.historyTransitionInProgress) {
+            showToast?.('画布正在修改，请稍后再连接', 'warning');
+            return true;
+        }
         if (!targetNodeId || !getNode(targetNodeId)) {
             showToast?.('目标节点不存在', 'warning');
             return true;
@@ -235,12 +257,28 @@ export function createBatchConnectionModeApi({
         }
 
         const pair = findPortPair(sourceNodeId, targetNodeId);
-        if (!pair) {
-            showToast?.('没有可用的同类型空闲接口，无法创建连接', 'warning');
+        if (!pair?.output) {
+            showToast?.(pair?.error || '没有可用的同类型空闲接口，无法创建连接', 'warning');
             return true;
         }
 
-        pushHistory();
+        if (pair.source) {
+            if (!connectPorts) {
+                showToast?.('通用输入连接服务尚不可用，请重新进入画布', 'warning');
+                return true;
+            }
+            const error = validateConnection?.(pair.source, pair.target);
+            if (error) { showToast?.(error, 'warning'); return true; }
+            try {
+                if (connectPorts(pair.source, pair.target)) {
+                    enforceEndpointNodeMinimum(pair);
+                    refreshNodeVisuals();
+                }
+            } catch (failure) { showToast?.(failure.message || '连接未完成，请重试', 'warning'); }
+            return true;
+        }
+        try { pushHistory(); }
+        catch (error) { showToast?.(error.message || '连接未完成，请重试', 'warning'); return true; }
         state.connections.push({
             id: createConnectionId(),
             from: { nodeId: pair.output.nodeId, port: pair.output.port },
