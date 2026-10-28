@@ -67,7 +67,8 @@ export function createImageNodeResults({ state, documentRef, createActions = () 
             })().finally(() => view.thumbnailRequests.delete(slot)));
             return view.thumbnailRequests.get(slot);
         };
-        const actions = createActions({ name: `${node.customTitle || '生成结果'} ${index + 1}`, assetKey, isCurrent, readOriginal,
+        const actions = createActions({ name: `${node.customTitle || '生成结果'} ${index + 1}`, assetKey,
+            sourceNodeId: nodeId, sourcePort: 'image', sourceImageIndex: index, isCurrent, readOriginal,
             restoreFocus: () => documentRef.getElementById(`${nodeId}-image-results`)?.querySelector('[data-result-action=preview]')?.focus({ preventScroll: true }) });
         const preview = documentRef.createElement('button'); preview.type = 'button'; preview.className = 'image-node-result-preview';
         preview.dataset.nodeReadAction = 'true'; preview.setAttribute('aria-label', `放大第 ${index + 1} 张生成结果`);

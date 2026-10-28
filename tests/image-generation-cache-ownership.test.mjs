@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createExecutionCoreApi } from '../js/features/execution/execution-core.js';
 import { createWorkflowRunnerApi } from '../js/features/execution/workflow-runner.js';
+import '../js/features/execution/protocols/openai.js';
 import {
     getNodeImageResultPersistence,
     hasNodeCapability,
@@ -239,7 +240,7 @@ test('an older image save cannot overwrite the newer generation', async () => {
 
 test('batched workflow generation retains its own result and propagates downstream', async () => {
     const prompt = { id: 'prompts', type: 'Text', enabled: true, data: { texts: ['first', 'second'] }, el: createNodeElement() };
-    const generated = { id: 'generate', type: 'ImageGenerate', enabled: true, data: { imageResultPersistence: 'transient' }, el: createNodeElement() };
+    const generated = { id: 'generate', type: 'ImageGenerate', enabled: true, apiConfigId: 'model', providerId: 'provider', data: { imageResultPersistence: 'transient' }, el: createNodeElement() };
     const preview = { id: 'preview', type: 'ImagePreview', enabled: true, data: {}, el: createNodeElement() };
     const connections = [
         { id: 'prompt-input', type: 'text', from: { nodeId: 'prompts', port: 'text' }, to: { nodeId: 'generate', port: 'prompt' } },
@@ -248,7 +249,8 @@ test('batched workflow generation retains its own result and propagates downstre
     const state = {
         nodes: new Map([[prompt.id, prompt], [generated.id, generated], [preview.id, preview]]),
         connections,
-        providers: [], models: [], selectedNodes: new Set(),
+        models: [{ id: 'model', modelId: 'gpt-image-1', protocol: 'openai-image', taskType: 'image', providerIds: ['provider'] }],
+        providers: [{ id: 'provider', endpoint: 'https://example.test/v1', apikey: 'controlled-key' }], selectedNodes: new Set(),
         runningNodeIds: new Set(), runningNodeCancelHandlers: new Map(), concurrentRequestMode: false
     };
     const generatedCacheWrites = [];
@@ -323,7 +325,7 @@ test('batched workflow generation retains its own result and propagates downstre
 
     const result = await api.runWorkflow();
 
-    assert.equal(result.reason, 'finished');
+    assert.equal(result.reason, 'finished', generated.executionFailure?.message);
     assert.deepEqual(executed.map(([type]) => type), ['Text', 'ImageGenerate', 'ImageGenerate', 'ImagePreview']);
     assert.deepEqual(generatedCacheWrites, [['workflow-1', 'generate', 2]]);
     assert.deepEqual(downstreamImages.at(-1), ['preview', [

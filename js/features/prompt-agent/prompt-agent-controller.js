@@ -18,6 +18,7 @@ import { renderCanvasPlan, attachCanvasMentions } from './prompt-agent-canvas-ui
 import { promptPlanToCanvas } from './prompt-agent-canvas-plan.js';
 import { createPromptAgentInput } from './prompt-agent-input.js';
 import { renderAgentBody } from './prompt-agent-body.js';
+import { createImageResultReferenceIdentity } from './prompt-agent-result-reference.js';
 
 const COMMANDS = [
     { name: '/clear', title: '清空上下文', description: '清除本场景的聊天、摘要、参考图和生成记录，重新开始。' },
@@ -997,6 +998,25 @@ export function createPromptAgentController({
         return canvasAdapter?.context([preparedNodeContext.nodeId]).nodes.find(node => node.id === preparedNodeContext.nodeId) || null;
     }
 
+    function preparedPromptSource(node) {
+        const source = nodeAdapter?.getContext?.(node.id)?.promptSource;
+        if (!source) return null;
+        const sourceNode = source.active && source.editable
+            ? canvasAdapter?.context([source.nodeId]).nodes.find(item => item.id === source.nodeId) : null;
+        return { ...source, editable: Boolean(sourceNode), node: sourceNode };
+    }
+
+    function promptSourceGuidance(source) {
+        if (!source) return '修改对象为当前节点的本地提示词。';
+        const name = source.name || source.nodeId;
+        const reason = { missing: '来源已不存在', disabled: '来源已停用', unavailable: '输出当前不可用', empty: '尚无文本输出',
+            running: '来源正在运行', readonly: '来源参数只读', derived: '内容由视角参数派生', unsupported: '暂不支持在助手中修改该类型' }[source.reason];
+        if (!source.active) return `上游「${name}」${reason || '当前无有效文本'}，当前使用本地提示词。`;
+        if (source.editable) return `提示词来自「${name}」，应用优化时修改对象为该文本来源。`;
+        const editor = source.type === 'CameraControl' ? '视角编辑器' : '原编辑器';
+        return `提示词来自「${name}」，该来源只读${reason ? `（${reason}）` : ''}；请到该来源的${editor}调整，助手仅提供建议。`;
+    }
+
     function renderPreparedNodeContext() {
         const host = documentRef.getElementById('prompt-agent-node-context');
         if (!host) return;
@@ -1004,20 +1024,28 @@ export function createPromptAgentController({
         host.hidden = !node;
         if (!node) { preparedNodeContext = null; return; }
         const inserted = canvasMentions?.read().some(item => item.id === node.id);
+        const source = preparedPromptSource(node);
+        const sourceInserted = !source?.editable || canvasMentions?.read().some(item => item.id === source.nodeId);
         const context = canvasAdapter.context([node.id]);
         const count = context.connections.filter(connection => connection.to.nodeId === node.id
             && (connection.to.port === 'referenceImages' || /^image_\d+$/.test(connection.to.port))).length;
-        const label = `${inserted ? '草稿引用' : '待插入目标'}：${node.name} · 画布已连接 ${count} 个参考来源（非本轮附件）`;
+        const label = `${inserted ? '草稿引用' : '待插入目标'}：${node.name} · 画布已连接 ${count} 个参考来源（非本轮附件）。${promptSourceGuidance(source)}`;
         const copy = host.querySelector('.prompt-agent-node-context-copy');
         if (copy && copy.textContent !== label) copy.textContent = label;
         const action = documentRef.getElementById('prompt-agent-insert-node-context');
-        if (action) { action.disabled = Boolean(inserted); action.textContent = inserted ? '引用已在草稿中' : '插入目标引用'; }
+        if (action) {
+            action.disabled = Boolean(inserted && sourceInserted);
+            action.textContent = action.disabled ? '引用已在草稿中' : source?.editable
+                ? (inserted ? '插入提示词来源引用' : '插入目标与来源引用') : '插入目标引用';
+        }
     }
 
     function insertPreparedNodeContext() {
         const node = preparedTarget();
         if (!node || !canvasMentions) { preparedNodeContext = null; renderPreparedNodeContext(); return false; }
-        const changed = canvasMentions.append(node);
+        let changed = canvasMentions.append(node);
+        const source = preparedPromptSource(node);
+        if (source?.editable) changed = canvasMentions.append(source.node) || changed;
         renderPreparedNodeContext();
         return changed;
     }
@@ -1030,7 +1058,12 @@ export function createPromptAgentController({
         open();
         if (composerIsEmpty()) {
             insertPreparedNodeContext();
-            input.value += '请优化这个生图节点的提示词，保留主体和现有参考关系。先提供方案，由我确认后再应用。';
+            const node = preparedTarget(), source = preparedPromptSource(node);
+            input.value += source?.active && source.editable
+                ? `请优化「${source.name || source.nodeId}」为「${node.name}」提供的提示词，修改对象为该文本来源，保留主体和现有参考关系。先提供方案，由我确认后再应用。`
+                : source?.active
+                    ? `请根据「${source.name || source.nodeId}」提供的提示词提出优化建议。${promptSourceGuidance(source)}保留主体和现有参考关系，先提供方案，由我确认后再调整。`
+                    : '请优化这个生图节点的提示词，保留主体和现有参考关系。先提供方案，由我确认后再应用。';
             input.dispatchEvent(new Event('input', { bubbles: true }));
         }
         renderPreparedNodeContext(); input.focus();
@@ -1066,7 +1099,7 @@ export function createPromptAgentController({
             identity = `image-data:${[...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('')}`;
         }
         if (revision !== workflowRevision || reference.workflowId !== getWorkflowId()) return false;
-        const candidate = { referenceId: `result:${identity}`, historyId: reference.historyId ? String(reference.historyId) : `agent-asset:${identity}`,
+        const candidate = { ...createImageResultReferenceIdentity(reference, { fallbackIdentity: identity }),
             name: reference.name || '结果原图', resolvedImage: { name: reference.name || '结果原图', dataUrl: reference.image } };
         await toggleImportedReference(candidate, { toggle: false });
         if (revision !== workflowRevision || reference.workflowId !== getWorkflowId()) return false;
@@ -1417,6 +1450,7 @@ export function createPromptAgentController({
                 wrapper.className = 'prompt-agent-image-result';
                 const actions = createImageResultActions({
                     name: `生成结果 ${index + 1}`, assetKey: result.mediaAssetKeys?.[index],
+                    runId: result.runId, sourceImageIndex: index,
                     readOriginal: async () => source,
                     isCurrent: () => revision === workflowRevision && wrapper.isConnected,
                     restoreFocus: () => wrapper.querySelector('[data-result-action=preview]')?.focus({ preventScroll: true })

@@ -1,9 +1,47 @@
-import { agentNodeDefinition as getNodeDefinition, isReferencePort, normalizePlanInputs, assertReferenceInputsPreserved, referenceManifest } from './prompt-agent-reference-inputs.js';
+import { agentNodeDefinition as getNodeDefinition, isReferencePort, normalizePlanInputs, assertReferenceInputsPreserved, referenceManifest, projectPlanConnections } from './prompt-agent-reference-inputs.js';
 import { CANVAS_FIELDS, CANVAS_TYPES, canvasBaseline, cloneCanvasValue, canvasPlanExecutionNodeIds } from './prompt-agent-canvas-context.js';
 import { excludesReferenceImages, mayUseCandidate, referenceInputChangePermission } from './prompt-agent-reference-policy.js';
 
 const fail = message => { throw new Error(message); };
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
+
+function promptInputChangePermission(message, steps, context, mentionedIds) {
+    const targets = steps.filter(step => step.type === 'ImageGenerate' && step.nodeId);
+    if (targets.length !== 1) return null;
+    const targetId = targets[0].nodeId;
+    const sourceId = context.connections.filter(edge => edge.to.nodeId === targetId && edge.to.port === 'prompt').at(-1)?.from.nodeId;
+    const allowedIds = new Set([targetId, sourceId]);
+    const clauses = String(message).split(/[。！!；;\n]/);
+    const allowed = clauses.some(clause => {
+        if (!/(?:断开|移除|解除|清除|替换).{0,18}(?:提示词|prompt)/i.test(clause)
+            || /(?:不(?:要|能|许|准|得|必)?|别|勿|保留|保持).{0,12}(?:断开|移除|解除|清除|替换)/.test(clause)) return false;
+        const named = context.nodes.filter(node => clause.includes(`[${node.id}]`)
+            || node.name?.length > 1 && clause.includes(node.name) && context.nodes.filter(item => item.name === node.name).length === 1);
+        if (named.some(node => !allowedIds.has(node.id))) return false;
+        return named.some(node => node.id === targetId) || !named.length && mentionedIds.includes(targetId) && mentionedIds.every(id => allowedIds.has(id));
+    });
+    return allowed ? { targetNodeIds: [targets[0].nodeId] } : null;
+}
+
+// A prompt proposal cannot become effective by silently replacing its real source.
+export function assertCanvasPlanPromptInputs(plan, context) {
+    const identity = ref => plan.steps.find(step => step.id === ref)?.nodeId || plan.bindings?.[ref] || ref;
+    const links = projectPlanConnections(plan, context.connections, identity);
+    for (const step of plan.steps) {
+        const node = context.nodes.find(node => node.id === identity(step.id));
+        if (node?.editable === false && (step.type === 'ImageGenerate' || Object.keys(step.parameters || {}).length)) throw new Error('目标节点参数只读，不能修改克隆或派生文本来源。');
+        if (step.type !== 'ImageGenerate' || !node) continue;
+        const previous = context.connections.filter(link => link.to.nodeId === node.id && link.to.port === 'prompt').at(-1);
+        const next = links.filter(link => link.to.nodeId === node.id && link.to.port === 'prompt').at(-1);
+        const changed = previous && (!next || previous.from.nodeId !== next.from.nodeId || previous.from.port !== next.from.port);
+        const permitted = plan.promptInputChange?.targetNodeIds?.includes(node.id);
+        if (changed && !permitted) throw new Error('方案不能擅自断开或替换上游提示词来源；请明确要求修改输入关系。');
+        if (!changed && node.promptSource?.active && Object.hasOwn(step.parameters || {}, 'prompt')
+            && step.parameters.prompt !== node.effectivePrompt) {
+            throw new Error(`提示词来自上游「${node.promptSource.name || node.promptSource.nodeId}」，请在方案中明确修改支持的真实来源；只读或视角来源请到来源编辑。`);
+        }
+    }
+}
 export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds = [], images = [], referencePolicy } = {}) {
     if (!object(raw) || raw.version !== 1 || !Array.isArray(raw.steps) || !raw.steps.length || raw.steps.length > 30) fail('画布方案必须为 v1，包含 1 至 30 个步骤');
     if (referencePolicy) {
@@ -52,6 +90,7 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         if (!CANVAS_TYPES.includes(step.type)) fail(`首版不支持操作 ${step.type}`);
         const existing = step.nodeId && context.nodes.find(node => node.id === step.nodeId);
         if (step.nodeId && (!existing || existing.type !== step.type || !existing.enabled || existing.running)) fail('目标节点不存在、已禁用或正在运行');
+        if (existing?.editable === false && Object.keys(step.parameters || {}).length) fail('目标节点参数只读，不能修改克隆或派生文本来源。');
         if (existing && !mentionedIds.includes(existing.id)) {
             const evidence = typeof step.evidence === 'string' ? step.evidence : '';
             if (!evidence || !message.includes(evidence) || !evidence.includes(existing.name)
@@ -74,7 +113,7 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         if (step.type === 'ImageImport' && (!existing && !/^media:/.test(step.assetKey || ''))) fail('图片导入必须引用已登记的本地原图资产');
         if (step.assetKey && !context.nodes.some(node => node.assets.includes(step.assetKey))
             && !images.some(image => image.reference.assetKey === step.assetKey || image.reference.assetKeys?.includes(step.assetKey))) fail('图片资产未登记在当前画布或对话中');
-        return { id: step.id, type: step.type, title: String(step.title || getNodeDefinition(step.type).title).slice(0, 100),
+        return { id: step.id, type: step.type, title: String(existing?.name || step.title || getNodeDefinition(step.type).title).slice(0, 100),
             ...(existing ? { nodeId: existing.id } : {}), parameters: { ...parameters },
             ...(step.assetKey ? { assetKey: step.assetKey,
                 ...(images.find(image => image.imageId === step.imageId)?.reference.runId ? {} : {
@@ -92,13 +131,20 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         return getNodeDefinition(type)?.[direction]?.find(item => item.name === port)?.type;
     };
     if (!Array.isArray(raw.connections || [])) fail('连线必须是数组');
-    const ports = new Set();
+    const ports = new Set(), retainedDisabled = new Set();
     const connections = (raw.connections || []).map(link => {
         if (!object(link) || !object(link.from) || !object(link.to)) fail('连线无效');
         if (!ids.has(link.to.ref)) fail('只能修改方案内目标节点的输入连线');
         const type = portType(link.from.ref, link.from.port, 'outputs');
         const external = context.nodes.find(node => node.id === link.from.ref);
-        if (external && (!external.enabled || external.missing || external.running)) fail('引用的外部节点已禁用、原图缺失或正在运行');
+        if (external && (!external.enabled || external.missing || external.running)) {
+            const target = steps.find(step => step.id === link.to.ref);
+            const retained = external.enabled === false && !external.running && context.connections.find(edge =>
+                edge.from.nodeId === external.id && edge.from.port === link.from.port && edge.to.nodeId === target?.nodeId
+                && (edge.to.port === link.to.port || target?.type === 'ImageGenerate' && isReferencePort(edge.to.port) && isReferencePort(link.to.port)));
+            if (!retained) fail('引用的外部节点已禁用、原图缺失或正在运行');
+            retainedDisabled.add(retained);
+        }
         if (!type || type !== portType(link.to.ref, link.to.port, 'inputs')) fail('连线端口不存在或类型不匹配');
         const key = `${link.to.ref}:${link.to.port}`;
         if (ports.has(key) && link.to.port !== 'referenceImages') fail('同一输入端口不能重复连接');
@@ -119,12 +165,18 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
             }
         }
     }
+    const promptInputChange = promptInputChangePermission(message, steps, context, mentionedIds);
+    const identity = ref => steps.find(step => step.id === ref)?.nodeId || (ids.has(ref) ? `new:${ref}` : ref);
+    const projectedLinks = projectPlanConnections({ steps, connections, disconnects }, context.connections, identity);
     const order = []; const visiting = new Set(); const visited = new Set();
     const visit = id => {
         if (visiting.has(id)) fail('方案存在循环依赖');
         if (visited.has(id)) return;
         visiting.add(id);
-        connections.filter(link => link.to.ref === id && ids.has(link.from.ref)).forEach(link => visit(link.from.ref));
+        for (const link of projectedLinks.filter(link => link.to.nodeId === identity(id))) {
+            const parent = steps.find(step => identity(step.id) === link.from.nodeId);
+            if (parent) visit(parent.id);
+        }
         visiting.delete(id); visited.add(id); order.push(id);
     };
     steps.forEach(step => visit(step.id));
@@ -132,15 +184,22 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         ...context.connections.filter(link => steps.some(step => step.nodeId === link.to.nodeId)).map(link => link.from.nodeId),
         ...context.connections.filter(link => steps.some(step => step.nodeId === link.from.nodeId && step.type === 'ImageGenerate')).map(link => link.to.nodeId),
         ...connections.map(link => ids.has(link.from.ref) ? null : link.from.ref)].filter(Boolean))];
-    const plan = normalizePlanInputs({ version: 1, referenceInputChange, id: globalThis.crypto?.randomUUID?.() || `plan-${Date.now()}-${Math.random()}`, workflowId: context.workflowId,
+    const plan = normalizePlanInputs({ version: 1, referenceInputChange, promptInputChange, id: globalThis.crypto?.randomUUID?.() || `plan-${Date.now()}-${Math.random()}`, workflowId: context.workflowId,
         steps, connections, disconnects, order, dependencies, baseline: canvasBaseline(context, dependencies), modelOverrides: {}, bindings: {}, runs: [] });
     assertReferenceInputsPreserved(plan, context.connections, ref => steps.find(step => step.id === ref)?.nodeId || (ids.has(ref) ? `new:${ref}` : ref));
+    const retainedLinks = projectPlanConnections(plan, context.connections, ref => steps.find(step => step.id === ref)?.nodeId || ref);
+    if ([...retainedDisabled].some(edge => !retainedLinks.includes(edge))) fail('已禁用来源只能原位保留，不能作为新增输入或改变顺序。');
+    assertCanvasPlanPromptInputs(plan, context);
     return plan;
 }
 
 export function describeCanvasPlan(plan, context) {
     const displayValue = value => value === '' || value == null ? '（空）' : typeof value === 'string' ? value : String(value);
-    const label = ref => plan.steps.find(step => step.id === ref)?.title || context.nodes.find(node => node.id === ref)?.name || ref;
+    const stepLabel = step => context.nodes.find(node => node.id === (step.nodeId || plan.bindings?.[step.id]))?.name || step.title;
+    const label = ref => {
+        const step = plan.steps.find(step => step.id === ref);
+        return (step && stepLabel(step)) || context.nodes.find(node => node.id === ref)?.name || ref;
+    };
     const endpoint = (ref, port) => `${label(ref)} · ${port === 'image' ? '图片' : /^image_\d+$/.test(port) ? `参考图 ${port.split('_')[1]}` : port === 'prompt' ? '提示词' : port}`;
     const lines = plan.steps.flatMap(step => {
         if (!step.nodeId && !plan.bindings?.[step.id]) return [`新增 ${step.title}（${getNodeDefinition(step.type)?.title || step.type}）`];
@@ -148,8 +207,8 @@ export function describeCanvasPlan(plan, context) {
         return Object.entries(step.parameters).map(([key, value]) => {
             const previous = displayValue(before[key]), next = displayValue(value);
             return /[\r\n]/.test(previous + next)
-                ? `${step.title} · ${key}\n修改前：\n${previous}\n修改后：\n${next}`
-                : `${step.title} · ${key}：${previous} → ${next}`;
+                ? `${stepLabel(step)} · ${key}\n修改前：\n${previous}\n修改后：\n${next}`
+                : `${stepLabel(step)} · ${key}：${previous} → ${next}`;
         });
     });
     for (const link of plan.connections) {
@@ -188,7 +247,7 @@ export function projectCanvasPlan(plan) {
 
 export function promptPlanToCanvas(prompt, context, { message = '' } = {}) {
     const target = prompt.targetNodeId && context.nodes.find(node => node.id === prompt.targetNodeId);
-    const steps = [{ id: 'generate', type: 'ImageGenerate', title: '图片生成', parameters: { prompt: prompt.prompt },
+    const steps = [{ id: 'generate', type: 'ImageGenerate', title: target?.name || '图片生成', parameters: { prompt: prompt.prompt },
         generationPatch: cloneCanvasValue(prompt.parameters || {}), ...(typeof prompt.negativePrompt === 'string' ? { negativePrompt: prompt.negativePrompt } : {}),
         ...(target ? { nodeId: target.id } : {}), execute: true }];
     const referenceInputChange = referenceInputChangePermission(message, [target?.id]);

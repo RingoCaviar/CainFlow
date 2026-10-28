@@ -3,7 +3,7 @@ import { resolveAgentSize, sizeFields } from './prompt-agent-size.js';
 import { getEffectiveProtocol } from '../execution/provider-request-utils.js';
 import { resolveThinking } from '../execution/thinking-config.js';
 import { createCanvasContext, canvasBaseline, cloneCanvasValue, canvasPlanExecutionNodeIds } from './prompt-agent-canvas-context.js';
-import { assertCanvasPlanCurrent, describeCanvasPlan } from './prompt-agent-canvas-plan.js';
+import { assertCanvasPlanCurrent, assertCanvasPlanPromptInputs, describeCanvasPlan } from './prompt-agent-canvas-plan.js';
 import { getAvailablePromptAgentImageModels } from './prompt-agent-node-adapter.js';
 import { resolveAgentProvider } from './prompt-agent-provider.js';
 import { getNodeDefinition } from '../../nodes/registry.js';
@@ -18,7 +18,8 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
     let activePlan = null;
     const executionConfigs = new Map();
     const context = (mentionedIds = []) => createCanvasContext({ workflowId: getWorkflowId(), nodes: serializeNodes(), connections: state.connections,
-        selectedIds: [...state.selectedNodes], mentionedIds, runningIds: [...(state.runningNodeIds || [])] });
+        selectedIds: [...state.selectedNodes], mentionedIds, runningIds: [...(state.runningNodeIds || [])],
+        getGenerationContext: id => nodeAdapter?.getContext(id) });
     function prepare(plan) {
         normalizePlanInputs(plan);
         // Automatically required saves are part of the preview, never a hidden execution mutation.
@@ -73,6 +74,10 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         const ids = new Map(plan.steps.map(step => [step.id, step.nodeId || plan.bindings?.[step.id] || `new:${step.id}`]));
         assertReferenceInputsPreserved(plan, state.connections, ref => ids.get(ref) || ref);
         const links = projectPlanConnections(plan, state.connections, ref => ids.get(ref) || ref);
+        for (const edge of links) {
+            const source = state.nodes.get(edge.from.nodeId);
+            if (source?.enabled === false && !state.connections.includes(edge)) throw new Error('不能新增或改写已禁用来源的输入关系。');
+        }
         const visited = new Set(), visiting = new Set();
         const visit = id => {
             if (visiting.has(id)) throw new Error('方案与已有画布形成循环依赖');
@@ -84,7 +89,10 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         for (const step of plan.steps) {
             if (!['ImageResize', 'ImagePreview', 'ImageCompare', 'ImageMerge', 'ImageSave'].includes(step.type)) continue;
             const inputs = links.filter(link => link.to.nodeId === ids.get(step.id));
-            if (!inputs.some(link => /^image/.test(link.to.port)) || (step.type === 'ImageCompare' && !['imageA', 'imageB'].every(port => inputs.some(link => link.to.port === port)))) throw new Error(`「${step.title}」缺少必要图片输入`);
+            const hasRequiredInput = step.type === 'ImageCompare' ? inputs.some(link => link.to.port === 'imageB')
+                : step.type === 'ImageSave' ? inputs.some(link => ['image', 'video'].includes(link.to.port))
+                    : inputs.some(link => /^image/.test(link.to.port));
+            if (!hasRequiredInput) throw new Error(`「${step.title}」缺少必要${step.type === 'ImageSave' ? '媒体' : '图片'}输入`);
         }
         return { ids, links };
     }
@@ -92,10 +100,11 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         if (!isCurrent()) throw new Error('方案所属会话已变化');
         if (activePlan) throw new Error('另一个画布方案正在执行');
         assertCanvasPlanCurrent(plan, context());
+        assertCanvasPlanPromptInputs(plan, context());
         const selected = modelsFor(plan, defaultModelId);
         const sizes = sizesFor(plan, defaultModelId, selected);
         executionConfigs.set(plan.id, cloneCanvasValue({ models: state.models, providers: state.providers }));
-        validateGraph(plan);
+        const proposed = validateGraph(plan);
         const signature = JSON.stringify({ sizes, steps: plan.steps, connections: plan.connections, disconnects: plan.disconnects || [],
             models: Object.fromEntries(Object.entries(selected).map(([id, config]) => [id, { modelId: config.model.id, providerId: config.provider.id, thinking: config.thinking }])) });
         if (plan.appliedSignature === signature && plan.steps.every(step => state.nodes.has(plan.bindings?.[step.id]))) {
@@ -115,6 +124,12 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         locked.forEach(([element]) => { element.inert = true; });
         try {
             const result = await session().applyCanvasBatch(async () => {
+                const promptTargets = new Set((plan.promptInputChange?.targetNodeIds || []).filter(nodeId => {
+                    const before = state.connections.filter(edge => edge.to.nodeId === nodeId && edge.to.port === 'prompt').at(-1);
+                    const after = proposed.links.filter(edge => edge.to.nodeId === nodeId && edge.to.port === 'prompt').at(-1);
+                    return before && (!after || before.from.nodeId !== after.from.nodeId || before.from.port !== after.from.port);
+                }));
+                if (promptTargets.size) state.connections = state.connections.filter(edge => !(promptTargets.has(edge.to.nodeId) && edge.to.port === 'prompt'));
                 const start = origin();
                 const occupied = [...state.nodes.values()].map(node => nodeBounds(node, state.canvas?.zoom || 1));
                 if (start.blockedSpan) occupied.push({ y: start.y, height: 340, ...start.blockedSpan });

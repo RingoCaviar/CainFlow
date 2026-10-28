@@ -14,6 +14,7 @@ import { hasRunningEndpoint } from '../js/features/media/utils/ui-state-helpers.
 import {
     getNextInputConnectionOrder,
     getReferenceImageInputPorts,
+    migrateReferenceImageConnections,
     orderInputConnections
 } from '../js/nodes/reference-image-ports.js';
 import { resolveGenerationInputProjection } from '../js/nodes/generation-input-projection.js';
@@ -430,6 +431,30 @@ test('legacy numbered reference inputs migrate in order and deduplicate the same
         migrated.connections.find((connection) => connection.id === 'ref'),
         { id: 'ref', from: { nodeId: 'b', port: 'image' }, to: { nodeId: 'video', port: 'referenceImages' }, type: 'image', order: 0 }
     );
+});
+
+test('mixed legacy and canonical references preserve every explicit order and all connection metadata during port migration', () => {
+    const connections = [
+        { id: 'legacy-ten', from: { nodeId: 'a', port: 'image', slot: { original: 2 } }, to: { nodeId: 'target', port: 'image_10', label: 'ten' }, type: 'image', order: 12, extension: { purpose: 'first source', values: [9, 3] } },
+        { id: 'legacy-seven', from: { nodeId: 'b', port: 'image', sourceInfo: ['batch', 1] }, to: { nodeId: 'target', port: 'image_7', data: { keep: true } }, type: 'image', order: 1, extension: { purpose: 'second source' } },
+        { id: 'canonical', from: { nodeId: 'c', port: 'image' }, to: { nodeId: 'target', port: 'referenceImages', custom: [4, 5] }, type: 'image', order: 44, extension: { keep: null } }
+    ];
+    const before = structuredClone(connections);
+    const migrated = migrateReferenceImageConnections([{ id: 'target', type: 'ImageGenerate' }], connections);
+    assert.deepEqual(migrated.map(edge => [edge.id, edge.to.port, edge.order]), [
+        ['legacy-ten', 'referenceImages', 12], ['legacy-seven', 'referenceImages', 1], ['canonical', 'referenceImages', 44]
+    ]);
+    assert.deepEqual(migrated, before.map(edge => ({ ...edge, to: { ...edge.to, port: 'referenceImages' } })));
+    assert.deepEqual(connections, before, 'migration does not mutate the caller-owned graph');
+});
+
+test('null and undefined orders retain legacy numbered-port ranking instead of becoming explicit zero orders', () => {
+    const migrated = migrateReferenceImageConnections([{ id: 'target', type: 'ImageGenerate' }], [
+        { id: 'ten', from: { nodeId: 'a', port: 'image' }, to: { nodeId: 'target', port: 'image_10' }, order: null },
+        { id: 'seven', from: { nodeId: 'b', port: 'image' }, to: { nodeId: 'target', port: 'image_7' }, order: undefined },
+        { id: 'canonical', from: { nodeId: 'c', port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, order: 5 }
+    ]);
+    assert.deepEqual(migrated.map(edge => [edge.id, edge.order]), [['ten', 2], ['seven', 1], ['canonical', 0]]);
 });
 
 test('connection and execution contracts retain multiple reference image sources', () => {

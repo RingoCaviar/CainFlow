@@ -27,7 +27,9 @@ export function createImageResultActions({ documentRef, source, getWorkflowId, o
             });
             else if (action === 'reference' || action === 'edit') {
                 source.beforeHandoff?.();
-                await prepareReference({ workflowId, image, assetKey: source.assetKey, historyId: source.historyId, name: source.name }, { edit: action === 'edit' });
+                await prepareReference({ workflowId, image, assetKey: source.assetKey, historyId: source.historyId, name: source.name,
+                    sourceNodeId: source.sourceNodeId, sourcePort: source.sourcePort, sourceImageIndex: source.sourceImageIndex,
+                    runId: source.runId }, { edit: action === 'edit' });
             } else if (action === 'download') await downloadImage(image, source);
             else if (action === 'copy') await copyImage(image);
         } catch (error) {

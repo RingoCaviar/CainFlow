@@ -975,6 +975,7 @@ function scheduleSave(options) {
 const promptAgentNodeAdapter = createPromptAgentNodeAdapter({
     state,
     documentRef: document,
+    getCachedOutputValue: (node, port) => getExecutionCoreApi().getCachedOutputValue(node, port),
     scheduleSave,
     commitReferenceConnections: (connections) => {
         pushHistory();

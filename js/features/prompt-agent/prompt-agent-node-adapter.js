@@ -1,13 +1,15 @@
 import { resolveAgentSize, sizeFields } from './prompt-agent-size.js';
 import { resolveAgentProvider } from './prompt-agent-provider.js';
-import { getEffectiveProtocol, getModelProviders, getModelsForTask, getResolvedProviderForModel } from '../execution/provider-request-utils.js';
+import { getEffectiveProtocol, getGenerationInputProtocolId, getModelProviders, getModelsForTask, getResolvedProviderForModel } from '../execution/provider-request-utils.js';
 import { getModelProtocolConfig } from '../execution/model-protocol-registry.js';
 import { normalizeImageSizeControls } from '../execution/image-generation-size.js';
-import { normalizePromptAgentParameters, readPromptAgentParameterSchema } from './prompt-agent-parameters.js';
-import { getCanonicalImageList, getImageImportMediaAssetReferences } from '../execution/execution-data-utils.js';
+import { normalizePromptAgentParameters, readPromptAgentParameterSchema, getPromptAgentControl } from './prompt-agent-parameters.js';
+import { getCanonicalImageList, getImageImportMediaAssetReferences, getPrimaryTextInput } from '../execution/execution-data-utils.js';
 import { projectImageOutput } from '../../nodes/image-output-projection.js';
 import { projectImageReferences } from '../../nodes/image-reference-projection.js';
-import { MAX_REFERENCE_IMAGE_COUNT } from '../../nodes/reference-image-ports.js';
+import { validateUniversalImageInputs } from '../../nodes/universal-input-policy.js';
+import { getProtocol } from '../execution/protocols/index.js';
+import { projectPlanConnections } from './prompt-agent-reference-inputs.js';
 import { getImageDescription, setImageDescription } from '../execution/reference-image-description.js';
 
 export function getAvailablePromptAgentImageModels(models = [], providers = []) {
@@ -70,17 +72,24 @@ export function createPromptAgentNodeAdapter({
     commitReferenceConnections = (connections) => { state.connections = connections; },
     createImageNode = () => null,
     getNodeImages = async (node) => getCanonicalImageList(node),
+    getCachedOutputValue = (node, port) => port === 'text' ? node?.data?.texts || node?.data?.text || node?.text : undefined,
     resolveImageSource = async (source) => source,
     createEvent = (type) => new Event(type, { bubbles: true })
 } = {}) {
+    const controlDocument = { getElementById(id) {
+        const node = [...(state?.nodes?.values() || [])].filter(node => id === node.id || id.startsWith(`${node.id}-`))
+            .sort((left, right) => right.id.length - left.id.length)[0];
+        return getPromptAgentControl(documentRef, node, id);
+    } };
+
     function getSceneReferenceImages() {
         const references = [];
         let importIndex = 0;
         for (const node of state?.nodes?.values() || []) {
             if (node.type !== 'ImageImport') continue;
             importIndex += 1;
-            const mode = readValue(documentRef, `${node.id}-import-mode`, node.importMode || 'upload');
-            const url = readValue(documentRef, `${node.id}-url-input`, node.imageUrl || '');
+            const mode = readValue(controlDocument, `${node.id}-import-mode`, node.importMode || 'upload');
+            const url = readValue(controlDocument, `${node.id}-url-input`, node.imageUrl || '');
             const images = mode === 'url' ? (url ? [url] : []) : getCanonicalImageList(node);
             const assets = mode === 'url' ? [] : (node.data?.mediaAssetKeys?.length
                 ? node.data.mediaAssetKeys : getImageImportMediaAssetReferences(node).slice(0, 1));
@@ -104,9 +113,9 @@ export function createPromptAgentNodeAdapter({
         if (node?.type !== 'ImageImport' || !getSceneReferenceImages().some((item) => item.referenceId === reference.referenceId)) {
             throw new Error('该图片已不在当前场景，请重新选择。');
         }
-        const mode = readValue(documentRef, `${node.id}-import-mode`, node.importMode || 'upload');
+        const mode = readValue(controlDocument, `${node.id}-import-mode`, node.importMode || 'upload');
         const images = mode === 'url'
-            ? [readValue(documentRef, `${node.id}-url-input`, node.imageUrl || '')]
+            ? [readValue(controlDocument, `${node.id}-url-input`, node.imageUrl || '')]
             : await getNodeImages(node);
         const source = images?.[reference.sourceImageIndex];
         if (!source) throw new Error('无法读取原图，请先在图片导入节点恢复图片。');
@@ -144,25 +153,29 @@ export function createPromptAgentNodeAdapter({
             .filter(group => group.enabled && !group.running && group.count > 0)
             .map(group => getReferenceImageDescriptor(state, group.connection, group));
         const protocolParams = { ...(node.data?.protocolParams || {}) };
-        const modelId = readValue(documentRef, `${node.id}-apiconfig`, node.apiConfigId || '');
+        const modelId = readValue(controlDocument, `${node.id}-apiconfig`, node.apiConfigId || '');
         const model = state.models?.find((candidate) => candidate.id === modelId);
         const output = getReferenceImageDescriptor(state, { from: { nodeId: node.id, port: 'image' }, to: { port: '' } });
+        const localPrompt = readValue(controlDocument, `${node.id}-prompt`, node.data?.prompt ?? '');
+        const promptSource = getPromptSource(node);
         return {
             nodeId: node.id,
-            prompt: readValue(documentRef, `${node.id}-prompt`, node.data?.prompt || ''),
-            negativePrompt: readValue(documentRef, `${node.id}-param-negative_prompt`, protocolParams.negative_prompt || node.data?.promptAgentNegativePrompt || ''),
-            parameterSchema: readPromptAgentParameterSchema(documentRef, node.id),
+            prompt: promptSource?.active ? promptSource.text : protocolParams.prompt || localPrompt,
+            localPrompt,
+            promptSource,
+            negativePrompt: readValue(controlDocument, `${node.id}-param-negative_prompt`, protocolParams.negative_prompt || node.data?.promptAgentNegativePrompt || ''),
+            parameterSchema: readPromptAgentParameterSchema(documentRef, node.id, node),
             model: model ? { modelId: model.modelId, protocol: model.protocol } : null,
             parameters: {
-                aspectRatio: readValue(documentRef, `${node.id}-aspect`, node.data?.aspect || ''),
-                resolution: readValue(documentRef, `${node.id}-resolution`, node.data?.resolution || ''),
-                customWidth: readValue(documentRef, `${node.id}-custom-resolution-width`, node.data?.customWidth || ''),
-                customHeight: readValue(documentRef, `${node.id}-custom-resolution-height`, node.data?.customHeight || ''),
-                quality: readValue(documentRef, `${node.id}-quality`, node.data?.quality || ''),
-                moderation: readValue(documentRef, `${node.id}-moderation`, node.data?.moderation || ''),
-                background: readValue(documentRef, `${node.id}-background`, node.data?.background || ''),
-                search: readBoolean(documentRef, `${node.id}-search`, node.data?.search),
-                count: Math.max(1, parseInt(readValue(documentRef, `${node.id}-generation-count`, node.data?.generationCount || '1'), 10) || 1),
+                aspectRatio: readValue(controlDocument, `${node.id}-aspect`, node.data?.aspect || ''),
+                resolution: readValue(controlDocument, `${node.id}-resolution`, node.data?.resolution || ''),
+                customWidth: readValue(controlDocument, `${node.id}-custom-resolution-width`, node.data?.customWidth || ''),
+                customHeight: readValue(controlDocument, `${node.id}-custom-resolution-height`, node.data?.customHeight || ''),
+                quality: readValue(controlDocument, `${node.id}-quality`, node.data?.quality || ''),
+                moderation: readValue(controlDocument, `${node.id}-moderation`, node.data?.moderation || ''),
+                background: readValue(controlDocument, `${node.id}-background`, node.data?.background || ''),
+                search: readBoolean(controlDocument, `${node.id}-search`, node.data?.search),
+                count: Math.max(1, parseInt(readValue(controlDocument, `${node.id}-generation-count`, node.data?.generationCount || '1'), 10) || 1),
                 protocolParams
             },
             referenceImages,
@@ -178,15 +191,43 @@ export function createPromptAgentNodeAdapter({
         return Boolean(node && (state?.runningNodeIds?.has(node.id) || node.el?.classList?.contains('running')));
     }
 
+    function getPromptSource(node) {
+        const connection = state.connections?.find(edge => edge.to.nodeId === node.id && edge.to.port === 'prompt');
+        if (!connection) return null;
+        const source = state.nodes.get(connection.from.nodeId), port = connection.from.port;
+        let text = '', reason;
+        if (!source) reason = 'missing';
+        else if (source.enabled === false) reason = 'disabled';
+        else {
+            try { text = getPrimaryTextInput(getCachedOutputValue(source, port)); }
+            catch { reason = 'unavailable'; }
+            if (!text && !reason) reason = 'empty';
+        }
+        const editable = source?.type === 'Text' && port === 'text' && source.enabled !== false && !source.isClone && !isRunning(source);
+        if (!reason && !editable) reason = isRunning(source) ? 'running' : source?.isClone ? 'readonly'
+            : source?.type === 'CameraControl' ? 'derived' : 'unsupported';
+        return { nodeId: connection.from.nodeId, port, type: source?.type || '', name: source?.customTitle || source?.type || '来源已不存在',
+            text, editable, active: !!text, connected: true, ...(reason ? { reason } : {}) };
+    }
+
+    function preflightPromptChange(node, plan) {
+        if (node.isClone) throw new Error('克隆节点的参数只读，请明确修改可编辑的原节点。');
+        const source = getPromptSource(node);
+        if (source?.active && typeof plan.prompt === 'string' && plan.prompt.trim() !== source.text.trim()) {
+            throw new Error(`主提示词来自「${source.name}」，请在方案中明确修改支持的真实来源；不能只修改无效的本地稿。`);
+        }
+        return source;
+    }
+
     function configureTarget(node, model, provider) {
-        const modelChanged = readValue(documentRef, `${node.id}-apiconfig`, node.apiConfigId || '') !== model.id
+        const modelChanged = readValue(controlDocument, `${node.id}-apiconfig`, node.apiConfigId || '') !== model.id
             || (node.apiConfigId && node.apiConfigId !== model.id);
-        const providerChanged = readValue(documentRef, `${node.id}-provider`, node.providerId || '') !== provider.id;
+        const providerChanged = readValue(controlDocument, `${node.id}-provider`, node.providerId || '') !== provider.id;
         const dataChanged = node.apiConfigId !== model.id || node.providerId !== provider.id;
         // The normal node change handlers rebuild protocol controls before the
         // plan is validated against the selected model's actual parameters.
-        if (modelChanged) writeValue(documentRef, `${node.id}-apiconfig`, model.id, createEvent);
-        if (modelChanged || providerChanged) writeValue(documentRef, `${node.id}-provider`, provider.id, createEvent);
+        if (modelChanged) writeValue(controlDocument, `${node.id}-apiconfig`, model.id, createEvent);
+        if (modelChanged || providerChanged) writeValue(controlDocument, `${node.id}-provider`, provider.id, createEvent);
         node.apiConfigId = model.id;
         node.providerId = provider.id;
         node.data ||= {};
@@ -197,10 +238,11 @@ export function createPromptAgentNodeAdapter({
 
     function ensureTarget(plan = {}, { modelId, providerId } = {}) {
         if (state?.isRunStarting) throw new Error('工作流正在启动，请稍后再应用或生成。');
-        if (typeof plan.prompt !== 'string' || !plan.prompt.trim()) {
+        const node = plan.targetNodeId ? state?.nodes?.get(plan.targetNodeId) : null;
+        if (node?.type === 'ImageGenerate') preflightPromptChange(node, plan);
+        if ((!node || plan.prompt !== undefined) && (typeof plan.prompt !== 'string' || !plan.prompt.trim())) {
             throw new Error('方案缺少可用的提示词，请先整理生图方案。');
         }
-        const node = plan.targetNodeId ? state?.nodes?.get(plan.targetNodeId) : null;
         if (plan.targetNodeId && node?.type !== 'ImageGenerate') {
             throw new Error('目标生图节点已不存在，请重新整理生图方案。');
         }
@@ -213,7 +255,7 @@ export function createPromptAgentNodeAdapter({
             .find((candidate) => candidate.id === modelId);
         if (!model) throw new Error('所选生图模型已不可用，请在 Agent 面板重新选择或检查模型与 Provider 配置。');
         const provider = resolveAgentProvider(model, state?.providers || [], providerId);
-        if (Object.keys(sizeFields(plan.parameters)).length) resolveAgentSize({ protocol: getEffectiveProtocol(model, provider), current: node && readValue(documentRef, `${node.id}-apiconfig`, node.apiConfigId || '') === model.id ? getContext(node.id)?.parameters : {}, parameters: plan.parameters });
+        if (Object.keys(sizeFields(plan.parameters)).length) resolveAgentSize({ protocol: getEffectiveProtocol(model, provider), current: node && readValue(controlDocument, `${node.id}-apiconfig`, node.apiConfigId || '') === model.id ? getContext(node.id)?.parameters : {}, parameters: plan.parameters });
         if (node) {
             configureTarget(node, model, provider);
             return plan;
@@ -231,12 +273,13 @@ export function createPromptAgentNodeAdapter({
         if (state?.isRunStarting) return false;
         const node = state?.nodes?.get(plan.targetNodeId);
         if (node?.type !== 'ImageGenerate' || isRunning(node)) return false;
-        if (typeof plan.prompt !== 'string' || !plan.prompt.trim()) return false;
+        if (plan.prompt !== undefined && (typeof plan.prompt !== 'string' || !plan.prompt.trim())) return false;
+        const promptSource = preflightPromptChange(node, plan);
         // Validate before any writes, including plans restored from workflows
         // or created before the user changed this node's model.
         let parameters;
         try {
-            parameters = normalizePromptAgentParameters(plan.parameters || {}, readPromptAgentParameterSchema(documentRef, node.id));
+            parameters = normalizePromptAgentParameters(plan.parameters || {}, readPromptAgentParameterSchema(documentRef, node.id, node));
         } catch {
             return false;
         }
@@ -274,74 +317,84 @@ export function createPromptAgentNodeAdapter({
                 }
                 if (!sources.some((item) => item.nodeId === source.id && item.port === port)) sources.push({ nodeId: source.id, port });
             }
-            if (sources.length > MAX_REFERENCE_IMAGE_COUNT) throw new Error(`参考图最多支持 ${MAX_REFERENCE_IMAGE_COUNT} 张。`);
             const isImageInput = (connection) => connection.to.nodeId === node.id
                 && (connection.to.port === 'referenceImages' || /^image(?:_\d+)?$/.test(connection.to.port));
             const previous = (state.connections || []).filter(isImageInput);
             if (previous.some((connection) => isRunning(state.nodes.get(connection.from.nodeId)))) {
                 throw new Error('参考图输入节点正在运行，暂不能修改连线。');
             }
-            const next = sources.map((from, order) => ({
-                id: previous.find((connection) => connection.from.nodeId === from.nodeId && connection.from.port === from.port)?.id
-                    || `c_agent_${globalThis.crypto.randomUUID()}`,
-                from, to: { nodeId: node.id, port: 'referenceImages' }, type: 'image', order
-            }));
-            if (JSON.stringify(previous) !== JSON.stringify(next)) {
-                commitReferenceConnections([...(state.connections || []).filter((connection) => !isImageInput(connection)), ...next]);
-            }
+            const next = projectPlanConnections({ steps: [{ id: node.id, type: 'ImageGenerate' }],
+                connections: sources.map((from, order) => ({ from: { ref: from.nodeId, port: from.port }, to: { ref: node.id, port: 'referenceImages' }, type: 'image', order })),
+                disconnects: sources.length ? [] : [{ ref: node.id, port: 'referenceImages' }] }, state.connections || [], id => id)
+                .map(link => !link.id && !(state.connections || []).includes(link) ? { ...link, id: `c_agent_${globalThis.crypto.randomUUID()}` } : link);
+            assertReferenceCompatibility(node, next, sizeModel);
+            if (JSON.stringify(state.connections) !== JSON.stringify(next)) commitReferenceConnections(next);
+        } else {
+            assertReferenceCompatibility(node, state.connections || [], sizeModel);
         }
         plan = { ...plan, parameters };
         node.data ||= {};
-        node.data.prompt = String(plan.prompt || '');
+        const writeLocalPrompt = !promptSource?.active && plan.prompt !== undefined;
+        if (writeLocalPrompt) node.data.prompt = plan.prompt;
         node.data.protocolParams = {
             ...(node.data.protocolParams || {}),
             ...(parameters.protocolParams || {}),
             ...(typeof plan.negativePrompt === 'string' ? { negative_prompt: plan.negativePrompt } : {})
         };
-        writeValue(documentRef, `${node.id}-prompt`, plan.prompt || '', createEvent);
+        if (writeLocalPrompt) writeValue(controlDocument, `${node.id}-prompt`, plan.prompt, createEvent);
         if (typeof plan.negativePrompt === 'string') {
-            writeValue(documentRef, `${node.id}-param-negative_prompt`, plan.negativePrompt, createEvent);
+            writeValue(controlDocument, `${node.id}-param-negative_prompt`, plan.negativePrompt, createEvent);
         }
         const sizePlan = plan.parameters || {};
+        for (const [field, key] of Object.entries({ quality: 'quality', moderation: 'moderation', background: 'background', search: 'search', count: 'generationCount' })) {
+            if (sizePlan[field] !== undefined) node.data[key] = sizePlan[field];
+        }
         const hasSizeChange = ['aspectRatio', 'resolution', 'customWidth', 'customHeight']
             .some((key) => sizePlan[key] !== undefined && sizePlan[key] !== null);
         if (hasSizeChange) {
-            const modelId = readValue(documentRef, `${node.id}-apiconfig`, node.apiConfigId || '');
+            const modelId = readValue(controlDocument, `${node.id}-apiconfig`, node.apiConfigId || '');
             const model = state.models?.find((candidate) => candidate.id === modelId);
-            const providerId = readValue(documentRef, `${node.id}-provider`, node.providerId || '');
+            const providerId = readValue(controlDocument, `${node.id}-provider`, node.providerId || '');
             const provider = getResolvedProviderForModel(model, state.providers, providerId);
             const protocol = getEffectiveProtocol(model, provider);
-            const currentResolution = readValue(documentRef, `${node.id}-resolution`, node.data?.resolution || '');
+            const currentResolution = readValue(controlDocument, `${node.id}-resolution`, node.data?.resolution || '');
             const requestedResolution = sizePlan.resolution ?? currentResolution;
             const controls = normalizeImageSizeControls({
                 resolution: requestedResolution,
-                aspect: sizePlan.aspectRatio ?? readValue(documentRef, `${node.id}-aspect`, node.data?.aspect || ''),
-                customWidth: sizePlan.customWidth ?? readValue(documentRef, `${node.id}-custom-resolution-width`, node.data?.customWidth || ''),
-                customHeight: sizePlan.customHeight ?? readValue(documentRef, `${node.id}-custom-resolution-height`, node.data?.customHeight || '')
+                aspect: sizePlan.aspectRatio ?? readValue(controlDocument, `${node.id}-aspect`, node.data?.aspect || ''),
+                customWidth: sizePlan.customWidth ?? readValue(controlDocument, `${node.id}-custom-resolution-width`, node.data?.customWidth || ''),
+                customHeight: sizePlan.customHeight ?? readValue(controlDocument, `${node.id}-custom-resolution-height`, node.data?.customHeight || '')
             }, protocol);
-            writeValue(documentRef, `${node.id}-resolution`, controls.resolution, createEvent);
-            writeValue(documentRef, `${node.id}-aspect`, controls.aspect, createEvent);
-            writeValue(documentRef, `${node.id}-custom-resolution-width`, controls.customWidth, createEvent);
-            writeValue(documentRef, `${node.id}-custom-resolution-height`, controls.customHeight, createEvent);
+            Object.assign(node.data, controls);
+            writeValue(controlDocument, `${node.id}-resolution`, controls.resolution, createEvent);
+            writeValue(controlDocument, `${node.id}-aspect`, controls.aspect, createEvent);
+            writeValue(controlDocument, `${node.id}-custom-resolution-width`, controls.customWidth, createEvent);
+            writeValue(controlDocument, `${node.id}-custom-resolution-height`, controls.customHeight, createEvent);
         }
-        writeValue(documentRef, `${node.id}-quality`, plan.parameters?.quality, createEvent);
-        writeValue(documentRef, `${node.id}-moderation`, plan.parameters?.moderation, createEvent);
-        writeValue(documentRef, `${node.id}-background`, plan.parameters?.background, createEvent);
-        writeBoolean(documentRef, `${node.id}-search`, plan.parameters?.search, createEvent);
+        writeValue(controlDocument, `${node.id}-quality`, plan.parameters?.quality, createEvent);
+        writeValue(controlDocument, `${node.id}-moderation`, plan.parameters?.moderation, createEvent);
+        writeValue(controlDocument, `${node.id}-background`, plan.parameters?.background, createEvent);
+        writeBoolean(controlDocument, `${node.id}-search`, plan.parameters?.search, createEvent);
         Object.entries(plan.parameters?.protocolParams || {}).forEach(([paramId, value]) => {
-            if (typeof value === 'boolean') writeBoolean(documentRef, `${node.id}-param-${paramId}`, value, createEvent);
-            else writeValue(documentRef, `${node.id}-param-${paramId}`, value, createEvent);
+            if (typeof value === 'boolean') writeBoolean(controlDocument, `${node.id}-param-${paramId}`, value, createEvent);
+            else writeValue(controlDocument, `${node.id}-param-${paramId}`, value, createEvent);
         });
-        writeValue(documentRef, `${node.id}-generation-count`, plan.parameters?.count, createEvent);
+        writeValue(controlDocument, `${node.id}-generation-count`, plan.parameters?.count, createEvent);
         scheduleSave();
         return true;
+    }
+
+    function assertReferenceCompatibility(node, connections, model) {
+        if (!model || !getProtocol(getGenerationInputProtocolId(model))) return;
+        const reason = validateUniversalImageInputs({ state: { ...state, connections }, node });
+        if (reason) throw new Error(reason);
     }
 
     function getTargetConfiguration(nodeId) {
         const node = state.nodes.get(nodeId);
         if (!node) return null;
-        return { modelId: readValue(documentRef, `${nodeId}-apiconfig`, node.apiConfigId || ''),
-            providerId: readValue(documentRef, `${nodeId}-provider`, node.providerId || '') };
+        return { modelId: readValue(controlDocument, `${nodeId}-apiconfig`, node.apiConfigId || ''),
+            providerId: readValue(controlDocument, `${nodeId}-provider`, node.providerId || '') };
     }
     function getReferenceSnapshot(id) {
         const { groups, slots } = projectImageReferences({ state, targetId: id });

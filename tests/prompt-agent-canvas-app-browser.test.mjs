@@ -31,7 +31,7 @@ test('complete application previews, applies, executes and undoes a canvas plan 
         await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已应用并保存')");
         assert.equal(await evaluate("document.querySelectorAll('#nodes-layer .node').length"), 3);
         assert.equal(await evaluate("document.querySelectorAll('#nodes-layer .node.selected').length"), 0);
-        assert.equal(await evaluate("document.querySelector('#nodes-layer select[id$=apiconfig]').value"), 'image-two');
+        await waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.type==='ImageGenerate')?.apiConfigId==='image-two')");
         assert.equal(await evaluate('window.agentRequests.length'), 1);
         for (const theme of ['light', 'dark', 'pink', 'pro', 'paper', 'glass-light', 'glass-dark']) {
             await evaluate(`document.documentElement.dataset.appTheme='${theme}';document.getElementById('prompt-agent-panel').style.width='300px';`);

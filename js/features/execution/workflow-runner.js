@@ -1230,7 +1230,8 @@ export function createWorkflowRunnerApi({
                     inputs[connection.to.port] = appendReferenceImages(
                         inputs[connection.to.port],
                         outputValue,
-                        MAX_REFERENCE_IMAGE_COUNT
+                        // Keep all image-generation inputs for protocol validation before execution.
+                        node?.type === 'ImageGenerate' ? Infinity : MAX_REFERENCE_IMAGE_COUNT
                     );
                 } else {
                     inputs[connection.to.port] = outputValue;

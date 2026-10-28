@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {normalizePlanInputs,projectPlanConnections,referenceManifest,assertPromptOnlyReferenceRecipe} from '../js/features/prompt-agent/prompt-agent-reference-inputs.js';
+import { projectImageReferences } from '../js/nodes/image-reference-projection.js';
 const link=(source,port,order)=>({from:{ref:source,port:'image'},to:{ref:'g',port},order});
 test('canonical input replacement keeps the whole ordered batch and removes legacy stale edges',()=>{
  const plan=normalizePlanInputs({steps:[{id:'g',type:'ImageGenerate'}],connections:[link('b','image_2'),link('a','image_1')]});
@@ -31,4 +32,27 @@ test('a previously created and now bound target retains source identity even for
  const previous={id:'p',steps:[{id:'g',type:'ImageGenerate'}],bindings:{g:'T'},connections:[],referenceManifest:[{nodeId:'T',inputs:[{nodeId:'A',port:'image',assets:['media:same']}]}]};
  const next={id:'n',steps:[{id:'g',nodeId:'T',type:'ImageGenerate'}],bindings:{},connections:[]};
  assert.throws(()=>assertPromptOnlyReferenceRecipe(previous,next,context),/来源|参考图/);
+});
+
+test('repeating unchanged reference sources preserves their original edges, endpoints, orders and JSON extensions', () => {
+ const old=[{id:'legacy-edge',type:'image',order:7,extension:{keep:['edge']},from:{nodeId:'a',port:'image',extension:{keep:'from'}},to:{nodeId:'g',port:'image_2',extension:{keep:'to'}}},
+  {id:'prompt-edge',from:{nodeId:'text',port:'text'},to:{nodeId:'g',port:'prompt'},extension:{keep:'unrelated'}}];
+ const plan=normalizePlanInputs({steps:[{id:'g',type:'ImageGenerate'}],connections:[link('a','referenceImages',0)]});
+ assert.deepEqual(projectPlanConnections(plan,old,id=>id),old);
+});
+
+test('Agent manifests follow the same legacy and canonical connection order as the complete canvas references', () => {
+ const nodes=['legacy','canonical','g'].map(id=>({id,type:id==='g'?'ImageGenerate':'ImageImport',assets:[`media:${id}`],data:{mediaAssetKeys:[`media:${id}`]}}));
+ const connections=[{id:'old',from:{nodeId:'legacy',port:'image'},to:{nodeId:'g',port:'image_2'}},
+  {id:'new',from:{nodeId:'canonical',port:'image'},to:{nodeId:'g',port:'referenceImages'},order:0}];
+ const state={nodes:new Map(nodes.map(node=>[node.id,node])),connections};
+ assert.deepEqual(referenceManifest(nodes,connections,['g'])[0].inputs.map(input=>input.nodeId),
+  projectImageReferences({state,targetId:'g'}).groups.map(group=>group.source.id));
+ const repeated=normalizePlanInputs({steps:[{id:'g',type:'ImageGenerate'}],connections:[link('legacy','image_2'),link('canonical','referenceImages',0)]});
+ assert.deepEqual(projectPlanConnections(repeated,connections,id=>id),connections);
+});
+
+test('plan input normalization does not impose a protocol-independent source limit', () => {
+ const plan={steps:[{id:'g',type:'ImageGenerate'}],connections:Array.from({length:65},(_,index)=>link(`s${index}`,'referenceImages',index))};
+ assert.equal(normalizePlanInputs(plan).connections.length,65);
 });
