@@ -6,11 +6,11 @@ import { isImageFirstCardNode } from '../../nodes/image-first-presentation.js';
 import { getCanonicalImageList, getCanonicalImageIndex } from '../execution/execution-data-utils.js';
 import { projectImageOutput } from '../../nodes/image-output-projection.js';
 
-const nodeLabels = { ImageGenerate: '图片生成', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色' };
+const nodeLabels = { ImageGenerate: '图片生成', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比' };
 
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
-    runToNode, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection }) {
+    runToNode, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections }) {
     const views = new Map();
     const panel = documentRef.createElement('section');
     panel.id = 'image-parameter-panel';
@@ -108,17 +108,24 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             const message = node.el.querySelector('.preview-container')?.dataset.processingMessage;
             view.model.textContent = `${nodeLabels[node.type]}${message ? ` · ${message}` : ''}`;
             view.references.textContent = `输入 ${state.connections.filter(edge => edge.to.nodeId === node.id).length}`;
+        } else if (node.type === 'ImageCompare') {
+            const message = node.el.querySelector('.image-compare-container')?.dataset.compareMessage;
+            view.model.textContent = `${nodeLabels[node.type]}${message ? ` · ${message}` : ''}`;
+            const edges = state.connections.filter(edge => edge.to.nodeId === node.id);
+            view.references.textContent = `A ${edges.some(edge => edge.to.port === 'imageA') ? '已连接' : '可选'} · B ${edges.some(edge => edge.to.port === 'imageB') ? '已连接' : '必需'}`;
         }
         view.inputs?.refresh();
         if (current === node) {
             const running = state.runningNodeIds?.has(node.id) || ['waiting', 'running'].includes(node.runStatus) || node.el.classList.contains('running');
             generate.hidden = node.type === 'ImageImport';
             generate.textContent = node.type === 'ImagePreview' ? (running ? '更新中' : '更新预览')
+                : node.type === 'ImageCompare' ? (running ? '更新中' : '更新对比')
                 : node.type === 'ImageResize' ? (running ? '处理中' : '处理图片')
                     : node.type === 'ColorReset' ? (running ? '调色中' : '应用调色') : (running ? '生成中' : '生成');
             generate.disabled = running || node.enabled === false;
             feedback.textContent = node.type === 'ImageImport' ? '在卡片选择文件，或切换 URL 输入链接。'
                 : node.type === 'ImagePreview' ? (node.previewInputState === 'stale' ? '未更新 · 当前无输入' : node.previewInputState === 'empty' ? '当前无输入' : '预览当前连接的图片')
+                    : node.type === 'ImageCompare' ? node.el.querySelector('.image-compare-container')?.dataset.compareMessage || 'B 为必需输入；A 可选，移动指针调整分界。'
                     : node.type === 'ImageResize' || node.type === 'ColorReset' ? '修改即时预览；点击按钮执行当前节点。'
                     : documentRef.getElementById(`${node.id}-run-status`)?.textContent || '修改不会自动生成';
             schedulePosition();
@@ -169,7 +176,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         node.el.classList.add('image-first-card');
         node.el.dataset.imageFirst = 'true';
         const observer = new MutationObserver(() => { if (state.nodes.get(node.id) === node) refreshNode(node.id); });
-        for (const element of observed.filter(Boolean)) observer.observe(element, { attributes: true, childList: true, subtree: true });
+        for (const element of observed.filter(Boolean)) observer.observe(element, {
+            attributes: true, childList: true, subtree: true,
+            ...(node.type === 'ImageCompare' ? { attributeFilter: ['src', 'data-compare-state', 'data-compare-message'] } : {})
+        });
         observer.observe(node.el, { attributes: true, attributeFilter: ['style','class'] });
         view.observer = observer;
         views.set(node, view); store.append(form);
@@ -178,7 +188,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         form.addEventListener('input', () => { refreshNode(node.id); onSettingsChanged(node.id); });
         form.addEventListener('change', () => { refreshNode(node.id); onSettingsChanged(node.id); });
         node.el.addEventListener('click', event => {
-            if (event.target.closest('.color-reset-preview.is-picking')) return;
+            if (event.target.closest('.color-reset-preview.is-picking,.image-compare-divider')) return;
             if (!event.target.closest('button,input,textarea,select,.node-port,.node-select')) select(node);
         });
         if (!Array.isArray(node.el._cleanupFns)) node.el._cleanupFns = [];
@@ -212,15 +222,15 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             observed.push(body.querySelector(`[id="${node.id}-upload-section"]`), urlSection);
         } else {
             installUniversalInput(node);
-            inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, onChange: () => refreshNode(node.id) });
+            inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, swapInputConnections, onChange: () => refreshNode(node.id) });
             inputs.element.dataset.parameterGroup = 'input'; sections.push(inputs.element); form.append(inputs.element);
             references = documentRef.createElement('button'); references.type = 'button';
             references.addEventListener('click', () => select(node, 'input')); summary.append(references);
-            observed.push(body.querySelector(`[id="${node.id}-preview"]`));
+            observed.push(body.querySelector(`[id="${node.id}-${node.type === 'ImageCompare' ? 'compare' : 'preview'}"]`));
         }
         body.append(summary);
         registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, model, references, inputs, urlFields,
-            group: node.type === 'ImagePreview' ? 'input' : null }, observed);
+            group: node.type === 'ImagePreview' || node.type === 'ImageCompare' ? 'input' : null }, observed);
     }
     function installProcessing(node) {
         const body = node.el.querySelector('.node-body');
@@ -259,7 +269,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         sweep();
         const node = state.nodes.get(nodeId);
         if (!isImageFirstCardNode(node) || views.has(node)) return;
-        if (node.type === 'ImageImport' || node.type === 'ImagePreview') { installMedia(node); return; }
+        if (node.type === 'ImageImport' || node.type === 'ImagePreview' || node.type === 'ImageCompare') { installMedia(node); return; }
         if (node.type === 'ImageResize' || node.type === 'ColorReset') { installProcessing(node); return; }
         if (node.type !== 'ImageGenerate') return;
         const body = node.el.querySelector('.node-body');

@@ -24,3 +24,16 @@ export function projectImageOutput(node, values) {
     const missingPositions = (node?.data?.mediaIntegrity?.missingItems || []).map(item => item.position);
     return { assets, count, compacted, missingPositions, images: compacted ? [] : images };
 }
+
+/** Read the actual first output of a single-image consumer, keeping source slots intact. */
+export async function readPrimaryImageOutput(node, values, readAsset = null) {
+    const output = projectImageOutput(node, values);
+    if (output.remote) return output.images[0] || null;
+    if (output.missingPositions.includes(0)) return null;
+    const raw = [node?.data?.imageList, node?.data?.images, node?.imageDataList].find(list => Array.isArray(list) && list.length);
+    if (raw && !raw[0]) return null;
+    if (output.images.length) return output.images[0];
+    const key = node?.type === 'ImageImport' ? getImageImportMediaAssetReferences(node)[0]
+        : node?.data?.mediaAssetKeys?.[0] || node?.data?.imageAssetKey;
+    return key && readAsset ? await readAsset(key) || null : null;
+}

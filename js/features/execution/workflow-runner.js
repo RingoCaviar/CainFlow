@@ -1,6 +1,7 @@
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
+import { readPrimaryImageOutput } from '../../nodes/image-output-projection.js';
 import { validateUniversalImageInputs } from '../../nodes/universal-input-policy.js';
 import { getResolvedProviderForModel } from './provider-request-utils.js';
 import { getNodeRunTimeoutSeconds } from './async-media-execution.js';
@@ -74,7 +75,8 @@ export function showNodeExecutionFailure(node, error) {
 
 function isUnbatchedImageInput(node, portName) {
     return isMultiConnectionInput(node?.type, portName) || (node?.type === 'ImageGenerate' && portName === 'mask')
-        || (['ImageResize', 'ColorReset'].includes(node?.type) && portName === 'image');
+        || (['ImageResize', 'ColorReset'].includes(node?.type) && portName === 'image')
+        || (node?.type === 'ImageCompare' && ['imageA', 'imageB'].includes(portName));
 }
 
 export function shouldRunNodeForEachInput(node, inputs) {
@@ -549,6 +551,7 @@ export function createWorkflowRunnerApi({
     }
 
     function getPreservedNodeDataForReset(node) {
+        if (node?.type === 'ImageCompare') return { ...(node.data || {}), comparePosition: node.comparePosition ?? node.data?.comparePosition ?? 50 };
         if (node?.type === 'ImageResize') return { ...(node.data || {}), ...readImageResizeSettings(node) };
         if (node?.type === 'ColorReset') {
             const { samplePoint, ...settings } = readColorResetConfig(node, documentRef);
@@ -1031,6 +1034,13 @@ export function createWorkflowRunnerApi({
             if (videos) return videos;
         }
         if (portName === 'image') {
+            if (['ImageResize', 'ColorReset', 'ImageCompare'].includes(toNode?.type)) {
+                return await readPrimaryImageOutput(fromNode, getNodeImageOutputList(fromNode), async key => {
+                    if (key.startsWith('media:')) return await getImageAsset(key);
+                    const legacy = await getImageAssetList(key);
+                    return legacy?.[0] || await getImageAsset(key);
+                });
+            }
             if (fromNode.type === 'ImageImport') {
                 const importedImage = await restoreImageImportOutput(fromNode);
                 if (importedImage) return importedImage;

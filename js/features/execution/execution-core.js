@@ -2390,9 +2390,17 @@ export function createExecutionCoreApi({
         },
         ImageCompare: async (node, inputs) => {
             const { id } = node;
-            const imageA = getPrimaryImageInput(inputs.imageA);
-            const imageB = getPrimaryImageInput(inputs.imageB);
+            const primary = port => {
+                const edge = state.connections.find(connection => connection.to?.nodeId === id && connection.to?.port === port);
+                const source = state.nodes.get(edge?.from?.nodeId);
+                if (source?.enabled === false || source?.data?.mediaIntegrity?.missingItems?.some(item => Number(item.position) === 0)) return '';
+                const value = inputs[port];
+                return Array.isArray(value) ? (typeof value[0] === 'string' ? value[0] : '') : getPrimaryImageInput(value);
+            };
+            const imageA = primary('imageA');
+            const imageB = primary('imageB');
             if (!imageB) {
+                await syncImageCompareNode(id, null, null);
                 const error = new Error('B 输入未连接图片');
                 error.inputPort = 'imageB';
                 throw error;

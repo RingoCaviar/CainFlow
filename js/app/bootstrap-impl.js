@@ -699,6 +699,7 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
     fitNode: (id, options) => fitNodeToContent(id, options),
     bindPorts: container => nodeDomBindingsApi.bindNodePorts(container),
     updateInputConnection: (id, change) => connectionsApi.updateInputConnection(id, change),
+    swapInputConnections: id => connectionsApi.swapInputConnections(id),
     onSettingsChanged: id => nodeDomBindingsApi.syncDependentPromptSources(id)
 });
 const nodeDomBindingsApi = createNodeDomBindingsApi({

@@ -1313,6 +1313,9 @@ export function createNodeLifecycleApi({
             nodeData.collapsedExpandedHeight = Math.round(restoredCollapsedExpandedHeight);
         }
         if (normalizedType === 'ImageCompare') {
+            const savedPosition = Number(effectiveRestoreData?.comparePosition ?? 50);
+            nodeData.comparePosition = Number.isFinite(savedPosition) ? Math.max(0, Math.min(100, savedPosition)) : 50;
+            nodeData.data.comparePosition = nodeData.comparePosition;
             const restoredCompareA = typeof effectiveRestoreData?.compareImageA === 'string' && effectiveRestoreData.compareImageA.trim()
                 ? effectiveRestoreData.compareImageA
                 : '';
