@@ -28,3 +28,58 @@ dialog{color:var(--text);background:var(--surface);border:1px solid var(--border
 .node-resize{position:absolute;right:2px;bottom:2px;width:16px;height:16px;display:grid;place-items:center;cursor:nwse-resize;color:var(--faint);font-size:14px;z-index:2}.node-resize:focus-visible{outline:2px solid var(--accent)}
 
 .agent-context{padding:12px;margin-bottom:16px;background:var(--surface-2);border-radius:8px;font-size:12px}.agent-context strong{font-weight:500;color:var(--accent)}.agent-context p{font-size:11px;color:var(--muted);margin:7px 0}.agent-context-refs{display:flex;flex-direction:column;gap:6px;font-size:11px}.model-row{display:flex;align-items:center;gap:7px}.model-row label{flex:1;min-width:0}.model-row select{max-width:100%;min-width:0}.node-title{font-size:13px}.node-main{padding-block:10px}
+
+/* Review refinement: image-only cards, an inset prompt action and compact sources. */
+.node>.node-header{display:none;position:absolute;left:0;right:0;top:-28px;height:24px;min-height:0;padding:0 2px;gap:6px;border:0;border-radius:0;background:transparent;box-shadow:none;z-index:4;cursor:grab}
+.node.selected>.node-header{display:flex}
+.node>.node-header:active{cursor:grabbing}
+.node-header .node-kind{font-size:13px;color:var(--muted)}
+.node-header .node-title{font-size:12px;font-weight:500;line-height:1.4;color:var(--text)}
+.node-header .node-id{font-size:11px;color:var(--faint)}
+.node-header .node-head-actions{margin-left:auto;gap:0}
+.node-header .node-head-actions .icon-btn{width:22px;min-width:22px;height:22px;min-height:22px;padding:2px;border:0;background:transparent}
+.node-header .node-head-actions .icon-btn:hover{background:var(--surface-2)}
+.parameter-panel>.panel-header{height:25px;min-height:25px;flex-shrink:0;padding:2px 6px 0;border:0;background:transparent;gap:0}
+.parameter-panel .panel-target,.parameter-panel .panel-header .panel-mode{display:none}
+.parameter-panel .panel-controls{display:flex;align-items:center;gap:2px;margin-left:auto;flex-shrink:0}
+.parameter-panel .panel-controls .icon-btn{width:21px;min-width:21px;height:21px;min-height:21px;padding:2px;font-size:13px;background:transparent;border:0;border-radius:4px}
+.parameter-panel .panel-controls .icon-btn:hover{background:var(--surface-2)}
+.parameter-panel.expanded>.panel-header{cursor:grab}
+.parameter-panel.expanded>.panel-header:active{cursor:grabbing}
+.parameter-panel .panel-body{padding-top:3px;container-name:parameter-content;container-type:inline-size}
+.prompt-shell{position:relative;min-width:0;border:1px solid var(--border-soft);border-radius:7px;background:var(--input);overflow:hidden}
+.prompt-shell:focus-within{border-color:var(--accent)}
+.prompt-shell>.prompt-editor{display:block;width:100%;min-height:108px;margin:0;padding:9px 11px 39px;border:0;border-radius:7px;background:transparent;font-size:13px;line-height:1.65;resize:vertical}
+.prompt-shell>.prompt-editor:focus-visible{outline-offset:-3px}
+.prompt-optimize{position:absolute;right:17px;bottom:7px;display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:25px;padding:3px 7px;border:1px solid var(--border-soft);border-radius:5px;background:var(--surface-2);color:var(--muted);font-size:11px;line-height:1.4;white-space:nowrap}
+.prompt-optimize:hover:not(:disabled){border-color:var(--border);background:var(--surface-3);color:var(--accent)}
+.reference-grid{grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:7px;max-height:210px;align-items:start;align-content:start;padding-right:2px}
+.parameter-panel.expanded .reference-grid,.reference-grid.expanded,.reference-grid.is-expanded,.reference-grid[data-expanded="true"]{max-height:320px}
+.reference-group{min-width:0;padding:6px;border-radius:6px;align-self:start}
+.reference-group:not(.single-reference){grid-column:auto}
+.reference-group.inactive{opacity:.58}
+.reference-heading{gap:4px;min-height:16px;margin:0 0 5px;font-size:11px;line-height:1.4}
+.reference-heading .drag-handle{width:8px;flex:0 0 8px;font-size:11px;line-height:1.4;color:var(--faint);cursor:grab}
+.reference-heading button,.reference-heading .source-title{display:block;flex:1;min-width:0;min-height:16px;padding:0;border:0;border-radius:0;background:transparent;text-align:left;font-size:11px;font-weight:400;line-height:1.4;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.reference-heading button:hover,.reference-heading .source-title:hover{background:transparent;border-color:transparent;color:var(--accent)}
+.reference-heading>span:last-child{flex-shrink:0;font-size:11px;line-height:1.4;color:var(--faint);white-space:nowrap}
+.reference-thumbnails{gap:4px;align-items:center;justify-content:flex-start}
+.reference-group .ref-thumb{width:70px;height:56px;min-width:0;flex:0 0 auto;border-radius:4px}
+.single-reference .reference-thumbnails{justify-content:center}
+.single-reference .ref-thumb{width:88px;max-width:100%;height:56px}
+.reference-group .ref-number{font-size:11px;line-height:1.35;padding:0 2px;color:var(--text);background:var(--surface);border-radius:2px}
+.ref-actions{gap:1px;margin-top:5px;min-height:20px;flex-wrap:nowrap}
+.ref-actions button{display:inline-flex;align-items:center;justify-content:center;flex:1 1 16px;width:auto;min-width:16px;height:20px;min-height:20px;margin:0;padding:0;border:1px solid var(--border-soft);border-radius:4px;background:var(--surface);color:var(--muted);font-size:12px;line-height:1}
+.ref-actions button:hover:not(:disabled){background:var(--surface-3);border-color:var(--border);color:var(--text)}
+.ref-actions .disconnect,.ref-actions [data-action="ref-disconnect"]{margin-left:0}
+.ref-actions .disconnect:hover:not(:disabled),.ref-actions [data-action="ref-disconnect"]:hover:not(:disabled){color:var(--danger)}
+.ref-actions [data-action="ref-disable"]{flex:1.6 1 30px;min-width:27px;margin-left:0;font-size:11px}
+.reference-grid>.helper,.reference-grid>.ref-empty{grid-column:1/-1}
+.reference-group .error-text,.reference-group .ref-missing{display:block;width:100%;padding:4px 0;color:var(--warning);font-size:11px;line-height:1.5;overflow-wrap:anywhere}
+@container parameter-content (min-width:270px){.reference-group:not(.single-reference){grid-column:span 2}}
+.panel-grip{display:none}
+.parameter-panel.expanded .panel-grip{display:block;flex:1;padding-left:44px;text-align:center;color:var(--faint);font-size:14px;line-height:1;letter-spacing:3px;opacity:.6;user-select:none;cursor:grab}
+.reference-bottom{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:5px 9px;margin-top:8px}
+.reference-bottom .reference-add{margin:0;padding:4px 7px;min-height:27px;font-size:11px}
+.reference-bottom .helper{margin:0;font-size:11px;line-height:1.5}
+.reference-section-label>span:last-child{font-size:11px;font-weight:400;color:var(--faint)}
