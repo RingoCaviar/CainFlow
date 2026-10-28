@@ -319,6 +319,9 @@ const {
 } = indexedDbApi;
 const cameraControlNodeApi = createCameraControlNodeApi({
     state,
+    getImageAsset,
+    getImageAssetList,
+    getActiveWorkflowId: () => workflowManagerApi.getActiveWorkflowId?.() || state.activeWorkflowId || '',
     fitNodeToContent: (nodeId) => fitNodeToContent(nodeId),
     scheduleSave: () => scheduleSave(),
     showToast,

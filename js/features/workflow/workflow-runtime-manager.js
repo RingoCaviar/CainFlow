@@ -1007,17 +1007,17 @@ export function createWorkflowRuntimeManager({
                     : '连接多个文本输入后，输出合并后的多文本数据';
             }
         } else if (runtimeNode.type === 'CameraControl') {
+            for (const key of ['pitch', 'yaw', 'distance', 'fov', 'roll', 'cameraViewMode', 'text', 'cameraPrompt']) {
+                if (runtimeNode.data?.[key] !== undefined) node.data[key] = runtimeNode.data[key];
+            }
             const imageValue = typeof runtimeNode?.data?.image === 'string'
                 ? runtimeNode.data.image
-                : (typeof runtimeNode.imageData === 'string' ? runtimeNode.imageData : '');
-            if (imageValue) {
-                node.data.image = imageValue;
-                node.imageData = imageValue;
-            }
+                : '';
+            node.data.image = imageValue;
             if (typeof runtimeNode?.data?.cameraPreviewImage === 'string') {
                 node.data.cameraPreviewImage = runtimeNode.data.cameraPreviewImage;
             }
-            syncCameraControlNode(runtimeNodeId, imageValue);
+            await syncCameraControlNode(runtimeNodeId, imageValue);
         }
 
         scheduleVisibleNodeFit(runtimeNodeId);
@@ -1683,6 +1683,9 @@ export function createWorkflowRuntimeManager({
         let runtimeRunnerApi = null;
         const runtimeCameraApi = createCameraControlNodeApi({
             state: runtimeState,
+            getImageAsset,
+            getImageAssetList,
+            getActiveWorkflowId: () => workflowId,
             fitNodeToContent: () => {},
             scheduleSave: () => {},
             showToast,

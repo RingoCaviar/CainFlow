@@ -2499,9 +2499,11 @@ export function createExecutionCoreApi({
             connectionProjection?.nodeGeometryChanged(node.id);
         },
         CameraControl: async (node, inputs = {}) => {
-            if (Object.prototype.hasOwnProperty.call(inputs, 'image')) {
-                node.data.image = getPrimaryImageInput(inputs.image);
-            }
+            const edge = state.connections.find(edge => edge.to.nodeId === node.id && edge.to.port === 'image');
+            const source = edge && state.nodes.get(edge.from.nodeId);
+            const input = Array.isArray(inputs.image) ? inputs.image[0] : inputs.image;
+            const missing = source?.data?.mediaIntegrity?.missingItems?.some(item => item.position === 0);
+            node.data.image = source?.enabled === false || missing ? '' : getPrimaryImageInput(input);
             const cameraData = {
                 pitch: Number(node.data?.pitch ?? 12),
                 yaw: Number(node.data?.yaw ?? 28),
@@ -2512,7 +2514,7 @@ export function createExecutionCoreApi({
             const promptText = generateCameraPrompt(cameraData);
             node.data.text = promptText;
             node.data.cameraPrompt = promptText;
-            syncCameraControlNode(node.id, getPrimaryImageInput(inputs.image) || node.data.image || '');
+            await syncCameraControlNode(node.id, node.data.image);
             connectionProjection?.nodeGeometryChanged(node.id);
         },
         TextSplit: async (node, inputs = {}) => {

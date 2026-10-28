@@ -5,8 +5,10 @@ import { createImageInputDetail } from './image-input-detail.js';
 import { isImageFirstCardNode } from '../../nodes/image-first-presentation.js';
 import { getCanonicalImageList, getCanonicalImageIndex } from '../execution/execution-data-utils.js';
 import { projectImageOutput } from '../../nodes/image-output-projection.js';
+import { normalizeCameraState } from '../camera/camera-prompt-utils.js';
 
-const nodeLabels = { ImageGenerate: '图片生成', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比', ImageMerge: '多图合一', ImageSave: '保存节点' };
+const nodeLabels = { ImageGenerate: '图片生成', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比', ImageMerge: '多图合一', ImageSave: '保存节点', CameraControl: '视角控制' };
+const cameraFields = [['pitch', '俯仰角 Pitch'], ['yaw', '偏航角 Yaw'], ['distance', '距离 Distance'], ['fov', '视野角 FOV'], ['roll', '翻滚角 Roll']];
 
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
@@ -120,6 +122,16 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             const message = node.el.querySelector('.save-preview-container')?.dataset.saveMessage;
             view.model.textContent = `图片 ${count} 张 · 视频 ${videos.length} 个${message ? ` · ${message}` : ''}`;
             view.references.textContent = `输入 ${state.connections.filter(edge => edge.to.nodeId === node.id).length}`;
+        } else if (node.type === 'CameraControl') {
+            const settings = normalizeCameraState(Object.fromEntries(cameraFields.map(([key]) => [key, node.data?.[key] ?? node[key]])));
+            const message = node.el.querySelector('.camera-control-node-preview')?.dataset.cameraMessage;
+            view.model.textContent = `俯仰 ${settings.pitch}° · 偏航 ${settings.yaw}°${message ? ` · ${message}` : ''}`;
+            view.references.textContent = `输入 ${state.connections.filter(edge => edge.to.nodeId === node.id).length}`;
+            for (const [key, element] of view.cameraValues) {
+                element.textContent = key === 'viewMode' ? (node.data?.cameraViewMode === 'thirdPerson' ? '第三人称' : '第一人称')
+                    : `${settings[key]}${key === 'distance' ? '' : '°'}`;
+            }
+            view.cameraPrompt.textContent = node.data?.cameraPrompt || node.data?.text || '';
         }
         view.inputs?.refresh();
         if (current === node) {
@@ -129,14 +141,16 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 : node.type === 'ImageCompare' ? (running ? '更新中' : '更新对比')
                 : node.type === 'ImageMerge' ? (running ? '合并中' : '更新合并')
                 : node.type === 'ImageSave' ? (running ? '更新中' : '更新媒体')
+                : node.type === 'CameraControl' ? '编辑视角'
                 : node.type === 'ImageResize' ? (running ? '处理中' : '处理图片')
                     : node.type === 'ColorReset' ? (running ? '调色中' : '应用调色') : (running ? '生成中' : '生成');
-            generate.disabled = running || node.enabled === false;
+            generate.disabled = running || node.enabled === false || (node.type === 'CameraControl' && (node.isClone || view.cameraOpen?.disabled));
             feedback.textContent = node.type === 'ImageImport' ? '在卡片选择文件，或切换 URL 输入链接。'
                 : node.type === 'ImagePreview' ? (node.previewInputState === 'stale' ? '未更新 · 当前无输入' : node.previewInputState === 'empty' ? '当前无输入' : '预览当前连接的图片')
                     : node.type === 'ImageCompare' ? node.el.querySelector('.image-compare-container')?.dataset.compareMessage || 'B 为必需输入；A 可选，移动指针调整分界。'
                     : node.type === 'ImageMerge' ? node.el.querySelector('.image-merge-preview')?.dataset.mergeMessage || '按图片输入的数字顺序合并每个来源的完整批次。'
                     : node.type === 'ImageSave' ? node.el.querySelector('.save-preview-container')?.dataset.saveMessage || '修改文件名后，使用卡片上的保存按钮保存媒体。'
+                    : node.type === 'CameraControl' ? '在独立编辑器调整相机；参数即时保存，输出为相机提示词。'
                     : node.type === 'ImageResize' || node.type === 'ColorReset' ? '修改即时预览；点击按钮执行当前节点。'
                     : documentRef.getElementById(`${node.id}-run-status`)?.textContent || '修改不会自动生成';
             schedulePosition();
@@ -221,7 +235,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const sections = [], observed = [];
         const summary = documentRef.createElement('div'); summary.className = 'image-first-summary';
         const model = documentRef.createElement('span'); summary.append(model);
-        let inputs = null, references = null, urlFields = null;
+        let inputs = null, references = null, urlFields = null, cameraOpen = null, cameraValues = null, cameraPrompt = null;
         node.el.classList.add('image-first-media');
         if (node.type === 'ImageImport') {
             const mode = body.querySelector('.image-import-mode-shell');
@@ -242,17 +256,30 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 const filename = body.querySelector(`[id="${node.id}-filename"]`)?.closest('.node-field');
                 if (warning) form.append(warning);
                 if (filename) form.append(filename);
+            } else if (node.type === 'CameraControl') {
+                cameraOpen = body.querySelector(`[id="${node.id}-camera-open"]`);
+                const note = body.querySelector('.camera-control-note');
+                if (note) form.append(note);
+                const details = documentRef.createElement('dl'); details.className = 'image-camera-state-summary';
+                details.setAttribute('aria-label', '相机参数（只读）'); cameraValues = new Map();
+                for (const [key, label] of [...cameraFields, ['viewMode', '预览模式']]) {
+                    const row = documentRef.createElement('div'), title = documentRef.createElement('dt'), value = documentRef.createElement('dd');
+                    title.textContent = label; value.dataset.cameraSummary = key; row.append(title, value); details.append(row); cameraValues.set(key, value);
+                }
+                cameraPrompt = documentRef.createElement('output'); cameraPrompt.className = 'image-camera-prompt-summary';
+                cameraPrompt.setAttribute('aria-label', '相机提示词（只读）'); cameraPrompt.tabIndex = 0;
+                form.append(details, cameraPrompt);
             }
             installUniversalInput(node);
             inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, swapInputConnections, moveMergeInputConnection, onChange: () => refreshNode(node.id) });
             inputs.element.dataset.parameterGroup = 'input'; sections.push(inputs.element); form.append(inputs.element);
             references = documentRef.createElement('button'); references.type = 'button';
             references.addEventListener('click', () => select(node, 'input')); summary.append(references);
-            const suffix = { ImageCompare: 'compare', ImageMerge: 'merge-preview', ImageSave: 'save-preview' }[node.type] || 'preview';
+            const suffix = { ImageCompare: 'compare', ImageMerge: 'merge-preview', ImageSave: 'save-preview', CameraControl: 'camera-preview' }[node.type] || 'preview';
             observed.push(body.querySelector(`[id="${node.id}-${suffix}"]`));
         }
         body.append(summary);
-        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, model, references, inputs, urlFields,
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, model, references, inputs, urlFields, cameraOpen, cameraValues, cameraPrompt,
             group: node.type !== 'ImageImport' ? 'input' : null }, observed);
     }
     function installProcessing(node) {
@@ -292,7 +319,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         sweep();
         const node = state.nodes.get(nodeId);
         if (!isImageFirstCardNode(node) || views.has(node)) return;
-        if (node.type === 'ImageImport' || node.type === 'ImagePreview' || node.type === 'ImageCompare' || node.type === 'ImageMerge' || node.type === 'ImageSave') { installMedia(node); return; }
+        if (node.type === 'ImageImport' || node.type === 'ImagePreview' || node.type === 'ImageCompare' || node.type === 'ImageMerge' || node.type === 'ImageSave' || node.type === 'CameraControl') { installMedia(node); return; }
         if (node.type === 'ImageResize' || node.type === 'ColorReset') { installProcessing(node); return; }
         if (node.type !== 'ImageGenerate') return;
         const body = node.el.querySelector('.node-body');
@@ -349,6 +376,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     generate.addEventListener('click', () => {
         if (!current) return;
         if (generate.disabled) return;
+        if (current.type === 'CameraControl') { views.get(current)?.cameraOpen?.click(); return; }
         runToNode(current.id);
     });
     panel.addEventListener('mousedown', event => event.stopPropagation());

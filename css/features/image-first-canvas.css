@@ -462,6 +462,18 @@ html:root #canvas-container .node.image-first-media > .node-body {
 .image-input-feedback { margin: 0; color: var(--accent-warning, var(--text-secondary)); font-size: 12px; overflow-wrap: anywhere; }
 .node.image-first-media .image-merge-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; gap: 7px; }
 .node.image-first-media .image-merge-summary { flex: 0 0 auto; margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.node.image-first-media .camera-control-compact { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; gap: 7px; }
+.node.image-first-media .camera-control-node-preview { order: 1; flex: 1 1 auto; height: 0; min-height: 100px; aspect-ratio: auto; border-color: var(--node-control-border); background: var(--node-control-surface); }
+.node.image-first-media .camera-control-node-preview img { object-fit: contain; }
+.node.image-first-media .camera-control-open-btn { order: 2; flex: 0 0 auto; min-height: 30px; border-color: var(--node-control-border); background: var(--node-control-surface); color: var(--text-primary); }
+.node.image-first-media .camera-control-open-btn:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; box-shadow: none; }
+.image-parameter-panel .camera-control-note { border-color: var(--node-control-border); background: var(--node-control-surface); color: var(--text-secondary); }
+.image-camera-state-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; margin: 0; }
+.image-camera-state-summary > div { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 7px; }
+.image-camera-state-summary dt { color: var(--text-secondary); font-size: 12px; }
+.image-camera-state-summary dd { margin: 0; color: var(--text-primary); font-size: 13px; font-variant-numeric: tabular-nums; }
+.image-camera-prompt-summary { display: block; max-height: 160px; padding: 9px; overflow: auto; border: 1px solid var(--node-control-border); border-radius: 7px; background: var(--node-control-surface); color: var(--text-secondary); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.image-camera-prompt-summary:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 .image-input-order-controls { display: flex; align-items: center; gap: 5px; }
 .node.image-first-processing .image-resize-preview-frame {
     display: flex;

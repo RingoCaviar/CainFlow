@@ -9,7 +9,7 @@ test('unmounted resize parameters preserve dimensions, empty values, quality and
 });
 test('single-image processors keep the complete source batch intact while their handler consumes its primary image once',()=>{
  const images=['first','second','third'];
- for(const type of ['ImageResize','ColorReset']){
+ for(const type of ['ImageResize','ColorReset','CameraControl']){
   const node={type},inputs={image:images};
   assert.equal(shouldRunNodeForEachInput(node,inputs),false);
   assert.deepEqual(buildInputBatches(node,inputs),[inputs]);

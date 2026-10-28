@@ -118,6 +118,7 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
                 ? '将图片、文本、视角或参数接到输入口，自动识别用途。'
                 : node.type === 'ImageCompare' ? '将图片接到输入口，依次分配空闲 A、B。'
                     : node.type === 'ImageSave' ? '将图片或视频接到输入口，分别保留图片和视频用途。'
+                        : node.type === 'CameraControl' ? '将图片接到输入口，用作视角编辑的参考。'
                     : '将图片接到输入口，保留来源的完整批次。';
             element.append(empty); return;
         }
