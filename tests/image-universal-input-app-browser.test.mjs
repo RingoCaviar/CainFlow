@@ -68,8 +68,10 @@ test('generation has one visible input and its detail preserves real roles, batc
             [{ port: 'auto', type: 'any', label: '输入' }], await app.evaluate("document.querySelector('#target .node-ports-row').outerHTML"));
         assert.equal(await app.evaluate("document.querySelectorAll('#target .node-port[data-direction=input]:not([data-port=auto])').length"), 5,
             'canonical inputs stay available for existing logical endpoint adapters');
-        assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#untouched .node-port[data-direction=input]')].map(port=>port.dataset.port)"), ['imageA', 'imageB'],
-            'this ticket does not migrate other image node types');
+        assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#untouched .node-port[data-direction=input]')].filter(port=>port.dataset.port!=='auto').map(port=>port.dataset.port)"), ['imageA', 'imageB'],
+            'the migrated comparison card retains both canonical logical inputs');
+        assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#untouched .node-port[data-direction=input]')].filter(port=>port.getClientRects().length).map(port=>port.dataset.port)"), ['auto'],
+            'the complete image family now shares the same visible universal input');
 
         await generateSources(app, [['references', 2, true], ['mask', 2]]);
 

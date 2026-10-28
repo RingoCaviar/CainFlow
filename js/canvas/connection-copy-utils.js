@@ -8,7 +8,7 @@ import {
     MAX_REFERENCE_IMAGE_COUNT
 } from '../nodes/reference-image-ports.js';
 import { getGenerationNodeInputConnectionPolicy } from '../nodes/generation-input-projection.js';
-import { isUniversalInputNode } from '../nodes/universal-input-policy.js';
+import { isUniversalInputNode, resolveUniversalInput } from '../nodes/universal-input-policy.js';
 export function createConnectionId() {
     return 'c_' + Math.random().toString(36).substr(2, 9);
 }
@@ -86,7 +86,7 @@ function isNodeRunning(state, nodeId) {
     return state.runningNodeIds?.has(nodeId) || state.nodes.get(nodeId)?.el?.classList?.contains('running');
 }
 
-function canAppendConnection(state, connection) {
+function canAppendConnection(state, connection, validateUniversalInputs) {
     if (!state.nodes.has(connection.from.nodeId) || !state.nodes.has(connection.to.nodeId)) {
         return false;
     }
@@ -101,6 +101,15 @@ function canAppendConnection(state, connection) {
     }
     const multiConnectionInput = isMultiConnectionInput(state, connection.to);
     const targetNode = state.nodes.get(connection.to.nodeId);
+    if (validateUniversalInputs && isUniversalInputNode(targetNode)) {
+        const role = targetNode.type === 'ImageGenerate'
+            && (connection.to.port === 'image' || /^image_\d+$/.test(connection.to.port))
+            ? 'referenceImages' : connection.to.port;
+        const resolved = resolveUniversalInput({ state,
+            sourceNode: state.nodes.get(connection.from.nodeId), sourcePort: connection.from.port,
+            sourceType: connection.type, targetNode, role });
+        if (resolved.error) return false;
+    }
     const projectedPolicy = getGenerationNodeInputConnectionPolicy(targetNode, connection.to.port);
     if (projectedPolicy && !projectedPolicy.supported) return false;
     if (!multiConnectionInput && hasInputConnection(state, connection.to)) {
@@ -140,7 +149,7 @@ function buildMappedConnection(snapshot, idMap, kind) {
     });
 }
 
-function appendConnectionList(state, idMap, entries) {
+function appendConnectionList(state, idMap, entries, validateUniversalInputs) {
     let added = 0;
     let skipped = 0;
     const counts = {
@@ -175,7 +184,7 @@ function appendConnectionList(state, idMap, entries) {
             mappedEntry = orderedMultiConnections.get(key).shift();
             mappedConnection = mappedEntry.connection;
         }
-        if (!mappedConnection || !canAppendConnection(state, mappedConnection)) {
+        if (!mappedConnection || !canAppendConnection(state, mappedConnection, validateUniversalInputs)) {
             skipped += 1;
             counts[mappedEntry.kind].skipped += 1;
             return;
@@ -198,7 +207,8 @@ export function appendMappedConnectionSnapshots({
     idMap,
     internalConnections = [],
     externalConnections = [],
-    includeExternalConnections = false
+    includeExternalConnections = false,
+    validateUniversalInputs = false
 }) {
     const entries = [
         ...internalConnections.map((snapshot) => ({ snapshot, kind: 'internal' })),
@@ -206,7 +216,9 @@ export function appendMappedConnectionSnapshots({
             ? externalConnections.map((snapshot) => ({ snapshot, kind: 'external' }))
             : [])
     ];
-    const result = appendConnectionList(state, idMap, entries);
+    // Copy/restore retains historical relationships. A bypass preflight opts
+    // into current policy because it would introduce new input relationships.
+    const result = appendConnectionList(state, idMap, entries, validateUniversalInputs);
 
     return {
         added: result.added,

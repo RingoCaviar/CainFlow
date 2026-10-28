@@ -130,13 +130,19 @@ function Invoke-NodeTests {
 
   $testFiles = @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot "tests") -Filter "*.test.mjs" -File |
     Sort-Object FullName |
-    ForEach-Object { $_.FullName })
+    ForEach-Object { Join-Path "tests" $_.Name })
   if ($testFiles.Count -eq 0) {
     throw "No Node test files were found."
   }
-  & $NodeCommand --test --test-concurrency=1 @testFiles
-  if ($LASTEXITCODE -ne 0) {
-    throw "Node test suite failed."
+  # Relative paths keep the complete explicit file list within Windows command-line limits.
+  Push-Location $RepoRoot
+  try {
+    & $NodeCommand --test --test-concurrency=1 @testFiles
+    if ($LASTEXITCODE -ne 0) {
+      throw "Node test suite failed."
+    }
+  } finally {
+    Pop-Location
   }
 }
 

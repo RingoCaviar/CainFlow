@@ -56,11 +56,18 @@ test('canvas toolbar keeps action groups together across themes and wrapped widt
         assert.equal(await evaluate("document.getElementById('help-panel').classList.contains('active')"), true, 'Escape should dismiss More before the drawer behind it');
         await evaluate("document.getElementById('btn-close-help').click()");
         await send('Emulation.setDeviceMetricsOverride', { width: 320, height: 240, deviceScaleFactor: 1, mobile: false });
-        assert.equal(await evaluate(`(() => {
+        await waitFor("Math.abs(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--toolbar-height'))-document.getElementById('toolbar').offsetHeight)<1");
+        const shortWindowHit = await evaluate(`(() => {
             const trigger = document.querySelector('#toolbar-workflow-more summary');
             const rect = trigger.getBoundingClientRect();
-            return trigger.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
-        })()`), true, 'canvas navigation must not cover the toolbar in a short window');
+            const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+            return { reachable: trigger.contains(hit), trigger: rect.toJSON(), hitId: hit?.id, hitClass: hit?.className,
+                hitAction: hit?.closest('[data-parameter-action]')?.dataset.parameterAction,
+                toolbar: document.getElementById('toolbar').getBoundingClientRect().toJSON(),
+                navigation: document.getElementById('canvas-navigation').getBoundingClientRect().toJSON(),
+                switcher: document.querySelector('.image-panel-switcher')?.getBoundingClientRect().toJSON() };
+        })()`);
+        assert.equal(shortWindowHit.reachable, true, `floating canvas controls must not cover the toolbar in a short window: ${JSON.stringify(shortWindowHit)}`);
         await evaluate("document.querySelector('#toolbar-workflow-more summary').click()");
         assert.equal(await evaluate(`(() => {
             const menu = document.querySelector('.toolbar-more-menu');

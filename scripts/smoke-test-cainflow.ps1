@@ -27,7 +27,15 @@ function Resolve-RepoRoot {
 function Remove-PathIfExists {
   param([string]$Path)
   if (Test-Path -LiteralPath $Path) {
-    Remove-Item -LiteralPath $Path -Recurse -Force
+    $resolvedTarget = (Resolve-Path -LiteralPath $Path).Path
+    $resolvedTemp = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd('\', '/')
+    $targetParent = Split-Path -Parent $resolvedTarget
+    $targetName = Split-Path -Leaf $resolvedTarget
+    if (![string]::Equals($targetParent, $resolvedTemp, [System.StringComparison]::OrdinalIgnoreCase) -or
+        $targetName -notmatch '^cainflow-(?:source-)?smoke-[0-9a-f]{32}$') {
+      throw "Refusing to remove a path outside this smoke test's temporary directories: $resolvedTarget"
+    }
+    Remove-Item -LiteralPath $resolvedTarget -Recurse -Force
   }
 }
 

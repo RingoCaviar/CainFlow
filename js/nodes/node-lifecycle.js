@@ -1955,7 +1955,8 @@ export function createNodeLifecycleApi({
             return true;
         });
         return appendMappedConnectionSnapshots({
-            state: projected, idMap: new Map([...state.nodes.keys()].map(id => [id, id])), internalConnections: candidates
+            state: projected, idMap: new Map([...state.nodes.keys()].map(id => [id, id])), internalConnections: candidates,
+            validateUniversalInputs: true
         }).skipped === 0;
     }
 

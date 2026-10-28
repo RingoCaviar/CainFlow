@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { createWorkflowDesk } from '../js/features/workflow/workflow-desk.js';
 import { createWorkflowRuntimeManager } from '../js/features/workflow/workflow-runtime-manager.js';
+import { createMediaControllerApi } from '../js/features/media/media-controller.js';
 
 function element(value = '') {
     return { value, textContent: '', innerHTML: '', disabled: true, className: '', style: {}, classList: { add() {}, remove() {}, toggle() {} }, querySelector: () => null, querySelectorAll: () => [] };
@@ -154,7 +155,10 @@ test('background save-node projection publishes its complete ordered video batch
     const visibleNode = { id: 'save', type: 'ImageSave', enabled: true, data: {}, el: element() };
     const runtimeNode = { id: 'save', type: 'ImageSave', enabled: true, data: { videos, video: videos[1] } };
     const state = { nodes: new Map([[visibleNode.id, visibleNode]]), connections: [], selectedNodes: new Set(), runningNodeIds: new Set(), runningNodeCancelHandlers: new Map(), providers: [], models: [], nodeDefaults: {} };
-    const projected = [];
+    const documentRef = { getElementById: () => null, querySelectorAll: () => [], addEventListener() {} };
+    const windowRef = { setInterval: () => 1, clearInterval() {}, setTimeout: () => 1, clearTimeout() {}, requestAnimationFrame: () => 1 };
+    const media = createMediaControllerApi({ state, getNodeById: id => state.nodes.get(id), documentRef, windowRef,
+        showToast() {}, scheduleSave() {}, estimateDataUrlSize: () => 0 });
     const workflowDesk = createWorkflowDesk({
         resolveSelection: async (selection) => selection,
         prepareEditorView: async () => ({ async commit() { return true; } }),
@@ -171,12 +175,12 @@ test('background save-node projection publishes its complete ordered video batch
             setWorkflowRunResultById: () => true
         }),
         getWorkflowDesk: () => workflowDesk,
-        syncImageSaveNode: async (_nodeId, payload) => { projected.push(payload); },
+        syncImageSaveNode: media.syncImageSaveNode,
         confirmRef: () => true,
         scheduleSave: () => {}, showToast: () => {}, addLog: () => {},
         connectionProjection: { nodeAppearanceChanged() {}, nodeGeometryChanged() {} },
-        documentRef: { getElementById: () => null, implementation: { createHTMLDocument: () => ({}) } },
-        windowRef: { setInterval: () => 1, clearInterval() {} },
+        documentRef,
+        windowRef,
         createRunContext: ({ workflowId, workflowName }) => ({
             id: `${workflowId}:run`, workflowId, workflowName,
             state: { nodes: new Map([[runtimeNode.id, runtimeNode]]), runningNodeIds: new Set(), activeRunCount: 1 },
@@ -199,7 +203,7 @@ test('background save-node projection publishes its complete ordered video batch
     assert.equal(await runtimeManager.runWorkflowInContext({ workflowId: 'workflow-save', workflowName: 'Save' }, { nodes: [{ id: 'save' }], connections: [] }), true);
     await new Promise((resolve) => setImmediate(resolve));
 
-    assert.deepEqual(projected.at(-1).videos, videos);
-    assert.deepEqual(projected.at(-1).video, videos[1]);
+    assert.deepEqual(visibleNode.data.videos, videos, 'the visible media consumer receives both videos in their original order');
+    assert.deepEqual(visibleNode.data.video, videos[1]);
     finishRun();
 });

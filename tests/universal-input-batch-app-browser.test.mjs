@@ -22,7 +22,14 @@ async function graph(app) {
     return app.evaluate("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value)");
 }
 async function leaveBatch(app) {
+    const parametersOpen = await app.evaluate("document.getElementById('image-parameter-panel')?.hidden===false");
     await app.evaluate("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))");
+    if (parametersOpen) {
+        await app.waitFor("document.getElementById('image-parameter-panel').hidden");
+        assert.equal(await app.evaluate("document.getElementById('canvas-container').classList.contains('batch-connection-mode-active')"), true,
+            'Escape closes the visible parameter editor before leaving the underlying batch mode');
+        await app.evaluate("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))");
+    }
     await app.waitFor("!document.getElementById('canvas-container').classList.contains('batch-connection-mode-active')");
 }
 async function shortcut(app, key) {

@@ -108,10 +108,16 @@ function createHarness(connectionCount, {
         runningNodeIds: new Set(running ? ['from'] : []),
         canvas: { x: 0, y: 0, zoom: 1, isPanning: false }
     };
+    const layerAttributes = new Map(), axesAttributes = new Map();
     const connectionsGroup = {
-        setAttribute() {},
+        setAttribute(name, value) { layerAttributes.set(name, value); },
+        getAttribute(name) { return layerAttributes.get(name) ?? null; },
         classList: createClassList(),
         appendChild(path) { paths.push(path); }
+    };
+    const originAxes = {
+        setAttribute(name, value) { axesAttributes.set(name, value); },
+        getAttribute(name) { return axesAttributes.get(name) ?? null; }
     };
     const documentRef = {
         defaultView: {
@@ -158,7 +164,7 @@ function createHarness(connectionCount, {
         canvasContainer: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }) },
         connectionsGroup,
         tempConnection: { setAttribute() {} },
-        originAxes: null,
+        originAxes,
         getNodeById: (id) => nodes.get(id),
         createBezierPath: (fromX, fromY, toX, toY, options) => createBezierPathImpl
             ? createBezierPathImpl(fromX, fromY, toX, toY, options)
@@ -175,6 +181,8 @@ function createHarness(connectionCount, {
         state,
         frames,
         paths,
+        connectionsGroup,
+        originAxes,
         getPortRectReadCount() { return portRectReads; },
         getConnectionForEachReadCount() { return connectionForEachReads; },
         setPortsVisible(visible) { portsVisible = visible; },
@@ -194,6 +202,47 @@ function createRestorationProjection(connections, overrides = {}) {
         ...overrides
     });
 }
+
+test('offscreen paths and shared SVG layers skip identical attributes while retaining all 400 connections and real geometry changes', () => {
+    const { api, state, paths, connectionsGroup, originAxes } = createHarness(400);
+    api.updateAllConnections();
+    assert.equal(paths.length, 400);
+    const originalPaths = paths.slice();
+    const writes = [];
+    for (const [id, element] of [...paths.map((path, index) => [`path-${index}`, path]), ['connections', connectionsGroup], ['axes', originAxes]]) {
+        const setAttribute = element.setAttribute;
+        element.setAttribute = (name, value) => {
+            if (name === 'd' || name === 'transform') writes.push({ id, name, value });
+            return setAttribute(name, value);
+        };
+    }
+    for (const node of state.nodes.values()) node.y = 4000;
+    api.updateAllConnections();
+    assert.equal(paths.filter(path => path.getAttribute('d') === '').length, 400, 'moving both endpoints offscreen clears each real visible path');
+    assert.equal(writes.filter(write => write.name === 'd').length, 400);
+    writes.length = 0;
+    api.updateAllConnections();
+    api.markNodeConnectionsDirty('from');
+    api.updateDirtyConnections();
+    assert.equal(writes.length, 0, 'whole and dirty projections do not rewrite already-empty paths or unchanged layer transforms');
+    assert.equal(state.connections.length, 400, 'the complete graph and maintenance workload remain intact');
+    assert.deepEqual(paths, originalPaths, 'projection keeps the same 400 path objects');
+
+    Object.assign(state.canvas, { x: 31, y: 47, zoom: .5 });
+    api.updateAllConnections();
+    assert.deepEqual(writes, [
+        { id: 'connections', name: 'transform', value: 'translate(31, 47) scale(0.5)' },
+        { id: 'axes', name: 'transform', value: 'translate(31, 47) scale(0.5)' }
+    ], 'a real viewport change updates both SVG layers without touching empty paths');
+    writes.length = 0;
+    for (const node of state.nodes.values()) node.y = 0;
+    api.updateAllConnections();
+    assert.equal(paths.filter(path => path.getAttribute('d')).length, 400, 'returning endpoints to view restores every real path');
+    assert.equal(writes.filter(write => write.name === 'd').length, 400);
+    writes.length = 0;
+    api.updateAllConnections();
+    assert.deepEqual(writes, [], 'the stable visible geometry also keeps its existing SVG attributes');
+});
 
 test('repeated connection projection only changes insertion highlight classes when the candidate changes', () => {
     const { api, state, paths } = createHarness(2);

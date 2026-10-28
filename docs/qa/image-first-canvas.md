@@ -67,8 +67,8 @@ Preview 和 Merge 的历史文档分类与正式持久 owner 行为不完全一�
 
 | 标准 | 已有具体入口及断言 | #019 补充与结论边界 |
 | --- | --- | --- |
-| A01 九类卡片与端口 | [导入/预览卡片](../../tests/image-import-preview-card-app-browser.test.mjs)、[缩放/颜色卡片](../../tests/processing-image-card-app-browser.test.mjs)、[对比卡片](../../tests/compare-image-card-app-browser.test.mjs)、[合并卡片](../../tests/merge-image-card-app-browser.test.mjs)、[保存卡片](../../tests/save-image-card-app-browser.test.mjs)、[视角卡片](../../tests/camera-image-card-app-browser.test.mjs)：真实原控件、单入口、独立输出与原几何。 | [跨类型流程](../../tests/image-first-integrated-app-browser.test.mjs) 同图核对九类与未迁移 Text/Video/CustomParams；待最终结果。 |
-| A02 完整图、占位及稳定批次 | [生图卡片](../../tests/image-assistant-app-browser.test.mjs) 的 content-first/result actions；[完整批次浏览](../../tests/image-preview-batch-app-browser.test.mjs) 第一项；[反馈操作命中](../../tests/image-generation-feedback-ui-app-browser.test.mjs) 第二项。 | 真实结果原图、索引及操作命中与几何均有断言；七主题视觉待汇总。 |
+| A01 九类卡片与端口 | [导入/预览卡片](../../tests/image-import-preview-card-app-browser.test.mjs)、[缩放/颜色卡片](../../tests/processing-image-card-app-browser.test.mjs)、[对比卡片](../../tests/compare-image-card-app-browser.test.mjs)、[合并卡片](../../tests/merge-image-card-app-browser.test.mjs)、[保存卡片](../../tests/save-image-card-app-browser.test.mjs)、[视角卡片](../../tests/camera-image-card-app-browser.test.mjs)：真实原控件、单入口、独立输出与原几何。 | [跨类型流程](../../tests/image-first-integrated-app-browser.test.mjs) 同图核对九类与未迁移 Text/Video/CustomParams，最终两项通过。 |
+| A02 完整图、占位及稳定批次 | [生图卡片](../../tests/image-assistant-app-browser.test.mjs) 的 content-first/result actions；[完整批次浏览](../../tests/image-preview-batch-app-browser.test.mjs) 第一项；[反馈操作命中](../../tests/image-generation-feedback-ui-app-browser.test.mjs) 第二项。 | 真实结果原图、索引及操作命中与几何均有断言；七主题35张最终状态截图已汇总。 |
 | A03 图片与专用手势 | [卡片原生拖动/单击/双击](../../tests/image-first-canvas-gestures-app-browser.test.mjs)、[导入/预览手势](../../tests/image-import-preview-gestures-app-browser.test.mjs)、[处理吸管优先](../../tests/processing-image-card-app-browser.test.mjs) 第三项、[对比分界](../../tests/compare-image-card-app-browser.test.mjs) 第二项、[保存原生视频](../../tests/save-image-first-app-browser.test.mjs) 第三项。 | 各专用表面保留原行为，不由通用卡片点击替代。 |
 | A04 单参数面与选择/导航 | [单参数面与同 ID 工作流](../../tests/image-first-canvas-app-browser.test.mjs) 两项；[放大后的画布导航](../../tests/expanded-parameters-agent-app-browser.test.mjs) 第一、四项。 | 断言原控件身份、选择切换、关闭、缩放及图几何；不以自动移动画布通过。 |
 | A05 普通宽高、低缩放 | [普通面宽度与保存](../../tests/image-first-canvas-app-browser.test.mjs) 第一项；[窄低窗口与 50% 缩放](../../tests/expanded-parameters-agent-app-browser.test.mjs) 第四项；[窄面错误全文](../../tests/image-generation-feedback-ui-app-browser.test.mjs) 第一项。 | 普通锚点允许出视野，临时限宽不覆盖全局偏好。 |
@@ -96,12 +96,12 @@ Preview 和 Merge 的历史文档分类与正式持久 owner 行为不完全一�
 | A27 运行入口、缓存与取消 | [范围与真实入口](../../tests/image-assistant-app-browser.test.mjs) node run-to-here；[原生两秒取消](../../tests/image-generation-feedback-ui-app-browser.test.mjs) 第四项；[重试/顶部停止](../../tests/image-generation-status-dirty-app-browser.test.mjs) 第三项。 | 取消未落入 disabled 参数字段集；无卡片底部运行/日志恢复。 |
 | A28 本轮状态、真实进度与错误全文 | [等待、自动重试及范围外错误](../../tests/image-generation-status-dirty-app-browser.test.mjs) 第一、三项；[短原因、完整错误与部分完成](../../tests/image-generation-feedback-ui-app-browser.test.mjs)；[API 脱敏保全文](../../tests/api-client-detail-sanitization.test.mjs)。 | 无真实进度时无数值；部分完成不冒充全部成功。 |
 | A29 待生成与可信配置 | [真实设置/引用/后台配方](../../tests/image-generation-status-dirty-app-browser.test.mjs) 第二、四、五项；[描述改动真实请求](../../tests/image-generation-description-dirty-app-browser.test.mjs)；[配方生命周期](../../tests/image-generation-revision.test.mjs) 为辅助。 | 当前摘要标为当前设置，加载与纯展示不伪造历史配方。 |
-| A30 旧状态、尺寸与打开不改写 | [未知 JSON/旧实物尺寸](../../tests/node-persistence-extensions-app-browser.test.mjs) 两项；[旧自动高度与编辑高度](../../tests/image-generate-restored-height-browser.test.mjs)、[克隆尺寸](../../tests/image-first-clone-app-browser.test.mjs)；[64 图仅打开](../../tests/image-merge-memory-app-browser.test.mjs) 第二项逐字核对原文件不改写。 | [跨类型流程](../../tests/image-first-integrated-app-browser.test.mjs) 补同图标题/启用/折叠/克隆/任务/草稿；最终结果待录。 |
+| A30 旧状态、尺寸与打开不改写 | [未知 JSON/旧实物尺寸](../../tests/node-persistence-extensions-app-browser.test.mjs) 两项；[旧自动高度与编辑高度](../../tests/image-generate-restored-height-browser.test.mjs)、[克隆尺寸](../../tests/image-first-clone-app-browser.test.mjs)；[64 图仅打开](../../tests/image-merge-memory-app-browser.test.mjs) 第二项逐字核对原文件不改写。 | [跨类型流程](../../tests/image-first-integrated-app-browser.test.mjs) 补同图标题/启用/折叠/克隆/任务/草稿，跨类型两项通过。 |
 | A31 旧逻辑口、顺序及扩展 | [混合旧参考口精确身份](../../tests/agent-image-first-workflow-app-browser.test.mjs) 第三项；[稀疏合并](../../tests/merge-image-first-app-browser.test.mjs)、[对比 A/B](../../tests/compare-image-first-app-browser.test.mjs)、[保存双角色](../../tests/save-image-first-app-browser.test.mjs)；[未知扩展](../../tests/node-persistence-extensions-app-browser.test.mjs)。 | 保存规范端点不写 auto；已有兼容迁移仍按原资格规则运行。 |
 | A32 后台身份与未挂载参数 | [同 ID 参数面](../../tests/image-first-canvas-app-browser.test.mjs) 第二项；[后台处理](../../tests/processing-image-first-app-browser.test.mjs) 第四项、[后台保存](../../tests/save-image-first-app-browser.test.mjs) 第四项、[后台视角](../../tests/camera-image-first-app-browser.test.mjs) 第四项、[后台待生成](../../tests/image-generation-status-dirty-app-browser.test.mjs) 第五项。 | 各类型分别核对 A 的结果和 B 的字段，未依赖当前选中节点。 |
 | A33 编辑历史、剪贴板与运行锁 | [真实画布编辑参考图](../../tests/canvas-edit-reference-app-browser.test.mjs) 含携外连、跨工作流同 ID、普通/保留删除、clone、完整批次、缓存清理及运行端点；[合并稀疏编辑](../../tests/merge-image-first-app-browser.test.mjs) 第三项。 | 保留原同工作流外连权限，不按相同 ID 跨图重绑。 |
-| A34 媒体所有权及真实进程重启 | [所有权转换](../../tests/workflow-media-ownership-commit.test.mjs)、[会话撤销](../../tests/session-undo-media-ownership.test.mjs)、[独立剪贴板保护](../../tests/canvas-edit-reference-app-browser.test.mjs) clipboard originals 为辅助；[真实重启](../../tests/image-first-restart-app-browser.test.mjs) 使用同目录、同 origin、新服务 PID。 | 新重启结果待录；刷新、存储对象重建及实际服务进程重启分别记录，不承诺重启撤销栈。 |
-| A35 七主题/窄低/焦点/模态 | [旧七主题键盘对比度](../../tests/image-assistant-app-browser.test.mjs) seven themes；[真实重叠/模态/低视口](../../tests/expanded-parameters-agent-app-browser.test.mjs)；[跨类型七主题截图](../../tests/image-first-integrated-app-browser.test.mjs)。 | 新 7 主题×各状态及截图清单待最终汇总；旧局部主题测试不替代完整矩阵。 |
+| A34 媒体所有权及真实进程重启 | [所有权转换](../../tests/workflow-media-ownership-commit.test.mjs)、[会话撤销](../../tests/session-undo-media-ownership.test.mjs)、[独立剪贴板保护](../../tests/canvas-edit-reference-app-browser.test.mjs) clipboard originals 为辅助；[真实重启](../../tests/image-first-restart-app-browser.test.mjs) 使用同目录、同 origin、新服务 PID。 | 真实后端两次重启与后台媒体完成栅栏均通过；刷新、存储对象重建及进程重启分别记录，不承诺重启撤销栈。 |
+| A35 七主题/窄低/焦点/模态 | [旧七主题键盘对比度](../../tests/image-assistant-app-browser.test.mjs) seven themes；[真实重叠/模态/低视口](../../tests/expanded-parameters-agent-app-browser.test.mjs)；[跨类型七主题截图](../../tests/image-first-integrated-app-browser.test.mjs)。 | 新7主题各状态已生成35张最终截图与清单；覆盖普通、放大、重叠、窄低窗口50%缩放，旧局部测试不替代该矩阵。 |
 | A36 原性能合同与媒体预算 | [既有 200/400 正式应用样例](../../tests/image-assistant-performance-browser.test.mjs)；[Merge 释放/恢复预算](../../tests/image-merge-memory-budget.test.mjs)、[64 原图懒读与文件不改写](../../tests/image-merge-memory-app-browser.test.mjs)、[参考懒缩略图](../../tests/reference-gallery-lazy-app-browser.test.mjs)、[批次懒导航](../../tests/image-preview-batch-app-browser.test.mjs) 第三项。 | 原预算每次最多恢复 4 节点；桌面 WebView2/GPU 与无 GPU 同环境基线结果由主验收分别录入，不新增性能门槛。 |
 
 ## #019 桥接与媒体预算审计
@@ -124,9 +124,11 @@ Merge 原先在执行完成后受到结果保护，却未进入显示内存管�
 
 沿用既有200节点/400连线和连续10秒四种交互样例，未改变负载或阈值。无GPU Chrome156同条件旧基线40.5FPS、新界面40.6FPS，p95均50.00ms；该对照仅证明此环境下本次样例未见整体回退，不能代替桌面16.7ms合同。
 
-真实桌面通过正式`backend.desktop.run_desktop`、隔离目录及原开发性能控件启动，WebView2/Edge156的WebGL renderer为ANGLE/NVIDIA GeForce RTX4080SUPER Direct3D11，未禁用GPU。主对照已停掉全部并行Chrome，采样期间不截图、不轮询Python/JS桥接：旧基线74.1FPS、p95 48.80ms、30个长帧；当前41.9FPS、p95 49.10ms、20个长帧。两者均未达到桌面p95≤16.7ms合同，当前平均帧率下降正在定位，不能据此标记A36通过。本机另有60Hz实体屏和144Hz虚拟显示适配器，完整环境及原始报告在本地任务verification/performance目录。早期存在并行测试或桥接轮询的诊断样本未被用作主结论。
+真实桌面通过正式`backend.desktop.run_desktop`、隔离目录及原开发性能控件启动，WebView2/Edge156的WebGL renderer为ANGLE/NVIDIA GeForce RTX4080SUPER Direct3D11，未禁用GPU。固定窗口位置，停止其他浏览器工作，采样期间不截图、不轮询Python/JS桥接。修复后末次正式对照：旧基线73.2FPS、p95 48.80ms；当前79.4FPS、p95 42.10ms。初次当前平均41.9FPS的回退已定位为新增卡片observer受无变化class写触发，修复并补公开回归。最终p95仍未达到桌面≤16.7ms合同，A36不得标记通过。完整原始报告与诊断边界保留在本地任务verification/performance目录；没有证据把剩余失败归因于OS、GPU或虚拟显示器。
 
-最终全套回归与自`f8c2301`起的Standards/Spec双轴审查尚待执行；#019保持进行中，父规格不修改或关闭。
+首次完整Node门禁于2026-10-29完成：1692项，1680通过、10失败、2项沿用原有跳过。失败涉及旧控件查询、旧容量/高度假设、投影契约及两项界面流程，逐项修复后需再验证；脚本在Node失败后停止，尚未执行其后的完整Python、媒体安全及源码smoke门禁。Windows完整显式文件列表超过命令行上限的问题已改用仓库内相对路径解决，没有减少发现的测试文件。
+
+独立Standards/Spec双轴审查已完成，具体修复如下。#019保持进行中，父规格不修改或关闭。
 
 ## 最终审查修复
 
@@ -136,4 +138,10 @@ Preview与Save的已有结果投影不再被当作新输入。共享状态模块
 
 异步尺寸读取在两个等待点核对当前节点、最新尺寸编辑和真实来源身份；替换连接、切同ID工作流或替换原图资产后，旧回调不再回写尺寸或保存。保存节点键盘浏览的慢原图读取同样绑定原节点，不能把A结果写入B。新增五项公开factory事件回归覆盖这几种竞态，相关处理参数与保存回归通过。
 
-性能诊断证实每帧插入高亮清理的空class写，会触发所有图片卡片的摘要与输入刷新。正式修复保留真实高亮切换和真实状态更新，仅跳过无变化通知；坐标/尺寸变化只定位当前面板，同值文字不替换DOM。40项连接纯回归、13项正式/公开组件浏览器回归通过，固定窗口无trace对照恢复至78.2FPS（旧基线73.2），p95 48.60ms（旧基线48.80）。原绝对合同尚待后续视口样式隔离验证；不以平均帧率改善冒充p95通过。
+性能诊断证实每帧插入高亮清理的空class写，会触发所有图片卡片的摘要与输入刷新。正式修复保留真实高亮切换和真实状态更新，仅跳过无变化通知；坐标/尺寸变化只定位当前面板，同值文字不替换DOM。40项连接纯回归、13项正式/公开组件浏览器回归通过，固定窗口无trace对照恢复至78.2FPS（旧基线73.2），p95 48.60ms（旧基线48.80）。语义完整的视口变量隔离实验未改善p95，因此未加入正式代码。后续同值视口DOM写也有独立回归修复；加入同值SVG保护后的末次正式结果为79.4FPS/p95 42.10ms，原绝对合同仍未通过，不以平均帧率改善冒充p95通过。
+
+最终style invalidation追踪记录确认，离屏路径每帧反复写入相同的空`d`，以及共享SVG层反复写相同transform；这些是记录的写入栈，不是由flush调用位置推断。修复仅跳过同值写，完整400路径、真实离屏清空/回屏恢复和真实视口变换均保持。公开renderer回归先红804次重复写，修复后为零；相关79项纯回归通过。追踪计数不代表耗时占比，473MB追踪与追踪期开销没有作为正式性能数据；末次无trace原生样例保持相同固定窗口/GPU/负载，79.4FPS、p95 42.10ms、22个长帧，仍未通过16.7ms合同。
+
+320×240窗口实际命中检查发现置顶切换入口遮挡顶部“更多”，已将其层级改为工具栏下方、参数/助手modeless窗口上方。七主题工具栏及两项批量输入共3项通过，窄低窗口/50%缩放1项通过。批量模式测试明确检查Esc先收起当前参数面，再退出批量模式，单次图撤销/重做断言保留。
+
+容量用例改为正式旧工作流文件加载（会话缓存按合同剥离内嵌原图，不作为旧文件迁移入口），四图恢复及A/B实际上传后，发现保留连线删除漏校验通用输入容量。现仅在删除的投影预检启用统一输入策略：协议上限5张时，4+1+1展开为6张会整次拒绝，真实toast及全部节点/连接/扩展JSON完全不变。复制、克隆和旧关系恢复保留默认兼容行为，不被新模型约束强行拒绝。32项相关纯测试及4项真实保留删除/多桥/撤销重做通过。

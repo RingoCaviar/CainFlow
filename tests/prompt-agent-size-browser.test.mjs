@@ -86,8 +86,9 @@ test('Agent asks for resolution without creating nodes, retains ratio, executes 
   await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
   assert.equal(await evaluate('calls.length'),2);
   assert.equal(await evaluate('calls[1].size'),'2048x1152');
-  assert.equal(await evaluate("document.querySelector('#nodes-layer select[id$=resolution]').value"),'2K');
-  assert.equal(await evaluate("document.querySelector('#nodes-layer select[id$=aspect]').value"),'16:9');
+  const generatedId=await evaluate("document.querySelector('#nodes-layer .node-generate').id");
+  assert.equal(await evaluate(`document.getElementById(${JSON.stringify(generatedId+'-resolution')}).value`),'2K');
+  assert.equal(await evaluate(`document.getElementById(${JSON.stringify(generatedId+'-aspect')}).value`),'16:9');
   await evaluate("window.imageSettings.click();var r=document.getElementById('prompt-agent-size-resolution');r.value='4K';r.dispatchEvent(new Event('change',{bubbles:true}));window.imageSettings.click()");
   assert.match(await evaluate("window.imageSettings.title"),/4K/);
   await delay(800);await reloadAppBrowser({evaluate,send,waitFor});await waitFor("Boolean(document.querySelector('#prompt-agent-model + button'))");
