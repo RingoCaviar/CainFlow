@@ -19,3 +19,24 @@ test('a universal input refuses an occupied prompt and preserves the exact exist
   assert.deepEqual((await graph(app)).connections,[edge]);
  });
 });
+
+test('preview input refuses automatic replacement and applies an explicit source replacement as one reversible edit', {timeout:30000},async()=>{
+ const edge={id:'retained-preview',from:{nodeId:'old-image',port:'image'},to:{nodeId:'preview',port:'image'},type:'image'};
+ await withAppBrowser({...session,nodes:[{id:'old-image',type:'ImageImport',x:30,y:50},{id:'next-image',type:'ImageImport',x:30,y:410},{id:'preview',type:'ImagePreview',x:620,y:230}],connections:[edge]},async app=>{
+  await app.waitFor("Boolean(document.querySelector('#preview .universal-input'))");
+  await drag(app,'#next-image .node-port[data-direction=output] .port-dot','#preview .universal-input .port-dot');
+  await delay(600);
+  assert.deepEqual((await graph(app)).connections,[edge]);
+  await app.evaluate("document.getElementById('preview').click();document.querySelector('[data-input-connection-id=retained-preview] [data-input-action=replace]').click()");
+  await app.evaluate(`(()=>{const input=document.querySelector('[data-input-replacement-source]');input.value=${JSON.stringify(JSON.stringify({nodeId:'next-image',port:'image'}))};input.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('[data-input-action=confirm-replace]').click()})()`);
+  const changed={...edge,from:{nodeId:'next-image',port:'image'}};
+  await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.connections[0]?.from.nodeId==='next-image')");
+  assert.deepEqual((await graph(app)).connections,[changed]);
+  await app.evaluate("document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,bubbles:true,cancelable:true}))");
+  await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.connections[0]?.from.nodeId==='old-image')");
+  await app.waitFor("[...document.querySelectorAll('.toast')].some(t=>t.textContent.includes('已撤回上一步操作'))");
+  await app.evaluate("document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'y',ctrlKey:true,bubbles:true,cancelable:true}))");
+  await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.connections[0]?.from.nodeId==='next-image')");
+  assert.deepEqual((await graph(app)).connections,[changed]);
+ });
+});

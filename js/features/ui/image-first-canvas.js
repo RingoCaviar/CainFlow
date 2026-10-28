@@ -2,6 +2,11 @@ import { cleanupElementResources } from '../../core/common-utils.js';
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
 import { projectImageReferences } from '../../nodes/image-reference-projection.js';
 import { createImageInputDetail } from './image-input-detail.js';
+import { isImageFirstCardNode } from '../../nodes/image-first-presentation.js';
+import { getCanonicalImageList, getCanonicalImageIndex } from '../execution/execution-data-utils.js';
+import { projectImageOutput } from '../../nodes/image-output-projection.js';
+
+const nodeLabels = { ImageGenerate: '图片生成', ImageImport: '图片导入', ImagePreview: '图片预览' };
 
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
@@ -82,18 +87,33 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     function refreshNode(nodeId) {
         const node = state.nodes.get(nodeId), view = views.get(node);
         if (!view) return;
-        const settings = readImageGenerationSettings(node, documentRef);
-        const model = state.models.find(item => item.id === settings.apiConfigId);
-        view.model.textContent = `${model?.name || model?.modelId || '未选择模型'} · ${settings.aspect || '自动'} · ${settings.resolution || '自动'}`;
-        const { count } = projectImageReferences({ state, targetId: node.id });
-        view.references.textContent = `参考 ${count} 张`;
-        view.inputs.refresh();
-        view.placeholder.hidden = !view.result.hidden;
+        if (node.type === 'ImageGenerate') {
+            const settings = readImageGenerationSettings(node, documentRef);
+            const model = state.models.find(item => item.id === settings.apiConfigId);
+            view.model.textContent = `${model?.name || model?.modelId || '未选择模型'} · ${settings.aspect || '自动'} · ${settings.resolution || '自动'}`;
+            const { count } = projectImageReferences({ state, targetId: node.id });
+            view.references.textContent = `参考 ${count} 张`;
+            view.placeholder.hidden = !view.result.hidden;
+        } else if (node.type === 'ImageImport') {
+            const mode = documentRef.getElementById(`${node.id}-import-mode`)?.value || node.importMode || 'upload';
+            view.urlFields.hidden = mode !== 'url';
+            view.urlFields.classList.toggle('hidden', mode !== 'url');
+            view.model.textContent = mode === 'url' ? 'URL 来源' : '本地素材';
+        } else {
+            const { count } = projectImageOutput(node, getCanonicalImageList(node));
+            const index = getCanonicalImageIndex(node, new Array(count));
+            view.model.textContent = count ? `图片预览 · ${index + 1} / ${count}` : '图片预览';
+            view.references.textContent = `输入 ${state.connections.filter(edge => edge.to.nodeId === node.id).length}`;
+        }
+        view.inputs?.refresh();
         if (current === node) {
             const running = state.runningNodeIds?.has(node.id) || ['waiting', 'running'].includes(node.runStatus) || node.el.classList.contains('running');
-            generate.textContent = running ? '生成中' : '生成';
+            generate.hidden = node.type === 'ImageImport';
+            generate.textContent = node.type === 'ImagePreview' ? (running ? '更新中' : '更新预览') : (running ? '生成中' : '生成');
             generate.disabled = running || node.enabled === false;
-            feedback.textContent = documentRef.getElementById(`${node.id}-run-status`)?.textContent || '修改不会自动生成';
+            feedback.textContent = node.type === 'ImageImport' ? '在卡片选择文件，或切换 URL 输入链接。'
+                : node.type === 'ImagePreview' ? (node.previewInputState === 'stale' ? '未更新 · 当前无输入' : node.previewInputState === 'empty' ? '当前无输入' : '预览当前连接的图片')
+                    : documentRef.getElementById(`${node.id}-run-status`)?.textContent || '修改不会自动生成';
             schedulePosition();
         }
     }
@@ -105,7 +125,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         scroll.append(node.parameterRoot);
         panel.hidden = false;
         panel.dataset.nodeId = node.id;
-        panel.setAttribute('aria-label', `${node.customTitle || '图片生成'} · 节点参数`);
+        panel.setAttribute('aria-label', `${node.customTitle || nodeLabels[node.type]} · 节点参数`);
         if (group) { const view = views.get(node); if (view.group !== group) setGroup(node, group); }
         refreshNode(node.id);
         position();
@@ -121,23 +141,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (!node || !views.has(node)) { close({ remember: false }); closed = null; return; }
         if (closed !== node) open(node);
     }
-    function install(nodeId) {
-        sweep();
-        const node = state.nodes.get(nodeId);
-        if (node?.type !== 'ImageGenerate' || views.has(node)) return;
-        const body = node.el.querySelector('.node-body');
-        const result = body?.querySelector(`#${nodeId}-image-results`);
-        if (!body || !result) return;
-        const form = documentRef.createElement('div');
-        form.className = 'node-body image-first-parameter-content';
-        form.dataset.nodeId = node.id;
-        for (const element of Array.from(body.children)) {
-            if (element === result || element.id === `${nodeId}-error` || element.classList.contains('image-node-run-actions') || element.classList.contains('node-generation-progress-field')) continue;
-            form.append(element);
-        }
-        node.parameterRoot = form;
-        node.el.classList.add('image-first-card');
-        node.el.dataset.imageFirst = 'true';
+    function installUniversalInput(node) {
         const inputSection = node.el.querySelector('.node-inputs-section');
         if (inputSection) {
             for (const port of inputSection.querySelectorAll('.node-port[data-direction="input"]')) {
@@ -151,6 +155,81 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             universal.innerHTML = '<div class="port-dot type-any"></div><span class="port-label">输入</span>';
             inputSection.append(universal); bindPorts(universal.parentElement);
         }
+    }
+    function registerView(node, view, observed) {
+        const { form } = view;
+        node.parameterRoot = form;
+        node.el.classList.add('image-first-card');
+        node.el.dataset.imageFirst = 'true';
+        const observer = new MutationObserver(() => { if (state.nodes.get(node.id) === node) refreshNode(node.id); });
+        for (const element of observed.filter(Boolean)) observer.observe(element, { attributes: true, childList: true, subtree: true });
+        observer.observe(node.el, { attributes: true, attributeFilter: ['style','class'] });
+        view.observer = observer;
+        views.set(node, view); store.append(form);
+        node.onImageFirstSelect = () => select(node);
+        form.addEventListener('mousedown', event => event.stopPropagation());
+        form.addEventListener('input', () => { refreshNode(node.id); onSettingsChanged(node.id); });
+        form.addEventListener('change', () => { refreshNode(node.id); onSettingsChanged(node.id); });
+        node.el.addEventListener('click', event => {
+            if (!event.target.closest('button,input,textarea,select,.node-port,.node-select')) select(node);
+        });
+        if (!Array.isArray(node.el._cleanupFns)) node.el._cleanupFns = [];
+        node.el._cleanupFns.push(() => remove(node));
+        refreshNode(node.id);
+        fitNode(node.id, { allowShrink: true, preserveCurrentWidth: true, reason: 'element-resize', save: false });
+        selectionChanged();
+    }
+    function installMedia(node) {
+        const body = node.el.querySelector('.node-body');
+        if (!body) return;
+        const form = documentRef.createElement('div');
+        form.className = 'node-body image-first-parameter-content'; form.dataset.nodeId = node.id;
+        const sections = [], observed = [];
+        const summary = documentRef.createElement('div'); summary.className = 'image-first-summary';
+        const model = documentRef.createElement('span'); summary.append(model);
+        let inputs = null, references = null, urlFields = null;
+        node.el.classList.add('image-first-media');
+        if (node.type === 'ImageImport') {
+            const mode = body.querySelector('.image-import-mode-shell');
+            const modeInput = body.querySelector(`[id="${node.id}-import-mode"]`);
+            if (mode) form.append(mode);
+            if (modeInput) form.append(modeInput);
+            const urlSection = body.querySelector(`[id="${node.id}-url-section"]`);
+            urlFields = documentRef.createElement('div'); urlFields.className = 'image-import-url-fields';
+            urlFields.dataset.imageImportMode = 'url';
+            for (const element of Array.from(urlSection?.children || [])) {
+                if (!element.classList.contains('file-drop-zone')) urlFields.append(element);
+            }
+            form.append(urlFields);
+            observed.push(body.querySelector(`[id="${node.id}-upload-section"]`), urlSection);
+        } else {
+            installUniversalInput(node);
+            inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, onChange: () => refreshNode(node.id) });
+            inputs.element.dataset.parameterGroup = 'input'; sections.push(inputs.element); form.append(inputs.element);
+            references = documentRef.createElement('button'); references.type = 'button';
+            references.addEventListener('click', () => select(node, 'input')); summary.append(references);
+            observed.push(body.querySelector(`[id="${node.id}-preview"]`));
+        }
+        body.append(summary);
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, model, references, inputs, urlFields,
+            group: node.type === 'ImagePreview' ? 'input' : null }, observed);
+    }
+    function install(nodeId) {
+        sweep();
+        const node = state.nodes.get(nodeId);
+        if (!isImageFirstCardNode(node) || views.has(node)) return;
+        if (node.type !== 'ImageGenerate') { installMedia(node); return; }
+        const body = node.el.querySelector('.node-body');
+        const result = body?.querySelector(`#${nodeId}-image-results`);
+        if (!body || !result) return;
+        const form = documentRef.createElement('div');
+        form.className = 'node-body image-first-parameter-content';
+        form.dataset.nodeId = node.id;
+        for (const element of Array.from(body.children)) {
+            if (element === result || element.id === `${nodeId}-error` || element.classList.contains('image-node-run-actions') || element.classList.contains('node-generation-progress-field')) continue;
+            form.append(element);
+        }
+        installUniversalInput(node);
         const sections = [];
         function group(element, name) {
             if (!element) return;
@@ -188,23 +267,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (runState && progress) runState.append(progress);
         body.append(placeholder, result, summary);
         if (runState) body.append(runState);
-        const observer = new MutationObserver(() => { if (state.nodes.get(node.id) === node) refreshNode(node.id); });
-        observer.observe(result, { attributes: true, childList: true, subtree: true });
-        observer.observe(node.el, { attributes: true, attributeFilter: ['style','class'] });
-        const view = { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, model, references, result, observer, inputs, group: null };
-        views.set(node, view); store.append(form);
-        node.onImageFirstSelect = () => select(node);
-        form.addEventListener('mousedown', event => event.stopPropagation());
-        form.addEventListener('input', () => { refreshNode(node.id); onSettingsChanged(node.id); });
-        form.addEventListener('change', () => { refreshNode(node.id); onSettingsChanged(node.id); });
-        node.el.addEventListener('click', event => {
-            if (!event.target.closest('button,input,textarea,select,.node-port,.node-select')) select(node);
-        });
-        if (!Array.isArray(node.el._cleanupFns)) node.el._cleanupFns = [];
-        node.el._cleanupFns.push(() => remove(node));
-        refreshNode(node.id);
-        fitNode(node.id, { allowShrink: true, preserveCurrentWidth: true, reason: 'element-resize' });
-        selectionChanged();
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, model, references, result, inputs, group: null }, [result]);
     }
     panel.querySelector('[data-parameter-action="close"]').addEventListener('click', () => close());
     generate.addEventListener('click', () => {

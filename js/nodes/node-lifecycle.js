@@ -19,6 +19,7 @@ import { getGenerationNodeInputConnectionPolicy } from './generation-input-proje
 import { withMinimumMeasurementHeights } from './node-minimum-measurement.js';
 import { settleNodeContentLayout } from './node-layout-settlement.js';
 import { definitionHasCapability, NODE_CAPABILITIES } from './node-capabilities.js';
+import { isImageFirstCardNode } from './image-first-presentation.js';
 
 export function createNodeLifecycleApi({
     state,
@@ -896,9 +897,10 @@ export function createNodeLifecycleApi({
             };
         }
         const config = nodeConfigs[node.type] || null;
-        if (node.el?.classList.contains('image-first-card')) {
-            return { minWidth: Number(config?.minWidth) || 360,
-                minHeight: node.userResized === true || node.collapsed === true ? 248 : 348 };
+        if (isImageFirstCardNode(node) && node.el?.classList.contains('image-first-card')) {
+            const generation = node.type === 'ImageGenerate';
+            return { minWidth: Number(config?.minWidth) || getDefaultNodeWidth(config),
+                minHeight: node.userResized === true || node.collapsed === true ? (generation ? 248 : 200) : (generation ? 348 : 300) };
         }
         if (isImageImportUrlMode(node)) {
             return {
@@ -976,7 +978,7 @@ export function createNodeLifecycleApi({
         const config = nodeConfigs[node.type] || null;
         const usesContentSizedDefault = config?.contentSized === true && node.userResized !== true;
         if (usesContentSizedDefault) {
-            const defaultWidth = node.type === 'ImageGenerate'
+            const defaultWidth = isImageFirstCardNode(node)
                 ? (node.width || getDefaultNodeWidth(config))
                 : getDefaultNodeWidth(config);
             const minimum = getNodeMinimumSize(node, { width: defaultWidth });
@@ -1150,7 +1152,7 @@ export function createNodeLifecycleApi({
             effectiveRestoreData = restoredChatData;
         }
         // Recalculate automatic card height while retaining saved editor sizes.
-        if (normalizedType === 'ImageGenerate' && effectiveRestoreData && effectiveRestoreData.userResized !== true) {
+        if (isImageFirstCardNode(normalizedType) && effectiveRestoreData && effectiveRestoreData.userResized !== true) {
             const { height, collapsedExpandedHeight, ...restoredGenerationData } = effectiveRestoreData;
             effectiveRestoreData = restoredGenerationData;
         }
@@ -1158,7 +1160,7 @@ export function createNodeLifecycleApi({
         const initialUserResized = restoredUserResized && !shouldNormalizeLegacyChatLayout;
         const el = documentRef.createElement('div');
         el.className = `node ${config.cssClass}`;
-        if (normalizedType === 'ImageGenerate') el.classList.add('image-first-card');
+        if (isImageFirstCardNode(normalizedType)) el.classList.add('image-first-card');
         el.id = id;
         if (effectiveRestoreData?.isClone === true && effectiveRestoreData?.cloneSourceId) {
             el.classList.add('node-clone');
@@ -1167,7 +1169,7 @@ export function createNodeLifecycleApi({
         el.style.left = x + 'px';
         el.style.top = y + 'px';
         const initialWidth = clampNodeWidthToDefault(effectiveRestoreData?.width, config, {
-            userResized: restoredUserResized || (normalizedType === 'ImageGenerate' && Number(effectiveRestoreData?.width) > 0)
+            userResized: restoredUserResized || (isImageFirstCardNode(normalizedType) && Number(effectiveRestoreData?.width) > 0)
         });
         el.style.width = initialWidth + 'px';
 
@@ -1214,7 +1216,7 @@ export function createNodeLifecycleApi({
             importMode: effectiveRestoreData?.importMode === 'url' ? 'url' : 'upload',
             imageUrl: effectiveRestoreData?.imageUrl || '',
             imageImportAssetKey: effectiveRestoreData?.imageImportAssetKey || '',
-            previewZoom: 1,
+            previewZoom: normalizedType === 'ImagePreview' ? Math.max(0.2, Math.min(10, Number(effectiveRestoreData?.previewZoom) || 1)) : 1,
             resizePreviewData: null,
             resizePreviewMeta: null,
             resizePreviewToken: 0,
@@ -1421,7 +1423,7 @@ export function createNodeLifecycleApi({
                 nodeData.imageData = nodeData.data.image;
             }
         } else if (isDisplayImageNodeType(normalizedType)) {
-            nodeData.imagePreviewIndex = 0;
+            nodeData.imagePreviewIndex = Math.max(0, parseInt(effectiveRestoreData?.imagePreviewIndex || '0', 10) || 0);
         } else if (restoredPreviewThumbnail && definitionHasCapability(nodeConfigs[normalizedType], NODE_CAPABILITIES.PREVIEW_THUMBNAIL_RESTORE)) {
             renderRecoverableNodePreviewThumbnail(normalizedType, id, nodeData, restoredPreviewThumbnail, effectiveRestoreData);
         }

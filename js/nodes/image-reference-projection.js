@@ -27,12 +27,12 @@ export function projectImageReferences({ state, targetId, connections = state?.c
             return {
                 connection, source, images: output.images.slice(0, count), assets: output.assets.slice(0, count), count,
                 missingPositions: output.missingPositions.filter(index => index < count),
-                missing: !source || source.data?.mediaIntegrity?.state === 'missing',
+                missing: !source || !output.remote && source.data?.mediaIntegrity?.state === 'missing', remote: output.remote === true,
                 enabled: !!source && source.enabled !== false,
                 running: state.runningNodeIds?.has(source?.id) === true || ['waiting','running'].includes(source?.runStatus)
                     || source?.el?.classList?.contains('running') === true,
                 name: source?.customTitle || source?.el?.querySelector?.('.node-title')?.textContent || source?.type || '来源已不存在',
-                thumbnail: source?.data?.imagePreviewThumbnail || ''
+                thumbnail: output.remote ? '' : source?.data?.imagePreviewThumbnail || ''
             };
         });
     const slots = [];

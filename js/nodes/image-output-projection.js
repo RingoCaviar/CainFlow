@@ -1,6 +1,9 @@
 import { getImageImportMediaAssetReferences, normalizeImageList } from '../features/execution/execution-data-utils.js';
 
+const isUrlImport = node => node?.type === 'ImageImport' && (node.importMode ?? node.data?.importMode) === 'url';
+
 export function getImageOutputAssets(node) {
+    if (isUrlImport(node)) return [];
     if (node?.type === 'ImageImport') return getImageImportMediaAssetReferences(node);
     if (node?.data?.mediaAssetKeys?.length) return node.data.mediaAssetKeys.slice();
     return node?.data?.imageAssetKey
@@ -10,6 +13,11 @@ export function getImageOutputAssets(node) {
 
 // Legacy hydration can compact missing files. Such a list cannot identify durable positions.
 export function projectImageOutput(node, values) {
+    if (isUrlImport(node)) {
+        const value = node.imageUrl || node.data?.imageUrl || node.data?.image || '';
+        const images = typeof value === 'string' && /^https?:\/\//i.test(value) ? [value] : [];
+        return { assets: [], count: images.length, compacted: false, missingPositions: [], images, remote: true };
+    }
     const assets = getImageOutputAssets(node), images = normalizeImageList(values);
     const count = Math.max(assets.length, images.length, Number(node?.data?.imageCount) || 0);
     const compacted = assets.length > 0 && images.length > 0 && images.length !== assets.length;

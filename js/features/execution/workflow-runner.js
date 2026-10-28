@@ -669,12 +669,13 @@ export function createWorkflowRunnerApi({
 
     function getDisplayNodeImageCount(node) {
         const explicitCount = Math.max(0, parseInt(node?.data?.imageCount || '0', 10) || 0);
+        const durableCount = Array.isArray(node?.data?.mediaAssetKeys) ? node.data.mediaAssetKeys.length : 0;
         const inMemoryCount = Math.max(
             getCanonicalImageList(node, { includeResizePreview: false }).length,
             normalizeImageList(node?.data?.image).length,
             normalizeImageList(node?.imageData).length
         );
-        return Math.max(explicitCount, inMemoryCount);
+        return Math.max(explicitCount, durableCount, inMemoryCount);
     }
 
     function getNodeImageOutputList(node) {
@@ -745,6 +746,20 @@ export function createWorkflowRunnerApi({
 
     async function restoreDisplayNodeImageOutput(node) {
         if (!isDisplayImageNode(node)) return null;
+        const keys = Array.isArray(node.data?.mediaAssetKeys) ? node.data.mediaAssetKeys : [];
+        if (keys.length) {
+            const images = await Promise.all(keys.map(async (key, index) => {
+                let image = '';
+                try {
+                    if (typeof getImageAsset === 'function') image = await getImageAsset(key);
+                    if (!image && typeof getImageAssetList === 'function') image = (await getImageAssetList(key))[0] || '';
+                } catch { /* Report the original slot below, without compacting the batch. */ }
+                if (!image) throw new Error(`节点「${getNodeDisplayTitle(node)}」第 ${index + 1} 张原图缺失，请恢复原图后重试。`);
+                return image;
+            }));
+            if (images.length < getDisplayNodeImageCount(node)) throw new Error(`节点「${getNodeDisplayTitle(node)}」原图批次不完整，请恢复后重试。`);
+            return images;
+        }
         const assetKey = typeof node?.data?.imageAssetKey === 'string' && node.data.imageAssetKey
             ? node.data.imageAssetKey
             : '';
@@ -1013,7 +1028,9 @@ export function createWorkflowRunnerApi({
                 if (importedImage) return importedImage;
             }
             const images = getNodeImageOutputList(fromNode);
-            const shouldRestoreDisplayBatch = isDisplayImageNode(fromNode) && getDisplayNodeImageCount(fromNode) > 1;
+            const completeDisplayBatch = isDisplayImageNode(fromNode) && images.length === getDisplayNodeImageCount(fromNode)
+                && !fromNode.data?.mediaIntegrity?.missingItems?.length;
+            const shouldRestoreDisplayBatch = isDisplayImageNode(fromNode) && getDisplayNodeImageCount(fromNode) > 1 && !completeDisplayBatch;
             if (!shouldRestoreDisplayBatch) {
                 if (images?.length > 1) return images;
                 if (images?.length === 1) return images[0];

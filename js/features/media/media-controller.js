@@ -1,4 +1,6 @@
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
+import { createImagePreviewBatchNavigation } from '../../nodes/image-preview-batch-navigation.js';
+import { projectMissingMediaAssets } from './missing-media-integrity.js';
 ﻿/**
  * 管理图片导入、预览、保存与自动落盘等媒体节点共用行为。
  */
@@ -126,6 +128,54 @@ export function createMediaControllerApi({
     const pendingFitNodeIds = new Set();
     const pendingImageImportWrites = new Set();
     let fitRequestFrame = null;
+    let imagePreviewBatchNavigation = null;
+    const previewSlotReads = new WeakMap();
+
+    function queryNodeControl(root, selector) {
+        const local = root?.querySelector?.(selector);
+        if (local) return local;
+        const node = root?.id ? getNodeById(root.id) : null;
+        return node && node.el === root ? node.parameterRoot?.querySelector?.(selector) || null : null;
+    }
+
+    function queryNodeControls(root, selector) {
+        const local = Array.from(root?.querySelectorAll?.(selector) || []);
+        const node = root?.id ? getNodeById(root.id) : null;
+        const parameters = node && node.el === root ? Array.from(node.parameterRoot?.querySelectorAll?.(selector) || []) : [];
+        return [...new Set([...local, ...parameters])];
+    }
+
+    function getNodeElement(nodeId, suffix) {
+        const root = getNodeById(nodeId)?.el;
+        return root ? queryNodeControl(root, `#${nodeId}-${suffix}`) : documentRef.getElementById(`${nodeId}-${suffix}`);
+    }
+
+    function getPreviewBatchNavigation() {
+        if (!imagePreviewBatchNavigation) imagePreviewBatchNavigation = createImagePreviewBatchNavigation({
+            state, documentRef, windowRef, getNodeById, showToast,
+            readOriginalAt: async (node, index, assetKey) => {
+                if (getNodeById(node.id) !== node) return '';
+                if (assetKey.startsWith('media:')) return await getImageAsset(assetKey) || '';
+                const missing = (node.data?.mediaIntegrity?.missingItems || []).map(item => Number(item.position));
+                if (missing.includes(index)) return '';
+                const images = await getStoredImagePreviewListAsync(node);
+                if (getNodeById(node.id) !== node) return '';
+                const offset = missing.filter(position => position < index).length;
+                return images[index - offset] || '';
+            },
+            createThumbnail: source => previewCache.createDisplayMipmap(source, 96),
+            onSelect: async (node, index) => {
+                if (getNodeById(node.id) !== node || isNodeRunning(node.id)) return;
+                const images = await getStoredImagePreviewListAsync(node);
+                if (getNodeById(node.id) !== node || isNodeRunning(node.id)) return;
+                node.imagePreviewIndex = Math.max(0, Math.min(Math.max(getStoredImageCount(node), getNodeMediaAssetKeys(node).length) - 1, index));
+                node.previewZoom = 1;
+                renderImagePreviewImage(node.id, images);
+                scheduleSave();
+            }
+        });
+        return imagePreviewBatchNavigation;
+    }
 
     // 初始化预览缓存
     const previewCache = createMediaPreviewCache({
@@ -396,6 +446,16 @@ export function createMediaControllerApi({
     }
 
     async function restoreStoredImageList(node) {
+        if (node?.type === 'ImageImport' && node.importMode !== 'url') {
+            const assetKey = node.imageImportAssetKey || node.data?.imageImportAssetKey || getNodeMediaAssetKeys(node)[0];
+            if (assetKey) {
+                const image = await getImageAsset(assetKey);
+                const currentKey = node.imageImportAssetKey || node.data?.imageImportAssetKey || getNodeMediaAssetKeys(node)[0];
+                if (getNodeById(node.id) !== node || node.importMode === 'url' || currentKey !== assetKey) return [];
+                return image ? [image] : getFirstNonEmptyImageList(node.imageData, node.imageDataList, node.data?.images, node.data?.image)
+                    .filter(value => value !== node.imageUrl);
+            }
+        }
         return displayImageMemoryManager.restoreStoredImageList(node);
     }
 
@@ -554,13 +614,62 @@ export function createMediaControllerApi({
         return prevSignature !== nextSignature;
     }
 
+    function setImagePreviewInputState(node, inputState) {
+        if (!node || node.type !== 'ImagePreview') return;
+        node.previewInputState = inputState;
+        if (node.el?.dataset) node.el.dataset.previewInputState = inputState;
+        const preview = getNodeElement(node.id, 'preview');
+        if (!preview) return;
+        let status = node.el?.querySelector?.('.image-preview-input-status');
+        if (!status) {
+            status = documentRef.createElement('div');
+            status.className = 'image-preview-input-status';
+            status.setAttribute('role', 'status');
+            preview.after(status);
+        }
+        status.hidden = inputState === 'current';
+        status.textContent = inputState === 'stale' ? '未更新 · 当前无输入' : inputState === 'empty' ? '当前无输入' : '';
+    }
+
+    async function readPreviewSlots(node, assets) {
+        const signature = assets.join('|');
+        const isCurrent = () => getNodeById(node.id) === node && getNodeMediaAssetKeys(node).join('|') === signature;
+        const shadow = { id: node.id, data: { mediaIntegrity: node.data?.mediaIntegrity } };
+        const items = await projectMissingMediaAssets({ workflowId: getActiveWorkflowId(), node: shadow, assetKeys: assets,
+            loadAsset: key => getImageAsset(key),
+            notify: (...args) => { if (isCurrent()) showToast(...args); } });
+        if (!isCurrent()) return null;
+        node.data = node.data || {};
+        if (JSON.stringify(node.data.mediaIntegrity) !== JSON.stringify(shadow.data.mediaIntegrity)) {
+            if (shadow.data.mediaIntegrity) node.data.mediaIntegrity = shadow.data.mediaIntegrity;
+            else delete node.data.mediaIntegrity;
+            onMediaIntegrityChanged();
+        }
+        return items;
+    }
+
     function renderImagePreviewImage(nodeId, images, emptyMessage = '无输入图片') {
-        const previewContainer = documentRef.getElementById(`${nodeId}-preview`);
+        const previewContainer = getNodeElement(nodeId, 'preview');
         const node = getNodeById(nodeId);
         if (node?.type === 'ImageGenerate') return;
         if (!previewContainer) return;
+        previewContainer.querySelector('.image-preview-batch-navigation')?.remove();
 
-        const rendered = renderDisplayImagePreview(previewContainer, node, images, {
+        const assets = node?.type === 'ImagePreview' ? getNodeMediaAssetKeys(node) : [];
+        const hasUnknownPositions = assets.length > normalizeImageList(images).length
+            && !node.data?.mediaIntegrity?.missingItems?.length;
+        if (hasUnknownPositions && !previewSlotReads.has(node)) {
+            const read = readPreviewSlots(node, assets);
+            previewSlotReads.set(node, read);
+            void read.then(items => {
+                if (previewSlotReads.get(node) !== read) return;
+                previewSlotReads.delete(node);
+                if (!items) return;
+                renderImagePreviewImage(nodeId, items.map(item => item.value).filter(Boolean), emptyMessage);
+            }).catch(() => { if (previewSlotReads.get(node) === read) previewSlotReads.delete(node); });
+        }
+
+        const rendered = renderDisplayImagePreview(previewContainer, node, hasUnknownPositions ? [] : images, {
             totalCount: getStoredImageCount(node),
             altPrefix: '预览',
             placeholderClass: 'preview-placeholder',
@@ -568,6 +677,19 @@ export function createMediaControllerApi({
             cursor: 'pointer',
             placeholderWithIcon: true
         });
+        if (node?.type === 'ImagePreview') {
+            const image = previewContainer.querySelector('img');
+            if (image) image.style.transform = `scale(${node.previewZoom || 1})`;
+        }
+        setImagePreviewInputState(node, node?.previewInputState || (normalizeImageList(images).length ? 'current' : 'empty'));
+        if (node?.type === 'ImagePreview' && node.el) {
+            const batchNavigation = getPreviewBatchNavigation();
+            batchNavigation.render(node, previewContainer);
+            if (!node.imagePreviewBatchCleanupBound) {
+                node.imagePreviewBatchCleanupBound = true;
+                (node.el._cleanupFns ||= []).push(() => batchNavigation.destroy(node));
+            }
+        }
         void showResolutionBadge(nodeId, rendered.image);
         if (node?.type === 'ImageGenerate') {
             if (rendered.image) void cacheNodePreviewThumbnail(node, rendered.image);
@@ -626,19 +748,38 @@ export function createMediaControllerApi({
         return images[getImageSavePreviewIndex(node, images)] || images[0];
     }
 
+    function getPreviewSlotImages(node, images) {
+        if (node?.type !== 'ImagePreview') return images;
+        const count = Math.max(images.length, getStoredImageCount(node), getNodeMediaAssetKeys(node).length);
+        const missing = new Set((node.data?.mediaIntegrity?.missingItems || []).map(item => Number(item.position)));
+        if (count <= images.length || !missing.size) return images;
+        let present = 0;
+        return Array.from({ length: count }, (_, index) => missing.has(index) ? '' : images[present++] || '');
+    }
+
     function getCurrentImagePreviewImage(node) {
-        const images = getStoredImagePreviewList(node);
+        const images = getPreviewSlotImages(node, getStoredImagePreviewList(node));
         if (images.length === 0) return null;
-        return images[getImagePreviewIndex(node, images)] || images[0];
+        return images[getImagePreviewIndex(node, images)] || null;
     }
 
     async function getNodeFullscreenImageContext(nodeId, fallbackSrc = '') {
         const node = getNodeById(nodeId);
+        const requestedIndex = node?.imagePreviewIndex;
         const images = await restoreStoredImageList(node);
         const normalizedFallback = typeof fallbackSrc === 'string' ? fallbackSrc.trim() : '';
-        const imageList = images.length > 0
-            ? images
+        let imageList = images.length > 0
+            ? getPreviewSlotImages(node, images)
             : (normalizedFallback ? [normalizedFallback] : []);
+        const assets = node?.type === 'ImagePreview' ? getNodeMediaAssetKeys(node) : [];
+        if (assets.length > images.length && !node.data?.mediaIntegrity?.missingItems?.length) {
+            // A compacted list has no reliable position map. Explicit original
+            // viewing may resolve the existing local keys, never a substitute.
+            const items = await readPreviewSlots(node, assets);
+            if (!items) return { node: null, images: [], index: 0, cancelled: true };
+            imageList = items.map(item => item.value || '');
+        }
+        if (node?.type === 'ImagePreview' && Number.isFinite(requestedIndex)) node.imagePreviewIndex = requestedIndex;
         const currentIndex = node?.type === 'ImageSave'
             ? getImageSavePreviewIndex(node, imageList)
             : getImagePreviewIndex(node, imageList);
@@ -677,7 +818,7 @@ export function createMediaControllerApi({
                 context.images[context.index] || context.images[0]
             );
         }
-        const currentImage = context.images[context.index] || context.images[0];
+        const currentImage = context.node?.type === 'ImagePreview' ? context.images[context.index] : context.images[context.index] || context.images[0];
         if (!currentImage) {
             return false;
         }
@@ -685,7 +826,7 @@ export function createMediaControllerApi({
         return true;
     }
 
-    function bindPreviewKeyboardNavigation(container, getImages, getIndex, onChange) {
+    function bindPreviewKeyboardNavigation(container, getImages, getIndex, onChange, { preserveSlots = false } = {}) {
         if (!container || container.dataset.previewKeyboardBound === '1') return;
         container.dataset.previewKeyboardBound = '1';
         container.tabIndex = 0;
@@ -694,7 +835,7 @@ export function createMediaControllerApi({
             event.preventDefault();
             event.stopPropagation();
             Promise.resolve(getImages()).then((value) => {
-                const images = normalizeImageList(value);
+                const images = preserveSlots && Array.isArray(value) ? value : normalizeImageList(value);
                 if (images.length <= 1) return;
                 const currentIndex = Math.max(0, Math.min(images.length - 1, getIndex(images)));
                 const nextIndex = (currentIndex + delta + images.length) % images.length;
@@ -720,13 +861,14 @@ export function createMediaControllerApi({
     async function stepImagePreviewNodeByDelta(nodeId, delta) {
         const node = getNodeById(nodeId);
         const images = await getStoredImagePreviewListAsync(node);
-        if (!node || images.length <= 1) return false;
-        const currentIndex = getImagePreviewIndex(node, images);
-        const nextIndex = (currentIndex + delta + images.length) % images.length;
+        const slots = getPreviewSlotImages(node, images);
+        if (!node || slots.length <= 1) return false;
+        const currentIndex = getImagePreviewIndex(node, slots);
+        const nextIndex = (currentIndex + delta + slots.length) % slots.length;
         node.imagePreviewIndex = nextIndex;
         node.previewZoom = 1;
         renderImagePreviewImage(nodeId, images);
-        const image = images[nextIndex];
+        const image = slots[nextIndex];
         if (image) {
             await showResolutionBadge(nodeId, image);
         }
@@ -792,15 +934,20 @@ export function createMediaControllerApi({
     }
 
     function updateImageImportModeState(nodeId) {
-        const modeInput = documentRef.getElementById(`${nodeId}-import-mode`);
-        const uploadSection = documentRef.getElementById(`${nodeId}-upload-section`);
-        const urlSection = documentRef.getElementById(`${nodeId}-url-section`);
+        const node = getNodeById(nodeId);
+        const modeInput = getNodeElement(nodeId, 'import-mode');
+        const uploadSection = getNodeElement(nodeId, 'upload-section');
+        const urlSection = getNodeElement(nodeId, 'url-section');
         const mode = modeInput?.value || 'upload';
 
         if (uploadSection) uploadSection.classList.toggle('hidden', mode !== 'upload');
         if (urlSection) urlSection.classList.toggle('hidden', mode !== 'url');
 
-        documentRef.querySelectorAll(`.image-import-mode-btn[data-target="${nodeId}"]`).forEach((btn) => {
+        queryNodeControls(node?.el, `[data-image-import-mode]`).forEach(field => {
+            field.hidden = field.dataset.imageImportMode !== mode;
+            field.classList.toggle('hidden', field.hidden);
+        });
+        queryNodeControls(node?.el, `.image-import-mode-btn[data-target="${nodeId}"]`).forEach((btn) => {
             btn.classList.toggle('active', btn.dataset.mode === mode);
         });
 
@@ -808,7 +955,7 @@ export function createMediaControllerApi({
     }
 
     async function clearImageImportBadge(nodeId) {
-        const badge = documentRef.getElementById(`${nodeId}-res`);
+        const badge = getNodeElement(nodeId, 'res');
         if (badge) {
             badge.textContent = '';
             badge.style.display = 'none';
@@ -816,8 +963,8 @@ export function createMediaControllerApi({
     }
 
     function renderImageImportUrlState(nodeId, imageUrl = '') {
-        const urlInput = documentRef.getElementById(`${nodeId}-url-input`);
-        const preview = documentRef.getElementById(`${nodeId}-url-preview`);
+        const urlInput = getNodeElement(nodeId, 'url-input');
+        const preview = getNodeElement(nodeId, 'url-preview');
         if (urlInput && imageUrl && urlInput.value !== imageUrl) {
             urlInput.value = imageUrl;
         }
@@ -843,7 +990,7 @@ export function createMediaControllerApi({
             showToast('请输入有效的图片 URL', 'warning');
             return;
         }
-        const preview = documentRef.getElementById(`${nodeId}-url-preview`);
+        const preview = getNodeElement(nodeId, 'url-preview');
         if (!preview) return;
         preview.classList.add('has-image');
         preview.innerHTML = renderImageImportUrlPreviewContent(imageUrl, { reloading: true });
@@ -851,7 +998,7 @@ export function createMediaControllerApi({
     }
 
     function bindImageImportUrlPreviewEvents(nodeId) {
-        const preview = documentRef.getElementById(`${nodeId}-url-preview`);
+        const preview = getNodeElement(nodeId, 'url-preview');
         const img = preview?.querySelector('img');
         if (!preview || !img || img.dataset.urlPreviewEventsBound === '1') return;
         img.dataset.urlPreviewEventsBound = '1';
@@ -879,7 +1026,7 @@ export function createMediaControllerApi({
     }
 
     function renderImageImportUploadState(nodeId, imageData = null) {
-        const dropZone = documentRef.getElementById(`${nodeId}-drop`);
+        const dropZone = getNodeElement(nodeId, 'drop');
         if (!dropZone) return;
 
         if (imageData) {
@@ -912,7 +1059,7 @@ export function createMediaControllerApi({
         node.data = node.data || {};
         node.importMode = node.importMode === 'url' ? 'url' : 'upload';
 
-        const modeInput = documentRef.getElementById(`${nodeId}-import-mode`);
+        const modeInput = getNodeElement(nodeId, 'import-mode');
         if (modeInput) modeInput.value = node.importMode;
 
         updateImageImportModeState(nodeId);
@@ -923,22 +1070,15 @@ export function createMediaControllerApi({
             delete node.data.imagePreviewThumbnail;
             renderImageImportUrlState(nodeId, node.imageUrl || '');
         } else {
-            let imageList = getFirstNonEmptyImageList(
-                node.imageData,
-                node.data?.image,
-                node.imageDataList,
-                node.data?.images
-            );
+            const importAssetKey = node.imageImportAssetKey || node.data?.imageImportAssetKey || getNodeMediaAssetKeys(node)[0] || '';
+            let imageList = importAssetKey ? await restoreStoredImageList(node) : getFirstNonEmptyImageList(
+                node.imageData, node.data?.image, node.imageDataList, node.data?.images
+            ).filter(image => image !== node.imageUrl);
+            if (getNodeById(nodeId) !== node || node.importMode !== 'upload') return null;
             let imageData = imageList[0] || null;
-            const importAssetKey = node.imageImportAssetKey || node.data?.imageImportAssetKey || '';
-            if (!imageData && importAssetKey) {
-                const restoredImage = await getImageAsset(importAssetKey);
-                if (restoredImage) {
-                    imageData = restoredImage;
-                    imageList = [restoredImage];
-                    node.imageImportAssetKey = importAssetKey;
-                    node.data.imageImportAssetKey = importAssetKey;
-                }
+            if (imageData && importAssetKey) {
+                node.imageImportAssetKey = importAssetKey;
+                node.data.imageImportAssetKey = importAssetKey;
             }
             const previewThumbnail = typeof node.data?.imagePreviewThumbnail === 'string' && node.data.imagePreviewThumbnail.trim()
                 ? node.data.imagePreviewThumbnail
@@ -973,7 +1113,7 @@ export function createMediaControllerApi({
     }
 
     async function showResolutionBadge(nodeId, dataUrl) {
-        const badge = documentRef.getElementById(`${nodeId}-res`);
+        const badge = getNodeElement(nodeId, 'res');
         if (!badge) return;
         const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         badge.dataset.resolutionToken = token;
@@ -1372,19 +1512,24 @@ export function createMediaControllerApi({
     async function syncImagePreviewNode(nodeId, imageData) {
         const node = getNodeById(nodeId);
         if (!node || node.type !== 'ImagePreview') return;
-        const writeToken = beginDisplayImageAssetWrite(node);
 
-        const previewContainer = documentRef.getElementById(`${nodeId}-preview`);
-        const controls = documentRef.getElementById(`${nodeId}-controls`);
-        const resolutionBadge = documentRef.getElementById(`${nodeId}-res`);
+        const previewContainer = getNodeElement(nodeId, 'preview');
+        const controls = getNodeElement(nodeId, 'controls');
+        const resolutionBadge = getNodeElement(nodeId, 'res');
         const imageList = normalizeImageList(imageData);
 
-        node.previewZoom = 1;
         const currentImage = imageList[0] || null;
 
         if (currentImage) {
+            const writeToken = beginDisplayImageAssetWrite(node);
+            const previousImages = getStoredImagePreviewList(node);
+            const unchanged = !getStoredImageCount(node) || (previousImages.length === imageList.length
+                && previousImages.every((image, index) => image === imageList[index]));
+            const currentIndex = unchanged ? getImagePreviewIndex(node, imageList) : 0;
+            if (!unchanged) node.previewZoom = 1;
+            setImagePreviewInputState(node, 'current');
             setCanonicalImageOutput(node, imageList, {
-                currentIndex: 0,
+                currentIndex,
                 assetKey: nodeId,
                 trackImageCount: true,
                 hydratedAt: Date.now(),
@@ -1405,22 +1550,20 @@ export function createMediaControllerApi({
             saveDisplayImageAssetSoon(nodeId, imageList);
             updateResolutionBadgeSoon(nodeId, currentImage);
         } else {
-            await releaseForwardedMediaAssetKeys(node);
-            clearCanonicalImageOutput(node);
-            clearDisplayImageAssetState(nodeId);
-            if (previewContainer) {
-                previewContainer.classList.remove('has-multiple-images');
-                previewContainer.innerHTML = `<div class="preview-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>无输入图片</div>`;
-            }
-            if (controls) controls.style.display = 'none';
-            if (resolutionBadge) {
+            const retainedImages = getStoredImagePreviewList(node);
+            const hasRetainedOutput = retainedImages.length > 0 || getStoredImageCount(node) > 0;
+            setImagePreviewInputState(node, hasRetainedOutput ? 'stale' : 'empty');
+            if (retainedImages.length) renderImagePreviewImage(nodeId, retainedImages);
+            else if (!hasRetainedOutput) renderImagePreviewImage(nodeId, [], '无输入图片');
+            if (controls) controls.style.display = hasRetainedOutput ? 'flex' : 'none';
+            if (!hasRetainedOutput && resolutionBadge) {
                 resolutionBadge.textContent = '';
                 resolutionBadge.style.display = 'none';
             }
         }
         scheduleDisplayImageMemorySweep({ delayMs: displayImageMemoryManager.releaseGraceMs });
 
-        if (shouldRequestFit(node, getPreviewLayoutSignature(imageList))) {
+        if (shouldRequestFit(node, getPreviewLayoutSignature(currentImage ? imageList : getStoredImagePreviewList(node)))) {
             requestNodeFit(nodeId);
         }
     }
@@ -1737,6 +1880,14 @@ export function createMediaControllerApi({
         for (const nodeId of rest) {
             if (!refreshed.has(nodeId)) await refreshImageResizePreview(nodeId, options);
         }
+        for (const node of state.nodes.values()) {
+            if (node.type !== 'ImagePreview') continue;
+            const incoming = state.connections.find(connection => connection.to?.nodeId === node.id && connection.to.port === 'image');
+            const source = incoming ? getNodeById(incoming.from?.nodeId) : null;
+            if (!source || source.enabled === false || (!getNodeOutputImageList(source).length && getStoredImageCount(source) === 0)) {
+                await syncImagePreviewNode(node.id, []);
+            }
+        }
     }
 
     async function refreshAllRecoverableMediaNodes(options = {}) {
@@ -1884,12 +2035,12 @@ export function createMediaControllerApi({
     }
 
     function setupImageImport(id, el) {
-        const fileInput = el.querySelector(`#${id}-file`);
-        const dropZone = el.querySelector(`#${id}-drop`);
-        const selectBtn = el.querySelector(`#${id}-select-btn`);
-        const urlInput = el.querySelector(`#${id}-url-input`);
-        const urlPreview = el.querySelector(`#${id}-url-preview`);
-        const modeInput = el.querySelector(`#${id}-import-mode`);
+        const fileInput = queryNodeControl(el, `#${id}-file`);
+        const dropZone = queryNodeControl(el, `#${id}-drop`);
+        const selectBtn = queryNodeControl(el, `#${id}-select-btn`);
+        const urlInput = queryNodeControl(el, `#${id}-url-input`);
+        const urlPreview = queryNodeControl(el, `#${id}-url-preview`);
+        const modeInput = queryNodeControl(el, `#${id}-import-mode`);
         const openImagePicker = () => {
             if (!fileInput) return;
             fileInput.value = '';
@@ -1898,7 +2049,7 @@ export function createMediaControllerApi({
 
         void syncImageImportSourceState(id);
 
-        el.querySelectorAll(`.image-import-mode-btn[data-target="${id}"]`).forEach((btn) => {
+        queryNodeControls(el, `.image-import-mode-btn[data-target="${id}"]`).forEach((btn) => {
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 if (!modeInput) return;
@@ -1934,12 +2085,16 @@ export function createMediaControllerApi({
             if (file && file.type.startsWith('image/')) loadImageFile(id, file);
         });
 
-        dropZone.addEventListener('click', () => {
-            if (state.justDragged) return;
+        dropZone.addEventListener('click', event => {
             const node = getNodeById(id);
+            if (node?.parameterRoot) event.stopPropagation();
+            if (state.justDragged || node?.imageFirstMediaDragged) return;
+            if (node?.parameterRoot && event.detail === 1) {
+                event.stopPropagation(); node.onImageFirstSelect?.(); return;
+            }
             if (node && node.importMode === 'upload') {
                 void openStoredImageNodeFullscreen(id).then((opened) => {
-                    if (!opened) openImagePicker();
+                    if (!opened && !(node.parameterRoot && event.detail >= 2)) openImagePicker();
                 });
                 return;
             }
@@ -1993,8 +2148,9 @@ export function createMediaControllerApi({
                 reloadImageImportUrlPreview(id);
                 return;
             }
-            if (state.justDragged) return;
             const node = getNodeById(id);
+            if (state.justDragged || node?.imageFirstMediaDragged) return;
+            if (node?.parameterRoot && e.detail === 1) { node.onImageFirstSelect?.(); return; }
             if (node?.importMode === 'url' && node.imageUrl) {
                 openFullscreenPreview(node.imageUrl, id);
             }
@@ -2424,11 +2580,11 @@ export function createMediaControllerApi({
     }
 
     function setupImagePreview(id, el) {
-        const previewContainer = el.querySelector(`#${id}-preview`);
-        const zoomInBtn = el.querySelector(`#${id}-zoom-in`);
-        const zoomOutBtn = el.querySelector(`#${id}-zoom-out`);
-        const zoomResetBtn = el.querySelector(`#${id}-zoom-reset`);
-        const fullscreenBtn = el.querySelector(`#${id}-fullscreen`);
+        const previewContainer = queryNodeControl(el, `#${id}-preview`);
+        const zoomInBtn = queryNodeControl(el, `#${id}-zoom-in`);
+        const zoomOutBtn = queryNodeControl(el, `#${id}-zoom-out`);
+        const zoomResetBtn = queryNodeControl(el, `#${id}-zoom-reset`);
+        const fullscreenBtn = queryNodeControl(el, `#${id}-fullscreen`);
         if (!previewContainer) return;
 
         const stepPreview = async (delta, event) => {
@@ -2437,7 +2593,14 @@ export function createMediaControllerApi({
         };
 
         const openPreviewImage = async () => {
-            const image = getCurrentImagePreviewImage(getNodeById(id));
+            const node = getNodeById(id);
+            const missing = (node?.data?.mediaIntegrity?.missingItems || []).some(item => Number(item.position) === node.imagePreviewIndex);
+            if (missing) { showToast('当前原图缺失，请恢复后再查看。', 'warning'); return; }
+            const assets = getNodeMediaAssetKeys(node);
+            const assetKey = assets[node?.imagePreviewIndex || 0];
+            const image = assetKey ? await getImageAsset(assetKey) : getCurrentImagePreviewImage(node);
+            if (getNodeById(id) !== node) return;
+            if (assetKey && !image) { showToast('当前原图缺失，请恢复后再查看。', 'warning'); return; }
             if (image) {
                 await openFullscreenPreview(image, id);
                 return;
@@ -2447,7 +2610,10 @@ export function createMediaControllerApi({
 
         bindPreviewKeyboardNavigation(
             previewContainer,
-            () => getStoredImagePreviewListAsync(getNodeById(id)),
+            async () => {
+                const node = getNodeById(id), images = await getStoredImagePreviewListAsync(node);
+                return getNodeById(id) === node ? getPreviewSlotImages(node, images) : [];
+            },
             (images) => getImagePreviewIndex(getNodeById(id), images),
             (nextIndex, images, event) => {
                 event?.stopPropagation();
@@ -2464,8 +2630,18 @@ export function createMediaControllerApi({
                     void syncPreview();
                 }
                 scheduleSave();
-            }
+            },
+            { preserveSlots: true }
         );
+
+        previewContainer.addEventListener('click', event => {
+            const counter = event.target.closest('.image-save-preview-counter');
+            const node = getNodeById(id);
+            if (!counter || counter.tagName === 'BUTTON' || !node?.parameterRoot) return;
+            event.preventDefault(); event.stopImmediatePropagation();
+            getPreviewBatchNavigation().render(node, previewContainer);
+            previewContainer.querySelector('.image-save-preview-counter')?.click();
+        }, true);
 
         previewContainer.addEventListener('pointerdown', (e) => {
             if (e.target.closest('.image-save-preview-nav')) {
@@ -2491,19 +2667,34 @@ export function createMediaControllerApi({
             e.stopPropagation();
             const node = getNodeById(id);
             if (node) node.previewZoom = 1;
-            const img = previewContainer.querySelector('img');
+            const img = previewContainer.querySelector(':scope > img');
             if (img) img.style.transform = 'scale(1)';
+            scheduleSave();
         });
         previewContainer.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (state.justDragged) return;
+            const node = getNodeById(id);
+            if (state.justDragged || node?.imageFirstMediaDragged) return;
             if (e.target.closest('.image-save-preview-nav')) return;
+            if (node?.parameterRoot && e.detail === 1) { node.onImageFirstSelect?.(); return; }
             void openPreviewImage();
         });
         fullscreenBtn?.addEventListener('click', (e) => {
             e.stopPropagation();
             void openPreviewImage();
         });
+        const node = getNodeById(id);
+        if (node?.el === el) {
+            const refreshPresentation = () => {
+                if (getNodeById(id) === node) renderImagePreviewImage(id, getStoredImagePreviewList(node));
+            };
+            node.onImagePreviewRendered = refreshPresentation;
+            (el._cleanupFns ||= []).push(() => {
+                if (node.onImagePreviewRendered === refreshPresentation) delete node.onImagePreviewRendered;
+                imagePreviewBatchNavigation?.destroy(node);
+            });
+            if (getStoredImageCount(node) > 0) refreshPresentation();
+        }
     }
 
     function getAdvancedCompareSourceLabel(node) {
@@ -3074,10 +3265,11 @@ export function createMediaControllerApi({
     function adjustPreviewZoom(nodeId, factor) {
         const node = getNodeById(nodeId);
         if (!node) return;
-        const img = node.el.querySelector(`#${nodeId}-preview img`);
+        const img = getNodeElement(nodeId, 'preview')?.querySelector(':scope > img');
         if (!img) return;
         node.previewZoom = Math.max(0.2, Math.min(10, (node.previewZoom || 1) * factor));
         img.style.transform = `scale(${node.previewZoom})`;
+        scheduleSave();
         img.style.transformOrigin = 'center center';
     }
 
@@ -3096,6 +3288,11 @@ export function createMediaControllerApi({
             images: independentImages || normalizeImageList(src),
             index: 0
         };
+        if (context.cancelled) {
+            displayImageMemoryManager.endFullscreenPreview(nodeId);
+            if (!documentRef.querySelector('.fullscreen-overlay')) documentRef.body?.classList.remove('preview-active');
+            return;
+        }
         const images = context.images;
         let currentIndex = independentImages && Number.isInteger(options.index)
             ? Math.max(0, Math.min(images.length - 1, options.index))
@@ -3257,6 +3454,9 @@ export function createMediaControllerApi({
                     button.className = `fullscreen-thumb-item${index === currentIndex ? ' is-active' : ''}`;
                     button.title = `第 ${index + 1} 张`;
                     button.setAttribute('aria-label', `查看第 ${index + 1} 张图片`);
+                    if (context.node?.type === 'ImagePreview' && !imageSrc) {
+                        button.disabled = true; button.title += ' · 原图缺失';
+                    }
                     button.addEventListener('click', (event) => {
                         event.stopPropagation();
                         if (index === currentIndex) return;
@@ -3271,7 +3471,7 @@ export function createMediaControllerApi({
 
                     const label = documentRef.createElement('span');
                     label.className = 'fullscreen-thumb-label';
-                    label.textContent = `${index + 1}/${images.length}`;
+                    label.textContent = `${index + 1}/${images.length}${button.disabled ? ' · 原图缺失' : ''}`;
                     button.appendChild(label);
                     thumbTrack.appendChild(button);
                     thumbButtons.push(button);
@@ -3296,7 +3496,12 @@ export function createMediaControllerApi({
         };
         const stepFullscreenImage = (delta) => {
             if (images.length <= 1) return;
-            currentIndex = (currentIndex + delta + images.length) % images.length;
+            let next = currentIndex;
+            for (let offset = 0; offset < images.length; offset++) {
+                next = (next + delta + images.length) % images.length;
+                if (context.node?.type !== 'ImagePreview' || images[next]) break;
+            }
+            currentIndex = next;
             renderCurrentImage();
         };
 

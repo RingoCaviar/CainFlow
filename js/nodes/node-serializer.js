@@ -152,6 +152,8 @@ export function createNodeSerializer({ state, documentRef }) {
                 }
             }
 
+            if (node.type === 'ImagePreview') serialized.previewZoom = Number(node.previewZoom) || 1;
+
             if (node.type === 'ImageResize') {
                 serialized.resizeMode = documentRef.getElementById(`${id}-resize-mode`)?.value || 'scale';
                 serialized.scalePercent = parseInt(documentRef.getElementById(`${id}-scale-percent`)?.value || '100', 10);

@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isUniversalInputNode, resolveUniversalInput, validateUniversalImageInputs } from '../js/nodes/universal-input-policy.js';
 import '../js/features/execution/protocols/openai.js';
+import '../js/features/execution/protocols/google.js';
 import { registerProtocol } from '../js/features/execution/protocols/index.js';
 import { serializeConnection } from '../js/canvas/connection-snapshot.js';
+import { projectImageOutput } from '../js/nodes/image-output-projection.js';
 
 function setup() {
     const targetNode = { id: 'target', type: 'ImageGenerate', apiConfigId: 'image', data: {} };
@@ -11,6 +13,43 @@ function setup() {
         models: [{ id: 'image', modelId: 'gpt-image-1', protocol: 'openai' }] };
     return { state, targetNode };
 }
+
+test('a preview universal input accepts one image source with its whole batch and refuses occupied or incompatible inputs', () => {
+    const targetNode = { id: 'preview', type: 'ImagePreview', data: {} };
+    const sourceNode = { id: 'source', type: 'ImageGenerate', data: { imageList: ['first', 'second'] } };
+    const state = { nodes: new Map([[targetNode.id, targetNode], [sourceNode.id, sourceNode]]), connections: [], models: [] };
+    const args = { state, targetNode, sourceNode, sourcePort: 'image' };
+    const resolved = resolveUniversalInput(args);
+    assert.equal(resolved.error, '');
+    assert.equal(resolved.port, 'image');
+    assert.equal(resolved.multiple, false);
+    assert.deepEqual(sourceNode.data.imageList, ['first', 'second']);
+    state.connections.push({ id: 'old', from: { nodeId: 'old-source', port: 'image' }, to: { nodeId: 'preview', port: 'image' }, type: 'image' });
+    assert.match(resolveUniversalInput(args).error, /占用/);
+    assert.equal(resolveUniversalInput({ ...args, ignoreConnectionId: 'old' }).error, '');
+    assert.match(resolveUniversalInput({ ...args, sourceNode: { id: 'text', type: 'Text' }, sourcePort: 'text' }).error, /不兼容/);
+    assert.equal(validateUniversalImageInputs({ state, node: targetNode, inputs: { image: ['first', 'second'] } }), '', 'preview requires no generation model');
+    assert.equal(isUniversalInputNode({ type: 'ImageImport' }), false);
+});
+
+test('URL sources use their current URL output and target protocol while retaining inactive upload drafts', () => {
+    const context = setup();
+    const sourceNode = { id: 'url', type: 'ImageImport', importMode: 'url', imageUrl: 'https://example.test/image.png',
+        data: { imageList: ['old-a', 'old-b'], mediaAssetKeys: ['media:old-a', 'media:old-b'], imageCount: 2 } };
+    context.state.nodes.set(sourceNode.id, sourceNode);
+    const args = { ...context, sourceNode, sourcePort: 'image' };
+    assert.equal(resolveUniversalInput(args).error, '');
+    assert.equal(resolveUniversalInput({ ...args, role: 'mask' }).error, '', 'the existing OpenAI editor accepts a single URL mask');
+    const output = projectImageOutput(sourceNode, sourceNode.data.imageList);
+    assert.deepEqual(output.images, [sourceNode.imageUrl]);
+    assert.equal(output.count, 1);
+    assert.deepEqual(output.assets, []);
+    assert.deepEqual(sourceNode.data.mediaAssetKeys, ['media:old-a', 'media:old-b']);
+    context.state.models[0].protocol = 'google';
+    assert.match(resolveUniversalInput(args).error, /URL.*不支持/);
+    context.targetNode.type = 'ImagePreview';
+    assert.equal(resolveUniversalInput(args).error, '', 'the existing preview accepts URL images');
+});
 
 test('universal generation input resolves the actual source output to a durable logical role', () => {
     const context = setup();
