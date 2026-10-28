@@ -1,4 +1,5 @@
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
+import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
 import { validateUniversalImageInputs } from '../../nodes/universal-input-policy.js';
 import { applyThinking, resolveThinking } from './thinking-config.js';
 /**
@@ -1695,12 +1696,7 @@ export function createExecutionCoreApi({
             const sourceImage = getPrimaryImageInput(inputs.image);
             if (!sourceImage) throw new Error('无输入图片');
 
-            const mode = documentRef.getElementById(`${id}-resize-mode`)?.value || 'scale';
-            const scalePercent = Math.max(1, Math.min(100, parseInt(documentRef.getElementById(`${id}-scale-percent`)?.value || '100', 10) || 100));
-            const targetWidth = documentRef.getElementById(`${id}-target-width`)?.value || '';
-            const targetHeight = documentRef.getElementById(`${id}-target-height`)?.value || '';
-            const keepAspect = documentRef.getElementById(`${id}-keep-aspect`)?.checked !== false;
-            const quality = parseInt(documentRef.getElementById(`${id}-quality`)?.value || '92', 10);
+            const { resizeMode: mode, scalePercent, targetWidth, targetHeight, keepAspect, quality } = readImageResizeSettings(node);
 
             const result = await resizeImageData(sourceImage, {
                 mode,
@@ -1739,10 +1735,17 @@ export function createExecutionCoreApi({
             node.imageDataList = [result.dataUrl];
             node.colorResetPreviewData = result.dataUrl;
             node.colorResetPreviewMeta = result;
-            if (config.whiteBalanceMode === 'auto') node.autoWhiteBalanceGains = result.whiteBalanceGains;
+            if (config.whiteBalanceMode === 'auto') node.data.autoWhiteBalanceGains = node.autoWhiteBalanceGains = result.whiteBalanceGains;
             if (config.whiteBalanceMode === 'custom' && result.whiteBalanceAnalysis?.status === 'applied') {
                 node.customWhiteBalanceGains = result.whiteBalanceGains;
                 node.whiteBalanceGains = result.whiteBalanceGains;
+                node.data.customWhiteBalanceGains = node.data.whiteBalanceGains = result.whiteBalanceGains;
+            }
+            const analysis = result.whiteBalanceAnalysis;
+            if (analysis) {
+                node.data.whiteBalanceStatus = node.whiteBalanceStatus = analysis.status;
+                node.data.whiteBalanceMessage = node.whiteBalanceMessage = analysis.message;
+                if (analysis.samplePoint) node.data.whiteBalanceSamplePoint = node.whiteBalanceSamplePoint = analysis.samplePoint;
             }
             restoreColorResetPreview(id, result.dataUrl, result);
             showResolutionBadge(id, result.dataUrl);

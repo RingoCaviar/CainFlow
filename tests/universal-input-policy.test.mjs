@@ -14,8 +14,8 @@ function setup() {
     return { state, targetNode };
 }
 
-test('a preview universal input accepts one image source with its whole batch and refuses occupied or incompatible inputs', () => {
-    const targetNode = { id: 'preview', type: 'ImagePreview', data: {} };
+for (const type of ['ImagePreview', 'ImageResize', 'ColorReset']) test(`${type} accepts one image source with its whole batch and refuses occupied or incompatible inputs`, () => {
+    const targetNode = { id: 'preview', type, data: {} };
     const sourceNode = { id: 'source', type: 'ImageGenerate', data: { imageList: ['first', 'second'] } };
     const state = { nodes: new Map([[targetNode.id, targetNode], [sourceNode.id, sourceNode]]), connections: [], models: [] };
     const args = { state, targetNode, sourceNode, sourcePort: 'image' };

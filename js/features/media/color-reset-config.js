@@ -21,7 +21,8 @@ export function readColorResetConfig(node, documentRef = null) {
     const data = node?.data || {};
     const id = node?.id || '';
     const readControl = (name, fallback) => {
-        const control = id && documentRef?.getElementById?.(`${id}-${name}`);
+        const selector = `#${id}-${name}`;
+        const control = id && (node?.el?.querySelector?.(selector) || node?.parameterRoot?.querySelector?.(selector));
         return control ? control.value : fallback;
     };
     const persistedMode = node?.whiteBalanceMode || data.whiteBalanceMode || 'original';

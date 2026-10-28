@@ -1,5 +1,6 @@
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 import { createImagePreviewBatchNavigation } from '../../nodes/image-preview-batch-navigation.js';
+import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
 import { projectMissingMediaAssets } from './missing-media-integrity.js';
 ﻿/**
  * 管理图片导入、预览、保存与自动落盘等媒体节点共用行为。
@@ -148,6 +149,41 @@ export function createMediaControllerApi({
     function getNodeElement(nodeId, suffix) {
         const root = getNodeById(nodeId)?.el;
         return root ? queryNodeControl(root, `#${nodeId}-${suffix}`) : documentRef.getElementById(`${nodeId}-${suffix}`);
+    }
+
+    function getProcessingNodeElement(nodeId, suffix) {
+        const node = getNodeById(nodeId);
+        if (node?.el) return queryNodeControl(node.el, `#${nodeId}-${suffix}`);
+        if (node?.parameterRoot) return node.parameterRoot.querySelector?.(`#${nodeId}-${suffix}`) || null;
+        return node ? null : documentRef.getElementById(`${nodeId}-${suffix}`);
+    }
+
+    function persistProcessingParameters(node, values) {
+        node.data = node.data || {};
+        Object.assign(node, values);
+        Object.assign(node.data, values);
+    }
+
+    function canEditProcessingNode(node) {
+        return node && getNodeById(node.id) === node && !node.isClone && node.enabled !== false && !isNodeRunning(node.id);
+    }
+
+    function markProcessingPreviewStale(node, message) {
+        const suffix = node.type === 'ImageResize' ? 'resize-preview' : 'color-preview';
+        const preview = getProcessingNodeElement(node.id, suffix);
+        const retained = getDerivedImagePreview(node) || node.imageData || node.data?.image
+            || node.data?.imagePreviewThumbnail || node.data?.mediaAssetKeys?.length;
+        const text = retained ? `${message}，预览未更新` : message;
+        if (preview) {
+            preview.dataset.processingState = 'stale';
+            preview.dataset.processingMessage = text;
+        }
+        const label = getProcessingNodeElement(node.id, node.type === 'ImageResize' ? 'resize-size-label' : 'white-balance-status');
+        if (label) { label.textContent = text; label.dataset.status = 'stale'; }
+        if (!retained) {
+            if (node.type === 'ImageResize') renderImageResizeEmptyState(node.id, text);
+            else renderColorResetEmptyState(node.id, text);
+        }
     }
 
     function getPreviewBatchNavigation() {
@@ -1130,9 +1166,9 @@ export function createMediaControllerApi({
 
     function renderImageResizeEmptyState(nodeId, message = '等待上游图片') {
         clearNodePreviewThumbnail(nodeId);
-        const preview = documentRef.getElementById(`${nodeId}-resize-preview`);
-        const sizeLabel = documentRef.getElementById(`${nodeId}-resize-size-label`);
-        const bytesLabel = documentRef.getElementById(`${nodeId}-resize-bytes-label`);
+        const preview = getProcessingNodeElement(nodeId, `resize-preview`);
+        const sizeLabel = getProcessingNodeElement(nodeId, `resize-size-label`);
+        const bytesLabel = getProcessingNodeElement(nodeId, `resize-bytes-label`);
         if (preview) {
             preview.innerHTML = `<div class="preview-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>${message}</div>`;
         }
@@ -1142,14 +1178,16 @@ export function createMediaControllerApi({
     }
 
     function renderImageResizeResult(nodeId, result) {
-        const preview = documentRef.getElementById(`${nodeId}-resize-preview`);
-        const sizeLabel = documentRef.getElementById(`${nodeId}-resize-size-label`);
-        const bytesLabel = documentRef.getElementById(`${nodeId}-resize-bytes-label`);
+        const preview = getProcessingNodeElement(nodeId, `resize-preview`);
+        const sizeLabel = getProcessingNodeElement(nodeId, `resize-size-label`);
+        const bytesLabel = getProcessingNodeElement(nodeId, `resize-bytes-label`);
         const sizeText = result.originalWidth && result.originalHeight && result.outputWidth && result.outputHeight
             ? `${result.originalWidth} × ${result.originalHeight} → ${result.outputWidth} × ${result.outputHeight}`
-            : '结果预览已更新';
+            : result.outputWidth && result.outputHeight ? `${result.outputWidth} × ${result.outputHeight}` : '结果预览已更新';
 
         if (preview) {
+            delete preview.dataset.processingState;
+            delete preview.dataset.processingMessage;
             preview.innerHTML = '';
             const img = documentRef.createElement('img');
             setImageElementSource(img, result.dataUrl, '缩放结果预览', { preferImmediateSrc: false });
@@ -1165,20 +1203,22 @@ export function createMediaControllerApi({
         }
         if (bytesLabel) {
             const qualityText = result.outputQuality ? ` | 质量 ${Math.round(result.outputQuality * 100)}` : '';
-            bytesLabel.textContent = `${formatBytes(result.estimatedBytes)}${qualityText}`;
+            const format = result.outputFormat ? `${result.outputFormat.replace('image/', '').toUpperCase()} | ` : '';
+            bytesLabel.textContent = `${format}${formatBytes(result.estimatedBytes)}${qualityText}`;
         }
         requestNodeFit(nodeId);
     }
 
     function renderColorResetEmptyState(nodeId, message = '等待上游图片') {
         clearNodePreviewThumbnail(nodeId);
-        const preview = documentRef.getElementById(`${nodeId}-color-preview`);
+        const preview = getProcessingNodeElement(nodeId, `color-preview`);
         if (preview) preview.innerHTML = `<div class="preview-placeholder">${message}</div>`;
         requestNodeFit(nodeId);
     }
 
     function renderColorResetResult(nodeId, result) {
-        const preview = documentRef.getElementById(`${nodeId}-color-preview`);
+        const preview = getProcessingNodeElement(nodeId, `color-preview`);
+        if (preview) { delete preview.dataset.processingState; delete preview.dataset.processingMessage; }
         const rendered = renderColorResetPreview(preview, result.dataUrl, { overlayId: `${nodeId}-picker-overlay` });
         if (result?.dataUrl) void cacheNodePreviewThumbnail(nodeId, result.dataUrl);
         if (rendered.createdImage) requestNodeFit(nodeId);
@@ -1192,32 +1232,34 @@ export function createMediaControllerApi({
     async function refreshColorResetPreview(nodeId, options = {}) {
         const node = getNodeById(nodeId);
         if (!node || node.type !== 'ColorReset') return null;
+        const workflowId = getActiveWorkflowId();
+        node.data = node.data || {};
+        const token = (node.colorResetPreviewToken || 0) + 1;
+        node.colorResetPreviewToken = token;
+        const config = readColorResetConfig(nodeId);
         if (Object.prototype.hasOwnProperty.call(options, 'sourceImage')) node.cancelWhiteBalancePicking?.();
-        const sourceImage = options.sourceImage || await getResizeSourceImageAsync(nodeId);
+        const sourceImage = Object.prototype.hasOwnProperty.call(options, 'sourceImage')
+            ? getPrimaryProcessingImage(null, Array.isArray(options.sourceImage) ? options.sourceImage : normalizeImageList(options.sourceImage))
+            : await getResizeSourceImageAsync(nodeId);
+        if (getNodeById(nodeId) !== node || node.colorResetPreviewToken !== token) return null;
         if (!sourceImage) {
-            clearDerivedImagePreview(node);
-            delete node.data.image;
-            renderColorResetEmptyState(nodeId);
+            markProcessingPreviewStale(node, '等待上游图片');
             return null;
         }
         if (isRemoteImageUrl(sourceImage)) {
-            clearDerivedImagePreview(node);
-            delete node.data.image;
-            renderColorResetEmptyState(nodeId, 'URL 图片不支持复位颜色节点');
+            markProcessingPreviewStale(node, 'URL 图片不支持复位颜色节点');
             return null;
         }
-        const token = (node.colorResetPreviewToken || 0) + 1;
-        node.colorResetPreviewToken = token;
         try {
-            const result = await processColorResetImage(sourceImage, readColorResetConfig(nodeId));
-            if (!state.nodes.has(nodeId) || node.colorResetPreviewToken !== token) return null;
+            const result = await processColorResetImage(sourceImage, config);
+            if (getNodeById(nodeId) !== node || node.colorResetPreviewToken !== token) return null;
             node.data = node.data || {};
             node.data.image = result.dataUrl;
             node.imageData = result.dataUrl;
             node.imageDataList = [result.dataUrl];
             setDerivedImagePreview(node, result.dataUrl);
             node.colorResetPreviewMeta = result;
-            const selectedMode = documentRef.getElementById(`${nodeId}-white-balance`)?.value || 'original';
+            const selectedMode = config.whiteBalanceMode;
             if (result.whiteBalanceGains && selectedMode === 'auto') {
                 node.autoWhiteBalanceGains = result.whiteBalanceGains;
                 node.data.autoWhiteBalanceGains = result.whiteBalanceGains;
@@ -1237,54 +1279,72 @@ export function createMediaControllerApi({
                     node.whiteBalanceSamplePoint = analysis.samplePoint;
                     node.data.whiteBalanceSamplePoint = analysis.samplePoint;
                 }
-                const status = documentRef.getElementById(`${nodeId}-white-balance-status`);
+                const status = getProcessingNodeElement(nodeId, `white-balance-status`);
                 if (status) { status.textContent = analysis.message; status.dataset.status = analysis.status; }
             }
-            markNodeImageAssetPending(node, nodeId, 1);
+            markNodeImageAssetPending(node, workflowId ? null : nodeId, 1);
             renderColorResetResult(nodeId, result);
             if (options.cascade !== false) await refreshDependentImageResizePreviews(nodeId, options);
             const previousWrite = node.colorResetAssetWrite || Promise.resolve();
             node.colorResetAssetWrite = previousWrite
                 .catch(() => false)
                 .then(async () => {
-                    if (!state.nodes.has(nodeId) || node.colorResetPreviewToken !== token) return false;
-                    const workflowId = getActiveWorkflowId();
+                    if (getNodeById(nodeId) !== node || node.colorResetPreviewToken !== token) return false;
                     const mediaAsset = workflowId
                         ? await saveWorkflowNodeMediaAsset(result.dataUrl, workflowId, nodeId, node.activeMediaOperationId)
                         : null;
+                    if (getNodeById(nodeId) !== node) {
+                        if (mediaAsset?.mediaTemporaryOwnerId) await removeMediaReference('workflow-operation', mediaAsset.mediaTemporaryOwnerId, mediaAsset.asset_key);
+                        return false;
+                    }
+                    if (mediaAsset?.asset_key) rememberWorkflowMediaOperation(node, [mediaAsset]);
+                    if (node.colorResetPreviewToken !== token) return false;
                     const saved = Boolean(mediaAsset) || await saveImageAsset(nodeId, result.dataUrl);
-                    if (mediaAsset) node.data.mediaAssetKeys = [mediaAsset.asset_key];
-                    if (!state.nodes.has(nodeId) || node.colorResetPreviewToken !== token) return false;
-                    if (saved) markNodeImageAssetReady(node, nodeId, 1);
+                    if (getNodeById(nodeId) !== node || node.colorResetPreviewToken !== token) return false;
+                    if (mediaAsset?.asset_key) node.data.mediaAssetKeys = [mediaAsset.asset_key];
+                    if (saved) markNodeImageAssetReady(node, mediaAsset?.asset_key || nodeId, 1);
                     return saved;
                 })
                 .catch(() => false);
             return result;
         } catch {
-            renderColorResetEmptyState(nodeId, '预览生成失败');
+            if (getNodeById(nodeId) !== node || node.colorResetPreviewToken !== token) return null;
+            markProcessingPreviewStale(node, '预览生成失败');
             return null;
         }
     }
 
     function setupColorReset(id, el) {
         const node = getNodeById(id);
-        const preview = el.querySelector(`#${id}-color-preview`);
-        const picker = el.querySelector(`#${id}-white-balance-picker`);
-        const resetWhiteBalanceButton = el.querySelector(`#${id}-reset-white-balance`);
-        const resetColorButton = el.querySelector(`#${id}-reset-color`);
-        const resetAllButton = el.querySelector(`#${id}-reset-all`);
-        const status = el.querySelector(`#${id}-white-balance-status`);
-        const mode = el.querySelector(`#${id}-white-balance`);
-        const dirtyDot = el.querySelector(`#${id}-color-reset-dirty`);
-        const whiteBalanceDirtyBadge = el.querySelector(`#${id}-white-balance-dirty`);
-        const colorDirtyBadge = el.querySelector(`#${id}-color-dirty`);
+        const preview = queryNodeControl(el, `#${id}-color-preview`);
+        const picker = queryNodeControl(el, `#${id}-white-balance-picker`);
+        const resetWhiteBalanceButton = queryNodeControl(el, `#${id}-reset-white-balance`);
+        const resetColorButton = queryNodeControl(el, `#${id}-reset-color`);
+        const resetAllButton = queryNodeControl(el, `#${id}-reset-all`);
+        const status = queryNodeControl(el, `#${id}-white-balance-status`);
+        const mode = queryNodeControl(el, `#${id}-white-balance`);
+        const dirtyDot = queryNodeControl(el, `#${id}-color-reset-dirty`);
+        const whiteBalanceDirtyBadge = queryNodeControl(el, `#${id}-white-balance-dirty`);
+        const colorDirtyBadge = queryNodeControl(el, `#${id}-color-dirty`);
+        const persistControls = () => {
+            node.colorResetPreviewToken = (node.colorResetPreviewToken || 0) + 1;
+            const config = readColorResetConfig(id);
+            persistProcessingParameters(node, {
+                whiteBalanceMode: config.whiteBalanceMode,
+                ...Object.fromEntries(['temperature', 'tint', 'vibrance', 'saturation'].map(name => [name, config[name]]))
+            });
+            syncClonesFromSource(id);
+            scheduleSave();
+        };
         let picking = false;
+        let pickerGestureUntil = 0;
         const updateRange = (input) => {
+            if (!input) return;
             const percent = (Number(input.value) + 100) / 2;
             input.style.setProperty('--range-progress', `${percent}%`);
         };
         let refreshTimer = null;
-        const readControl = (name) => Number(el.querySelector(`#${id}-${name}`)?.value) || 0;
+        const readControl = (name) => Number(queryNodeControl(el, `#${id}-${name}`)?.value) || 0;
         const updateDirtyState = () => {
             const whiteBalanceDirty = mode?.value !== 'original' || readControl('temperature') !== 0 || readControl('tint') !== 0;
             const colorDirty = readControl('vibrance') !== 0 || readControl('saturation') !== 0;
@@ -1296,17 +1356,21 @@ export function createMediaControllerApi({
             el.dataset.nodeDirty = String(whiteBalanceDirty || colorDirty);
         };
         const queue = () => {
+            if (!canEditProcessingNode(node)) return;
             if (refreshTimer) windowRef.clearTimeout(refreshTimer);
+            persistControls();
             updateDirtyState();
-            refreshTimer = windowRef.setTimeout(() => { void refreshColorResetPreview(id); scheduleSave(); }, 160);
+            refreshTimer = windowRef.setTimeout(() => {
+                if (canEditProcessingNode(node)) void refreshColorResetPreview(id);
+            }, 160);
         };
         ['temperature', 'tint', 'vibrance', 'saturation'].forEach((name) => {
-            const range = el.querySelector(`#${id}-${name}`);
-            const number = el.querySelector(`#${id}-${name}-value`);
+            const range = queryNodeControl(el, `#${id}-${name}`);
+            const number = queryNodeControl(el, `#${id}-${name}-value`);
             updateRange(range);
-            range?.addEventListener('input', () => { number.value = range.value; updateRange(range); queue(); });
-            number?.addEventListener('input', () => { number.value = String(Math.max(-100, Math.min(100, Number(number.value) || 0))); range.value = number.value; updateRange(range); queue(); });
-            const resetScalar = () => { range.value = '0'; number.value = '0'; updateRange(range); queue(); };
+            range?.addEventListener('input', () => { if (!canEditProcessingNode(node)) return; if (number) number.value = range.value; updateRange(range); queue(); });
+            number?.addEventListener('input', () => { if (!canEditProcessingNode(node)) return; number.value = String(Math.max(-100, Math.min(100, Number(number.value) || 0))); if (range) range.value = number.value; updateRange(range); queue(); });
+            const resetScalar = () => { if (!canEditProcessingNode(node)) return; if (range) range.value = '0'; if (number) number.value = '0'; updateRange(range); queue(); };
             range?.addEventListener('dblclick', resetScalar);
             number?.addEventListener('dblclick', resetScalar);
         });
@@ -1314,8 +1378,9 @@ export function createMediaControllerApi({
             picking = false; picker?.classList.remove('active'); preview?.classList.remove('is-picking'); picker?.setAttribute('aria-pressed', 'false');
         };
         node.cancelWhiteBalancePicking = stopPicking;
-        mode?.addEventListener('change', () => { stopPicking(); updateDirtyState(); void refreshColorResetPreview(id); scheduleSave(); });
+        mode?.addEventListener('change', () => { if (!canEditProcessingNode(node)) return; stopPicking(); persistControls(); updateDirtyState(); void refreshColorResetPreview(id); });
         picker?.addEventListener('click', () => {
+            if (!canEditProcessingNode(node)) return;
             picking = !picking;
             picker.classList.toggle('active', picking);
             picker.setAttribute('aria-pressed', String(picking));
@@ -1338,21 +1403,23 @@ export function createMediaControllerApi({
             mode.value = 'original';
             if (status) { status.textContent = '原始设置'; status.dataset.status = 'applied'; }
             ['temperature', 'tint'].forEach((name) => {
-                const range = el.querySelector(`#${id}-${name}`); const number = el.querySelector(`#${id}-${name}-value`);
+                const range = queryNodeControl(el, `#${id}-${name}`); const number = queryNodeControl(el, `#${id}-${name}-value`);
                 if (range) { range.value = '0'; updateRange(range); }
                 if (number) number.value = '0';
             });
         };
         const resetColorState = () => {
             ['vibrance', 'saturation'].forEach((name) => {
-                const range = el.querySelector(`#${id}-${name}`); const number = el.querySelector(`#${id}-${name}-value`);
+                const range = queryNodeControl(el, `#${id}-${name}`); const number = queryNodeControl(el, `#${id}-${name}-value`);
                 if (range) { range.value = '0'; updateRange(range); }
                 if (number) number.value = '0';
             });
         };
         const commitReset = async (resetter) => {
+            if (!canEditProcessingNode(node)) return;
             if (refreshTimer) { windowRef.clearTimeout(refreshTimer); refreshTimer = null; }
             resetter();
+            persistControls();
             updateDirtyState();
             await refreshColorResetPreview(id);
             scheduleSave();
@@ -1361,16 +1428,30 @@ export function createMediaControllerApi({
         resetColorButton?.addEventListener('click', () => { void commitReset(resetColorState); });
         resetAllButton?.addEventListener('click', () => { void commitReset(() => { resetWhiteBalanceState(); resetColorState(); }); });
         const handlePickerEscape = (event) => {
-            if (!state.nodes.has(id)) { documentRef.removeEventListener('keydown', handlePickerEscape); return; }
+            if (getNodeById(id) !== node) { stopPicking(); documentRef.removeEventListener('keydown', handlePickerEscape); return; }
             if (event.key !== 'Escape' || !picking) return;
             event.preventDefault();
             stopPicking();
             if (status) { status.textContent = node.whiteBalanceMessage || '原始设置'; status.dataset.status = node.whiteBalanceStatus || 'idle'; }
         };
         documentRef.addEventListener('keydown', handlePickerEscape);
+        preview?.addEventListener('mousedown', (event) => {
+            if (picking) { pickerGestureUntil = Date.now() + 500; event.stopPropagation(); }
+        });
+        preview?.addEventListener('dblclick', (event) => {
+            if (picking || Date.now() < pickerGestureUntil) { event.preventDefault(); event.stopPropagation(); }
+        });
         preview?.addEventListener('click', async (event) => {
-            if (!picking) { void openStoredImageNodeFullscreen(id); return; }
+            if (!picking) {
+                if ((!el.classList.contains('image-first-card') || event.detail === 2) && !state.justDragged && Date.now() >= pickerGestureUntil) void openStoredImageNodeFullscreen(id);
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            pickerGestureUntil = Date.now() + 500;
+            if (!canEditProcessingNode(node)) { stopPicking(); return; }
             const source = await getResizeSourceImageAsync(id);
+            if (!canEditProcessingNode(node) || !picking) return;
             const image = preview.querySelector('img');
             if (!source || !image) return;
             const rect = image.getBoundingClientRect();
@@ -1378,6 +1459,7 @@ export function createMediaControllerApi({
                 const img = new windowRef.Image(); img.onload = () => resolve(img); img.onerror = () => resolve(null); img.src = source;
             });
             if (!sourceInfo) return;
+            if (!canEditProcessingNode(node) || !picking) return;
             const mapped = mapPreviewPointToImage({ x: event.clientX - rect.left, y: event.clientY - rect.top, boxWidth: rect.width, boxHeight: rect.height, imageWidth: sourceInfo.naturalWidth, imageHeight: sourceInfo.naturalHeight });
             if (!mapped) { if (status) { status.textContent = '请点击图片内容区域'; status.dataset.status = 'invalid-sample'; } return; }
             const candidatePoint = { xRatio: mapped.xRatio, yRatio: mapped.yRatio };
@@ -1391,23 +1473,34 @@ export function createMediaControllerApi({
             } catch {
                 candidateResult = { whiteBalanceAnalysis: { status: 'invalid-sample', message: '取样失败，请重新选择' } };
             }
+            if (!canEditProcessingNode(node) || !picking) return;
             const selection = resolveWhiteBalanceSampleSelection({
                 mode: mode.value,
                 samplePoint: node.whiteBalanceSamplePoint || node.data?.whiteBalanceSamplePoint || null
             }, candidatePoint, candidateResult.whiteBalanceAnalysis);
             if (!selection.accepted) {
                 if (status) { status.textContent = selection.message; status.dataset.status = 'invalid-sample'; }
+                persistProcessingParameters(node, { whiteBalanceStatus: 'invalid-sample', whiteBalanceMessage: selection.message });
+                scheduleSave();
                 return;
             }
             node.whiteBalanceSamplePoint = selection.samplePoint;
             node.data.whiteBalanceSamplePoint = node.whiteBalanceSamplePoint;
             let custom = mode.querySelector('option[value="custom"]'); custom.hidden = false; mode.value = 'custom';
+            if (candidateResult.whiteBalanceGains) {
+                persistProcessingParameters(node, { customWhiteBalanceGains: candidateResult.whiteBalanceGains, whiteBalanceGains: candidateResult.whiteBalanceGains });
+            }
             stopPicking();
+            persistControls();
             updateDirtyState();
             await refreshColorResetPreview(id); scheduleSave();
         });
         updateDirtyState();
-        if (node?.imageData) renderColorResetResult(id, { dataUrl: node.imageData }); else void refreshColorResetPreview(id);
+        const retainedPreview = node?.imageData || node?.data?.imagePreviewThumbnail;
+        if (retainedPreview) {
+            renderColorResetResult(id, { dataUrl: retainedPreview });
+            if (!hasIncomingImageConnection(id)) markProcessingPreviewStale(node, '等待上游图片');
+        } else void refreshColorResetPreview(id);
         requestNodeFit(id);
     }
 
@@ -1416,18 +1509,23 @@ export function createMediaControllerApi({
         if (!node || !dataUrl) return renderColorResetEmptyState(nodeId);
         node.data.image = dataUrl; node.imageData = dataUrl; node.imageDataList = [dataUrl]; setDerivedImagePreview(node, dataUrl); node.colorResetPreviewMeta = meta;
         renderColorResetResult(nodeId, { ...meta, dataUrl });
+        const status = getProcessingNodeElement(nodeId, 'white-balance-status');
+        if (status) {
+            status.textContent = meta.whiteBalanceAnalysis?.message || node.whiteBalanceMessage || node.data.whiteBalanceMessage || '原始设置';
+            status.dataset.status = meta.whiteBalanceAnalysis?.status || node.whiteBalanceStatus || node.data.whiteBalanceStatus || 'idle';
+        }
     }
 
     function updateImageResizeModeState(nodeId) {
-        const modeInput = documentRef.getElementById(`${nodeId}-resize-mode`);
-        const scaleSection = documentRef.getElementById(`${nodeId}-scale-section`);
-        const dimensionsSection = documentRef.getElementById(`${nodeId}-dimensions-section`);
-        const mode = modeInput?.value || 'scale';
+        const modeInput = getProcessingNodeElement(nodeId, `resize-mode`);
+        const scaleSection = getProcessingNodeElement(nodeId, `scale-section`);
+        const dimensionsSection = getProcessingNodeElement(nodeId, `dimensions-section`);
+        const mode = modeInput?.value || getNodeById(nodeId)?.resizeMode || getNodeById(nodeId)?.data?.resizeMode || 'scale';
 
         if (scaleSection) scaleSection.classList.toggle('hidden', mode !== 'scale');
         if (dimensionsSection) dimensionsSection.classList.toggle('hidden', mode !== 'dimensions');
 
-        documentRef.querySelectorAll(`.image-resize-mode-btn[data-target="${nodeId}"]`).forEach((btn) => {
+        queryNodeControls(getNodeById(nodeId)?.el, `.image-resize-mode-btn[data-target="${nodeId}"]`).forEach((btn) => {
             btn.classList.toggle('active', btn.dataset.mode === mode);
         });
 
@@ -1435,7 +1533,7 @@ export function createMediaControllerApi({
     }
 
     function updateImageResizeQualityVisibility(nodeId, sourceImage) {
-        const qualityField = documentRef.getElementById(`${nodeId}-quality-field`);
+        const qualityField = getProcessingNodeElement(nodeId, `quality-field`);
         if (!qualityField) return;
         const outputFormat = sourceImage ? detectOutputFormat(sourceImage) : 'image/png';
         qualityField.classList.toggle('hidden', outputFormat === 'image/png');
@@ -1443,29 +1541,30 @@ export function createMediaControllerApi({
     }
 
     function readImageResizeConfig(nodeId) {
-        return {
-            mode: documentRef.getElementById(`${nodeId}-resize-mode`)?.value || 'scale',
-            scalePercent: Math.max(1, Math.min(100, parseInt(documentRef.getElementById(`${nodeId}-scale-percent`)?.value || '100', 10) || 100)),
-            targetWidth: documentRef.getElementById(`${nodeId}-target-width`)?.value || '',
-            targetHeight: documentRef.getElementById(`${nodeId}-target-height`)?.value || '',
-            keepAspect: documentRef.getElementById(`${nodeId}-keep-aspect`)?.checked !== false,
-            quality: parseInt(documentRef.getElementById(`${nodeId}-quality`)?.value || '92', 10)
-        };
+        const { resizeMode, ...settings } = readImageResizeSettings(getNodeById(nodeId));
+        return { mode: resizeMode, ...settings };
+    }
+
+    function getPrimaryProcessingImage(node, images, fallback = null) {
+        if (node?.enabled === false || node?.data?.mediaIntegrity?.missingItems?.some(item => Number(item.position) === 0)) return null;
+        if (images.length > 0) return typeof images[0] === 'string' && images[0] ? images[0] : null;
+        return fallback;
     }
 
     function getResizeSourceImage(nodeId) {
         const incoming = state.connections.find((conn) => conn.to.nodeId === nodeId && conn.to.port === 'image');
         if (!incoming) return null;
         const sourceNode = getNodeById(incoming.from.nodeId);
-        return getNodePreviewSourceData(sourceNode);
+        return getPrimaryProcessingImage(sourceNode, getNodeOutputImageList(sourceNode), getNodePreviewSourceData(sourceNode));
     }
 
     async function getResizeSourceImageAsync(nodeId) {
         const incoming = state.connections.find((conn) => conn.to.nodeId === nodeId && conn.to.port === 'image');
         if (!incoming) return null;
         const sourceNode = getNodeById(incoming.from.nodeId);
+        if (!sourceNode || sourceNode.enabled === false) return null;
         const images = await getNodeOutputImageListAsync(sourceNode);
-        return images[0] || getNodePreviewSourceData(sourceNode);
+        return getPrimaryProcessingImage(sourceNode, images, getNodePreviewSourceData(sourceNode));
     }
 
     function beginDisplayImageAssetWrite(node) {
@@ -1803,6 +1902,10 @@ export function createMediaControllerApi({
         const sourceImage = Object.prototype.hasOwnProperty.call(options, 'sourceImage')
             ? options.sourceImage
             : getNodePreviewSourceData(sourceNode);
+        const processingSourceImage = getPrimaryProcessingImage(sourceNode,
+            Object.prototype.hasOwnProperty.call(options, 'sourceImage') && Array.isArray(options.sourceImage)
+                ? options.sourceImage : sourceImageList,
+            sourceImage);
 
         const dependents = state.connections
             .filter((conn) => (
@@ -1821,12 +1924,12 @@ export function createMediaControllerApi({
             }
 
             if (node.type === 'ImageResize') {
-                await refreshImageResizePreview(nodeId, { ...options, sourceImage, cascade: false });
+                await refreshImageResizePreview(nodeId, { ...options, sourceImage: processingSourceImage, cascade: false });
                 await refreshDependentImageResizePreviews(nodeId, options, visited);
                 continue;
             }
             if (node.type === 'ColorReset') {
-                await refreshColorResetPreview(nodeId, { ...options, sourceImage, cascade: false });
+                await refreshColorResetPreview(nodeId, { ...options, sourceImage: processingSourceImage, cascade: false });
                 await refreshDependentImageResizePreviews(nodeId, options, visited);
                 continue;
             }
@@ -1861,24 +1964,27 @@ export function createMediaControllerApi({
     }
 
     async function refreshAllImageResizePreviews(options = {}) {
-        const imageResizeNodes = Array.from(state.nodes.values()).filter((node) => node.type === 'ImageResize');
+        const processingTypes = ['ImageResize', 'ColorReset'];
+        const imageResizeNodes = Array.from(state.nodes.values()).filter(node => processingTypes.includes(node.type));
+        const refresh = nodeId => getNodeById(nodeId)?.type === 'ColorReset'
+            ? refreshColorResetPreview(nodeId, options) : refreshImageResizePreview(nodeId, options);
         const roots = [];
         const rest = [];
 
         imageResizeNodes.forEach((node) => {
             const incoming = state.connections.find((conn) => conn.to.nodeId === node.id && conn.to.port === 'image');
             const upstream = incoming ? getNodeById(incoming.from.nodeId) : null;
-            if (!incoming || !upstream || upstream.type !== 'ImageResize') roots.push(node.id);
+            if (!incoming || !upstream || !processingTypes.includes(upstream.type)) roots.push(node.id);
             else rest.push(node.id);
         });
 
         const refreshed = new Set();
         for (const nodeId of roots) {
-            await refreshImageResizePreview(nodeId, options);
+            await refresh(nodeId);
             refreshed.add(nodeId);
         }
         for (const nodeId of rest) {
-            if (!refreshed.has(nodeId)) await refreshImageResizePreview(nodeId, options);
+            if (!refreshed.has(nodeId)) await refresh(nodeId);
         }
         for (const node of state.nodes.values()) {
             if (node.type !== 'ImagePreview') continue;
@@ -1907,7 +2013,7 @@ export function createMediaControllerApi({
         const sourceNodeIds = Array.from(state.nodes.values())
             .filter((node) => (
                 node?.enabled !== false
-                && ['ImageImport', 'ImageGenerate', 'ImageResize', 'ImagePreview', 'ImageSave', 'ImageCompare'].includes(node.type)
+                && ['ImageImport', 'ImageGenerate', 'ImageResize', 'ColorReset', 'ImagePreview', 'ImageSave', 'ImageCompare'].includes(node.type)
                 && getNodeOutputImageList(node).length > 0
             ))
             .map((node) => node.id);
@@ -1922,49 +2028,34 @@ export function createMediaControllerApi({
         const node = getNodeById(nodeId);
         if (!node || node.type !== 'ImageResize') return null;
         node.data = node.data || {};
+        const workflowId = getActiveWorkflowId();
+        const token = (node.resizePreviewToken || 0) + 1;
+        node.resizePreviewToken = token;
+        const config = readImageResizeConfig(nodeId);
 
-        const sourceImage = options.sourceImage || await getResizeSourceImageAsync(nodeId);
+        const sourceImage = Object.prototype.hasOwnProperty.call(options, 'sourceImage')
+            ? getPrimaryProcessingImage(null, Array.isArray(options.sourceImage) ? options.sourceImage : normalizeImageList(options.sourceImage))
+            : await getResizeSourceImageAsync(nodeId);
+        if (getNodeById(nodeId) !== node || node.resizePreviewToken !== token) return null;
         updateImageResizeModeState(nodeId);
         updateImageResizeQualityVisibility(nodeId, sourceImage);
 
         if (!sourceImage) {
-            clearDerivedImagePreview(node);
-            node.resizePreviewMeta = null;
-            delete node.data.image;
-            delete node.data.imageAssetKey;
-            delete node.data.imageCount;
-            delete node.data.imageAssetReady;
-            delete node.data.imageMemoryReleased;
-            clearDisplayImageAssetState(nodeId);
-            renderImageResizeEmptyState(nodeId, '等待上游图片');
-            if (options.cascade !== false) await refreshDependentImageResizePreviews(nodeId, options);
+            markProcessingPreviewStale(node, '等待上游图片');
             return null;
         }
 
         if (isRemoteImageUrl(sourceImage)) {
-            clearDerivedImagePreview(node);
-            node.resizePreviewMeta = null;
-            delete node.data.image;
-            delete node.data.imageAssetKey;
-            delete node.data.imageCount;
-            delete node.data.imageAssetReady;
-            delete node.data.imageMemoryReleased;
-            clearDisplayImageAssetState(nodeId);
-            renderImageResizeEmptyState(nodeId, 'URL 图片不支持缩放节点');
-            if (options.cascade !== false) await refreshDependentImageResizePreviews(nodeId, options);
+            markProcessingPreviewStale(node, 'URL 图片不支持缩放节点');
             return null;
         }
 
-        const token = (node.resizePreviewToken || 0) + 1;
-        node.resizePreviewToken = token;
-
-        const sizeLabel = documentRef.getElementById(`${nodeId}-resize-size-label`);
-        const bytesLabel = documentRef.getElementById(`${nodeId}-resize-bytes-label`);
+        const sizeLabel = getProcessingNodeElement(nodeId, `resize-size-label`);
+        const bytesLabel = getProcessingNodeElement(nodeId, `resize-bytes-label`);
         if (sizeLabel) sizeLabel.textContent = '正在计算预览...';
         if (bytesLabel) bytesLabel.textContent = '';
 
         try {
-            const config = readImageResizeConfig(nodeId);
             const result = await resizeImageData(sourceImage, {
                 mode: config.mode,
                 scalePercent: config.scalePercent,
@@ -1975,22 +2066,27 @@ export function createMediaControllerApi({
                 format: detectOutputFormat(sourceImage)
             });
 
-            if (!state.nodes.has(nodeId) || node.resizePreviewToken !== token) return null;
+            if (getNodeById(nodeId) !== node || node.resizePreviewToken !== token) return null;
 
             setDerivedImagePreview(node, result.dataUrl);
             node.resizePreviewMeta = result;
             node.data.image = result.dataUrl;
             node.imageData = result.dataUrl;
             node.imageDataList = [result.dataUrl];
+            persistProcessingParameters(node, Object.fromEntries(
+                ['originalWidth', 'originalHeight', 'outputWidth', 'outputHeight', 'outputFormat', 'outputQuality', 'estimatedBytes']
+                    .filter(name => result[name] !== undefined).map(name => [name, result[name]])
+            ));
             const asset = await saveWorkflowNodeMediaAsset(
-                result.dataUrl, getActiveWorkflowId(), nodeId, node.activeMediaOperationId
+                result.dataUrl, workflowId, nodeId, node.activeMediaOperationId
             );
             if (asset?.mediaTemporaryOwnerId && state.nodes.get(nodeId) !== node) {
                 await removeMediaReference('workflow-operation', asset.mediaTemporaryOwnerId, asset.asset_key);
                 return;
             }
+            if (asset?.asset_key && getNodeById(nodeId) === node) rememberWorkflowMediaOperation(node, [asset]);
+            if (getNodeById(nodeId) !== node || node.resizePreviewToken !== token) return null;
             if (asset?.asset_key) {
-                rememberWorkflowMediaOperation(node, [asset]);
                 node.data.mediaAssetKeys = [asset.asset_key];
                 node.data.imageAssetKey = asset.asset_key;
                 markNodeImageAssetReady(node, asset.asset_key, 1);
@@ -2003,8 +2099,8 @@ export function createMediaControllerApi({
             }
             return result;
         } catch (error) {
-            if (!state.nodes.has(nodeId) || node.resizePreviewToken !== token) return null;
-            renderImageResizeEmptyState(nodeId, '预览生成失败');
+            if (getNodeById(nodeId) !== node || node.resizePreviewToken !== token) return null;
+            markProcessingPreviewStale(node, '预览生成失败');
             return null;
         }
     }
@@ -2012,17 +2108,18 @@ export function createMediaControllerApi({
     async function syncAspectLinkedDimension(nodeId, changedField) {
         const node = getNodeById(nodeId);
         if (!node) return;
-        const keepAspect = documentRef.getElementById(`${nodeId}-keep-aspect`)?.checked;
+        const keepAspect = getProcessingNodeElement(nodeId, `keep-aspect`)?.checked;
         if (!keepAspect) return;
 
         const sourceImage = await getResizeSourceImageAsync(nodeId);
+        if (getNodeById(nodeId) !== node) return;
         if (!sourceImage) return;
 
         const res = parseResolutionText(await getImageResolution(sourceImage));
         if (!res?.width || !res?.height) return;
 
-        const widthInput = documentRef.getElementById(`${nodeId}-target-width`);
-        const heightInput = documentRef.getElementById(`${nodeId}-target-height`);
+        const widthInput = getProcessingNodeElement(nodeId, `target-width`);
+        const heightInput = getProcessingNodeElement(nodeId, `target-height`);
         if (!widthInput || !heightInput) return;
 
         if (changedField === 'width') {
@@ -2032,6 +2129,7 @@ export function createMediaControllerApi({
             const height = parseInt(heightInput.value || '0', 10);
             if (height > 0) widthInput.value = String(Math.max(1, Math.round(height * res.width / res.height)));
         }
+        persistProcessingParameters(node, { targetWidth: widthInput.value, targetHeight: heightInput.value });
     }
 
     function setupImageImport(id, el) {
@@ -2249,17 +2347,25 @@ export function createMediaControllerApi({
     }
 
     function setupImageResize(id, el) {
-        const previewContainer = el.querySelector(`#${id}-resize-preview`);
-        const modeInput = el.querySelector(`#${id}-resize-mode`);
-        const scaleInput = el.querySelector(`#${id}-scale-percent`);
-        const scaleValue = el.querySelector(`#${id}-scale-value`);
-        const qualityInput = el.querySelector(`#${id}-quality`);
-        const qualityValue = el.querySelector(`#${id}-quality-value`);
-        const widthInput = el.querySelector(`#${id}-target-width`);
-        const heightInput = el.querySelector(`#${id}-target-height`);
-        const keepAspectInput = el.querySelector(`#${id}-keep-aspect`);
+        const previewContainer = queryNodeControl(el, `#${id}-resize-preview`);
+        const modeInput = queryNodeControl(el, `#${id}-resize-mode`);
+        const scaleInput = queryNodeControl(el, `#${id}-scale-percent`);
+        const scaleValue = queryNodeControl(el, `#${id}-scale-value`);
+        const qualityInput = queryNodeControl(el, `#${id}-quality`);
+        const qualityValue = queryNodeControl(el, `#${id}-quality-value`);
+        const widthInput = queryNodeControl(el, `#${id}-target-width`);
+        const heightInput = queryNodeControl(el, `#${id}-target-height`);
+        const keepAspectInput = queryNodeControl(el, `#${id}-keep-aspect`);
 
         const node = getNodeById(id);
+
+        const persistControls = () => {
+            node.resizePreviewToken = (node.resizePreviewToken || 0) + 1;
+            const { mode, ...config } = readImageResizeConfig(id);
+            persistProcessingParameters(node, { resizeMode: mode, ...config });
+            syncClonesFromSource(id);
+            scheduleSave();
+        };
 
         const updateRangeProgress = (input) => {
             if (!input) return;
@@ -2271,20 +2377,21 @@ export function createMediaControllerApi({
         };
 
         const queuePreviewRefresh = (delay = 180) => {
-            const node = getNodeById(id);
-            if (!node) return;
+            if (!canEditProcessingNode(node)) return;
             if (node.resizePreviewTimer) windowRef.clearTimeout(node.resizePreviewTimer);
             node.resizePreviewTimer = windowRef.setTimeout(() => {
-                refreshImageResizePreview(id);
+                if (canEditProcessingNode(node)) void refreshImageResizePreview(id);
             }, delay);
         };
 
         updateImageResizeModeState(id);
         updateImageResizeQualityVisibility(id, getResizeSourceImage(id) || getNodePreviewSourceData(getNodeById(id)));
 
-        el.querySelectorAll(`.image-resize-mode-btn[data-target="${id}"]`).forEach((btn) => {
+        queryNodeControls(el, `.image-resize-mode-btn[data-target="${id}"]`).forEach((btn) => {
             btn.addEventListener('click', () => {
+                if (!canEditProcessingNode(node)) return;
                 modeInput.value = btn.dataset.mode;
+                persistControls();
                 updateImageResizeModeState(id);
                 refreshImageResizePreview(id);
                 scheduleSave();
@@ -2292,40 +2399,59 @@ export function createMediaControllerApi({
         });
 
         scaleInput?.addEventListener('input', () => {
+            if (!canEditProcessingNode(node)) return;
             if (scaleValue) scaleValue.textContent = `${scaleInput.value}%`;
             updateRangeProgress(scaleInput);
+            persistControls();
+            queuePreviewRefresh();
         });
         scaleInput?.addEventListener('change', () => {
-            refreshImageResizePreview(id);
+            if (canEditProcessingNode(node)) void refreshImageResizePreview(id);
         });
 
         qualityInput?.addEventListener('input', () => {
+            if (!canEditProcessingNode(node)) return;
             if (qualityValue) qualityValue.textContent = `${qualityInput.value}%`;
             updateRangeProgress(qualityInput);
+            persistControls();
+            queuePreviewRefresh();
         });
         qualityInput?.addEventListener('change', () => {
-            refreshImageResizePreview(id);
+            if (canEditProcessingNode(node)) void refreshImageResizePreview(id);
         });
 
         updateRangeProgress(scaleInput);
         updateRangeProgress(qualityInput);
 
         widthInput?.addEventListener('input', async () => {
+            if (!canEditProcessingNode(node)) return;
+            persistControls();
             await syncAspectLinkedDimension(id, 'width');
+            if (!canEditProcessingNode(node)) return;
+            persistControls();
             queuePreviewRefresh();
         });
         heightInput?.addEventListener('input', async () => {
+            if (!canEditProcessingNode(node)) return;
+            persistControls();
             await syncAspectLinkedDimension(id, 'height');
+            if (!canEditProcessingNode(node)) return;
+            persistControls();
             queuePreviewRefresh();
         });
         keepAspectInput?.addEventListener('change', async () => {
+            if (!canEditProcessingNode(node)) return;
+            persistControls();
             if (keepAspectInput.checked && widthInput?.value) {
                 await syncAspectLinkedDimension(id, 'width');
             }
-            refreshImageResizePreview(id);
+            if (!canEditProcessingNode(node)) return;
+            persistControls();
+            void refreshImageResizePreview(id);
         });
 
         previewContainer?.addEventListener('click', (e) => {
+            if (el.classList.contains('image-first-card') && e.detail !== 2) return;
             e.stopPropagation();
             if (state.justDragged) return;
             void openStoredImageNodeFullscreen(id);
@@ -2338,16 +2464,22 @@ export function createMediaControllerApi({
         if (node?.imageData) {
             renderImageResizeResult(id, {
                 dataUrl: node.imageData,
+                originalWidth: node.originalWidth || 0,
+                originalHeight: node.originalHeight || 0,
                 outputWidth: node.outputWidth || 0,
                 outputHeight: node.outputHeight || 0,
+                outputFormat: node.outputFormat || '',
                 outputQuality: node.outputQuality || null,
                 estimatedBytes: node.estimatedBytes || estimateDataUrlSize(node.imageData)
             });
         } else if (persistedPreviewThumbnail) {
             renderImageResizeResult(id, {
                 dataUrl: persistedPreviewThumbnail,
+                originalWidth: node?.originalWidth || 0,
+                originalHeight: node?.originalHeight || 0,
                 outputWidth: node?.outputWidth || 0,
                 outputHeight: node?.outputHeight || 0,
+                outputFormat: node?.outputFormat || '',
                 outputQuality: node?.outputQuality || null,
                 estimatedBytes: node?.estimatedBytes || null
             });
@@ -2367,8 +2499,11 @@ export function createMediaControllerApi({
 
         const result = {
             dataUrl,
+            originalWidth: meta.originalWidth || node.originalWidth || 0,
+            originalHeight: meta.originalHeight || node.originalHeight || 0,
             outputWidth: meta.outputWidth || 0,
             outputHeight: meta.outputHeight || 0,
+            outputFormat: meta.outputFormat || node.outputFormat || '',
             outputQuality: meta.outputQuality || null,
             estimatedBytes: meta.estimatedBytes || estimateDataUrlSize(dataUrl)
         };

@@ -6,7 +6,7 @@ import { isImageFirstCardNode } from '../../nodes/image-first-presentation.js';
 import { getCanonicalImageList, getCanonicalImageIndex } from '../execution/execution-data-utils.js';
 import { projectImageOutput } from '../../nodes/image-output-projection.js';
 
-const nodeLabels = { ImageGenerate: '图片生成', ImageImport: '图片导入', ImagePreview: '图片预览' };
+const nodeLabels = { ImageGenerate: '图片生成', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色' };
 
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
@@ -99,20 +99,27 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             view.urlFields.hidden = mode !== 'url';
             view.urlFields.classList.toggle('hidden', mode !== 'url');
             view.model.textContent = mode === 'url' ? 'URL 来源' : '本地素材';
-        } else {
+        } else if (node.type === 'ImagePreview') {
             const { count } = projectImageOutput(node, getCanonicalImageList(node));
             const index = getCanonicalImageIndex(node, new Array(count));
             view.model.textContent = count ? `图片预览 · ${index + 1} / ${count}` : '图片预览';
+            view.references.textContent = `输入 ${state.connections.filter(edge => edge.to.nodeId === node.id).length}`;
+        } else if (node.type === 'ImageResize' || node.type === 'ColorReset') {
+            const message = node.el.querySelector('.preview-container')?.dataset.processingMessage;
+            view.model.textContent = `${nodeLabels[node.type]}${message ? ` · ${message}` : ''}`;
             view.references.textContent = `输入 ${state.connections.filter(edge => edge.to.nodeId === node.id).length}`;
         }
         view.inputs?.refresh();
         if (current === node) {
             const running = state.runningNodeIds?.has(node.id) || ['waiting', 'running'].includes(node.runStatus) || node.el.classList.contains('running');
             generate.hidden = node.type === 'ImageImport';
-            generate.textContent = node.type === 'ImagePreview' ? (running ? '更新中' : '更新预览') : (running ? '生成中' : '生成');
+            generate.textContent = node.type === 'ImagePreview' ? (running ? '更新中' : '更新预览')
+                : node.type === 'ImageResize' ? (running ? '处理中' : '处理图片')
+                    : node.type === 'ColorReset' ? (running ? '调色中' : '应用调色') : (running ? '生成中' : '生成');
             generate.disabled = running || node.enabled === false;
             feedback.textContent = node.type === 'ImageImport' ? '在卡片选择文件，或切换 URL 输入链接。'
                 : node.type === 'ImagePreview' ? (node.previewInputState === 'stale' ? '未更新 · 当前无输入' : node.previewInputState === 'empty' ? '当前无输入' : '预览当前连接的图片')
+                    : node.type === 'ImageResize' || node.type === 'ColorReset' ? '修改即时预览；点击按钮执行当前节点。'
                     : documentRef.getElementById(`${node.id}-run-status`)?.textContent || '修改不会自动生成';
             schedulePosition();
         }
@@ -171,6 +178,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         form.addEventListener('input', () => { refreshNode(node.id); onSettingsChanged(node.id); });
         form.addEventListener('change', () => { refreshNode(node.id); onSettingsChanged(node.id); });
         node.el.addEventListener('click', event => {
+            if (event.target.closest('.color-reset-preview.is-picking')) return;
             if (!event.target.closest('button,input,textarea,select,.node-port,.node-select')) select(node);
         });
         if (!Array.isArray(node.el._cleanupFns)) node.el._cleanupFns = [];
@@ -214,11 +222,46 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, model, references, inputs, urlFields,
             group: node.type === 'ImagePreview' ? 'input' : null }, observed);
     }
+    function installProcessing(node) {
+        const body = node.el.querySelector('.node-body');
+        const controls = body?.querySelector(node.type === 'ImageResize' ? '.image-resize-panel' : '.color-reset-panel');
+        if (!body || !controls) return;
+        const form = documentRef.createElement('div');
+        form.className = 'node-body image-first-parameter-content'; form.dataset.nodeId = node.id;
+        // Move the original controls as one unit. The preview, its dedicated
+        // gesture target and output metadata retain their original DOM identity.
+        const surfaces = node.type === 'ImageResize'
+            ? Array.from(controls.querySelectorAll(':scope > .image-resize-preview-frame, :scope > .image-resize-meta'))
+            : Array.from(controls.querySelectorAll(':scope > .color-reset-preview, :scope > .image-resolution-badge'));
+        body.append(...surfaces);
+        controls.dataset.parameterGroup = 'settings';
+        form.append(controls);
+        installUniversalInput(node);
+        const inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, onChange: () => refreshNode(node.id) });
+        inputs.element.dataset.parameterGroup = 'input'; inputs.element.hidden = true;
+        form.append(inputs.element);
+        const bar = documentRef.createElement('div'); bar.className = 'image-parameter-setting-bar';
+        for (const [name, label] of [['settings', node.type === 'ImageResize' ? '缩放设置' : '颜色设置'], ['input', '输入']]) {
+            const button = documentRef.createElement('button'); button.type = 'button'; button.textContent = label;
+            button.dataset.parameterGroupToggle = name; button.setAttribute('aria-expanded', String(name === 'settings'));
+            button.addEventListener('click', () => setGroup(node, name)); bar.append(button);
+        }
+        form.prepend(bar);
+        const summary = documentRef.createElement('div'); summary.className = 'image-first-summary';
+        const model = documentRef.createElement('span'), references = documentRef.createElement('button');
+        references.type = 'button'; references.addEventListener('click', () => select(node, 'input'));
+        summary.append(model, references); body.append(summary);
+        node.el.classList.add('image-first-media', 'image-first-processing');
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections: [controls, inputs.element],
+            model, references, inputs, group: 'settings' }, surfaces);
+    }
     function install(nodeId) {
         sweep();
         const node = state.nodes.get(nodeId);
         if (!isImageFirstCardNode(node) || views.has(node)) return;
-        if (node.type !== 'ImageGenerate') { installMedia(node); return; }
+        if (node.type === 'ImageImport' || node.type === 'ImagePreview') { installMedia(node); return; }
+        if (node.type === 'ImageResize' || node.type === 'ColorReset') { installProcessing(node); return; }
+        if (node.type !== 'ImageGenerate') return;
         const body = node.el.querySelector('.node-body');
         const result = body?.querySelector(`#${nodeId}-image-results`);
         if (!body || !result) return;
