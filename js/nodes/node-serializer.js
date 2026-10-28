@@ -9,6 +9,7 @@ import {
 import { applyProtocolVariantSnapshot } from './protocol-variant-drafts.js';
 import { readColorResetConfig } from '../features/media/color-reset-config.js';
 import { hasNodeCapability, NODE_CAPABILITIES } from './registry.js';
+import { readImageGenerationSettings } from './image-generation-settings.js';
 
 export function createNodeSerializer({ state, documentRef }) {
     function getOrderedNodes() {
@@ -54,24 +55,6 @@ export function createNodeSerializer({ state, documentRef }) {
             }
         }
         return Object.keys(heights).length > 0 ? heights : null;
-    }
-
-    function readNodeProtocolParams(id, node) {
-        const params = { ...(node?.data?.protocolParams || {}) };
-        documentRef.querySelectorAll(`#${id}-protocol-params [id^="${id}-param-"]`).forEach((element) => {
-            const rawParamId = element.id.slice(`${id}-param-`.length);
-            if (!rawParamId || rawParamId.endsWith('-custom')) return;
-            if (element.type === 'checkbox') {
-                params[rawParamId] = element.checked === true;
-                return;
-            }
-            if (element.tagName === 'SELECT' && element.value === 'custom') {
-                params[rawParamId] = documentRef.getElementById(`${id}-param-${rawParamId}-custom`)?.value || '';
-                return;
-            }
-            params[rawParamId] = element.value;
-        });
-        return params;
     }
 
     function serializeNodes(nodeIds = null) {
@@ -202,20 +185,10 @@ export function createNodeSerializer({ state, documentRef }) {
                 serialized.providerId = documentRef.getElementById(`${id}-provider`)?.value || node.providerId || '';
                 serialized.prompt = documentRef.getElementById(`${id}-prompt`)?.value || '';
                 if (node.type === 'ImageGenerate') {
-                    serialized.advancedExpanded = documentRef.getElementById(`${id}-advanced-parameters`)?.open === true;
-                    serialized.aspect = documentRef.getElementById(`${id}-aspect`)?.value || '';
-                    serialized.resolution = documentRef.getElementById(`${id}-resolution`)?.value || '';
-                    serialized.customWidth = documentRef.getElementById(`${id}-custom-resolution-width`)?.value || '';
-                    serialized.customHeight = documentRef.getElementById(`${id}-custom-resolution-height`)?.value || '';
+                    Object.assign(serialized, readImageGenerationSettings(node, documentRef));
                     serialized.customResolution = serialized.customWidth && serialized.customHeight
                         ? `${serialized.customWidth}x${serialized.customHeight}`
                         : '';
-                    serialized.quality = documentRef.getElementById(`${id}-quality`)?.value ?? 'auto';
-                    serialized.moderation = documentRef.getElementById(`${id}-moderation`)?.value ?? 'auto';
-                    serialized.background = documentRef.getElementById(`${id}-background`)?.value ?? 'auto';
-                    serialized.search = documentRef.getElementById(`${id}-search`)?.checked || false;
-                    serialized.protocolParams = readNodeProtocolParams(id, node);
-                    serialized.generationCount = Math.max(1, parseInt(documentRef.getElementById(`${id}-generation-count`)?.value || '1', 10) || 1);
                     serialized.imageTaskId = node.data?.imageTaskId || '';
                     serialized.imageTaskStatus = node.data?.imageTaskStatus || '';
                     serialized.imageTaskStatusText = node.data?.imageTaskStatusText || '';
