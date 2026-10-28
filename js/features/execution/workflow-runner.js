@@ -1,3 +1,4 @@
+import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
 import { getResolvedProviderForModel } from './provider-request-utils.js';
 import { getNodeRunTimeoutSeconds } from './async-media-execution.js';
 import {
@@ -490,9 +491,10 @@ export function createWorkflowRunnerApi({
     function setNodeRunningLock(node, locked) {
         if (!node?.el) return;
         node.el.classList.toggle('running-locked', locked);
-        node.el.querySelectorAll('input, select, textarea, button:not(.node-run-cancel-btn)').forEach((control) => {
-            setControlRunningLock(control, locked);
-        });
+        const selector = 'input, select, textarea, button:not(.node-run-cancel-btn)';
+        const controls = new Set(node.el.querySelectorAll(selector));
+        node.parameterRoot?.querySelectorAll(selector).forEach(control => controls.add(control));
+        controls.forEach(control => setControlRunningLock(control, locked));
     }
 
     function markNodeRunning(nodeId, node) {
@@ -579,6 +581,7 @@ export function createWorkflowRunnerApi({
 
         if (node.type === 'ImageGenerate') {
             return {
+                ...readImageGenerationSettings(node, documentRef),
                 referenceImageCount: node.data.referenceImageCount,
                 generationCount: node.data.generationCount,
                 ...(node.data.thinking ? { thinking: { ...node.data.thinking } } : {})

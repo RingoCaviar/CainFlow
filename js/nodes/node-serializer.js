@@ -37,7 +37,10 @@ export function createNodeSerializer({ state, documentRef }) {
 
     function getNodeTextareaHeights(id) {
         const heights = {};
-        documentRef.querySelectorAll(`#${id} textarea[id^="${id}-"]`).forEach((textarea) => {
+        const node = state.nodes.get(id);
+        const textareas = new Set(documentRef.querySelectorAll(`#${id} textarea[id^="${id}-"]`));
+        node?.parameterRoot?.querySelectorAll('textarea').forEach(element => textareas.add(element));
+        textareas.forEach((textarea) => {
             const key = textarea.id.slice(`${id}-`.length);
             const height = textarea.offsetHeight || parseFloat(textarea.style.height || '0');
             if (key && Number.isFinite(height) && height > 0) {

@@ -896,6 +896,10 @@ export function createNodeLifecycleApi({
             };
         }
         const config = nodeConfigs[node.type] || null;
+        if (node.el?.classList.contains('image-first-card')) {
+            return { minWidth: Number(config?.minWidth) || 360,
+                minHeight: node.userResized === true || node.collapsed === true ? 248 : 348 };
+        }
         if (isImageImportUrlMode(node)) {
             return {
                 minWidth: getDefaultNodeWidth(config),
@@ -989,7 +993,8 @@ export function createNodeLifecycleApi({
         const currentWidth = node.el.offsetWidth || Number(node.width) || baseMinimum.minWidth;
         const minimum = getNodeMinimumSize(node, { width: currentWidth });
         const currentHeight = node.el.offsetHeight || Number(node.height) || minimum.minHeight;
-        const shouldShrink = allowShrink && reason === 'element-resize';
+        const preservesImagePreviewSize = node.userResized === true && node.el.classList.contains('image-first-card') && node.collapsed !== true;
+        const shouldShrink = allowShrink && reason === 'element-resize' && !preservesImagePreviewSize;
         const respectsUserWidth = node.userResized === true && currentWidth >= minimum.minWidth;
         const respectsUserHeight = node.userResized === true && currentHeight >= minimum.minHeight;
         const nextWidth = shouldShrink
@@ -1153,6 +1158,7 @@ export function createNodeLifecycleApi({
         const initialUserResized = restoredUserResized && !shouldNormalizeLegacyChatLayout;
         const el = documentRef.createElement('div');
         el.className = `node ${config.cssClass}`;
+        if (normalizedType === 'ImageGenerate') el.classList.add('image-first-card');
         el.id = id;
         if (effectiveRestoreData?.isClone === true && effectiveRestoreData?.cloneSourceId) {
             el.classList.add('node-clone');
@@ -2221,7 +2227,9 @@ export function createNodeLifecycleApi({
         nodeData.el.classList.remove('node-clone');
         nodeData.el.removeAttribute('data-clone-source-id');
         nodeData.el.querySelector('.node-clone-badge')?.remove();
-        nodeData.el.querySelectorAll('[data-clone-locked="1"]').forEach((control) => {
+        const cloneLockedControls = new Set(nodeData.el.querySelectorAll('[data-clone-locked="1"], .clone-locked-control'));
+        nodeData.parameterRoot?.querySelectorAll('[data-clone-locked="1"], .clone-locked-control').forEach(control => cloneLockedControls.add(control));
+        cloneLockedControls.forEach((control) => {
             control.removeAttribute('data-clone-locked');
             if (control.tagName === 'TEXTAREA' || control.tagName === 'INPUT') control.readOnly = false;
             if (control.tagName === 'INPUT' || control.tagName === 'TEXTAREA' || control.tagName === 'SELECT' || control.tagName === 'BUTTON') control.disabled = false;

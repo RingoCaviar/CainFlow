@@ -56,6 +56,11 @@ async function controlImages(app) {
     await reloadApp(app);
 }
 
+async function openImageParameters(app, id) {
+    await app.evaluate(`document.getElementById('${id}').dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,clientX:300,clientY:200}));document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0,clientX:300,clientY:200}))`);
+    await app.waitFor(`document.getElementById('image-parameter-panel')?.dataset.nodeId==='${id}' && !document.getElementById('image-parameter-panel').hidden`);
+}
+
 async function createImage({ evaluate, waitFor }) {
     await evaluate(`document.getElementById('canvas-container').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}))`);
     await evaluate(`document.querySelector('.context-menu-item[data-type="ImageGenerate"]').click()`);
@@ -83,7 +88,7 @@ test('content-first image card keeps common parameters aligned with the real req
         const { evaluate, waitFor, send } = app;
         await controlImages(app);
         const id = await createImage(app);
-        assert.ok(await evaluate(`document.getElementById('${id}-prompt').getBoundingClientRect().top < document.getElementById('${id}-apiconfig').getBoundingClientRect().top`), 'prompt is presented before model configuration');
+        assert.ok(await evaluate(`document.getElementById('image-parameter-panel').contains(document.getElementById('${id}-prompt'))`), 'prompt is edited in the independent lower panel');
         await change(evaluate, `${id}-prompt`, 'a quiet poster');
         await change(evaluate, `${id}-resolution`, 'custom');
         await change(evaluate, `${id}-custom-resolution-width`, '1536');
@@ -111,12 +116,14 @@ test('old image nodes retain coordinates, width and saved prompt height on reope
     await withAppBrowser({ ...session, nodes: [{ id: 'old-image', type: 'ImageGenerate', x: 213, y: 187, width: 476,
         apiConfigId: 'image', providerId: 'p', prompt: 'saved local draft', textareaHeights: { prompt: 241 } }], connections: [] }, async ({ evaluate, waitFor, send }) => {
         await waitFor("Boolean(document.getElementById('old-image-prompt'))");
+        await openImageParameters({ evaluate, waitFor }, 'old-image');
         const geometry = () => evaluate(`(()=>{const node=document.getElementById('old-image');return {x:node.style.left,y:node.style.top,width:node.offsetWidth,promptHeight:document.getElementById('old-image-prompt').offsetHeight}})()`);
         assert.deepEqual(await geometry(), { x: '213px', y: '187px', width: 476, promptHeight: 241 });
         await change(evaluate, 'old-image-prompt', 'edited local draft');
         await delay(1000);
         await reloadApp({ evaluate, send, waitFor });
         await waitFor("Boolean(document.getElementById('old-image-prompt'))");
+        await openImageParameters({ evaluate, waitFor }, 'old-image');
         assert.deepEqual(await geometry(), { x: '213px', y: '187px', width: 476, promptHeight: 241 });
     });
 });
@@ -160,6 +167,7 @@ test('connected prompt shows its existing source while keeping the inactive loca
     ], connections: [{ id: 'prompt-edge', from: { nodeId: 'upstream', port: 'text' }, to: { nodeId: 'prompt-image', port: 'prompt' }, type: 'text' }] }, async app => {
         const { evaluate, waitFor, send } = app;
         await controlImages(app);
+        await openImageParameters(app, 'prompt-image');
         assert.ok(await evaluate("document.getElementById('prompt-image-prompt').checkVisibility()"), 'inactive local draft remains readable');
         assert.equal(await evaluate("document.getElementById('prompt-image-prompt').readOnly"), true);
         assert.match(await evaluate("document.getElementById('prompt-image-prompt-source').textContent"), /上游 A/);
@@ -909,5 +917,38 @@ test('partial Agent retries freeze successful upstream originals and full regene
         await waitFor("imageRequests.filter(r=>r.contents).length===6 && document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
         const refreshed=await evaluate("imageRequests.filter(r=>r.contents).at(-1).contents.flatMap(c=>c.parts).filter(p=>p.inlineData).map(p=>p.inlineData.data)");
         assert.deepEqual(refreshed,[referenceImages[4].split(',')[1]],'explicit complete regeneration uses the newly generated upstream');
+    });
+});
+
+
+test('image-first generation opens one fixed-size editor below the card without changing its graph layout', { timeout: 45000 }, async () => {
+    await withAppBrowser({ ...session, nodes: [{ id: 'first-image', type: 'ImageGenerate', x: 230, y: 100, width: 420,
+        apiConfigId: 'image', providerId: 'p', prompt: 'image-first scene' }], connections: [] }, async app => {
+        await controlImages(app);
+        await app.evaluate("document.getElementById('first-image').dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,clientX:300,clientY:200}));document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0,clientX:300,clientY:200}))");
+        await app.waitFor("document.getElementById('image-parameter-panel')?.hidden===false");
+        assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').contains(document.getElementById('first-image-prompt'))"),true);
+        assert.ok(await app.evaluate("document.getElementById('image-parameter-panel').getBoundingClientRect().top>=document.getElementById('first-image').getBoundingClientRect().bottom"));
+        assert.equal(await app.evaluate("document.getElementById('first-image').style.left"),'230px');
+        assert.equal(await app.evaluate("document.getElementById('first-image').style.top"),'100px');
+        assert.ok(await app.evaluate("(()=>{const card=document.getElementById('first-image');return card.querySelector('.node-body').getBoundingClientRect().bottom<=card.getBoundingClientRect().bottom})()"), 'card content fits within the real preview boundary');
+        assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=generate]').getBoundingClientRect().width < document.getElementById('image-parameter-panel').getBoundingClientRect().width/2"), 'footer feedback and primary action each remain readable');
+        await change(app.evaluate,'first-image-prompt','saved from lower editor');
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]').click()");
+        assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').hidden"),true);
+        await app.evaluate("window.holdPrompt='saved from lower editor';document.getElementById('btn-run').click()");
+        await app.waitFor('imageRequests.length===1 && Boolean(window.releasePromptResponse)');
+        assert.equal(await app.evaluate("document.getElementById('first-image-prompt').disabled && document.getElementById('first-image-apiconfig').disabled"),true,'running locks also protect the lower editor');
+        await app.evaluate("document.getElementById('first-image').click()");
+        await app.waitFor("!document.getElementById('image-parameter-panel').hidden");
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=generate]').disabled"), true, 'running generation cannot bypass cancellation protection with a simple footer click');
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=generate]').click()");
+        await delay(100);
+        assert.equal(await app.evaluate("document.getElementById('first-image-prompt').disabled"), true, 'a simple footer click cannot bypass the protected cancellation gesture');
+        await app.evaluate("window.releasePromptResponse();window.holdPrompt=''");
+        assert.equal(await app.evaluate('imageRequests[0].prompt'),'saved from lower editor');
+        await app.waitFor("!document.getElementById('btn-run').disabled");
+        await delay(1000); await reloadApp(app);
+        assert.equal(await app.evaluate("document.getElementById('first-image-prompt').value"),'saved from lower editor');
     });
 });

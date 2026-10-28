@@ -20,6 +20,7 @@ export function createImageNodeResults({ state, documentRef, createActions = () 
         const thumbnail = compacted || missing ? '' : node.data?.imagePreviewThumbnail || '';
         if (previous && previous.node === node && previous.count === count && previous.index === index && previous.missing === missing
             && previous.thumbnail === thumbnail && same(previous.images, images) && same(previous.assets, assets)) return;
+        previous?.stopTracking?.();
         const view = { node, images, assets, count, index, thumbnail, missing }; views.set(host, view);
         host.replaceChildren(); host.hidden = count === 0;
         if (!count) { onLayout(nodeId); return; }
@@ -36,7 +37,31 @@ export function createImageNodeResults({ state, documentRef, createActions = () 
             restoreFocus: () => documentRef.getElementById(`${nodeId}-image-results`)?.querySelector('[data-result-action=preview]')?.focus({ preventScroll: true }) });
         const preview = documentRef.createElement('button'); preview.type = 'button'; preview.className = 'image-node-result-preview';
         preview.dataset.nodeReadAction = 'true'; preview.setAttribute('aria-label', `放大第 ${index + 1} 张生成结果`);
-        preview.addEventListener('click', () => { void actions?.execute('preview'); });
+        let pointerDragged = false;
+        preview.addEventListener('mousedown', event => {
+            view.stopTracking?.();
+            pointerDragged = false;
+            if (!node.parameterRoot || event.button !== 0) return;
+            const { clientX, clientY } = event;
+            const track = move => {
+                if (Math.abs(move.clientX - clientX) > 2 || Math.abs(move.clientY - clientY) > 2) pointerDragged = true;
+            };
+            const stop = () => {
+                documentRef.removeEventListener('mousemove', track);
+                documentRef.removeEventListener('mouseup', stop);
+                documentRef.defaultView?.removeEventListener('blur', stop);
+                view.stopTracking = null;
+            };
+            view.stopTracking = stop;
+            documentRef.addEventListener('mousemove', track);
+            documentRef.addEventListener('mouseup', stop);
+            documentRef.defaultView?.addEventListener('blur', stop);
+        });
+        preview.addEventListener('click', event => {
+            if (node.parameterRoot && event.detail && (pointerDragged || state.justDragged)) { event.preventDefault(); event.stopPropagation(); return; }
+            if (node.parameterRoot && event.detail === 1) { node.onImageFirstSelect?.(); return; }
+            void actions?.execute('preview');
+        });
         const image = documentRef.createElement('img'); image.alt = `生成结果 ${index + 1}`; image.decoding = 'async';
         const source = /^data:image\//i.test(original || '') ? original : thumbnail;
         if (source) {

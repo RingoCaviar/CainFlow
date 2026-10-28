@@ -98,6 +98,7 @@ export function createNodeDomBindingsApi({
     markNodeConnectionsDirty = null,
     updatePortStyles = () => {},
     onConnectionsChanged = () => {},
+    onNodeBound = () => {},
     documentRef = document
 }) {
     const surfaces = getSurfaceCoordinator(documentRef);
@@ -132,6 +133,28 @@ export function createNodeDomBindingsApi({
         [TtapiProtocol.id, TtapiProtocol],
         [TtapiOpenaiProtocol.id, TtapiOpenaiProtocol]
     ]);
+
+    function getNodeParameterRoot(root) {
+        const node = root?.id ? state.nodes.get(root.id) : null;
+        return node?.el === root && node.parameterRoot !== root ? node.parameterRoot : null;
+    }
+
+    function queryNodeControl(root, selector) {
+        const found = root.querySelector(selector);
+        if (found) return found;
+        const parameterRoot = getNodeParameterRoot(root);
+        if (!parameterRoot) return null;
+        return parameterRoot.matches?.(selector) ? parameterRoot : parameterRoot.querySelector(selector);
+    }
+
+    function queryNodeControls(root, selector) {
+        const found = root.querySelectorAll(selector);
+        const parameterRoot = getNodeParameterRoot(root);
+        if (!parameterRoot) return found;
+        const parameters = parameterRoot.querySelectorAll(selector);
+        const roots = parameterRoot.matches?.(selector) ? [parameterRoot] : [];
+        return [...new Set([...found, ...roots, ...parameters])];
+    }
 
     function postponeZoomSettle() {
         state.zoomSettleBlockedUntil = Date.now() + ZOOM_SETTLE_GUARD_MS;
@@ -268,7 +291,7 @@ export function createNodeDomBindingsApi({
 
     function syncImagePromptSource(nodeId) {
         const node = state.nodes.get(nodeId);
-        const field = node?.el?.querySelector(`#${nodeId}-prompt-field`);
+        const field = node?.el ? queryNodeControl(node.el, `#${nodeId}-prompt-field`) : null;
         if (!field) return false;
         const input = documentRef.getElementById(`${nodeId}-prompt`);
         const sourceView = documentRef.getElementById(`${nodeId}-prompt-source`);
@@ -975,10 +998,10 @@ export function createNodeDomBindingsApi({
 
     function syncCloneNodeFromSource(cloneNode, sourceNode) {
         if (!cloneNode?.el || !sourceNode?.el) return;
-        sourceNode.el.querySelectorAll('input[id], select[id], textarea[id]').forEach((sourceControl) => {
+        queryNodeControls(sourceNode.el, 'input[id], select[id], textarea[id]').forEach((sourceControl) => {
             const suffix = getNodeControlSuffix(sourceControl, sourceNode.id);
             if (!suffix) return;
-            const cloneControl = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-${escapeCssIdent(suffix)}`);
+            const cloneControl = queryNodeControl(cloneNode.el, `#${escapeCssIdent(cloneNode.id)}-${escapeCssIdent(suffix)}`);
             if (!cloneControl) return;
             if (sourceControl.type === 'checkbox') {
                 cloneControl.checked = sourceControl.checked;
@@ -993,8 +1016,8 @@ export function createNodeDomBindingsApi({
 
         cloneNode.providerId = sourceNode.providerId || '';
         cloneNode.customTitle = sourceNode.customTitle || '';
-        const cloneTitle = cloneNode.el.querySelector('.node-title');
-        const sourceTitle = sourceNode.el.querySelector('.node-title');
+        const cloneTitle = queryNodeControl(cloneNode.el, '.node-title');
+        const sourceTitle = queryNodeControl(sourceNode.el, '.node-title');
         if (cloneTitle && sourceTitle) cloneTitle.textContent = sourceTitle.textContent || cloneTitle.textContent;
 
         if (cloneNode.type === 'ImageImport') {
@@ -1029,20 +1052,20 @@ export function createNodeDomBindingsApi({
 
         if (cloneNode.type === 'Text') {
             cloneNode.data = clonePlainValue(cloneNode.data || {});
-            cloneNode.data.text = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-text`)?.value || '';
+            cloneNode.data.text = queryNodeControl(cloneNode.el, `#${escapeCssIdent(cloneNode.id)}-text`)?.value || '';
         }
 
         if (cloneNode.type === 'TextSplit') {
             cloneNode.data = clonePlainValue(cloneNode.data || {});
-            cloneNode.data.delimiter = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-delimiter`)?.value || '';
-            const mergeOutputEnabled = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-merge-output-enabled`)?.checked === true;
+            cloneNode.data.delimiter = queryNodeControl(cloneNode.el, `#${escapeCssIdent(cloneNode.id)}-delimiter`)?.value || '';
+            const mergeOutputEnabled = queryNodeControl(cloneNode.el, `#${escapeCssIdent(cloneNode.id)}-merge-output-enabled`)?.checked === true;
             cloneNode.data.outputCount = normalizeTextSplitOutputCountValue(
                 mergeOutputEnabled
                     ? 0
-                    : (cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-output-count`)?.value ?? cloneNode.data.outputCount ?? 1)
+                    : (queryNodeControl(cloneNode.el, `#${escapeCssIdent(cloneNode.id)}-output-count`)?.value ?? cloneNode.data.outputCount ?? 1)
             );
-            cloneNode.data.removeEmptyLines = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-remove-empty-lines`)?.checked === true;
-            cloneNode.data.previewEnabled = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-preview-enabled`)?.checked === true;
+            cloneNode.data.removeEmptyLines = queryNodeControl(cloneNode.el, `#${escapeCssIdent(cloneNode.id)}-remove-empty-lines`)?.checked === true;
+            cloneNode.data.previewEnabled = queryNodeControl(cloneNode.el, `#${escapeCssIdent(cloneNode.id)}-preview-enabled`)?.checked === true;
             cloneNode.data.mergeOutputEnabled = mergeOutputEnabled;
         }
 
@@ -1070,12 +1093,12 @@ export function createNodeDomBindingsApi({
         }
 
         if (cloneNode.type === 'ImageImport') {
-            const modeInput = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-import-mode`);
+            const modeInput = queryNodeControl(cloneNode.el, `#${escapeCssIdent(cloneNode.id)}-import-mode`);
             const mode = cloneNode.importMode === 'url' ? 'url' : 'upload';
             if (modeInput) modeInput.value = mode;
-            cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-upload-section`)?.classList.toggle('hidden', mode !== 'upload');
-            cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-url-section`)?.classList.toggle('hidden', mode !== 'url');
-            const drop = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-drop`);
+            queryNodeControl(cloneNode.el, `#${escapeCssIdent(cloneNode.id)}-upload-section`)?.classList.toggle('hidden', mode !== 'upload');
+            queryNodeControl(cloneNode.el, `#${escapeCssIdent(cloneNode.id)}-url-section`)?.classList.toggle('hidden', mode !== 'url');
+            const drop = queryNodeControl(cloneNode.el, `#${escapeCssIdent(cloneNode.id)}-drop`);
             if (drop && mode === 'upload' && cloneNode.imageData) {
                 drop.classList.add('has-image');
                 drop.innerHTML = `<img src="${cloneNode.imageData}" alt="已导入图片" draggable="false" style="pointer-events: none;" />`;
@@ -1086,7 +1109,7 @@ export function createNodeDomBindingsApi({
                     拖拽图片到此处
                 </div>`;
             }
-            const urlPreview = cloneNode.el.querySelector(`#${escapeCssIdent(cloneNode.id)}-url-preview`);
+            const urlPreview = queryNodeControl(cloneNode.el, `#${escapeCssIdent(cloneNode.id)}-url-preview`);
             if (urlPreview && mode === 'url' && cloneNode.imageUrl) {
                 urlPreview.classList.add('has-image');
                 urlPreview.innerHTML = renderImageImportUrlPreviewContent(cloneNode.imageUrl);
@@ -1116,7 +1139,7 @@ export function createNodeDomBindingsApi({
     function lockCloneNodeEditing(id, el) {
         const node = state.nodes.get(id);
         if (!node?.isClone) return;
-        el.querySelectorAll('.node-body input, .node-body select, .node-body textarea, .node-body button, .node-select-trigger').forEach((control) => {
+        queryNodeControls(el, '.node-body input, .node-body select, .node-body textarea, .node-body button, .node-select-trigger').forEach((control) => {
             if (control.hasAttribute('data-node-read-action')) return;
             if (node.type === 'ImageGenerate' && control.hasAttribute('data-node-connection-action')) return;
             control.dataset.cloneLocked = '1';
@@ -1128,7 +1151,7 @@ export function createNodeDomBindingsApi({
                 control.disabled = true;
             }
         });
-        el.querySelectorAll('.node-body .toggle-switch').forEach((control) => {
+        queryNodeControls(el, '.node-body .toggle-switch').forEach((control) => {
             control.classList.add('clone-locked-control');
         });
     }
@@ -1156,7 +1179,7 @@ export function createNodeDomBindingsApi({
     function refreshTextSplitOutputPorts(nodeId, nextCount = getCurrentTextSplitRenderedOutputCount(nodeId)) {
         const node = state.nodes.get(nodeId);
         if (!node?.el) return;
-        const outputsSection = node.el.querySelector('.node-outputs-section');
+        const outputsSection = queryNodeControl(node.el, '.node-outputs-section');
         if (!outputsSection) return;
 
         const currentPorts = Array.from(outputsSection.querySelectorAll('.node-port.output')).map((port) => port.dataset.port);
@@ -1205,7 +1228,7 @@ export function createNodeDomBindingsApi({
     function refreshImageMergeInputPorts(nodeId, nextCount = getImageMergeConnectedInputCount(nodeId) + 1) {
         const node = state.nodes.get(nodeId);
         if (!node?.el || node.type !== 'ImageMerge') return;
-        const inputsSection = node.el.querySelector('.node-inputs-section');
+        const inputsSection = queryNodeControl(node.el, '.node-inputs-section');
         if (!inputsSection) return;
 
         const nextPorts = Array.from({ length: Math.max(1, nextCount) }, (_, index) => `image_${index + 1}`);
@@ -1247,7 +1270,7 @@ export function createNodeDomBindingsApi({
     function refreshTextMergeInputPorts(nodeId, nextCount = getTextMergeConnectedInputCount(nodeId) + 1) {
         const node = state.nodes.get(nodeId);
         if (!node?.el || node.type !== 'TextMerge') return;
-        const inputsSection = node.el.querySelector('.node-inputs-section');
+        const inputsSection = queryNodeControl(node.el, '.node-inputs-section');
         if (!inputsSection) return;
 
         const nextPorts = Array.from({ length: Math.max(1, nextCount) }, (_, index) => `text_${index + 1}`);
@@ -1297,7 +1320,7 @@ export function createNodeDomBindingsApi({
         const node = state.nodes.get(id);
         if (!node?.el) return false;
 
-        const body = node.el.querySelector('.node-body');
+        const body = queryNodeControl(node.el, '.node-body');
         if (!body) return false;
 
         if (node.collapsed === nextCollapsed && node.el.classList.contains('collapsed') === nextCollapsed) {
@@ -1318,7 +1341,7 @@ export function createNodeDomBindingsApi({
         node.el.classList.toggle('collapsed', nextCollapsed);
         body.classList.toggle('is-collapsed', nextCollapsed);
         syncCollapsedUnusedPorts(id);
-        const collapseButton = node.el.querySelector('.node-collapse-btn');
+        const collapseButton = queryNodeControl(node.el, '.node-collapse-btn');
         if (collapseButton) {
             collapseButton.classList.toggle('is-collapsed', nextCollapsed);
             collapseButton.title = nextCollapsed ? '展开节点' : '折叠节点';
@@ -1766,7 +1789,7 @@ export function createNodeDomBindingsApi({
     }
 
     function bindNodeRunCancelButton(id, el) {
-        const button = el.querySelector('.node-run-cancel-btn');
+        const button = queryNodeControl(el, '.node-run-cancel-btn');
         if (!button || button.dataset.bound === '1') return;
         button.dataset.bound = '1';
         const cleanup = bindMouseNodeRunCancelHold({
@@ -2400,12 +2423,13 @@ export function createNodeDomBindingsApi({
             const interactiveSelector = 'input, textarea, select, button, label, .toggle-switch, .toggle-slider, .node-select, .port, .node-resize-handle, [contenteditable="true"], .chat-response-area, .preview-controls, .workflow-action-btn';
             const mediaSurfaceSelector = '.preview-container, .save-preview-container, .file-drop-zone, .image-compare-container';
             const isInteractive = target.closest(interactiveSelector);
-            const mediaSurface = target.closest(mediaSurfaceSelector);
+            const imageResultSurface = state.nodes.get(id)?.parameterRoot ? target.closest('.image-node-result-preview') : null;
+            const mediaSurface = target.closest(mediaSurfaceSelector) || imageResultSurface;
 
             const dragAreaSelector = '.node-header, .node-glass-bg';
             const isForceDrag = target.matches(dragAreaSelector) || (target.parentElement && target.parentElement.matches(dragAreaSelector));
 
-            if (isInteractive && !isForceDrag) return;
+            if (isInteractive && !isForceDrag && !imageResultSurface) return;
 
             canvasContainer.focus();
 
@@ -2447,40 +2471,40 @@ export function createNodeDomBindingsApi({
             pushHistory();
         });
 
-        el.querySelector('.node-delete').addEventListener('click', (e) => {
+        queryNodeControl(el, '.node-delete').addEventListener('click', (e) => {
             e.stopPropagation();
             if (blockRunningNodeMutation(id, e, '节点正在运行，暂不能删除')) return;
             removeNode(id, { preserveConnections: e.altKey });
         });
 
-        el.querySelector('.node-bypass-btn').addEventListener('click', (e) => {
+        queryNodeControl(el, '.node-bypass-btn').addEventListener('click', (e) => {
             e.stopPropagation();
             if (blockRunningNodeMutation(id, e, '节点正在运行，暂不能启用或禁用')) return;
             const nodesToUpdate = state.selectedNodes.has(id) ? Array.from(state.selectedNodes) : [id];
             toggleNodesEnabled(nodesToUpdate, id);
         });
 
-        el.querySelector('.node-header')?.addEventListener('dblclick', (e) => {
+        queryNodeControl(el, '.node-header')?.addEventListener('dblclick', (e) => {
             if (e.target.closest('.node-delete, .node-bypass-btn, .node-collapse-btn')) return;
             e.preventDefault();
             e.stopPropagation();
             toggleNodeCollapsed(id);
         });
 
-        el.querySelector('.node-collapse-btn')?.addEventListener('click', (e) => {
+        queryNodeControl(el, '.node-collapse-btn')?.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
             toggleNodeCollapsed(id);
         });
 
-        el.querySelector('.node-clone-badge')?.addEventListener('click', (e) => {
+        queryNodeControl(el, '.node-clone-badge')?.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
             scrollToCloneSource(id);
         });
 
-        const resizeHandles = el.querySelectorAll('.node-resize-handle');
-        const resizeHandle = el.querySelector('.node-resize-handle--bottom-right');
+        const resizeHandles = queryNodeControls(el, '.node-resize-handle');
+        const resizeHandle = queryNodeControl(el, '.node-resize-handle--bottom-right');
         resizeHandle.title = '拖动调整大小，双击适应内容';
         resizeHandle.addEventListener('dblclick', (e) => {
             e.preventDefault();
@@ -2498,7 +2522,7 @@ export function createNodeDomBindingsApi({
             scheduleSave();
         });
 
-        el.querySelectorAll('.node-failure-indicator, .node-failure-summary').forEach((failureControl) => {
+        queryNodeControls(el, '.node-failure-indicator, .node-failure-summary').forEach((failureControl) => {
             failureControl.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -2568,9 +2592,9 @@ export function createNodeDomBindingsApi({
             enforceNodeContentMinimum(id, { save: false, updateConnections: true });
         }));
 
-        if (documentRef.defaultView && ['ImageGenerate', 'TextChat'].includes(type) && !el.querySelector('.thinking-control')) {
+        if (documentRef.defaultView && ['ImageGenerate', 'TextChat'].includes(type) && !queryNodeControl(el, '.thinking-control')) {
             const node = state.nodes.get(id);
-            const control = createThinkingControl({ documentRef, parent: el.querySelector('.node-body') || el,
+            const control = createThinkingControl({ documentRef, parent: queryNodeControl(el, '.node-body') || el,
                 getOptions: () => { const model = state.models.find(item => item.id === documentRef.getElementById(`${id}-apiconfig`)?.value) || {};
                     return { model, provider: getResolvedProviderForModel(model, state.providers, documentRef.getElementById(`${id}-provider`)?.value) || {}, task: type === 'TextChat' ? 'chat' : 'image', protocol: model.protocol }; },
                 getValue: () => node.data?.thinking,
@@ -2584,8 +2608,8 @@ export function createNodeDomBindingsApi({
             el._thinkingControl = control;
             const promptField = documentRef.getElementById(`${id}-prompt`)?.closest('.node-field') || documentRef.getElementById(`${id}-sysprompt`)?.closest('.node-field');
             if (type === 'ImageGenerate') {
-                documentRef.getElementById(`${id}-advanced-parameters`)?.append(el.querySelector('.thinking-control'));
-            } else if (promptField) promptField.before(el.querySelector('.thinking-control'));
+                documentRef.getElementById(`${id}-advanced-parameters`)?.append(queryNodeControl(el, '.thinking-control'));
+            } else if (promptField) promptField.before(queryNodeControl(el, '.thinking-control'));
             (el._cleanupFns ||= []).push(control.destroy);
         }
         bindNodeRunCancelButton(id, el);
@@ -2599,7 +2623,7 @@ export function createNodeDomBindingsApi({
         if (type === 'ImageImport') setupImageImport(id, el);
         else if (type === 'Text') {
             renderTextMultiPreview(id);
-            el.querySelectorAll('.text-multi-nav-btn').forEach((button) => {
+            queryNodeControls(el, '.text-multi-nav-btn').forEach((button) => {
                 button.addEventListener('click', (event) => {
                     event.stopPropagation();
                     stepTextPreview(id, parseInt(button.dataset.direction || '0', 10) || 0);
@@ -2608,16 +2632,16 @@ export function createNodeDomBindingsApi({
         }
         else if (type === 'ImageGenerate') {
             const boundNode = state.nodes.get(id);
-            el.querySelector(`#${id}-assistant`)?.addEventListener('click', event => {
+            queryNodeControl(el, `#${id}-assistant`)?.addEventListener('click', event => {
                 event.stopPropagation();
                 if (state.nodes.get(id) !== boundNode || blockRunningNodeMutation(id, event)) return;
                 prepareNodeContext({ workflowId: getWorkflowId?.() || '', nodeId: id });
             });
-            el.querySelector(`#${id}-prompt-source summary`)?.addEventListener('click', event => {
+            queryNodeControl(el, `#${id}-prompt-source summary`)?.addEventListener('click', event => {
                 blockRunningNodeMutation(id, event, '节点正在运行，暂不能展开文本预览');
             });
             syncImageGenerateResolutionOptions(id);
-            const advanced = el.querySelector(`#${id}-advanced-parameters`);
+            const advanced = queryNodeControl(el, `#${id}-advanced-parameters`);
             const searchField = documentRef.getElementById(`${id}-search-field`);
             if (searchField && advanced) advanced.append(searchField);
             advanced?.addEventListener('change', () => syncImageAdvancedSummary(id));
@@ -2634,30 +2658,30 @@ export function createNodeDomBindingsApi({
                 fitNodeToContent(id, { allowShrink: true, preserveCurrentWidth: true, reason: 'element-resize', forceConnectionRefresh: true });
                 connectionProjection?.nodeGeometryChanged(id);
             });
-            const modelSelect = el.querySelector(`#${id}-apiconfig`);
+            const modelSelect = queryNodeControl(el, `#${id}-apiconfig`);
             modelSelect?.addEventListener('change', () => {
                 syncImageGenerateResolutionOptions(id);
                 persistNodeModelSelection(id, type);
                 syncNodeFormData(id, type);
                 fitNodeToContent(id, { allowShrink: true, preserveCurrentWidth: true, reason: 'element-resize' });
             });
-            const providerSelect = el.querySelector(`#${id}-provider`);
+            const providerSelect = queryNodeControl(el, `#${id}-provider`);
             providerSelect?.addEventListener('change', () => {
                 syncImageGenerateResolutionOptions(id);
                 persistNodeModelSelection(id, type);
                 syncNodeFormData(id, type);
                 fitNodeToContent(id, { allowShrink: true, preserveCurrentWidth: true, reason: 'element-resize' });
             });
-            const resolutionSelect = el.querySelector(`#${id}-resolution`);
+            const resolutionSelect = queryNodeControl(el, `#${id}-resolution`);
             resolutionSelect?.addEventListener('change', () => {
                 const model = state.models.find((candidate) => candidate.id === modelSelect?.value);
                 const provider = getResolvedProviderForModel(model, state.providers, providerSelect?.value || '');
                 const protocol = getEffectiveProtocol(model, provider);
                 if (usesOpenAiImageSize(protocol) && resolutionSelect.value === 'custom') {
-                    const requested = el.querySelector(`#${id}-requested-resolution`)?.textContent || '';
+                    const requested = queryNodeControl(el, `#${id}-requested-resolution`)?.textContent || '';
                     const previousSize = requested.match(/(\d+)\s*×\s*(\d+)/);
-                    const widthInput = el.querySelector(`#${id}-custom-resolution-width`);
-                    const heightInput = el.querySelector(`#${id}-custom-resolution-height`);
+                    const widthInput = queryNodeControl(el, `#${id}-custom-resolution-width`);
+                    const heightInput = queryNodeControl(el, `#${id}-custom-resolution-height`);
                     if (widthInput && !widthInput.value) widthInput.value = previousSize?.[1] || '1024';
                     if (heightInput && !heightInput.value) heightInput.value = previousSize?.[2] || '1024';
                 }
@@ -2665,8 +2689,8 @@ export function createNodeDomBindingsApi({
                 updateImageGenerateCustomResolutionVisibility(id);
                 fitNodeToContent(id);
             });
-            el.querySelector(`#${id}-aspect`)?.addEventListener('change', () => {
-                const aspectSelect = el.querySelector(`#${id}-aspect`);
+            queryNodeControl(el, `#${id}-aspect`)?.addEventListener('change', () => {
+                const aspectSelect = queryNodeControl(el, `#${id}-aspect`);
                 const model = state.models.find((candidate) => candidate.id === modelSelect?.value);
                 const provider = getResolvedProviderForModel(model, state.providers, providerSelect?.value || '');
                 if (usesOpenAiImageSize(getEffectiveProtocol(model, provider)) && resolutionSelect) {
@@ -2675,8 +2699,8 @@ export function createNodeDomBindingsApi({
                 }
                 syncImageGenerateRequestResolution(id);
             });
-            const customWidthInput = el.querySelector(`#${id}-custom-resolution-width`);
-            const customHeightInput = el.querySelector(`#${id}-custom-resolution-height`);
+            const customWidthInput = queryNodeControl(el, `#${id}-custom-resolution-width`);
+            const customHeightInput = queryNodeControl(el, `#${id}-custom-resolution-height`);
             const syncCustomResolutionValidation = () => {
                 updateImageGenerateCustomResolutionValidation(id);
                 syncImageGenerateRequestResolution(id);
@@ -2686,7 +2710,7 @@ export function createNodeDomBindingsApi({
             customHeightInput?.addEventListener('input', syncCustomResolutionValidation);
             updateImageGenerateCustomResolutionValidation(id);
 
-            const generationCountInput = el.querySelector(`#${id}-generation-count`);
+            const generationCountInput = queryNodeControl(el, `#${id}-generation-count`);
             const syncGenerationCount = () => syncImageGenerateCount(id);
             generationCountInput?.addEventListener('input', () => {
                 if (generationCountInput.value !== '' && normalizeImageGenerateCountValue(generationCountInput.value) !== Number(generationCountInput.value)) {
@@ -2695,7 +2719,7 @@ export function createNodeDomBindingsApi({
             });
             generationCountInput?.addEventListener('change', syncGenerationCount);
             generationCountInput?.addEventListener('blur', syncGenerationCount);
-            el.querySelectorAll('.generation-count-btn').forEach((button) => {
+            queryNodeControls(el, '.generation-count-btn').forEach((button) => {
                 button.addEventListener('click', () => {
                     if (!generationCountInput) return;
                     const delta = parseInt(button.dataset.delta || '0', 10) || 0;
@@ -2705,8 +2729,8 @@ export function createNodeDomBindingsApi({
                     generationCountInput.dispatchEvent(new Event('change', { bubbles: true }));
                 });
             });
-            const resumeIdInput = el.querySelector(`#${id}-resume-image-id`);
-            const resumeBtn = el.querySelector(`#${id}-resume-image`);
+            const resumeIdInput = queryNodeControl(el, `#${id}-resume-image-id`);
+            const resumeBtn = queryNodeControl(el, `#${id}-resume-image`);
             const syncResumeButtonState = () => {
                 if (!resumeBtn) return;
                 const value = String(resumeIdInput?.value || '').trim();
@@ -2757,7 +2781,7 @@ export function createNodeDomBindingsApi({
         else if (type === 'VideoGenerate') {
             syncNodeProviderOptions(id, type);
             syncVideoGenerateProtocolFields(id);
-            const modelSelect = el.querySelector(`#${id}-apiconfig`);
+            const modelSelect = queryNodeControl(el, `#${id}-apiconfig`);
             modelSelect?.addEventListener('change', () => {
                 syncNodeProviderOptions(id, type);
                 syncVideoGenerateProtocolFields(id);
@@ -2765,7 +2789,7 @@ export function createNodeDomBindingsApi({
                 syncNodeFormData(id, type);
                 fitNodeToContent(id, { allowShrink: true, preserveCurrentWidth: true, reason: 'element-resize' });
             });
-            const providerSelect = el.querySelector(`#${id}-provider`);
+            const providerSelect = queryNodeControl(el, `#${id}-provider`);
             providerSelect?.addEventListener('change', () => {
                 syncNodeProviderOptions(id, type);
                 syncVideoGenerateProtocolFields(id);
@@ -2773,10 +2797,10 @@ export function createNodeDomBindingsApi({
                 syncNodeFormData(id, type);
                 fitNodeToContent(id, { allowShrink: true, preserveCurrentWidth: true, reason: 'element-resize' });
             });
-            const generationCountInput = el.querySelector(`#${id}-generation-count`);
-            const doubaoDurationInput = el.querySelector(`#${id}-doubao-duration`);
-            const doubaoGenerateAudioInput = el.querySelector(`#${id}-doubao-generate-audio`);
-            const doubaoResolutionInput = el.querySelector(`#${id}-doubao-resolution`);
+            const generationCountInput = queryNodeControl(el, `#${id}-generation-count`);
+            const doubaoDurationInput = queryNodeControl(el, `#${id}-doubao-duration`);
+            const doubaoGenerateAudioInput = queryNodeControl(el, `#${id}-doubao-generate-audio`);
+            const doubaoResolutionInput = queryNodeControl(el, `#${id}-doubao-resolution`);
             const syncGenerationCount = () => syncImageGenerateCount(id);
             generationCountInput?.addEventListener('input', () => {
                 if (generationCountInput.value !== '' && normalizeImageGenerateCountValue(generationCountInput.value) !== Number(generationCountInput.value)) {
@@ -2808,7 +2832,7 @@ export function createNodeDomBindingsApi({
                 syncVideoGenerateProtocolFields(id);
                 fitNodeToContent(id);
             });
-            el.querySelectorAll('.generation-count-btn').forEach((button) => {
+            queryNodeControls(el, '.generation-count-btn').forEach((button) => {
                 button.addEventListener('click', () => {
                     if (!generationCountInput) return;
                     const delta = parseInt(button.dataset.delta || '0', 10) || 0;
@@ -2818,9 +2842,9 @@ export function createNodeDomBindingsApi({
                     generationCountInput.dispatchEvent(new Event('change', { bubbles: true }));
                 });
             });
-            const downloadBtn = el.querySelector(`#${id}-download-video`);
-            const resumeIdInput = el.querySelector(`#${id}-resume-video-id`);
-            const resumeBtn = el.querySelector(`#${id}-resume-video`);
+            const downloadBtn = queryNodeControl(el, `#${id}-download-video`);
+            const resumeIdInput = queryNodeControl(el, `#${id}-resume-video-id`);
+            const resumeBtn = queryNodeControl(el, `#${id}-resume-video`);
             const syncResumeButtonState = () => {
                 if (!resumeBtn) return;
                 const value = String(resumeIdInput?.value || '').trim();
@@ -2891,8 +2915,8 @@ export function createNodeDomBindingsApi({
         }
         else if (type === 'ImageCompare') setupImageCompare(id, el);
         else if (type === 'CustomParams') {
-            const list = el.querySelector(`#${id}-params-list`);
-            const addButton = el.querySelector(`#${id}-add-param`);
+            const list = queryNodeControl(el, `#${id}-params-list`);
+            const addButton = queryNodeControl(el, `#${id}-add-param`);
             const renumberRows = () => {
                 list?.querySelectorAll('[data-param-row]').forEach((row, index) => {
                     const keyInput = row.querySelector('.custom-param-key');
@@ -3083,22 +3107,22 @@ export function createNodeDomBindingsApi({
         }
         else if (type === 'TextChat') {
             syncNodeProviderOptions(id, type);
-            const modelSelect = el.querySelector(`#${id}-apiconfig`);
+            const modelSelect = queryNodeControl(el, `#${id}-apiconfig`);
             modelSelect?.addEventListener('change', () => {
                 syncNodeProviderOptions(id, type);
                 persistNodeModelSelection(id, type);
                 syncNodeFormData(id, type);
                 fitNodeToContent(id);
             });
-            const providerSelect = el.querySelector(`#${id}-provider`);
+            const providerSelect = queryNodeControl(el, `#${id}-provider`);
             providerSelect?.addEventListener('change', () => {
                 syncNodeProviderOptions(id, type);
                 persistNodeModelSelection(id, type);
                 syncNodeFormData(id, type);
             });
-            const copyBtn = el.querySelector(`#${id}-copy-btn`);
-            const previewBtn = el.querySelector(`#${id}-preview-btn`);
-            const responseArea = el.querySelector(`#${id}-response`);
+            const copyBtn = queryNodeControl(el, `#${id}-copy-btn`);
+            const previewBtn = queryNodeControl(el, `#${id}-preview-btn`);
+            const responseArea = queryNodeControl(el, `#${id}-response`);
             const responseField = responseArea?.closest('.node-chat-response-field');
             const getResponseText = () => responseArea && !responseArea.querySelector('.chat-response-placeholder')
                 ? responseArea.innerText.trim() : '';
@@ -3143,7 +3167,7 @@ export function createNodeDomBindingsApi({
                 documentRef.body.appendChild(dialog);
                 surfaces?.refresh();
             });
-            for (const details of el.querySelectorAll('.node-chat-system-field, .node-chat-option-guide')) {
+            for (const details of queryNodeControls(el, '.node-chat-system-field, .node-chat-option-guide')) {
                 details.addEventListener('toggle', () => fitNodeToContent(id, { reason: 'element-resize' }));
                 details.addEventListener('mousedown', event => event.stopPropagation());
             }
@@ -3162,7 +3186,7 @@ export function createNodeDomBindingsApi({
         } else if (type === 'Text') {
             syncTextNodeData(id);
         } else if (type === 'TextSplit') {
-            const outputCountInput = el.querySelector(`#${id}-output-count`);
+            const outputCountInput = queryNodeControl(el, `#${id}-output-count`);
             outputCountInput?.addEventListener('input', () => {
                 const sanitized = sanitizeTextSplitOutputCountValue(outputCountInput.value);
                 if (outputCountInput.value !== sanitized) {
@@ -3173,7 +3197,7 @@ export function createNodeDomBindingsApi({
                 if (event.inputType?.startsWith('delete')) return;
                 if (event.data && /\D/.test(event.data)) event.preventDefault();
             });
-            el.querySelectorAll('.text-split-output-count-btn').forEach((button) => {
+            queryNodeControls(el, '.text-split-output-count-btn').forEach((button) => {
                 button.addEventListener('click', () => {
                     if (!outputCountInput) return;
                     if (button.disabled || outputCountInput.disabled) return;
@@ -3190,7 +3214,7 @@ export function createNodeDomBindingsApi({
 
         el.addEventListener('input', () => syncDependentPromptSources(id));
         el.addEventListener('change', () => syncDependentPromptSources(id));
-        el.querySelectorAll('input, select, textarea').forEach((input) => {
+        queryNodeControls(el, 'input, select, textarea').forEach((input) => {
             if (type === 'ImageGenerate') input.addEventListener('input', () => syncNodeFormData(id, type));
             input.addEventListener('change', () => {
                 syncNodeFormData(id, type);
@@ -3226,6 +3250,7 @@ export function createNodeDomBindingsApi({
             const sourceNode = state.nodes.get(state.nodes.get(id)?.cloneSourceId);
             if (sourceNode) syncCloneNodeFromSource(state.nodes.get(id), sourceNode);
         }
+        onNodeBound(id);
     }
 
     return {
