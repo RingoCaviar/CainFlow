@@ -52,7 +52,7 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
             const old = view.groups[index];
             return old.connection.id === group.connection.id && old.source === group.source && old.name === group.name
                 && old.count === group.count && old.missing === group.missing && old.enabled === group.enabled
-                && old.running === group.running && old.thumbnail === group.thumbnail
+                && old.running === group.running && old.remote === group.remote && old.thumbnail === group.thumbnail
                 && old.downstreamRunning === group.downstreamRunning
                 && sameList(old.descriptions, group.descriptions) && sameList(old.downstreamIds, group.downstreamIds)
                 && sameList(old.missingPositions, group.missingPositions)
@@ -163,7 +163,7 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
                     const workflowId = getWorkflowId();
                     try {
                         const durable = readAsset && group.assets.length && group.assets.every(key => key.startsWith('media:'));
-                        const images = durable ? await Promise.all(group.assets.map(key => readAsset(key).catch(() => '')))
+                        const images = group.remote ? group.images.slice() : durable ? await Promise.all(group.assets.map(key => readAsset(key).catch(() => '')))
                             : await readSourceImages(group.source.id);
                         if (!durable && images.length !== group.count) throw new Error('原图批次不完整，请定位来源恢复。');
                         if (getWorkflowId() !== workflowId || state.nodes.get(nodeId) !== target || state.nodes.get(group.source.id) !== group.source

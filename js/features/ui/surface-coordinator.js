@@ -115,7 +115,7 @@ export function getSurfaceCoordinator(documentRef) {
             event.preventDefault(); event.stopImmediatePropagation();
             const trigger = popover[1].trigger;
             closePopover(popover[0]);
-            trigger?.isConnected && trigger.focus();
+            trigger?.isConnected && trigger.focus({ preventScroll: true });
         } else if (top) {
             event.preventDefault(); event.stopImmediatePropagation();
             (escapeHandlers.get(top) || (() => fallbackEscape(top)))(event);

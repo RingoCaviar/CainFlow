@@ -384,6 +384,66 @@ html:root #canvas-container .node.image-first-card > .node-body.is-collapsed { d
 .image-parameter-resize{position:absolute;right:0;top:30px;bottom:0;width:5px;cursor:ew-resize}
 .node.image-first-card .image-first-placeholder[hidden]{display:none}
 
+/* Media cards retain the original image surfaces and their dedicated controls. */
+html:root #canvas-container .node.image-first-media > .node-body {
+    position: relative;
+    padding: 10px 12px;
+    gap: 7px;
+}
+.node.image-first-media .node-port .port-label {
+    position: absolute;
+    display: block !important;
+    width: max-content;
+    max-width: 120px;
+    padding: 0 3px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    background: var(--bg-canvas);
+    border-radius: 3px;
+    font-size: 12px;
+    line-height: 1.5;
+}
+.node.image-first-media .node-port.input .port-label { right: calc(100% + 26px); }
+.node.image-first-media .node-port.output .port-label { left: calc(100% + 26px); }
+.node.image-first-media > .node-ports-row .node-port { pointer-events: none; }
+.node.image-first-media > .node-ports-row :is(.port-dot, .port-label) { pointer-events: auto; }
+.node.image-first-media :is(.image-import-upload-section, .image-import-url-section):not(.hidden) {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    gap: 7px;
+}
+.node.image-first-media :is(.file-drop-zone, .preview-container) {
+    flex: 1 1 auto;
+    width: 100%;
+    height: 0;
+    min-height: 100px;
+    max-height: none;
+    margin: 0;
+    box-sizing: border-box;
+    background: var(--node-control-surface);
+}
+.node.image-first-media :is(.file-drop-zone, .preview-container) img {
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+.node.image-first-media .select-file-btn { flex: 0 0 auto; min-height: 30px; margin: 0; }
+.node.image-first-media .preview-controls { position: relative; inset: auto; z-index: auto; flex: 0 0 auto; min-height: 28px; margin: 0; }
+.node.image-first-media .image-first-summary { flex: 0 0 auto; }
+.node.image-first-media .image-preview-input-status { flex: 0 0 auto; margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.image-parameter-panel .image-import-mode-group { display: flex; gap: 5px; }
+.image-parameter-panel .image-import-mode-btn { flex: 1; min-height: 30px; padding: 4px 8px; border: 1px solid var(--node-control-border); border-radius: 6px; background: var(--node-control-surface); color: var(--text-secondary); font: inherit; cursor: pointer; }
+.image-parameter-panel .image-import-mode-btn.active { border-color: var(--accent-primary); color: var(--text-primary); }
+.image-parameter-panel .image-import-url-fields { display: flex; flex-direction: column; gap: 8px; }
+.image-parameter-panel .image-import-url-fields[hidden] { display: none; }
+.image-parameter-panel .image-import-url-fields input { width: 100%; }
+.image-parameter-panel .image-import-url-note { color: var(--text-secondary); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.image-parameter-footer [data-parameter-action][hidden] { display: none; }
+
 /* A single visible anchor represents canonical workflow input roles. */
 .node.image-first-card .image-first-canonical-input { display: none !important; }
 .node.image-first-card .universal-input { display: flex !important; }

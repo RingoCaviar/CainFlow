@@ -2,15 +2,8 @@ import { getCanonicalImageList } from '../execution/execution-data-utils.js';
 import { projectImageReferences } from '../../nodes/image-reference-projection.js';
 import { projectImageOutput } from '../../nodes/image-output-projection.js';
 import { getNodeDefinition } from '../../nodes/registry.js';
-import { resolveUniversalInput } from '../../nodes/universal-input-policy.js';
+import { getUniversalInputRoles, resolveUniversalInput } from '../../nodes/universal-input-policy.js';
 
-const roles = [
-    ['prompt', '主提示词', 'text'],
-    ['camera_prompt', '视角提示词', 'text'],
-    ['referenceImages', '参考图', 'image'],
-    ['mask', '遮罩', 'image'],
-    ['params', '自定义参数', 'params']
-];
 const typeLabels = { image: '图片', text: '文本', params: '参数', video: '视频', any: '任意类型' };
 
 function describeSource(state, edge, referenceGroup) {
@@ -18,9 +11,10 @@ function describeSource(state, edge, referenceGroup) {
     const output = Array.from(source?.el?.querySelectorAll('.node-port[data-direction="output"]') || [])
         .find(port => port.dataset.port === edge.from.port);
     const type = output?.dataset.type || edge.type || '';
-    const count = type === 'image' ? (referenceGroup || projectImageOutput(source, getCanonicalImageList(source))).count : 0;
+    const projection = type === 'image' ? referenceGroup || projectImageOutput(source, getCanonicalImageList(source)) : null;
+    const count = projection?.count || 0;
     const integrity = source?.data?.mediaIntegrity;
-    const missing = !source || integrity?.state === 'missing' || integrity?.missingItems?.length > 0;
+    const missing = !source || !projection?.remote && (integrity?.state === 'missing' || integrity?.missingItems?.length > 0);
     const title = source?.customTitle || source?.el?.dataset.nodeTitle || getNodeDefinition(source?.type)?.title || edge.from.nodeId;
     const sourceRunning = referenceGroup?.running || state.runningNodeIds?.has(source?.id) || ['waiting', 'running'].includes(source?.runStatus);
     const status = !source ? '来源缺失' : source.enabled === false ? '已停用'
@@ -74,7 +68,9 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
         element.replaceChildren();
         if (!edges.length) {
             const empty = documentRef.createElement('p'); empty.className = 'image-input-empty';
-            empty.textContent = '将图片、文本、视角或参数接到输入口，自动识别用途。';
+            empty.textContent = node.type === 'ImageGenerate'
+                ? '将图片、文本、视角或参数接到输入口，自动识别用途。'
+                : '将图片接到输入口，保留来源的完整批次。';
             element.append(empty); return;
         }
         edges.forEach((edge, index) => {
@@ -90,7 +86,7 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
             const controls = documentRef.createElement('div'); controls.className = 'image-input-controls';
             const select = documentRef.createElement('select'); select.dataset.inputRole = '';
             select.setAttribute('aria-label', `${description.title}的输入用途`);
-            const availableRoles = roles.filter(([role, , type]) => type === description.type || role === edge.to.port);
+            const availableRoles = getUniversalInputRoles(node).filter(([role, , type]) => type === description.type || role === edge.to.port);
             if (!availableRoles.some(([role]) => role === edge.to.port)) availableRoles.push([edge.to.port, edge.to.port]);
             for (const [role, label] of availableRoles) {
                 const option = documentRef.createElement('option'); option.value = role; option.textContent = label;

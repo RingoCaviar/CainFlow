@@ -20,6 +20,7 @@ import {
     setCanonicalImageOutput
 } from '../execution/execution-data-utils.js';
 import { createDisplayImageRenderer } from '../media/display-image-renderer.js';
+import { projectImageOutput } from '../../nodes/image-output-projection.js';
 import { createNodeDomBindingsApi } from '../../nodes/node-dom-bindings.js';
 import { createNodeLifecycleApi } from '../../nodes/node-lifecycle.js';
 import { migrateLegacyWorkflowData } from '../persistence/legacy-node-migration.js';
@@ -1318,14 +1319,19 @@ export function createWorkflowRuntimeManager({
             if (!node) return;
             const previewContainer = doc.getElementById(`${nodeId}-preview`);
             if (!previewContainer) return;
-            renderDisplayImagePreview(previewContainer, node, images, {
+            previewContainer.querySelector('.image-preview-batch-navigation')?.remove();
+            const projection = projectImageOutput(node, images);
+            renderDisplayImagePreview(previewContainer, node, projection.images, {
                 totalCount: getRuntimeDisplayImageCount(node),
                 altPrefix: '预览',
                 placeholderClass: 'preview-placeholder',
-                emptyMessage,
+                emptyMessage: projection.compacted ? '原图位置待恢复，请选择图片查看' : emptyMessage,
                 cursor: 'pointer',
                 placeholderWithIcon: true
             });
+            const image = previewContainer.querySelector('img');
+            if (image) image.style.transform = `scale(${node.previewZoom || 1})`;
+            node.onImagePreviewRendered?.();
         };
         const renderImageSavePreview = (nodeId, images, emptyMessage = '无输入图片') => {
             const node = getRuntimeNode(nodeId);
@@ -1396,20 +1402,24 @@ export function createWorkflowRuntimeManager({
                 const node = getRuntimeNode(nodeId);
                 if (!node || node.type !== 'ImagePreview') return;
                 const imageList = normalizeRuntimeImageList(imageData);
-                node.previewZoom = 1;
                 if (imageList.length > 0) {
+                    const keys = getForwardedKeys(nodeId), previousKeys = node.data?.mediaAssetKeys || [];
+                    const previousImages = getCanonicalImageList(node);
+                    const unchanged = keys.length > 0 && keys.length === previousKeys.length && keys.every((key, index) => key === previousKeys[index])
+                        || imageList.length === previousImages.length && imageList.every((image, index) => image === previousImages[index]);
+                    if (!unchanged) node.previewZoom = 1;
                     setCanonicalImageOutput(node, imageList, {
-                        currentIndex: 0,
+                        currentIndex: unchanged ? node.imagePreviewIndex : 0,
                         assetKey: nodeId,
                         trackImageCount: true,
                         hydratedAt: Date.now(),
                         assetReady: false
                     });
-                    const forwarded = await syncForwardedKeys(node, getForwardedKeys(nodeId));
+                    const forwarded = await syncForwardedKeys(node, keys);
                     node.data.imageAssetReady = forwarded;
+                    node.previewInputState = 'current';
                 } else {
-                    await syncForwardedKeys(node, []);
-                    clearCanonicalImageOutput(node);
+                    node.previewInputState = getCanonicalImageList(node).length || node.data?.imageCount ? 'stale' : 'empty';
                 }
             },
             syncImageSaveNode: async (nodeId, imageData) => {

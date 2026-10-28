@@ -2357,6 +2357,38 @@ export function createNodeDomBindingsApi({
         );
     }
 
+    function bindImageFirstMediaDragGuard(id, type, el) {
+        if (type !== 'ImageImport' && type !== 'ImagePreview') return;
+        let stopTracking = () => {};
+        const nodeAtBind = state.nodes.get(id);
+        const start = event => {
+            const node = state.nodes.get(id);
+            if (event.button !== 0 || node?.el !== el || !node.parameterRoot) return;
+            if (event.target.closest('button, input, textarea, select, label, .preview-controls, .image-save-preview-nav, .image-import-url-refresh, [contenteditable="true"]')) return;
+            stopTracking();
+            node.imageFirstMediaDragged = false;
+            const startX = event.clientX, startY = event.clientY;
+            const track = move => {
+                if (Math.abs(move.clientX - startX) > 2 || Math.abs(move.clientY - startY) > 2) node.imageFirstMediaDragged = true;
+            };
+            stopTracking = () => {
+                documentRef.removeEventListener('mousemove', track, true);
+                documentRef.removeEventListener('mouseup', stopTracking, true);
+                documentRef.defaultView?.removeEventListener('blur', stopTracking);
+            };
+            documentRef.addEventListener('mousemove', track, true);
+            documentRef.addEventListener('mouseup', stopTracking, true);
+            documentRef.defaultView?.addEventListener('blur', stopTracking);
+        };
+        const media = queryNodeControls(el, '.file-drop-zone, .image-import-url-preview, .preview-container');
+        media.forEach(surface => surface.addEventListener('mousedown', start, true));
+        (el._cleanupFns ||= []).push(() => {
+            stopTracking();
+            media.forEach(surface => surface.removeEventListener('mousedown', start, true));
+            if (nodeAtBind) delete nodeAtBind.imageFirstMediaDragged;
+        });
+    }
+
     function bindNodeInteractions({ id, type, el }) {
         const createNodeDraggingState = (nodeIds, pos, isCloneDrag) => {
             const startPositions = new Map();
@@ -2429,7 +2461,7 @@ export function createNodeDomBindingsApi({
             if (target.closest('.node-delete, .node-bypass-btn')) return;
 
             const interactiveSelector = 'input, textarea, select, button, label, .toggle-switch, .toggle-slider, .node-select, .port, .node-resize-handle, [contenteditable="true"], .chat-response-area, .preview-controls, .workflow-action-btn';
-            const mediaSurfaceSelector = '.preview-container, .save-preview-container, .file-drop-zone, .image-compare-container';
+            const mediaSurfaceSelector = '.preview-container, .save-preview-container, .file-drop-zone, .image-import-url-preview, .image-compare-container';
             const isInteractive = target.closest(interactiveSelector);
             const imageResultSurface = state.nodes.get(id)?.parameterRoot ? target.closest('.image-node-result-preview') : null;
             const mediaSurface = target.closest(mediaSurfaceSelector) || imageResultSurface;
@@ -2439,7 +2471,8 @@ export function createNodeDomBindingsApi({
 
             if (isInteractive && !isForceDrag && !imageResultSurface) return;
 
-            canvasContainer.focus();
+            const node = state.nodes.get(id);
+            if (!(node?.parameterRoot && node.type === 'ImagePreview' && mediaSurface)) canvasContainer.focus();
 
             const isPanAction = e.button === 1 || (e.button === 0 && e.altKey);
             if (isPanAction) return;
@@ -3254,6 +3287,7 @@ export function createNodeDomBindingsApi({
             }
         });
 
+        bindImageFirstMediaDragGuard(id, type, el);
         if (state.nodes.get(id)?.isClone) {
             const sourceNode = state.nodes.get(state.nodes.get(id)?.cloneSourceId);
             if (sourceNode) syncCloneNodeFromSource(state.nodes.get(id), sourceNode);

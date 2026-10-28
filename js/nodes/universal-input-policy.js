@@ -7,7 +7,15 @@ import { resolveDeclarativeProtocolVariant } from '../features/execution/protoco
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 
 // Each node type opts in when its card and input details use this contract.
-const UNIVERSAL_INPUT_NODE_TYPES = new Set(['ImageGenerate']);
+const UNIVERSAL_INPUT_NODE_TYPES = new Set(['ImageGenerate', 'ImagePreview']);
+
+export function getUniversalInputRoles(node) {
+    if (node?.type === 'ImagePreview') return [['image', '图片输入', 'image']];
+    return node?.type === 'ImageGenerate' ? [
+        ['prompt', '主提示词', 'text'], ['camera_prompt', '视角提示词', 'text'],
+        ['referenceImages', '参考图', 'image'], ['mask', '遮罩', 'image'], ['params', '自定义参数', 'params']
+    ] : [];
+}
 
 export function isUniversalInputNode(node) {
     return UNIVERSAL_INPUT_NODE_TYPES.has(node?.type);
@@ -18,6 +26,11 @@ const logicalPort = port => referencePort(port) ? 'referenceImages' : port;
 
 function imageOutput(node) {
     return projectImageOutput(node, getCanonicalImageList(node));
+}
+
+function hasRemoteImageOutput(node) {
+    return node?.type === 'ImageImport' && (node.importMode ?? node.data?.importMode) === 'url'
+        || imageOutput(node).images.some(image => /^https?:\/\//i.test(image));
 }
 
 function sourceOutputDescriptor(node, name) {
@@ -88,21 +101,22 @@ export function resolveUniversalInput({ state, sourceNode, sourcePort, sourceTyp
     if (sourceType && sourceType !== descriptor.type) return failure('来源输出类型已变化，请重新连接。');
     const type = descriptor.type;
     const port = role === 'auto'
-        ? ({ image: 'referenceImages', text: sourceNode.type === 'CameraControl' ? 'camera_prompt' : 'prompt', params: 'params' })[type]
+        ? (targetNode.type === 'ImagePreview' ? { image: 'image' } : { image: 'referenceImages', text: sourceNode.type === 'CameraControl' ? 'camera_prompt' : 'prompt', params: 'params' })[type]
         : role;
-    const allowed = { image: ['referenceImages','mask'], text: ['prompt','camera_prompt'], params: ['params'] };
-    if (!allowed[type]?.includes(port)) return failure('来源类型不兼容所选输入用途。');
+    if (!getUniversalInputRoles(targetNode).some(([name, , acceptedType]) => name === port && acceptedType === type)) return failure('来源类型不兼容所选输入用途。');
     if (sourceNode.id === targetNode.id) return failure('节点不能连接到自身。');
     if ([sourceNode, targetNode].some(node => state.runningNodeIds?.has(node.id) || ['waiting','running'].includes(node.runStatus))) {
         return failure('节点正在运行，暂不能修改输入连接。');
     }
     const connections = (state.connections || []).filter(edge => !ignoreConnectionId || edge.id !== ignoreConnectionId);
-    const incoming = connections.filter(edge => edge.to?.nodeId === targetNode.id && logicalPort(edge.to.port) === port);
+    const incoming = connections.filter(edge => edge.to?.nodeId === targetNode.id && (targetNode.type === 'ImageGenerate' ? logicalPort(edge.to.port) : edge.to.port) === port);
     if (incoming.some(edge => edge.from?.nodeId === sourceNode.id && edge.from?.port === sourcePort)) return failure('不能重复连接相同来源输出。');
     if (port !== 'referenceImages' && incoming.length) return failure('该输入用途已占用，请在输入明细中明确替换。');
     if (createsCycle(connections, sourceNode.id, targetNode.id)) return failure('此连接会形成循环，请选择其他来源。');
+    if (targetNode.type !== 'ImageGenerate') return { port, type, multiple: false, error: '' };
     const contract = generationContract(state, targetNode), unsupported = roleError(contract, port);
     if (unsupported) return failure(unsupported);
+    if (type === 'image' && contract.protocolId === 'google' && hasRemoteImageOutput(sourceNode)) return failure('URL 图片仅支持兼容参考图，当前模型不支持。');
     if (port === 'mask' && imageOutput(sourceNode).count !== 1) return failure('新增遮罩需要已明确输出的单图来源；多图或尚无输出的来源不能自动截取。');
     if (port === 'referenceImages') {
         const count = [...incoming.map(edge => state.nodes.get(edge.from.nodeId)), sourceNode]
@@ -113,7 +127,7 @@ export function resolveUniversalInput({ state, sourceNode, sourcePort, sourceTyp
 }
 
 export function validateUniversalImageInputs({ state, node, inputs }) {
-    if (!isUniversalInputNode(node)) return '';
+    if (node?.type !== 'ImageGenerate') return '';
     const incoming = (state.connections || []).filter(edge => edge.to?.nodeId === node.id
         && state.nodes.get(edge.from?.nodeId)?.enabled !== false);
     const references = incoming.filter(edge => referencePort(edge.to.port));
@@ -127,6 +141,7 @@ export function validateUniversalImageInputs({ state, node, inputs }) {
     for (const edge of checked) {
         const unsupported = roleError(contract, logicalPort(edge.to.port));
         if (unsupported) return unsupported;
+        if (contract.protocolId === 'google' && edge.type === 'image' && hasRemoteImageOutput(state.nodes.get(edge.from.nodeId))) return 'URL 图片仅支持兼容参考图，当前模型不支持。';
     }
     if (inputReferenceCount && !references.length) {
         const unsupported = roleError(contract, 'referenceImages');
