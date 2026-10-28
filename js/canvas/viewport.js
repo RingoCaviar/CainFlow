@@ -32,20 +32,32 @@ export function createViewportApi({
         canvasDotSpacing = null;
     }
 
+    function setCustomStyle(style, name, value) {
+        const text = String(value);
+        if (style.getPropertyValue?.(name) !== text) style.setProperty(name, text);
+    }
+
+    function setTransformAttribute(element, value) {
+        if (element && element.getAttribute?.('transform') !== value) element.setAttribute('transform', value);
+    }
+
     function applyCanvasVisualTransform(options = {}) {
         const { x, y, zoom } = state.canvas;
-        elements.nodesLayer.style.transform = `translate(${x}px, ${y}px) scale(${zoom})`;
-        elements.nodesLayer.style.transformOrigin = '0 0';
-        elements.nodesLayer.style.setProperty('--canvas-zoom', zoom);
-        elements.connectionsGroup?.setAttribute('transform', `translate(${x}, ${y}) scale(${zoom})`);
-        elements.originAxes?.setAttribute('transform', `translate(${x}, ${y}) scale(${zoom})`);
+        const transform = `translate(${x}px, ${y}px) scale(${zoom})`;
+        if (elements.nodesLayer.style.transform !== transform) elements.nodesLayer.style.transform = transform;
+        if (elements.nodesLayer.style.transformOrigin !== '0px 0px') elements.nodesLayer.style.transformOrigin = '0px 0px';
+        setCustomStyle(elements.nodesLayer.style, '--canvas-zoom', zoom);
+        const svgTransform = `translate(${x}, ${y}) scale(${zoom})`;
+        setTransformAttribute(elements.connectionsGroup, svgTransform);
+        setTransformAttribute(elements.originAxes, svgTransform);
 
         const dotSpacing = getCanvasDotSpacing() * zoom;
-        elements.canvasContainer.style.setProperty('--canvas-dot-spacing-scaled', `${dotSpacing}px`);
-        elements.canvasContainer.style.setProperty('--canvas-dot-offset-x', `${x}px`);
-        elements.canvasContainer.style.setProperty('--canvas-dot-offset-y', `${y}px`);
+        setCustomStyle(elements.canvasContainer.style, '--canvas-dot-spacing-scaled', `${dotSpacing}px`);
+        setCustomStyle(elements.canvasContainer.style, '--canvas-dot-offset-x', `${x}px`);
+        setCustomStyle(elements.canvasContainer.style, '--canvas-dot-offset-y', `${y}px`);
         if (elements.zoomLevel) {
-            elements.zoomLevel.textContent = `${Math.round(zoom * 100)}%`;
+            const label = `${Math.round(zoom * 100)}%`;
+            if (elements.zoomLevel.textContent !== label) elements.zoomLevel.textContent = label;
         }
         if (options.dispatchTransformEvent !== false) {
             elements.canvasContainer?.ownerDocument?.dispatchEvent(new CustomEvent('cainflow:canvas-transform', {
