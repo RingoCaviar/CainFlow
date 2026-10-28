@@ -61,10 +61,16 @@ async function openImageParameters(app, id) {
     await app.waitFor(`document.getElementById('image-parameter-panel')?.dataset.nodeId==='${id}' && !document.getElementById('image-parameter-panel').hidden`);
 }
 
+async function openImageReferences(app, id = 'reference-target') {
+    await openImageParameters(app, id);
+    if (await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=reference]').getAttribute('aria-expanded')!=='true'"))
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=reference]').click()");
+}
+
 async function createImage({ evaluate, waitFor }) {
     await evaluate(`document.getElementById('canvas-container').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}))`);
     await evaluate(`document.querySelector('.context-menu-item[data-type="ImageGenerate"]').click()`);
-    await waitFor("Boolean(document.querySelector('.node-generate textarea[id$=prompt]'))");
+    await waitFor("Boolean(document.getElementById(document.querySelector('.node.node-generate')?.id+'-prompt'))");
     return evaluate("document.querySelector('.node-generate').id");
 }
 
@@ -79,7 +85,7 @@ async function generateReferenceSources(app, { samePixels = false } = {}) {
         await app.evaluate(`document.getElementById('${id}').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()`);
         await app.waitFor(`imageRequests.filter(r=>r.prompt==='${id}').length===${id==='source-a'?3:2} && !document.getElementById('${id}-prompt').disabled`);
         await app.waitFor(`document.querySelector('#${id}-image-results .image-node-result-count')?.textContent.endsWith('/ ${id==='source-a'?3:2}')`);
-        await delay(100);
+        await app.waitFor(`(async()=>{const saved=await fetch('/api/storage/documents/session').then(r=>r.json());const keys=saved.value?.nodes?.find(node=>node.id==='${id}')?.mediaAssetKeys||[];return keys.length===${id==='source-a'?3:2}&&(await Promise.all(keys.map(key=>fetch('/api/storage/assets/'+encodeURIComponent(key)).then(response=>response.ok)))).every(Boolean)})()`);
     }
 }
 
@@ -194,6 +200,8 @@ test('reference overview retains ordered source batches and empty sources, with 
     await withAppBrowser(referenceSession({ empty: true }), async app => {
         const { evaluate, waitFor, send } = app;
         await generateReferenceSources(app);
+        assert.equal(await evaluate("document.querySelector('#reference-target .image-first-summary button').textContent"), '参考 5 张', 'unselected cards update from complete upstream batches');
+        await openImageReferences(app);
         await waitFor("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length===3");
         assert.deepEqual(await evaluate("[...document.querySelectorAll('#reference-target-reference-sources [data-reference-number]')].map(el=>el.dataset.referenceNumber)"), ['1','2','3','4','5']);
         assert.match(await evaluate("document.getElementById('reference-target-reference-sources').textContent"), /尚无输出/);
@@ -207,6 +215,7 @@ test('reference overview retains ordered source batches and empty sources, with 
         await waitFor("!document.querySelector('.fullscreen-overlay')");
         assert.equal(await evaluate('document.activeElement.dataset.referenceNumber'), '4');
         await delay(1000); await reloadApp(app);
+        await openImageReferences(app);
         await waitFor("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length===3");
         assert.deepEqual(await evaluate("[...document.querySelectorAll('#reference-target-reference-sources [data-reference-number]')].map(el=>el.dataset.referenceNumber)"), ['1','2','3','4','5']);
         assert.equal(await evaluate('imageRequests.length'), 0, 'reopening the overview does not generate sources');
@@ -219,12 +228,14 @@ test('reference source moves survive reload, reach the real request, and disconn
     await withAppBrowser(referenceSession(), async app => {
         const { evaluate, waitFor, send } = app;
         await generateReferenceSources(app);
+        await openImageReferences(app);
         await change(evaluate, 'reference-target-apiconfig', 'google');
         assert.ok(await evaluate("Boolean(document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-move-up'))"), 'source has an accessible move action');
         await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-move-up').click()");
         const order = () => evaluate("[...document.querySelectorAll('#reference-target-reference-sources .image-reference-group')].map(group=>group.dataset.referenceConnection)");
         assert.deepEqual(await order(), ['edge-source-b','edge-source-a']);
         await delay(1000); await reloadApp(app);
+        await openImageReferences(app);
         await waitFor("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length===2");
         assert.deepEqual(await order(), ['edge-source-b','edge-source-a']);
         await evaluate('window.holdTargetResponse=true');
@@ -249,7 +260,7 @@ test('reference source moves survive reload, reach the real request, and disconn
         await evaluate("document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,bubbles:true,cancelable:true}))");
         await waitFor("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length===2 && [...document.querySelectorAll('.toast')].some(t=>t.textContent.includes('已撤回上一步操作'))");
         assert.equal(await evaluate("document.querySelector('[data-reference-connection=\"edge-source-a\"] .image-reference-drag').draggable"), true, 'source drag is available after undo');
-        const dragState = await evaluate(`(()=>{const transfer=new DataTransfer(),root=document.getElementById('nodes-layer'),handle=root.querySelector('[data-reference-connection="edge-source-a"] .image-reference-drag'),target=root.querySelector('[data-reference-connection="edge-source-b"]');handle.dispatchEvent(new DragEvent('dragstart',{bubbles:true,cancelable:true,dataTransfer:transfer}));const payload=transfer.getData('application/x-cainflow-reference');target.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));handle.dispatchEvent(new DragEvent('dragend',{bubbles:true,dataTransfer:transfer}));return {payload,duplicates:document.querySelectorAll('[data-reference-connection="edge-source-a"]').length,toasts:[...document.querySelectorAll('.toast')].map(t=>t.textContent)}})()`);
+        const dragState = await evaluate(`(()=>{const transfer=new DataTransfer(),root=document.getElementById('reference-target-reference-sources'),handle=root.querySelector('[data-reference-connection="edge-source-a"] .image-reference-drag'),target=root.querySelector('[data-reference-connection="edge-source-b"]');handle.dispatchEvent(new DragEvent('dragstart',{bubbles:true,cancelable:true,dataTransfer:transfer}));const payload=transfer.getData('application/x-cainflow-reference');target.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));handle.dispatchEvent(new DragEvent('dragend',{bubbles:true,dataTransfer:transfer}));return {payload,duplicates:document.querySelectorAll('[data-reference-connection="edge-source-a"]').length,toasts:[...document.querySelectorAll('.toast')].map(t=>t.textContent)}})()`);
         assert.equal(dragState.payload, 'edge-source-a', JSON.stringify(dragState));
         assert.deepEqual(await order(), ['edge-source-a','edge-source-b'], JSON.stringify(dragState));
         await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-move-up').click()");
@@ -262,6 +273,7 @@ test('clone parameters remain read-only while reference connections follow canva
     Object.assign(seeded.nodes.at(-1), { isClone: true, cloneSourceId: 'source-a' });
     await withAppBrowser(seeded, async app => {
         await generateReferenceSources(app);
+        await openImageReferences(app);
         const { evaluate } = app;
         assert.equal(await evaluate("document.getElementById('reference-target-prompt').disabled"), true);
         assert.equal(await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-move-up').disabled"), false);
@@ -651,6 +663,7 @@ test('disabled reference sources stay visible without consuming actual request i
     await withAppBrowser(referenceSession(),async app=>{
         const {evaluate,waitFor}=app;
         await generateReferenceSources(app);
+        await openImageReferences(app);
         await evaluate("document.querySelector('#source-a .node-bypass-btn').click()");
         await waitFor("document.getElementById('reference-target-reference-sources').textContent.includes('不参与本轮输入')");
         assert.deepEqual(await evaluate("[...document.querySelectorAll('#reference-target-reference-sources [data-reference-number]')].map(el=>el.dataset.referenceNumber)"),['1','2']);
@@ -666,11 +679,13 @@ test('missing first asset never shifts later originals in node and reference pre
     await withAppBrowser(referenceSession(),async app=>{
         const {evaluate,waitFor,send,server}=app;
         await generateReferenceSources(app);
+        await openImageReferences(app);
         await delay(1000);
         const digest=createHash('sha256').update(Buffer.from(referenceImages[0].split(',')[1],'base64')).digest('hex');
         // Simulate external loss of one real file, inside this fixture's isolated temporary storage.
         await unlink(join(server.dataDir,'assets',digest.slice(0,2),digest+'.png'));
         await reloadApp(app);
+        await openImageReferences(app);
         await waitFor("document.querySelectorAll('#reference-target-reference-sources [data-reference-number]').length>=3");
         await evaluate("document.querySelector('#reference-target-reference-sources [data-reference-number=\"2\"]').click()");
         await waitFor("Boolean(document.querySelector('.fullscreen-overlay img'))");
@@ -725,6 +740,7 @@ test('many reference sources stay in a compact wrapping gallery with every origi
     const sources = Array.from({length:16}, (_,index)=>({id:'compact-'+index,type:'ImageImport',customTitle:'参考素材 '+(index+1),x:-800,y:index*200}));
     await withAppBrowser({...session,nodes:[...sources,{id:'compact-target',type:'ImageGenerate',x:100,y:100,apiConfigId:'image',providerId:'p',prompt:'保留参考图'}],connections:sources.map((source,order)=>({id:'compact-edge-'+order,from:{nodeId:source.id,port:'image'},to:{nodeId:'compact-target',port:'referenceImages'},type:'image',order}))}, async app => {
         const {evaluate,waitFor,send}=app;
+        await openImageReferences(app, 'compact-target');
         await waitFor("document.querySelectorAll('#compact-target-reference-sources .image-reference-group').length===16");
         await evaluate(`(async()=>{const images=${JSON.stringify(referenceImages)};for(let index=0;index<16;index++){const transfer=new DataTransfer();transfer.items.add(new File([await(await fetch(images[index%5])).blob()],'reference-'+index+'.png',{type:'image/png'}));const input=document.getElementById('compact-'+index+'-file');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));}})()`);
         await waitFor("document.querySelectorAll('#compact-target-reference-sources [data-reference-number]').length===16");
@@ -754,7 +770,7 @@ test('many reference sources stay in a compact wrapping gallery with every origi
         await evaluate("document.querySelector('[data-reference-connection=\"compact-edge-15\"] .image-reference-move-up').click()");
         assert.equal(await evaluate("(()=>{const grid=document.querySelector('#compact-target-reference-sources .image-reference-grid'),focus=document.activeElement,r=focus.getBoundingClientRect(),bounds=grid.getBoundingClientRect();return grid.scrollTop>0&&r.top>=bounds.top&&r.bottom<=bounds.bottom})()"),true,'reordering a late source preserves scrolling and leaves the focused source visible');
 
-        await evaluate("document.getElementById('compact-target').style.width='260px'");
+        await send('Emulation.setDeviceMetricsOverride',{width:320,height:820,deviceScaleFactor:1,mobile:false});
         assert.equal(await evaluate("(()=>{const root=document.getElementById('compact-target-reference-sources');return root.scrollWidth<=root.clientWidth+1&&root.offsetHeight<=380})()"),true,'narrow cards wrap without horizontal overflow or unbounded height');
 
     });
@@ -765,7 +781,9 @@ test('reordering a legacy reference batch taller than the gallery keeps its focu
     const nodes=[{id:'many',type:'ImageGenerate',x:-800,y:0,apiConfigId:'image',providerId:'p',imageCount:64,imageAssetKey:'legacy-many',imageAssetReady:true},
         {id:'empty',type:'ImageImport',x:-800,y:300}, {id:'target',type:'ImageGenerate',x:100,y:100,apiConfigId:'image',providerId:'p'}];
     const connections=['many','empty'].map((id,order)=>({id:'edge-'+id,from:{nodeId:id,port:'image'},to:{nodeId:'target',port:'referenceImages'},order,type:'image'}));
-    await withAppBrowser({...session,nodes,connections},async({evaluate,waitFor})=>{
+    await withAppBrowser({...session,nodes,connections},async app=>{
+        const {evaluate,waitFor}=app;
+        await openImageReferences(app, 'target');
         await waitFor("document.querySelectorAll('#target-reference-sources [data-reference-number]').length===64");
         assert.equal(await evaluate("document.querySelector('[data-reference-connection=\"edge-many\"]').offsetHeight>document.querySelector('#target-reference-sources .image-reference-grid').clientHeight"),true,'legacy batch placeholders actually exceed the viewport');
         await evaluate("document.querySelector('[data-reference-connection=\"edge-many\"] .image-reference-move-down').click()");

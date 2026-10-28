@@ -1,12 +1,13 @@
 import { normalizeImageList } from '../features/execution/execution-data-utils.js';
-import { getImageOutputAssets, projectImageOutput } from './image-output-projection.js';
-import { orderInputConnections } from './reference-image-ports.js';
+import { getImageOutputAssets } from './image-output-projection.js';
+import { projectImageReferences } from './image-reference-projection.js';
+import { getImageDescription } from '../features/execution/reference-image-description.js';
 
 // A disposable projection of connections and existing outputs, never an attachment store.
 export function createImageReferenceOverview({ state, documentRef, getCachedOutputValue,
     createThumbnail = async source => source, readSourceImages = async () => [], readAsset = null, openPreview = () => {},
     focusNode = () => {}, getWorkflowId = () => '', showToast = () => {}, onLayout = () => {},
-    moveSource = () => false, disconnectSource = () => false }) {
+    moveSource = () => false, disconnectSource = () => false, toggleSourceEnabled = null }) {
     const views = new WeakMap();
     const assetsOf = getImageOutputAssets;
     const sameList = (left, right) => left.length === right.length && left.every((value, index) => value === right[index]);
@@ -29,28 +30,35 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
         const container = documentRef.getElementById(`${nodeId}-reference-sources`);
         if (target?.type !== 'ImageGenerate' || !container) return;
         let view = views.get(container);
-        if (!view) { view = { expanded: false, groups: [], revision: 0 }; views.set(container, view); }
-        const disabled = state.runningNodeIds?.has(nodeId) === true || target.runStatus === 'waiting';
-        const groups = orderInputConnections('ImageGenerate', state.connections.filter(connection => connection.to.nodeId === nodeId
-            && (connection.to.port === 'referenceImages' || /^image_\d+$/.test(connection.to.port))))
-            .map(connection => {
-                const source = state.nodes.get(connection.from.nodeId);
-                const { images, assets, count, missingPositions } = projectImageOutput(source, getCachedOutputValue(source, connection.from.port));
-                const running = state.runningNodeIds?.has(source?.id) === true || source?.runStatus === 'waiting';
-                return { connection, source, images: running ? [] : images, assets: running ? [] : assets,
-                    count: running ? 0 : count,
-                    name: source?.customTitle || source?.el?.querySelector('.node-title')?.textContent || source?.type || '来源已不存在',
-                    missing: source?.data?.mediaIntegrity?.state === 'missing', missingPositions, enabled: source?.enabled !== false,
-                    running, thumbnail: source?.data?.imagePreviewThumbnail || '' };
+        if (!view) {
+            view = { expanded: false, groups: [], revision: 0, descriptionsOpen: new Set() };
+            views.set(container, view);
+            if (!Array.isArray(target.el._cleanupFns)) target.el._cleanupFns = [];
+            target.el._cleanupFns.push(() => {
+                view.stopThumbnails?.();
+                views.delete(container);
             });
+        }
+        const disabled = state.runningNodeIds?.has(nodeId) === true || target.runStatus === 'waiting';
+        const projection = projectImageReferences({ state, targetId: nodeId, getOutput: getCachedOutputValue });
+        const groups = projection.groups.map(group => {
+            const downstreamIds = [...new Set(state.connections.filter(edge => edge.from.nodeId === group.source?.id).map(edge => edge.to.nodeId))];
+            return { ...group, downstreamIds,
+                descriptions: Array.from({ length: Math.max(1, group.count) }, (_, index) => getImageDescription(group.source, index)),
+                downstreamRunning: downstreamIds.some(id => state.runningNodeIds?.has(id) || ['waiting', 'running'].includes(state.nodes.get(id)?.runStatus))
+            };
+        });
         if (view.disabled === disabled && view.groups.length === groups.length && groups.every((group, index) => {
             const old = view.groups[index];
             return old.connection.id === group.connection.id && old.source === group.source && old.name === group.name
                 && old.count === group.count && old.missing === group.missing && old.enabled === group.enabled
                 && old.running === group.running && old.thumbnail === group.thumbnail
+                && old.downstreamRunning === group.downstreamRunning
+                && sameList(old.descriptions, group.descriptions) && sameList(old.downstreamIds, group.downstreamIds)
                 && sameList(old.missingPositions, group.missingPositions)
                 && sameList(old.images, group.images) && sameList(old.assets, group.assets);
         })) return;
+        view.stopThumbnails?.();
         view.groups = groups; view.disabled = disabled; view.revision += 1;
         const revision = view.revision;
         const scrollTop = container.querySelector('.image-reference-grid')?.scrollTop || 0;
@@ -61,15 +69,47 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
         gallery.setAttribute('role', 'group'); gallery.setAttribute('aria-label', '参考图来源，图片较多时可滚动');
         gallery.tabIndex = 0;
         container.append(gallery);
-        let number = 0;
+        const pendingThumbnails = new Map();
+        const Observer = documentRef.defaultView?.IntersectionObserver;
+        let thumbnailObserver = null;
+        view.stopThumbnails = () => { thumbnailObserver?.disconnect(); pendingThumbnails.clear(); };
+        const watchThumbnail = (control, image, source) => {
+            if (!Observer) {
+                // Native lazy images are the fallback; do not eagerly create
+                // a mipmap for every source when visibility observation is absent.
+                image.src = source;
+                return;
+            }
+            pendingThumbnails.set(control, () => {
+                void Promise.resolve().then(() => createThumbnail(source)).then(src => {
+                    if (views.get(container) === view && view.revision === revision && image.isConnected) image.src = src;
+                }).catch(() => { image.remove(); });
+            });
+            if (!thumbnailObserver) {
+                thumbnailObserver = new Observer(entries => {
+                    if (views.get(container) !== view || view.revision !== revision) return;
+                    for (const entry of entries) {
+                        // An editor parked in the hidden store has no layout.
+                        if (!entry.isIntersecting || !gallery.getClientRects().length || !entry.target.getClientRects().length) continue;
+                        const load = pendingThumbnails.get(entry.target);
+                        if (!load) continue;
+                        pendingThumbnails.delete(entry.target);
+                        thumbnailObserver.unobserve(entry.target);
+                        load();
+                    }
+                }, { root: gallery, rootMargin: '32px 0px', threshold: 0 });
+            }
+            thumbnailObserver.observe(control);
+        };
+        const slots = new Map(projection.slots.map(slot => [`${slot.connection.id}:${slot.index}`, slot]));
         const moveLocked = disabled || groups.some(group => group.running);
-        const mutate = (operation, connectionId) => {
+        const mutate = (operation, connectionId, focusSelector = '.image-reference-locate') => {
             if (state.nodes.get(nodeId) !== target) return;
             try {
                 if (!operation()) { showToast('当前不能修改来源连接，请检查运行状态。', 'warning'); return; }
                 render(nodeId);
                 const row = [...container.querySelectorAll('.image-reference-group')].find(item => item.dataset.referenceConnection === connectionId);
-                const control = row?.querySelector('.image-reference-locate') || container.querySelector('.image-reference-locate') || target.el.querySelector('textarea');
+                const control = row?.querySelector(focusSelector) || container.querySelector('.image-reference-locate') || target.el.querySelector('textarea');
                 const grid = row?.closest('.image-reference-grid');
                 if (grid) {
                     if (row.offsetHeight > grid.clientHeight || row.offsetTop < grid.scrollTop) grid.scrollTop = row.offsetTop;
@@ -81,10 +121,11 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
             } catch (error) { showToast(error.message || '来源连接修改失败', 'warning'); }
         };
         for (const [groupIndex, group] of groups.entries()) {
-            const row = documentRef.createElement('div'); row.className = `image-reference-group${group.count === 1 && group.enabled ? ' image-reference-single' : ''}`;
+            const row = documentRef.createElement('div'); row.className = `image-reference-group${group.count === 1 ? ' image-reference-single' : group.count > 1 ? ' image-reference-batch' : ''}`;
             row.dataset.referenceConnection = group.connection.id;
+            row.dataset.enabled = String(group.enabled);
             const heading = documentRef.createElement('div'); heading.className = 'image-reference-heading';
-            const locate = button(`${group.name} · ${group.count} 张`, () => focusNode(group.source.id), disabled || !group.source);
+            const locate = button(`${group.name} · ${group.running ? '运行中' : `${group.count} 张`}`, () => focusNode(group.source.id), disabled || !group.source);
             locate.className = 'image-reference-locate'; locate.title = `定位来源：${group.name} · ${group.count} 张`;
             const drag = connectionButton('⠿', () => {}, moveLocked, 'image-reference-drag');
             drag.setAttribute('aria-label', `拖动${group.name}来源组`); drag.draggable = !moveLocked;
@@ -112,12 +153,12 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
             down.setAttribute('aria-label', `后移${group.name}来源组`); down.title = '后移来源组';
             heading.append(drag, locate); row.append(heading);
             const strip = documentRef.createElement('div'); strip.className = 'image-reference-thumbnails';
-            for (let index = 0; group.enabled && index < group.count; index += 1) {
-                number += 1;
-                const label = `参考图 ${number}，来自${group.name}，源批次第 ${index + 1} 张`;
+            for (let index = 0; index < group.count; index += 1) {
+                const number = slots.get(`${group.connection.id}:${index}`)?.number;
+                const label = `${number ? `参考图 ${number}` : group.running ? '来源运行中' : '已停用来源'}，来自${group.name}，源批次第 ${index + 1} 张`;
                 const asset = group.assets[index], original = group.images[index];
                 const missing = group.missingPositions.includes(index);
-                const preview = button(String(number), async control => {
+                const preview = button(String(number || index + 1), async control => {
                     control.focus();
                     const workflowId = getWorkflowId();
                     try {
@@ -142,19 +183,18 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
                     } catch (error) {
                         if (getWorkflowId() === workflowId && state.nodes.get(nodeId) === target) showToast(error.message || '原图不可用', 'warning');
                     }
-                }, disabled || !group.enabled || missing || (!asset && !original));
-                preview.className = 'image-reference-thumbnail'; preview.dataset.referenceNumber = String(number);
+                }, disabled || group.running || missing || (!asset && !original));
+                preview.className = 'image-reference-thumbnail';
+                if (number) preview.dataset.referenceNumber = String(number);
                 preview.dataset.sourceImageIndex = String(index);
                 preview.setAttribute('aria-label', label); preview.title = label;
                 const image = documentRef.createElement('img'); image.alt = ''; image.loading = 'lazy'; image.decoding = 'async';
-                const thumbnail = missing ? '' : /^data:image\//i.test(original || '') ? original : (group.count === 1 ? group.thumbnail : '');
+                const thumbnail = missing || group.running ? '' : /^data:image\//i.test(original || '') ? original : (group.count === 1 ? group.thumbnail : '');
                 if (thumbnail) {
                     preview.prepend(image);
-                    void createThumbnail(thumbnail).then(src => {
-                        if (views.get(container)?.revision === revision && image.isConnected) image.src = src;
-                    }).catch(() => { image.remove(); });
+                    watchThumbnail(preview, image, thumbnail);
                 } else {
-                    const hint = documentRef.createElement('small'); hint.textContent = missing ? '原图缺失' : '按需预览'; preview.append(hint);
+                    const hint = documentRef.createElement('small'); hint.textContent = group.running ? '运行中' : missing ? '原图缺失' : '按需预览'; preview.append(hint);
                 }
                 strip.append(preview);
             }
@@ -164,7 +204,35 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
             disconnect.setAttribute('aria-label', `断开${group.name}来源连接，影响 ${group.count} 张图片，保留源节点和原图`);
             const tools = documentRef.createElement('div'); tools.className = 'image-reference-tools';
             tools.append(up, down, disconnect); row.append(tools);
-            if (!group.source || !group.enabled || group.missing || !group.count) {
+            const sourceActions = documentRef.createElement('div'); sourceActions.className = 'image-reference-source-actions';
+            const toggle = connectionButton(group.enabled ? '停用来源' : '启用来源', () => mutate(() => toggleSourceEnabled(group.source.id), group.connection.id, '.image-reference-toggle-source'),
+                disabled || group.running || group.downstreamRunning || !group.source || !toggleSourceEnabled, 'image-reference-toggle-source');
+            toggle.setAttribute('aria-label', `${group.enabled ? '停用' : '启用'}整个来源${group.name}，同时影响 ${group.downstreamIds.length} 个下游`);
+            const scope = documentRef.createElement('span'); scope.className = 'image-reference-source-scope';
+            scope.textContent = `整个来源 · 影响 ${group.downstreamIds.length} 个下游`;
+            sourceActions.append(toggle, scope); row.append(sourceActions);
+            const details = documentRef.createElement('details'); details.className = 'image-reference-details';
+            details.open = view.descriptionsOpen.has(group.connection.id);
+            const summary = documentRef.createElement('summary'); summary.textContent = '来源与说明';
+            const fullTitle = documentRef.createElement('p'); fullTitle.className = 'image-reference-full-title'; fullTitle.textContent = group.name;
+            const output = documentRef.createElement('p'); output.className = 'image-reference-source-output';
+            output.textContent = `来源输出：${group.connection.from.port}`;
+            details.append(summary, fullTitle, output);
+            const descriptions = documentRef.createElement('ol'); descriptions.className = 'image-reference-descriptions';
+            for (const [index, text] of group.descriptions.entries()) {
+                if (!text) continue;
+                const item = documentRef.createElement('li'); item.value = index + 1;
+                const content = documentRef.createElement('p'); content.className = 'image-reference-description-text'; content.textContent = text;
+                item.append(content); descriptions.append(item);
+            }
+            if (descriptions.childNodes.length) details.append(descriptions);
+            else { const empty = documentRef.createElement('p'); empty.textContent = '尚未添加图片说明'; details.append(empty); }
+            details.addEventListener('toggle', () => {
+                if (details.open) view.descriptionsOpen.add(group.connection.id); else view.descriptionsOpen.delete(group.connection.id);
+                onLayout(nodeId);
+            });
+            row.append(details);
+            if (!group.source || !group.enabled || group.missing || group.running || !group.count) {
                 const status = documentRef.createElement('p'); status.className = 'image-reference-source-status';
                 status.textContent = !group.source ? '来源节点已不存在' : !group.enabled ? '来源已禁用，不参与本轮输入'
                     : group.missing ? '原图缺失，请定位来源恢复' : group.running ? '来源运行中，尚无本轮输出' : '尚无输出';
@@ -172,8 +240,8 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
             }
             gallery.append(row);
         }
-        if (number > 4 || groups.length > 4) {
-            const expand = button(view.expanded ? '收起参考图' : `展开查看 · ${number} 张 / ${groups.length} 个来源`, () => {
+        if (projection.count > 4 || groups.length > 4) {
+            const expand = button(view.expanded ? '收起参考图' : `展开查看 · ${projection.count} 张 / ${groups.length} 个来源`, () => {
                 view.expanded = !view.expanded; view.disabled = undefined; render(nodeId);
                 container.querySelector('.image-reference-expand')?.focus(); onLayout(nodeId);
             }, disabled);

@@ -7,8 +7,8 @@ import { createNodeSerializer } from '../js/nodes/node-serializer.js';
 import { resolveVideoExecutionInputRecord } from '../js/nodes/video-execution-input-record.js';
 
 test('connected image descriptions follow request image order without changing the saved prompt', () => {
-    const first = { data: {} };
-    const second = { data: {} };
+    const first = { data: { image: 'data:image/png;base64,Zmlyc3Q=' } };
+    const second = { data: { image: 'data:image/png;base64,c2Vjb25k' } };
     setImageDescription(first, '  保留主体五官  ');
     setImageDescription(second, '使用暖色背景');
     const state = {

@@ -595,6 +595,7 @@ const mediaControllerApi = createMediaControllerApi({
     syncClonesFromSource: (nodeId) => {
         nodeDomBindingsApi?.syncClonesFromSource(nodeId);
         nodeDomBindingsApi?.refreshDependentReferenceSources(nodeId);
+        registry.imageFirstCanvasApi?.refreshSource(nodeId);
     },
     openImagePainter,
     getHistory,
@@ -1693,6 +1694,7 @@ function getWorkflowRunnerApi() {
             onNodeRunStateChange: (payload) => {
                 if (payload?.nodeId) nodeDomBindingsApi.syncDependentPromptSources(payload.nodeId);
                 if (payload?.nodeId) nodeDomBindingsApi.refreshDependentReferenceSources(payload.nodeId);
+                if (payload?.nodeId) registry.imageFirstCanvasApi?.refreshSource(payload.nodeId);
                 const activeWorkflow = workflowManagerApi.getActiveWorkflow();
                 if (activeWorkflow?.workflowId) {
                     getWorkflowRuntimeManagerApi().applyVisibleNodeRunState({
@@ -1762,6 +1764,7 @@ function getWorkflowRuntimeManagerApi() {
             onVisibleNodeChanged: nodeId => {
                 nodeDomBindingsApi.syncDependentPromptSources(nodeId);
                 nodeDomBindingsApi.refreshDependentReferenceSources(nodeId);
+                registry.imageFirstCanvasApi?.refreshSource(nodeId);
             },
             visibleConnectionProjectionMaintenance: registry.connectionProjectionApi.maintenance,
             documentRef: document,
