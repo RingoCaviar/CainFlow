@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="540" viewBox="0 0 800 540" role="img" aria-labelledby="title desc">
+  <title id="title">冬日站台色彩参考</title>
+  <desc id="desc">雪灰、雾蓝、松绿、炭黑与车窗暖金的场景色彩板。</desc>
+  <rect width="800" height="540" fill="#e6e5df"/>
+  <text x="48" y="67" fill="#303c3d" font-family="Arial,sans-serif" font-size="13" letter-spacing="4">WINTER PLATFORM</text>
+  <text x="48" y="108" fill="#263537" font-family="Arial,Microsoft YaHei,sans-serif" font-size="27">冬日站台 · 色彩与光线</text>
+  <rect x="48" y="148" width="432" height="236" rx="2" fill="#88949b"/>
+  <rect x="488" y="148" width="264" height="114" rx="2" fill="#354b47"/>
+  <rect x="488" y="270" width="264" height="114" rx="2" fill="#1f2a2b"/>
+  <rect x="48" y="392" width="348" height="76" rx="2" fill="#d5d7d3"/>
+  <rect x="404" y="392" width="348" height="76" rx="2" fill="#d3ae72"/>
+  <text x="48" y="506" fill="#485657" font-family="Arial,Microsoft YaHei,sans-serif" font-size="13">冷调环境 / 低饱和 / 车窗暖光</text>
+</svg>
