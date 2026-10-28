@@ -37,6 +37,7 @@ import {
     NODE_CAPABILITIES
 } from '../../nodes/registry.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
+import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
 import { createWorkflowRuntimeDisposer } from './workflow-runtime-disposal.js';
 import { applyProtocolVariantSnapshot } from '../../nodes/protocol-variant-drafts.js';
 import { saveGeneratedMediaToDirectory } from '../media/generated-media-directory-save.js';
@@ -266,12 +267,7 @@ export function serializeRuntimeNode(node, doc) {
         if (node.data?.imageHydratedAt) serialized.imageHydratedAt = node.data.imageHydratedAt;
     }
     if (node.type === 'ImageResize') {
-        serialized.resizeMode = readElementControlValue(doc, `${node.id}-resize-mode`, node.resizeMode || 'scale');
-        serialized.scalePercent = parseInt(readElementControlValue(doc, `${node.id}-scale-percent`, node.scalePercent || '100'), 10);
-        serialized.targetWidth = readElementControlValue(doc, `${node.id}-target-width`, node.targetWidth || '');
-        serialized.targetHeight = readElementControlValue(doc, `${node.id}-target-height`, node.targetHeight || '');
-        serialized.keepAspect = readElementControlValue(doc, `${node.id}-keep-aspect`, node.keepAspect !== false) !== false;
-        serialized.quality = parseInt(readElementControlValue(doc, `${node.id}-quality`, node.quality || '92'), 10);
+        Object.assign(serialized, readImageResizeSettings(node));
         serialized.originalWidth = node.originalWidth || 0;
         serialized.originalHeight = node.originalHeight || 0;
         serialized.outputWidth = node.outputWidth || 0;
@@ -567,6 +563,7 @@ export function createWorkflowRuntimeManager({
     dataURLtoBlob,
     blobToDataUrl,
     resizeImageData,
+    processColorResetImage,
     copyToClipboard,
     debounce,
     fitNodeToContent,
@@ -1347,6 +1344,20 @@ export function createWorkflowRuntimeManager({
             });
         };
         return {
+            restoreColorResetPreview: (nodeId, dataUrl, meta = {}) => {
+                const node = getRuntimeNode(nodeId);
+                if (!node) return;
+                node.colorResetPreviewData = dataUrl || null;
+                node.colorResetPreviewMeta = meta;
+                node.imageData = dataUrl || null;
+                node.data = node.data || {};
+                if (dataUrl) node.data.image = dataUrl;
+                const preview = doc.getElementById(`${nodeId}-color-preview`);
+                if (preview) renderReusableMultiImagePreview(preview, dataUrl || '', 0, dataUrl ? 1 : 0, {
+                    altPrefix: '调色结果', placeholderClass: 'preview-placeholder',
+                    emptyMessage: '等待上游图片', placeholderWithIcon: true
+                });
+            },
             restoreImageResizePreview: (nodeId, dataUrl, meta = {}) => {
                 const node = getRuntimeNode(nodeId);
                 if (!node) return;
@@ -1649,6 +1660,7 @@ export function createWorkflowRuntimeManager({
             deleteImageImportAsset,
             showResolutionBadge: async () => {},
             restoreImageResizePreview: runtimeMediaApi.restoreImageResizePreview,
+            restoreColorResetPreview: runtimeMediaApi.restoreColorResetPreview,
             renderImageImportUploadState: () => {},
             renderImagePreviewImage: runtimeMediaApi.renderImagePreviewImage,
             renderImageSavePreview: runtimeMediaApi.renderImageSavePreview,
@@ -1695,8 +1707,10 @@ export function createWorkflowRuntimeManager({
             dataURLtoBlob,
             blobToDataUrl,
             resizeImageData,
+            processColorResetImage,
             autoSaveToDir: runtimeAutoSaveToDir,
             restoreImageResizePreview: runtimeMediaApi.restoreImageResizePreview,
+            restoreColorResetPreview: runtimeMediaApi.restoreColorResetPreview,
             renderImagePreviewImage: runtimeMediaApi.renderImagePreviewImage,
             refreshDependentImageResizePreviews: async () => syncRuntimeWorkflowSnapshot(context, { dirty: true }),
             syncImagePreviewNode: runtimeMediaApi.syncImagePreviewNode,

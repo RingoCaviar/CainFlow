@@ -1,4 +1,6 @@
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
+import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
+import { readColorResetConfig } from '../media/color-reset-config.js';
 import { validateUniversalImageInputs } from '../../nodes/universal-input-policy.js';
 import { getResolvedProviderForModel } from './provider-request-utils.js';
 import { getNodeRunTimeoutSeconds } from './async-media-execution.js';
@@ -71,7 +73,8 @@ export function showNodeExecutionFailure(node, error) {
 }
 
 function isUnbatchedImageInput(node, portName) {
-    return isMultiConnectionInput(node?.type, portName) || (node?.type === 'ImageGenerate' && portName === 'mask');
+    return isMultiConnectionInput(node?.type, portName) || (node?.type === 'ImageGenerate' && portName === 'mask')
+        || (['ImageResize', 'ColorReset'].includes(node?.type) && portName === 'image');
 }
 
 export function shouldRunNodeForEachInput(node, inputs) {
@@ -546,6 +549,11 @@ export function createWorkflowRunnerApi({
     }
 
     function getPreservedNodeDataForReset(node) {
+        if (node?.type === 'ImageResize') return { ...(node.data || {}), ...readImageResizeSettings(node) };
+        if (node?.type === 'ColorReset') {
+            const { samplePoint, ...settings } = readColorResetConfig(node, documentRef);
+            return { ...(node.data || {}), ...settings, whiteBalanceSamplePoint: samplePoint };
+        }
         if (node?.type === 'ImageImport') {
             const data = node.data && typeof node.data === 'object' ? node.data : {};
             const preserved = {};

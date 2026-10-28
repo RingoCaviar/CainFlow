@@ -114,6 +114,7 @@ test('color reset config uses persisted values when controls are absent and lets
         ['color-1-temperature', { value: '140' }],
         ['color-1-saturation', { value: '6' }]
     ]);
+    node.el = { querySelector: selector => controls.get(selector.slice(1)) || null };
     const config = readColorResetConfig(node, { getElementById: (id) => controls.get(id) || null });
 
     assert.deepEqual(config, {
@@ -246,6 +247,7 @@ test('copying a mounted ColorReset node prefers its current controls', () => {
         ['mounted-color-reset-vibrance', { value: '12' }],
         ['mounted-color-reset-saturation', { value: '5' }]
     ]);
+    node.el = { querySelector: selector => controls.get(selector.slice(1)) || null };
     const api = createClipboardControllerApi({
         state: { nodes: new Map([[node.id, node]]) },
         documentRef: { getElementById: (id) => controls.get(id) || null, querySelectorAll: () => [] }
@@ -296,6 +298,7 @@ test('ColorReset preview commits the newest frame before asset persistence finis
         },
         querySelector() { return null; }
     };
+    node.el = { querySelector: selector => documentRef.getElementById(selector.slice(1)) };
     const windowRef = {
         requestAnimationFrame(callback) { callback(); return 1; },
         cancelAnimationFrame() {},

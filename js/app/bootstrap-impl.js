@@ -170,6 +170,10 @@ function resizeImageData(dataUrl, options = {}) {
     return mediaUtils.resizeImageData(dataUrl, options);
 }
 
+function processColorResetImage(dataUrl, options = {}) {
+    return mediaUtils.processColorResetImage(dataUrl, options);
+}
+
 function detectOutputFormat(dataUrl) {
     return mediaUtils.detectOutputFormat(dataUrl);
 }
@@ -581,6 +585,7 @@ const mediaControllerApi = createMediaControllerApi({
     deleteImageAsset,
     processImageResolution,
     resizeImageData,
+    processColorResetImage,
     detectOutputFormat,
     estimateDataUrlSize,
     getImageResolution,
@@ -653,6 +658,7 @@ const {
     refreshDependentImageResizePreviews,
     refreshAllImageResizePreviews,
     restoreImageResizePreview,
+    restoreColorResetPreview,
     setupImageSave,
     autoSaveToDir,
     setupImagePreview,
@@ -1538,6 +1544,7 @@ function getNodeLifecycleApi() {
             deleteImageImportAsset,
             showResolutionBadge,
             restoreImageResizePreview,
+            restoreColorResetPreview,
             renderImageImportUploadState: (nodeId, imageData) => mediaControllerApi.renderImageImportUploadState(nodeId, imageData),
             renderImagePreviewImage: (nodeId, images, emptyMessage) => mediaControllerApi.renderImagePreviewImage(nodeId, images, emptyMessage),
             renderImageSavePreview: (nodeId, images, emptyMessage) => mediaControllerApi.renderImageSavePreview(nodeId, images, emptyMessage),
@@ -1638,8 +1645,10 @@ function getExecutionCoreApi() {
             dataURLtoBlob,
             blobToDataUrl,
             resizeImageData,
+            processColorResetImage,
             autoSaveToDir,
             restoreImageResizePreview,
+            restoreColorResetPreview,
             renderImagePreviewImage: (nodeId, images, emptyMessage) => mediaControllerApi.renderImagePreviewImage(nodeId, images, emptyMessage),
             releaseNodeImageData: (nodeId, options) => mediaControllerApi.releaseNodeImageData(nodeId, options),
             refreshDependentImageResizePreviews,
@@ -1749,6 +1758,7 @@ function getWorkflowRuntimeManagerApi() {
             dataURLtoBlob,
             blobToDataUrl,
             resizeImageData,
+            processColorResetImage,
             copyToClipboard,
             debounce,
             fitNodeToContent,
@@ -1758,6 +1768,7 @@ function getWorkflowRuntimeManagerApi() {
             syncCameraControlNode: (nodeId, imageValue) => cameraControlNodeApi.syncCameraControlFromExecution(nodeId, imageValue),
             refreshDependentImageResizePreviews,
             restoreImageResizePreview,
+            restoreColorResetPreview,
             showResolutionBadge,
             visibleNodesLayer: nodesLayer,
             bindVisibleNodeInteractions: ({ id, type, el }) => nodeDomBindingsApi.bindNodeInteractions({ id, type, el }),

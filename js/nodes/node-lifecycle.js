@@ -34,6 +34,7 @@ export function createNodeLifecycleApi({
     deleteImageImportAsset = async () => false,
     showResolutionBadge,
     restoreImageResizePreview,
+    restoreColorResetPreview = () => {},
     renderImageImportUploadState = null,
     renderImagePreviewImage = null,
     renderImageSavePreview = null,
@@ -490,6 +491,16 @@ export function createNodeLifecycleApi({
             nodeData.imageData = null;
             nodeData.imageDataList = [];
             nodeData.resizePreviewData = null;
+            return true;
+        }
+
+        if (type === 'ColorReset') {
+            restoreColorResetPreview(nodeId, previewThumbnail, restoreData || {});
+            updateResolutionBadgeSoon(nodeId, previewThumbnail);
+            if (nodeData?.data) delete nodeData.data.image;
+            nodeData.imageData = null;
+            nodeData.imageDataList = [];
+            nodeData.colorResetPreviewData = null;
             return true;
         }
 
@@ -1176,7 +1187,9 @@ export function createNodeLifecycleApi({
         const restoredHeight = Number(effectiveRestoreData?.height);
         const hasRestoredHeight = Number.isFinite(restoredHeight) && restoredHeight > 0;
         const isRestoringCollapsed = effectiveRestoreData?.collapsed === true;
-        const initialHeightSource = isRestoringCollapsed && hasRestoredHeight
+        const preservesRestoredHeight = hasRestoredHeight && (isRestoringCollapsed
+            || isImageFirstCardNode(normalizedType) && restoredUserResized);
+        const initialHeightSource = preservesRestoredHeight
             ? restoredHeight
             : Math.max(hasRestoredHeight ? restoredHeight : 0, getDefaultNodeHeight(config));
         const clampedInitialHeight = clampNodeHeight(
@@ -1184,7 +1197,7 @@ export function createNodeLifecycleApi({
             config,
             { isRestore: hasRestoredHeight }
         );
-        const initialHeight = isRestoringCollapsed && hasRestoredHeight
+        const initialHeight = preservesRestoredHeight
             ? Math.max(clampedInitialHeight || 0, 1)
             : Math.max(clampedInitialHeight || 0, getDefaultNodeHeight(config));
         if (initialHeight) el.style.height = initialHeight + 'px';
@@ -1760,6 +1773,10 @@ export function createNodeLifecycleApi({
                         if (nodeData.data?.imagePreviewThumbnail !== data) {
                             nodeData.data.imagePreviewThumbnail = data;
                         }
+                        onConnectionsChanged();
+                    } else if (normalizedType === 'ColorReset') {
+                        restoreColorResetPreview(id, data, effectiveRestoreData || {});
+                        nodeData.data.imagePreviewThumbnail = data;
                         onConnectionsChanged();
                     } else if (normalizedType === 'ImageCompare') {
                         const restoredCompareA = nodeData.compareImageA || null;

@@ -435,6 +435,27 @@ html:root #canvas-container .node.image-first-media > .node-body {
 .node.image-first-media .preview-controls { position: relative; inset: auto; z-index: auto; flex: 0 0 auto; min-height: 28px; margin: 0; }
 .node.image-first-media .image-first-summary { flex: 0 0 auto; }
 .node.image-first-media .image-preview-input-status { flex: 0 0 auto; margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.node.image-first-processing .image-resize-preview-frame {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 100px;
+    height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    box-shadow: none;
+}
+.node.image-first-processing .image-resize-meta { flex: 0 0 auto; margin: 0; color: var(--text-secondary); overflow-wrap: anywhere; }
+.node.image-first-processing :is(.image-resize-preview, .color-reset-preview) { border-color: var(--node-control-border); border-radius: 7px; background: var(--node-control-surface); }
+.image-parameter-panel :is(.image-resize-panel, .color-reset-panel) { min-width: 0; padding: 0; }
+.image-parameter-panel .image-resize-mode-shell { margin: 0; }
+.image-parameter-panel :is(.image-resize-mode-group, .image-resize-dimensions-grid) { min-width: 0; }
+.image-parameter-panel .color-reset-section { border-color: var(--node-control-border); background: var(--node-control-surface); }
+.image-parameter-panel .color-reset-section-title { color: var(--text-primary); }
+.image-parameter-panel :is(.color-reset-flow, .color-reset-white-balance-status) { color: var(--text-secondary); }
+.image-parameter-panel :is(.color-reset-slider-header, .image-resize-slider-header) > label { color: var(--text-secondary); font-size: 12px; }
 .image-parameter-panel .image-import-mode-group { display: flex; gap: 5px; }
 .image-parameter-panel .image-import-mode-btn { flex: 1; min-height: 30px; padding: 4px 8px; border: 1px solid var(--node-control-border); border-radius: 6px; background: var(--node-control-surface); color: var(--text-secondary); font: inherit; cursor: pointer; }
 .image-parameter-panel .image-import-mode-btn.active { border-color: var(--accent-primary); color: var(--text-primary); }

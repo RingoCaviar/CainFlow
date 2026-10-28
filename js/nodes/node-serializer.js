@@ -10,6 +10,7 @@ import { applyProtocolVariantSnapshot } from './protocol-variant-drafts.js';
 import { readColorResetConfig } from '../features/media/color-reset-config.js';
 import { hasNodeCapability, NODE_CAPABILITIES } from './registry.js';
 import { readImageGenerationSettings } from './image-generation-settings.js';
+import { readImageResizeSettings } from './image-resize-settings.js';
 
 export function createNodeSerializer({ state, documentRef }) {
     function getOrderedNodes() {
@@ -155,12 +156,7 @@ export function createNodeSerializer({ state, documentRef }) {
             if (node.type === 'ImagePreview') serialized.previewZoom = Number(node.previewZoom) || 1;
 
             if (node.type === 'ImageResize') {
-                serialized.resizeMode = documentRef.getElementById(`${id}-resize-mode`)?.value || 'scale';
-                serialized.scalePercent = parseInt(documentRef.getElementById(`${id}-scale-percent`)?.value || '100', 10);
-                serialized.targetWidth = documentRef.getElementById(`${id}-target-width`)?.value || '';
-                serialized.targetHeight = documentRef.getElementById(`${id}-target-height`)?.value || '';
-                serialized.keepAspect = documentRef.getElementById(`${id}-keep-aspect`)?.checked !== false;
-                serialized.quality = parseInt(documentRef.getElementById(`${id}-quality`)?.value || '92', 10);
+                Object.assign(serialized, readImageResizeSettings(node));
                 serialized.originalWidth = node.originalWidth || node.resizePreviewMeta?.originalWidth || 0;
                 serialized.originalHeight = node.originalHeight || node.resizePreviewMeta?.originalHeight || 0;
                 serialized.outputWidth = node.outputWidth || node.resizePreviewMeta?.outputWidth || 0;
