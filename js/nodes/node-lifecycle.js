@@ -1385,6 +1385,10 @@ export function createNodeLifecycleApi({
             effectiveRestoreData?.images,
             isCanonicalImageNodeType(normalizedType) ? effectiveRestoreData?.imageData : null
         ]);
+        const hasSavedGeneratedPreviewIndex = normalizedType === 'ImageGenerate'
+            && effectiveRestoreData?.imagePreviewIndex !== undefined && effectiveRestoreData?.imagePreviewIndex !== null
+            && Number.isInteger(Number(effectiveRestoreData.imagePreviewIndex)) && Number(effectiveRestoreData.imagePreviewIndex) >= 0;
+        if (hasSavedGeneratedPreviewIndex) nodeData.imagePreviewIndex = Number(effectiveRestoreData.imagePreviewIndex);
         const restoredPreviewThumbnail = typeof effectiveRestoreData?.imagePreviewThumbnail === 'string'
             ? effectiveRestoreData.imagePreviewThumbnail.trim()
             : '';
@@ -1439,8 +1443,8 @@ export function createNodeLifecycleApi({
         }
         if (restoredImages.length > 0) {
             if (isCanonicalImageNodeType(normalizedType)) {
-                const restoredIndex = isDisplayImageNodeType(normalizedType)
-                    ? Math.max(0, Math.min((normalizedType === 'ImageMerge' ? Math.max(restoredImages.length, restoredMediaAssetKeys.length, Number(effectiveRestoreData?.imageCount) || 0) : restoredImages.length) - 1, parseInt(effectiveRestoreData?.imagePreviewIndex || '0', 10) || 0))
+                const restoredIndex = isDisplayImageNodeType(normalizedType) || hasSavedGeneratedPreviewIndex
+                    ? Math.max(0, Math.min((normalizedType === 'ImageMerge' || hasSavedGeneratedPreviewIndex ? Math.max(restoredImages.length, restoredMediaAssetKeys.length, Number(effectiveRestoreData?.imageCount) || 0) : restoredImages.length) - 1, parseInt(effectiveRestoreData?.imagePreviewIndex || '0', 10) || 0))
                     : restoredImages.length - 1;
                 setCanonicalImageOutput(nodeData, restoredImages, {
                     currentIndex: restoredIndex,
@@ -1450,6 +1454,7 @@ export function createNodeLifecycleApi({
                     hydratedAt: effectiveRestoreData?.imageHydratedAt || undefined
                 });
                 if (normalizedType === 'ImageMerge') nodeData.imagePreviewIndex = restoredIndex;
+                if (hasSavedGeneratedPreviewIndex) nodeData.imagePreviewIndex = restoredIndex;
             } else {
                 nodeData.data.images = restoredImages.slice();
                 nodeData.imageDataList = restoredImages.slice();
@@ -1458,6 +1463,11 @@ export function createNodeLifecycleApi({
             }
         } else if (isDisplayImageNodeType(normalizedType)) {
             nodeData.imagePreviewIndex = Math.max(0, parseInt(effectiveRestoreData?.imagePreviewIndex || '0', 10) || 0);
+            if (normalizedType === 'ImageMerge' && restoredMediaAssetKeys.length) {
+                // The viewport sweep restores only the current preview slot;
+                // complete output reads still use the durable batch references.
+                nodeData.data.imageMemoryReleased = true;
+            }
         } else if (restoredPreviewThumbnail && definitionHasCapability(nodeConfigs[normalizedType], NODE_CAPABILITIES.PREVIEW_THUMBNAIL_RESTORE)) {
             renderRecoverableNodePreviewThumbnail(normalizedType, id, nodeData, restoredPreviewThumbnail, effectiveRestoreData);
         }
@@ -1688,9 +1698,9 @@ export function createNodeLifecycleApi({
                 if (sourceImages.length > 0) {
                     if (isCanonicalImageNodeType(normalizedType)) {
                         const assetKey = restoredMediaAssetKeys[0] || canonicalImageAssetKey || id;
-                        const currentIndex = isDisplayImageNodeType(normalizedType)
+                        const currentIndex = isDisplayImageNodeType(normalizedType) || hasSavedGeneratedPreviewIndex
                             ? Math.max(0, Math.min(
-                                (normalizedType === 'ImageMerge' ? Math.max(sourceImages.length, restoredMediaAssetKeys.length, canonicalImageCount) : sourceImages.length) - 1,
+                                (normalizedType === 'ImageMerge' || hasSavedGeneratedPreviewIndex ? Math.max(sourceImages.length, restoredMediaAssetKeys.length, canonicalImageCount) : sourceImages.length) - 1,
                                 Number.isFinite(nodeData.imagePreviewIndex) ? nodeData.imagePreviewIndex : 0
                             ))
                             : sourceImages.length - 1;
@@ -1702,6 +1712,7 @@ export function createNodeLifecycleApi({
                             hydratedAt: storedImages.length > 0 ? Date.now() : (effectiveRestoreData?.imageHydratedAt || undefined)
                         });
                         if (normalizedType === 'ImageMerge') nodeData.imagePreviewIndex = currentIndex;
+                        if (hasSavedGeneratedPreviewIndex) nodeData.imagePreviewIndex = currentIndex;
                     } else {
                         nodeData.data.images = sourceImages.slice();
                         nodeData.imageDataList = sourceImages.slice();
