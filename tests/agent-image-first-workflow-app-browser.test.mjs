@@ -296,6 +296,7 @@ test('optimization previews and changes the real Text prompt source while derive
             const results = await app.evaluate("document.querySelectorAll('.prompt-agent-result-image').length");
             assert.ok(results > 0);
             await planAction(app, '撤销本次画布操作');
+            await app.waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent==='已按撤销栈处理；历史图片仍保留'");
             await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='prompt-source')?.text==='original effective upstream text')");
             assert.deepEqual((await saved(app)).connections, before.connections);
             assert.equal(await app.evaluate("document.querySelectorAll('.prompt-agent-result-image').length"), results, 'Agent media survives undo of its graph application');

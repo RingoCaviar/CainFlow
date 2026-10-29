@@ -177,3 +177,13 @@ Standards审查补足已提交但响应丢失、并发一次成功一次失败�
 CLI显式退出统一既有desktop及stdlib ThreadingHTTPServer的daemon handler策略，避免空闲keepalive使server_close等待300秒。该入口退出不再等待活动handler；既有桌面策略、存储事务和恢复规则不变。空闲连接关停先红后绿；HTTP与backend定向Node6项、Python75项通过。
 
 用户已选择先完成代码与无界面验证、稍后原生再测。前台校验未满足的原生尝试均作废，没有计入通过。本轮最终完整门禁尚待冻结后的单次执行；#019及A36继续保持未完成，父规格原文与状态不变。
+
+## 冻结源码无GPU最终对照
+
+正式产品源码8c5ce30与旧基线48f9e7f以同一隔离公开服务工厂、隐藏Chrome及viewport进行原200/400、原样10秒完整预热与10秒采样，采样中不轮询/截图/额外RAF。旧基线40.2FPS/p95 50.00ms、11个>50ms帧；当前58.8FPS/p95 16.80ms、0个>50ms帧。前后节点/连接计数均200/400，记录UA、viewport、DPR和源码HEAD，原始结果位于verification/performance/headless-final-source-20261029-01。该同环境无GPU结果仍不替代原生GPU合同。
+
+## Agent撤销验收的真实完成点
+
+首次8c5ce30完整TAP捕获Agent撤销后过早重做：session内容已还原，但异步undo-session媒体释放还在进行，正确的historyTransition互斥合并了早到请求。原样隔离确定红，公开HTTP释放屏障确认生命周期；仅移动焦点仍红，排除焦点与toast漏报。现只在原撤销按钮之后等公开Agent完成状态，再执行原断言及Ctrl+Y；未改产品互斥、timeout、焦点、重试或休眠。所有图/连接/草稿/Agent原图/执行次数与保存重开断言保留，实际完整6项通过，增量Standards与Spec均认可。
+
+发现这一已确证等待点后，协调者终止了旧的已失败完整运行，并留下cancelled marker；该轮未计完整通过。最终将从头执行修正后的完整无界面门禁，原生验收仍按用户选择暂缓。
