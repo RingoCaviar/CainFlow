@@ -839,7 +839,7 @@ export function createMediaControllerApi({
             if (image.parentNode !== container) container.append(image);
             if (video.parentNode !== container) container.append(video);
         }
-        let tools = container.querySelector('.image-save-preview-tools');
+        let tools = container.querySelector('.image-save-preview-tools') || node?.parameterRoot?.querySelector('.image-save-preview-tools');
         if (!tools) {
             tools = documentRef.createElement('div'); tools.className = 'image-save-preview-tools';
             for (const mode of ['image', 'video']) {
@@ -863,7 +863,7 @@ export function createMediaControllerApi({
             });
             tools.addEventListener('mousedown', event => event.stopPropagation());
             tools.addEventListener('click', event => event.stopPropagation());
-            tools.append(select); container.append(tools);
+            tools.append(select); (node?.parameterRoot || container).append(tools);
         }
         return { container, image, video, tools };
     }

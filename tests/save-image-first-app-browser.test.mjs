@@ -210,9 +210,10 @@ test('a save retains playable video and the whole image batch, writes real files
         await openSettings(app); await closeSettings(app);
         assert.equal(await app.evaluate("savedNativeVideo===document.querySelector('#save-save-preview .image-save-video-pane video') && savedNativeVideo.controls"), true);
         assert.ok(Math.abs(await app.evaluate('savedNativeVideo.currentTime') - currentTime) < 0.1, 'unrelated settings and selection preserve playback position');
-        await app.evaluate("document.querySelector('#save-save-preview [data-save-preview-mode=image]').click()");
+        await openSettings(app);
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-save-preview-mode=image]').click()");
         await app.waitFor("document.querySelector('#save-save-preview .image-save-image-pane .image-save-preview-counter')?.textContent.endsWith('/3')");
-        await app.evaluate("document.querySelector('#save-save-preview [data-save-preview-mode=video]').click();const select=document.querySelector('#save-save-preview [data-save-video-index]');select.value='0';select.dispatchEvent(new Event('change',{bubbles:true}))");
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-save-preview-mode=video]').click();const select=document.querySelector('#image-parameter-panel [data-save-video-index]');select.value='0';select.dispatchEvent(new Event('change',{bubbles:true}))");
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>{const node=document.value?.nodes.find(node=>node.id==='save');return node?.videoPreviewIndex===0&&node?.savePreviewMode==='video'})");
         assert.equal(await app.evaluate("savedNativeVideo===document.querySelector('#save-save-preview .image-save-video-pane video')"), true);
         assert.ok(Math.abs(await app.evaluate('savedNativeVideo.currentTime') - currentTime) < 0.1);

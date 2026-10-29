@@ -131,7 +131,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         panel.style.width = `${width}px`;
         panel.style.height = '';
         panel.style.left = `${rect.left + rect.width / 2 - width / 2}px`;
-        const floatingBottoms = ['.image-first-run-feedback', '.image-result-actions']
+        const floatingBottoms = ['.image-result-actions']
             .map(selector => current.el.querySelector(selector)).filter(element => element?.getClientRects().length)
             .map(element => element.getBoundingClientRect().bottom + 12);
         panel.style.top = `${Math.max(rect.bottom + 12, ...floatingBottoms)}px`;
@@ -274,7 +274,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 'B 为必需输入；A 可选，移动指针调整分界。', '按图片输入的数字顺序合并每个来源的完整批次。',
                 '修改文件名后，使用卡片上的保存按钮保存媒体。', '在独立编辑器调整相机；参数即时保存，输出为相机提示词。',
                 '修改即时预览；点击按钮执行当前节点。'];
-            const hasFeedback = !!feedback.textContent && !passiveFeedback.includes(feedback.textContent);
+            const hasFeedback = node.type !== 'ImageGenerate' && !!feedback.textContent && !passiveFeedback.includes(feedback.textContent);
             feedback.hidden = !hasFeedback;
             panel.dataset.hasFeedback = String(hasFeedback);
             footer.hidden = node.type === 'ImageImport';
@@ -435,7 +435,12 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             const suffix = { ImageCompare: 'compare', ImageMerge: 'merge-preview', ImageSave: 'save-preview', CameraControl: 'camera-preview' }[node.type] || 'preview';
             observed.push(body.querySelector(`[id="${node.id}-${suffix}"]`));
         }
-        body.append(summary);
+        if (node.type === 'ImageImport' || node.type === 'ImageSave') form.append(summary);
+        else body.append(summary);
+        if (node.type === 'ImageSave') {
+            const tools = body.querySelector('.image-save-preview-tools');
+            if (tools) form.append(tools);
+        }
         registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, model, references, inputs, urlFields, cameraOpen, cameraValues, cameraPrompt,
             group: node.type !== 'ImageImport' ? 'input' : null }, observed);
     }
@@ -532,11 +537,11 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const runState = body.querySelector('.image-node-run-actions');
         const progress = body.querySelector('.node-generation-progress-field');
         if (runState && progress) runState.append(progress);
-        const runFeedback = documentRef.createElement('div'); runFeedback.className = 'image-first-run-feedback';
+        const runFeedback = documentRef.createElement('div'); runFeedback.className = 'image-parameter-run-feedback';
         runFeedback.setAttribute('aria-label', '本轮生成状态');
         if (runState) runFeedback.append(runState);
         const dirty = documentRef.createElement('span'); dirty.dataset.imageGenerationDirty = '';
-        dirty.textContent = '设置待生成'; dirty.hidden = true; runFeedback.append(dirty);
+        dirty.textContent = '设置待生成'; dirty.hidden = true; summary.append(dirty);
         const failureSummary = node.el.querySelector('.node-failure-summary');
         if (failureSummary) runFeedback.append(failureSummary);
         const failureDetails = documentRef.createElement('button'); failureDetails.type = 'button';
@@ -544,11 +549,11 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         failureDetails.addEventListener('click', event => { event.stopPropagation(); failureSummary?.click(); });
         runFeedback.append(failureDetails);
         const cancel = node.el.querySelector('.node-run-cancel-btn');
-        if (cancel) runFeedback.append(cancel);
+        if (cancel) node.el.append(cancel);
         const fullError = body.querySelector(`[id="${nodeId}-error"]`);
         if (fullError) { fullError.tabIndex = 0; fullError.setAttribute('aria-label', '完整运行错误'); form.append(fullError); }
         body.append(placeholder, result, summary);
-        node.el.append(runFeedback);
+        form.append(runFeedback);
         registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, model, references, result, inputs, countField, groupButtons, group: null }, [result, progress]);
     }
     updateMode(); updateSwitcher();
