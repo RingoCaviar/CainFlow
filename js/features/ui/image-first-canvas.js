@@ -24,7 +24,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     panel.setAttribute('aria-label', '节点参数浮层');
     panel.hidden = true;
     panel.innerHTML = `<header class="image-parameter-header"><span class="image-parameter-drag-handle" tabindex="0" role="button" aria-label="拖动节点参数浮层" hidden>⠿</span><div class="image-parameter-tools"><button type="button" data-parameter-action="expand" aria-label="放大节点参数浮层" aria-pressed="false">⤢</button><button type="button" data-parameter-action="close" aria-label="关闭节点参数浮层">×</button></div></header>
-        <div class="image-parameter-scroll"></div><footer class="image-parameter-footer"><span class="image-parameter-feedback"></span><button type="button" class="save-btn" data-parameter-action="generate">生成</button></footer>
+        <div class="image-parameter-scroll"></div><footer class="image-parameter-footer"><span class="image-parameter-feedback"></span><span class="image-parameter-count-slot" hidden></span><button type="button" class="save-btn" data-parameter-action="generate">生成</button></footer>
         <span class="image-parameter-resize" data-parameter-resize="width" tabindex="0" role="separator" aria-orientation="vertical" aria-label="调整节点参数浮层宽度"></span>
         <span class="image-parameter-resize-height" data-parameter-resize="height" tabindex="0" role="separator" aria-orientation="horizontal" aria-label="调整节点参数浮层高度" hidden></span>
         <span class="image-parameter-resize-corner" data-parameter-resize="both" tabindex="0" role="button" aria-label="调整节点参数浮层大小" hidden></span>`;
@@ -37,7 +37,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     documentRef.body.append(store, panel, switcher);
     const scroll = panel.querySelector('.image-parameter-scroll');
     const feedback = panel.querySelector('.image-parameter-feedback');
+    const footer = panel.querySelector('.image-parameter-footer');
+    const countSlot = panel.querySelector('.image-parameter-count-slot');
     const generate = panel.querySelector('[data-parameter-action="generate"]');
+    const promptSizing = new WeakMap();
     const storedWidth = Number(storage?.getItem('cainflow_node_parameter_width'));
     let current = null, closed = null, preferredWidth = storedWidth >= 280 && storedWidth <= 960 ? storedWidth : 480;
     let positionFrame = null, gesture = null, expanded = false, expandedRect = null, returnFocusElement = null;
@@ -80,6 +83,30 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         else { node.el.setAttribute('tabindex', '-1'); returnFocusElement = node.el; }
     }
 
+    function sizePrompt() {
+        const prompt = current?.parameterRoot?.querySelector('.image-generate-prompt');
+        if (!prompt?.getClientRects().length) return;
+        let sizing = promptSizing.get(prompt);
+        if (!sizing) {
+            sizing = { manual: !!prompt.style.height, autoHeight: '', key: '' };
+            promptSizing.set(prompt, sizing);
+        }
+        if (sizing.autoHeight && prompt.style.height !== sizing.autoHeight) sizing.manual = true;
+        if (sizing.manual) return;
+        const key = `${panel.style.width}\n${prompt.value}`;
+        if (sizing.key === key) return;
+        sizing.key = key;
+        const style = windowRef.getComputedStyle(prompt);
+        const line = Number.parseFloat(style.lineHeight) || 21;
+        const padding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+        const border = Number.parseFloat(style.borderTopWidth) + Number.parseFloat(style.borderBottomWidth);
+        prompt.style.height = 'auto';
+        const height = Math.min(line * 6 + padding + border,
+            Math.max(line * 3 + padding + border, prompt.scrollHeight + border));
+        sizing.autoHeight = `${Math.ceil(height)}px`;
+        prompt.style.height = sizing.autoHeight;
+    }
+
     function position() {
         if (panel.hidden || !current?.el?.isConnected) return;
         const rect = current.el.getBoundingClientRect();
@@ -97,6 +124,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             panel.style.top = `${clamp(expandedRect.top, bounds.top, Math.max(bounds.top, windowRef.innerHeight - height - 12))}px`;
             heightHandle.setAttribute('aria-valuenow', String(Math.round(height)));
             widthHandle.setAttribute('aria-valuenow', String(Math.round(width)));
+            sizePrompt();
             return;
         }
         const width = Math.min(preferredWidth, bounds.width);
@@ -106,15 +134,21 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const floatingBottoms = ['.image-first-run-feedback', '.image-result-actions']
             .map(selector => current.el.querySelector(selector)).filter(element => element?.getClientRects().length)
             .map(element => element.getBoundingClientRect().bottom + 12);
-        panel.style.top = `${Math.max(rect.bottom + 50, ...floatingBottoms)}px`;
+        panel.style.top = `${Math.max(rect.bottom + 12, ...floatingBottoms)}px`;
         widthHandle.setAttribute('aria-valuenow', String(Math.round(width)));
+        sizePrompt();
     }
     function schedulePosition() {
         if (positionFrame !== null || panel.hidden) return;
         positionFrame = windowRef.requestAnimationFrame(() => { positionFrame = null; position(); });
     }
     function park() {
-        if (current?.parameterRoot) store.append(current.parameterRoot);
+        if (current?.parameterRoot) {
+            const countField = views.get(current)?.countField;
+            if (countField) { current.parameterRoot.append(countField); countField.hidden = true; }
+            panel.append(footer);
+            store.append(current.parameterRoot);
+        }
         current = null;
     }
     function close({ remember = true } = {}) {
@@ -169,6 +203,14 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             setText(view.model, `当前设置：${model?.name || model?.modelId || '未选择模型'} · ${settings.aspect || '自动'} · ${settings.resolution || '自动'}`);
             const { count } = projectImageReferences({ state, targetId: node.id });
             setText(view.references, `参考 ${count} 张`);
+            for (const [group, button] of view.groupButtons || []) {
+                const text = group === 'model' ? (model?.name || model?.modelId || '选择模型')
+                    : group === 'size' ? `${settings.aspect || '自动'} · ${settings.resolution || '自动'}`
+                        : group === 'reference' ? `参考 ${count}`
+                            : group === 'input' ? `输入 ${state.connections.filter(edge => edge.to.nodeId === node.id).length}` : '更多参数';
+                setText(button, text);
+                if (button.title !== text) button.title = text;
+            }
             view.placeholder.hidden = !view.result.hidden;
             renderImageNodeRunState(node);
         } else if (node.type === 'ImageImport') {
@@ -228,6 +270,14 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                     : node.type === 'CameraControl' ? '在独立编辑器调整相机；参数即时保存，输出为相机提示词。'
                     : node.type === 'ImageResize' || node.type === 'ColorReset' ? '修改即时预览；点击按钮执行当前节点。'
                     : documentRef.getElementById(`${node.id}-run-status`)?.textContent || '修改不会自动生成');
+            const passiveFeedback = ['修改不会自动生成', '待运行', '已完成', '预览当前连接的图片',
+                'B 为必需输入；A 可选，移动指针调整分界。', '按图片输入的数字顺序合并每个来源的完整批次。',
+                '修改文件名后，使用卡片上的保存按钮保存媒体。', '在独立编辑器调整相机；参数即时保存，输出为相机提示词。',
+                '修改即时预览；点击按钮执行当前节点。'];
+            const hasFeedback = !!feedback.textContent && !passiveFeedback.includes(feedback.textContent);
+            feedback.hidden = !hasFeedback;
+            panel.dataset.hasFeedback = String(hasFeedback);
+            footer.hidden = node.type === 'ImageImport';
             schedulePosition();
         }
     }
@@ -238,6 +288,14 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         panelManager?.beforeOpen?.('parameters');
         current = node; closed = null;
         if (node.parameterRoot.parentNode !== scroll) scroll.append(node.parameterRoot);
+        if (footer.parentNode !== node.parameterRoot) node.parameterRoot.append(footer);
+        const view = views.get(node);
+        countSlot.hidden = !view.countField;
+        if (view.countField) {
+            if (view.countField.parentNode !== countSlot) countSlot.append(view.countField);
+            view.countField.hidden = false;
+        }
+        panel.dataset.nodeType = node.type;
         panel.hidden = false;
         panel.setAttribute('aria-hidden', 'false'); panel.inert = false;
         panel.dataset.nodeId = node.id;
@@ -281,6 +339,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     }
     function registerView(node, view, observed) {
         const { form } = view;
+        form.dataset.nodeType = node.type;
         node.parameterRoot = form;
         node.el.classList.add('image-first-card');
         node.el.dataset.imageFirst = 'true';
@@ -310,6 +369,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         form.addEventListener('mousedown', event => event.stopPropagation());
         form.addEventListener('input', () => { refreshNode(node.id); onSettingsChanged(node.id); });
         form.addEventListener('change', () => { refreshNode(node.id); onSettingsChanged(node.id); });
+        form.addEventListener('toggle', () => { if (current === node) schedulePosition(); }, true);
+        form.addEventListener('pointerup', () => { if (current === node) schedulePosition(); });
         node.el.addEventListener('click', event => {
             if (event.target.closest('.color-reset-preview.is-picking,.image-compare-divider')) return;
             if (!event.target.closest('button,input,textarea,select,video,.node-port,.node-select')) select(node);
@@ -361,7 +422,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 }
                 cameraPrompt = documentRef.createElement('output'); cameraPrompt.className = 'image-camera-prompt-summary';
                 cameraPrompt.setAttribute('aria-label', '相机提示词（只读）'); cameraPrompt.tabIndex = 0;
-                form.append(details, cameraPrompt);
+                const promptDisclosure = documentRef.createElement('details'); promptDisclosure.className = 'image-camera-prompt-details';
+                const promptSummary = documentRef.createElement('summary'); promptSummary.textContent = '相机提示词（只读）';
+                promptDisclosure.append(promptSummary, cameraPrompt);
+                form.append(details, promptDisclosure);
             }
             installUniversalInput(node);
             inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, swapInputConnections, moveMergeInputConnection, onChange: () => refreshNode(node.id) });
@@ -438,14 +502,21 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const grids = Array.from(form.querySelectorAll(':scope > .node-parameter-grid'));
         group(grids[0], 'model');
         const countField = form.querySelector(`[id="${nodeId}-generation-count"]`)?.closest('.node-field');
-        if (countField) { form.append(countField); group(countField, 'count'); }
+        if (countField) {
+            form.append(countField); countField.hidden = true;
+            countField.classList.add('image-parameter-count-control');
+            const label = countField.querySelector('label');
+            if (label) label.textContent = '次数';
+        }
         group(grids[1], 'size');
         group(form.querySelector('.node-advanced-parameters'), 'advanced');
         const bar = documentRef.createElement('div'); bar.className = 'image-parameter-setting-bar';
-        for (const [name, label] of [['input','输入'],['reference','参考图'],['model','模型 / 供应商'],['size','尺寸 / 质量'],['count','次数'],['advanced','更多参数']]) {
+        const groupButtons = new Map();
+        for (const [name, label] of [['input','输入'],['reference','参考图'],['model','模型 / 供应商'],['size','尺寸 / 质量'],['advanced','更多参数']]) {
             const button = documentRef.createElement('button'); button.type = 'button'; button.textContent = label;
             button.dataset.parameterGroupToggle = name; button.setAttribute('aria-expanded', 'false');
             button.addEventListener('click', () => setGroup(node, name)); bar.append(button);
+            groupButtons.set(name, button);
         }
         const promptField = form.querySelector('.image-node-prompt-field');
         if (promptField) promptField.after(bar); else form.prepend(bar);
@@ -478,7 +549,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (fullError) { fullError.tabIndex = 0; fullError.setAttribute('aria-label', '完整运行错误'); form.append(fullError); }
         body.append(placeholder, result, summary);
         node.el.append(runFeedback);
-        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, model, references, result, inputs, group: null }, [result, progress]);
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, model, references, result, inputs, countField, groupButtons, group: null }, [result, progress]);
     }
     updateMode(); updateSwitcher();
     surfaces?.registerModeless?.(panel, { close: () => close(), isOpen: () => !panel.hidden, opener: () => returnFocusElement });

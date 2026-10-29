@@ -108,6 +108,7 @@ export function createNodeDomBindingsApi({
     const NODE_RESIZABLE_MEDIA_SELECTOR = '.file-drop-zone, .preview-container, .save-preview-container, .image-compare-container';
     const ZOOM_SETTLE_GUARD_MS = 220;
     const pendingConnectedInputLayoutFrames = new Map();
+    const imagePromptSourceLayouts = new WeakMap();
     const referenceOverview = createImageReferenceOverview({ state, documentRef, getCachedOutputValue,
         createThumbnail: createReferenceThumbnail, readSourceImages: readReferenceSourceImages,
         readAsset: readResultAsset,
@@ -300,12 +301,53 @@ export function createNodeDomBindingsApi({
         ));
     }
 
+    function syncImageLocalDraft(field, input, sourceView, active) {
+        let layout = imagePromptSourceLayouts.get(field);
+        if (!layout) {
+            layout = { active: false, draft: null };
+            imagePromptSourceLayouts.set(field, layout);
+        }
+        let changed = false;
+        if (sourceView) {
+            sourceView.classList.toggle('is-active', active);
+            // Only the first effective value opens the upstream preview. A
+            // manual collapse survives subsequent updates from that source.
+            const preview = sourceView.querySelector('details');
+            if (active && !layout.active && preview) preview.open = true;
+        }
+        if (active && input?.parentNode === field) {
+            if (!layout.draft) {
+                layout.draft = documentRef.createElement('details');
+                layout.draft.className = 'image-local-prompt-draft';
+                const summary = documentRef.createElement('summary');
+                summary.className = 'image-local-prompt-draft-summary';
+                summary.textContent = '本地草稿 · 未参与';
+                layout.draft.append(summary);
+            }
+            const actions = field.querySelector(':scope > .image-prompt-actions');
+            field.insertBefore(layout.draft, input);
+            // Keep the original controls and listeners, never copy upstream
+            // text into the independent local draft or wrap its source view.
+            layout.draft.append(input);
+            if (actions) layout.draft.append(actions);
+            changed = true;
+        } else if (!active && layout.draft?.parentNode === field) {
+            for (const control of Array.from(layout.draft.children).slice(1)) {
+                field.insertBefore(control, layout.draft);
+            }
+            layout.draft.remove();
+            changed = true;
+        }
+        layout.active = active;
+        return changed;
+    }
+
     function syncImagePromptSource(nodeId) {
         const node = state.nodes.get(nodeId);
         const field = node?.el ? queryNodeControl(node.el, `#${nodeId}-prompt-field`) : null;
         if (!field) return false;
-        const input = documentRef.getElementById(`${nodeId}-prompt`);
-        const sourceView = documentRef.getElementById(`${nodeId}-prompt-source`);
+        const input = field.querySelector('textarea.image-generate-prompt');
+        const sourceView = field.querySelector('.image-prompt-source');
         const connection = state.connections.filter(c => c.to.nodeId === nodeId && c.to.port === 'prompt').at(-1);
         const source = state.nodes.get(connection?.from.nodeId);
         const text = source ? getPrimaryTextInput(getCachedOutputValue(source, connection.from.port)) : '';
@@ -323,7 +365,8 @@ export function createNodeDomBindingsApi({
             sourceView.querySelector('.image-prompt-source-label').textContent = label;
             sourceView.querySelector('.image-prompt-source-preview').textContent = text || '来源尚无已有输出；此预览不是后续执行的最终请求快照。';
         }
-        return previous !== (sourceView?.textContent || '');
+        const layoutChanged = syncImageLocalDraft(field, input, sourceView, active);
+        return layoutChanged || previous !== (sourceView?.textContent || '');
     }
 
     function syncDependentPromptSources(sourceNodeId) {

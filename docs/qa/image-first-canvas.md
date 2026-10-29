@@ -232,3 +232,13 @@ CLI显式退出统一既有desktop及stdlib ThreadingHTTPServer的daemon handler
 原始证据保留在本地tracker的verification/performance：native-current-final-a8b9b1c-20261029-01.txt、同名.json和.log；该同名目录中的interaction-prelude.json、prelude-preflight.json、prelude-postflight.json及measurement-postflight.json；显示器记录native-final-display-20261029.json。数值按已有正式面板精度记录，未补造未采集的逐帧原始数据或新旧原生提升倍率。后续两个基线准备尝试均未采样，已停止并标记not-sampled，不计验收证据。
 
 用户明确要求采用首轮结果完成记录并关闭#019；独立Spec只读复核确认该结果满足原通过线。A01–A36现有证据汇总完整，#019剩余两条验收已勾选并关闭，任务图同步为#006–#019全部closed。100Hz目标差距如实保留；父#005不修改、不关闭。本次只更新记录及任务状态，没有产品代码变更、电脑控制或重复测试。
+
+## 节点参数浮层紧凑UI轻量验证（image-first-canvas#021，2026-10-29）
+
+按用户确认的紧凑方案直接调整九类图片节点的正式UI：普通角落工具不占独立行，字段同行排列；生图模型与尺寸显示当前值，次数使用原控件并留在原参数表单内、靠近生成。提示词自动约3至6行并尊重手调，有效上游优先、本地原草稿折叠保留；来源替换与断开收进常显“更多”，保留原回调、用途与顺序、权限及撤销语义。未改执行或连接解析模块。
+
+按用户要求仅作简单检查，没有控制桌面、执行全量回归或重新采样原生性能。`image-first-canvas-app-browser.test.mjs`与新增`image-parameter-compact-app-browser.test.mjs`合计3/3通过（9.50秒）：覆盖浮层切换和保存重开、九类表单打开与横向边界、原次数控件、本地草稿和有效上游切换、断开提示词不影响参考图、自动/手调高度，以及放大后主操作可达。手调高度用DOM样式变化验证，不冒充原生拖动测试。
+
+原通用输入测试移除已取消的“次数”详情入口点击，直接使用现已常显的原控件，原连接身份/顺序及保存重开断言保持；只执行对应1项用例，1/1通过（6.46秒）。相关JavaScript语法和`git diff --check`通过。日志为本地verification/021-simple-ui-final.log和021-count-control-compat.log。
+
+独立Standards与Spec静态审查无阻塞问题。Standards留有一项非阻塞维护建议：两处“更多”开关协调存在重复，可在以后扩展时统一，本次不扩大重构。以上为本轮轻量验证范围；前文全量与GPU结果属于之前#019的冻结版本，不作为本次紧凑UI的新性能测量。

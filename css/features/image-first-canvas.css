@@ -25,7 +25,7 @@
     width: 480px;
     min-width: min(280px, calc(100vw - 24px));
     max-width: calc(100vw - 24px);
-    min-height: min(160px, calc(100vh - 24px));
+    min-height: 0;
     max-height: 60vh;
     overflow: hidden;
     border: 1px solid var(--border-color);
@@ -57,13 +57,23 @@
 .image-panel-switcher button:disabled { opacity: .5; cursor: default; }
 
 .image-parameter-header {
+    position: absolute;
+    top: 7px;
+    right: 8px;
+    z-index: 2;
     display: flex;
-    flex: 0 0 auto;
     align-items: center;
     justify-content: flex-end;
-    min-height: 28px;
-    padding: 2px 9px;
-    gap: 5px;
+    gap: 4px;
+    pointer-events: none;
+}
+.image-parameter-header > * { pointer-events: auto; }
+.image-parameter-panel.is-expanded .image-parameter-header {
+    position: relative;
+    inset: auto;
+    flex: 0 0 auto;
+    min-height: 30px;
+    padding: 2px 8px;
 }
 
 .image-parameter-tools { display: flex; align-items: center; gap: 3px; margin-left: auto; }
@@ -101,7 +111,7 @@
     flex: 1 1 auto;
     min-height: 0;
     min-width: 0;
-    padding: 0 13px 12px;
+    padding: 8px 10px;
     overflow: auto;
     overscroll-behavior: contain;
     scrollbar-width: thin;
@@ -118,7 +128,7 @@
     min-width: 0;
     height: auto;
     padding: 0;
-    gap: 10px;
+    gap: 7px;
     background: transparent;
     overflow: visible;
     transform: none;
@@ -158,15 +168,15 @@
 
 .image-parameter-panel .node-field :is(input, textarea)::placeholder { color: var(--text-dim); }
 .image-parameter-panel :is(button, input, select, textarea):disabled { cursor: default; }
-.image-parameter-panel .node-field textarea { min-height: 80px; overflow-y: auto; resize: vertical; }
+.image-parameter-panel .node-field textarea { min-height: 64px; overflow-y: auto; resize: vertical; }
 
 .image-parameter-panel .image-node-prompt-field { position: relative; gap: 0; }
 .image-parameter-panel .image-node-prompt-field > label { display: none; }
 
-.image-parameter-panel .image-node-prompt-field > textarea {
+.image-parameter-panel .image-node-prompt-field textarea {
     width: 100%;
-    min-height: 108px;
-    padding: 10px 11px 42px;
+    min-height: 0;
+    padding: 7px 9px 34px;
     border-radius: 8px;
     font-size: 13px;
     line-height: 1.65;
@@ -174,8 +184,8 @@
 
 .image-parameter-panel .image-prompt-actions {
     position: absolute;
-    right: 8px;
-    bottom: 8px;
+    right: 5px;
+    bottom: 4px;
     display: flex;
     justify-content: flex-end;
     margin: 0;
@@ -197,8 +207,8 @@
     color: var(--text-primary);
 }
 
-.image-parameter-panel .image-prompt-source { margin-bottom: 8px; }
-.image-parameter-panel .image-prompt-source-preview { max-height: 140px; }
+.image-parameter-panel .image-prompt-source { margin-bottom: 0; padding: 6px 8px; }
+.image-parameter-panel .image-prompt-source-preview { max-height: 140px; margin: 4px 0 0; }
 .image-parameter-panel .node-parameter-grid { align-items: start; }
 .image-parameter-panel .node-advanced-parameters { flex: 0 0 auto; }
 
@@ -206,21 +216,34 @@
     display: flex;
     flex: 0 0 auto;
     align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    min-height: 50px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 0;
     box-sizing: border-box;
-    padding: 9px 13px;
+    padding: 6px 10px 8px;
     border-top: 1px solid var(--border-color);
     background: var(--surface-panel-strong, var(--panel-bg));
     color: var(--text-secondary);
     font-size: 12px;
 }
 
-.image-parameter-footer > :first-child { min-width: 0; overflow-wrap: anywhere; }
+.image-parameter-footer > :first-child { flex: 1 1 120px; min-width: 0; overflow-wrap: anywhere; }
+.image-parameter-panel[data-has-feedback="false"] .image-parameter-feedback { display: none; }
+.image-parameter-footer[hidden] { display: none; }
 .image-parameter-footer button { flex: 0 0 auto; min-height: 32px; font-size: 13px; }
-.image-parameter-footer .save-btn { width: auto; min-width: 80px; margin: 0; }
+.image-parameter-footer .save-btn { width: auto; min-width: 72px; margin: 0; }
 .image-parameter-footer .image-node-run-actions { margin: 0; }
+.image-first-parameter-content > .image-parameter-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    padding: 6px 0 0;
+    background: linear-gradient(var(--surface-panel-strong, var(--panel-bg)), var(--surface-panel-strong, var(--panel-bg))), var(--surface-panel-underlay, var(--bg-canvas));
+}
+.image-parameter-panel.is-expanded .image-first-parameter-content { min-height: 100%; }
+.image-parameter-panel.is-expanded .image-first-parameter-content > .image-parameter-footer { margin-top: auto; }
+
 
 /* The card's body now contains results, while its real parameter controls keep
    their identity in the editor. Floating chrome never shifts port geometry. */
@@ -404,9 +427,9 @@ html:root #canvas-container .node.image-first-card > .node-body.is-collapsed { d
 }
 
 .image-parameter-setting-bar{display:flex;flex-wrap:wrap;gap:5px}
-.image-parameter-setting-bar button{padding:4px 7px;border:1px solid var(--node-control-border);border-radius:6px;background:var(--node-control-surface);color:var(--text-secondary);font-size:12px;cursor:pointer}
+.image-parameter-setting-bar button{min-height:28px;max-width:100%;padding:3px 6px;border:1px solid var(--node-control-border);border-radius:6px;background:var(--node-control-surface);color:var(--text-secondary);font-size:12px;cursor:pointer}
 .image-parameter-setting-bar button[aria-expanded=true]{border-color:var(--accent-primary);color:var(--text-primary)}
-.image-parameter-resize{position:absolute;right:0;top:30px;bottom:0;width:5px;cursor:ew-resize;touch-action:none}
+.image-parameter-resize{position:absolute;right:0;top:36px;bottom:0;width:5px;cursor:ew-resize;touch-action:none}
 .node.image-first-card .image-first-placeholder[hidden]{display:none}
 
 /* Media cards retain the original image surfaces and their dedicated controls. */
@@ -493,7 +516,7 @@ html:root #canvas-container .node.image-first-media > .node-body {
 .node.image-first-media .camera-control-open-btn { order: 2; flex: 0 0 auto; min-height: 30px; border-color: var(--node-control-border); background: var(--node-control-surface); color: var(--text-primary); }
 .node.image-first-media .camera-control-open-btn:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; box-shadow: none; }
 .image-parameter-panel .camera-control-note { border-color: var(--node-control-border); background: var(--node-control-surface); color: var(--text-secondary); }
-.image-camera-state-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; margin: 0; }
+.image-camera-state-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px 9px; margin: 0; }
 .image-camera-state-summary > div { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 7px; }
 .image-camera-state-summary dt { color: var(--text-secondary); font-size: 12px; }
 .image-camera-state-summary dd { margin: 0; color: var(--text-primary); font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -543,10 +566,9 @@ html:root #canvas-container .node.image-first-media > .node-body {
     flex-direction: column;
     gap: 5px;
     min-width: 0;
-    padding: 8px;
-    border: 1px solid var(--node-control-border);
-    border-radius: 7px;
-    background: var(--node-control-surface);
+    padding: 5px 0;
+    border-bottom: 1px solid var(--node-control-border);
+    background: transparent;
 }
 .image-input-source { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 8px; }
 .image-input-source-title { min-width: 0; overflow-wrap: anywhere; color: var(--text-primary); font-size: 12px; }
@@ -585,3 +607,100 @@ html:root #canvas-container .node.image-first-media > .node-body {
 .node.image-first-card .image-result-actions{position:absolute;top:calc(100% + 48px);left:50%;transform:translateX(-50%);width:max-content;max-width:600px;flex-wrap:nowrap;margin:0;z-index:3}
 .node.image-first-card:not(.selected) .image-result-actions{top:12px;right:76px;left:auto;transform:none;max-width:80px}
 .image-parameter-panel .node-advanced-parameters>summary{display:none}
+
+
+/* Compact editors reuse the original controls and leave canvas-card geometry alone. */
+.image-parameter-panel:not(.is-expanded) .image-node-prompt-field:not(:has(.image-prompt-source:not(.hidden))) textarea { padding-right: 72px; }
+.image-parameter-panel:not(.is-expanded) .image-prompt-source-label { padding-right: 64px; }
+.image-parameter-panel:not(.is-expanded) .image-import-mode-shell,
+.image-parameter-panel:not(.is-expanded) .image-first-parameter-content > .image-parameter-setting-bar { margin-right: 62px; }
+.image-parameter-panel:not(.is-expanded):is([data-node-type="ImagePreview"], [data-node-type="ImageCompare"], [data-node-type="ImageMerge"]) .image-input-detail > :first-child:not(.image-input-row),
+.image-parameter-panel:not(.is-expanded):is([data-node-type="ImagePreview"], [data-node-type="ImageCompare"], [data-node-type="ImageMerge"]) .image-input-detail > .image-input-row:first-child > .image-input-source { padding-right: 62px; }
+.image-parameter-panel:not(.is-expanded)[data-node-type="ImageSave"] .save-no-path-warning { padding-right: 62px; }
+.image-parameter-panel:not(.is-expanded)[data-node-type="ImageSave"]:not(:has(.save-no-path-warning:not(.hidden))) .image-first-parameter-content > .node-field { margin-right: 62px; }
+.image-parameter-panel:not(.is-expanded)[data-node-type="CameraControl"] .camera-control-note { padding-right: 64px; }
+.image-parameter-panel.is-expanded .image-parameter-scroll { padding-top: 2px; }
+.image-parameter-panel .node-field { gap: 4px; margin: 0; }
+.image-parameter-panel .node-parameter-grid { gap: 6px 8px; }
+.image-parameter-panel .node-advanced-parameters { padding: 0; border: 0; background: transparent; }
+.image-parameter-panel .node-advanced-parameters > .node-parameter-grid { padding: 0; }
+.image-parameter-panel .node-advanced-parameters > :is(.node-protocol-params, .thinking-control, .node-field) { margin: 0 0 6px; }
+.image-parameter-panel .image-parameter-setting-bar button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.image-parameter-count-slot { display: flex; flex: 0 0 auto; align-items: center; min-width: 0; margin-left: auto; }
+.image-parameter-count-slot[hidden], .image-parameter-count-slot:empty { display: none; }
+.image-parameter-footer .image-parameter-count-control { display: flex; flex: 0 0 auto; flex-direction: row; align-items: center; gap: 5px; min-width: 0; }
+.image-parameter-count-control > label { color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
+.image-parameter-count-control .generation-count-control { grid-template-columns: 28px 42px 28px; gap: 0; width: auto; }
+.image-parameter-count-control .generation-count-btn { flex: 0 0 28px; width: 28px; min-height: 30px; padding: 2px; }
+.image-parameter-panel .image-parameter-count-control .generation-count-input { flex: 0 0 42px; width: 42px; min-width: 32px; min-height: 30px; padding: 3px 4px; font-size: 13px; }
+.image-parameter-panel .image-local-prompt-draft { position: relative; min-width: 0; margin-top: 6px; }
+.image-parameter-panel .image-local-prompt-draft-summary { min-height: 28px; color: var(--text-secondary); font-size: 13px; line-height: 28px; cursor: pointer; }
+.image-parameter-panel .image-local-prompt-draft-summary:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
+.image-parameter-panel .image-local-prompt-draft:not([open]) > :not(summary) { display: none; }
+.image-parameter-panel .image-local-prompt-draft textarea { display: block; }
+.image-parameter-panel .image-reference-overview { padding: 6px; }
+.image-parameter-panel .image-reference-grid { padding: 1px; gap: 5px; }
+.image-parameter-panel .image-reference-group { padding: 4px; }
+.image-parameter-panel .image-reference-heading { gap: 4px; }
+.image-parameter-panel .image-reference-source-actions { margin-top: 3px; gap: 3px 5px; }
+.image-parameter-panel .image-reference-single { grid-template-columns: 42px minmax(0, 1fr); }
+.image-parameter-panel .image-reference-single .image-reference-thumbnail { flex-basis: 42px; width: 42px; height: 48px; }
+.image-parameter-panel .image-reference-single .image-reference-thumbnail img { height: 33px; }
+.image-parameter-panel .image-reference-source-scope { font-size: 12px; }
+.image-parameter-panel .image-resize-panel { gap: 7px; }
+.image-parameter-panel .image-resize-mode-shell { padding: 2px; border-radius: 7px; }
+.image-parameter-panel .image-resize-mode-btn { min-height: 30px; padding: 4px 7px; font-size: 13px; }
+.image-parameter-panel .image-resize-slider-field { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; column-gap: 8px; }
+.image-parameter-panel .image-resize-slider-header { gap: 5px; }
+.image-parameter-panel .image-resize-inline-value { padding: 0; border: 0; background: transparent; font-size: 13px; }
+.image-parameter-panel .image-resize-range-row { min-width: 0; }
+.image-parameter-panel .image-resize-dimensions-section { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; align-items: center; }
+.image-parameter-panel .image-resize-dimensions-section.hidden { display: none; }
+.image-parameter-panel .image-resize-dimensions-grid { gap: 7px; }
+.image-parameter-panel .image-resize-dimensions-grid .node-field { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 5px; }
+.image-parameter-panel .image-resize-dimensions-section > .node-field-row { gap: 5px; }
+.image-parameter-panel .color-reset-panel { gap: 6px; }
+.image-parameter-panel .color-reset-toolbar { padding: 0; }
+.image-parameter-panel .color-reset-flow { font-size: 12px; letter-spacing: normal; }
+.image-parameter-panel .color-reset-section { padding: 6px 0 0; gap: 6px; border: 0; border-top: 1px solid var(--node-section-divider); border-radius: 0; background: transparent; }
+.image-parameter-panel .color-reset-section-title { font-size: 12px; }
+.image-parameter-panel .color-reset-section-dirty { font-size: 11px; }
+.image-parameter-panel .color-reset-white-balance > .node-field:not(.color-reset-slider-field) { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 4px 7px; }
+.image-parameter-panel .color-reset-white-balance-status { grid-column: 2; margin: 0; font-size: 12px; }
+.image-parameter-panel .color-reset-white-balance-status[data-status="applied"] { color: var(--accent-cyan); }
+.image-parameter-panel .color-reset-white-balance-status[data-status="needs-sample"] { color: var(--accent-orange); }
+.image-parameter-panel .color-reset-white-balance-status[data-status="invalid-sample"] { color: var(--accent-red); }
+.image-parameter-panel .color-reset-slider-field { position: relative; min-height: 30px; padding-right: 58px; }
+.image-parameter-panel .color-reset-slider-header { position: static; min-height: 30px; padding-right: 0; }
+.image-parameter-panel .color-reset-slider-header label { max-width: 82px; }
+.image-parameter-panel .color-reset-slider-header input[type="number"] { position: absolute; top: 0; right: 0; width: 50px; min-height: 30px; font-size: 13px; }
+.image-parameter-panel .color-reset-range-shell { position: absolute; top: 6px; left: 88px; right: 58px; }
+.image-parameter-panel .image-camera-state-summary > div { padding: 3px 0; }
+.image-parameter-panel .image-camera-prompt-summary { padding: 6px; }
+.image-parameter-panel .image-camera-prompt-details > summary { min-height: 28px; color: var(--text-secondary); cursor: pointer; }
+.image-parameter-panel .image-camera-prompt-details .image-camera-prompt-summary { margin-top: 4px; }
+.image-parameter-panel[data-node-type="ImageSave"] .node-field:has(input[id$="-filename"]) { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 7px; }
+.image-parameter-panel .camera-control-note { margin: 0; padding: 6px; font-size: 12px; }
+.image-parameter-panel .image-import-url-fields { gap: 5px; }
+.image-parameter-panel .image-input-detail { gap: 5px; }
+.image-parameter-panel .image-input-controls { flex-wrap: wrap; }
+.image-parameter-panel .image-input-source-title { font-size: 13px; }
+.image-parameter-panel .image-input-facts { font-size: 12px; }
+.image-parameter-panel .image-input-order-controls { gap: 4px; }
+.image-parameter-panel .image-source-more { min-width: 0; font-size: 13px; }
+.image-parameter-panel .image-source-more-trigger { display: inline-flex; align-items: center; min-height: 28px; padding: 3px 6px; border: 1px solid var(--node-control-border); border-radius: 5px; background: var(--node-control-surface); color: var(--text-secondary); font: inherit; cursor: pointer; list-style: none; }
+.image-parameter-panel .image-source-more-trigger::-webkit-details-marker { display: none; }
+.image-parameter-panel .image-source-more-trigger:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
+.image-parameter-panel .image-source-more-trigger:hover { border-color: var(--accent-primary); color: var(--text-primary); }
+.image-parameter-panel .image-source-more-trigger[aria-disabled="true"] { opacity: .5; }
+.image-parameter-panel .image-source-more-actions button { min-height: 28px; padding: 3px 6px; }
+.image-parameter-panel .image-source-more-actions { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 4px; }
+.image-parameter-panel .image-source-more:not([open]) > .image-source-more-actions { display: none; }
+.image-parameter-panel .image-source-more[open] { flex-basis: 100%; }
+.image-parameter-panel .image-reference-more { margin-top: 3px; }
+
+@container (max-width: 360px) {
+    .image-camera-state-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .image-parameter-panel .image-resize-dimensions-section { grid-template-columns: minmax(0, 1fr); }
+    .image-parameter-panel .color-reset-range-shell { left: 82px; }
+}
