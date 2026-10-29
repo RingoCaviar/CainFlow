@@ -196,3 +196,21 @@ CLI显式退出统一既有desktop及stdlib ThreadingHTTPServer的daemon handler
 正式测试仅在读取graph前增加一次公开session下游3keys与2videos就绪等待，原精确身份和内容断言、timeout、helper及产品行为均不变。完整保存流程4/4通过（29.04秒），单变量红绿与owner负对照记录为verification/save-forward-{put-red,put-barrier,owner-barrier}-48072fe.tap.log。最终完整门禁仍需在这一同步修正后重新执行；本轮不计通过，A36原生验收仍暂缓。
 
 正式一行同步修正经独立Standards与Spec审查，均无待处理问题。后段预检已确认Python全套281/281通过（49.48秒）、媒体资产安全门禁退出0、source smoke通过且未打开可见浏览器；这些分段证据不冒充完整包装门禁通过。产品源码仍与8c5ce30一致，本次只改测试同步及验收记录。
+
+## 最终无界面门禁结果（2026-10-29）
+
+冻结测试HEAD为1638725，运行`scripts/run-local-regression.ps1 -NoPause`，北京时间12:23:35开始、12:47:05结束，整体退出0。完整日志为verification/final-headless-regression-1638725.tap.log。
+
+| 阶段 | 实际结果 |
+| --- | --- |
+| 前端语法、后端编译及既有版本说明校验 | 通过。 |
+| 完整Node回归 | 共1705项，1703通过、0失败、2项原有可选跳过；1311.07秒。 |
+| 完整Python回归 | 281/281通过；49.50秒。 |
+| 桌面安全与SQLite初始化 | 153/153通过；22.29秒。 |
+| 媒体资产安全门禁 | 23组执行证据退出码均0，普通及property不变量违规均0。 |
+| 源码启动smoke | 通过；仅隐藏后端，未启动可见浏览器或原生性能采样。 |
+| 通用脚本的工作流样例目录校验 | 按既有逻辑跳过：workflows/regression不存在；基线48f9e7f亦无此目录，不能将脚本汇总的passed解读为实际校验过该目录。 |
+
+两项Node跳过保持原有opt-in边界：`browser: sending without configuration gives a visible setup next step`和`browser: configured chat model completes a real conversation request`，本次未设置CAINFLOW_BROWSER_SMOKE/CAINFLOW_BROWSER_LIVE_SEND。正式图片节点、旧工作流真加载、控制响应、后台任务、跨节点完整批次及真实进程重启由本次已通过的真实应用用例覆盖，不依赖缺失的可选目录。
+
+1638725相对8c5ce30仅有两处测试完成点同步及本文记录变化，产品源码相同，先前无GPU同环境40.2→58.8FPS、p95 50.00→16.80ms对照继续对应当前产品。独立Standards无待处理问题；Spec未发现新增实现偏差，但A36的WebView2/GPU p95≤16.7ms仍按用户安排待验收，未豁免原100Hz目标，也未将无GPU结果替代原生合同。#006–#018已关闭，#019保持open，父#005原文及状态保持不变。
