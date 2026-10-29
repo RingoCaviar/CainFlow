@@ -134,19 +134,11 @@
 .image-reference-single .image-reference-thumbnail { flex-basis: 48px; width: 48px; height: 54px; }
 .image-reference-single .image-reference-thumbnail img { height: 39px; }
 .image-reference-single .image-reference-source-status { grid-column: 1 / -1; }
-.image-reference-single :is(.image-reference-source-actions, .image-reference-details) { grid-column: 1 / -1; }
+.image-reference-single .image-reference-source-actions { grid-column: 1 / -1; }
 .image-reference-source-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; margin-top: 5px; }
 .image-reference-source-actions .image-reference-toggle-source { min-height: 25px; padding: 2px 5px; font-size: 12px; }
 .image-reference-source-scope { color: var(--text-secondary); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .image-reference-group[data-enabled="false"] .image-reference-thumbnail { opacity: .6; }
-.image-reference-details { min-width: 0; margin-top: 4px; color: var(--text-secondary); font-size: 12px; }
-.image-reference-details > summary { width: fit-content; max-width: 100%; cursor: pointer; line-height: 1.6; }
-.image-reference-details > summary:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
-.image-reference-details p { min-width: 0; margin: 5px 0; overflow-wrap: anywhere; }
-.image-reference-full-title { color: var(--text-primary); }
-.image-reference-source-output { color: var(--text-secondary); }
-.image-reference-descriptions { margin: 5px 0 0; padding-left: 20px; }
-.image-reference-description-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
 
 .image-reference-heading .image-reference-locate { padding: 0; min-height: 24px; font-size: 13px; }
 .image-reference-group .image-reference-disconnect { margin-top: 0; min-height: 22px; padding: 1px 2px; font-size: 13px; }

@@ -35,7 +35,7 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
         if (target?.type !== 'ImageGenerate' || !container) return;
         let view = views.get(container);
         if (!view) {
-            view = { expanded: false, groups: [], revision: 0, descriptionsOpen: new Set() };
+            view = { expanded: false, groups: [], revision: 0 };
             views.set(container, view);
             if (!Array.isArray(target.el._cleanupFns)) target.el._cleanupFns = [];
             target.el._cleanupFns.push(() => {
@@ -256,27 +256,6 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
             const scope = documentRef.createElement('span'); scope.className = 'image-reference-source-scope';
             scope.textContent = `整个来源 · 影响 ${group.downstreamIds.length} 个下游`;
             sourceActions.append(toggle, scope); row.append(sourceActions);
-            const details = documentRef.createElement('details'); details.className = 'image-reference-details';
-            details.open = view.descriptionsOpen.has(group.connection.id);
-            const summary = documentRef.createElement('summary'); summary.textContent = '来源与说明';
-            const fullTitle = documentRef.createElement('p'); fullTitle.className = 'image-reference-full-title'; fullTitle.textContent = group.name;
-            const output = documentRef.createElement('p'); output.className = 'image-reference-source-output';
-            output.textContent = `来源输出：${group.connection.from.port}`;
-            details.append(summary, fullTitle, output);
-            const descriptions = documentRef.createElement('ol'); descriptions.className = 'image-reference-descriptions';
-            for (const [index, text] of group.descriptions.entries()) {
-                if (!text) continue;
-                const item = documentRef.createElement('li'); item.value = index + 1;
-                const content = documentRef.createElement('p'); content.className = 'image-reference-description-text'; content.textContent = text;
-                item.append(content); descriptions.append(item);
-            }
-            if (descriptions.childNodes.length) details.append(descriptions);
-            else { const empty = documentRef.createElement('p'); empty.textContent = '尚未添加图片说明'; details.append(empty); }
-            details.addEventListener('toggle', () => {
-                if (details.open) view.descriptionsOpen.add(group.connection.id); else view.descriptionsOpen.delete(group.connection.id);
-                onLayout(nodeId);
-            });
-            row.append(details);
             if (!group.source || !group.enabled || group.missing || group.running || !group.count) {
                 const status = documentRef.createElement('p'); status.className = 'image-reference-source-status';
                 status.textContent = !group.source ? '来源节点已不存在' : !group.enabled ? '来源已禁用，不参与本轮输入'

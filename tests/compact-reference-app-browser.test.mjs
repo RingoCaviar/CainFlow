@@ -45,7 +45,7 @@ async function populateSources(app) {
     }
 }
 
-test('reference gallery shares rows for single sources, spans complete batches, and exposes full source text in the lower editor', { timeout: 60000 }, async () => {
+test('reference gallery shares rows for single sources, spans complete batches, without redundant source details', { timeout: 60000 }, async () => {
     await withAppBrowser(session, async app => {
         await populateSources(app);
         await openReferences(app);
@@ -57,15 +57,9 @@ test('reference gallery shares rows for single sources, spans complete batches, 
         assert.deepEqual(layout.slots, [1, 1, 6]);
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#target-reference-sources [data-reference-number]')].map(item=>item.dataset.referenceNumber)"), ['1', '2', '3', '4', '5', '6', '7', '8']);
 
-        await app.evaluate("document.querySelector('[data-reference-connection=edge-single-a] .image-reference-details>summary').focus({preventScroll:true})");
-        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
-        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
-        assert.equal(await app.evaluate("document.querySelector('[data-reference-connection=edge-single-a] .image-reference-details').open"), true);
-        assert.equal(await app.evaluate("document.querySelector('[data-reference-connection=edge-single-a] .image-reference-full-title').textContent"), longTitle);
-        assert.equal(await app.evaluate("document.querySelector('[data-reference-connection=edge-single-a] .image-reference-description-text').textContent"), description);
-        assert.equal(await app.evaluate("(()=>{const text=document.querySelector('[data-reference-connection=edge-single-a] .image-reference-description-text');return getComputedStyle(text).whiteSpace==='pre-wrap'&&text.scrollWidth<=text.clientWidth+1})()"), true,
-            'full descriptions wrap in the panel and remain readable without a hover tooltip');
-        await app.evaluate("document.querySelector('[data-reference-connection=edge-single-a] .image-reference-details>summary').click();document.querySelector('#image-parameter-panel [role=separator]').focus({preventScroll:true})");
+        assert.equal(await app.evaluate("document.querySelectorAll('#target-reference-sources .image-reference-details').length"), 0);
+        assert.equal(await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.nodes.find(n=>n.id==='single-a').imageDescription)"), description, 'source descriptions are retained as data');
+        await app.evaluate("document.querySelector('#image-parameter-panel [role=separator]').focus({preventScroll:true})");
         for (let step = 0; step < 18; step += 1) {
             await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowLeft', code: 'ArrowLeft' });
             await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowLeft', code: 'ArrowLeft' });
