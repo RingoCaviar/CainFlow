@@ -35,6 +35,7 @@ test('image card supports drag to move, single click parameters and double click
         await reloadAppBrowser(app);
         await evaluate("document.getElementById('btn-run').click()");
         await waitFor("Boolean(document.querySelector('#gesture-image .image-node-result-preview')) && !document.getElementById('gesture-image-prompt').disabled");
+        assert.equal(await evaluate("document.querySelector('#gesture-image [data-result-action=preview]').checkVisibility()"), false);
         const initial = await evaluate(`(()=>{const node=document.getElementById('gesture-image'),rect=node.querySelector('.image-node-result-preview').getBoundingClientRect();return {left:parseFloat(node.style.left),top:parseFloat(node.style.top),x:rect.x+rect.width/2,y:rect.y+rect.height/2}})()`);
         await pointer(app, 'mousePressed', initial);
         await pointer(app, 'mouseMoved', { x: initial.x + 80, y: initial.y + 50 });
@@ -53,6 +54,8 @@ test('image card supports drag to move, single click parameters and double click
         assert.equal(await evaluate("Boolean(document.querySelector('.fullscreen-overlay'))"), false, 'a drag returning to its starting point is not a double click');
         await clickPreview(app);
         await waitFor("!document.getElementById('image-parameter-panel').hidden");
+        assert.equal(await evaluate("document.querySelector('#gesture-image [data-result-action=preview]').checkVisibility()"), false);
+        assert.equal(await evaluate("document.querySelector('#gesture-image [data-result-action=reference]').checkVisibility()"), true);
         assert.equal(await evaluate("Boolean(document.querySelector('.fullscreen-overlay'))"), false, 'single click opens parameters only');
         await clickPreview(app, 2);
         await waitFor("Boolean(document.querySelector('.fullscreen-overlay img'))");

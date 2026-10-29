@@ -356,6 +356,8 @@ html:root #canvas-container .node.image-first-card > .node-body {
 }
 
 .node.image-first-card .image-result-actions { min-height: 30px; margin-top: 7px; }
+.node.image-first-card .image-result-actions > [data-result-action="preview"] { display: none; }
+.node.image-first-card:not(.selected) .image-result-actions { display: none; }
 .node.image-first-card:not(.selected) .image-result-actions > button:not([data-result-action="preview"]) { display: none; }
 .node.image-first-card .image-node-result-navigation { min-height: 28px; gap: 5px; }
 .node.image-first-card .image-node-result-navigation button { padding: 3px 5px; }
