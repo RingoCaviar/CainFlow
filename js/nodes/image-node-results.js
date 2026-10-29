@@ -146,7 +146,7 @@ export function createImageNodeResults({ state, documentRef, createActions = () 
         status.setAttribute('aria-label', `查看整批 ${count} 张结果，当前第 ${index + 1} 张`);
         status.setAttribute('aria-expanded', String(!!galleryOpen)); status.setAttribute('aria-controls', `${nodeId}-result-batch`);
         navigation.insertBefore(status, navigation.lastElementChild);
-        host.append(navigation);
+        if (count > 1) host.append(navigation);
         const gallery = documentRef.createElement('section'); gallery.id = `${nodeId}-result-batch`;
         gallery.className = 'image-node-result-batch'; gallery.hidden = !galleryOpen;
         gallery.setAttribute('aria-label', '整批生成结果');
