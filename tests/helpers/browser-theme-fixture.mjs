@@ -3,7 +3,6 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { createServer as createNetServer } from 'node:net';
 import { inflateSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 
@@ -15,43 +14,55 @@ export const chromePath = [
 ].filter(Boolean).find(existsSync);
 
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
-
-async function findFreePort() {
-    const probe = createNetServer();
-    await new Promise((resolve, reject) => {
-        probe.once('error', reject);
-        probe.listen(0, '127.0.0.1', resolve);
-    });
-    const port = probe.address().port;
-    await new Promise((resolve) => probe.close(resolve));
-    return port;
-}
+// Use the same public runtime/server factories for current and baseline trees.
+// Older launchers announce :0 instead of the actual kernel-assigned port.
+const isolatedServerLauncher = `
+import sys
+from backend import main
+main.initialize_runtime()
+with main.create_server(port=int(sys.argv[1])) as server:
+    main.config.PORT = server.server_address[1]
+    main.print_banner()
+    server.serve_forever()
+`;
 
 export async function startCainflowServer({ session = null, repoDirectory = repoRoot } = {}) {
     const dataDir = mkdtempSync(join(tmpdir(), 'cainflow-browser-data-'));
     const workflowsDir = mkdtempSync(join(tmpdir(), 'cainflow-browser-workflows-'));
-    const port = await findFreePort();
+    let port = 0;
     const python = process.env.CAINFLOW_PYTHON || 'python';
-    const baseUrl = `http://127.0.0.1:${port}`;
-    let child, childClosed = Promise.resolve(), cleaned = false;
+    let baseUrl;
+    let child, childClosed = Promise.resolve(), cleaned = false, backendLog = '';
     async function startProcess() {
         if (cleaned) throw new Error('The isolated backend has already been cleaned up');
+        baseUrl = undefined;
+        backendLog = '';
         let startupLog = '', startupError;
-        child = spawn(python, ['server.py', '--browser', '--port', String(port)], {
+        child = spawn(python, ['-u', '-c', isolatedServerLauncher, String(port)], {
             cwd: repoDirectory,
-            env: { ...process.env, CAINFLOW_DATA_DIR: dataDir, CAINFLOW_WORKFLOWS_DIR: workflowsDir, CAINFLOW_SKIP_BROWSER_AUTO_OPEN: '1' },
+            env: { ...process.env, PYTHONUNBUFFERED: '1', CAINFLOW_DATA_DIR: dataDir, CAINFLOW_WORKFLOWS_DIR: workflowsDir, CAINFLOW_SKIP_BROWSER_AUTO_OPEN: '1' },
             stdio: ['ignore', 'pipe', 'pipe']
         });
         const backendProcess = child;
         childClosed = new Promise(resolve => backendProcess.once('close', resolve));
         backendProcess.once('error', error => { startupError = error; });
-        for (const output of [backendProcess.stdout, backendProcess.stderr]) output.on('data', chunk => { startupLog = (startupLog + chunk).slice(-4000); });
+        for (const output of [backendProcess.stdout, backendProcess.stderr]) output.on('data', chunk => {
+            startupLog = (startupLog + chunk).slice(-4000);
+            backendLog = startupLog;
+            const announced = startupLog.match(/http:\/\/127\.0\.0\.1:(\d+)/);
+            if (announced && Number(announced[1]) > 0) {
+                port = Number(announced[1]);
+                baseUrl = `http://127.0.0.1:${port}`;
+            }
+        });
         for (let attempt = 0; attempt < 120; attempt += 1) {
             if (startupError) throw startupError;
             if (backendProcess.exitCode !== null || backendProcess.signalCode !== null) throw new Error(`CainFlow server exited with code ${backendProcess.exitCode}: ${startupLog}`);
             try {
-                const response = await fetch(`${baseUrl}/`);
-                if (response.ok) return;
+                if (baseUrl) {
+                    const response = await fetch(`${baseUrl}/`);
+                    if (response.ok) return;
+                }
             } catch {}
             await new Promise((resolve) => setTimeout(resolve, 50));
             if (attempt === 119) throw new Error('CainFlow server did not become ready');
@@ -84,6 +95,7 @@ export async function startCainflowServer({ session = null, repoDirectory = repo
             dataDir,
             workflowsDir,
             get pid() { return child.pid; },
+            getDiagnostics() { return { baseUrl, pid: child.pid, exitCode: child.exitCode, signalCode: child.signalCode, log: backendLog }; },
             stopProcess,
             async restart() {
                 const previousPid = child.pid;

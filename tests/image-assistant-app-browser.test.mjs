@@ -78,9 +78,33 @@ async function change(evaluate, id, value) {
     await evaluate(`(()=>{const field=document.getElementById(${JSON.stringify(id)});field.value=${JSON.stringify(value)};field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));})()`);
 }
 
-async function generateReferenceSources(app, { samePixels = false } = {}) {
+async function generateReferenceSources(app, { samePixels = false, cleanupBeforeHistoryCommit = false } = {}) {
     await controlImages(app);
     if (samePixels) await app.evaluate('window.sameReferencePixels=true');
+    if (cleanupBeforeHistoryCommit) await app.evaluate(`(() => {
+        const fetchControlled = window.fetch;
+        window.historyCommitResponses = [];
+        window.historyCommitCleanup = [];
+        let firstHistoryCommit = true;
+        window.fetch = async (url, options = {}) => {
+            if (String(url) === '/api/storage/history' && options.method === 'POST') {
+                if (firstHistoryCommit) {
+                    firstHistoryCommit = false;
+                    // Another image upload can collect unowned assets after the
+                    // thumbnail upload and before its history record commits.
+                    const cleanup = await fetchControlled('/api/storage/maintenance', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'clear-assets', mode: 'media-orphans' })
+                    });
+                    window.historyCommitCleanup.push(cleanup.status);
+                }
+                const response = await fetchControlled(url, options);
+                window.historyCommitResponses.push(response.status);
+                return response;
+            }
+            return fetchControlled(url, options);
+        };
+    })()`);
     for (const id of ['source-a','source-b']) {
         await app.evaluate(`document.getElementById('${id}').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()`);
         await app.waitFor(`imageRequests.filter(r=>r.prompt==='${id}').length===${id==='source-a'?3:2} && !document.getElementById('${id}-prompt').disabled`);
@@ -369,7 +393,9 @@ test('node result actions stage the selected original without rewiring or shrink
 test('history original handoff preserves drafts, offers explicit insertion, and applies real reference edges only on confirmation', { timeout: 30000 }, async () => {
     await withAppBrowser(referenceSession(), async app => {
         const { evaluate, waitFor } = app;
-        await generateReferenceSources(app);
+        await generateReferenceSources(app, { cleanupBeforeHistoryCommit: true });
+        assert.deepEqual(await evaluate('window.historyCommitCleanup'), [200]);
+        assert.deepEqual(await evaluate('window.historyCommitResponses'), [200, 200, 200, 200, 200], 'every original keeps a history record across concurrent cleanup');
         await change(evaluate, 'prompt-agent-input', '保留我的修改说明');
         await evaluate("document.getElementById('btn-history').click()");
         await waitFor("document.querySelectorAll('#history-list .history-card').length===5");

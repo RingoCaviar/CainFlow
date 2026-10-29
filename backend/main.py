@@ -351,6 +351,7 @@ def run_browser(port=None):
 
     try:
         with create_server() as httpd:
+            config.PORT = httpd.server_address[1]
             print_banner()
             if os.environ.get('CAINFLOW_SKIP_BROWSER_AUTO_OPEN') != '1':
                 webbrowser.open(f'http://{config.LOCAL_HOST}:{config.PORT}')

@@ -137,7 +137,7 @@ function Invoke-NodeTests {
   # Relative paths keep the complete explicit file list within Windows command-line limits.
   Push-Location $RepoRoot
   try {
-    & $NodeCommand --test --test-concurrency=1 @testFiles
+    & $NodeCommand --test --test-reporter=tap --test-concurrency=1 @testFiles
     if ($LASTEXITCODE -ne 0) {
       throw "Node test suite failed."
     }

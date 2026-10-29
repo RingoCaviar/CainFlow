@@ -128,6 +128,11 @@ def handle_put(handler):
                 _asset_key(path), body,
                 mime_type=handler.headers.get('Content-Type', 'application/octet-stream'),
                 kind=handler.headers.get('X-CainFlow-Asset-Kind', 'asset'),
+                media_owner=(
+                    handler.headers.get('X-CainFlow-Media-Owner-Type', ''),
+                    handler.headers.get('X-CainFlow-Media-Owner-Id', ''),
+                ) if (handler.headers.get('X-CainFlow-Media-Owner-Type')
+                      or handler.headers.get('X-CainFlow-Media-Owner-Id')) else None,
             )
             write_json(handler, {'success': True, 'asset': info})
             return True

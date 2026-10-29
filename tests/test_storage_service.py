@@ -8,7 +8,7 @@ import tempfile
 import threading
 import time
 import unittest
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from unittest import mock
 
 from backend.services.storage_service import StorageError, StorageService
@@ -340,6 +340,62 @@ class StorageServiceTests(unittest.TestCase):
             self.assertTrue(service.delete_history(10))
             self.assertIsNone(service.get_asset_info('history:10'))
             self.assertIsNone(service.get_asset_info('thumb:history:10'))
+
+    def test_history_thumbnail_upload_survives_collection_and_shared_history_deletion(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            for history_id in (10, 11):
+                image = service.put_media_asset(b'shared-image', 'image/png', 'history', str(history_id))
+                service.put_asset('thumb:shared-image', b'shared-thumbnail', 'image/webp', 'thumbnail',
+                                  media_owner=('history-thumbnail', str(history_id)))
+                service.cleanup_unreferenced_media_assets()
+                self.assertIsNotNone(service.get_asset('thumb:shared-image'))
+                service.save_history({
+                    'id': history_id, 'imageAssetKey': image['asset_key'],
+                    'thumbAssetKey': 'thumb:shared-image',
+                })
+            self.assertTrue(service.delete_history(10))
+            self.assertEqual(b'shared-image', service.get_asset(image['asset_key'])[1])
+            self.assertEqual(b'shared-thumbnail', service.get_asset('thumb:shared-image')[1])
+            self.assertEqual('thumb:shared-image', service.get_history(11)['thumbAssetKey'])
+            self.assertTrue(service.delete_history(11))
+            self.assertIsNone(service.get_asset(image['asset_key']))
+            self.assertIsNone(service.get_asset('thumb:shared-image'))
+
+    def test_asset_upload_rejects_unsupported_provisional_owners(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            for owner_type, owner_id, kind in (
+                ('arbitrary-owner', '10', 'thumbnail'),
+                ('workflow-undo', '10', 'thumbnail'),
+                ('history', '10', 'thumbnail'),
+                ('history-thumbnail', '', 'thumbnail'),
+                ('history-thumbnail', '10', 'media'),
+            ):
+                with self.subTest(owner_type=owner_type, owner_id=owner_id, kind=kind):
+                    with self.assertRaises(StorageError):
+                        service.put_asset('thumb:invalid', b'thumbnail', 'image/webp', kind,
+                                          media_owner=(owner_type, owner_id))
+                    self.assertIsNone(service.get_asset('thumb:invalid'))
+
+    def test_history_compensation_releases_only_the_uncommitted_history_identity(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            image = service.put_media_asset(b'image', 'image/png', 'history', '10')
+            service.put_asset('thumb:shared', b'thumb', 'image/webp', 'thumbnail',
+                              media_owner=('history-thumbnail', '10'))
+            service.save_history({'id': 10, 'imageAssetKey': image['asset_key'], 'thumbAssetKey': 'thumb:shared'})
+            for owner_type, key in (('history', image['asset_key']), ('history-thumbnail', 'thumb:shared')):
+                service.add_media_reference(owner_type, '11', key)
+                service.remove_media_reference(owner_type, '11', key)
+                service.remove_media_reference(owner_type, '10', key)
+                service.remove_media_reference(owner_type, '10')
+            with closing(sqlite3.connect(service.database_path)) as db:
+                owners = db.execute('''SELECT owner_type,owner_id,asset_key FROM media_asset_refs
+                    WHERE owner_type IN ('history','history-thumbnail') ORDER BY owner_type,owner_id''').fetchall()
+            self.assertEqual([
+                ('history', '10', image['asset_key']), ('history-thumbnail', '10', 'thumb:shared')
+            ], owners)
 
     def test_media_asset_keeps_content_until_its_last_reference_is_removed(self):
         with tempfile.TemporaryDirectory() as root:

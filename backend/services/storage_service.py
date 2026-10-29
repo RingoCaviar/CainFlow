@@ -1964,9 +1964,14 @@ class StorageService(UndoMediaMixin):
         extension = '.jpg' if extension == '.jpe' else extension
         return os.path.join(digest[:2], f'{digest}{extension}').replace(os.sep, '/')
 
-    def put_asset(self, asset_key, body, mime_type='application/octet-stream', kind='asset'):
+    def put_asset(self, asset_key, body, mime_type='application/octet-stream', kind='asset', media_owner=None):
         self.assert_storage_writable()
-        return self._put_asset(asset_key, body, mime_type, kind)
+        if media_owner is not None:
+            owner_type, owner_id = (str(value or '').strip() for value in media_owner)
+            if owner_type != 'history-thumbnail' or not owner_id or kind != 'thumbnail':
+                raise StorageError('Only history thumbnail uploads may attach a history-thumbnail owner')
+            media_owner = (owner_type, owner_id)
+        return self._put_asset(asset_key, body, mime_type, kind, media_owner=media_owner)
 
     def _put_asset(self, asset_key, body, mime_type, kind, media_owner=None):
         self.initialize()
@@ -2158,18 +2163,29 @@ class StorageService(UndoMediaMixin):
     def remove_media_reference(self, owner_type, owner_id, asset_key=None):
         self.initialize()
         self.assert_storage_writable()
+        owner_type, owner_id = str(owner_type), str(owner_id)
         with self._lock, self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            query = 'DELETE FROM media_asset_refs WHERE owner_type=? AND owner_id=?'
+            parameters = [owner_type, owner_id]
             if asset_key:
-                db.execute('DELETE FROM media_asset_refs WHERE owner_type=? AND owner_id=? AND asset_key=?',
-                           (str(owner_type), str(owner_id), str(asset_key)))
-                if str(owner_type) == 'workflow-operation':
+                query += ' AND asset_key=?'
+                parameters.append(str(asset_key))
+            history_column = {'history': 'asset_key', 'history-thumbnail': 'thumb_asset_key'}.get(owner_type)
+            if history_column:
+                # Compensation may arrive after a committed response was lost or
+                # another update succeeded. Only the matching durable consumer
+                # may keep this owner; another history ID cannot retain it.
+                query += f''' AND NOT EXISTS (SELECT 1 FROM history
+                    WHERE CAST(history.id AS TEXT)=media_asset_refs.owner_id
+                    AND history.{history_column}=media_asset_refs.asset_key)'''
+            db.execute(query, parameters)
+            if owner_type == 'workflow-operation':
+                if asset_key:
                     db.execute('DELETE FROM media_operation_owner_items WHERE owner_id=? AND asset_key=?',
-                               (str(owner_id), str(asset_key)))
-            else:
-                db.execute('DELETE FROM media_asset_refs WHERE owner_type=? AND owner_id=?',
-                           (str(owner_type), str(owner_id)))
-                if str(owner_type) == 'workflow-operation':
-                    db.execute('DELETE FROM media_operation_owner_items WHERE owner_id=?', (str(owner_id),))
+                               (owner_id, str(asset_key)))
+                else:
+                    db.execute('DELETE FROM media_operation_owner_items WHERE owner_id=?', (owner_id,))
         return self.cleanup_unreferenced_media_assets()
 
     def get_media_owner_reference_list(self, workflow_id, owner_type, owner_id):

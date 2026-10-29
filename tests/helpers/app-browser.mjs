@@ -30,7 +30,7 @@ export async function withAppBrowser(session, task, { repoDirectory } = {}) {
     const server = await startCainflowServer({ session, repoDirectory });
     const profile = await mkdtemp(join(tmpdir(), 'cainflow-canvas-browser-'));
     const browser = spawn(chromePath, ['--headless=new', '--disable-gpu', '--no-sandbox', '--disable-extensions', `--user-data-dir=${profile}`, '--remote-debugging-port=0', 'about:blank'], { stdio: 'ignore' });
-    let socket;
+    let socket, getDiagnostics = () => ({ backend: server.getDiagnostics() });
     try {
         let port;
         for (let i = 0; i < 100; i++) { try { port = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0]; break; } catch { await delay(50); } }
@@ -38,8 +38,26 @@ export async function withAppBrowser(session, task, { repoDirectory } = {}) {
         const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then(response => response.json());
         socket = new WebSocket(targets.find(target => target.type === 'page').webSocketDebuggerUrl);
         await new Promise(resolve => socket.addEventListener('open', resolve, { once: true }));
-        let sequence = 0; const pending = new Map(), errors = [];
+        let sequence = 0; const pending = new Map(), errors = [], networkFailures = [], requests = new Map();
+        const publicUrl = raw => {
+            try {
+                const url = new URL(raw);
+                return ['http:', 'https:'].includes(url.protocol) ? url.origin + url.pathname.slice(0, 300) : url.protocol;
+            } catch { return 'invalid URL'; }
+        };
+        getDiagnostics = () => ({ backend: server.getDiagnostics(), networkFailures });
         socket.addEventListener('message', event => { const value = JSON.parse(event.data);
+            if (value.method === 'Network.requestWillBeSent') {
+                requests.set(value.params.requestId, publicUrl(value.params.request.url));
+                if (requests.size > 1000) requests.delete(requests.keys().next().value);
+            }
+            if (value.method === 'Network.loadingFailed') {
+                networkFailures.push({ url: requests.get(value.params.requestId), error: value.params.errorText,
+                    canceled: value.params.canceled === true, blockedReason: value.params.blockedReason });
+                if (networkFailures.length > 12) networkFailures.shift();
+                requests.delete(value.params.requestId);
+            }
+            if (value.method === 'Network.loadingFinished') requests.delete(value.params.requestId);
             if (value.method === 'Runtime.exceptionThrown') errors.push(value.params.exceptionDetails.exception?.description || value.params.exceptionDetails.text);
             if (value.method === 'Runtime.consoleAPICalled' && value.params.type === 'error') errors.push(value.params.args.map(arg => arg.description || arg.value).join(' '));
             if (pending.has(value.id)) { pending.get(value.id)(value); pending.delete(value.id); } });
@@ -59,6 +77,7 @@ export async function withAppBrowser(session, task, { repoDirectory } = {}) {
         await send('Emulation.setDeviceMetricsOverride', { width: 1100, height: 820, deviceScaleFactor: 1, mobile: false });
         await send('Page.enable');
         await send('Runtime.enable');
+        await send('Network.enable');
         await send('Page.navigate', { url: server.baseUrl });
         try {
             await waitFor("Boolean(document.getElementById('prompt-agent-model')?.options.length)");
@@ -69,6 +88,10 @@ export async function withAppBrowser(session, task, { repoDirectory } = {}) {
         }
         await delay(500);
         return await task({ evaluate, send, waitFor, server });
+    } catch (error) {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        failure.message += `\nBrowser/server diagnostics: ${JSON.stringify(getDiagnostics())}`;
+        throw failure;
     } finally {
         socket?.close(); browser.kill();
         await new Promise(resolve => browser.exitCode !== null ? resolve() : browser.once('exit', resolve));
