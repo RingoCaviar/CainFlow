@@ -715,3 +715,14 @@ html:root #canvas-container .node.node-media-aspect .node-media-aspect-surface {
 .image-parameter-panel .image-parameter-run-feedback .image-node-run-status { display: none; }
 .image-parameter-panel .image-parameter-run-feedback .image-node-run-actions { display: contents; }
 .image-parameter-panel .image-parameter-run-feedback:not(:has(.node-generation-progress-field:not([hidden]), .node-failure-summary:not(.hidden), [data-image-run-action="details"]:not([hidden]))) { display: none; }
+
+/* Keep compact editors focused on controls; retain warnings and source actions. */
+.image-parameter-panel:not([data-node-type="ImageGenerate"]) .image-first-parameter-content.node-body { gap: 6px; }
+.image-parameter-panel[data-node-type="ImageSave"] .image-first-summary { display: none; }
+.image-parameter-panel[data-has-feedback="false"] .image-parameter-footer { justify-content: center; }
+.image-parameter-panel .image-input-row:last-child { padding-bottom: 0; border-bottom: 0; }
+.image-parameter-panel .image-camera-help { margin: 0; }
+.image-parameter-panel .image-camera-help > summary { min-height: 28px; line-height: 28px; font-size: 13px; color: var(--text-secondary); cursor: pointer; }
+.image-parameter-panel .image-camera-help:not([open]) > .camera-control-note { display: none; }
+.image-parameter-panel .image-camera-help .camera-control-note { padding: 4px 0; }
+.image-parameter-panel:not(.is-expanded)[data-node-type="CameraControl"] .image-camera-help > summary { padding-right: 64px; }
