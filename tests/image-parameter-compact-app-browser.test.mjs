@@ -58,13 +58,15 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         assert.equal(await app.evaluate("document.querySelector('#image-0-reference-sources .image-reference-more').open"), true);
         assert.ok(await app.evaluate("document.querySelector('#image-0-reference-sources .image-reference-disconnect').textContent.includes('1')"));
 
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=advanced]').click();document.querySelector('[data-input-connection-id=prompt-edge] .image-source-more-trigger').click()");
-        assert.equal(await app.evaluate("document.querySelector('[data-input-connection-id=prompt-edge] .image-source-more').open"), true);
-        await app.evaluate("document.querySelector('[data-input-edge-id=prompt-edge][data-input-action=disconnect]').click()");
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=advanced]').click()");
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-input-detail')===null"), true);
+        assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .node-advanced-parameters').checkVisibility()"));
+        assert.deepEqual((await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.connections)")).map(edge=>edge.id), [reference.id,'prompt-edge']);
+        await app.evaluate("document.querySelector('#text-source .node-delete').click()");
         await app.waitFor("!document.querySelector('#image-0-prompt-field .image-local-prompt-draft')&&!document.getElementById('image-0-prompt').readOnly");
         assert.equal(await app.evaluate("document.getElementById('image-0-prompt')===originalCompactPrompt&&originalCompactPrompt.value==='preserved local draft'"), true);
         await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value?.connections.length===1)");
-        assert.deepEqual(await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.connections)"), [reference], 'disconnecting the prompt never disconnects its image reference');
+        assert.deepEqual(await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.connections)"), [reference], 'deleting the prompt source never disconnects its image reference');
 
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=advanced]').click();originalCompactPrompt.value=Array(14).fill('long prompt line').join('\\n');originalCompactPrompt.dispatchEvent(new Event('input',{bubbles:true}))");
         await settle(app);

@@ -514,9 +514,6 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             element.dataset.parameterGroup = name; element.hidden = true; sections.push(element);
         }
         group(form.querySelector('.image-reference-overview'), 'reference');
-        const inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection,
-            onChange: () => refreshNode(node.id) });
-        form.append(inputs.element); group(inputs.element, 'advanced');
         const grids = Array.from(form.querySelectorAll(':scope > .node-parameter-grid'));
         group(grids[0], 'model');
         const countField = form.querySelector(`[id="${nodeId}-generation-count"]`)?.closest('.node-field');
@@ -567,7 +564,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (fullError) { fullError.tabIndex = 0; fullError.setAttribute('aria-label', '完整运行错误'); form.append(fullError); }
         body.append(placeholder, result);
         form.append(summary, runFeedback);
-        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, model, references, result, inputs, countField, groupButtons, group: null }, [result, progress]);
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, model, references, result, countField, groupButtons, group: null }, [result, progress]);
     }
     updateMode(); updateSwitcher();
     surfaces?.registerModeless?.(panel, { close: () => close(), isOpen: () => !panel.hidden, opener: () => returnFocusElement });
