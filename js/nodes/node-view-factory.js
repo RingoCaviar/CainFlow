@@ -190,7 +190,7 @@ function renderNodeHeader(id, config, options = {}) {
             </div>
             <div class="header-right">
                 <button type="button" class="node-failure-indicator hidden" data-node-id="${id}" title="查看执行错误" aria-label="查看执行错误">
-                    <span aria-hidden="true">!</span>
+                    <span aria-hidden="true">! Err</span>
                 </button>
                 <span class="node-time-badge" id="${id}-time-container" style="display:none">
                     <div class="heartbeat-dot" id="${id}-heartbeat" title="连接正常"></div>
