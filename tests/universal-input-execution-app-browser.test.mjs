@@ -47,13 +47,19 @@ test('a new single-image mask cannot silently consume a later multi-image batch,
         await evaluate("(()=>{const field=document.getElementById('mask-source-generation-count');field.value='2';field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));document.getElementById('btn-run').click()})()");
         await waitFor("imageRequests.filter(r=>r.prompt==='mask source').length===3 && document.getElementById('btn-stop').disabled");
         assert.equal(await evaluate("imageRequests.filter(r=>r.prompt==='masked target').length"), 1, 'changed mask batch is blocked before a new provider request');
-        assert.match(await evaluate("document.querySelector('#mask-target .node-failure-summary').textContent"), /单图/);
+        assert.match(await evaluate("document.querySelector('.image-first-parameter-content[data-node-id=mask-target] .node-failure-summary').textContent"), /单图/);
+        await evaluate("document.getElementById('mask-target').click()");
+        assert.ok(await evaluate("document.querySelector('#mask-target .node-failure-indicator').checkVisibility()"));
+        assert.equal(await evaluate("document.querySelector('#mask-target .node-failure-indicator').textContent.trim()"), '! Err');
+        assert.equal(await evaluate("document.querySelector('#mask-target .node-time-badge').checkVisibility()"), false);
+        await evaluate("document.addEventListener('cainflow:node-failure-clicked',event=>window.mergedErrorTarget=event.detail.nodeId,{once:true});document.querySelector('#mask-target .node-failure-indicator').click()");
+        assert.equal(await evaluate('window.mergedErrorTarget'), 'mask-target');
         await waitFor("(async()=>{const saved=(await fetch('/api/storage/documents/session').then(r=>r.json())).value;return saved?.connections?.find(c=>c.id==='single-mask')?.maskConsumption==='single' && saved.nodes.find(n=>n.id==='mask-source')?.generationCount===2})()");
         await reloadAppBrowser(app);
         await evaluate("document.getElementById('btn-run').click()");
         await waitFor("imageRequests.filter(r=>r.prompt==='mask source').length===2 && document.getElementById('btn-stop').disabled");
         assert.equal(await evaluate("imageRequests.filter(r=>r.prompt==='masked target').length"), 0, 'saved consumption rule cannot be downgraded into legacy compatibility');
-        assert.match(await evaluate("document.querySelector('#mask-target .node-failure-summary').textContent"), /单图/);
+        assert.match(await evaluate("document.querySelector('.image-first-parameter-content[data-node-id=mask-target] .node-failure-summary').textContent"), /单图/);
     });
 });
 
@@ -70,7 +76,7 @@ test('generation validates the complete real reference batch against its protoco
         await evaluate("(()=>{const field=document.getElementById('mask-source-generation-count');field.value='6';field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));document.getElementById('btn-run').click()})()");
         await waitFor("imageRequests.filter(r=>r.prompt==='mask source').length===11 && document.getElementById('btn-stop').disabled");
         assert.equal(await evaluate("imageRequests.filter(r=>r.prompt==='masked target').length"), 1, 'a six-image source is retained and blocked before the next request');
-        assert.match(await evaluate("document.querySelector('#mask-target .node-failure-summary').textContent"), /最多.*5.*6/);
+        assert.match(await evaluate("document.querySelector('.image-first-parameter-content[data-node-id=mask-target] .node-failure-summary').textContent"), /最多.*5.*6/);
         await waitFor("(async()=>{const saved=(await fetch('/api/storage/documents/session').then(r=>r.json())).value;return saved?.nodes?.find(n=>n.id==='mask-source')?.mediaAssetKeys?.length===6})()");
         const edge = await evaluate("(async()=>{const saved=(await fetch('/api/storage/documents/session').then(r=>r.json())).value;return saved.connections.find(c=>c.id==='reference')})()");
         assert.deepEqual(edge, session.connections[0]);

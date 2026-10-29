@@ -199,18 +199,19 @@
 .node-failure-indicator {
     display: inline-grid;
     place-items: center;
-    width: 18px;
-    height: 18px;
-    padding: 0;
+    min-width: 46px;
+    height: 22px;
+    padding: 2px 6px;
     border: 1px solid var(--node-danger-border);
-    border-radius: 50%;
+    border-radius: 4px;
     background: var(--node-danger-surface);
     color: var(--node-danger-text);
-    font: 800 13px/1 sans-serif;
+    font: 700 11px/1 var(--font-mono);
     cursor: pointer;
 }
 
 .node-failure-indicator.hidden { display: none; }
+.node.error .node-time-badge { display: none !important; }
 
 .node-failure-summary {
     position: relative;
