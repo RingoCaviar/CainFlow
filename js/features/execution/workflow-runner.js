@@ -28,7 +28,7 @@ import { getGenerationInputProtocolId } from './provider-request-utils.js';
 import { resolveVideoExecutionInputRecord } from '../../nodes/video-execution-input-record.js';
 import { getNodeImageResultPersistence, IMAGE_RESULT_PERSISTENCE } from '../../nodes/registry.js';
 import { appendReferenceDescriptions } from './reference-image-description.js';
-import { renderImageNodeRunState } from '../../nodes/image-node-run-state.js';
+import { queryImageNodeRunControl, renderImageNodeRunState } from '../../nodes/image-node-run-state.js';
 import { orderImageReferenceConnections } from '../../nodes/image-reference-projection.js';
 
 export function clearNodeExecutionFailure(node) {
@@ -44,7 +44,7 @@ export function clearNodeExecutionFailure(node) {
     const indicator = node.el?.querySelector?.('.node-failure-indicator');
     indicator?.classList.add('hidden');
     if (indicator) indicator.title = '查看执行错误';
-    const summary = node.el?.querySelector?.('.node-failure-summary');
+    const summary = queryImageNodeRunControl(node, '.node-failure-summary');
     summary?.classList.add('hidden');
     if (summary) summary.textContent = '';
     const errorBody = node.parameterRoot?.querySelector?.('.node-error-msg') || node.el?.querySelector?.('.node-error-msg');
@@ -65,7 +65,7 @@ export function showNodeExecutionFailure(node, error) {
     const indicator = node.el?.querySelector?.('.node-failure-indicator');
     indicator?.classList.remove('hidden');
     if (indicator) indicator.title = `执行错误：${message}`;
-    const summary = node.el?.querySelector?.('.node-failure-summary');
+    const summary = queryImageNodeRunControl(node, '.node-failure-summary');
     summary?.classList.remove('hidden');
     if (summary) summary.textContent = message;
     if (inputPort) {

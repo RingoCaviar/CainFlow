@@ -1,16 +1,20 @@
 const RUN_LABELS = { waiting: '待运行', running: '运行中', completed: '完成', error: '失败', aborted: '已取消' };
 
+export function queryImageNodeRunControl(node, selector) {
+    return node?.el?.querySelector?.(selector) || node?.parameterRoot?.querySelector?.(selector);
+}
+
 export function renderImageNodeRunState(node) {
     if (node?.type !== 'ImageGenerate') return;
     const status = node.runStatus || (node.isFailed ? 'error' : node.isSucceeded ? 'completed' : 'waiting');
-    const output = node.el?.querySelector('.image-node-run-status');
+    const output = queryImageNodeRunControl(node, '.image-node-run-status');
     if (output) {
         output.textContent = status === 'completed' && node.generationAttemptIncomplete === true ? '部分完成' : RUN_LABELS[status] || RUN_LABELS.waiting;
         output.dataset.status = status;
     }
-    const feedback = node.el?.querySelector('.image-first-run-feedback');
+    const feedback = queryImageNodeRunControl(node, '.image-parameter-run-feedback');
     if (feedback) feedback.dataset.status = status;
-    const progress = node.el?.querySelector('.api-generation-progress');
+    const progress = queryImageNodeRunControl(node, '.api-generation-progress');
     if (progress) {
         const { completed, total } = node.apiGenerationProgress || {};
         const known = status !== 'waiting' && Number.isInteger(completed) && Number.isInteger(total) && total > 0 && completed >= 0 && completed <= total;
@@ -23,13 +27,13 @@ export function renderImageNodeRunState(node) {
     const dirty = node.el?.querySelector('[data-image-generation-dirty]');
     if (dirty) dirty.hidden = node.generationDirty !== true;
     const message = node.executionFailure?.message || '';
-    const summary = node.el?.querySelector('.node-failure-summary');
+    const summary = queryImageNodeRunControl(node, '.node-failure-summary');
     if (summary) {
         const short = message.replace(/\s+/g, ' ').trim();
         summary.textContent = short.length > 140 ? `${short.slice(0, 139)}…` : short;
         summary.classList.toggle('hidden', !message);
     }
-    const details = node.el?.querySelector('[data-image-run-action=details]');
+    const details = queryImageNodeRunControl(node, '[data-image-run-action=details]');
     if (details) details.hidden = !message;
     const full = node.parameterRoot?.querySelector('.node-error-msg') || node.el?.querySelector('.node-error-msg');
     if (full) {

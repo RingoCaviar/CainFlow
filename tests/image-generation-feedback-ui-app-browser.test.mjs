@@ -35,14 +35,14 @@ async function press(app, selector, milliseconds = 0) {
     await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...position, button: 'left', clickCount: 1 });
 }
 
-test('the external failure row shows a short wrapping reason and original full detail remains readable in the modal and narrow parameter panel', { timeout: 45000 }, async () => {
+test('failure feedback stays inside parameters and original full detail remains readable in the modal and narrow parameter panel', { timeout: 45000 }, async () => {
     await withAppBrowser({ ...configuration, nodes: [generate('failed', 40, 40, 260)], connections: [] }, async app => {
         await controlled(app); await open(app, 'failed');
         await app.evaluate("document.querySelector('[data-parameter-action=generate]').click()");
-        await app.waitFor("document.querySelector('#failed .image-node-run-status')?.dataset.status==='error'&&document.getElementById('btn-stop').disabled");
-        assert.equal(await app.evaluate("!!document.querySelector('#failed > .image-first-run-feedback')"), true);
-        const compact = await app.evaluate("(()=>{const node=document.getElementById('failed'),row=node.querySelector('.image-first-run-feedback'),summary=node.querySelector('.node-failure-summary'),rect=row.getBoundingClientRect();return {nodeBottom:node.getBoundingClientRect().bottom,top:rect.top,summary:summary.textContent,width:summary.clientWidth,scrollWidth:summary.scrollWidth,height:summary.getBoundingClientRect().height}})()");
-        assert.ok(compact.top >= compact.nodeBottom + 4);
+        await app.waitFor("document.getElementById('failed-run-status')?.dataset.status==='error'&&document.getElementById('btn-stop').disabled");
+        assert.equal(await app.evaluate("!!document.querySelector('#failed > .image-first-run-feedback')"), false);
+        const compact = await app.evaluate("(()=>{const panel=document.getElementById('image-parameter-panel'),row=panel.querySelector('.image-parameter-run-feedback'),summary=row.querySelector('.node-failure-summary');return {inPanel:panel.contains(row),summary:summary.textContent,width:summary.clientWidth,scrollWidth:summary.scrollWidth,height:summary.getBoundingClientRect().height}})()");
+        assert.ok(compact.inPanel);
         assert.ok(compact.summary.length < 200 && compact.summary.includes('测试失败'));
         assert.ok(compact.scrollWidth <= compact.width + 1 && compact.height <= 48);
         if (await app.evaluate("document.getElementById('modal-error').classList.contains('active')")) {
@@ -50,7 +50,7 @@ test('the external failure row shows a short wrapping reason and original full d
             await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
             await app.waitFor("!document.getElementById('modal-error').classList.contains('active')");
         }
-        await press(app, '#failed [data-image-run-action=details]');
+        await press(app, '#image-parameter-panel [data-image-run-action=details]');
         await app.waitFor("document.getElementById('modal-error').classList.contains('active')");
         await app.evaluate("if(!document.getElementById('btn-show-full-log').classList.contains('hidden'))document.getElementById('btn-show-full-log').click()");
         assert.match(await app.evaluate("document.getElementById('error-modal-detail').textContent+document.getElementById('error-modal-msg').textContent"), /完整错误尾标：保留所有排查细节/);
@@ -70,11 +70,13 @@ test('successful status never covers the original result operations or the param
     await withAppBrowser({ ...configuration, nodes: [generate('success', 40, 40, 420)], connections: [] }, async app => {
         await controlled(app); await open(app, 'success');
         await app.evaluate("feedbackSuccess=true;document.querySelector('[data-parameter-action=generate]').click()");
-        await app.waitFor("document.querySelector('#success .image-node-run-status')?.dataset.status==='completed'&&document.querySelector('#success [data-result-action=reference]')");
+        await app.waitFor("document.getElementById('success-run-status')?.dataset.status==='completed'&&document.querySelector('#success [data-result-action=reference]')");
         const position = await point(app, '#success [data-result-action=reference]');
         assert.equal(await app.evaluate(`document.querySelector('#success [data-result-action=reference]').contains(document.elementFromPoint(${position.x},${position.y}))`), true, 'the original result reference action remains reachable alongside the success row');
-        const geometry = await app.evaluate("(()=>{const row=document.querySelector('#success .image-first-run-feedback').getBoundingClientRect(),actions=document.querySelector('#success .image-result-actions').getBoundingClientRect(),panel=document.getElementById('image-parameter-panel').getBoundingClientRect();return {rowBottom:row.bottom,actionsTop:actions.top,actionsBottom:actions.bottom,panelTop:panel.top,font:parseFloat(getComputedStyle(document.getElementById('success-run-status')).fontSize)}})()");
-        assert.ok(geometry.actionsTop >= geometry.rowBottom + 4 && geometry.panelTop >= geometry.actionsBottom + 8);
+        const geometry = await app.evaluate("(()=>{const node=document.getElementById('success'),actions=node.querySelector('.image-result-actions').getBoundingClientRect(),panel=document.getElementById('image-parameter-panel').getBoundingClientRect(),preview=node.querySelector('.image-node-result-preview');return {nodeWidth:node.clientWidth,previewWidth:preview.clientWidth,fit:getComputedStyle(preview.querySelector('img')).objectFit,nodeBottom:node.getBoundingClientRect().bottom,actionsTop:actions.top,actionsBottom:actions.bottom,panelTop:panel.top,font:parseFloat(getComputedStyle(document.getElementById('success-run-status')).fontSize)}})()");
+        assert.ok(geometry.actionsTop >= geometry.nodeBottom + 4 && geometry.panelTop >= geometry.actionsBottom + 8);
+        assert.ok(geometry.previewWidth >= geometry.nodeWidth - 20, 'generated media uses the card width with a narrow gutter');
+        assert.equal(geometry.fit, 'contain', 'the complete image remains visible');
         assert.ok(geometry.font >= 13);
     });
 });
@@ -106,7 +108,7 @@ test('waiting has no fabricated progress and the original reachable two-second c
     ] }, async app => {
         await controlled(app, true); await open(app, 'target');
         await app.evaluate("document.querySelector('[data-parameter-group-toggle=input]').click();document.querySelector('[data-parameter-action=generate]').click()");
-        await app.waitFor("feedbackRequests.length===1&&document.querySelector('#target .image-node-run-status')?.dataset.status==='waiting'");
+        await app.waitFor("feedbackRequests.length===1&&document.getElementById('target-run-status')?.dataset.status==='waiting'");
         assert.equal(await app.evaluate("document.getElementById('target-generation-progress').checkVisibility()"), false);
         assert.equal(await app.evaluate("document.querySelector('[data-parameter-action=generate]').disabled"), true);
         assert.equal(await app.evaluate("[...document.querySelectorAll('.image-input-detail select,.image-input-detail button')].every(control=>control.disabled)"), true);
@@ -115,7 +117,7 @@ test('waiting has no fabricated progress and the original reachable two-second c
         await delay(350);
         assert.equal(await app.evaluate('feedbackAborted'), false, 'a normal click never cancels the request');
         await press(app, '#upstream .node-run-cancel-btn', 2150);
-        await app.waitFor("feedbackAborted&&document.querySelector('#upstream .image-node-run-status')?.dataset.status==='aborted'&&document.getElementById('btn-stop').disabled");
+        await app.waitFor("feedbackAborted&&document.getElementById('upstream-run-status')?.dataset.status==='aborted'&&document.getElementById('btn-stop').disabled");
         assert.equal(await app.evaluate("document.querySelector('#upstream .node-run-cancel-btn').checkVisibility()"), false);
         assert.equal(await app.evaluate("['upstream','target'].every(id=>document.getElementById(id))&&[...document.querySelectorAll('#nodes-layer>.node')].filter(node=>!['upstream','target'].includes(node.id)).every(node=>node.classList.contains('node-save'))"), true);
     });

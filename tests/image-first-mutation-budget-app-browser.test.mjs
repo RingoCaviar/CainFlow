@@ -22,7 +22,7 @@ test('the public image-first view ignores identical classes and positions its ed
             api.install(node.id);
             const settle=()=>new Promise(resolve=>win.requestAnimationFrame(()=>win.requestAnimationFrame(()=>win.requestAnimationFrame(resolve))));
             await settle();
-            const model=node.el.querySelector('.image-first-summary>span'),field=doc.getElementById('budget-save-filename'),panel=doc.getElementById('image-parameter-panel');
+            const model=node.parameterRoot.querySelector('.image-first-summary>span'),field=doc.getElementById('budget-save-filename'),panel=doc.getElementById('image-parameter-panel');
             let summaryWrites=0;new MutationObserver(records=>summaryWrites+=records.length).observe(model,{childList:true,characterData:true,subtree:true});
             window.budgetView={node,state,api,doc,panel,model,field,settle,get graphReads(){return graphReads},get summaryWrites(){return summaryWrites},get settingsChanges(){return settingsChanges},reset(){graphReads=0;summaryWrites=0}};
         })()`);

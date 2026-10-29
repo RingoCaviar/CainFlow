@@ -76,6 +76,14 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
             assert.equal(measurements.header, 'absolute');
             assert.ok(measurements.overflow <= 1, `${type} does not overflow horizontally`);
             if (type === 'ImageImport') { assert.equal(measurements.footerHidden, true); assert.ok(measurements.height < 160); }
+            if (type === 'ImageImport' || type === 'ImageSave') {
+                assert.equal(await app.evaluate(`!!document.querySelector('#image-${index} .image-first-summary')`), false, `${type} keeps metadata off the card`);
+                assert.ok(await app.evaluate("!!document.querySelector('#image-parameter-panel .image-first-summary')"));
+            }
+            if (type === 'ImageSave') {
+                assert.equal(await app.evaluate("document.querySelector('#image-7-save-preview .image-save-preview-tools')===null"), true);
+                assert.equal(await app.evaluate("document.querySelectorAll('#image-parameter-panel .image-save-preview-tools').length"), 1, 'the original image/video controls exist once inside parameters');
+            }
         }
         await open(app, 'image-0');
         assert.equal(await app.evaluate("document.getElementById('image-0-generation-count').value"), '2');
