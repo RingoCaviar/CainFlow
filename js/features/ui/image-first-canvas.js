@@ -216,8 +216,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             for (const [group, button] of view.groupButtons || []) {
                 const text = group === 'model' ? (model?.name || model?.modelId || '选择模型')
                     : group === 'size' ? `${settings.aspect || '自动'} · ${settings.resolution || '自动'}`
-                        : group === 'reference' ? `参考 ${count}`
-                            : group === 'input' ? `输入 ${state.connections.filter(edge => edge.to.nodeId === node.id).length}` : '更多参数';
+                        : group === 'reference' ? `参考 ${count}` : '更多参数';
                 setText(button, text);
                 if (button.title !== text) button.title = text;
             }
@@ -517,7 +516,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         group(form.querySelector('.image-reference-overview'), 'reference');
         const inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection,
             onChange: () => refreshNode(node.id) });
-        form.append(inputs.element); group(inputs.element, 'input');
+        form.append(inputs.element); group(inputs.element, 'advanced');
         const grids = Array.from(form.querySelectorAll(':scope > .node-parameter-grid'));
         group(grids[0], 'model');
         const countField = form.querySelector(`[id="${nodeId}-generation-count"]`)?.closest('.node-field');
@@ -531,7 +530,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         group(form.querySelector('.node-advanced-parameters'), 'advanced');
         const bar = documentRef.createElement('div'); bar.className = 'image-parameter-setting-bar';
         const groupButtons = new Map();
-        for (const [name, label] of [['input','输入'],['reference','参考图'],['model','模型 / 供应商'],['size','尺寸 / 质量'],['advanced','更多参数']]) {
+        for (const [name, label] of [['reference','参考图'],['model','模型 / 供应商'],['size','尺寸 / 质量'],['advanced','更多参数']]) {
             const button = documentRef.createElement('button'); button.type = 'button'; button.textContent = label;
             button.dataset.parameterGroupToggle = name; button.setAttribute('aria-expanded', 'false');
             button.addEventListener('click', () => setGroup(node, name)); bar.append(button);

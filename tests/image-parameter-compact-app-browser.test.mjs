@@ -44,6 +44,7 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         assert.ok(await app.evaluate("!!document.querySelector('#image-parameter-panel [data-image-generation-dirty]')"));
         assert.equal(await app.evaluate("document.querySelector('#image-0-prompt-source details').open"), true);
         assert.equal(await app.evaluate("document.querySelector('#image-0-prompt-field .image-local-prompt-draft').open"), false);
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=input]')===null"), true);
         assert.equal(await app.evaluate("document.getElementById('image-0-prompt').value"), 'preserved local draft');
         assert.ok(await app.evaluate("document.getElementById('image-0-prompt-source').textContent.includes('effective upstream prompt')"));
         await app.evaluate("window.originalCompactPrompt=document.getElementById('image-0-prompt');document.querySelector('#image-parameter-panel .generation-count-btn[data-delta=\"1\"]').click()");
@@ -57,7 +58,7 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         assert.equal(await app.evaluate("document.querySelector('#image-0-reference-sources .image-reference-more').open"), true);
         assert.ok(await app.evaluate("document.querySelector('#image-0-reference-sources .image-reference-disconnect').textContent.includes('1')"));
 
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=input]').click();document.querySelector('[data-input-connection-id=prompt-edge] .image-source-more-trigger').click()");
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=advanced]').click();document.querySelector('[data-input-connection-id=prompt-edge] .image-source-more-trigger').click()");
         assert.equal(await app.evaluate("document.querySelector('[data-input-connection-id=prompt-edge] .image-source-more').open"), true);
         await app.evaluate("document.querySelector('[data-input-edge-id=prompt-edge][data-input-action=disconnect]').click()");
         await app.waitFor("!document.querySelector('#image-0-prompt-field .image-local-prompt-draft')&&!document.getElementById('image-0-prompt').readOnly");
@@ -65,7 +66,7 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value?.connections.length===1)");
         assert.deepEqual(await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.connections)"), [reference], 'disconnecting the prompt never disconnects its image reference');
 
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=input]').click();originalCompactPrompt.value=Array(14).fill('long prompt line').join('\\n');originalCompactPrompt.dispatchEvent(new Event('input',{bubbles:true}))");
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=advanced]').click();originalCompactPrompt.value=Array(14).fill('long prompt line').join('\\n');originalCompactPrompt.dispatchEvent(new Event('input',{bubbles:true}))");
         await settle(app);
         const automatic = await app.evaluate("(()=>{const e=originalCompactPrompt,s=getComputedStyle(e);return {height:e.offsetHeight,line:parseFloat(s.lineHeight),padding:parseFloat(s.paddingTop)+parseFloat(s.paddingBottom),font:parseFloat(s.fontSize)}})()");
         assert.ok(automatic.font >= 13);
