@@ -93,11 +93,6 @@
     border-radius: 4px;
 }
 
-.workflow-backup-notice {
-    border-color: var(--notice-highlight-border);
-    background: var(--notice-highlight-bg);
-}
-
 .batch-connection-mode-notice {
     border-color: color-mix(in srgb, var(--accent-green, #10b981) 44%, transparent);
     background: color-mix(in srgb, var(--accent-green, #10b981) 14%, var(--notice-bg));

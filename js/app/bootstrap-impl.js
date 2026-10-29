@@ -541,25 +541,6 @@ function getSystemNotificationApi() {
     return registry.systemNotificationApi;
 }
 
-function initFloatingNotices() {
-    const notices = getFloatingNoticesApi();
-    const workflowBackupDismissStorageKey = 'cainflow_workflow_backup_notice_dismissed';
-
-    notices.upsertNotice({
-        id: 'workflow-backup',
-        priority: 10,
-        className: 'workflow-backup-notice',
-        icon: '!',
-        content: ['更新前请备份 ', { code: true, text: 'workflows 文件夹' }, '。'],
-        dismissStorageKey: workflowBackupDismissStorageKey,
-        dismissScope: 'session',
-        dismissible: true,
-        closeText: '本次隐藏',
-        closeLabel: '本次不再显示工作流备份提醒'
-    });
-
-}
-
 const updateManager = createUpdateManager({
     appVersion: APP_VERSION,
     githubRepo: GITHUB_REPO,
@@ -2118,7 +2099,6 @@ uiFeature = createUiFeature({
 });
 
 function initFeatureModules() {
-    initFloatingNotices();
     settingsFeature.initSettingsFeature();
     historyFeature.initHistoryFeature();
     helpPanelApi.initHelpPanel();
