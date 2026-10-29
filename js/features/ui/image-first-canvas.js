@@ -131,7 +131,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         panel.style.width = `${width}px`;
         panel.style.height = '';
         panel.style.left = `${rect.left + rect.width / 2 - width / 2}px`;
-        const floatingBottoms = ['.image-result-actions']
+        const floatingBottoms = ['.image-result-actions', '.node-run-cancel-btn']
             .map(selector => current.el.querySelector(selector)).filter(element => element?.getClientRects().length)
             .map(element => element.getBoundingClientRect().bottom + 12);
         panel.style.top = `${Math.max(rect.bottom + 12, ...floatingBottoms)}px`;

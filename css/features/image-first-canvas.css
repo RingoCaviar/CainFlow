@@ -609,6 +609,7 @@ html:root #canvas-container .node.image-first-media > .node-body {
 .image-input-replacement > select { flex: 1 0 100%; width: 100%; }
 .image-input-detail :is(button, select):focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
 .node.image-first-card .image-result-actions{position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);width:max-content;max-width:600px;flex-wrap:nowrap;margin:0;z-index:3}
+.node.image-first-card.running .image-result-actions{top:calc(100% + 58px)}
 .node.image-first-card:not(.selected) .image-result-actions{top:12px;right:76px;left:auto;transform:none;max-width:80px}
 .image-parameter-panel .node-advanced-parameters>summary{display:none}
 
