@@ -110,10 +110,10 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
                 assert.ok(await app.evaluate("!!document.querySelector('#image-parameter-panel .image-first-summary')"));
             }
             if (type === 'CameraControl') {
-                assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .camera-control-note').checkVisibility()"), false);
-                await app.evaluate("document.querySelector('#image-parameter-panel .image-camera-help>summary').click()");
-                assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .camera-control-note').checkVisibility()"));
-                assert.equal(await app.evaluate("document.querySelectorAll('#image-parameter-panel .image-camera-state-summary dd').length"), 6);
+                assert.equal(await app.evaluate("document.querySelectorAll('#image-parameter-panel .image-camera-help,#image-parameter-panel .image-camera-state-summary').length"), 0);
+                assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').checkVisibility()"), false);
+                assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .image-camera-prompt-details').checkVisibility()"));
+                assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=generate]').textContent"), '编辑视角');
             }
             if (type === 'ImageSave') {
                 assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').checkVisibility()"), false);
@@ -134,6 +134,8 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').click();document.querySelector('#image-parameter-panel [data-parameter-group-toggle=advanced]').click()");
         await settle(app);
         assert.ok(await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel').getBoundingClientRect(),b=document.querySelector('#image-parameter-panel [data-parameter-action=generate]').getBoundingClientRect();return b.top>=p.top&&b.bottom<=p.bottom+1})()"), 'expanded long settings keep the primary action reachable');
+        await open(app, 'image-8');
+        assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').dataset.mode"), 'normal');
         await open(app, 'image-1');
         assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').dataset.mode"), 'normal', 'switching from an expanded node restores the compact import mode');
         await open(app, 'image-0');

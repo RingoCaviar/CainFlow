@@ -497,11 +497,6 @@ html:root #canvas-container .node.image-first-media > .node-body {
 .node.image-first-media .camera-control-node-preview img { object-fit: contain; }
 .node.image-first-media .camera-control-open-btn { order: 2; flex: 0 0 auto; min-height: 30px; border-color: var(--node-control-border); background: var(--node-control-surface); color: var(--text-primary); }
 .node.image-first-media .camera-control-open-btn:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; box-shadow: none; }
-.image-parameter-panel .camera-control-note { border-color: var(--node-control-border); background: var(--node-control-surface); color: var(--text-secondary); }
-.image-camera-state-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px 9px; margin: 0; }
-.image-camera-state-summary > div { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 7px; }
-.image-camera-state-summary dt { color: var(--text-secondary); font-size: 12px; }
-.image-camera-state-summary dd { margin: 0; color: var(--text-primary); font-size: 13px; font-variant-numeric: tabular-nums; }
 .image-camera-prompt-summary { display: block; max-height: 160px; padding: 9px; overflow: auto; border: 1px solid var(--node-control-border); border-radius: 7px; background: var(--node-control-surface); color: var(--text-secondary); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .image-camera-prompt-summary:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 .image-input-order-controls { display: flex; align-items: center; gap: 5px; }
@@ -600,7 +595,6 @@ html:root #canvas-container .node.image-first-media > .node-body {
 .image-parameter-panel:not(.is-expanded):is([data-node-type="ImagePreview"], [data-node-type="ImageCompare"], [data-node-type="ImageMerge"]) .image-input-detail > .image-input-row:first-child > .image-input-source { padding-right: 62px; }
 .image-parameter-panel:not(.is-expanded)[data-node-type="ImageSave"] .save-no-path-warning { padding-right: 62px; }
 .image-parameter-panel:not(.is-expanded)[data-node-type="ImageSave"]:not(:has(.save-no-path-warning:not(.hidden))) .image-first-parameter-content > .node-field { margin-right: 62px; }
-.image-parameter-panel:not(.is-expanded)[data-node-type="CameraControl"] .camera-control-note { padding-right: 64px; }
 .image-parameter-panel.is-expanded .image-parameter-scroll { padding-top: 2px; }
 .image-parameter-panel .node-field { gap: 4px; margin: 0; }
 .image-parameter-panel .node-parameter-grid { gap: 6px 8px; }
@@ -657,12 +651,10 @@ html:root #canvas-container .node.image-first-media > .node-body {
 .image-parameter-panel .color-reset-slider-header label { max-width: 82px; }
 .image-parameter-panel .color-reset-slider-header input[type="number"] { position: absolute; top: 0; right: 0; width: 50px; min-height: 30px; font-size: 13px; }
 .image-parameter-panel .color-reset-range-shell { position: absolute; top: 6px; left: 88px; right: 58px; }
-.image-parameter-panel .image-camera-state-summary > div { padding: 3px 0; }
 .image-parameter-panel .image-camera-prompt-summary { padding: 6px; }
 .image-parameter-panel .image-camera-prompt-details > summary { min-height: 28px; color: var(--text-secondary); cursor: pointer; }
 .image-parameter-panel .image-camera-prompt-details .image-camera-prompt-summary { margin-top: 4px; }
 .image-parameter-panel[data-node-type="ImageSave"] .node-field:has(input[id$="-filename"]) { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 7px; }
-.image-parameter-panel .camera-control-note { margin: 0; padding: 6px; font-size: 12px; }
 .image-parameter-panel .image-import-url-fields { gap: 5px; }
 .image-parameter-panel[data-node-type="ImageImport"] .image-first-parameter-content { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; align-content: start; gap: 5px 6px; }
 .image-parameter-panel[data-node-type="ImageImport"] .image-import-mode-shell { grid-column: 2; grid-row: 1; justify-self: center; width: max-content; margin: 0; padding: 2px; border-radius: 7px; }
@@ -687,7 +679,6 @@ html:root #canvas-container .node.image-first-media > .node-body {
 .image-parameter-panel .image-reference-more { margin-top: 3px; }
 
 @container (max-width: 360px) {
-    .image-camera-state-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .image-parameter-panel .image-resize-dimensions-section { grid-template-columns: minmax(0, 1fr); }
     .image-parameter-panel .color-reset-range-shell { left: 82px; }
 }
@@ -721,11 +712,6 @@ html:root #canvas-container .node.node-media-aspect .node-media-aspect-surface {
 .image-parameter-panel[data-node-type="ImageSave"] .image-first-summary { display: none; }
 .image-parameter-panel[data-has-feedback="false"] .image-parameter-footer { justify-content: center; }
 .image-parameter-panel .image-input-row:last-child { padding-bottom: 0; border-bottom: 0; }
-.image-parameter-panel .image-camera-help { margin: 0; }
-.image-parameter-panel .image-camera-help > summary { min-height: 28px; line-height: 28px; font-size: 13px; color: var(--text-secondary); cursor: pointer; }
-.image-parameter-panel .image-camera-help:not([open]) > .camera-control-note { display: none; }
-.image-parameter-panel .image-camera-help .camera-control-note { padding: 4px 0; }
-.image-parameter-panel:not(.is-expanded)[data-node-type="CameraControl"] .image-camera-help > summary { padding-right: 64px; }
 
 .image-parameter-panel .image-input-more { display: none; }
 
@@ -734,3 +720,5 @@ html:root #canvas-container .node.node-media-aspect .node-media-aspect-surface {
 .image-parameter-panel[data-node-type="ImageSave"] .save-btn-group { display: flex; justify-content: center; gap: 6px; margin: 0; }
 .image-parameter-panel[data-node-type="ImageSave"] .save-btn-group > button { flex: 0 1 140px; margin: 0; min-height: 32px; }
 .image-parameter-panel:not(.is-expanded)[data-node-type="ImageSave"]:not(:has(.save-no-path-warning:not(.hidden))) .image-first-parameter-content > .node-field { margin-right: 32px; }
+
+.image-parameter-panel:not(.is-expanded)[data-node-type="CameraControl"] .image-camera-prompt-details > summary { padding-right: 32px; }

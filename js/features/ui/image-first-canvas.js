@@ -75,7 +75,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         agentFront.setAttribute('aria-expanded', String(!!agentOpen));
     }
     function updateMode() {
-        const canExpand = !['ImageImport', 'ImageSave'].includes(current?.type);
+        const canExpand = !['ImageImport', 'ImageSave', 'CameraControl'].includes(current?.type);
         if (!canExpand) { expanded = false; expandedRect = null; }
         expandButton.hidden = expandButton.disabled = !canExpand;
         panel.classList.toggle('is-expanded', expanded); panel.dataset.mode = expanded ? 'expanded' : 'normal';
@@ -251,10 +251,6 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             const message = node.el.querySelector('.camera-control-node-preview')?.dataset.cameraMessage;
             setText(view.model, `俯仰 ${settings.pitch}° · 偏航 ${settings.yaw}°${message ? ` · ${message}` : ''}`);
             setText(view.references, `输入 ${state.connections.filter(edge => edge.to.nodeId === node.id).length}`);
-            for (const [key, element] of view.cameraValues) {
-                setText(element, key === 'viewMode' ? (node.data?.cameraViewMode === 'thirdPerson' ? '第三人称' : '第一人称')
-                    : `${settings[key]}${key === 'distance' ? '' : '°'}`);
-            }
             setText(view.cameraPrompt, node.data?.cameraPrompt || node.data?.text || '');
         }
         view.inputs?.refresh();
@@ -400,7 +396,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const sections = [], observed = [];
         const summary = documentRef.createElement('div'); summary.className = 'image-first-summary';
         const model = documentRef.createElement('span'); summary.append(model);
-        let inputs = null, references = null, urlFields = null, cameraOpen = null, cameraValues = null, cameraPrompt = null;
+        let inputs = null, references = null, urlFields = null, cameraOpen = null, cameraPrompt = null;
         node.el.classList.add('image-first-media');
         if (node.type === 'ImageImport') {
             const mode = body.querySelector('.image-import-mode-shell');
@@ -423,24 +419,13 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 if (filename) form.append(filename);
             } else if (node.type === 'CameraControl') {
                 cameraOpen = body.querySelector(`[id="${node.id}-camera-open"]`);
-                const note = body.querySelector('.camera-control-note');
-                if (note) {
-                    const help = documentRef.createElement('details'); help.className = 'image-camera-help';
-                    const heading = documentRef.createElement('summary'); heading.textContent = '视角说明';
-                    help.append(heading, note); form.append(help);
-                }
-                const details = documentRef.createElement('dl'); details.className = 'image-camera-state-summary';
-                details.setAttribute('aria-label', '相机参数（只读）'); cameraValues = new Map();
-                for (const [key, label] of [...cameraFields, ['viewMode', '预览模式']]) {
-                    const row = documentRef.createElement('div'), title = documentRef.createElement('dt'), value = documentRef.createElement('dd');
-                    title.textContent = label; value.dataset.cameraSummary = key; row.append(title, value); details.append(row); cameraValues.set(key, value);
-                }
+                body.querySelector('.camera-control-note')?.remove();
                 cameraPrompt = documentRef.createElement('output'); cameraPrompt.className = 'image-camera-prompt-summary';
                 cameraPrompt.setAttribute('aria-label', '相机提示词（只读）'); cameraPrompt.tabIndex = 0;
                 const promptDisclosure = documentRef.createElement('details'); promptDisclosure.className = 'image-camera-prompt-details';
                 const promptSummary = documentRef.createElement('summary'); promptSummary.textContent = '相机提示词（只读）';
                 promptDisclosure.append(promptSummary, cameraPrompt);
-                form.append(details, promptDisclosure);
+                form.append(promptDisclosure);
             }
             installUniversalInput(node);
             inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, swapInputConnections, moveMergeInputConnection, onChange: () => refreshNode(node.id) });
@@ -458,7 +443,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             const actions = body.querySelector('.save-btn-group');
             if (actions) form.append(actions);
         }
-        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, model, references, inputs, urlFields, cameraOpen, cameraValues, cameraPrompt,
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, model, references, inputs, urlFields, cameraOpen, cameraPrompt,
             group: node.type !== 'ImageImport' ? 'input' : null }, observed);
     }
     function installProcessing(node) {
@@ -573,7 +558,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (surfaces?.closeModeless) surfaces.closeModeless(panel); else close();
     });
     expandButton.addEventListener('click', () => {
-        if (['ImageImport', 'ImageSave'].includes(current?.type)) return;
+        if (['ImageImport', 'ImageSave', 'CameraControl'].includes(current?.type)) return;
         finishGesture(true); expanded = !expanded; expandedRect = null; updateMode(); position(); surfaces?.bringToFront?.(panel);
     });
     parametersFront.addEventListener('click', () => {

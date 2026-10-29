@@ -180,7 +180,8 @@ test('the original camera editor keeps five controls and gestures and sends deri
         assert.deepEqual(after.connections, connections);
         assert.deepEqual(after.nodes.find(node => node.id === 'source').mediaAssetKeys, source.mediaAssetKeys);
         assert.equal(after.nodes.find(node => node.id === 'source').imagePreviewIndex, source.imagePreviewIndex);
-        assert.deepEqual(await app.evaluate("(()=>{const node=document.getElementById('camera');return [node.style.left,node.style.top,node.offsetWidth,node.offsetHeight]})()"), geometry);
+        assert.deepEqual(await app.evaluate("(()=>{const node=document.getElementById('camera');return [node.style.left,node.style.top,node.offsetWidth]})()"), geometry.slice(0, 3), 'camera edits preserve canvas position and width while preview height follows its media');
+        assert.ok(await app.evaluate("(()=>{const preview=document.querySelector('#camera .camera-control-node-preview'),image=preview.querySelector('img');return image?.naturalWidth>0&&Math.abs(preview.offsetHeight-preview.offsetWidth*image.naturalHeight/image.naturalWidth)<=2})()"), 'camera reference preview retains the original media ratio');
         await app.evaluate("document.getElementById('btn-save-workflow').click()");
         await app.waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
         const sourceOwner = await app.evaluate("(async()=>{const graph=(await fetch('/api/storage/documents/session').then(response=>response.json())).value;return (await fetch('/api/storage/media-owners?workflowId='+encodeURIComponent(graph.activeWorkflowId)).then(response=>response.json())).owners.find(owner=>owner.ownerType==='workflow-node'&&owner.ownerId==='source')})()");
