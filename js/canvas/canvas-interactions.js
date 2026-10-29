@@ -234,7 +234,7 @@ export function createCanvasInteractionsApi({
                     width: finalWidth,
                     normalizeFlexibleHeights: true
                 });
-                finalHeight = Math.max(finalHeight, Number(minimum?.minHeight) || 0);
+                finalHeight = node.el.classList.contains('node-media-aspect') ? minimum.minHeight : Math.max(finalHeight, Number(minimum?.minHeight) || 0);
                 node.el.style.width = `${Math.round(finalWidth)}px`;
                 node.el.style.height = `${Math.round(finalHeight)}px`;
             }
@@ -1095,8 +1095,11 @@ export function createCanvasInteractionsApi({
                     const edge = r.edge || 'bottom-right';
                     const movesLeft = edge.includes('left');
                     const movesTop = edge.includes('top');
-                    const targetW = r.startWidth + (movesLeft ? -dx : edge.includes('right') ? dx : 0);
+                    let targetW = r.startWidth + (movesLeft ? -dx : edge.includes('right') ? dx : 0);
                     const targetH = r.startHeight + (movesTop ? -dy : edge.includes('bottom') ? dy : 0);
+                    if (r.mediaAspectRatio > 0 && (edge === 'top' || edge === 'bottom' || Math.abs(dy * r.mediaAspectRatio) > Math.abs(dx))) {
+                        targetW = r.startWidth + (movesTop ? -dy : dy) * r.mediaAspectRatio;
+                    }
                     let dynamicMinWidth = r.minWidth;
                     let dynamicMinHeight = typeof getNodeMinimumSize === 'function' ? 0 : r.minHeight;
                     const configuredMaxWidth = Number.isFinite(r.maxWidth) && r.maxWidth > 0 ? r.maxWidth : Infinity;
@@ -1125,7 +1128,7 @@ export function createCanvasInteractionsApi({
                     }
 
                     const maxHeight = configuredMaxHeight >= dynamicMinHeight ? configuredMaxHeight : Infinity;
-                    const newH = Math.min(Math.max(targetH, dynamicMinHeight), maxHeight);
+                    const newH = node.el.classList.contains('node-media-aspect') ? dynamicMinHeight : Math.min(Math.max(targetH, dynamicMinHeight), maxHeight);
                     node.el.style.width = constrainedWidth + 'px';
                     node.el.style.height = newH + 'px';
                     if (movesLeft) {

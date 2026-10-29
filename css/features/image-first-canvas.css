@@ -422,7 +422,6 @@ html:root #canvas-container .node.image-first-card > .node-body.is-collapsed { d
 
 @container (max-width: 320px) {
     .node.image-first-card > .node-ports-row { grid-template-columns: 54px 54px; }
-    html:root #canvas-container .node.image-first-card > .node-body { padding-inline: 66px; }
 }
 
 .image-parameter-setting-bar{display:flex;flex-wrap:wrap;gap:5px}
@@ -709,3 +708,18 @@ html:root #canvas-container .node.image-first-media > .node-body {
     .image-parameter-panel .image-resize-dimensions-section { grid-template-columns: minmax(0, 1fr); }
     .image-parameter-panel .color-reset-range-shell { left: 82px; }
 }
+
+/* Loaded media owns preview height; node width and non-media controls stay independent. */
+html:root #canvas-container .node.node-media-aspect { min-height: 0 !important; }
+html:root #canvas-container .node.node-media-aspect > .node-body { width: 100%; height: auto; min-height: 0; flex: 0 0 auto; }
+html:root #canvas-container .node.node-media-aspect :is(.image-node-results, .image-node-result-media, .image-import-upload-section, .image-import-url-section, .image-resize-preview-frame, .image-merge-panel, .camera-control-compact) { width: 100%; min-width: 0; box-sizing: border-box; flex: 0 0 auto; height: auto; min-height: 0; }
+html:root #canvas-container .node.node-media-aspect .node-media-aspect-surface {
+    flex: 0 0 auto;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    box-sizing: border-box;
+    aspect-ratio: var(--node-media-aspect);
+}
+.node.node-media-aspect .node-video-result-field .chat-response-area { height: auto; min-height: 0; }
