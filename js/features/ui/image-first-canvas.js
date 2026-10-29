@@ -75,7 +75,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         agentFront.setAttribute('aria-expanded', String(!!agentOpen));
     }
     function updateMode() {
-        const canExpand = current?.type !== 'ImageImport';
+        const canExpand = !['ImageImport', 'ImageSave'].includes(current?.type);
         if (!canExpand) { expanded = false; expandedRect = null; }
         expandButton.hidden = expandButton.disabled = !canExpand;
         panel.classList.toggle('is-expanded', expanded); panel.dataset.mode = expanded ? 'expanded' : 'normal';
@@ -263,7 +263,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 ? (view.urlFields.hidden ? 'upload' : 'url') : '';
             widthHandle.hidden = node.type === 'ImageImport' && panel.dataset.importMode === 'upload';
             const running = state.runningNodeIds?.has(node.id) || ['waiting', 'running'].includes(node.runStatus) || node.el.classList.contains('running');
-            generate.hidden = node.type === 'ImageImport';
+            generate.hidden = node.type === 'ImageImport' || node.type === 'ImageSave';
             setText(generate, node.type === 'ImagePreview' ? (running ? '更新中' : '更新预览')
                 : node.type === 'ImageCompare' ? (running ? '更新中' : '更新对比')
                 : node.type === 'ImageMerge' ? (running ? '合并中' : '更新合并')
@@ -287,7 +287,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             const hasFeedback = node.type !== 'ImageGenerate' && !!feedback.textContent && !passiveFeedback.includes(feedback.textContent);
             feedback.hidden = !hasFeedback;
             panel.dataset.hasFeedback = String(hasFeedback);
-            footer.hidden = node.type === 'ImageImport';
+            footer.hidden = node.type === 'ImageImport' || node.type === 'ImageSave' && !hasFeedback;
             schedulePosition();
         }
     }
@@ -455,6 +455,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (node.type === 'ImageSave') {
             const tools = body.querySelector('.image-save-preview-tools');
             if (tools) form.append(tools);
+            const actions = body.querySelector('.save-btn-group');
+            if (actions) form.append(actions);
         }
         registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, model, references, inputs, urlFields, cameraOpen, cameraValues, cameraPrompt,
             group: node.type !== 'ImageImport' ? 'input' : null }, observed);
@@ -571,7 +573,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (surfaces?.closeModeless) surfaces.closeModeless(panel); else close();
     });
     expandButton.addEventListener('click', () => {
-        if (current?.type === 'ImageImport') return;
+        if (['ImageImport', 'ImageSave'].includes(current?.type)) return;
         finishGesture(true); expanded = !expanded; expandedRect = null; updateMode(); position(); surfaces?.bringToFront?.(panel);
     });
     parametersFront.addEventListener('click', () => {

@@ -1785,8 +1785,8 @@ export function createNodeLifecycleApi({
                             savePreview.dataset.saveMode = 'video';
                             savePreview.innerHTML = `<video src="${nodeData.data.video.url}" controls preload="metadata" playsinline style="width:100%;height:100%;object-fit:contain;border-radius:12px;background:rgba(0,0,0,0.08);"></video>`;
                         }
-                        const manualSaveBtn = el.querySelector(`#${id}-manual-save`);
-                        const viewFullBtn = el.querySelector(`#${id}-view-full`);
+                        const manualSaveBtn = el.querySelector(`#${id}-manual-save`) || nodeData.parameterRoot?.querySelector(`#${id}-manual-save`);
+                        const viewFullBtn = el.querySelector(`#${id}-view-full`) || nodeData.parameterRoot?.querySelector(`#${id}-view-full`);
                         if (manualSaveBtn) manualSaveBtn.disabled = false;
                         if (viewFullBtn) viewFullBtn.disabled = false;
                         onConnectionsChanged();
@@ -1795,8 +1795,8 @@ export function createNodeLifecycleApi({
                             const saveImages = getCanonicalImageList(nodeData, { includeResizePreview: false });
                             renderImageSavePreview(id, saveImages.length > 0 ? saveImages : data);
                         }
-                        const manualSaveBtn = el.querySelector(`#${id}-manual-save`);
-                        const viewFullBtn = el.querySelector(`#${id}-view-full`);
+                        const manualSaveBtn = el.querySelector(`#${id}-manual-save`) || nodeData.parameterRoot?.querySelector(`#${id}-manual-save`);
+                        const viewFullBtn = el.querySelector(`#${id}-view-full`) || nodeData.parameterRoot?.querySelector(`#${id}-view-full`);
                         if (manualSaveBtn) manualSaveBtn.disabled = false;
                         if (viewFullBtn) viewFullBtn.disabled = false;
                         updateResolutionBadgeSoon(id, data);

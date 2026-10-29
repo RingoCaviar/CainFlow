@@ -728,3 +728,9 @@ html:root #canvas-container .node.node-media-aspect .node-media-aspect-surface {
 .image-parameter-panel:not(.is-expanded)[data-node-type="CameraControl"] .image-camera-help > summary { padding-right: 64px; }
 
 .image-parameter-panel .image-input-more { display: none; }
+
+.image-parameter-panel[data-node-type="ImageSave"] .image-input-controls { display: none; }
+.image-parameter-panel .image-save-preview-tools[hidden] { display: none; }
+.image-parameter-panel[data-node-type="ImageSave"] .save-btn-group { display: flex; justify-content: center; gap: 6px; margin: 0; }
+.image-parameter-panel[data-node-type="ImageSave"] .save-btn-group > button { flex: 0 1 140px; margin: 0; min-height: 32px; }
+.image-parameter-panel:not(.is-expanded)[data-node-type="ImageSave"]:not(:has(.save-no-path-warning:not(.hidden))) .image-first-parameter-content > .node-field { margin-right: 32px; }
