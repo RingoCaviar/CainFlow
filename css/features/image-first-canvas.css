@@ -708,3 +708,6 @@ html:root #canvas-container .node.node-media-aspect .node-media-aspect-surface {
 .node.node-media-aspect .node-video-result-field .chat-response-area { height: auto; min-height: 0; }
 
 .image-parameter-panel[data-node-type="ImageImport"][data-import-mode="upload"] { min-width: 0; }
+
+.image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer { justify-content: center; }
+.image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-count-slot { margin-left: 0; }

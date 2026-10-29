@@ -51,6 +51,7 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value?.nodes.find(n=>n.id==='image-0')?.generationCount===2)");
         assert.equal(await app.evaluate("document.querySelector('#image-0-prompt-field').parentElement.contains(document.getElementById('image-0-generation-count'))"), true, 'the original count remains in its node parameter root');
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=model]').textContent"), '受控图片');
+        assert.ok(await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel').getBoundingClientRect(),c=document.querySelector('#image-parameter-panel .image-parameter-count-slot').getBoundingClientRect(),g=document.querySelector('#image-parameter-panel [data-parameter-action=generate]').getBoundingClientRect();return Math.abs((c.left+g.right)/2-(p.left+p.width/2))<1})()"), 'count and generate controls are centered together');
 
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=reference]').click()");
         assert.equal(await app.evaluate("document.querySelector('#image-0-reference-sources .image-reference-more').open"), false);
