@@ -213,4 +213,20 @@ CLI显式退出统一既有desktop及stdlib ThreadingHTTPServer的daemon handler
 
 两项Node跳过保持原有opt-in边界：`browser: sending without configuration gives a visible setup next step`和`browser: configured chat model completes a real conversation request`，本次未设置CAINFLOW_BROWSER_SMOKE/CAINFLOW_BROWSER_LIVE_SEND。正式图片节点、旧工作流真加载、控制响应、后台任务、跨节点完整批次及真实进程重启由本次已通过的真实应用用例覆盖，不依赖缺失的可选目录。
 
-1638725相对8c5ce30仅有两处测试完成点同步及本文记录变化，产品源码相同，先前无GPU同环境40.2→58.8FPS、p95 50.00→16.80ms对照继续对应当前产品。独立Standards无待处理问题；Spec未发现新增实现偏差，但A36的WebView2/GPU p95≤16.7ms仍按用户安排待验收，未豁免原100Hz目标，也未将无GPU结果替代原生合同。#006–#018已关闭，#019保持open，父#005原文及状态保持不变。
+1638725相对8c5ce30仅有两处测试完成点同步及本文记录变化，产品源码相同，先前无GPU同环境40.2→58.8FPS、p95 50.00→16.80ms对照继续对应当前产品。独立Standards无待处理问题；Spec未发现新增实现偏差。此轮无界面门禁结束时，A36原生验收尚未进行，#019当时保持open；后续原生结果及关闭结论见下节。父#005原文及状态保持不变。
+
+## 原生GPU验收与#019关闭（2026-10-29）
+
+采用首轮已有有效结果，不再操作用户界面或重复测试。采样源码为a8b9b1c，与冻结1638725的产品及测试源码一致，仅此前验收文档不同，沿用上节完整门禁。通过正式backend.desktop.run_desktop启动隔离工作流与媒体目录，使用原200节点/400连线、完整10秒四种交互预热及原10秒采样；测量期间未截图、桥接轮询或追踪。
+
+| 项目 | 已有证据 |
+| --- | --- |
+| 原生环境 | WebView2/Edge156，ANGLE/NVIDIA RTX4080 SUPER Direct3D11，GPU未禁用；2560×1440、100Hz。 |
+| 窗口与有效性 | 固定外窗位置100/100；WebView视口1424×861、DPR1；预热前后均200节点/400连线，预热及测量前后均为本窗口前台、focused且visible。 |
+| 正式面板报告 | 99.7FPS，p95 10.10ms，>50ms长帧0个。 |
+| 累计投影耗时 | render-projection 116.4ms，connection-full-refresh 1300.6ms。 |
+| 原合同结论 | 满足p95≤16.7ms通过线。100Hz的≤10.0ms是目标，本轮10.10ms尚未达到该目标，不将其写为达标。 |
+
+原始证据保留在本地tracker的verification/performance：native-current-final-a8b9b1c-20261029-01.txt、同名.json和.log；该同名目录中的interaction-prelude.json、prelude-preflight.json、prelude-postflight.json及measurement-postflight.json；显示器记录native-final-display-20261029.json。数值按已有正式面板精度记录，未补造未采集的逐帧原始数据或新旧原生提升倍率。后续两个基线准备尝试均未采样，已停止并标记not-sampled，不计验收证据。
+
+用户明确要求采用首轮结果完成记录并关闭#019；独立Spec只读复核确认该结果满足原通过线。A01–A36现有证据汇总完整，#019剩余两条验收已勾选并关闭，任务图同步为#006–#019全部closed。100Hz目标差距如实保留；父#005不修改、不关闭。本次只更新记录及任务状态，没有产品代码变更、电脑控制或重复测试。
