@@ -77,6 +77,8 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
             assert.ok(measurements.overflow <= 1, `${type} does not overflow horizontally`);
             if (type === 'ImageImport') {
                 assert.equal(measurements.footerHidden, true); assert.ok(measurements.height < 64);
+                const alignment = await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel').getBoundingClientRect(),m=document.querySelector('#image-parameter-panel .image-import-mode-shell').getBoundingClientRect();return {width:p.width,offset:Math.abs(m.left+m.width/2-p.left-p.width/2)}})()");
+                assert.ok(alignment.width <= 300); assert.ok(alignment.offset <= 1);
                 await app.evaluate("document.querySelector('#image-parameter-panel .image-import-mode-btn[data-mode=url]').click()");
                 assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-import-url-fields').hidden"), false);
                 assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .image-import-url-fields input').checkVisibility()"));
