@@ -280,7 +280,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                     : node.type === 'CameraControl' ? '在独立编辑器调整相机；参数即时保存，输出为相机提示词。'
                     : node.type === 'ImageResize' || node.type === 'ColorReset' ? '修改即时预览；点击按钮执行当前节点。'
                     : documentRef.getElementById(`${node.id}-run-status`)?.textContent || '修改不会自动生成');
-            const passiveFeedback = ['修改不会自动生成', '待运行', '已完成', '预览当前连接的图片',
+            const passiveFeedback = ['修改不会自动生成', '待运行', '已完成', '当前无输入', '预览当前连接的图片',
                 'B 为必需输入；A 可选，移动指针调整分界。', '按图片输入的数字顺序合并每个来源的完整批次。',
                 '修改文件名后，使用卡片上的保存按钮保存媒体。', '在独立编辑器调整相机；参数即时保存，输出为相机提示词。',
                 '修改即时预览；点击按钮执行当前节点。'];
@@ -424,7 +424,11 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             } else if (node.type === 'CameraControl') {
                 cameraOpen = body.querySelector(`[id="${node.id}-camera-open"]`);
                 const note = body.querySelector('.camera-control-note');
-                if (note) form.append(note);
+                if (note) {
+                    const help = documentRef.createElement('details'); help.className = 'image-camera-help';
+                    const heading = documentRef.createElement('summary'); heading.textContent = '视角说明';
+                    help.append(heading, note); form.append(help);
+                }
                 const details = documentRef.createElement('dl'); details.className = 'image-camera-state-summary';
                 details.setAttribute('aria-label', '相机参数（只读）'); cameraValues = new Map();
                 for (const [key, label] of [...cameraFields, ['viewMode', '预览模式']]) {

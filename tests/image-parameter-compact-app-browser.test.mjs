@@ -112,7 +112,14 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
                 assert.equal(await app.evaluate(`!!document.querySelector('#image-${index} .image-first-summary')`), false, `${type} keeps metadata off the card`);
                 assert.ok(await app.evaluate("!!document.querySelector('#image-parameter-panel .image-first-summary')"));
             }
+            if (type === 'CameraControl') {
+                assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .camera-control-note').checkVisibility()"), false);
+                await app.evaluate("document.querySelector('#image-parameter-panel .image-camera-help>summary').click()");
+                assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .camera-control-note').checkVisibility()"));
+                assert.equal(await app.evaluate("document.querySelectorAll('#image-parameter-panel .image-camera-state-summary dd').length"), 6);
+            }
             if (type === 'ImageSave') {
+                assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-first-summary').checkVisibility()"), false);
                 assert.equal(await app.evaluate("document.querySelector('#image-7-save-preview .image-save-preview-tools')===null"), true);
                 assert.equal(await app.evaluate("document.querySelectorAll('#image-parameter-panel .image-save-preview-tools').length"), 1, 'the original image/video controls exist once inside parameters');
             }
