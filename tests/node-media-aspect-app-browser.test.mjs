@@ -7,6 +7,7 @@ const nodes = types.map((type, index) => ({ id: `aspect-${index}`, type, x: 400,
     height: 600, userResized: true, ...(type === 'ImageGenerate' ? { apiConfigId: 'image', providerId: 'p', prompt: 'controlled aspects', generationCount: 2 } : {}) }));
 const connections = types.slice(2).map((type, index) => ({ id: `source-${index}`, from: { nodeId: 'aspect-0', port: 'image' },
     to: { nodeId: `aspect-${index + 2}`, port: type === 'ImageCompare' ? 'imageB' : type === 'ImageMerge' ? 'image_1' : 'image' }, type: 'image' }));
+connections.push({ id: 'compare-A', from: { nodeId: 'aspect-0', port: 'image' }, to: { nodeId: 'aspect-5', port: 'imageA' }, type: 'image' });
 
 async function metrics(app, id) {
     return app.evaluate(`(()=>{const n=document.getElementById('${id}'),s=n.querySelector('.node-media-aspect-surface'),m=s?.querySelector('img,video');return {width:n.offsetWidth,height:n.offsetHeight,heightStyle:n.style.height,transition:getComputedStyle(n).transition,left:n.style.left,top:n.style.top,boxWidth:s?.offsetWidth,boxHeight:s?.offsetHeight,naturalWidth:m?.naturalWidth||m?.videoWidth,naturalHeight:m?.naturalHeight||m?.videoHeight,bodyHeight:n.querySelector(':scope>.node-body').offsetHeight}})()`);
@@ -53,6 +54,8 @@ test('loaded image cards follow natural aspect at fixed node width, including ba
         const before = await metrics(app, 'aspect-1'); proportional(before);
         await resize(app, 'bottom', 0, 40);
         proportional(await metrics(app, 'aspect-1'), 400);
+        await resize(app, 'right', 0, 40);
+        proportional(await metrics(app, 'aspect-1'), 400);
         await app.evaluate("document.querySelector('#aspect-1 [data-result-step=\"1\"]').click()");
         await app.waitFor("document.querySelector('#aspect-1 .node-media-aspect-surface')?.style.getPropertyValue('--node-media-aspect')==='32 / 64'");
         const portrait = await metrics(app, 'aspect-1'); proportional(portrait, 400);
@@ -65,5 +68,8 @@ test('loaded image cards follow natural aspect at fixed node width, including ba
         proportional(await metrics(app, 'aspect-1'), 480);
         const graph = await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value)");
         for (const edge of connections) assert.deepEqual(graph.connections.find(item => item.id === edge.id), edge);
+        await app.waitFor("document.querySelector('#aspect-5 .image-compare-a')?.naturalWidth>0&&document.querySelector('#aspect-5 .image-compare-b')?.naturalWidth>0");
+        await app.evaluate("document.querySelector('#aspect-5 .image-compare-b').src='data:image/png;base64,broken'");
+        await app.waitFor("document.querySelector('#aspect-5 .image-compare-a')?.naturalWidth>0&&!document.getElementById('aspect-5').classList.contains('node-media-aspect')");
     });
 });

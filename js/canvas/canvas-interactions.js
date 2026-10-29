@@ -1097,7 +1097,8 @@ export function createCanvasInteractionsApi({
                     const movesTop = edge.includes('top');
                     let targetW = r.startWidth + (movesLeft ? -dx : edge.includes('right') ? dx : 0);
                     const targetH = r.startHeight + (movesTop ? -dy : edge.includes('bottom') ? dy : 0);
-                    if (r.mediaAspectRatio > 0 && (edge === 'top' || edge === 'bottom' || Math.abs(dy * r.mediaAspectRatio) > Math.abs(dx))) {
+                    if (r.mediaAspectRatio > 0 && (movesTop || edge.includes('bottom'))
+                        && (edge === 'top' || edge === 'bottom' || Math.abs(dy * r.mediaAspectRatio) > Math.abs(dx))) {
                         targetW = r.startWidth + (movesTop ? -dy : dy) * r.mediaAspectRatio;
                     }
                     let dynamicMinWidth = r.minWidth;
