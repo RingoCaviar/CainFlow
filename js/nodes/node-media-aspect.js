@@ -27,7 +27,7 @@ export function syncNodeMediaAspect(node) {
         previous.classList.remove('node-media-aspect-surface');
         previous.style.removeProperty('--node-media-aspect');
     }
-    if (!selected || node.collapsed === true) {
+    if (!selected) {
         if (node.el.classList.contains('node-media-aspect')) node.el.classList.remove('node-media-aspect');
         activeSurfaces.delete(node);
         return null;

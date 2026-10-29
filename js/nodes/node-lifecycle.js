@@ -839,7 +839,6 @@ export function createNodeLifecycleApi({
         const header = el.querySelector('.node-header');
         const portsRow = el.querySelector('.node-ports-row');
         const body = el.querySelector('.node-body');
-        const isCollapsed = el.classList.contains('collapsed') || body?.classList.contains('is-collapsed');
         const originalElHeight = el.style.height;
         const originalBodyFlex = body?.style.flex || '';
         const originalBodyMinHeight = body?.style.minHeight || '';
@@ -849,7 +848,7 @@ export function createNodeLifecycleApi({
         const originalBodyDisplay = body?.style.display || '';
 
         el.style.height = 'auto';
-        if (body && !isCollapsed) {
+        if (body) {
             body.style.flex = '0 0 auto';
             body.style.minHeight = 'auto';
             body.style.overflowY = 'visible';
@@ -860,15 +859,12 @@ export function createNodeLifecycleApi({
         const headerWidth = getHeaderMinimumWidth(header, configuredMinWidth);
         const headerHeight = getHeaderMeasuredHeight(header);
         const portsRowSize = portsRow ? getElementMinimumSize(portsRow) : { width: 0, height: 0 };
-        if (body && isCollapsed) {
-            body.style.display = 'none';
-        }
         let bodySize = { width: 0, height: 0 };
         let bodyRenderedHeight = 0;
         const flexibleHeightElements = body?.querySelectorAll?.('textarea, .chat-response-area') || [];
         const measureBody = () => {
-            bodySize = body && !isCollapsed ? getElementMinimumSize(body) : { width: 0, height: 0 };
-            bodyRenderedHeight = body && !isCollapsed
+            bodySize = body ? getElementMinimumSize(body) : { width: 0, height: 0 };
+            bodyRenderedHeight = body
                 ? (hasScrollableResultContent(body)
                     ? bodySize.height
                     : Math.max(body.offsetHeight || 0, body.scrollHeight || 0))
@@ -897,9 +893,7 @@ export function createNodeLifecycleApi({
         );
         return {
             minWidth: Math.max(configuredMinWidth, headerWidth, portsRowSize.width, bodyMinimumWidth),
-            minHeight: isCollapsed
-                ? contentMinHeight
-                : Math.max(getConfiguredMinimumHeight(config), contentMinHeight)
+            minHeight: Math.max(getConfiguredMinimumHeight(config), contentMinHeight)
         };
     }
 
@@ -926,7 +920,7 @@ export function createNodeLifecycleApi({
                 }
             } finally { node.el.style.width = originalWidth; }
             return { minWidth: Math.min(Number(config?.minWidth) || getDefaultNodeWidth(config), restored?.width || Infinity),
-                minHeight: mediaHeight || Math.min(node.userResized === true || node.collapsed === true ? (generation ? 248 : 200) : (generation ? 348 : 300), restored?.height || Infinity) };
+                minHeight: mediaHeight || Math.min(node.userResized === true ? (generation ? 248 : 200) : (generation ? 348 : 300), restored?.height || Infinity) };
         }
         if (isImageImportUrlMode(node)) {
             return {
@@ -950,20 +944,13 @@ export function createNodeLifecycleApi({
         }
         const configuredMinWidth = Number(config?.minWidth);
         const configuredMinHeight = Number(config?.minHeight);
-        const isCollapsed = node.collapsed === true || node.el?.classList.contains('collapsed');
-        const collapsedMinHeight = isCollapsed ? measured.minHeight : 0;
         return {
             minWidth: Math.max(
                 Number.isFinite(configuredMinWidth) ? configuredMinWidth : 0,
                 Number(node.minWidth) || 0,
                 measured.minWidth
             ),
-            minHeight: isCollapsed
-                ? Math.max(
-                    collapsedMinHeight,
-                    Number(node.minHeight) || 0
-                )
-                : Math.max(
+            minHeight: Math.max(
                     getConfiguredMinimumHeight(config),
                     Number.isFinite(configuredMinHeight) ? configuredMinHeight : 0,
                     Number(node.minHeight) || 0,
@@ -1026,7 +1013,7 @@ export function createNodeLifecycleApi({
         const currentWidth = node.el.offsetWidth || Number(node.width) || baseMinimum.minWidth;
         const minimum = getNodeMinimumSize(node, { width: currentWidth });
         const currentHeight = node.el.offsetHeight || Number(node.height) || minimum.minHeight;
-        const preservesImagePreviewSize = node.userResized === true && node.el.classList.contains('image-first-card') && node.collapsed !== true;
+        const preservesImagePreviewSize = node.userResized === true && node.el.classList.contains('image-first-card');
         const shouldShrink = allowShrink && reason === 'element-resize' && !preservesImagePreviewSize;
         const respectsUserWidth = node.userResized === true && currentWidth >= minimum.minWidth;
         const respectsUserHeight = node.userResized === true && currentHeight >= minimum.minHeight;
@@ -1174,6 +1161,15 @@ export function createNodeLifecycleApi({
             return null;
         }
         let effectiveRestoreData = restoreData || getNodeDefaultRestoreData(normalizedType);
+        if (effectiveRestoreData) {
+            const { collapsed, collapsedExpandedHeight, collapsedCollapsedExpandedHeight, ...expandedData } = effectiveRestoreData;
+            const legacyExpandedHeight = Number(collapsedExpandedHeight || collapsedCollapsedExpandedHeight);
+            if (collapsed === true) {
+                if (Number.isFinite(legacyExpandedHeight) && legacyExpandedHeight > 0) expandedData.height = legacyExpandedHeight;
+                else delete expandedData.height;
+            }
+            effectiveRestoreData = expandedData;
+        }
         const restoreLayoutOptions = silent ? { save: false } : {};
         const id = effectiveRestoreData?.id ? effectiveRestoreData.id : generateId();
         const shouldNormalizeLegacyChatLayout = normalizedType === 'TextChat'
@@ -1185,7 +1181,7 @@ export function createNodeLifecycleApi({
         }
         // Recalculate automatic card height while retaining saved editor sizes.
         if (isImageFirstCardNode(normalizedType) && effectiveRestoreData && effectiveRestoreData.userResized !== true) {
-            const { height, collapsedExpandedHeight, ...restoredGenerationData } = effectiveRestoreData;
+            const { height, ...restoredGenerationData } = effectiveRestoreData;
             effectiveRestoreData = restoredGenerationData;
         }
         const restoredUserResized = effectiveRestoreData?.userResized === true;
@@ -1209,9 +1205,7 @@ export function createNodeLifecycleApi({
 
         const restoredHeight = Number(effectiveRestoreData?.height);
         const hasRestoredHeight = Number.isFinite(restoredHeight) && restoredHeight > 0;
-        const isRestoringCollapsed = effectiveRestoreData?.collapsed === true;
-        const preservesRestoredHeight = hasRestoredHeight && (isRestoringCollapsed
-            || isImageFirstCardNode(normalizedType) && restoredUserResized);
+        const preservesRestoredHeight = hasRestoredHeight && isImageFirstCardNode(normalizedType) && restoredUserResized;
         const initialHeightSource = preservesRestoredHeight
             ? restoredHeight
             : Math.max(hasRestoredHeight ? restoredHeight : 0, getDefaultNodeHeight(config));
@@ -1271,7 +1265,6 @@ export function createNodeLifecycleApi({
             defaultWidth: getDefaultNodeWidth(config),
             defaultHeight: getDefaultNodeHeight(config),
             userResized: initialUserResized,
-            collapsed: effectiveRestoreData?.collapsed === true,
             maxHeight: config.maxHeight || null,
             maxWidth: config.maxWidth || null,
             dirHandle: null,
@@ -1341,10 +1334,6 @@ export function createNodeLifecycleApi({
         }
         if (typeof effectiveRestoreData?.protocolVariantKey === 'string') {
             nodeData.data.protocolVariantKey = effectiveRestoreData.protocolVariantKey;
-        }
-        const restoredCollapsedExpandedHeight = Number(effectiveRestoreData?.collapsedCollapsedExpandedHeight || effectiveRestoreData?.collapsedExpandedHeight);
-        if (nodeData.collapsed && Number.isFinite(restoredCollapsedExpandedHeight) && restoredCollapsedExpandedHeight > 0) {
-            nodeData.collapsedExpandedHeight = Math.round(restoredCollapsedExpandedHeight);
         }
         if (normalizedType === 'ImageCompare') {
             const savedPosition = Number(effectiveRestoreData?.comparePosition ?? 50);
@@ -1627,20 +1616,7 @@ export function createNodeLifecycleApi({
         }
         if (nodeData.isSucceeded) el.classList.add('completed');
         if (!nodeData.enabled) el.classList.add('disabled');
-        if (nodeData.collapsed) el.classList.add('collapsed');
         state.nodes.set(id, nodeData);
-        if (nodeData.collapsed) {
-            const collapsedMinimum = getNodeMinimumSize(nodeData);
-            const restoredCollapsedHeight = hasRestoredHeight ? Math.round(restoredHeight) : 0;
-            const nextCollapsedHeight = restoredCollapsedHeight > 0
-                ? restoredCollapsedHeight
-                : Math.round(collapsedMinimum?.minHeight || 0);
-            if (nextCollapsedHeight > 0) {
-                el.style.height = `${nextCollapsedHeight}px`;
-                nodeData.height = nextCollapsedHeight;
-                nodeData.observedHeight = nextCollapsedHeight;
-            }
-        }
         el.addEventListener('load', (event) => {
             if (event.target?.tagName === 'IMG') {
                 if (normalizedType === 'ImageImport' && nodeData.importMode === 'url') return;

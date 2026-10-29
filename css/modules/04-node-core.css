@@ -409,40 +409,6 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
     transform: scale(1.1);
 }
 
-.node-collapse-btn {
-    width: 24px;
-    height: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    background: rgba(255, 255, 255, 0.03);
-    color: var(--text-dim);
-    cursor: pointer;
-    border-radius: 6px;
-    opacity: 0.3;
-    transition: all var(--transition);
-}
-
-.node:hover .node-collapse-btn {
-    opacity: 0.8;
-}
-
-.node-collapse-btn:hover {
-    background: rgba(99, 102, 241, 0.2);
-    color: var(--accent-blue);
-    opacity: 1 !important;
-    transform: scale(1.1);
-}
-
-.node-collapse-btn svg {
-    transition: transform var(--transition);
-}
-
-.node-collapse-btn.is-collapsed svg {
-    transform: rotate(-90deg);
-}
-
 .node.disabled {
     opacity: 0.6;
     filter: grayscale(0.7);
@@ -478,17 +444,6 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
 
 .node-body-has-generation-progress {
     padding-bottom: 10px;
-}
-
-.node.collapsed .node-body,
-.node-body.is-collapsed {
-    display: none;
-}
-
-.node.collapsed .node-ports-row {
-    margin-bottom: 0;
-    padding-bottom: 10px;
-    border-bottom: 0;
 }
 
 .node-field {
@@ -965,7 +920,7 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
     background: linear-gradient(to left, var(--node-section-divider), transparent);
 }
 
-#canvas-container .node-port.connection-target-unavailable:not(.is-hidden-by-collapse) {
+#canvas-container .node-port.connection-target-unavailable {
     opacity: 0.28;
 }
 

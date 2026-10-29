@@ -269,31 +269,6 @@ export function createNodeDomBindingsApi({
         updateAllConnections();
     }
 
-    function syncCollapsedUnusedPorts(nodeId) {
-        const node = state.nodes.get(nodeId);
-        const ports = node?.el?.querySelectorAll?.('.node-port');
-        if (!ports?.length) return;
-
-        const isCollapsed = node.collapsed === true || node.el.classList.contains('collapsed');
-        let changed = false;
-        ports.forEach((portEl) => {
-            const direction = portEl.dataset.direction || '';
-            const portName = portEl.dataset.port || '';
-            const shouldHideForCollapse = direction === 'input' && !portEl.classList.contains('universal-input') && isCollapsed && !hasPortConnection(nodeId, portName, direction);
-            if (portEl.classList.contains('is-hidden-by-collapse') !== shouldHideForCollapse) changed = true;
-            portEl.classList.toggle('is-hidden-by-collapse', shouldHideForCollapse);
-            portEl.setAttribute('aria-hidden', shouldHideForCollapse ? 'true' : 'false');
-        });
-        if (changed) {
-            if (typeof invalidateNodePortCache === 'function') invalidateNodePortCache(nodeId);
-            else if (typeof markNodeConnectionsDirty === 'function') markNodeConnectionsDirty(nodeId);
-        }
-    }
-
-    function syncAllCollapsedUnusedPorts() {
-        state.nodes.forEach((_, nodeId) => syncCollapsedUnusedPorts(nodeId));
-    }
-
     function hasIncomingConnection(nodeId, portName) {
         if (!nodeId || !portName) return false;
         return state.connections.some((connection) => (
@@ -1265,7 +1240,6 @@ export function createNodeDomBindingsApi({
             connection.from.nodeId !== nodeId || validPortSet.has(connection.from.port)
         ));
         const removedConnections = beforeConnectionCount !== state.connections.length;
-        syncCollapsedUnusedPorts(nodeId);
         refreshNodePortGeometry(nodeId, { force: removedConnections });
         updatePortStyles();
         if (removedConnections) onConnectionsChanged();
@@ -1330,7 +1304,6 @@ export function createNodeDomBindingsApi({
             universal || connection.to.nodeId !== nodeId || validPortSet.has(connection.to.port)
         ));
         const removedConnections = beforeConnectionCount !== state.connections.length;
-        syncCollapsedUnusedPorts(nodeId);
         refreshNodePortGeometry(nodeId, { force: removedConnections });
         updatePortStyles();
         if (removedConnections) onConnectionsChanged();
@@ -1372,7 +1345,6 @@ export function createNodeDomBindingsApi({
             connection.to.nodeId !== nodeId || validPortSet.has(connection.to.port)
         ));
         const removedConnections = beforeConnectionCount !== state.connections.length;
-        syncCollapsedUnusedPorts(nodeId);
         refreshNodePortGeometry(nodeId, { force: removedConnections });
         updatePortStyles();
         if (removedConnections) onConnectionsChanged();
@@ -1384,97 +1356,6 @@ export function createNodeDomBindingsApi({
             if (node.type === 'ImageMerge') refreshImageMergeInputPorts(nodeId);
             if (node.type === 'TextMerge') refreshTextMergeInputPorts(nodeId);
         });
-    }
-
-    function applyNodeCollapsedState(id, nextCollapsed) {
-        const node = state.nodes.get(id);
-        if (!node?.el) return false;
-
-        const body = queryNodeControl(node.el, '.node-body');
-        if (!body) return false;
-
-        if (node.collapsed === nextCollapsed && node.el.classList.contains('collapsed') === nextCollapsed) {
-            syncCollapsedUnusedPorts(id);
-            return false;
-        }
-
-        const currentHeight = node.el.offsetHeight || Number(node.height) || 0;
-        if (!nextCollapsed && Number.isFinite(node.collapsedExpandedHeight) && node.collapsedExpandedHeight > 0) {
-            node.el.style.height = `${Math.round(node.collapsedExpandedHeight)}px`;
-            node.height = Math.round(node.collapsedExpandedHeight);
-            node.observedHeight = Math.round(node.collapsedExpandedHeight);
-        } else if (currentHeight > 0) {
-            node.collapsedExpandedHeight = currentHeight;
-        }
-
-        node.collapsed = nextCollapsed;
-        node.el.classList.toggle('collapsed', nextCollapsed);
-        body.classList.toggle('is-collapsed', nextCollapsed);
-        syncCollapsedUnusedPorts(id);
-        const collapseButton = queryNodeControl(node.el, '.node-collapse-btn');
-        if (collapseButton) {
-            collapseButton.classList.toggle('is-collapsed', nextCollapsed);
-            collapseButton.title = nextCollapsed ? '展开节点' : '折叠节点';
-            collapseButton.setAttribute('aria-label', nextCollapsed ? '展开节点' : '折叠节点');
-            collapseButton.setAttribute('aria-expanded', nextCollapsed ? 'false' : 'true');
-        }
-
-        const minimum = typeof getNodeMinimumSizeFromLifecycle === 'function'
-            ? getNodeMinimumSizeFromLifecycle(node)
-            : {
-                minWidth: Number(node?.defaultWidth) || 180,
-                minHeight: Number(node?.defaultHeight) || 120
-            };
-        const currentWidth = node.el.offsetWidth || Number(node.width) || minimum.minWidth;
-        const currentMeasuredHeight = node.el.offsetHeight || Number(node.height) || minimum.minHeight;
-        const nextHeight = nextCollapsed
-            ? minimum.minHeight
-            : Math.max(currentMeasuredHeight, minimum.minHeight);
-
-        node.el.style.height = `${Math.round(nextHeight)}px`;
-        node.width = Math.round(currentWidth);
-        node.height = Math.round(nextHeight);
-        node.observedWidth = Math.round(currentWidth);
-        node.observedHeight = Math.round(nextHeight);
-
-        return true;
-    }
-
-    function getNodeCollapseTargetIds(id) {
-        if (!state.selectedNodes?.has(id)) return [id];
-        return Array.from(state.selectedNodes).filter((nodeId) => state.nodes.has(nodeId));
-    }
-
-    function toggleNodeCollapsed(id) {
-        const node = state.nodes.get(id);
-        if (!node?.el) return;
-
-        const targetIds = getNodeCollapseTargetIds(id);
-        const blockedIds = targetIds.filter((nodeId) => isNodeRunning(nodeId));
-        if (blockedIds.length > 0) {
-            showToast(blockedIds.length === targetIds.length
-                ? '节点正在运行，暂不能折叠或展开'
-                : `已跳过 ${blockedIds.length} 个正在运行的节点`, 'warning');
-        }
-
-        const nextCollapsed = !node.collapsed;
-        const changedIds = targetIds
-            .filter((nodeId) => !blockedIds.includes(nodeId))
-            .filter((nodeId) => applyNodeCollapsedState(nodeId, nextCollapsed));
-
-        if (changedIds.length === 0) return;
-
-        refreshNodesPortGeometry(changedIds);
-        updatePortStyles();
-        const requestFrame = documentRef.defaultView?.requestAnimationFrame;
-        if (typeof requestFrame === 'function') {
-            requestFrame(() => {
-                changedIds.forEach((nodeId) => syncCollapsedUnusedPorts(nodeId));
-                refreshNodesPortGeometry(changedIds);
-                updatePortStyles();
-            });
-        }
-        scheduleSave();
     }
 
     function syncTextSplitNodeData(id, options = {}) {
@@ -2592,19 +2473,6 @@ export function createNodeDomBindingsApi({
             toggleNodesEnabled(nodesToUpdate, id);
         });
 
-        queryNodeControl(el, '.node-header')?.addEventListener('dblclick', (e) => {
-            if (e.target.closest('.node-delete, .node-bypass-btn, .node-collapse-btn')) return;
-            e.preventDefault();
-            e.stopPropagation();
-            toggleNodeCollapsed(id);
-        });
-
-        queryNodeControl(el, '.node-collapse-btn')?.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            toggleNodeCollapsed(id);
-        });
-
         queryNodeControl(el, '.node-clone-badge')?.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -2727,7 +2595,6 @@ export function createNodeDomBindingsApi({
         bindZoomSettleGuard(el);
         bindCustomNodeSelects(el);
         lockCloneNodeEditing(id, el);
-        syncCollapsedUnusedPorts(id);
         syncConnectedInputFieldVisibility(id);
 
         if (type === 'ImageImport') setupImageImport(id, el);
