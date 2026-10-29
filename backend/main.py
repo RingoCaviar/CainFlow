@@ -25,6 +25,8 @@ _storage_recovery_stop = threading.Event()
 
 
 class CainFlowHTTPServer(socketserver.ThreadingTCPServer):
+    daemon_threads = True
+
     # Page reloads request the modular styles and scripts in a burst. Python
     # versions with the default backlog of five can refuse those connections.
     request_queue_size = 128

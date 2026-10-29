@@ -159,3 +159,21 @@ Standards审查补足已提交但响应丢失、并发一次成功一次失败�
 隔离服务端口先探测再绑定存在TOCTOU，已改内核分配端口；当前与旧基线均用相同公开initialize_runtime/create_server工厂启动，绑定后宣布实际端口，真重启沿用同origin。另以真实release CLI验证--port0公告修复红→绿。当前/旧基线HTTP与重启适配均200；同目录真实重启、128请求突发和三次刷新4项通过。主checkout原有staged删除未改动。
 
 本轮增量双轴复核发现的owner补偿与旧基线启动兼容问题均已修复，未解决Standards问题为0；完整最终门禁及A36绝对性能仍待验证。性能工作继续使用完整200/400、原交互负载及16.7ms门槛。
+
+## #019 样式瓶颈修复与无界面对照
+
+最终树的分阶段原生诊断把持续慢段定位在pan/zoom样式计算，平均约37ms，Layout不足1ms、Paint约0.4ms；settings初始化和虚拟化的时间不足以解释持续成本。该轮带trace且前台/显示环境与旧样本不同，只用于定位，不计桌面验收。
+
+单变量grid对照把三个动态dot变量从画布祖先迁到独立无子DOM的装饰层：pan Style总耗时2117.11→43.866ms，>30ms事件31→0，zoom仍约2117ms。七主题280组计算值、RGBA像素及公开viewport行为全同，另7组真实节点场景和点击命中一致。正式层使用限定class，不占用新的全局ID，旧节点ID canvas-grid继续保留；画布自己的背景cover、网格opacity、保护模式位置、端口/路径/坐标均不变。离屏镜像和旧元素包兼容保持，17项正式定向回归通过。
+
+随后只收窄zoom变量到当前selected/batch/insert/shake消费者：zoom Style2118.661→178.037ms，>16.7ms事件34→0，最大72.074→10.027ms；pan Style40.289→44.834ms，未增加长style。选中环、标签、glow和端口反馈保持每次缩放与类激活立即更新，没有延迟到settle。原/C两侧7主题×5zoom×7state各245组视觉与坐标全同；正式回归还移除注册规则模拟旧浏览器的原继承fallback，245组均保持。相关10文件121项及新回归1项通过。
+
+这些对照都保留200节点/400连线、原完整10秒交互预热与采样，以及每帧node/connection双投影。headless B/C整体47.4FPS/p95 66.7ms→58.9FPS/p95 16.8ms，仅作为同环境因果对照，不能替代WebView2/GPU≤16.7ms合同。固定副本、源码SHA和分段事件证据在本地verification/performance目录。
+
+## 本地HTTP连接与退出边界
+
+诊断捕获一次采样前ERR_NO_BUFFER_SPACE模块请求失败。本次已确定并修复的机制是静态资源连接churn：真实keepalive客户端连续24个CSS/module请求，旧HTTP1.0使用24条TCP连接，修复后HTTP1.1使用1条，字节、UTF8、MIME、CORS及cache保护全部保留。空响应补齐定界，API、代理和普通/分段下载仍显式关闭，受控上游验证先收到64KiB再完成，原流式行为保持。没有调整OS端口池或增加请求重试，也不把该证据倒推为旧复制失败的确定根因。
+
+CLI显式退出统一既有desktop及stdlib ThreadingHTTPServer的daemon handler策略，避免空闲keepalive使server_close等待300秒。该入口退出不再等待活动handler；既有桌面策略、存储事务和恢复规则不变。空闲连接关停先红后绿；HTTP与backend定向Node6项、Python75项通过。
+
+用户已选择先完成代码与无界面验证、稍后原生再测。前台校验未满足的原生尝试均作废，没有计入通过。本轮最终完整门禁尚待冻结后的单次执行；#019及A36继续保持未完成，父规格原文与状态不变。

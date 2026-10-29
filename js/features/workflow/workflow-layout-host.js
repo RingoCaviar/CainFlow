@@ -61,6 +61,9 @@ export function createWorkflowLayoutElements(documentRef, { width = 1000, height
 
     const canvasContainer = documentRef.createElement('div');
     canvasContainer.id = 'canvas-container';
+    const canvasGrid = documentRef.createElement('div');
+    canvasGrid.className = 'canvas-grid';
+    canvasGrid.setAttribute('aria-hidden', 'true');
     const connectionsSvg = documentRef.createElementNS('http://www.w3.org/2000/svg', 'svg');
     connectionsSvg.id = 'connections-svg';
     const originAxes = documentRef.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -76,10 +79,11 @@ export function createWorkflowLayoutElements(documentRef, { width = 1000, height
     connectionsSvg.appendChild(originAxes);
     connectionsSvg.appendChild(connectionsGroup);
     connectionsSvg.appendChild(tempConnection);
+    canvasContainer.appendChild(canvasGrid);
     canvasContainer.appendChild(connectionsSvg);
     canvasContainer.appendChild(nodesLayer);
     wrapper.appendChild(canvasContainer);
     documentRef.body.appendChild(wrapper);
 
-    return { wrapper, canvasContainer, connectionsSvg, nodesLayer, connectionsGroup, tempConnection, originAxes };
+    return { wrapper, canvasContainer, canvasGrid, connectionsSvg, nodesLayer, connectionsGroup, tempConnection, originAxes };
 }

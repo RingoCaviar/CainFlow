@@ -2,8 +2,10 @@
  * 统一缓存页面关键 DOM 引用，减少散落的选择器访问并便于模块注入。
  */
 export function createElements(doc = document) {
+    const canvasContainer = doc.getElementById('canvas-container');
     return {
-        canvasContainer: doc.getElementById('canvas-container'),
+        canvasContainer,
+        canvasGrid: canvasContainer?.querySelector?.(':scope > .canvas-grid') || null,
         nodesLayer: doc.getElementById('nodes-layer'),
         connectionsGroup: doc.getElementById('connections-group'),
         tempConnection: doc.getElementById('temp-connection'),

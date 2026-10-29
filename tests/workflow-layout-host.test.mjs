@@ -52,6 +52,10 @@ test('workflow layout elements mirror visible editor ids and viewport dimensions
     const elements = createWorkflowLayoutElements(documentRef, { width: 1440, height: 900 });
 
     assert.equal(elements.canvasContainer.id, 'canvas-container');
+    assert.equal(elements.canvasGrid.className, 'canvas-grid');
+    assert.equal(elements.canvasGrid.attributes['aria-hidden'], 'true');
+    assert.equal(elements.canvasGrid.children.length, 0);
+    assert.equal(elements.canvasContainer.children[0], elements.canvasGrid);
     assert.equal(elements.nodesLayer.id, 'nodes-layer');
     assert.equal(elements.connectionsSvg.id, 'connections-svg');
     assert.equal(elements.tempConnection.attributes.class, 'temp-connection');

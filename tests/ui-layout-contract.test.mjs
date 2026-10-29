@@ -31,10 +31,10 @@ test('toolbar height is synchronized before ResizeObserver registration', () => 
 });
 
 test('Canvas interaction keeps the background grid visible while zooming and panning', () => {
-    assert.match(canvas, /#canvas-container::before\s*\{[\s\S]*?background-image:\s*radial-gradient\(/);
+    assert.match(canvas, /#canvas-container > \.canvas-grid\s*\{[\s\S]*?background-image:\s*radial-gradient\(/);
     assert.doesNotMatch(
         canvas,
-        /#canvas-container\.is-(?:zooming|panning)::before[\s\S]{0,160}?background-image:\s*none/
+        /#canvas-container\.is-(?:zooming|panning)(?:::before|\s*>\s*\.canvas-grid)[\s\S]{0,160}?background-image:\s*none/
     );
 });
 

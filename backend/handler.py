@@ -9,6 +9,11 @@ from backend.services.proxy_service import handle_proxy_request
 
 
 class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
+    # Static modules and styles already carry Content-Length. Let the browser
+    # reuse their connections instead of opening one TCP socket per asset.
+    # API helpers and streaming routes explicitly retain Connection: close.
+    protocol_version = 'HTTP/1.1'
+
     extensions_map = {
         **http.server.SimpleHTTPRequestHandler.extensions_map,
         '.js': 'text/javascript',
@@ -46,6 +51,7 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
             if state.is_noise_request(self.path):
                 self.send_response(404)
+                self.send_header('Content-Length', '0')
                 self.end_headers()
                 return
             if should_log_path(self.path):
@@ -74,6 +80,7 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             write_text(self, '', status=200)
             return
         self.send_response(200, 'ok')
+        self.send_header('Content-Length', '0')
         self.end_headers()
 
     def do_POST(self):
