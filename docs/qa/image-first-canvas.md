@@ -278,3 +278,7 @@ CLI显式退出统一既有desktop及stdlib ThreadingHTTPServer的daemon handler
 ## 导入窄幅与按钮居中（image-first-canvas#027，2026-10-30）
 
 按继续批注将普通导入浮层默认收至280px，并独立记住手调宽度，原其他节点宽度偏好不改。三列对称布局使上传/URL居中，来源在左、工具在右，URL字段下一行，放大规则保持。指针手调、键盘调宽及取消使用对应宽度偏好。原九类smoke补充宽度不超过300px、模式按钮与浮层中心偏移不超过1px断言，1/1通过（3.86秒），原URL模式和其他断言保持；语法与diff检查通过，日志verification/027-center-import.log。未跑全量或性能。
+
+## 去除重复来源说明（image-first-canvas#028，2026-10-30）
+
+按用户批注仅隐藏导入浮层的本地素材/URL来源摘要，保留居中按钮、URL字段及其他节点摘要。原九类smoke补充两种模式下摘要不可见断言后1/1通过（3.89秒），原中心、宽度、切换和其他功能断言保留。日志verification/028-import-caption.log，diff检查通过；未全量或性能重测。
