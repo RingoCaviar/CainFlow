@@ -116,6 +116,9 @@ test('waiting has no fabricated progress and the original reachable two-second c
         await press(app, '#upstream .node-run-cancel-btn', 150);
         await delay(350);
         assert.equal(await app.evaluate('feedbackAborted'), false, 'a normal click never cancels the request');
+        await open(app, 'upstream');
+        const cancelPoint = await point(app, '#upstream .node-run-cancel-btn');
+        assert.equal(await app.evaluate(`document.querySelector('#upstream .node-run-cancel-btn').contains(document.elementFromPoint(${cancelPoint.x},${cancelPoint.y}))`), true, 'the selected running node keeps its original cancel reachable above its parameter editor');
         await press(app, '#upstream .node-run-cancel-btn', 2150);
         await app.waitFor("feedbackAborted&&document.getElementById('upstream-run-status')?.dataset.status==='aborted'&&document.getElementById('btn-stop').disabled");
         assert.equal(await app.evaluate("document.querySelector('#upstream .node-run-cancel-btn').checkVisibility()"), false);
