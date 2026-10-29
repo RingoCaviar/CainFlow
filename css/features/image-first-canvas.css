@@ -437,20 +437,8 @@ html:root #canvas-container .node.image-first-media > .node-body {
     gap: 7px;
 }
 .node.image-first-card .node-port .port-label {
-    position: absolute;
-    display: block !important;
-    width: max-content;
-    max-width: 120px;
-    padding: 0 3px;
-    white-space: normal;
-    overflow-wrap: anywhere;
-    background: var(--bg-canvas);
-    border-radius: 3px;
-    font-size: 12px;
-    line-height: 1.5;
+    display: none !important;
 }
-.node.image-first-card .node-port.input .port-label { right: calc(100% + 26px); }
-.node.image-first-card .node-port.output .port-label { left: calc(100% + 26px); }
 .node.image-first-media > .node-ports-row .node-port { pointer-events: none; }
 .node.image-first-media > .node-ports-row :is(.port-dot, .port-label) { pointer-events: auto; }
 .node.image-first-media :is(.image-import-upload-section, .image-import-url-section):not(.hidden) {
@@ -559,7 +547,6 @@ html:root #canvas-container .node.image-first-media > .node-body {
 /* A single visible anchor represents canonical workflow input roles. */
 .node.image-first-card .image-first-canonical-input { display: none !important; }
 .node.image-first-card .universal-input { display: flex !important; }
-.node.image-first-card .universal-input .port-label { display: inline !important; }
 .node.image-first-card .universal-input .port-dot { visibility: visible; }
 
 .image-input-detail { display: flex; flex-direction: column; gap: 6px; }
