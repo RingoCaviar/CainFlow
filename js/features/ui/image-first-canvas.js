@@ -43,6 +43,11 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     const promptSizing = new WeakMap();
     const storedWidth = Number(storage?.getItem('cainflow_node_parameter_width'));
     let current = null, closed = null, preferredWidth = storedWidth >= 280 && storedWidth <= 960 ? storedWidth : 480;
+    const storedImportWidth = Number(storage?.getItem('cainflow_image_import_parameter_width'));
+    let importPreferredWidth = storedImportWidth >= 280 && storedImportWidth <= 960 ? storedImportWidth : 280;
+    const currentWidthPreference = () => current?.type === 'ImageImport' ? importPreferredWidth : preferredWidth;
+    const setWidthPreference = width => { if (current?.type === 'ImageImport') importPreferredWidth = width; else preferredWidth = width; };
+    const persistWidthPreference = () => storage?.setItem(current?.type === 'ImageImport' ? 'cainflow_image_import_parameter_width' : 'cainflow_node_parameter_width', String(Math.round(currentWidthPreference())));
     let positionFrame = null, gesture = null, expanded = false, expandedRect = null, returnFocusElement = null;
     const expandButton = panel.querySelector('[data-parameter-action="expand"]');
     const dragHandle = panel.querySelector('.image-parameter-drag-handle');
@@ -127,7 +132,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             sizePrompt();
             return;
         }
-        const width = Math.min(preferredWidth, bounds.width);
+        const width = Math.min(currentWidthPreference(), bounds.width);
         panel.style.width = `${width}px`;
         panel.style.height = '';
         panel.style.left = `${rect.left + rect.width / 2 - width / 2}px`;
@@ -589,8 +594,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const previous = gesture;
         if (!previous) return;
         gesture = null; panel.classList.remove('is-dragging', 'is-resizing');
-        if (cancelled) { preferredWidth = previous.preferredWidth; expandedRect = previous.expandedRect; }
-        else if (!expanded && previous.changed) storage?.setItem('cainflow_node_parameter_width', String(Math.round(preferredWidth)));
+        if (cancelled) { preferredWidth = previous.preferredWidth; importPreferredWidth = previous.importPreferredWidth; expandedRect = previous.expandedRect; }
+        else if (!expanded && previous.changed) persistWidthPreference();
         if (previous.handle.hasPointerCapture?.(previous.id)) previous.handle.releasePointerCapture(previous.id);
         position();
     }
@@ -601,7 +606,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             const rect = panel.getBoundingClientRect();
             gesture = { kind, id: event.pointerId, handle, x: event.clientX, y: event.clientY,
                 rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
-                preferredWidth, expandedRect: expandedRect ? { ...expandedRect } : null, changed: false };
+                preferredWidth, importPreferredWidth, expandedRect: expandedRect ? { ...expandedRect } : null, changed: false };
             panel.classList.add(kind === 'drag' ? 'is-dragging' : 'is-resizing'); handle.setPointerCapture?.(event.pointerId);
         });
         handle.addEventListener('lostpointercapture', event => { if (gesture?.id === event.pointerId) finishGesture(true); });
@@ -613,8 +618,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             const dx = event.key === 'ArrowRight' ? 10 : event.key === 'ArrowLeft' ? -10 : 0;
             const dy = event.key === 'ArrowDown' ? 10 : event.key === 'ArrowUp' ? -10 : 0;
             if (!expanded) {
-                preferredWidth = clamp(event.key === 'Home' ? 280 : event.key === 'End' ? 960 : rect.width + dx, 280, 960);
-                storage?.setItem('cainflow_node_parameter_width', String(Math.round(preferredWidth)));
+                setWidthPreference(clamp(event.key === 'Home' ? 280 : event.key === 'End' ? 960 : rect.width + dx, 280, 960));
+                persistWidthPreference();
             } else if (kind === 'drag') {
                 expandedRect.left = clamp(rect.left + dx, 12, Math.max(12, windowRef.innerWidth - rect.width - 12));
                 expandedRect.top = clamp(rect.top + dy, bounds.top, Math.max(bounds.top, windowRef.innerHeight - rect.height - 12));
@@ -631,7 +636,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         event.preventDefault(); event.stopPropagation();
         const { rect, kind } = gesture, dx = event.clientX - gesture.x, dy = event.clientY - gesture.y, bounds = available();
         gesture.changed ||= Math.abs(dx) + Math.abs(dy) > 0;
-        if (!expanded) preferredWidth = clamp(rect.width + dx, 280, 960);
+        if (!expanded) setWidthPreference(clamp(rect.width + dx, 280, 960));
         else if (kind === 'drag') {
             expandedRect.left = clamp(rect.left + dx, 12, Math.max(12, windowRef.innerWidth - rect.width - 12));
             expandedRect.top = clamp(rect.top + dy, bounds.top, Math.max(bounds.top, windowRef.innerHeight - rect.height - 12));
