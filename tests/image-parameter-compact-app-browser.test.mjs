@@ -45,6 +45,11 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         assert.equal(await app.evaluate("document.querySelector('#image-0-prompt-source details').open"), true);
         assert.equal(await app.evaluate("document.querySelector('#image-0-prompt-field .image-local-prompt-draft').open"), false);
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=input]')===null"), true);
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-node-run-status').checkVisibility()"), false);
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-run-feedback').checkVisibility()"), false);
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-image-run-action=details]').hidden=false");
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-run-feedback').checkVisibility()"), true);
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-image-run-action=details]').hidden=true");
         assert.equal(await app.evaluate("document.getElementById('image-0-prompt').value"), 'preserved local draft');
         assert.ok(await app.evaluate("document.getElementById('image-0-prompt-source').textContent.includes('effective upstream prompt')"));
         await app.evaluate("window.originalCompactPrompt=document.getElementById('image-0-prompt');document.querySelector('#image-parameter-panel .generation-count-btn[data-delta=\"1\"]').click()");
