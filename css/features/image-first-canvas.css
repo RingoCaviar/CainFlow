@@ -675,6 +675,11 @@ html:root #canvas-container .node.image-first-media > .node-body {
 .image-parameter-panel[data-node-type="ImageSave"] .node-field:has(input[id$="-filename"]) { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 7px; }
 .image-parameter-panel .camera-control-note { margin: 0; padding: 6px; font-size: 12px; }
 .image-parameter-panel .image-import-url-fields { gap: 5px; }
+.image-parameter-panel[data-node-type="ImageImport"] .image-first-parameter-content { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; align-content: start; gap: 5px 8px; }
+.image-parameter-panel[data-node-type="ImageImport"] .image-import-mode-shell { order: 0; width: max-content; margin: 0; padding: 2px; border-radius: 7px; }
+.image-parameter-panel[data-node-type="ImageImport"] .image-import-mode-btn { flex: 0 0 auto; min-height: 28px; padding: 3px 12px; }
+.image-parameter-panel[data-node-type="ImageImport"] .image-first-summary { order: 1; min-width: 0; margin-right: 62px; justify-content: flex-start; }
+.image-parameter-panel[data-node-type="ImageImport"] .image-import-url-fields { order: 2; grid-column: 1 / -1; }
 .image-parameter-panel .image-input-detail { gap: 5px; }
 .image-parameter-panel .image-input-controls { flex-wrap: wrap; }
 .image-parameter-panel .image-input-source-title { font-size: 13px; }

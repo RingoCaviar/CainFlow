@@ -270,3 +270,7 @@ CLI显式退出统一既有desktop及stdlib ThreadingHTTPServer的daemon handler
 ## 去掉生图重复放大按钮（image-first-canvas#025，2026-10-29）
 
 仅在图片节点结果操作中隐藏放大按钮，并收起未选中的空操作框；共享操作执行器、Agent及历史不改。原图片手势用例增加选中/未选中按钮不可见及参考操作可见断言，保留真实拖动、返回原位拖动、单击参数、双击原图断言，1/1通过（3.59秒）。日志verification/025-preview-button.log，diff检查通过；未追加测试文件、未跑全量或性能。
+
+## 导入浮层紧凑同行（image-first-canvas#026，2026-10-29）
+
+只调整导入节点的浮层：切换按钮按内容定宽，去掉模式区的旧下边距，来源说明与模式、角落工具同行；URL字段在下一行完整展开。原宽度偏好、放大及控件不变。原九类浮层smoke补充上传态低于64px及URL字段切换可见性断言后1/1通过（3.91秒），其他原断言保持，日志verification/026-import-compact.log。diff检查通过，未全量或性能重测。

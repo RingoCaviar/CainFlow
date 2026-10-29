@@ -75,7 +75,14 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
             assert.equal(measurements.type, type);
             assert.equal(measurements.header, 'absolute');
             assert.ok(measurements.overflow <= 1, `${type} does not overflow horizontally`);
-            if (type === 'ImageImport') { assert.equal(measurements.footerHidden, true); assert.ok(measurements.height < 160); }
+            if (type === 'ImageImport') {
+                assert.equal(measurements.footerHidden, true); assert.ok(measurements.height < 64);
+                await app.evaluate("document.querySelector('#image-parameter-panel .image-import-mode-btn[data-mode=url]').click()");
+                assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-import-url-fields').hidden"), false);
+                assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .image-import-url-fields input').checkVisibility()"));
+                await app.evaluate("document.querySelector('#image-parameter-panel .image-import-mode-btn[data-mode=upload]').click()");
+                assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-import-url-fields').hidden"), true);
+            }
             if (type === 'ImageImport' || type === 'ImageSave') {
                 assert.equal(await app.evaluate(`!!document.querySelector('#image-${index} .image-first-summary')`), false, `${type} keeps metadata off the card`);
                 assert.ok(await app.evaluate("!!document.querySelector('#image-parameter-panel .image-first-summary')"));
