@@ -1,8 +1,16 @@
 # CainFlow
 
-CainFlow is a visual workspace for composing and running media-generation workflows. This glossary defines the shared language for the Prompt Agent and its workflow-bound creative context.
+CainFlow is a visual workspace for composing and running media-generation workflows. This glossary defines the shared language for canvas interaction, the Prompt Agent and its workflow-bound creative context.
 
-## Prompt Agent
+## Language
+
+### Canvas
+
+**节点参数浮层**:
+选中图片节点后显示、用于编辑该节点参数的浮层；普通模式与放大模式属于同一组件。
+_Avoid_: 参数面板, 节点参数面板, 参数浮窗, 下方参数
+
+### Prompt Agent
 
 **Prompt Agent**:
 A lightweight assistant that turns a creator's natural-language image request into an image-generation prompt and can apply the result to the selected image-generation node.

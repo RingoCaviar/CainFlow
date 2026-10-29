@@ -21,13 +21,13 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     const panel = documentRef.createElement('section');
     panel.id = 'image-parameter-panel';
     panel.className = 'image-parameter-panel';
-    panel.setAttribute('aria-label', '节点参数');
+    panel.setAttribute('aria-label', '节点参数浮层');
     panel.hidden = true;
-    panel.innerHTML = `<header class="image-parameter-header"><span class="image-parameter-drag-handle" tabindex="0" role="button" aria-label="拖动参数浮窗" hidden>⠿</span><div class="image-parameter-tools"><button type="button" data-parameter-action="expand" aria-label="放大参数面板" aria-pressed="false">⤢</button><button type="button" data-parameter-action="close" aria-label="关闭参数面板">×</button></div></header>
+    panel.innerHTML = `<header class="image-parameter-header"><span class="image-parameter-drag-handle" tabindex="0" role="button" aria-label="拖动节点参数浮层" hidden>⠿</span><div class="image-parameter-tools"><button type="button" data-parameter-action="expand" aria-label="放大节点参数浮层" aria-pressed="false">⤢</button><button type="button" data-parameter-action="close" aria-label="关闭节点参数浮层">×</button></div></header>
         <div class="image-parameter-scroll"></div><footer class="image-parameter-footer"><span class="image-parameter-feedback"></span><button type="button" class="save-btn" data-parameter-action="generate">生成</button></footer>
-        <span class="image-parameter-resize" data-parameter-resize="width" tabindex="0" role="separator" aria-orientation="vertical" aria-label="调整参数面板宽度"></span>
-        <span class="image-parameter-resize-height" data-parameter-resize="height" tabindex="0" role="separator" aria-orientation="horizontal" aria-label="调整参数浮窗高度" hidden></span>
-        <span class="image-parameter-resize-corner" data-parameter-resize="both" tabindex="0" role="button" aria-label="调整参数浮窗大小" hidden></span>`;
+        <span class="image-parameter-resize" data-parameter-resize="width" tabindex="0" role="separator" aria-orientation="vertical" aria-label="调整节点参数浮层宽度"></span>
+        <span class="image-parameter-resize-height" data-parameter-resize="height" tabindex="0" role="separator" aria-orientation="horizontal" aria-label="调整节点参数浮层高度" hidden></span>
+        <span class="image-parameter-resize-corner" data-parameter-resize="both" tabindex="0" role="button" aria-label="调整节点参数浮层大小" hidden></span>`;
     const store = documentRef.createElement('div');
     store.hidden = true;
     store.className = 'image-parameter-store';
@@ -68,7 +68,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     }
     function updateMode() {
         panel.classList.toggle('is-expanded', expanded); panel.dataset.mode = expanded ? 'expanded' : 'normal';
-        expandButton.setAttribute('aria-label', expanded ? '还原参数面板' : '放大参数面板');
+        expandButton.setAttribute('aria-label', expanded ? '还原节点参数浮层' : '放大节点参数浮层');
         expandButton.setAttribute('aria-pressed', String(expanded));
         expandButton.textContent = expanded ? '⤡' : '⤢';
         dragHandle.hidden = heightHandle.hidden = cornerHandle.hidden = !expanded;
@@ -241,7 +241,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         panel.hidden = false;
         panel.setAttribute('aria-hidden', 'false'); panel.inert = false;
         panel.dataset.nodeId = node.id;
-        panel.setAttribute('aria-label', `${node.customTitle || nodeLabels[node.type]} · 节点参数`);
+        panel.setAttribute('aria-label', `${node.customTitle || nodeLabels[node.type]} · 节点参数浮层`);
         if (group) { const view = views.get(node); if (view.group !== group) setGroup(node, group); }
         refreshNode(node.id);
         position();
