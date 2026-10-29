@@ -195,6 +195,7 @@ test('a save retains playable video and the whole image batch, writes real files
         assert.deepEqual(graph.nodes.find(node => node.id === 'video-output').videos.map(item => item.assetKey), result.videos.map(item => item.assetKey));
         assert.deepEqual(graph.connections, connections);
         await app.waitFor("document.querySelector('#save-save-preview .image-save-video-pane video')?.videoWidth===96");
+        await app.waitFor("(()=>{const s=document.querySelector('#save-save-preview.node-media-aspect-surface'),v=s?.querySelector('video');return v?.videoWidth>0&&Math.abs(s.offsetHeight-s.offsetWidth*v.videoHeight/v.videoWidth)<=2})()");
         await app.evaluate("(async()=>{const video=document.querySelector('#save-save-preview .image-save-video-pane video');video.muted=true;await video.play()})()");
         await app.waitFor("document.querySelector('#save-save-preview .image-save-video-pane video').currentTime>0.05");
         await closeSettings(app);
@@ -213,6 +214,7 @@ test('a save retains playable video and the whole image batch, writes real files
         await openSettings(app);
         await app.evaluate("document.querySelector('#image-parameter-panel [data-save-preview-mode=image]').click()");
         await app.waitFor("document.querySelector('#save-save-preview .image-save-image-pane .image-save-preview-counter')?.textContent.endsWith('/3')");
+        await app.waitFor("(()=>{const s=document.querySelector('#save-save-preview.node-media-aspect-surface'),i=s?.querySelector('.image-save-image-pane img');return i?.naturalWidth>0&&Math.abs(s.offsetHeight-s.offsetWidth*i.naturalHeight/i.naturalWidth)<=2})()");
         await app.evaluate("document.querySelector('#image-parameter-panel [data-save-preview-mode=video]').click();const select=document.querySelector('#image-parameter-panel [data-save-video-index]');select.value='0';select.dispatchEvent(new Event('change',{bubbles:true}))");
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>{const node=document.value?.nodes.find(node=>node.id==='save');return node?.videoPreviewIndex===0&&node?.savePreviewMode==='video'})");
         assert.equal(await app.evaluate("savedNativeVideo===document.querySelector('#save-save-preview .image-save-video-pane video')"), true);

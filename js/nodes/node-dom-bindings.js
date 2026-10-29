@@ -2,6 +2,7 @@ import { createThinkingControl } from '../features/execution/thinking-control.js
 import { createImageReferenceOverview } from './image-reference-overview.js';
 import { createImageNodeResults } from './image-node-results.js';
 import { renderImageNodeRunState } from './image-node-run-state.js';
+import { bindNodeMediaAspect } from './node-media-aspect.js';
 import { getThinkingCapability } from '../features/execution/thinking-config.js';
 import { createSelectionApi } from '../canvas/selection.js';
 /**
@@ -2445,6 +2446,9 @@ export function createNodeDomBindingsApi({
     }
 
     function bindNodeInteractions({ id, type, el }) {
+        bindNodeMediaAspect(state.nodes.get(id), { fitNode: (nodeId, options) => {
+            if (state.nodes.get(nodeId)?.el === el) fitNodeToContent(nodeId, options);
+        }, windowRef: documentRef.defaultView });
         const createNodeDraggingState = (nodeIds, pos, isCloneDrag) => {
             const startPositions = new Map();
             const draggedNodeIds = new Set(nodeIds);
@@ -2659,6 +2663,7 @@ export function createNodeDomBindingsApi({
             const cursor = edge === 'left' || edge === 'right'
                 ? 'horizontal'
                 : edge === 'top' || edge === 'bottom' ? 'vertical' : 'diagonal';
+            const mediaSurface = el.classList.contains('node-media-aspect') ? el.querySelector('.node-media-aspect-surface') : null;
             state.resizing = {
                 nodeId: id,
                 edge,
@@ -2669,6 +2674,7 @@ export function createNodeDomBindingsApi({
                 startNodeY: node.y,
                 startWidth: currentWidth,
                 startHeight: currentHeight,
+                ...(mediaSurface?.offsetHeight > 0 ? { mediaAspectRatio: mediaSurface.offsetWidth / mediaSurface.offsetHeight } : {}),
                 minWidth: defaultMinimum.minWidth,
                 maxWidth,
                 minHeight: Math.max(60, Math.min(defaultMinimum.minHeight, resizeTargetMinHeight)),

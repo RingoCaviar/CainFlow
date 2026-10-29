@@ -22,6 +22,7 @@ import { definitionHasCapability, NODE_CAPABILITIES } from './node-capabilities.
 import { isImageFirstCardNode, rememberImageFirstRestoredSize, getImageFirstRestoredSize } from './image-first-presentation.js';
 import { captureNodePersistenceExtensions } from './node-persistence-extensions.js';
 import { readGenerationRevision } from './image-generation-revision.js';
+import { syncNodeMediaAspect } from './node-media-aspect.js';
 
 export function createNodeLifecycleApi({
     state,
@@ -914,8 +915,18 @@ export function createNodeLifecycleApi({
         if (isImageFirstCardNode(node) && node.el?.classList.contains('image-first-card')) {
             const generation = node.type === 'ImageGenerate';
             const restored = getImageFirstRestoredSize(node);
+            const originalWidth = node.el.style.width;
+            if (Number(options.width) > 0) node.el.style.width = `${Math.round(options.width)}px`;
+            let mediaHeight = 0;
+            try {
+                if (syncNodeMediaAspect(node)) {
+                    const body = node.el.querySelector(':scope > .node-body');
+                    const style = node.el.ownerDocument.defaultView.getComputedStyle(node.el);
+                    mediaHeight = body.offsetHeight + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+                }
+            } finally { node.el.style.width = originalWidth; }
             return { minWidth: Math.min(Number(config?.minWidth) || getDefaultNodeWidth(config), restored?.width || Infinity),
-                minHeight: Math.min(node.userResized === true || node.collapsed === true ? (generation ? 248 : 200) : (generation ? 348 : 300), restored?.height || Infinity) };
+                minHeight: mediaHeight || Math.min(node.userResized === true || node.collapsed === true ? (generation ? 248 : 200) : (generation ? 348 : 300), restored?.height || Infinity) };
         }
         if (isImageImportUrlMode(node)) {
             return {
@@ -991,6 +1002,11 @@ export function createNodeLifecycleApi({
         const node = state.nodes.get(nodeId);
         if (!node || !node.el) return;
         const config = nodeConfigs[node.type] || null;
+        if (syncNodeMediaAspect(node)) {
+            const width = node.el.offsetWidth || Number(node.width) || getDefaultNodeWidth(config);
+            applyNodeSize(node, width, getNodeMinimumSize(node, { width }).minHeight, options);
+            return;
+        }
         const usesContentSizedDefault = config?.contentSized === true && node.userResized !== true;
         if (usesContentSizedDefault) {
             const defaultWidth = isImageFirstCardNode(node)
@@ -1026,6 +1042,7 @@ export function createNodeLifecycleApi({
     function ensureNodeContentVisible(nodeId, options = {}) {
         const node = state.nodes.get(nodeId);
         if (!node || !node.el) return;
+        if (syncNodeMediaAspect(node)) { fitNodeToContent(nodeId, options); return; }
         const config = nodeConfigs[node.type] || null;
         if (config?.contentSized === true && node.userResized !== true) {
             fitNodeToContent(nodeId, options);

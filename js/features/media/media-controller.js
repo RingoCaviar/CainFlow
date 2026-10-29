@@ -874,8 +874,10 @@ export function createMediaControllerApi({
         let mode = node.savePreviewMode ?? node.data?.savePreviewMode ?? (videos.length ? 'video' : 'image');
         if (mode === 'video' && !videos.length) mode = 'image';
         if (mode === 'image' && !imageCount && videos.length) mode = 'video';
+        const modeChanged = elements.container.dataset.saveMode !== mode;
         elements.container.dataset.saveMode = mode;
         elements.image.hidden = mode !== 'image'; elements.video.hidden = mode !== 'video';
+        if (modeChanged) requestNodeFit(node.id);
         for (const button of elements.tools.querySelectorAll('[data-save-preview-mode]')) {
             const count = button.dataset.savePreviewMode === 'image' ? imageCount : videos.length;
             button.textContent = `${button.dataset.savePreviewMode === 'image' ? '图片' : '视频'} ${count}`;
