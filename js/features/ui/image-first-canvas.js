@@ -75,6 +75,9 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         agentFront.setAttribute('aria-expanded', String(!!agentOpen));
     }
     function updateMode() {
+        const canExpand = current?.type !== 'ImageImport';
+        if (!canExpand) { expanded = false; expandedRect = null; }
+        expandButton.hidden = expandButton.disabled = !canExpand;
         panel.classList.toggle('is-expanded', expanded); panel.dataset.mode = expanded ? 'expanded' : 'normal';
         expandButton.setAttribute('aria-label', expanded ? '还原节点参数浮层' : '放大节点参数浮层');
         expandButton.setAttribute('aria-pressed', String(expanded));
@@ -292,6 +295,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (current !== node) { finishGesture(true); setReturnFocus(node); park(); }
         panelManager?.beforeOpen?.('parameters');
         current = node; closed = null;
+        updateMode();
         if (node.parameterRoot.parentNode !== scroll) scroll.append(node.parameterRoot);
         if (footer.parentNode !== node.parameterRoot) node.parameterRoot.append(footer);
         const view = views.get(node);
@@ -568,6 +572,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (surfaces?.closeModeless) surfaces.closeModeless(panel); else close();
     });
     expandButton.addEventListener('click', () => {
+        if (current?.type === 'ImageImport') return;
         finishGesture(true); expanded = !expanded; expandedRect = null; updateMode(); position(); surfaces?.bringToFront?.(panel);
     });
     parametersFront.addEventListener('click', () => {
