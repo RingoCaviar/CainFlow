@@ -271,6 +271,12 @@ html.animations-disabled .connection-flow-decoration {
     box-sizing: border-box;
 }
 
+/* Command labels are controls; editable fields and readable content remain selectable. */
+:is(button, summary, [role="button"], [role="tab"], [role="menuitem"]) {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
 body {
     font-family: var(--font);
     background: var(--bg-canvas);
