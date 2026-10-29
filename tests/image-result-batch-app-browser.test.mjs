@@ -31,7 +31,7 @@ async function saved(app) {
 async function run(app, count) {
     await app.evaluate("document.getElementById('btn-run').click()");
     await app.waitFor(`fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='source')?.mediaAssetKeys?.length===${count})`);
-    await app.waitFor("!document.getElementById('source-prompt').disabled && Boolean(document.querySelector('#source-image-results .image-node-result-count'))");
+    await app.waitFor("!document.getElementById('source-prompt').disabled && Boolean(document.querySelector('#source-image-results .image-node-result-preview'))");
 }
 async function openBatch(app, count) {
     await app.evaluate("document.querySelector('#source-image-results .image-node-result-count').click()");
@@ -98,5 +98,21 @@ test('whole-batch navigation retains a missing first slot and opens the second o
         assert.equal(await app.evaluate("document.querySelector('.fullscreen-overlay img').src"), originals[1]);
         assert.equal(await app.evaluate('resultBatchRequests.length'), 0);
         assert.deepEqual((await saved(app)).nodes.find(node => node.id === 'source').mediaAssetKeys, before.mediaAssetKeys);
+    });
+});
+
+
+test('single result omits navigation and a later batch restores it', { timeout: 30000 }, async () => {
+    await withAppBrowser({ ...configuration, nodes: [
+        { id: 'source', type: 'ImageGenerate', x: 80, y: 90, apiConfigId: 'image', providerId: 'p', prompt: 'navigation visibility', generationCount: 1 }
+    ], connections: [] }, async app => {
+        await controlled(app); await run(app, 1);
+        assert.equal(await app.evaluate("document.querySelector('#source-image-results .image-node-result-navigation')===null"), true);
+        await app.evaluate("document.getElementById('source').click();const input=document.getElementById('source-generation-count');input.value='2';input.dispatchEvent(new Event('change',{bubbles:true}))");
+        await run(app, 2);
+        assert.ok(await app.evaluate("document.querySelector('#source-image-results .image-node-result-navigation').checkVisibility()"));
+        await app.evaluate("document.querySelector('#source-image-results [data-result-step=\"-1\"]').click()");
+        await app.waitFor("document.querySelector('#source-image-results .image-node-result-count').textContent==='1 / 2'");
+        assert.equal((await saved(app)).nodes.find(node => node.id === 'source').mediaAssetKeys.length, 2);
     });
 });
