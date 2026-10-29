@@ -2680,8 +2680,8 @@ export function createWorkflowRunnerApi({
 
             for (const [id, node] of state.nodes) {
                 if (node.type === 'ImageSave' && (getCanonicalImageList(node, { includeResizePreview: false }).length > 0 || node.data.video?.url)) {
-                    const btnSave = node.el.querySelector(`#${id}-manual-save`);
-                    const btnView = node.el.querySelector(`#${id}-view-full`);
+                    const btnSave = queryImageNodeRunControl(node, `#${id}-manual-save`);
+                    const btnView = queryImageNodeRunControl(node, `#${id}-view-full`);
                     if (btnSave) btnSave.disabled = false;
                     if (btnView) btnView.disabled = getCanonicalImageList(node, { includeResizePreview: false }).length === 0;
                 }

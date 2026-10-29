@@ -881,8 +881,10 @@ export function createMediaControllerApi({
         for (const button of elements.tools.querySelectorAll('[data-save-preview-mode]')) {
             const count = button.dataset.savePreviewMode === 'image' ? imageCount : videos.length;
             button.textContent = `${button.dataset.savePreviewMode === 'image' ? '图片' : '视频'} ${count}`;
+            button.hidden = !(imageCount > 0 && videos.length > 0);
             button.disabled = !count; button.setAttribute('aria-pressed', String(button.dataset.savePreviewMode === mode));
         }
+        elements.tools.hidden = !(imageCount > 0 && videos.length > 0) && !(mode === 'video' && videos.length > 1);
         const select = elements.tools.querySelector('[data-save-video-index]');
         if (select) {
             const signature = JSON.stringify(videos.map(video => [video.id, video.assetKey, video.url]));
