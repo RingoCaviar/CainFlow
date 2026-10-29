@@ -10,6 +10,7 @@ export function createViewportApi({
 }) {
     const DEFAULT_CANVAS_DOT_SPACING = 22;
     let canvasDotSpacing = null;
+    const canvasGrid = elements.canvasGrid || elements.canvasContainer;
 
     function getCanvasDotSpacing() {
         if (canvasDotSpacing !== null) return canvasDotSpacing;
@@ -52,9 +53,9 @@ export function createViewportApi({
         setTransformAttribute(elements.originAxes, svgTransform);
 
         const dotSpacing = getCanvasDotSpacing() * zoom;
-        setCustomStyle(elements.canvasContainer.style, '--canvas-dot-spacing-scaled', `${dotSpacing}px`);
-        setCustomStyle(elements.canvasContainer.style, '--canvas-dot-offset-x', `${x}px`);
-        setCustomStyle(elements.canvasContainer.style, '--canvas-dot-offset-y', `${y}px`);
+        setCustomStyle(canvasGrid.style, '--canvas-dot-spacing-scaled', `${dotSpacing}px`);
+        setCustomStyle(canvasGrid.style, '--canvas-dot-offset-x', `${x}px`);
+        setCustomStyle(canvasGrid.style, '--canvas-dot-offset-y', `${y}px`);
         if (elements.zoomLevel) {
             const label = `${Math.round(zoom * 100)}%`;
             if (elements.zoomLevel.textContent !== label) elements.zoomLevel.textContent = label;

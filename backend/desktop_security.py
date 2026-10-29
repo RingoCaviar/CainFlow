@@ -33,6 +33,7 @@ def handle_bootstrap(handler):
         handler.send_error(403, 'Forbidden')
         return True
     handler.send_response(302)
+    handler.send_header('Content-Length', '0')
     handler.send_header('Location', '/?desktop=1')
     handler.send_header(
         'Set-Cookie',

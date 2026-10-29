@@ -45,15 +45,28 @@ class DesktopSecurityTests(unittest.TestCase):
         try:
             connection = http.client.HTTPConnection('127.0.0.1', server.server_address[1])
             connection.request('GET', '/api/storage/maintenance')
-            self.assertEqual(connection.getresponse().status, 403)
+            response = connection.getresponse()
+            self.assertEqual(response.status, 403)
+            response.read()
 
             connection.request('GET', f'{desktop_security.BOOTSTRAP_PATH}?token={token}')
             response = connection.getresponse()
             self.assertEqual(response.status, 302)
+            self.assertEqual(response.getheader('Content-Length'), '0')
+            self.assertEqual(response.read(), b'')
             cookie = response.getheader('Set-Cookie').split(';', 1)[0]
+            bootstrap_socket = connection.sock
+
+            connection.request('GET', '/favicon.ico')
+            response = connection.getresponse()
+            self.assertEqual(response.status, 404)
+            self.assertEqual(response.read(), b'')
+            self.assertIs(connection.sock, bootstrap_socket)
 
             connection.request('GET', '/api/storage/maintenance', headers={'Cookie': cookie})
-            self.assertNotEqual(connection.getresponse().status, 403)
+            response = connection.getresponse()
+            self.assertNotEqual(response.status, 403)
+            response.read()
             connection.close()
         finally:
             server.shutdown()
@@ -72,6 +85,8 @@ class DesktopSecurityTests(unittest.TestCase):
 
             self.assertEqual(response.status, 302)
             self.assertEqual(response.getheader('Location'), '/?desktop=1')
+            self.assertEqual(response.getheader('Content-Length'), '0')
+            self.assertEqual(response.read(), b'')
             connection.close()
         finally:
             server.shutdown()

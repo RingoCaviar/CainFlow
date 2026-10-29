@@ -11,8 +11,7 @@
     outline: none;
 }
 
-#canvas-container::before {
-    content: "";
+#canvas-container > .canvas-grid {
     position: absolute;
     inset: 0;
     z-index: 0;
@@ -28,7 +27,7 @@
     background-position: var(--canvas-dot-offset-x) var(--canvas-dot-offset-y);
 }
 
-#canvas-container.canvas-performance-protected::before {
+#canvas-container.canvas-performance-protected > .canvas-grid {
     background-position: 0 0;
 }
 

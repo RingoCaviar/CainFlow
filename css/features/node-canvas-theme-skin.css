@@ -525,6 +525,31 @@ html:root #canvas-container {
     --node-connection-detached-glow: color-mix(in srgb, var(--node-connection-detached-border) 45%, transparent);
 }
 
+/* Keep per-frame zoom out of inactive node subtrees. Browsers that ignore
+ * @property retain the original inherited value and the same visual feedback. */
+@property --canvas-zoom {
+    syntax: '<number>';
+    inherits: false;
+    initial-value: 1;
+}
+
+#nodes-layer > .node.selected,
+#nodes-layer > .node.batch-connection-source,
+#nodes-layer > .node.connection-insert-candidate,
+#nodes-layer > .node.connection-shake-armed,
+#nodes-layer > .node.connection-shake-detached {
+    --canvas-zoom: inherit;
+}
+
+#nodes-layer > .node.batch-connection-source::before,
+#nodes-layer > .node.batch-connection-source::after,
+#nodes-layer > .node.batch-connection-source > .node-glass-bg,
+#nodes-layer > .node.connection-insert-candidate > .node-glass-bg,
+#nodes-layer > .node.connection-shake-armed > .node-glass-bg,
+#nodes-layer > .node.connection-shake-detached > .node-glass-bg {
+    --canvas-zoom: inherit;
+}
+
 html:root #canvas-container .node-glass-bg {
     background: var(--node-surface);
     border: 1px solid var(--node-border);
