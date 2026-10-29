@@ -59,10 +59,7 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         assert.ok(await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel').getBoundingClientRect(),c=document.querySelector('#image-parameter-panel .image-parameter-count-slot').getBoundingClientRect(),g=document.querySelector('#image-parameter-panel [data-parameter-action=generate]').getBoundingClientRect();return Math.abs((c.left+g.right)/2-(p.left+p.width/2))<1})()"), 'count and generate controls are centered together');
 
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=reference]').click()");
-        assert.equal(await app.evaluate("document.querySelector('#image-0-reference-sources .image-reference-more').open"), false);
-        await app.evaluate("document.querySelector('#image-0-reference-sources .image-reference-more>summary').click()");
-        assert.equal(await app.evaluate("document.querySelector('#image-0-reference-sources .image-reference-more').open"), true);
-        assert.ok(await app.evaluate("document.querySelector('#image-0-reference-sources .image-reference-disconnect').textContent.includes('1')"));
+        assert.equal(await app.evaluate("document.querySelectorAll('#image-0-reference-sources .image-reference-more, #image-0-reference-sources .image-reference-source-actions, #image-0-reference-sources .image-reference-source-status').length"), 0);
 
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=advanced]').click()");
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-input-detail')===null"), true);
