@@ -76,6 +76,7 @@
     padding: 2px 8px;
 }
 
+.image-parameter-panel .image-parameter-tools button[hidden] { display: none; }
 .image-parameter-tools { display: flex; align-items: center; gap: 3px; margin-left: auto; }
 
 .image-parameter-panel :is(.image-parameter-header, .image-parameter-tools) button {

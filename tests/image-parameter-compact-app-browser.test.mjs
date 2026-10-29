@@ -76,6 +76,9 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
             assert.equal(measurements.header, 'absolute');
             assert.ok(measurements.overflow <= 1, `${type} does not overflow horizontally`);
             if (type === 'ImageImport') {
+                assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').checkVisibility()"), false);
+                await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').click()");
+                assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').dataset.mode"), 'normal');
                 assert.equal(measurements.footerHidden, true); assert.ok(measurements.height < 64);
                 const alignment = await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel').getBoundingClientRect(),m=document.querySelector('#image-parameter-panel .image-import-mode-shell').getBoundingClientRect();return {width:p.width,offset:Math.abs(m.left+m.width/2-p.left-p.width/2)}})()");
                 assert.ok(alignment.width <= 300); assert.ok(alignment.offset <= 1);
@@ -103,5 +106,11 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').click();document.querySelector('#image-parameter-panel [data-parameter-group-toggle=advanced]').click()");
         await settle(app);
         assert.ok(await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel').getBoundingClientRect(),b=document.querySelector('#image-parameter-panel [data-parameter-action=generate]').getBoundingClientRect();return b.top>=p.top&&b.bottom<=p.bottom+1})()"), 'expanded long settings keep the primary action reachable');
+        await open(app, 'image-1');
+        assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').dataset.mode"), 'normal', 'switching from an expanded node restores the compact import mode');
+        await open(app, 'image-0');
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').checkVisibility()"), true);
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').click()");
+        assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').dataset.mode"), 'expanded');
     });
 });
