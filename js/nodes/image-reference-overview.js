@@ -2,6 +2,9 @@ import { normalizeImageList } from '../features/execution/execution-data-utils.j
 import { getImageOutputAssets } from './image-output-projection.js';
 import { projectImageReferences } from './image-reference-projection.js';
 import { getImageDescription } from '../features/execution/reference-image-description.js';
+import { getSurfaceCoordinator } from '../features/ui/surface-coordinator.js';
+
+let moreSequence = 0;
 
 // A disposable projection of connections and existing outputs, never an attachment store.
 export function createImageReferenceOverview({ state, documentRef, getCachedOutputValue,
@@ -9,6 +12,7 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
     focusNode = () => {}, getWorkflowId = () => '', showToast = () => {}, onLayout = () => {},
     moveSource = () => false, disconnectSource = () => false, toggleSourceEnabled = null }) {
     const views = new WeakMap();
+    const surfaces = getSurfaceCoordinator(documentRef);
     const assetsOf = getImageOutputAssets;
     const sameList = (left, right) => left.length === right.length && left.every((value, index) => value === right[index]);
     const button = (label, action, disabled) => {
@@ -35,6 +39,7 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
             views.set(container, view);
             if (!Array.isArray(target.el._cleanupFns)) target.el._cleanupFns = [];
             target.el._cleanupFns.push(() => {
+                view.closeMore?.();
                 view.stopThumbnails?.();
                 views.delete(container);
             });
@@ -59,6 +64,7 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
                 && sameList(old.images, group.images) && sameList(old.assets, group.assets);
         })) return;
         view.stopThumbnails?.();
+        view.closeMore?.();
         view.groups = groups; view.disabled = disabled; view.revision += 1;
         const revision = view.revision;
         const scrollTop = container.querySelector('.image-reference-grid')?.scrollTop || 0;
@@ -199,11 +205,50 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
                 strip.append(preview);
             }
             row.append(strip);
-            const disconnect = connectionButton(`断开 ${group.count} 张`, () => mutate(() => disconnectSource(nodeId, group.connection.id), group.connection.id), disabled || group.running, 'image-reference-disconnect');
+            const more = documentRef.createElement('details'); more.className = 'image-source-more image-reference-more';
+            const moreTrigger = documentRef.createElement('summary'); moreTrigger.className = 'image-source-more-trigger';
+            moreTrigger.textContent = '更多'; moreTrigger.setAttribute('aria-label', `${group.name}参考来源的更多操作`);
+            moreTrigger.setAttribute('aria-expanded', 'false');
+            const moreActions = documentRef.createElement('div'); moreActions.className = 'image-source-more-actions';
+            const menuId = `image-reference-more-${++moreSequence}`;
+            moreActions.id = menuId; moreTrigger.setAttribute('aria-controls', menuId);
+            const closeMore = () => {
+                more.open = false; moreTrigger.setAttribute('aria-expanded', 'false');
+                if (view.closeMore === closeMore) view.closeMore = null;
+                surfaces?.forgetPopover(menuId);
+            };
+            more.append(moreTrigger, moreActions);
+            more.addEventListener('click', event => event.stopPropagation());
+            const syncMore = () => {
+                moreTrigger.setAttribute('aria-expanded', String(more.open));
+                if (more.open && more.isConnected) {
+                    if (view.closeMore !== closeMore) {
+                        view.closeMore?.(); view.closeMore = closeMore;
+                        surfaces?.openPopover(menuId, { element: moreActions, trigger: moreTrigger, close: closeMore });
+                    }
+                } else {
+                    if (view.closeMore === closeMore) view.closeMore = null;
+                    surfaces?.forgetPopover(menuId);
+                }
+                onLayout(nodeId);
+            };
+            moreTrigger.addEventListener('click', event => {
+                event.preventDefault(); event.stopPropagation();
+                if (more.open) closeMore(); else { more.open = true; syncMore(); }
+            });
+            more.addEventListener('toggle', syncMore);
+            more.addEventListener('keydown', event => {
+                if (event.key !== 'Escape' || !more.open) return;
+                event.preventDefault(); event.stopPropagation(); closeMore(); moreTrigger.focus({ preventScroll: true });
+            });
+            const disconnect = connectionButton(`断开此来源 · ${group.count} 张图片`, () => {
+                closeMore(); mutate(() => disconnectSource(nodeId, group.connection.id), group.connection.id);
+            }, disabled || group.running, 'image-reference-disconnect');
             disconnect.title = '仅断开此来源连接，保留源节点和原图';
             disconnect.setAttribute('aria-label', `断开${group.name}来源连接，影响 ${group.count} 张图片，保留源节点和原图`);
+            moreActions.append(disconnect);
             const tools = documentRef.createElement('div'); tools.className = 'image-reference-tools';
-            tools.append(up, down, disconnect); row.append(tools);
+            tools.append(up, down, more); row.append(tools);
             const sourceActions = documentRef.createElement('div'); sourceActions.className = 'image-reference-source-actions';
             const toggle = connectionButton(group.enabled ? '停用来源' : '启用来源', () => mutate(() => toggleSourceEnabled(group.source.id), group.connection.id, '.image-reference-toggle-source'),
                 disabled || group.running || group.downstreamRunning || !group.source || !toggleSourceEnabled, 'image-reference-toggle-source');

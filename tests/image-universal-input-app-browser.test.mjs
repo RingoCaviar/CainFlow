@@ -91,7 +91,7 @@ test('generation has one visible input and its detail preserves real roles, batc
         assert.match(rows.find(row => row.id === 'custom-parameters').text, /参数来源.*参数/s);
 
         // A layout-only save must retain every canonical role and connection order.
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=count]').click();const field=document.getElementById('target-generation-count');field.value='2';field.dispatchEvent(new Event('change',{bubbles:true}))");
+        await app.evaluate("const field=document.getElementById('target-generation-count');field.value='2';field.dispatchEvent(new Event('change',{bubbles:true}))");
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes?.find(node=>node.id==='target')?.generationCount===2)");
         const saved = await app.evaluate("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value.connections.map(({id,from,to,type,order})=>({id,from,to,type,...(order===undefined?{}:{order})})))");
         assert.deepEqual(saved, session.connections);

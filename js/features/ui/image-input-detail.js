@@ -3,8 +3,10 @@ import { projectImageReferences } from '../../nodes/image-reference-projection.j
 import { projectImageOutput } from '../../nodes/image-output-projection.js';
 import { getNodeDefinition } from '../../nodes/registry.js';
 import { getUniversalInputRoles, resolveUniversalInput } from '../../nodes/universal-input-policy.js';
+import { getSurfaceCoordinator } from './surface-coordinator.js';
 
 const typeLabels = { image: '图片', text: '文本', params: '参数', video: '视频', any: '任意类型' };
+let moreSequence = 0;
 
 function describeSource(state, edge, referenceGroup) {
     const source = state.nodes.get(edge.from.nodeId);
@@ -32,6 +34,8 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
     const element = documentRef.createElement('section');
     element.className = 'image-input-detail';
     element.setAttribute('aria-label', '输入明细');
+    const surfaces = getSurfaceCoordinator(documentRef);
+    let closeMore = null;
     let signature = '', replacing = null, pending = false, statusMessage = '';
 
     function outputs() {
@@ -49,13 +53,66 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
         if (edgeId !== undefined) control.dataset.inputEdgeId = edgeId;
         return control;
     }
+    function sourceMore(title) {
+        const more = documentRef.createElement('details'); more.className = 'image-source-more image-input-more';
+        const trigger = documentRef.createElement('summary'); trigger.className = 'image-source-more-trigger';
+        trigger.textContent = '更多'; trigger.setAttribute('aria-label', `${title}输入连接的更多操作`);
+        trigger.setAttribute('aria-expanded', 'false');
+        const actions = documentRef.createElement('div'); actions.className = 'image-source-more-actions';
+        const menuId = `image-input-more-${++moreSequence}`;
+        actions.id = menuId; trigger.setAttribute('aria-controls', menuId);
+        const close = () => {
+            more.open = false; trigger.setAttribute('aria-expanded', 'false');
+            if (closeMore === close) closeMore = null;
+            surfaces?.forgetPopover(menuId);
+        };
+        more.append(trigger, actions);
+        more.addEventListener('click', event => event.stopPropagation());
+        const sync = () => {
+            trigger.setAttribute('aria-expanded', String(more.open));
+            if (more.open && more.isConnected) {
+                if (closeMore !== close) {
+                    closeMore?.(); closeMore = close;
+                    surfaces?.openPopover(menuId, { element: actions, trigger, close });
+                }
+            } else {
+                if (closeMore === close) closeMore = null;
+                surfaces?.forgetPopover(menuId);
+            }
+        };
+        trigger.addEventListener('click', event => {
+            event.preventDefault(); event.stopPropagation();
+            if (more.open) close(); else { more.open = true; sync(); }
+        });
+        more.addEventListener('toggle', sync);
+        more.addEventListener('keydown', event => {
+            if (event.key !== 'Escape' || !more.open) return;
+            event.preventDefault(); event.stopPropagation(); close(); trigger.focus({ preventScroll: true });
+        });
+        return { element: more, actions, close };
+    }
+    function focusRowControl(edgeId, selector = '.image-source-more-trigger') {
+        if (!element.isConnected || !element.getClientRects().length || element.closest('[inert]')) return;
+        const rows = [...element.querySelectorAll('.image-input-row')];
+        const row = rows.find(item => item.dataset.inputConnectionId === edgeId);
+        const control = row?.querySelector(selector) || row?.querySelector('.image-source-more-trigger')
+            || rows[0]?.querySelector('.image-source-more-trigger');
+        if (control) control.focus({ preventScroll: true });
+        else { element.tabIndex = -1; element.focus({ preventScroll: true }); }
+    }
     async function edit(edgeId, changes) {
         if (!updateInputConnection || pending) return;
+        const restoreFocus = element.contains(documentRef.activeElement);
+        const returnToRole = documentRef.activeElement?.hasAttribute('data-input-role');
         pending = true;
         try {
             const result = await updateInputConnection(edgeId, changes);
             if (result?.changed) { replacing = null; onChange(node.id); }
-        } finally { pending = false; refresh(true); }
+        } finally {
+            pending = false; refresh(true);
+            if (restoreFocus) focusRowControl(edgeId, replacing === edgeId ? '[data-input-replacement-source]'
+                : returnToRole ? '[data-input-role]' : '.image-source-more-trigger');
+        }
     }
     async function swap() {
         if (!swapInputConnections || pending) return;
@@ -97,6 +154,7 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
         )), candidates, running, editing, !!updateInputConnection, !!swapInputConnections, !!moveMergeInputConnection, pending, statusMessage]);
         if (!force && signature === nextSignature) return;
         signature = nextSignature;
+        closeMore?.();
         element.replaceChildren();
         if (node.type === 'ImageCompare') {
             const actions = documentRef.createElement('div'); actions.className = 'image-input-compare-actions';
@@ -153,11 +211,24 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
                 || ['waiting', 'running'].includes(description.source?.runStatus) || !updateInputConnection || pending;
             select.disabled = disabled;
             select.addEventListener('change', event => { event.stopPropagation(); void edit(edge.id, { role: select.value }); });
-            const replace = button('替换', 'replace', edge.id), disconnect = button('断开', 'disconnect', edge.id);
+            const more = sourceMore(description.title);
+            const mediaCount = description.type === 'image' ? `${description.count} 张图片`
+                : description.type === 'video' ? `${description.count} 个视频` : '';
+            const purpose = availableRoles.find(([role]) => role === edge.to.port)?.[1] || edge.to.port;
+            const targetTitle = node.customTitle || node.el?.dataset.nodeTitle || getNodeDefinition(node.type)?.title || node.id;
+            const replace = button('替换来源', 'replace', edge.id);
+            const disconnect = button(`断开此来源${mediaCount ? ` · ${mediaCount}` : ''}`, 'disconnect', edge.id);
+            replace.setAttribute('aria-label', `替换${description.title}到${targetTitle}的${purpose}连接`);
+            disconnect.setAttribute('aria-label', `断开${description.title}到${targetTitle}的${purpose}连接${mediaCount ? `，来源完整批次包含 ${mediaCount}` : ''}，保留源节点和媒体`);
+            disconnect.title = '仅断开此来源连接，保留源节点和媒体';
             replace.disabled = disconnect.disabled = disabled;
-            replace.addEventListener('click', () => { replacing = replacing === edge.id ? null : edge.id; refresh(true); });
+            replace.addEventListener('click', () => {
+                more.close(); replacing = replacing === edge.id ? null : edge.id; refresh(true);
+                focusRowControl(edge.id, '[data-input-replacement-source]');
+            });
             disconnect.addEventListener('click', () => { void edit(edge.id, { disconnect: true }); });
-            controls.append(select, replace, disconnect); row.append(controls);
+            more.actions.append(replace, disconnect);
+            controls.append(select);
             if (node.type === 'ImageMerge') {
                 const ordering = documentRef.createElement('div'); ordering.className = 'image-input-order-controls';
                 const locked = running || editing || pending || !moveMergeInputConnection
@@ -167,8 +238,9 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
                 up.setAttribute('aria-label', `前移${description.title}`); down.setAttribute('aria-label', `后移${description.title}`);
                 up.addEventListener('click', () => { void move(edge.id, -1); });
                 down.addEventListener('click', () => { void move(edge.id, 1); });
-                ordering.append(up, down); row.append(ordering);
+                ordering.append(up, down); controls.append(ordering);
             }
+            controls.append(more.element); row.append(controls);
             if (edge.to.port === 'mask' && edge.maskConsumption !== 'single') {
                 const compatibility = documentRef.createElement('span'); compatibility.className = 'image-input-compatibility';
                 compatibility.textContent = '使用来源第 1 张 · 旧连接兼容'; row.append(compatibility);
@@ -192,7 +264,7 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
                 confirm.disabled = true;
                 sources.addEventListener('change', event => { event.stopPropagation(); confirm.disabled = disabled || !sources.value || pending; });
                 confirm.addEventListener('click', () => { if (sources.value) void edit(edge.id, { from: JSON.parse(sources.value) }); });
-                cancel.addEventListener('click', () => { replacing = null; refresh(true); });
+                cancel.addEventListener('click', () => { replacing = null; refresh(true); focusRowControl(edge.id); });
                 replacement.append(sources, confirm, cancel); row.append(replacement);
             }
             element.append(row);
