@@ -210,9 +210,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (node.type === 'ImageGenerate') {
             const settings = readImageGenerationSettings(node, documentRef);
             const model = state.models.find(item => item.id === settings.apiConfigId);
-            setText(view.model, `当前设置：${model?.name || model?.modelId || '未选择模型'} · ${settings.aspect || '自动'} · ${settings.resolution || '自动'}`);
             const { count } = projectImageReferences({ state, targetId: node.id });
-            setText(view.references, `参考 ${count} 张`);
             for (const [group, button] of view.groupButtons || []) {
                 const text = group === 'model' ? (model?.name || model?.modelId || '选择模型')
                     : group === 'size' ? `${settings.aspect || '自动'} · ${settings.resolution || '自动'}`
@@ -540,10 +538,6 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const edit = documentRef.createElement('button'); edit.type = 'button'; edit.textContent = '编辑提示词';
         edit.addEventListener('click', () => { select(node); documentRef.getElementById(`${node.id}-prompt`)?.focus({ preventScroll: true }); });
         placeholder.append(emptyText, edit); body.prepend(placeholder);
-        const summary = documentRef.createElement('div'); summary.className = 'image-first-summary';
-        const model = documentRef.createElement('span'), references = documentRef.createElement('button');
-        references.type = 'button'; references.addEventListener('click', () => select(node, 'reference'));
-        summary.append(model, references);
         const runState = body.querySelector('.image-node-run-actions');
         const progress = body.querySelector('.node-generation-progress-field');
         if (runState && progress) runState.append(progress);
@@ -551,7 +545,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         runFeedback.setAttribute('aria-label', '本轮生成状态');
         if (runState) runFeedback.append(runState);
         const dirty = documentRef.createElement('span'); dirty.dataset.imageGenerationDirty = '';
-        dirty.textContent = '设置待生成'; dirty.hidden = true; summary.append(dirty);
+        dirty.textContent = '设置待生成'; dirty.hidden = true;
         const failureSummary = node.el.querySelector('.node-failure-summary');
         if (failureSummary) runFeedback.append(failureSummary);
         const failureDetails = documentRef.createElement('button'); failureDetails.type = 'button';
@@ -563,8 +557,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const fullError = body.querySelector(`[id="${nodeId}-error"]`);
         if (fullError) { fullError.tabIndex = 0; fullError.setAttribute('aria-label', '完整运行错误'); form.append(fullError); }
         body.append(placeholder, result);
-        form.append(summary, runFeedback);
-        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, model, references, result, countField, groupButtons, group: null }, [result, progress]);
+        form.append(dirty, runFeedback);
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, result, countField, groupButtons, group: null }, [result, progress]);
     }
     updateMode(); updateSwitcher();
     surfaces?.registerModeless?.(panel, { close: () => close(), isOpen: () => !panel.hidden, opener: () => returnFocusElement });
