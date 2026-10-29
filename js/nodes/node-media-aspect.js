@@ -14,13 +14,13 @@ export function syncNodeMediaAspect(node) {
     let selected = null;
     for (const media of candidates) {
         if (!['IMG', 'VIDEO'].includes(media.tagName)) continue;
+        if (node.type === 'ImageCompare' && !media.classList.contains('image-compare-b')) continue;
         if (media.error || media.closest('[hidden], .hidden') || !media.getClientRects().length) continue;
         const width = media.videoWidth || media.naturalWidth;
         const height = media.videoHeight || media.naturalHeight;
         if (!(width > 0 && height > 0)) continue;
         selected = { surface: media.closest(surfaces) || media, ratio: `${width} / ${height}` };
-        // The required B image is the comparison's primary output.
-        if (node.type !== 'ImageCompare' || media.classList.contains('image-compare-b')) break;
+        break;
     }
     const previous = activeSurfaces.get(node);
     if (previous && previous !== selected?.surface) {
