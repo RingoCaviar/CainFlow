@@ -726,3 +726,5 @@ html:root #canvas-container .node.node-media-aspect .node-media-aspect-surface {
 .image-parameter-panel .image-camera-help:not([open]) > .camera-control-note { display: none; }
 .image-parameter-panel .image-camera-help .camera-control-note { padding: 4px 0; }
 .image-parameter-panel:not(.is-expanded)[data-node-type="CameraControl"] .image-camera-help > summary { padding-right: 64px; }
+
+.image-parameter-panel .image-input-more { display: none; }

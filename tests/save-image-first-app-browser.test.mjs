@@ -186,6 +186,9 @@ test('a save retains playable video and the whole image batch, writes real files
         assert.deepEqual(pngHashes.sort(), originals.map(value => createHash('sha256').update(Buffer.from(value.split(',')[1], 'base64')).digest('hex')).sort());
         for (const name of videoFiles) assert.equal(createHash('sha256').update(await readFile(join(directory, name))).digest('hex'), video.digest, 'the saved video contains the actual recorded frames');
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='image-output')?.mediaAssetKeys?.length===3&&document.value.nodes.find(node=>node.id==='video-output')?.videos?.length===2)");
+        await app.evaluate("document.getElementById('save').click()");
+        assert.ok(await app.evaluate("document.querySelectorAll('#image-parameter-panel .image-input-more').length>0&&[...document.querySelectorAll('#image-parameter-panel .image-input-more')].every(e=>!e.checkVisibility())"));
+        assert.ok(await app.evaluate("[...document.querySelectorAll('#image-parameter-panel [data-input-role]')].every(e=>e.checkVisibility())"));
         const graph = await saved(app), result = graph.nodes.find(node => node.id === 'save'), source = graph.nodes.find(node => node.id === 'videos');
         assert.ok(result.videos.every(item => item.assetKey?.startsWith('media:')), 'each clip has its own durable Media asset reference');
         assert.deepEqual(result.mediaAssetKeys, graph.nodes.find(node => node.id === 'images').mediaAssetKeys);
