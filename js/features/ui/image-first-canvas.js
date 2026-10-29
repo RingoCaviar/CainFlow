@@ -135,7 +135,9 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             sizePrompt();
             return;
         }
-        const width = Math.min(currentWidthPreference(), bounds.width);
+        const compactImport = current.type === 'ImageImport' && panel.dataset.importMode === 'upload';
+        const modeWidth = current.parameterRoot.querySelector('.image-import-mode-shell')?.offsetWidth || 112;
+        const width = Math.min(compactImport ? modeWidth + 72 : currentWidthPreference(), bounds.width);
         panel.style.width = `${width}px`;
         panel.style.height = '';
         panel.style.left = `${rect.left + rect.width / 2 - width / 2}px`;
@@ -260,6 +262,9 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         }
         view.inputs?.refresh();
         if (current === node) {
+            panel.dataset.importMode = node.type === 'ImageImport'
+                ? (view.urlFields.hidden ? 'upload' : 'url') : '';
+            widthHandle.hidden = node.type === 'ImageImport' && panel.dataset.importMode === 'upload';
             const running = state.runningNodeIds?.has(node.id) || ['waiting', 'running'].includes(node.runStatus) || node.el.classList.contains('running');
             generate.hidden = node.type === 'ImageImport';
             setText(generate, node.type === 'ImagePreview' ? (running ? '更新中' : '更新预览')

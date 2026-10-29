@@ -81,9 +81,11 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
                 assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').dataset.mode"), 'normal');
                 assert.equal(measurements.footerHidden, true); assert.ok(measurements.height < 64);
                 const alignment = await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel').getBoundingClientRect(),m=document.querySelector('#image-parameter-panel .image-import-mode-shell').getBoundingClientRect();return {width:p.width,offset:Math.abs(m.left+m.width/2-p.left-p.width/2)}})()");
-                assert.ok(alignment.width <= 300); assert.ok(alignment.offset <= 1);
+                assert.ok(alignment.width <= 200); assert.ok(alignment.offset <= 1);
                 assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-first-summary').checkVisibility()"), false);
                 await app.evaluate("document.querySelector('#image-parameter-panel .image-import-mode-btn[data-mode=url]').click()");
+                await settle(app);
+                assert.ok(await app.evaluate("document.getElementById('image-parameter-panel').offsetWidth >= 280"));
                 assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-import-url-fields').hidden"), false);
                 assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .image-import-url-fields input').checkVisibility()"));
                 assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-first-summary').checkVisibility()"), false);
