@@ -68,6 +68,9 @@ test('generation has one visible input and its detail preserves real roles, batc
             [{ port: 'auto', type: 'any', label: '输入' }], await app.evaluate("document.querySelector('#target .node-ports-row').outerHTML"));
         assert.equal(await app.evaluate("document.querySelectorAll('#target .node-port[data-direction=input]:not([data-port=auto])').length"), 5,
             'canonical inputs stay available for existing logical endpoint adapters');
+        assert.ok(await app.evaluate("[...document.querySelectorAll('.image-first-card .node-port')].filter(p=>p.getClientRects().length).every(p=>getComputedStyle(p.querySelector('.port-label')).display==='none'&&p.title&&p.getAttribute('aria-label')&&p.querySelector('.port-dot').getClientRects().length)"), 'image ports keep their dots and accessible hover names without visible labels');
+        assert.notEqual(await app.evaluate("getComputedStyle(document.querySelector('#words .port-label')).display"), 'none', 'text ports retain their labels');
+        assert.equal(await app.evaluate("(()=>{const p=document.querySelector('#target .universal-input');p.removeAttribute('title');p.dispatchEvent(new Event('pointerenter'));return p.title===p.getAttribute('aria-label')})()"), true, 'hover restores its normal hint after an execution-error hint was cleared');
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#untouched .node-port[data-direction=input]')].filter(port=>port.dataset.port!=='auto').map(port=>port.dataset.port)"), ['imageA', 'imageB'],
             'the migrated comparison card retains both canonical logical inputs');
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#untouched .node-port[data-direction=input]')].filter(port=>port.getClientRects().length).map(port=>port.dataset.port)"), ['auto'],

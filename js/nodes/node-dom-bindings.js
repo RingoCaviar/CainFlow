@@ -618,6 +618,14 @@ export function createNodeDomBindingsApi({
         portEl.dataset.bound = '1';
         const dot = portEl.querySelector('.port-dot');
         if (!dot) return;
+        if (portEl.closest('.image-first-card')) {
+            const label = portEl.querySelector('.port-label')?.textContent?.trim() || portEl.dataset.port;
+            portEl.setAttribute('aria-label', label);
+            if (!portEl.title) portEl.title = label;
+            portEl.addEventListener('pointerenter', () => {
+                if (!portEl.title) portEl.title = portEl.getAttribute('aria-label');
+            });
+        }
 
         dot.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
