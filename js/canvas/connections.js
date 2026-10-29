@@ -188,8 +188,7 @@ export function createConnectionsApi({
         const toPort = getPortElement(toNode, connection.to?.port, 'input');
         if (!fromPort || !toPort) return false;
         return [fromPort, toPort].every((portEl) => (
-            !portEl.classList.contains('hidden') &&
-            !portEl.classList.contains('is-hidden-by-collapse')
+            !portEl.classList.contains('hidden')
         ));
     }
 
@@ -319,16 +318,15 @@ export function createConnectionsApi({
     function getNodePortCacheSignature(node) {
         if (!node?.el) return '';
         const bounds = getNodeBounds(node);
-        const collapsed = node.collapsed === true || node.el.classList.contains('collapsed') ? '1' : '0';
         const domWidth = node.el.offsetWidth || 0;
         const domHeight = node.el.offsetHeight || 0;
         const scrollWidth = node.el.scrollWidth || 0;
         const scrollHeight = node.el.scrollHeight || 0;
         const ports = Array.from(node.el.querySelectorAll?.('.node-port[data-direction]') || []);
         const portState = ports.map((portEl) => (
-            `${portEl.dataset.direction || ''}:${portEl.dataset.port || ''}:${portEl.classList.contains('hidden') ? 'h' : 'v'}:${portEl.classList.contains('is-hidden-by-collapse') ? 'c' : 'o'}`
+            `${portEl.dataset.direction || ''}:${portEl.dataset.port || ''}:${portEl.classList.contains('hidden') ? 'h' : 'v'}`
         )).join('|');
-        return `${Math.round(bounds.right - bounds.left)}:${Math.round(bounds.bottom - bounds.top)}:${domWidth}:${domHeight}:${scrollWidth}:${scrollHeight}:${collapsed}:${portState}`;
+        return `${Math.round(bounds.right - bounds.left)}:${Math.round(bounds.bottom - bounds.top)}:${domWidth}:${domHeight}:${scrollWidth}:${scrollHeight}:${portState}`;
     }
 
     function getPortElement(node, portName, direction) {
@@ -349,7 +347,6 @@ export function createConnectionsApi({
         const dot = portEl.querySelector('.port-dot') || portEl;
         const dotRect = dotRectOverride || dot.getBoundingClientRect();
         return !portEl.classList.contains('hidden') &&
-            !portEl.classList.contains('is-hidden-by-collapse') &&
             portEl.offsetParent !== null &&
             dotRect.width > 0 &&
             dotRect.height > 0;
@@ -1604,7 +1601,7 @@ export function createConnectionsApi({
         let nearest = null;
         let bestDistanceSquared = radius * radius;
         measurements.forEach(({ portEl, rect }) => {
-            if (portEl.classList.contains('hidden') || portEl.classList.contains('is-hidden-by-collapse')) return;
+            if (portEl.classList.contains('hidden')) return;
             if (!rect) return;
             const dx = clientX - (rect.left + rect.width / 2);
             const dy = clientY - (rect.top + rect.height / 2);
@@ -1768,7 +1765,6 @@ export function createConnectionsApi({
     function updatePortStyles() {
         documentRef.querySelectorAll('.port-dot').forEach((dot) => dot.classList.remove('connected'));
         documentRef.querySelectorAll('.node-port').forEach((portEl) => {
-            portEl.classList.remove('is-hidden-by-collapse');
             portEl.setAttribute('aria-hidden', 'false');
         });
         for (const conn of state.connections) {
@@ -1792,17 +1788,7 @@ export function createConnectionsApi({
             const baseLabel = portEl.dataset.baseLabel || '参考图';
             if (label) label.textContent = count > 0 ? `${baseLabel} · ${count}` : baseLabel;
         });
-        state.nodes.forEach((node) => {
-            if (!node?.el || !(node.collapsed === true || node.el.classList.contains('collapsed'))) return;
-            node.el.querySelectorAll('.node-port').forEach((portEl) => {
-                if (portEl.dataset.direction !== 'input' || portEl.classList.contains('universal-input')) return;
-                const dot = portEl.querySelector('.port-dot');
-                const isConnected = dot?.classList.contains('connected') === true;
-                if (isConnected) return;
-                portEl.classList.add('is-hidden-by-collapse');
-                portEl.setAttribute('aria-hidden', 'true');
-            });
-        });
+
     }
 
     return {

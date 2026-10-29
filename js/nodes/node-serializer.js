@@ -78,14 +78,10 @@ export function createNodeSerializer({ state, documentRef }) {
                 width: node.width || null,
                 height: isAutoSizedImageGenerate ? null : (node.height || null),
                 userResized: node.userResized === true,
-                collapsed: node.collapsed === true,
+
                 enabled: node.enabled,
                 lastDuration: node.lastDuration || null
             };
-            if (node.collapsed === true && !isAutoSizedImageGenerate
-                && Number.isFinite(node.collapsedExpandedHeight) && node.collapsedExpandedHeight > 0) {
-                serialized.collapsedExpandedHeight = Math.round(node.collapsedExpandedHeight);
-            }
             if (node.data?.thinking) serialized.thinking = JSON.parse(JSON.stringify(node.data.thinking));
             if (node.isClone === true && typeof node.cloneSourceId === 'string' && node.cloneSourceId) {
                 serialized.isClone = true;

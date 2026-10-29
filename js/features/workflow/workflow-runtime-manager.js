@@ -198,7 +198,7 @@ export function serializeRuntimeNode(node, doc) {
         width: node.width || null,
         height: node.height || null,
         userResized: node.userResized === true,
-        collapsed: node.collapsed === true,
+
         enabled: node.enabled,
         isSucceeded: node.isSucceeded === true,
         isFailed: node.isFailed === true || node.el?.classList?.contains('error') === true,

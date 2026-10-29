@@ -167,8 +167,6 @@ function renderPortSections(id, config) {
 }
 
 function renderNodeHeader(id, config, options = {}) {
-    const collapseTitle = options.collapsed ? '展开节点' : '折叠节点';
-    const collapseStateClass = options.collapsed ? 'is-collapsed' : '';
     const displayTitle = options.customTitle || config.title;
     const cloneBadge = options.isClone
         ? `
@@ -185,7 +183,7 @@ function renderNodeHeader(id, config, options = {}) {
     return `
         <div class="node-glass-bg"></div>
         ${cloneBadge}
-        <div class="node-header" data-node-id="${id}" title="双击折叠或展开">
+        <div class="node-header" data-node-id="${id}">
             <div class="header-left">
                 ${config.icon}
                 <span class="node-title">${escapeHtml(displayTitle)}</span>
@@ -198,11 +196,6 @@ function renderNodeHeader(id, config, options = {}) {
                     <div class="heartbeat-dot" id="${id}-heartbeat" title="连接正常"></div>
                     <span id="${id}-time"></span>
                 </span>
-                <button class="node-collapse-btn ${collapseStateClass}" data-node-id="${id}" title="${collapseTitle}" aria-label="${collapseTitle}" aria-expanded="${options.collapsed ? 'false' : 'true'}">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="6 9 12 15 18 9"></polyline>
-                    </svg>
-                </button>
                 <button class="node-bypass-btn" data-node-id="${id}" title="启用/禁用节点">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
                 </button>
@@ -1296,19 +1289,17 @@ export function createNodeMarkup({ type, id, config, restoreData, state }) {
     } else if (type === 'CustomParams') {
         effectiveConfig = { ...config, inputs: getCustomParamsInputPorts(restoreData) };
     }
-    const isCollapsed = restoreData?.collapsed === true;
     const isClone = restoreData?.isClone === true && typeof restoreData?.cloneSourceId === 'string' && restoreData.cloneSourceId;
     const customTitle = typeof restoreData?.customTitle === 'string' && restoreData.customTitle.trim()
         ? restoreData.customTitle.trim()
         : '';
     const bodyClasses = ['node-body'];
-    if (isCollapsed) bodyClasses.push('is-collapsed');
     if (type === 'ImageGenerate' || type === 'TextChat') {
         bodyClasses.push('node-body-has-generation-progress');
     }
     const bodyClassName = bodyClasses.join(' ');
     return [
-        renderNodeHeader(id, effectiveConfig, { collapsed: isCollapsed, customTitle, isClone }),
+        renderNodeHeader(id, effectiveConfig, { customTitle, isClone }),
         renderPortSections(id, effectiveConfig),
         `<div class="${bodyClassName}">`,
         renderNodeBody(type, id, restoreData, state),

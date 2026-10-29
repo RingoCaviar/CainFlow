@@ -13,9 +13,9 @@ const session = {
     ],
     providers: [{ id: 'p', endpoint: 'https://controlled.test/v1', apikey: 'test' }],
     nodes: [
-        ...types.map((type, index) => ({ id: `image-${index}`, type, x: 500, y: 20, width: 320,
+        ...types.map((type, index) => ({ collapsed: true, height: 40, collapsedExpandedHeight: 350, id: `image-${index}`, type, x: 500, y: 20, width: 320,
             ...(type === 'ImageGenerate' ? { apiConfigId: 'image', providerId: 'p', prompt: 'preserved local draft', generationCount: 1 } : {}) })),
-        { id: 'text-source', type: 'Text', x: 80, y: 20, text: 'effective upstream prompt' }
+        { id: 'text-source', type: 'Text', x: 80, y: 20, text: 'effective upstream prompt', collapsed: true, height: 35, collapsedExpandedHeight: 240 }
     ],
     connections: [reference, { id: 'prompt-edge', from: { nodeId: 'text-source', port: 'text' }, to: { nodeId: 'image-0', port: 'prompt' }, type: 'text' }]
 };
@@ -34,6 +34,9 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         await app.evaluate("document.querySelector('#canvas-navigation .canvas-zoom-menu>summary').click();document.querySelector('#canvas-navigation [data-zoom=\"0.5\"]').click()");
         const geometry = await app.evaluate("[...document.querySelectorAll('#nodes-layer>.image-first-card')].map(n=>[n.id,n.style.left,n.style.top,n.offsetWidth])");
 
+        assert.equal(await app.evaluate("document.querySelectorAll('.node-collapse-btn,.node.collapsed,.node-body.is-collapsed').length"), 0);
+        await app.evaluate("document.querySelector('#text-source .node-header').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))");
+        assert.equal(await app.evaluate("document.querySelector('#text-source .node-body').checkVisibility()"), true);
         await open(app, 'image-0');
         assert.equal(await app.evaluate("document.querySelector('#image-0 .image-first-summary')===null"), true);
         assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .image-first-summary').textContent.includes('当前设置：受控图片')"));
@@ -106,6 +109,7 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
             }
         }
         await open(app, 'image-0');
+        assert.ok(await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.nodes.every(n=>!('collapsed' in n)&&!('collapsedExpandedHeight' in n)))"));
         assert.equal(await app.evaluate("document.getElementById('image-0-generation-count').value"), '2');
         assert.equal(await app.evaluate('document.getElementById("image-0-prompt")===originalCompactPrompt'), true);
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#nodes-layer>.image-first-card')].map(n=>[n.id,n.style.left,n.style.top,n.offsetWidth])"), geometry);

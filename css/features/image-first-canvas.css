@@ -391,16 +391,6 @@ html:root #canvas-container .node.image-first-card > .node-body {
 
 .image-first-summary button:hover { border-color: var(--border-color); color: var(--text-primary); }
 
-html:root #canvas-container .node.image-first-card.collapsed > .node-body,
-html:root #canvas-container .node.image-first-card > .node-body.is-collapsed { display: flex; }
-
-.node.image-first-card.collapsed .image-first-placeholder,
-.node.image-first-card.collapsed .image-node-result-preview,
-.node.image-first-card > .node-body.is-collapsed .image-first-placeholder,
-.node.image-first-card > .node-body.is-collapsed .image-node-result-preview {
-    min-height: 80px;
-}
-
 .image-parameter-panel .image-node-run-actions { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 6px; margin: 0; min-height: 22px; }
 .image-parameter-panel .node-generation-progress-field { display: block; margin: 0; padding: 0; min-height: 0; }
 .image-parameter-panel .node-generation-progress-field > label { display: none; }
@@ -415,8 +405,6 @@ html:root #canvas-container .node.image-first-card > .node-body.is-collapsed { d
 .node.image-first-card.running > .node-run-cancel-btn { display: inline-flex; }
 .image-parameter-panel .node-error-msg { flex: 0 0 auto; min-width: 0; max-width: 100%; max-height: 160px; box-sizing: border-box; padding: 9px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--node-danger-border); border-radius: 7px; background: var(--node-danger-surface); color: var(--node-danger-text); }
 .image-parameter-run-feedback [data-image-run-action=details]:focus-visible, .image-parameter-panel .node-error-msg:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
-.node.image-first-card.collapsed .image-node-result-navigation { display: none; }
-.node.image-first-card.collapsed .image-first-placeholder { margin-bottom: 0; }
 
 @media (max-width: 420px) {
     .image-parameter-scroll { padding-inline: 10px; }
