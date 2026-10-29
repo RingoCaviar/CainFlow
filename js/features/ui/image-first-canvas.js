@@ -547,7 +547,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const summary = documentRef.createElement('div'); summary.className = 'image-first-summary';
         const model = documentRef.createElement('span'), references = documentRef.createElement('button');
         references.type = 'button'; references.addEventListener('click', () => select(node, 'reference'));
-        summary.append(model, references); body.append(summary);
+        summary.append(model, references);
         const runState = body.querySelector('.image-node-run-actions');
         const progress = body.querySelector('.node-generation-progress-field');
         if (runState && progress) runState.append(progress);
@@ -566,8 +566,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (cancel) node.el.append(cancel);
         const fullError = body.querySelector(`[id="${nodeId}-error"]`);
         if (fullError) { fullError.tabIndex = 0; fullError.setAttribute('aria-label', '完整运行错误'); form.append(fullError); }
-        body.append(placeholder, result, summary);
-        form.append(runFeedback);
+        body.append(placeholder, result);
+        form.append(summary, runFeedback);
         registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, model, references, result, inputs, countField, groupButtons, group: null }, [result, progress]);
     }
     updateMode(); updateSwitcher();
