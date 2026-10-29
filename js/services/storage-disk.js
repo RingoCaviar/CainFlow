@@ -36,7 +36,7 @@ function blobToDataUrl(blob) {
     });
 }
 
-async function putAsset(key, value, kind = 'asset') {
+async function putAsset(key, value, kind = 'asset', mediaOwner = null) {
     let blob = value instanceof Blob ? value : dataUrlToBlob(value);
     if (!blob && value && typeof value === 'object') {
         blob = new Blob([JSON.stringify(value)], { type: IMAGE_LIST_MIME });
@@ -44,7 +44,9 @@ async function putAsset(key, value, kind = 'asset') {
     if (!blob || blob.size === 0) return false;
     const response = await fetch(assetUrl(key), {
         method: 'PUT',
-        headers: { 'Content-Type': blob.type || 'application/octet-stream', 'X-CainFlow-Asset-Kind': kind },
+        headers: { 'Content-Type': blob.type || 'application/octet-stream', 'X-CainFlow-Asset-Kind': kind,
+            ...(mediaOwner ? { 'X-CainFlow-Media-Owner-Type': mediaOwner.ownerType,
+                'X-CainFlow-Media-Owner-Id': mediaOwner.ownerId } : {}) },
         body: blob
     });
     return response.ok;
@@ -417,6 +419,9 @@ export function createDiskStorageApi(getState) {
         return (await fetch(assetUrl(key), { method: 'DELETE' })).ok;
     }
     async function saveHistoryEntry(data) {
+        const provisionalOwners = [];
+        const releaseProvisionalOwners = () => Promise.allSettled(provisionalOwners.map(({ ownerType, ownerId, assetKey }) =>
+            removeMediaReference(ownerType, ownerId, assetKey)));
         try {
             const id = Date.now() * 1000 + Math.floor(Math.random() * 1000);
             const mediaType = data?.mediaType === 'video' || data?.videoBlob || data?.video instanceof Blob ? 'video' : 'image';
@@ -429,11 +434,22 @@ export function createDiskStorageApi(getState) {
                 : await putMediaAsset(mediaBlob, 'history', String(id));
             const mediaKey = mediaAsset?.asset_key || '';
             if (!mediaKey) return false;
+            if (createsHistoryReference) provisionalOwners.push({ ownerType: 'history', ownerId: String(id), assetKey: mediaKey });
             const thumb = data.thumb || (mediaType === 'video' ? await createVideoThumbnail(mediaBlob, 256, mediaKey) : await createThumbnail(data.image));
             const thumbKey = `thumb:${mediaKey}`;
             // A full cache may reject the optional thumbnail. Preserve the original
             // history entry without introducing a reference to a failed upload.
-            const thumbnailSaved = thumb ? await putAsset(thumbKey, thumb, 'thumbnail') : false;
+            // Protect the thumbnail in the same transaction as its upload: another
+            // batch result can run collection before the history document commits.
+            const thumbnailOwner = { ownerType: 'history-thumbnail', ownerId: String(id), assetKey: thumbKey };
+            if (thumb) provisionalOwners.push(thumbnailOwner);
+            const thumbnailSaved = thumb ? await putAsset(thumbKey, thumb, 'thumbnail', {
+                ownerType: 'history-thumbnail', ownerId: String(id)
+            }) : false;
+            if (thumb && !thumbnailSaved) {
+                await Promise.allSettled([removeMediaReference(thumbnailOwner.ownerType, thumbnailOwner.ownerId, thumbKey)]);
+                provisionalOwners.splice(provisionalOwners.indexOf(thumbnailOwner), 1);
+            }
             const entry = {
                 ...data, id, timestamp: Date.now(), mediaType, thumbAssetKey: thumbnailSaved ? thumbKey : '',
                 imageAssetKey: mediaType === 'image' ? mediaKey : '',
@@ -446,12 +462,13 @@ export function createDiskStorageApi(getState) {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entry)
             });
             if (!response.ok) {
-                if (createsHistoryReference) await removeMediaReference('history', String(id), mediaKey);
+                await releaseProvisionalOwners();
                 return false;
             }
             data.mediaAssetKey = mediaKey;
             return { success: true, assetKey: mediaKey };
         } catch (error) {
+            await releaseProvisionalOwners();
             console.warn('Disk history save failed:', error);
             return false;
         }
@@ -484,12 +501,20 @@ export function createDiskStorageApi(getState) {
         const entry = await getHistoryEntry(id);
         if (!entry || !thumb) return false;
         const thumbKey = `thumb:${HISTORY_ASSET_KEY_PREFIX}${id}`;
-        if (!await putAsset(thumbKey, thumb, 'thumbnail')) return false;
-        const payload = { ...entry, thumbAssetKey: thumbKey };
-        delete payload.image; delete payload.video; delete payload.videoBlob; delete payload.thumb;
-        return (await fetch('/api/storage/history', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-        })).ok;
+        let committed = false;
+        try {
+            if (!await putAsset(thumbKey, thumb, 'thumbnail', { ownerType: 'history-thumbnail', ownerId: String(id) })) return false;
+            const payload = { ...entry, thumbAssetKey: thumbKey };
+            delete payload.image; delete payload.video; delete payload.videoBlob; delete payload.thumb;
+            committed = (await fetch('/api/storage/history', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+            })).ok;
+            return committed;
+        } finally {
+            if (!committed && entry.thumbAssetKey !== thumbKey) await Promise.allSettled([
+                removeMediaReference('history-thumbnail', String(id), thumbKey)
+            ]);
+        }
     }
     async function deleteHistoryEntry(id) { return (await fetch(`/api/storage/history/${id}`, { method: 'DELETE' })).ok; }
     async function getHistoryImageBlob(id) {
