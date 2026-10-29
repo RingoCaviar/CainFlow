@@ -5,6 +5,10 @@
 **Canvas interaction**:
 One of panning, zooming, node dragging, or drawing a connection in the workflow editor.
 
+**节点参数浮层**:
+选中图片节点后显示、用于编辑该节点参数的浮层；普通模式与放大模式属于同一组件。
+_Avoid_: 参数面板, 节点参数面板, 参数浮窗, 下方参数
+
 **Performance sampling run**:
 A continuous 10-second execution of a fixed canvas-interaction sequence, used to collect performance metrics.
 
