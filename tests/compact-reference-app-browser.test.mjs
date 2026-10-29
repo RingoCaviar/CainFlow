@@ -70,13 +70,12 @@ test('reference gallery shares rows for single sources, spans complete batches, 
     });
 });
 
-test('gallery source enable control preserves every edge and source position while excluding the whole source from effective numbering', { timeout: 60000 }, async () => {
+test('canvas source enable control preserves every edge and source position while excluding the whole source from effective numbering', { timeout: 60000 }, async () => {
     await withAppBrowser(session, async app => {
         await populateSources(app);
         await openReferences(app);
-        const control = '[data-reference-connection=edge-batch] .image-reference-toggle-source';
-        assert.match(await app.evaluate(`document.querySelector('${control}').parentElement.textContent`), /2\s*个下游/,
-            'the action explains that this source also affects another downstream node');
+        const control = '#batch .node-bypass-btn';
+        assert.equal(await app.evaluate("document.querySelectorAll('#target-reference-sources .image-reference-more, #target-reference-sources .image-reference-source-actions, #target-reference-sources .image-reference-source-status').length"), 0);
         await app.evaluate(`document.querySelector('${control}').click()`);
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='batch')?.enabled===false)");
         assert.deepEqual(await app.evaluate("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value.connections)"), session.connections);
@@ -84,7 +83,7 @@ test('gallery source enable control preserves every edge and source position whi
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#target-reference-sources [data-reference-number]')].map(item=>item.dataset.referenceNumber)"), ['1', '2']);
         assert.equal(await app.evaluate("document.querySelectorAll('[data-reference-connection=edge-batch] [data-source-image-index]').length"), 6,
             'disabled sources retain their complete batch positions for inspection');
-        assert.match(await app.evaluate("document.querySelector('[data-reference-connection=edge-batch]').textContent"), /不参与本轮输入/);
+        assert.equal(await app.evaluate("document.querySelector('[data-reference-connection=edge-batch]').dataset.enabled"), 'false');
         await app.evaluate(`document.querySelector('${control}').click()`);
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='batch')?.enabled===true)");
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#target-reference-sources [data-reference-number]')].map(item=>item.dataset.referenceNumber)"), ['1', '2', '3', '4', '5', '6', '7', '8']);
