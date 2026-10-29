@@ -39,8 +39,8 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         assert.equal(await app.evaluate("document.querySelector('#text-source .node-body').checkVisibility()"), true);
         await open(app, 'image-0');
         assert.equal(await app.evaluate("document.querySelector('#image-0 .image-first-summary')===null"), true);
-        assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .image-first-summary').textContent.includes('当前设置：受控图片')"));
-        assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .image-first-summary button').textContent.includes('1')"));
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-first-summary')===null"), true);
+        assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=reference]').textContent.includes('1')"));
         assert.ok(await app.evaluate("!!document.querySelector('#image-parameter-panel [data-image-generation-dirty]')"));
         assert.equal(await app.evaluate("document.querySelector('#image-0-prompt-source details').open"), true);
         assert.equal(await app.evaluate("document.querySelector('#image-0-prompt-field .image-local-prompt-draft').open"), false);

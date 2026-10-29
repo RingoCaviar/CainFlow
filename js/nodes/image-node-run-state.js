@@ -24,7 +24,7 @@ export function renderImageNodeRunState(node) {
         const label = `${completed}/${total}`;
         if (known && progress.textContent !== label) progress.textContent = label;
     }
-    const dirty = node.el?.querySelector('[data-image-generation-dirty]');
+    const dirty = queryImageNodeRunControl(node, '[data-image-generation-dirty]');
     if (dirty) dirty.hidden = node.generationDirty !== true;
     const message = node.executionFailure?.message || '';
     const summary = queryImageNodeRunControl(node, '.node-failure-summary');
