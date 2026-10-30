@@ -24,7 +24,7 @@ const canvasView = app => app.evaluate("({transform:document.getElementById('nod
 
 async function open(app, id = 'first') {
     await app.evaluate("document.querySelectorAll('.notice-close').forEach(button=>button.click())");
-    await app.evaluate(`document.querySelector('#${id} .image-first-placeholder button').click()`);
+    await app.evaluate(`document.querySelector('#${id} .image-first-placeholder').click()`);
     await app.waitFor(`!document.getElementById('image-parameter-panel').hidden&&document.getElementById('image-parameter-panel').dataset.nodeId==='${id}'`);
 }
 

@@ -556,9 +556,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (promptField) promptField.after(bar); else form.prepend(bar);
         const placeholder = documentRef.createElement('div'); placeholder.className = 'image-first-placeholder';
         const emptyText = documentRef.createElement('span');
-        const edit = documentRef.createElement('button'); edit.type = 'button'; edit.textContent = '编辑提示词';
-        edit.addEventListener('click', () => { select(node); documentRef.getElementById(`${node.id}-prompt`)?.focus({ preventScroll: true }); });
-        placeholder.append(emptyText, edit); body.prepend(placeholder);
+        placeholder.append(emptyText); body.prepend(placeholder);
         const runState = body.querySelector('.image-node-run-actions');
         const progress = body.querySelector('.node-generation-progress-field');
         if (runState && progress) runState.append(progress);

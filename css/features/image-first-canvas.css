@@ -331,7 +331,6 @@ html:root #canvas-container .node.image-first-card > .node-body {
     line-height: 1.6;
     overflow-wrap: anywhere;
 }
-.node.image-first-card .image-first-placeholder button { padding: 5px 9px; border: 1px solid var(--node-control-border); border-radius: 6px; background: var(--node-control-surface); color: var(--text-primary); font: inherit; cursor: pointer; }
 
 .node.image-first-card .image-first-placeholder > span,
 .node.image-first-card .image-first-empty-name {
