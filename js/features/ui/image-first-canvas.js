@@ -537,6 +537,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (countField) {
             form.append(countField); countField.hidden = true;
             countField.classList.add('image-parameter-count-control');
+            // Parking this field hides presentation, not the generation capability.
+            countField.dataset.parameterGroup = 'count';
             const label = countField.querySelector('label');
             if (label) label.textContent = '次数';
         }

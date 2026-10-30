@@ -423,7 +423,7 @@ test('history original handoff preserves drafts and applies real reference edges
     });
 });
 
-test('assistant batch result selects one original, retains all results on reopen, and prepares an attachment without inventing an edit request', { timeout: 30000 }, async () => {
+test('assistant batch result generates with the parameter editor closed, selects one original and retains results on reopen', { timeout: 30000 }, async () => {
     await withAppBrowser(session, async app => {
         const { evaluate, waitFor, send } = app;
         await controlImages(app);
@@ -431,6 +431,7 @@ test('assistant batch result selects one original, retains all results on reopen
         await change(evaluate, 'prompt-agent-input', '生成3张色块海报');
         await evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
         await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
+        assert.equal(await evaluate("document.getElementById('image-parameter-panel').hidden"), true, 'batch application must not depend on opening the node editor');
         await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='应用并执行').click()");
         await waitFor("document.querySelectorAll('.prompt-agent-image-result').length===3");
         await evaluate("document.querySelectorAll('.prompt-agent-image-result')[1].querySelector('[data-result-action=preview]').click()");
