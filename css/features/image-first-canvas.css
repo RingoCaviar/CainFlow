@@ -275,11 +275,11 @@ html:root #canvas-container .node.image-first-card.selected > .node-header { dis
 
 html:root #canvas-container .node.image-first-card > .node-ports-row {
     position: absolute;
-    inset: 12px 0 auto;
+    inset: 0;
     display: grid;
     grid-template-columns: 62px 62px;
     justify-content: space-between;
-    align-items: start;
+    align-items: center;
     box-sizing: border-box;
     width: 100%;
     margin: 0;
@@ -289,8 +289,8 @@ html:root #canvas-container .node.image-first-card > .node-ports-row {
     pointer-events: none;
 }
 
-.node.image-first-card > .node-ports-row .node-inputs-section { grid-column: 1; }
-.node.image-first-card > .node-ports-row .node-outputs-section { grid-column: 2; width: 100%; }
+.node.image-first-card > .node-ports-row .node-inputs-section { grid-column: 1; align-self: center; }
+.node.image-first-card > .node-ports-row .node-outputs-section { grid-column: 2; width: 100%; align-self: center; }
 .node.image-first-card > .node-ports-row .node-port { pointer-events: auto; }
 .node.image-first-card > .node-ports-row .port-label { white-space: normal; overflow-wrap: anywhere; }
 
