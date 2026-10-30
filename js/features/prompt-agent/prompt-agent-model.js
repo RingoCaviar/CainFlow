@@ -135,7 +135,7 @@ export async function createPromptAgentModelReply({
     message = '', context = null, conversation = null, workflowMemory = '', sizeSettings = {}, imageSizeCapabilities = null, referenceImages = [], workflowReferenceImages = [],
     model, models = [], providers = [], providerId = '', recordRequest, workflowId, fetchRef = fetch, headers = {}, getHeaders = null, signal,
     searchSettings = { mode: 'auto', modelId: '' }, searchRef = searchPromptAgent, onSearchStatus = () => {}, canvasContext = null,
-    getCanvasImage = async () => null
+    getCanvasImage = async () => null, onContextImages = () => {}
 } = {}) {
     // Capture all configuration once, including provider order and endpoints.
     [model, models, providers, searchSettings] = JSON.parse(JSON.stringify([model, models, providers, searchSettings]));
@@ -236,6 +236,8 @@ export async function createPromptAgentModelReply({
         const request = { ...base, canvasReads, searchAllowed: !searchUsed && searchSettings.mode !== 'off', searchContext: search };
         if (canvasReads.length && measurePromptAgentContext(request).reached) throw new Error('画布详情达到本轮上下文预算，未读取部分无法确认；请用 @节点 缩小范围或先压缩上下文');
         const input = createPromptAgentInput(request);
+        if (round === 0) onContextImages(input.images.filter(image => image.origins.some(origin =>
+            ['节点输入', '节点生成结果', '本轮 @节点原图'].includes(origin))).map(image => image.reference));
         const plan = createChatRequestPlan({ provider, model, protocol: model.protocol, systemPrompt: getPromptAgentInstructions(canvasContext),
             messages: input.messages, media: input.media, capabilities: model.capabilities || {} });
         let response, payload;

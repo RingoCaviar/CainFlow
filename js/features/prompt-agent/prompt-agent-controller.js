@@ -629,21 +629,21 @@ export function createPromptAgentController({
         }
     }
 
-    function appendReferencePreviews(container, referenceImages = [], { removable = false } = {}) {
+    function appendReferencePreviews(container, referenceImages = [], { removable = false, snapshot = false, numberOffset = 0 } = {}) {
         referenceImages.forEach((reference, index) => {
             const item = documentRef.createElement('span');
             item.className = 'prompt-agent-reference';
             if (reference.sourceNodeId) item.dataset.sourceNodeId = reference.sourceNodeId;
             const image = documentRef.createElement('img');
             image.src = reference.dataUrl || reference.previewUrl || '';
-            image.alt = `参考图 ${index + 1}：${reference.name || '图片'}`;
+            image.alt = `${snapshot ? '引用图片' : '参考图'} ${numberOffset + index + 1}：${reference.name || '图片'}`;
             image.title = image.alt;
             image.draggable = false;
             if (!reference.loading && (reference.dataUrl || reference.previewUrl)) {
                 image.style.cursor = 'pointer';
                 image.addEventListener('click', () => openResultPreview([reference.dataUrl || reference.previewUrl], 0, {
                     description: reference.description || '',
-                    onDescriptionChange: value => {
+                    onDescriptionChange: snapshot ? undefined : value => {
                         reference.description = value;
                         if (reference.sourceNodeId) nodeAdapter?.setSceneReferenceDescription?.(reference, value);
                         const messageIndex = container.parentElement?.promptAgentMessageIndex;
@@ -658,7 +658,7 @@ export function createPromptAgentController({
             item.appendChild(image);
             const number = documentRef.createElement('span');
             number.className = 'prompt-agent-reference-number';
-            number.textContent = String(index + 1);
+            number.textContent = String(numberOffset + index + 1);
             number.setAttribute('aria-hidden', 'true');
             item.appendChild(number);
             if (reference.loading) {
@@ -1130,7 +1130,7 @@ export function createPromptAgentController({
         else open();
     }
 
-    function appendMessage(role, text, workSummary = [], { record = true, promptPlan = null, canvasPlan = null, nodeMentions = [], referenceImages = [], intent, search } = {}) {
+    function appendMessage(role, text, workSummary = [], { record = true, promptPlan = null, canvasPlan = null, nodeMentions = [], referenceImages = [], contextImages = [], intent, search } = {}) {
         const { messages } = getElements();
         if (!messages) return null;
         const followLatest = messages.scrollHeight - messages.clientHeight - messages.scrollTop <= 32;
@@ -1178,17 +1178,27 @@ export function createPromptAgentController({
             appendReferencePreviews(references, referenceImages);
             message.appendChild(references);
         }
+        if (contextImages.length) appendContextImagePreviews(message, contextImages);
         messages.appendChild(message);
         contentObserver?.observe?.(message);
         if (followLatest || followLatestContent) scrollToLatest();
         updateScrollBottomButton();
         if (record) {
-            message.promptAgentMessageIndex = conversationStore.append({ role, text, workSummary, promptPlan, canvasPlan, nodeMentions, referenceImages, intent, search });
+            message.promptAgentMessageIndex = conversationStore.append({ role, text, workSummary, promptPlan, canvasPlan, nodeMentions, referenceImages, ...(contextImages.length ? { contextImages } : {}), intent, search });
             conversationRevision += 1;
             onStateChange();
             if (commandMenuOpen) renderCommandMenu();
         }
         return message;
+    }
+
+    function appendContextImagePreviews(message, images) {
+        const strip = documentRef.createElement('div');
+        strip.className = 'prompt-agent-message-references prompt-agent-message-context-images';
+        strip.setAttribute('aria-label', '本轮引用图片');
+        const numberOffset = message.querySelectorAll('.prompt-agent-message-references:not(.prompt-agent-message-context-images) img').length;
+        appendReferencePreviews(strip, images, { snapshot: true, numberOffset });
+        message.appendChild(strip);
     }
 
     function formatPlan(plan) {
@@ -1361,9 +1371,9 @@ export function createPromptAgentController({
             strip.querySelectorAll('.prompt-agent-reference').forEach((item) => {
                 if (removed.has(item.dataset.sourceNodeId)) item.remove();
             });
-            strip.querySelectorAll('.prompt-agent-reference-number').forEach((number, index) => { number.textContent = String(index + 1); });
             if (!strip.children.length) strip.remove();
         });
+        messages?.querySelectorAll('.prompt-agent-message').forEach(message => message.querySelectorAll('.prompt-agent-message-references .prompt-agent-reference-number').forEach((number, index) => { number.textContent = String(index + 1); }));
         renderPendingReferences();
         if (changed) {
             conversationRevision += 1;
@@ -1741,7 +1751,7 @@ export function createPromptAgentController({
             }
             const nodeMentions = canvasMentions?.read() || [];
             const canvasContext = canvasAdapter?.context(nodeMentions.map(item => item.id)) || null;
-            appendMessage('user', text || `添加了 ${referenceImages.length} 张参考图`, [], { referenceImages, nodeMentions });
+            const userMessage = appendMessage('user', text || `添加了 ${referenceImages.length} 张参考图`, [], { referenceImages, nodeMentions });
             scrollToLatest();
             if (operation.processingElement) getElements().messages?.appendChild(operation.processingElement);
             scrollToLatest();
@@ -1770,6 +1780,20 @@ export function createPromptAgentController({
                 canvasContext,
                 message: text,
                 context,
+                onContextImages: images => {
+                    if (!isCurrentOperation(operation) || !userMessage?.isConnected) return;
+                    const slotKey = image => image.sourceNodeId ? `${image.sourceNodeId}:${image.sourceImageIndex || 0}` : image.dataUrl;
+                    const shown = new Set(referenceImages.map(slotKey));
+                    const snapshots = images.filter(image => {
+                        if (operation.removedReferenceNodeIds?.has(image.sourceNodeId) || shown.has(slotKey(image))) return false;
+                        shown.add(slotKey(image)); return true;
+                    });
+                    if (!conversationStore.updateContextImages(userMessage.promptAgentMessageIndex, snapshots)) return;
+                    userMessage.querySelector('.prompt-agent-message-context-images')?.remove();
+                    if (snapshots.length) appendContextImagePreviews(userMessage, snapshots);
+                    conversationRevision += 1; onStateChange();
+                    if (followLatestContent) scrollToLatest();
+                },
                 workflowMemory,
                 sizeSettings: sizeDefaults,
                 imageSizeCapabilities: operation.imageSizeCapabilities,
@@ -2093,7 +2117,8 @@ export function createPromptAgentController({
             const message = appendMessage(item.role, item.text, item.workSummary || [], {
                 record: false,
                 search: item.search,
-                referenceImages: item.referenceImages || []
+                referenceImages: item.referenceImages || [],
+                contextImages: item.contextImages || []
             });
             if (message) message.promptAgentMessageIndex = index;
             if (item.canvasPlan) appendCanvasPlan(message, item.canvasPlan, item.runs || []);

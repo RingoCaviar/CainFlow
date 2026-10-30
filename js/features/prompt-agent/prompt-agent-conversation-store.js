@@ -98,6 +98,7 @@ function normalizeMessage(message = {}, options = {}) {
         ...(Array.isArray(message.referenceImages) ? {
             referenceImages: normalizeReferenceImages(message.referenceImages)
         } : {}),
+        ...(Array.isArray(message.contextImages) ? { contextImages: normalizeReferenceImages(message.contextImages) } : {}),
         ...(Array.isArray(message.workSummary) ? { workSummary: message.workSummary.map(String) } : {}),
         ...(message.promptPlan ? { promptPlan: normalizePromptPlan(message.promptPlan) } : {}),
         ...(message.canvasPlan ? { canvasPlan: options.interruptRunning ? restoreCanvasPlan(message.canvasPlan) : clone(message.canvasPlan) } : {}),
@@ -260,6 +261,14 @@ export function createPromptAgentConversationStore() {
         ]));
     }
 
+    // Display snapshots do not become pending or historical model attachments.
+    function updateContextImages(messageIndex, images) {
+        const message = [...archivedMessages, ...messages][messageIndex];
+        if (!message || message.role !== 'user') return false;
+        message.contextImages = normalizeReferenceImages(images);
+        return true;
+    }
+
     function updateReferenceDescription(messageIndex, imageIndex, description) {
         const message = [...archivedMessages, ...messages][messageIndex];
         const image = message?.referenceImages?.[imageIndex];
@@ -326,6 +335,7 @@ export function createPromptAgentConversationStore() {
         referenceImages = prune(referenceImages);
         for (const message of [...messages, ...archivedMessages]) {
             if (Array.isArray(message.referenceImages)) message.referenceImages = prune(message.referenceImages);
+            if (Array.isArray(message.contextImages)) message.contextImages = prune(message.contextImages);
             prunePlan(message.promptPlan);
         }
         prunePlan(previousPromptPlan);
@@ -356,7 +366,7 @@ export function createPromptAgentConversationStore() {
     const setThinking = (purpose, modelId, value) => { if (!modelId || !thinkingSettings[purpose]) return; if (value) thinkingSettings[purpose][modelId] = clone(value); else delete thinkingSettings[purpose][modelId]; };
     const getSize = modelId => clone(sizeSettings[modelId] || {});
     const setSize = (modelId, value) => { if (!modelId) return; const next = sizeFields(value); if (Object.keys(next).length) sizeSettings[modelId] = next; else delete sizeSettings[modelId]; };
-    return { getCreativeTask: () => clone(creativeTask), setCreativeTask: value => { creativeTask = restoreCreativeTask(value); }, getSize, setSize, getProvider, setProvider, getThinking, setThinking, append, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, updateReferenceDescription, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences,
+    return { getCreativeTask: () => clone(creativeTask), setCreativeTask: value => { creativeTask = restoreCreativeTask(value); }, getSize, setSize, getProvider, setProvider, getThinking, setThinking, append, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, updateContextImages, updateReferenceDescription, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences,
         upgradePromptPlan: (index, plan) => {
             const message = [...archivedMessages, ...messages][index];
             if (!message?.promptPlan || message.runs?.some(run => run.status === 'running')) return false;
