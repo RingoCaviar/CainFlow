@@ -8,7 +8,7 @@ import { getPromptAgentCacheUsage } from '../prompt-agent/prompt-agent-cache-usa
 import { getAvailablePromptAgentModels } from '../prompt-agent/prompt-agent-model.js';
 import { getModelProviders } from '../execution/provider-request-utils.js';
 import { createPromptAgentModelMenus } from '../prompt-agent/prompt-agent-model-menu.js';
-import { readAutoCompactTokens, readCompactionModelId, writeAutoCompactTokens, writeCompactionModelId } from '../prompt-agent/auto-compact-preference.js';
+import { readAutoCompactTokens, readCompactionModelId, readCompactionProviderId, writeAutoCompactTokens, writeCompactionModelId, writeCompactionProviderId } from '../prompt-agent/auto-compact-preference.js';
 import {
     clearLegacyBrowserStorage,
     migrateLegacyBrowserStorage,
@@ -519,14 +519,14 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                             ${dialogs.renderGeneralSettingsHelpLabel('Agent 上下文压缩模型', generalHelpText.compactionModel)}
                         </div>
                         <div class="general-settings-compaction-control">
-                            <select id="setting-agent-compaction-model" aria-label="Agent 上下文压缩模型">
+                            <select id="setting-agent-compaction-model" aria-label="Agent 上下文压缩模型与供应商">
                                 <option value="" ${compactionModelId ? '' : 'selected'}>跟随 Agent 对话模型（默认）</option>
                                 ${compactionModels.map(model => `<option value="${dialogs.escapeHtml(model.id)}" ${model.id === compactionModelId ? 'selected' : ''}>${dialogs.escapeHtml(compactionModelLabel(model, state.providers || []))}</option>`).join('')}
                                 ${compactionModelId && !compactionModels.some(model => model.id === compactionModelId)
                                     ? `<option value="${dialogs.escapeHtml(compactionModelId)}" selected disabled>已选压缩模型不可用，请重新选择</option>` : ''}
                             </select>
                         </div>
-                        <small class="general-settings-compaction-hint">${compactionModelId ? '仅压缩上下文使用此模型，对话模型保持不变。' : '压缩时使用 Agent 当前对话模型。'}</small>
+                        <small class="general-settings-compaction-hint">${compactionModelId ? '仅压缩上下文使用此模型与供应商，对话配置保持不变。' : '压缩时使用 Agent 当前对话模型及其供应商。'}</small>
                     </div>
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
@@ -925,13 +925,15 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
             }
             writeCompactionModelId(localStorageRef, modelId);
             const hint = list.querySelector('.general-settings-compaction-hint');
-            if (hint) hint.textContent = modelId ? '仅压缩上下文使用此模型，对话模型保持不变。' : '压缩时使用 Agent 当前对话模型。';
+            if (hint) hint.textContent = modelId ? '仅压缩上下文使用此模型与供应商，对话配置保持不变。' : '压缩时使用 Agent 当前对话模型及其供应商。';
         });
         const compactionSelect = documentRef.getElementById('setting-agent-compaction-model');
         if (compactionSelect) {
+            let legacyProviderIds = getPromptAgentCacheState()?.activeConversation?.providerSettings?.chat || {};
             // The model menu sends focus immediately before it reads native options.
             // Rebuild here so edits in the API tab are visible without reopening settings.
             compactionSelect.addEventListener('focus', () => {
+                legacyProviderIds = getPromptAgentCacheState()?.activeConversation?.providerSettings?.chat || {};
                 const selectedId = readCompactionModelId(localStorageRef);
                 const available = getAvailablePromptAgentModels(state.models || [], state.providers || []);
                 compactionSelect.innerHTML = [
@@ -943,7 +945,13 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                 compactionSelect.value = selectedId;
             });
             compactionModelMenu = createPromptAgentModelMenus({ documentRef,
-                selects: [{ select: compactionSelect, searchLabel: '压缩模型' }] });
+                selects: [{ select: compactionSelect, searchLabel: '压缩模型或供应商', route: {
+                    getModels: () => getAvailablePromptAgentModels(state.models || [], state.providers || []),
+                    getProviders: () => state.providers || [],
+                    getProviderId: modelId => readCompactionProviderId(localStorageRef, modelId)
+                        || legacyProviderIds[modelId] || '',
+                    setProviderId: (modelId, providerId) => writeCompactionProviderId(localStorageRef, modelId, providerId)
+                } }] });
         }
 
         documentRef.querySelectorAll('.btn-retry-step').forEach((btn) => {

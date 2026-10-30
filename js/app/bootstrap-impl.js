@@ -27,7 +27,7 @@ import {
 } from '../services/api-client.js';
 import { createSystemNotificationService } from '../services/system-notification-service.js';
 import { diskStorage } from '../services/storage-documents.js';
-import { migrateAutoCompactTokens, readAutoCompactTokens, readCompactionModelId } from '../features/prompt-agent/auto-compact-preference.js';
+import { migrateAutoCompactTokens, readAutoCompactTokens, readCompactionModelId, readCompactionProviderId } from '../features/prompt-agent/auto-compact-preference.js';
 import {
     createBezierPath as createBezierPathService,
     checkLineIntersection as checkLineIntersectionService,
@@ -1101,6 +1101,7 @@ const promptAgentController = createPromptAgentController({
     getSelectedModelId: getPromptAgentModelId,
     setSelectedModelId: setPromptAgentModelId,
     getSelectedCompactionModelId: () => readCompactionModelId(diskStorage),
+    getSelectedCompactionProviderId: modelId => readCompactionProviderId(diskStorage, modelId),
     createReply: (request) => {
         const { model, models, providers, providerId, workflowId, searchProviders = {} } = request.config || captureAgentRequestConfig(request.modelId);
         return createPromptAgentModelReply({
