@@ -34,6 +34,14 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         await app.evaluate("document.querySelector('#canvas-navigation .canvas-zoom-menu>summary').click();document.querySelector('#canvas-navigation [data-zoom=\"0.5\"]').click()");
         const geometry = await app.evaluate("[...document.querySelectorAll('#nodes-layer>.image-first-card')].map(n=>[n.id,n.style.left,n.style.top,n.offsetWidth])");
 
+        const portGroups = await app.evaluate(`(()=>{return [...document.querySelectorAll('#nodes-layer>.image-first-card')].flatMap(node=>{const card=node.getBoundingClientRect();return [...node.querySelectorAll('.node-inputs-section,.node-outputs-section')].flatMap(section=>{const dots=[...section.querySelectorAll('.port-dot')].filter(dot=>dot.getClientRects().length).map(dot=>dot.getBoundingClientRect());if(!dots.length)return [];return [{id:node.id,vertical:(dots[0].top+dots.at(-1).bottom-card.top-card.bottom)/2,horizontal:dots.map(dot=>(dot.left+dot.right)/2-(section.classList.contains('node-inputs-section')?card.left:card.right))}]})})})()`);
+        assert.ok(portGroups.length >= 9);
+        for (const group of portGroups) {
+            assert.ok(Math.abs(group.vertical) < 1, `${group.id} port group is vertically centered`);
+            assert.ok(group.horizontal.every(offset=>Math.abs(offset)<1), `${group.id} ports retain their horizontal shell seams`);
+        }
+        const alignment = await app.evaluate(`(()=>{const path=document.querySelector('[data-conn-id=image-edge]'),matrix=path.getScreenCTM();return [[path.getPointAtLength(0).matrixTransform(matrix),document.querySelector('#image-1 .node-port.output .port-dot')],[path.getPointAtLength(path.getTotalLength()).matrixTransform(matrix),document.querySelector('#image-0 .universal-input .port-dot')]].map(([point,dot])=>{const r=dot.getBoundingClientRect();return Math.hypot(point.x-(r.left+r.right)/2,point.y-(r.top+r.bottom)/2)})})()`);
+        assert.ok(alignment.every(distance=>distance<1), 'connections follow the centered image ports');
         assert.equal(await app.evaluate("document.querySelectorAll('.node-collapse-btn,.node.collapsed,.node-body.is-collapsed').length"), 0);
         await app.evaluate("document.querySelector('#text-source .node-header').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))");
         assert.equal(await app.evaluate("document.querySelector('#text-source .node-body').checkVisibility()"), true);
