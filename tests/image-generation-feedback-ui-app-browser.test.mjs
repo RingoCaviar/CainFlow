@@ -35,7 +35,7 @@ async function press(app, selector, milliseconds = 0) {
     await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...position, button: 'left', clickCount: 1 });
 }
 
-test('failure feedback stays inside parameters and original full detail remains readable in the modal and narrow parameter panel', { timeout: 45000 }, async () => {
+test('failure feedback appears once in parameters and preserves complete modal details at normal and narrow widths', { timeout: 45000 }, async () => {
     await withAppBrowser({ ...configuration, nodes: [generate('failed', 40, 40, 260)], connections: [] }, async app => {
         await controlled(app); await open(app, 'failed');
         await app.evaluate("document.querySelector('[data-parameter-action=generate]').click()");
@@ -43,6 +43,7 @@ test('failure feedback stays inside parameters and original full detail remains 
         assert.equal(await app.evaluate("!!document.querySelector('#failed > .image-first-run-feedback')"), false);
         const compact = await app.evaluate("(()=>{const panel=document.getElementById('image-parameter-panel'),row=panel.querySelector('.image-parameter-run-feedback'),summary=row.querySelector('.node-failure-summary');return {inPanel:panel.contains(row),summary:summary.textContent,width:summary.clientWidth,scrollWidth:summary.scrollWidth,height:summary.getBoundingClientRect().height}})()");
         assert.ok(compact.inPanel);
+        assert.equal(await app.evaluate("document.getElementById('failed-error').checkVisibility()"), false, 'only the concise failure and detail entry are shown');
         assert.ok(compact.summary.length < 200 && compact.summary.includes('测试失败'));
         assert.ok(compact.scrollWidth <= compact.width + 1 && compact.height <= 48);
         if (await app.evaluate("document.getElementById('modal-error').classList.contains('active')")) {
@@ -58,11 +59,13 @@ test('failure feedback stays inside parameters and original full detail remains 
         await app.waitFor("!document.getElementById('modal-error').classList.contains('active')");
         await app.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 500, deviceScaleFactor: 1, mobile: false });
         await open(app, 'failed');
-        await app.evaluate("document.querySelector('[data-parameter-action=expand]').click();document.getElementById('failed-error').scrollIntoView({block:'nearest'})");
-        const full = await app.evaluate("(()=>{const error=document.getElementById('failed-error'),panel=document.getElementById('image-parameter-panel');return {inPanel:panel.contains(error),text:error.textContent,width:error.clientWidth,scrollWidth:error.scrollWidth,height:error.clientHeight,scrollHeight:error.scrollHeight,overflow:getComputedStyle(error).overflowY,model:document.querySelector('#failed .image-first-summary').textContent}})()");
-        assert.equal(full.inPanel, true); assert.ok(full.text.includes(failure));
-        assert.ok(full.scrollWidth <= full.width + 1 && full.scrollHeight > full.height);
-        assert.match(full.overflow, /auto|scroll/); assert.match(full.model, /当前设置.*当前图片模型/);
+        await app.evaluate("document.querySelector('[data-parameter-action=expand]').click()");
+        assert.equal(await app.evaluate("document.getElementById('failed-error').checkVisibility()"), false, 'the legacy full error must not duplicate the summary');
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .node-failure-summary').checkVisibility()"), true);
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-image-run-action=details]').click()");
+        await app.waitFor("document.getElementById('modal-error').classList.contains('active')");
+        await app.evaluate("if(!document.getElementById('btn-show-full-log').classList.contains('hidden'))document.getElementById('btn-show-full-log').click()");
+        assert.match(await app.evaluate("document.getElementById('error-modal-detail').textContent+document.getElementById('error-modal-msg').textContent"), /完整错误尾标：保留所有排查细节/);
     });
 });
 
