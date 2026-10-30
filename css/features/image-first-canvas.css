@@ -333,6 +333,13 @@ html:root #canvas-container .node.image-first-card > .node-body {
 }
 .node.image-first-card .image-first-placeholder button { padding: 5px 9px; border: 1px solid var(--node-control-border); border-radius: 6px; background: var(--node-control-surface); color: var(--text-primary); font: inherit; cursor: pointer; }
 
+.node.image-first-card .image-first-placeholder > span,
+.node.image-first-card .image-first-empty-name {
+    font-size: 24px;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
 .node.image-first-card .image-first-empty-name {
     position: absolute;
     inset: 0;
@@ -343,8 +350,6 @@ html:root #canvas-container .node.image-first-card > .node-body {
     margin: 0;
     padding: 12px;
     color: var(--text-secondary);
-    font-size: 13px;
-    line-height: 1.6;
     text-align: center;
     overflow-wrap: anywhere;
     pointer-events: none;
