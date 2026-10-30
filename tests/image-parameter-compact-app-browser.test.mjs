@@ -14,6 +14,7 @@ const session = {
     providers: [{ id: 'p', endpoint: 'https://controlled.test/v1', apikey: 'test' }],
     nodes: [
         ...types.map((type, index) => ({ collapsed: true, height: 40, collapsedExpandedHeight: 350, id: `image-${index}`, type, x: 500, y: 20, width: 320,
+            ...(type === 'ImageSave' ? { customTitle: '保存成品' } : {}),
             ...(type === 'ImageGenerate' ? { apiConfigId: 'image', providerId: 'p', prompt: 'preserved local draft', generationCount: 1 } : {}) })),
         { id: 'text-source', type: 'Text', x: 80, y: 20, text: 'effective upstream prompt', collapsed: true, height: 35, collapsedExpandedHeight: 240 }
     ],
@@ -29,8 +30,20 @@ const settle = app => app.evaluate('new Promise(resolve=>requestAnimationFrame((
 
 test('compact editors retain nine node forms, original controls, prompt drafts and ordered connections', { timeout: 60000 }, async () => {
     await withAppBrowser(session, async app => {
+        const emptyNames = ['图片生成', '图片导入', '图片预览', '缩放图片', '复位颜色', '图片对比', '多图合一', '保存成品'];
+        for (const [index, name] of emptyNames.entries()) {
+            assert.equal(await app.evaluate(`document.querySelector('#image-${index} .image-first-placeholder>span, #image-${index} .image-first-empty-name')?.textContent`), name);
+        }
+        assert.ok(await app.evaluate("(()=>{const e=document.querySelector('#image-7 .image-first-empty-name'),p=e.parentElement;const r=e.getBoundingClientRect(),s=p.getBoundingClientRect();return Math.abs((r.top+r.bottom-s.top-s.bottom)/2)<1&&getComputedStyle(e).justifyContent==='center'})()"), 'an empty save preview centers its custom node name');
+        await app.evaluate("document.querySelector('#image-7 .save-preview-placeholder').textContent='本地视频缓存缺失；请确认后恢复原文件'");
+        await settle(app);
+        assert.equal(await app.evaluate("document.querySelector('#image-7 .save-preview-placeholder').classList.contains('image-first-empty-name')"), false, 'recovery details remain visible');
+        await app.evaluate("document.querySelector('#image-7 .save-preview-placeholder').textContent='无输入图片'");
+        await settle(app);
+        assert.equal(await app.evaluate("document.querySelector('#image-7 .save-preview-placeholder').textContent"), '保存成品');
         await app.evaluate(`(async()=>{const transfer=new DataTransfer();transfer.items.add(new File([await(await fetch(${JSON.stringify(png)})).blob()],'reference.png',{type:'image/png'}));const input=document.getElementById('image-1-file');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
         await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value?.nodes.find(n=>n.id==='image-1')?.mediaAssetKeys?.length===1)");
+        assert.ok(await app.evaluate("!!document.querySelector('#image-1-drop img')&&!document.querySelector('#image-1-drop .image-first-empty-name')"), 'an uploaded image replaces the name');
         await app.evaluate("document.querySelector('#canvas-navigation .canvas-zoom-menu>summary').click();document.querySelector('#canvas-navigation [data-zoom=\"0.5\"]').click()");
         const geometry = await app.evaluate("[...document.querySelectorAll('#nodes-layer>.image-first-card')].map(n=>[n.id,n.style.left,n.style.top,n.offsetWidth])");
 
