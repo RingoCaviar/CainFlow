@@ -67,12 +67,23 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     };
     const selectedNode = () => state.selectedNodes.size === 1 ? state.nodes.get([...state.selectedNodes][0]) : null;
     function updateSwitcher() {
-        const node = selectedNode(), agentOpen = documentRef.getElementById('prompt-agent-panel')?.classList.contains('active');
+        const node = selectedNode(), agent = documentRef.getElementById('prompt-agent-panel'), agentOpen = agent?.classList.contains('active');
         parametersFront.disabled = !node || !views.has(node);
         parametersFront.textContent = panel.hidden ? '打开参数' : '参数置顶';
         parametersFront.setAttribute('aria-expanded', String(!panel.hidden));
         agentFront.textContent = agentOpen ? '助手置顶' : '打开助手';
         agentFront.setAttribute('aria-expanded', String(!!agentOpen));
+        // Keep this canvas control outside the Agent, including its resize handle.
+        const right = agentOpen ? agent.getBoundingClientRect().left - 8 : windowRef.innerWidth;
+        switcher.classList.remove('is-stacked');
+        switcher.classList.toggle('is-stacked', switcher.offsetWidth > right - 24);
+        const width = switcher.offsetWidth;
+        const center = clamp(right / 2, 12 + width / 2, Math.max(12 + width / 2, right - 12 - width / 2));
+        switcher.style.left = `${center}px`;
+        const navigation = documentRef.getElementById('canvas-navigation')?.getBoundingClientRect();
+        const overlapsNavigation = navigation && navigation.width > 0 && navigation.left < center + width / 2
+            && navigation.right > center - width / 2;
+        switcher.style.bottom = `${overlapsNavigation ? Math.max(12, windowRef.innerHeight - navigation.top + 8) : 12}px`;
     }
     function updateMode() {
         const canExpand = !['ImageImport', 'ImageSave', 'CameraControl'].includes(current?.type);
@@ -573,7 +584,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         updateSwitcher();
     });
     const agent = documentRef.getElementById('prompt-agent-panel');
-    if (agent) new windowRef.MutationObserver(updateSwitcher).observe(agent, { attributes: true, attributeFilter: ['class', 'hidden'] });
+    if (agent) new windowRef.MutationObserver(updateSwitcher).observe(agent, { attributes: true, attributeFilter: ['class', 'hidden', 'style'] });
     generate.addEventListener('click', () => {
         if (!current) return;
         if (generate.disabled) return;
@@ -641,7 +652,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     windowRef.addEventListener('pointercancel', event => { if (gesture?.id === event.pointerId) finishGesture(true); });
     windowRef.addEventListener('blur', () => finishGesture(true));
     documentRef.addEventListener('cainflow:canvas-transform', schedulePosition);
-    windowRef.addEventListener('resize', schedulePosition);
+    windowRef.addEventListener('resize', () => { schedulePosition(); updateSwitcher(); });
     return { install, selectionChanged, close, refreshNode,
         refreshSource: sourceId => {
             const targets = new Set(state.connections.filter(edge => edge.from.nodeId === sourceId).map(edge => edge.to.nodeId));
