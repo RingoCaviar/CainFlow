@@ -34,7 +34,6 @@
                     type, id, config: NODE_CONFIGS[type], restoreData: {},
                     state: { models: [], providers: [] }
                 });
-                const nodeRect = node.getBoundingClientRect();
                 const shell = node.querySelector('.node-glass-bg');
                 const shellRect = shell.getBoundingClientRect();
                 const hasUnmaskedBorder = (port) => {
@@ -56,7 +55,7 @@
                     const dot = port.querySelector('.port-dot');
                     const rect = dot.getBoundingClientRect();
                     const labelRect = port.querySelector('.port-label').getBoundingClientRect();
-                    const x = port.dataset.direction === 'input' ? nodeRect.left - 3 : nodeRect.right + 3;
+                    const x = rect.left + rect.width * (port.dataset.direction === 'input' ? 0.25 : 0.75);
                     const edge = port.dataset.direction === 'input' ? shellRect.left : shellRect.right;
                     const inside = port.dataset.direction === 'input' ? shellRect.left + 3 : shellRect.right - 3;
                     const y = rect.top + rect.height / 2;
