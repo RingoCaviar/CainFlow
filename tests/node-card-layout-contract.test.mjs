@@ -35,9 +35,9 @@ test('node cards use compact headers and edge-aligned ports with stable hit area
     assert.match(core, /\.node-ports-row\.has-inputs-only \.node-inputs-section\s*\{[\s\S]*?justify-self:\s*start;[\s\S]*?width:\s*max-content;/);
     assert.match(core, /\.node-ports-row\.has-outputs-only \.node-outputs-section\s*\{[\s\S]*?justify-self:\s*end;[\s\S]*?width:\s*max-content;/);
     assert.match(core, /\.node-port\s*\{[\s\S]*?min-height:\s*24px;/);
-    assert.match(core, /\.port-dot\s*\{[\s\S]*?width:\s*28px;[\s\S]*?height:\s*28px;/);
-    assert.match(core, /\.node-port\.input \.port-dot\s*\{[\s\S]*?margin-left:\s*-28px;/);
-    assert.match(core, /\.node-port\.output \.port-dot\s*\{[\s\S]*?margin-right:\s*-28px;/);
+    assert.match(core, /\.port-dot\s*\{[\s\S]*?width:\s*36\.4px;[\s\S]*?height:\s*36\.4px;/);
+    assert.match(core, /\.node-port\.input \.port-dot\s*\{[\s\S]*?margin-left:\s*-36\.4px;/);
+    assert.match(core, /\.node-port\.output \.port-dot\s*\{[\s\S]*?margin-right:\s*-36\.4px;/);
 });
 
 test('resizing honors the measured content height at the final width', () => {
