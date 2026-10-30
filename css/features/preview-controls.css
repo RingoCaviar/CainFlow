@@ -42,6 +42,11 @@
     height: 40px;
     min-width: 40px;
     padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    line-height: 1;
     font-size: 24px;
     transform: none;
 }
@@ -58,8 +63,10 @@
 
 .preview-action-reveal,
 .preview-zoom-controls button {
-    display: grid;
-    place-items: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
     flex: 0 0 auto;
     height: 40px;
     min-width: 40px;
@@ -70,6 +77,7 @@
     color: #fff;
     font: inherit;
     font-size: 20px;
+    line-height: 1;
     cursor: pointer;
     backdrop-filter: blur(12px);
 }
@@ -97,6 +105,11 @@
 }
 
 .preview-zoom-controls button:last-child { font-size: 13px; }
+
+:is(.preview-action-dock, .preview-zoom-controls) svg {
+    display: block;
+    flex: 0 0 auto;
+}
 
 @media (max-width: 520px) {
     .preview-action-dock .preview-action-list { gap: 4px; }

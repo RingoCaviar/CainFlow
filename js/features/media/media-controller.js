@@ -3773,7 +3773,7 @@ export function createMediaControllerApi({
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
             </div>` : ''}
                 </div>
-                <button class="preview-action-reveal" type="button" aria-label="展开预览操作" aria-expanded="false" title="预览操作">⋯</button>
+                <button class="preview-action-reveal" type="button" aria-label="展开预览操作" aria-expanded="false" title="预览操作"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></button>
             </div>
             ${canDescribe ? `<div class="fullscreen-description-dialog hidden" role="dialog" aria-modal="true" aria-label="添加图片介绍">
                 <label for="fullscreen-description-input">图片介绍</label>
@@ -3788,8 +3788,8 @@ export function createMediaControllerApi({
             </div>
             ${renderFullscreenCropControls(canCropImageImport)}
             <div class="preview-zoom-controls" role="toolbar" aria-label="预览缩放">
-                <button type="button" class="preview-zoom-out" title="缩小" aria-label="缩小">−</button>
-                <button type="button" class="preview-zoom-in" title="放大" aria-label="放大">+</button>
+                <button type="button" class="preview-zoom-out" title="缩小" aria-label="缩小"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+                <button type="button" class="preview-zoom-in" title="放大" aria-label="放大"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg></button>
                 <button type="button" class="preview-zoom-fit" title="适应屏幕" aria-label="适应屏幕">适应</button>
             </div>
             <div class="fullscreen-stage">
