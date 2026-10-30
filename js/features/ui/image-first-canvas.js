@@ -11,6 +11,11 @@ import { renderImageNodeRunState } from '../../nodes/image-node-run-state.js';
 
 const nodeLabels = { ImageGenerate: '图片生成', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比', ImageMerge: '多图合一', ImageSave: '保存节点', CameraControl: '视角控制' };
 const cameraFields = [['pitch', '俯仰角 Pitch'], ['yaw', '偏航角 Yaw'], ['distance', '距离 Distance'], ['fov', '视野角 FOV'], ['roll', '翻滚角 Roll']];
+// Only ordinary empty states use the node name. Loading, recovery and error
+// messages still belong to the media renderer and must remain visible.
+const emptyPreviewMessages = new Set(['无输入图片', '无输入视频', '运行后预览图片', '运行后显示图片',
+    '运行后显示图片或视频', '运行后对比图片', '运行后查看合并图片', '等待上游图片', '等待图片输入',
+    '等待 B 输入', '等待 A / B 输入', '拖拽图片到此处', '输入 URL 后自动显示预览']);
 
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
@@ -41,6 +46,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     const countSlot = panel.querySelector('.image-parameter-count-slot');
     const generate = panel.querySelector('[data-parameter-action="generate"]');
     const promptSizing = new WeakMap();
+    const emptyPreviewLabels = new WeakMap();
     const storedWidth = Number(storage?.getItem('cainflow_node_parameter_width'));
     let current = null, closed = null, preferredWidth = storedWidth >= 280 && storedWidth <= 960 ? storedWidth : 480;
     const storedImportWidth = Number(storage?.getItem('cainflow_image_import_parameter_width'));
@@ -218,7 +224,18 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     function refreshNode(nodeId) {
         const node = state.nodes.get(nodeId), view = views.get(node);
         if (!view) return;
+        const name = node.el.dataset.nodeTitle || node.customTitle || nodeLabels[node.type];
+        for (const placeholder of node.el.querySelectorAll('.preview-placeholder, .save-preview-placeholder, .drop-text')) {
+            const text = placeholder.textContent.trim();
+            const empty = emptyPreviewMessages.has(text) || text === emptyPreviewLabels.get(placeholder);
+            placeholder.classList.toggle('image-first-empty-name', empty);
+            if (empty) {
+                setText(placeholder, name);
+                emptyPreviewLabels.set(placeholder, name);
+            } else emptyPreviewLabels.delete(placeholder);
+        }
         if (node.type === 'ImageGenerate') {
+            setText(view.emptyText, name);
             const settings = readImageGenerationSettings(node, documentRef);
             const model = state.models.find(item => item.id === settings.apiConfigId);
             const { count } = projectImageReferences({ state, targetId: node.id });
@@ -380,7 +397,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             attributes: true, childList: true, subtree: true,
             ...(node.type === 'ImageCompare' ? { attributeFilter: ['src', 'data-compare-state', 'data-compare-message'] } : {})
         });
-        observer.observe(node.el, { attributes: true, attributeOldValue: true, attributeFilter: ['style','class'] });
+        observer.observe(node.el, { attributes: true, attributeOldValue: true, attributeFilter: ['style','class','data-node-title'] });
         view.observer = observer;
         views.set(node, view); store.append(form);
         node.onImageFirstSelect = () => select(node);
@@ -536,7 +553,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const promptField = form.querySelector('.image-node-prompt-field');
         if (promptField) promptField.after(bar); else form.prepend(bar);
         const placeholder = documentRef.createElement('div'); placeholder.className = 'image-first-placeholder';
-        const emptyText = documentRef.createElement('span'); emptyText.textContent = '尚未生成';
+        const emptyText = documentRef.createElement('span');
         const edit = documentRef.createElement('button'); edit.type = 'button'; edit.textContent = '编辑提示词';
         edit.addEventListener('click', () => { select(node); documentRef.getElementById(`${node.id}-prompt`)?.focus({ preventScroll: true }); });
         placeholder.append(emptyText, edit); body.prepend(placeholder);
@@ -560,7 +577,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (fullError) { fullError.tabIndex = 0; fullError.setAttribute('aria-label', '完整运行错误'); form.append(fullError); }
         body.append(placeholder, result);
         form.append(dirty, runFeedback);
-        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, result, countField, groupButtons, group: null }, [result, progress]);
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, emptyText, result, countField, groupButtons, group: null }, [result, progress]);
     }
     updateMode(); updateSwitcher();
     surfaces?.registerModeless?.(panel, { close: () => close(), isOpen: () => !panel.hidden, opener: () => returnFocusElement });
