@@ -518,3 +518,21 @@ test('legacy checkpoints infer archive coverage while invalid persisted coverage
     assert.deepEqual(store.getCompactionContext().messages, []);
     assert.deepEqual(store.getCompactionContext().archivedMessages, []);
 });
+
+
+test('node-image display snapshots persist through compaction without becoming model attachments', () => {
+    const store = createPromptAgentConversationStore();
+    const index = store.append({ role: 'user', text: '@生图[target] 优化提示词' });
+    const images = [0, 1].map(sourceImageIndex => ({ name: `批次 ${sourceImageIndex + 1}`, type: 'image/png',
+        sourceNodeId: 'source', sourceImageIndex, referenceId: `source:${sourceImageIndex}`, dataUrl: 'data:image/png;base64,YQ==' }));
+    assert.equal(store.updateContextImages(index, images), true);
+    assert.deepEqual(store.snapshot().messages[0].contextImages, images);
+    assert.deepEqual(store.getReferenceImages(), []);
+    store.compact('保留节点引用显示快照');
+    const restored = createPromptAgentConversationStore();
+    restored.restore(store.snapshot());
+    assert.deepEqual(restored.snapshot().archivedMessages[0].contextImages, images);
+    assert.deepEqual(restored.getReferenceImages(), []);
+    assert.equal(restored.removeNodeReferences(['source']), true);
+    assert.deepEqual(restored.snapshot().archivedMessages[0].contextImages, []);
+});

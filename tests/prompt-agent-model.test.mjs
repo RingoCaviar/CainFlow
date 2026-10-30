@@ -471,9 +471,12 @@ test('multiple reference roles produce a concise ordered image guide for the act
 
 test('explicit image mention reads its original before the first model request and fails closed for missing pixels', async () => {
     const canvasContext = {summary:{mentionedIds:['photo']},nodes:[{id:'photo',name:'参考',type:'ImageImport',assets:['media:photo']}],connections:[]};
-    const good = replyHarness({intent:'chat',message:'已查看'}, {canvasContext, getCanvasImage:async()=> 'data:image/png;base64,AAAA'});
+    let previews;
+    const good = replyHarness({intent:'chat',message:'已查看'}, {canvasContext, getCanvasImage:async()=> 'data:image/png;base64,AAAA', onContextImages: images => { previews = images; }});
     await good.result;
     assert.equal(good.request().messages.at(-1).content.find(part=>part.type==='image_url').image_url.url, 'data:image/png;base64,AAAA');
+    assert.equal(previews[0].dataUrl, 'data:image/png;base64,AAAA');
+    assert.equal(previews[0].sourceNodeId, 'photo');
     const bad = replyHarness({intent:'chat'}, {canvasContext, getCanvasImage:async()=>null});
     await assert.rejects(bad.result, /原图读取失败/);
     assert.equal(bad.request(), undefined, 'no provider request with missing original or a substituted thumbnail');
