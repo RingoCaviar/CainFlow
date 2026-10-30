@@ -420,6 +420,35 @@ html:root #canvas-container .node.image-first-card > .node-body {
 .image-parameter-panel .node-generation-progress-field > label { display: none; }
 .image-parameter-panel .image-generation-progress { min-height: 0; padding: 0; border: 0; background: transparent; font-size: 12px; line-height: 22px; }
 .image-parameter-panel .image-parameter-run-feedback { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.4; }
+/* The floating editor sits outside the canvas and cannot inherit its danger tokens. */
+.image-parameter-panel .image-parameter-run-feedback {
+    --node-danger-surface: color-mix(in srgb, var(--accent-red) 12%, var(--bg-input));
+    --node-danger-border: color-mix(in srgb, var(--accent-red) 48%, transparent);
+    --node-danger-text: color-mix(in srgb, var(--accent-red) 80%, var(--text-primary));
+}
+.image-parameter-panel .image-parameter-run-feedback:has(.node-failure-summary:not(.hidden)) {
+    padding: 8px;
+    border: 1px solid var(--node-danger-border);
+    border-radius: 7px;
+    background: var(--node-danger-surface);
+    color: var(--node-danger-text);
+}
+.image-parameter-run-feedback:has(.node-failure-summary:not(.hidden))::before {
+    content: "!";
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 18px;
+    height: 18px;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    font-weight: 700;
+    line-height: 1;
+}
+.image-parameter-panel .image-parameter-run-feedback:has(.node-failure-summary:not(.hidden)) :is(.image-generation-progress, [data-image-run-action=details]) {
+    color: var(--node-danger-text);
+    border-color: var(--node-danger-border);
+}
 .image-parameter-run-feedback [hidden] { display: none !important; }
 .image-parameter-panel .image-parameter-run-feedback .node-failure-summary { display: -webkit-box; flex: 1 1 180px; min-width: 0; width: auto; margin: 0; padding: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; border: 0; background: transparent; color: var(--node-danger-text); white-space: normal; overflow-wrap: anywhere; font-size: 13px; line-height: 1.4; }
 .image-parameter-panel .image-parameter-run-feedback .node-failure-summary.hidden { display: none; }
