@@ -925,12 +925,10 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
 }
 
 #canvas-container .node-port.connection-target-available:not(.execution-error) .port-dot {
-    transform: scale(1.2);
     box-shadow: 0 0 12px color-mix(in srgb, var(--port-color) 45%, transparent);
 }
 
 #canvas-container .node-port.connection-target-nearest:not(.execution-error) .port-dot {
-    transform: scale(1.45);
     box-shadow: 0 0 18px color-mix(in srgb, var(--port-color) 70%, transparent);
 }
 
@@ -943,29 +941,29 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
 }
 
 .port-dot {
-    width: 22.4px;
-    height: 22.4px;
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
     border: 0;
     --port-color: var(--port-any);
     background: var(--port-color);
-    transition: all var(--transition);
+    transition: box-shadow var(--transition);
     flex-shrink: 0;
     position: relative;
     z-index: 100;
 }
 
 .node-port.input .port-dot {
-    /* The dot stays on the shell edge; its flow space no longer indents the label. */
-    margin-left: -22.4px;
-    left: -0.8px;
-    clip-path: path("M 11.2 0 A 11.2 11.2 0 0 0 11.2 22.4 Z");
+    /* Larger outside half-circle; keep the label flow unchanged. */
+    margin-left: -28px;
+    left: -2.8px;
+    clip-path: path("M 14 0 A 14 14 0 0 0 14 28 Z");
 }
 
 .node-port.output .port-dot {
-    margin-right: -22.4px;
-    right: -0.8px;
-    clip-path: path("M 11.2 0 A 11.2 11.2 0 0 1 11.2 22.4 Z");
+    margin-right: -28px;
+    right: -2.8px;
+    clip-path: path("M 14 0 A 14 14 0 0 1 14 28 Z");
 }
 
 .port-dot.type-image {
@@ -989,7 +987,6 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
 }
 
 .port-dot:hover {
-    transform: scale(1.3);
     box-shadow: 0 0 12px color-mix(in srgb, var(--port-color) 55%, transparent);
 }
 
