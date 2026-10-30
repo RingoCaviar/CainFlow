@@ -308,7 +308,7 @@ test('clone parameters remain read-only while reference connections follow canva
     });
 });
 
-test('node assistant entry preserves text and attachments and only inserts an explicitly chosen target', { timeout: 30000 }, async () => {
+test('node assistant entry appends its chosen target while preserving text and attachments', { timeout: 30000 }, async () => {
     await withAppBrowser({ ...session, nodes: ['context-one','context-two'].map((id,index)=>({ id, type: 'ImageGenerate', customTitle: index?'背景':'主图', x: index*500, y: 100,
         apiConfigId: 'image', providerId: 'p', prompt: id })), connections: [] }, async app => {
         const { evaluate, waitFor } = app;
@@ -323,17 +323,16 @@ test('node assistant entry preserves text and attachments and only inserts an ex
         assert.equal(await evaluate("document.getElementById('prompt-agent-input').value"), initial);
         await change(evaluate, 'prompt-agent-input', '保留我的草稿');
         await evaluate("document.getElementById('context-two-assistant').click()");
-        assert.equal(await evaluate("document.getElementById('prompt-agent-input').value"), '保留我的草稿');
-        await evaluate("document.getElementById('prompt-agent-insert-node-context').click()");
+        assert.equal(await evaluate("document.getElementById('prompt-agent-insert-node-context')"), null);
         const withTarget = await evaluate("document.getElementById('prompt-agent-input').value");
         assert.match(withTarget, /^保留我的草稿/); assert.match(withTarget, /@背景\[context-two\]/);
-        await evaluate("document.getElementById('context-two-assistant').click();document.getElementById('prompt-agent-insert-node-context').click()");
+        await evaluate("document.getElementById('context-two-assistant').click()");
         assert.equal(await evaluate("document.getElementById('prompt-agent-input').value"), withTarget);
         await change(evaluate, 'prompt-agent-input', '');
         await evaluate(`(async()=>{const transfer=new DataTransfer();transfer.items.add(new File([await (await fetch('${referenceImages[0]}')).blob()],'reference.png',{type:'image/png'}));document.getElementById('prompt-agent-form').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));})()`);
         await waitFor("document.querySelectorAll('#prompt-agent-references img').length===1 && !document.querySelector('#prompt-agent-references .is-loading')");
         await evaluate("document.getElementById('context-one-assistant').click()");
-        assert.equal(await evaluate("document.getElementById('prompt-agent-input').value"), '');
+        assert.match(await evaluate("document.getElementById('prompt-agent-input').value"), /@主图\[context-one\]/);
         assert.equal(await evaluate("document.querySelectorAll('#prompt-agent-references img').length"), 1);
         assert.match(await evaluate("document.getElementById('prompt-agent-node-context').textContent"), /主图/);
         assert.equal(await evaluate('imageRequests.length'), 0, 'preparing context never sends a provider request');

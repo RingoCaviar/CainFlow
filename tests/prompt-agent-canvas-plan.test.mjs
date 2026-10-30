@@ -22,6 +22,31 @@ const draft = () => ({ version: 1, steps: [
     { from: { ref: 'resize', port: 'image' }, to: { ref: 'save', port: 'image' } }
 ] });
 
+test('the current selection can be revised or deleted while new work remains independent of it', () => {
+    const context = graph({ selectedIds: ['target'] });
+    const update = normalizeCanvasPlan({ version: 1, steps: [{ id: 'revise', type: 'ImageGenerate', nodeId: 'target', parameters: { prompt: 'new' } }] }, context, { message: '优化选中的节点' });
+    assert.equal(update.steps[0].nodeId, 'target');
+    assert.equal(normalizeCanvasPlan(draft(), context).steps[0].nodeId, undefined, 'selection does not force new steps to modify it');
+    const deletion = normalizeCanvasPlan({ version: 1, steps: [], deletes: [{ nodeId: 'target' }] }, context, { message: '删除选中的节点' });
+    assert.deepEqual(deletion.deletes.map(item => item.nodeId), ['target']);
+    assert.ok(describeCanvasPlan(deletion, context).some(line => line.includes('删除') && line.includes('target')));
+    assert.throws(() => normalizeCanvasPlan({ version: 1, steps: [], deletes: [{ nodeId: 'source' }] }, context), /选中|@节点/);
+});
+
+test('deletions preview their edge impact, preserve other reference order, and reject conflicts or running neighbors', () => {
+    const nodes = [{ id: 'one', type: 'ImageImport' }, { id: 'two', type: 'ImageImport' }, { id: 'target', type: 'ImageGenerate', prompt: 'before' }];
+    const connections = ['one', 'two'].map((id, order) => ({ id: `edge-${id}`, from: { nodeId: id, port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, order: order + 4 }));
+    const context = graph({ nodes, connections, selectedIds: ['one', 'target'] });
+    const raw = { version: 1, steps: [{ id: 'revise', type: 'ImageGenerate', nodeId: 'target', parameters: { prompt: 'after' } }], deletes: [{ nodeId: 'one' }] };
+    const plan = normalizeCanvasPlan(raw, context, { message: '优化目标，删除多余的来源' });
+    const links = projectPlanConnections(plan, connections, ref => ref === 'revise' ? 'target' : ref);
+    assert.deepEqual(links, [connections[1]], 'the remaining edge keeps its identity and order');
+    assert.ok(describeCanvasPlan(plan, context).some(line => line.includes('移除连线')));
+    assert.throws(() => normalizeCanvasPlan({ ...raw, deletes: [{ nodeId: 'target' }] }, context), /同时修改和删除/);
+    assert.throws(() => normalizeCanvasPlan(raw, graph({ nodes, connections, selectedIds: ['one', 'target'], runningIds: ['target'] })), /正在运行/);
+    assert.throws(() => assertCanvasPlanCurrent(plan, graph({ nodes, connections: [], selectedIds: [] })), /变化/);
+});
+
 test('change list preserves real line breaks and quotes instead of displaying JSON escapes', () => {
     const before = '第一行\n保留"主体"\nC:\\notes\\image.png';
     const after = '新的第一行\n新的第二行';

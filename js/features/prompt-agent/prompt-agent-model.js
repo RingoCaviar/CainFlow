@@ -213,7 +213,7 @@ export async function createPromptAgentModelReply({
     let previousReferenceTarget = null;
     if (previousCanvas) {
         const requestedTargets = (canvasContext?.nodes || []).filter(node => node.type === 'ImageGenerate'
-            && (canvasContext.summary.mentionedIds.includes(node.id) || (message.includes(node.name)
+            && (canvasContext.summary.mentionedIds.includes(node.id) || canvasContext.summary.selectedIds.includes(node.id) || (message.includes(node.name)
                 && canvasContext.nodes.filter(item => item.name === node.name).length === 1))).map(node => node.id);
         const requested = requestedTargets.length === 1 ? requestedTargets[0] : null;
         previousReferenceTarget = requested;

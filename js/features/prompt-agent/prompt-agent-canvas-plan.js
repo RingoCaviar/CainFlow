@@ -5,6 +5,15 @@ import { excludesReferenceImages, mayUseCandidate, referenceInputChangePermissio
 const fail = message => { throw new Error(message); };
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 
+function canTargetNode(node, context, message, mentionedIds, evidence, includePromptSource = false) {
+    const focused = new Set([...(context.summary?.selectedIds || []), ...mentionedIds]);
+    if (focused.has(node.id)) return true;
+    if (includePromptSource && context.nodes.some(target => context.summary?.selectedIds?.includes(target.id)
+        && target.promptSource?.editable && target.promptSource.nodeId === node.id)) return true;
+    return typeof evidence === 'string' && Boolean(evidence.trim()) && message.includes(evidence)
+        && evidence.includes(node.name) && context.nodes.filter(item => item.name === node.name).length === 1;
+}
+
 function promptInputChangePermission(message, steps, context, mentionedIds, connections) {
     const targets = steps.filter(step => step.type === 'ImageGenerate' && step.nodeId);
     if (targets.length !== 1) return null;
@@ -40,7 +49,8 @@ export function assertCanvasPlanPromptInputs(plan, context) {
         const next = links.filter(link => link.to.nodeId === node.id && link.to.port === 'prompt').at(-1);
         const changed = previous && (!next || previous.from.nodeId !== next.from.nodeId || previous.from.port !== next.from.port);
         // Old stored flags used a broader text-edit matcher and cannot prove input authorization.
-        const permitted = plan.promptInputChange?.authorizationVersion === 1 && plan.promptInputChange.targetNodeIds?.includes(node.id);
+        const permitted = plan.deletes?.some(item => item.nodeId === previous?.from.nodeId)
+            || plan.promptInputChange?.authorizationVersion === 1 && plan.promptInputChange.targetNodeIds?.includes(node.id);
         if (changed && plan.promptInputChange && !permitted) throw new Error('旧方案的提示词输入授权无法核验，请重新生成方案并确认输入关系。');
         if (changed && !permitted) throw new Error('方案不能擅自断开或替换上游提示词来源；请明确要求修改输入关系。');
         if (!changed && node.promptSource?.active && Object.hasOwn(step.parameters || {}, 'prompt')
@@ -50,7 +60,19 @@ export function assertCanvasPlanPromptInputs(plan, context) {
     }
 }
 export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds = [], images = [], referencePolicy } = {}) {
-    if (!object(raw) || raw.version !== 1 || !Array.isArray(raw.steps) || !raw.steps.length || raw.steps.length > 30) fail('画布方案必须为 v1，包含 1 至 30 个步骤');
+    if (!object(raw) || raw.version !== 1 || !Array.isArray(raw.steps) || !Array.isArray(raw.deletes || [])
+        || raw.steps.length + (raw.deletes?.length || 0) < 1 || raw.steps.length + (raw.deletes?.length || 0) > 30) fail('画布方案必须为 v1，包含 1 至 30 个操作');
+    const deletedIds = new Set();
+    const deletes = (raw.deletes || []).map(item => {
+        const node = context.nodes.find(node => node.id === item?.nodeId);
+        if (!node || deletedIds.has(node.id)) fail('删除目标不存在或重复');
+        if (!canTargetNode(node, context, message, mentionedIds, item.evidence)) fail('删除已有节点前请选中或使用 @节点 明确指定目标');
+        const affected = new Set([node.id, ...context.connections.filter(link => link.from.nodeId === node.id || link.to.nodeId === node.id)
+            .flatMap(link => [link.from.nodeId, link.to.nodeId])]);
+        if (context.nodes.some(item => affected.has(item.id) && item.running)) fail('目标节点或相连节点正在运行，不能删除');
+        deletedIds.add(node.id);
+        return { nodeId: node.id, title: node.name, type: node.type };
+    });
     if (referencePolicy) {
         const noImages = excludesReferenceImages(message, referencePolicy.selection);
         const promptOnly = referencePolicy.selection?.mode === 'prompt-only';
@@ -96,13 +118,10 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         }
         if (!CANVAS_TYPES.includes(step.type)) fail(`首版不支持操作 ${step.type}`);
         const existing = step.nodeId && context.nodes.find(node => node.id === step.nodeId);
+        if (deletedIds.has(step.nodeId)) fail('不能同时修改和删除同一节点');
         if (step.nodeId && (!existing || existing.type !== step.type || !existing.enabled || existing.running)) fail('目标节点不存在、已禁用或正在运行');
         if (existing?.editable === false && Object.keys(step.parameters || {}).length) fail('目标节点参数只读，不能修改克隆或派生文本来源。');
-        if (existing && !mentionedIds.includes(existing.id)) {
-            const evidence = typeof step.evidence === 'string' ? step.evidence : '';
-            if (!evidence || !message.includes(evidence) || !evidence.includes(existing.name)
-                || context.nodes.filter(node => node.name === existing.name).length !== 1) fail('修改已有节点前请使用 @节点 明确指定目标');
-        }
+        if (existing && !canTargetNode(existing, context, message, mentionedIds, step.evidence, true)) fail('修改已有节点前请选中或使用 @节点 明确指定目标');
         let parameters = step.parameters || {};
         if (step.type === 'ImageGenerate' && Object.hasOwn(parameters, 'aspectRatio')) {
             if (Object.hasOwn(parameters, 'aspect') && parameters.aspect !== parameters.aspectRatio) fail('方案中的比例设置冲突');
@@ -141,6 +160,7 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
     const ports = new Set(), retainedDisabled = new Set();
     const connections = (raw.connections || []).map(link => {
         if (!object(link) || !object(link.from) || !object(link.to)) fail('连线无效');
+        if (deletedIds.has(link.from.ref) || deletedIds.has(link.to.ref)) fail('不能连接即将删除的节点');
         if (!ids.has(link.to.ref)) fail('只能修改方案内目标节点的输入连线');
         const type = portType(link.from.ref, link.from.port, 'outputs');
         const external = context.nodes.find(node => node.id === link.from.ref);
@@ -174,7 +194,7 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
     }
     const promptInputChange = promptInputChangePermission(message, steps, context, mentionedIds, connections);
     const identity = ref => steps.find(step => step.id === ref)?.nodeId || (ids.has(ref) ? `new:${ref}` : ref);
-    const projectedLinks = projectPlanConnections({ steps, connections, disconnects }, context.connections, identity);
+    const projectedLinks = projectPlanConnections({ steps, connections, disconnects, deletes }, context.connections, identity);
     const order = []; const visiting = new Set(); const visited = new Set();
     const visit = id => {
         if (visiting.has(id)) fail('方案存在循环依赖');
@@ -187,12 +207,15 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         visiting.delete(id); visited.add(id); order.push(id);
     };
     steps.forEach(step => visit(step.id));
-    const dependencies = [...new Set([...steps.flatMap(step => [step.nodeId, step.assetSourceNodeId]),
+    const dependencies = [...new Set([...deletedIds, ...context.connections.filter(link => deletedIds.has(link.from.nodeId) || deletedIds.has(link.to.nodeId))
+        .flatMap(link => [link.from.nodeId, link.to.nodeId]), ...steps.flatMap(step => [step.nodeId, step.assetSourceNodeId]),
         ...context.connections.filter(link => steps.some(step => step.nodeId === link.to.nodeId)).map(link => link.from.nodeId),
         ...context.connections.filter(link => steps.some(step => step.nodeId === link.from.nodeId && step.type === 'ImageGenerate')).map(link => link.to.nodeId),
         ...connections.map(link => ids.has(link.from.ref) ? null : link.from.ref)].filter(Boolean))];
     const plan = normalizePlanInputs({ version: 1, referenceInputChange, promptInputChange, id: globalThis.crypto?.randomUUID?.() || `plan-${Date.now()}-${Math.random()}`, workflowId: context.workflowId,
-        steps, connections, disconnects, order, dependencies, baseline: canvasBaseline(context, dependencies), modelOverrides: {}, bindings: {}, runs: [] });
+        steps, connections, disconnects, deletes,
+        deletionConnections: context.connections.filter(link => deletedIds.has(link.from.nodeId) || deletedIds.has(link.to.nodeId)),
+        order, dependencies, baseline: canvasBaseline(context, dependencies), modelOverrides: {}, bindings: {}, runs: [] });
     assertReferenceInputsPreserved(plan, context.connections, ref => steps.find(step => step.id === ref)?.nodeId || (ids.has(ref) ? `new:${ref}` : ref));
     const retainedLinks = projectPlanConnections(plan, context.connections, ref => steps.find(step => step.id === ref)?.nodeId || ref);
     if ([...retainedDisabled].some(edge => !retainedLinks.includes(edge))) fail('已禁用来源只能原位保留，不能作为新增输入或改变顺序。');
@@ -205,7 +228,8 @@ export function describeCanvasPlan(plan, context) {
     const stepLabel = step => context.nodes.find(node => node.id === (step.nodeId || plan.bindings?.[step.id]))?.name || step.title;
     const label = ref => {
         const step = plan.steps.find(step => step.id === ref);
-        return (step && stepLabel(step)) || context.nodes.find(node => node.id === ref)?.name || ref;
+        return (step && stepLabel(step)) || context.nodes.find(node => node.id === ref)?.name
+            || plan.deletes?.find(item => item.nodeId === ref)?.title || ref;
     };
     const endpoint = (ref, port) => `${label(ref)} · ${port === 'image' ? '图片' : /^image_\d+$/.test(port) ? `参考图 ${port.split('_')[1]}` : port === 'prompt' ? '提示词' : port}`;
     const lines = plan.steps.flatMap(step => {
@@ -218,6 +242,11 @@ export function describeCanvasPlan(plan, context) {
                 : `${stepLabel(step)} · ${key}：${previous} → ${next}`;
         });
     });
+    const deletedIds = new Set((plan.deletes || []).map(item => item.nodeId));
+    for (const item of plan.deletes || []) lines.push(`删除 ${item.title} [${item.nodeId}]`);
+    for (const link of plan.deletionConnections || context.connections.filter(link => deletedIds.has(link.from.nodeId) || deletedIds.has(link.to.nodeId))) {
+        lines.push(`移除连线 ${endpoint(link.from.nodeId, link.from.port)} → ${endpoint(link.to.nodeId, link.to.port)}`);
+    }
     for (const link of plan.connections) {
         const target = plan.steps.find(step => step.id === link.to.ref);
         for (const old of context.connections.filter(item => item.to.nodeId === target?.nodeId && item.to.port === link.to.port)) {
@@ -248,7 +277,7 @@ export function restoreCanvasPlan(value) {
 export function projectCanvasPlan(plan) {
     if (!plan) return null;
     return { version: plan.version, id: plan.id, steps: plan.steps, connections: plan.connections,
-        disconnects: plan.disconnects || [], bindings: plan.bindings || {}, modelOverrides: plan.modelOverrides || {}, providerOverrides: plan.providerOverrides || {}, agentProviders: plan.agentProviders || {}, thinkingOverrides: plan.thinkingOverrides || {}, agentThinking: plan.agentThinking || {}, agentSizes: plan.agentSizes || {},
+        disconnects: plan.disconnects || [], deletes: plan.deletes || [], deletionConnections: plan.deletionConnections || [], bindings: plan.bindings || {}, modelOverrides: plan.modelOverrides || {}, providerOverrides: plan.providerOverrides || {}, agentProviders: plan.agentProviders || {}, thinkingOverrides: plan.thinkingOverrides || {}, agentThinking: plan.agentThinking || {}, agentSizes: plan.agentSizes || {},
         completedSteps: plan.completedSteps || [], latestAttempt: plan.runs?.at(-1) || null };
 }
 

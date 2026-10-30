@@ -15,7 +15,7 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     const inputs = element('div', ''); inputs.className = 'prompt-agent-plan-inputs';
     const references = adapter.inputs?.(plan) || [];
     element('span', references.length ? `参考图 · ${references.length} 项`
-        : plan.steps.some(step => step.type === 'ImageGenerate') ? '纯文字生成' : '素材处理方案', inputs);
+        : plan.steps.some(step => step.type === 'ImageGenerate') ? '纯文字生成' : plan.steps.length ? '素材处理方案' : '删除节点方案', inputs);
     let destroyed = false;
     for (const reference of references) {
         const item = element('button', `${reference.name} → ${reference.purpose}${reference.upstream ? '（本次步骤输出）' : ''}`, inputs);
@@ -130,7 +130,8 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         apply.disabled = execute.disabled = busy || !isCurrent() || Boolean(unavailable);
         retry.disabled = execute.disabled || !plan.runs?.length;
         retry.hidden = !plan.runs?.length;
-        undo.hidden = !Object.keys(plan.bindings || {}).length;
+        undo.hidden = !Object.keys(plan.bindings || {}).length && !plan.appliedSignature;
+        execute.hidden = plan.steps.length === 0;
         undo.disabled = busy || Boolean(adapter.canUndo(plan)); undo.title = adapter.canUndo(plan);
         stop.hidden = !busy;
         refresh.disabled = busy || !isCurrent();

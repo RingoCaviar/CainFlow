@@ -2037,7 +2037,9 @@ export function createNodeLifecycleApi({
             }
         });
         const preservedConnectionCount = appendPreservedConnections(preservedConnectionCandidates);
-        if (removedIds.length) onNodesRemoved(removedIds);
+        // An atomic Agent batch publishes reference removal only after its save
+        // commits, so a failed batch can restore the graph without pruning chat.
+        if (removedIds.length && options.notifyReferences !== false) onNodesRemoved(removedIds);
         if (preservedConnectionCount > 0) removedConnections = true;
         updateAllConnections();
         updatePortStyles();
