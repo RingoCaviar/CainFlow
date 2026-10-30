@@ -18,6 +18,8 @@ export function normalizePlanInputs(plan) {
     return plan;
 }
 export function projectPlanConnections(plan, connections, identity) {
+    const deletedIds = new Set((plan.deletes || []).map(item => item.nodeId));
+    connections = connections.filter(link => !deletedIds.has(link.from.nodeId) && !deletedIds.has(link.to.nodeId));
     const targets=new Set(plan.steps.filter(s=>s.type==='ImageGenerate').map(s=>identity(s.id)));
     const port=(id,name)=>targets.has(id)&&isReferencePort(name)?'referenceImages':name;
     const key = (id, name) => JSON.stringify([id, port(id, name)]);
@@ -75,7 +77,8 @@ export function assertReferenceInputsPreserved(plan, connections, identity) {
         const permission = plan.referenceInputChange;
         if (['clear', 'replace'].includes(permission?.mode) && permission.targetNodeIds?.includes(target)) continue;
         const inputs = links => orderImageReferenceConnections( links.filter(link => link.to.nodeId === target && isReferencePort(link.to.port)));
-        const previous = inputs(connections), next = inputs(projected);
+        const deletedIds = new Set((plan.deletes || []).map(item => item.nodeId));
+        const previous = inputs(connections).filter(link => !deletedIds.has(link.from.nodeId)), next = inputs(projected);
         if (!previous.every((link, index) => next[index]?.from.nodeId === link.from.nodeId && next[index]?.from.port === link.from.port)) {
             throw new Error('方案试图断开已有参考图或改变输入顺序，但本轮没有明确要求；请重新生成保留参考图的方案。');
         }

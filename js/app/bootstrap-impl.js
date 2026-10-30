@@ -402,7 +402,10 @@ const interactionPerformanceGuard = createInteractionPerformanceGuard({
 const selectionApi = createSelectionApi({
     state,
     connectionProjection: connectionProjectionInteractions,
-    onChange: () => registry.imageFirstCanvasApi?.selectionChanged()
+    onChange: () => {
+        registry.imageFirstCanvasApi?.selectionChanged();
+        registry.promptAgentController?.refreshPreparedNodeContext?.();
+    }
 });
 const nodeSerializer = createNodeSerializer({
     state,
@@ -462,6 +465,11 @@ function handleNodeGraphChanged(options = {}) {
     }
     refreshAllImageResizePreviews();
     refreshAllCameraControlPreviews();
+}
+
+function handleNodesRemoved(ids) {
+    registry.imageFirstCanvasApi.selectionChanged();
+    registry.promptAgentController?.removeNodeReferences(ids);
 }
 
 function hasIncomingImageConnection(nodeId) {
@@ -1041,7 +1049,7 @@ const captureAgentRequestConfig = (modelId) => {
 const promptAgentController = createPromptAgentController({
     canvasAdapter: createPromptAgentCanvasAdapter({
         state, documentRef: document, serializeNodes: () => nodeSerializer.serializeNodes(),
-        getWorkflowId: () => workflowManagerApi.getActiveWorkflowId(), addNode,
+        getWorkflowId: () => workflowManagerApi.getActiveWorkflowId(), addNode, removeNode, onNodesRemoved: handleNodesRemoved,
         nodeAdapter: promptAgentNodeAdapter, session: getSessionManagerApi,
         save: () => workflowManagerApi.saveActiveWorkflow({ silent: true }),
         graphChanged: () => { connectionsApi.updateAllConnections(); connectionsApi.updatePortStyles(); handleNodeGraphChanged(); },
@@ -1567,7 +1575,7 @@ function getNodeLifecycleApi() {
             renderImageComparePreview: (nodeId, imageA, imageB) => mediaControllerApi.renderImageComparePreview(nodeId, imageA, imageB),
             renderImageMergePreview: (nodeId, images) => mediaControllerApi.renderImageMergePreview(nodeId, images),
             bindNodeInteractions: ({ id, type, el }) => nodeDomBindingsApi.bindNodeInteractions({ id, type, el }),
-            onNodesRemoved: (ids) => { registry.imageFirstCanvasApi.selectionChanged(); registry.promptAgentController?.removeNodeReferences(ids); },
+            onNodesRemoved: handleNodesRemoved,
             serializeOneNode,
             pushHistory,
             scheduleSave,

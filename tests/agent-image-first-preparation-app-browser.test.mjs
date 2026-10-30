@@ -21,6 +21,8 @@ const models = app => app.evaluate("['prompt-agent-model','prompt-agent-image-mo
 async function open(app, id = 'first') {
     await app.evaluate(`document.getElementById(${JSON.stringify(id)}).click()`);
     await app.waitFor(`!document.getElementById('image-parameter-panel').hidden&&document.getElementById('image-parameter-panel').dataset.nodeId===${JSON.stringify(id)}`);
+    await app.evaluate("document.querySelector('#image-parameter-panel .image-local-prompt-draft:not([open])>summary')?.click()");
+    await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
 }
 async function nativeClick(app, selector) {
     const point = await app.evaluate(`(()=>{const rect=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:rect.x+rect.width/2,y:rect.y+rect.height/2}})()`);
@@ -53,7 +55,7 @@ test('the native in-panel optimize action stages the generation target and its e
     });
 });
 
-test('optimization preserves an existing native draft and original attachment until the user explicitly inserts the target and source', { timeout: 45000 }, async () => {
+test('optimization appends target and source once while retaining an existing native draft and original attachment', { timeout: 45000 }, async () => {
     await withAppBrowser(session, async app => {
         await app.evaluate(`(async()=>{document.getElementById('btn-prompt-agent').click();const input=document.getElementById('prompt-agent-input');input.value='保留手写要求与附件';input.dispatchEvent(new Event('input',{bubbles:true}));const transfer=new DataTransfer();transfer.items.add(new File([await(await fetch(${JSON.stringify(reference)})).blob()],'original-reference.png',{type:'image/png'}));document.getElementById('prompt-agent-form').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));})()`);
         await app.waitFor("document.querySelectorAll('#prompt-agent-references img').length===1&&!document.querySelector('#prompt-agent-references .is-loading')");
@@ -62,15 +64,15 @@ test('optimization preserves an existing native draft and original attachment un
         const selectedModels = await models(app), before = await graph(app);
         await open(app);
         await nativeClick(app, '#first-assistant');
-        assert.equal(await composer(app), '保留手写要求与附件');
+        assert.match(await composer(app), /^保留手写要求与附件/);
         assert.equal(await app.evaluate("document.querySelector('#prompt-agent-references img')===originalPreparationImage"), true);
         assert.equal(await app.evaluate("document.querySelector('#prompt-agent-references img').src"), reference);
-        assert.equal(await app.evaluate("document.getElementById('prompt-agent-insert-node-context').disabled"), false);
-        await nativeClick(app, '#prompt-agent-insert-node-context');
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-insert-node-context')"), null);
         const inserted = await composer(app);
         assert.match(inserted, /^保留手写要求与附件\n@产品画面\[first\]/);
         assert.match(inserted, /@真实产品提示词\[source\]/);
-        assert.equal(await app.evaluate("document.getElementById('prompt-agent-insert-node-context').disabled"), true);
+        await nativeClick(app, '#first-assistant');
+        assert.equal(await composer(app), inserted);
         assert.equal(await app.evaluate("document.querySelector('#prompt-agent-references img')===originalPreparationImage"), true);
         assert.deepEqual(await models(app), selectedModels);
         assert.deepEqual(await graph(app), before);

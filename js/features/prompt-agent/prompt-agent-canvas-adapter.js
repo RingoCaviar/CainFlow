@@ -13,7 +13,7 @@ const controlFields = { text: 'text', filename: 'filename', resizeMode: 'resize-
     targetWidth: 'target-width', targetHeight: 'target-height', keepAspect: 'keep-aspect', quality: 'quality' };
 const generationFields = { aspect: 'aspectRatio', generationCount: 'count', resolution: 'resolution', customWidth: 'customWidth', customHeight: 'customHeight', quality: 'quality', moderation: 'moderation', background: 'background' };
 
-export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNodes, getWorkflowId, addNode,
+export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNodes, getWorkflowId, addNode, removeNode, onNodesRemoved = () => {},
     nodeAdapter, session, save, graphChanged, origin, getImageAsset, runWorkflow, cancelNode, focusNode }) {
     let activePlan = null;
     const executionConfigs = new Map();
@@ -26,7 +26,8 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         for (const step of [...plan.steps]) {
             if (step.type !== 'ImageGenerate') continue;
             const hasTarget = plan.connections.some(link => link.from.ref === step.id && link.from.port === 'image')
-                || (step.nodeId && state.connections.some(link => link.from.nodeId === step.nodeId && link.from.port === 'image' && state.nodes.get(link.to.nodeId)?.enabled !== false && state.nodes.has(link.to.nodeId)));
+                || (step.nodeId && state.connections.some(link => link.from.nodeId === step.nodeId && link.from.port === 'image'
+                    && !plan.deletes?.some(item => item.nodeId === link.to.nodeId) && state.nodes.get(link.to.nodeId)?.enabled !== false && state.nodes.has(link.to.nodeId)));
             if (!hasTarget) {
                 const id = `save_${step.id}`;
                 if (plan.steps.some(item => item.id === id)) throw new Error('自动保存步骤名称冲突，请重新整理方案');
@@ -105,7 +106,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         const sizes = sizesFor(plan, defaultModelId, selected);
         executionConfigs.set(plan.id, cloneCanvasValue({ models: state.models, providers: state.providers }));
         const proposed = validateGraph(plan);
-        const signature = JSON.stringify({ sizes, steps: plan.steps, connections: plan.connections, disconnects: plan.disconnects || [],
+        const signature = JSON.stringify({ sizes, steps: plan.steps, connections: plan.connections, disconnects: plan.disconnects || [], deletes: plan.deletes || [],
             models: Object.fromEntries(Object.entries(selected).map(([id, config]) => [id, { modelId: config.model.id, providerId: config.provider.id, thinking: config.thinking }])) });
         if (plan.appliedSignature === signature && plan.steps.every(step => state.nodes.has(plan.bindings?.[step.id]))) {
             if (await save() === false) throw new Error('方案保存失败，请重试');
@@ -183,6 +184,10 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                         control.dispatchEvent(new documentRef.defaultView.Event('change', { bubbles: true }));
                     }
                 }
+                for (const item of plan.deletes || []) {
+                    await removeNode(item.nodeId, { onlyId: true, skipHistory: true, showToast: false, notifyReferences: false });
+                    if (state.nodes.has(item.nodeId)) throw new Error(`无法删除「${item.title}」，画布未修改`);
+                }
                 state.connections = projectPlanConnections(plan, state.connections, ref => bindings[ref] || ref).map(link => ({...link,id:link.id || `conn_${crypto.randomUUID()}`}));
                 graphChanged();
                 plan.bindings = bindings; plan.appliedSignature = signature; plan.appliedSizes = cloneCanvasValue(sizes);
@@ -198,6 +203,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         } catch (error) {
             Object.keys(plan).forEach(key => delete plan[key]); Object.assign(plan, originalPlan); onPlanChange(); throw error;
         } finally { locked.forEach(([element, inert]) => { element.inert = inert; }); }
+        if (plan.deletes?.length) onNodesRemoved(plan.deletes.map(item => item.nodeId));
         const target = createdNodes.find(node => node.type === 'ImageGenerate')
             || createdNodes.find(node => !node.autoAdded && node.type !== 'ImageImport')
             || createdNodes[0];
@@ -299,7 +305,8 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         },
         refresh: plan => {
             if (activePlan) throw new Error('请等待当前方案执行结束');
-            if (plan.workflowId !== getWorkflowId() || plan.dependencies.some(id => !state.nodes.has(id))) throw new Error('相关节点已删除或工作流已切换，请重新提出方案');
+            if (plan.workflowId !== getWorkflowId() || plan.dependencies.some(id => !state.nodes.has(id)
+                && !(plan.appliedSignature && plan.deletes?.some(item => item.nodeId === id)))) throw new Error('相关节点已删除或工作流已切换，请重新提出方案');
             if (prepare(cloneCanvasValue(plan)).steps.length !== plan.steps.length) throw new Error('自动保存节点需求已变化，请重新整理方案');
             validateGraph(plan);
             assertPromptOnlyReferenceRecipe(plan, { ...cloneCanvasValue(plan), baseline: undefined, referenceManifest: undefined }, context());

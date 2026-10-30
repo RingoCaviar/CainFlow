@@ -6,7 +6,7 @@
 
 | 环节 | 验证内容 | 测试证据 |
 | --- | --- | --- |
-| @节点 / 仅选中节点 | 读取耐久原图；连接order与源批次顺序一致；普通追问优先上次唯一目标，明确命名的新目标优先 | model selected generation context；node-adapter selected node context；browser selected-node optimization |
+| @节点 / 仅选中节点 | 读取耐久原图；连接order与源批次顺序一致；显式引用优先，当前单选优先于历史目标，多选不暗中绑定某个生图目标；无选择的续改仍可沿用历史方案 | model selected generation context；node-adapter selected node context；browser selected-node optimization |
 | 重复像素 | 不同来源/批次位置保留独立imageId及sourceImageIndex；相同像素只复用传输附件 | node-adapter selected node context；browser same-pixel references（5位置、1像素附件、真实生图5输入） |
 | 禁用来源 | 连线保留，不参与当前图片输入；全部禁用时也可执行；启用来源缺原图仍失败 | reference-inputs disabled sources；browser selected-node mixed-disabled及every reference source disabled |
 | 方案预览/仅应用 | 默认保留来源及顺序；仅应用不调用生图；未经允许的断开、部分替换和逆序受守卫拦截 | canvas-plan/reference-inputs及browser selected-node optimization |

@@ -989,6 +989,7 @@ export function createPromptAgentController({
         // Refresh here so the first request always sees the current chat models.
         renderModelOptions();
         setOpen(true);
+        renderPreparedNodeContext();
         surfaces?.bringToFront(getElements().panel);
         if (documentRef.activeElement === getElements().button) getElements().input?.focus?.();
         panelWidthController?.apply();
@@ -1023,24 +1024,24 @@ export function createPromptAgentController({
     function renderPreparedNodeContext() {
         const host = documentRef.getElementById('prompt-agent-node-context');
         if (!host) return;
-        const node = preparedTarget();
-        host.hidden = !node;
-        if (!node) { preparedNodeContext = null; return; }
-        const inserted = canvasMentions?.read().some(item => item.id === node.id);
-        const source = preparedPromptSource(node);
-        const sourceInserted = !source?.editable || canvasMentions?.read().some(item => item.id === source.nodeId);
-        const context = canvasAdapter.context([node.id]);
-        const count = context.connections.filter(connection => connection.to.nodeId === node.id
-            && (connection.to.port === 'referenceImages' || /^image_\d+$/.test(connection.to.port))).length;
-        const label = `${inserted ? '草稿引用' : '待插入目标'}：${node.name} · 画布已连接 ${count} 个参考来源（非本轮附件）。${promptSourceGuidance(source)}`;
+        if (!getElements().panel?.classList.contains('active')) { host.hidden = true; return; }
+        const mentions = canvasMentions?.read() || [];
+        const canvas = canvasAdapter?.context(mentions.map(item => item.id));
+        const selected = canvas?.nodes.filter(node => canvas.summary.selectedIds.includes(node.id)) || [];
+        const prepared = preparedTarget();
+        const node = prepared && mentions.some(item => item.id === prepared.id) ? prepared
+            : selected.length === 1 ? selected[0] : null;
+        host.hidden = !selected.length && !node;
+        if (host.hidden) return;
         const copy = host.querySelector('.prompt-agent-node-context-copy');
-        if (copy && copy.textContent !== label) copy.textContent = label;
-        const action = documentRef.getElementById('prompt-agent-insert-node-context');
-        if (action) {
-            action.disabled = Boolean(inserted && sourceInserted);
-            action.textContent = action.disabled ? '引用已在草稿中' : source?.editable
-                ? (inserted ? '插入提示词来源引用' : '插入目标与来源引用') : '插入目标引用';
+        const selection = selected.length ? `当前选中：${selected.map(item => item.name).join('、')}。` : '当前未选中节点。';
+        if (!node || node.type !== 'ImageGenerate') {
+            if (copy) copy.textContent = selection;
+            return;
         }
+        const source = preparedPromptSource(node);
+        const label = `${selection}${mentions.some(item => item.id === node.id) ? `本轮引用：${node.name}。` : ''}${promptSourceGuidance(source)}`;
+        if (copy && copy.textContent !== label) copy.textContent = label;
     }
 
     function insertPreparedNodeContext() {
@@ -1059,8 +1060,9 @@ export function createPromptAgentController({
             || !canvasAdapter?.context([reference.nodeId]).nodes.some(node => node.id === reference.nodeId)) return false;
         preparedNodeContext = { workflowId: reference.workflowId, nodeId: reference.nodeId };
         open();
-        if (composerIsEmpty()) {
-            insertPreparedNodeContext();
+        const empty = composerIsEmpty();
+        insertPreparedNodeContext();
+        if (empty) {
             const node = preparedTarget(), source = preparedPromptSource(node);
             input.value += source?.active && source.editable
                 ? `请优化「${source.name || source.nodeId}」为「${node.name}」提供的提示词，修改对象为该文本来源，保留主体和现有参考关系。先提供方案，由我确认后再应用。`
@@ -1717,6 +1719,13 @@ export function createPromptAgentController({
         if (!text && pendingReferenceImages.length === 0) return;
         scrollToLatest();
         const stagedReferences = pendingReferenceImages.slice();
+        // Capture selection and explicit mentions at Send, before compression
+        // or media reads can yield to a later canvas selection.
+        const nodeMentions = canvasMentions?.read() || [];
+        const canvasContext = canvasAdapter?.context(nodeMentions.map(item => item.id)) || null;
+        const selectedIds = canvasContext?.summary.selectedIds || [];
+        const selectedContext = canvasContext ? (selectedIds.length === 1 ? nodeAdapter?.getContext?.(selectedIds[0]) : null)
+            : nodeAdapter?.getSelectedContext?.();
         const operation = beginOperation('reply');
         const replyModelId = getElements().modelSelect?.value || getSelectedModelId() || models[0].id;
         operation.model = { ...models.find(model => model.id === replyModelId) };
@@ -1752,13 +1761,12 @@ export function createPromptAgentController({
                 if (!isCurrentOperation(operation)) return;
                 if (!workflowReferenceImages) throw new Error('读取图片期间对话已更新，请重试。');
             }
-            const nodeMentions = canvasMentions?.read() || [];
-            const canvasContext = canvasAdapter?.context(nodeMentions.map(item => item.id)) || null;
             const userMessage = appendMessage('user', text || `添加了 ${referenceImages.length} 张参考图`, [], { referenceImages, nodeMentions });
             scrollToLatest();
             if (operation.processingElement) getElements().messages?.appendChild(operation.processingElement);
             scrollToLatest();
             if (input.value.trim() === text) input.value = '';
+            renderPreparedNodeContext();
             pendingReferenceImages = pendingReferenceImages.filter(image => !stagedReferences.includes(image));
             referencePickerError = '';
             setReferencePickerOpen(false);
@@ -1771,13 +1779,9 @@ export function createPromptAgentController({
             const previousTargets = [...new Set((previousCanvas?.steps || []).filter(step => step.type === 'ImageGenerate')
                 .map(step => step.nodeId || previousCanvas.bindings?.[step.id]).filter(Boolean))];
             const previousCanvasContext = previousTargets.length === 1 ? nodeAdapter?.getContext?.(previousTargets[0]) : null;
-            const selectedContext = nodeAdapter?.getSelectedContext?.();
-            const selectedNode = canvasContext?.nodes.find(node => node.id === selectedContext?.nodeId);
-            const explicitlyNamedSelection = selectedNode && text.includes(selectedNode.name)
-                && canvasContext.nodes.filter(node => node.name === selectedNode.name).length === 1;
             const context = (nodeMentions.length ? nodeMentions.map(item => nodeAdapter?.getContext?.(item.id)).find(Boolean)
-                : explicitlyNamedSelection ? selectedContext : previousCanvasContext || selectedContext)
-                || (!nodeMentions.length && previousPlan?.targetNodeId ? nodeAdapter?.getContext?.(previousPlan.targetNodeId) : null)
+                : selectedContext || (!selectedIds.length ? previousCanvasContext : null))
+                || (!nodeMentions.length && !selectedIds.length && previousPlan?.targetNodeId ? nodeAdapter?.getContext?.(previousPlan.targetNodeId) : null)
                 || null;
             const reply = await createReply({
                 canvasContext,
@@ -1817,7 +1821,9 @@ export function createPromptAgentController({
             }
             if (canvasAdapter && reply?.promptPlan && !reply.canvasPlan) {
                 const target = canvasContext.nodes.find(node => node.id === reply.promptPlan.targetNodeId);
-                const explicitlyNamed = target && (nodeMentions.some(item => item.id === target.id) || (text.includes(target.name) && canvasContext.nodes.filter(node => node.name === target.name).length === 1));
+                const explicitlyNamed = target && (nodeMentions.some(item => item.id === target.id)
+                    || (reply.intent !== 'generate' && selectedIds.includes(target.id))
+                    || (text.includes(target.name) && canvasContext.nodes.filter(node => node.name === target.name).length === 1));
                 reply.canvasPlan = promptPlanToCanvas({ ...reply.promptPlan, targetNodeId: explicitlyNamed ? reply.promptPlan.targetNodeId : null }, canvasContext, { message: text });
                 reply.promptPlan = null;
             }
@@ -1900,7 +1906,6 @@ export function createPromptAgentController({
         if (input && canvasAdapter) canvasMentions = attachCanvasMentions({ documentRef, input, adapter: canvasAdapter });
         input?.addEventListener('input', renderPreparedNodeContext);
         input?.addEventListener('input', renderPreparedImageRequest);
-        documentRef.getElementById('prompt-agent-insert-node-context')?.addEventListener('click', insertPreparedNodeContext);
         documentRef.getElementById('prompt-agent-insert-image-request')?.addEventListener('click', () => {
             renderPreparedImageRequest();
             if (!preparedImageRequest || !input || input.value.includes(preparedImageRequest.text)) return;
