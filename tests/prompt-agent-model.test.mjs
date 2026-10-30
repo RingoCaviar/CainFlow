@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { createPromptAgentModelReply, getAvailablePromptAgentModels } from '../js/features/prompt-agent/prompt-agent-model.js';
 import { createCanvasContext } from '../js/features/prompt-agent/prompt-agent-canvas-context.js';
+import { promptPlanToCanvas } from '../js/features/prompt-agent/prompt-agent-canvas-plan.js';
 import { createPromptAgentConversationStore } from '../js/features/prompt-agent/prompt-agent-conversation-store.js';
 
 const model = { id: 'chat-1', modelId: 'gpt-test', protocol: 'openai', capabilities: { imageInput: true }, providerIds: ['provider-1'] };
@@ -540,4 +541,37 @@ test('modern prompt-only canvas plans cannot drop previous references or rebind 
     await assert.rejects(replyHarness(payload,{message:'@图片生成[target] 只改提示词',canvasContext,conversation:{messages:[{role:'agent',canvasPlan:previous}]}}).result,/参考图|原图/);
     const current={...canvasContext,nodes:canvasContext.nodes.map(node=>node.id==='source'?{...node,assets:['media:old']}:node)};
     await assert.rejects(replyHarness({...payload,canvasPlan:{version:1,steps:[{id:'g',type:'ImageGenerate',parameters:{prompt:'new'}}],connections:[]}},{message:'只改提示词',canvasContext:current,conversation:{messages:[{role:'agent',canvasPlan:previous}]}}).result,/参考图|原图/);
+});
+
+
+test('first prompt-only optimization of an existing node uses its unchanged ordered reference snapshot', async () => {
+    const canvasContext = createCanvasContext({ workflowId: 'w', mentionedIds: ['target'],
+        nodes: [{ id: 'first', type: 'ImageImport', mediaAssetKeys: ['media:first'] },
+            { id: 'second', type: 'ImageImport', mediaAssetKeys: ['media:second'] }, { id: 'target', type: 'ImageGenerate' }],
+        connections: ['first','second'].map((id, order) => ({ from: { nodeId: id, port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, order })) });
+    const reply = await replyHarness({ intent: 'refine', targetSelection: { mode: 'prompt-only', evidence: '优化' },
+        promptPlan: { prompt: 'optimized prompt', imageRoles: [] } },
+        { message: '优化这个节点的提示词，保留参考关系', context: { nodeId: 'target', referenceImages: [] }, canvasContext,
+            getCanvasImage: async key => `data:image/png;base64,${key.split(':')[1]}` }).result;
+    assert.doesNotThrow(() => promptPlanToCanvas(reply.promptPlan, canvasContext));
+    assert.deepEqual(reply.promptPlan.referenceImages.map(image=>image.assetKey), ['media:first','media:second']);
+    const reordered = JSON.parse(JSON.stringify(canvasContext));
+    reordered.connections.forEach(link => { link.order = 1 - link.order; });
+    assert.throws(() => promptPlanToCanvas(reply.promptPlan, reordered), /原图或输入顺序已变化/);
+    const replaced = JSON.parse(JSON.stringify(canvasContext));
+    replaced.nodes.find(node=>node.id==='first').assets = ['media:replacement'];
+    assert.throws(() => promptPlanToCanvas(reply.promptPlan, replaced), /原图或输入顺序已变化/);
+});
+
+
+test('prompt-only optimization of an explicitly changed target does not inherit the old target references', async () => {
+    const canvasContext = createCanvasContext({ workflowId: 'w', mentionedIds: ['new-target'],
+        nodes: [{ id: 'source', type: 'ImageImport', mediaAssetKeys: ['media:current'] }, { id: 'new-target', type: 'ImageGenerate' }],
+        connections: [{ from: { nodeId: 'source', port: 'image' }, to: { nodeId: 'new-target', port: 'referenceImages' }, order: 0 }] });
+    const reply = await replyHarness({ intent: 'refine', targetSelection: { mode: 'prompt-only', evidence: '优化' },
+        promptPlan: { prompt: 'new target prompt', imageRoles: [] } }, { message: '优化这个明确的新目标', canvasContext,
+        context: { nodeId: 'new-target' }, conversation: { messages: [{ role: 'agent', promptPlan: { targetNodeId: 'old-target', referenceImages: [{ sourceNodeId: 'old-source', assetKey: 'media:old' }] } }] },
+        getCanvasImage: async () => 'data:image/png;base64,CURRENT' }).result;
+    assert.doesNotThrow(() => promptPlanToCanvas(reply.promptPlan, canvasContext));
+    assert.deepEqual(reply.promptPlan.referenceImages.map(image=>image.assetKey), ['media:current']);
 });
