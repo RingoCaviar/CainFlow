@@ -278,7 +278,7 @@ export function projectCanvasPlan(plan) {
     if (!plan) return null;
     return { version: plan.version, id: plan.id, steps: plan.steps, connections: plan.connections,
         disconnects: plan.disconnects || [], deletes: plan.deletes || [], deletionConnections: plan.deletionConnections || [], bindings: plan.bindings || {}, modelOverrides: plan.modelOverrides || {}, providerOverrides: plan.providerOverrides || {}, agentProviders: plan.agentProviders || {}, thinkingOverrides: plan.thinkingOverrides || {}, agentThinking: plan.agentThinking || {}, agentSizes: plan.agentSizes || {},
-        completedSteps: plan.completedSteps || [], latestAttempt: plan.runs?.at(-1) || null };
+        completedSteps: plan.completedSteps || [], completedDeletions: plan.completedDeletions || [], latestAttempt: plan.runs?.at(-1) || null };
 }
 
 export function promptPlanToCanvas(prompt, context, { message = '' } = {}) {
