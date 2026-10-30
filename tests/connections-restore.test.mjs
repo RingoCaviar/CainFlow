@@ -578,7 +578,7 @@ test('whole connection projection measures each node port once per refresh', () 
     assert.equal(getPortRectReadCount(), 8);
 });
 
-test('later restoration batches use the latest active connection selection', () => {
+test('later restoration batches use current selection and ignore stale active-node history', () => {
     const { api, state, paths } = createHarness(201);
 
     const restoration = api.beginConnectionRestoration();
@@ -593,6 +593,9 @@ test('later restoration batches use the latest active connection selection', () 
     restoration.renderNextBatch(100);
     restoration.finish({ completed: false });
 
+    assert.equal(paths[100].classList.contains('selected'), false);
+    state.selectedNodes.add('from');
+    api.updateAllConnections();
     assert.equal(paths[100].classList.contains('selected'), true);
 });
 

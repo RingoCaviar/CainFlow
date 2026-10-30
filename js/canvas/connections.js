@@ -1031,15 +1031,6 @@ export function createConnectionsApi({
         };
     }
 
-    function getActiveConnectionSelectionInfo() {
-        const relationCache = state.activeNodeRelationCache || {};
-        return {
-            activeNodeId: relationCache.anchorNodeId || state.activeNodeId || null,
-            incomingConnectionIds: new Set(relationCache.incomingConnectionIds || []),
-            outgoingConnectionIds: new Set(relationCache.outgoingConnectionIds || [])
-        };
-    }
-
     function deleteConnection(connectionId) {
         const connection = getConnectionById(connectionId);
         if (!connection || hasRunningEndpoint(connection)) return false;
@@ -1127,7 +1118,6 @@ export function createConnectionsApi({
             containerRect = canvasContainer.getBoundingClientRect(),
             viewport = getCurrentConnectionViewport(containerRect),
             laneById = getConnectionLaneMap(),
-            selectionInfo = getActiveConnectionSelectionInfo(),
             padding = 100
         } = context;
         let path = pathById.get(conn.id);
@@ -1162,12 +1152,9 @@ export function createConnectionsApi({
         const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input', containerRect);
         const pathOptions = getConnectionPathOptions(conn, laneById);
         const pathStr = createBezierPath(from.x, from.y, to.x, to.y, pathOptions);
+        // Current selection alone controls emphasis; active-node history can outlive it.
         const isSelected = state.selectedNodes.has(conn.from.nodeId) ||
-            state.selectedNodes.has(conn.to.nodeId) ||
-            conn.from.nodeId === selectionInfo.activeNodeId ||
-            conn.to.nodeId === selectionInfo.activeNodeId ||
-            selectionInfo.incomingConnectionIds.has(conn.id) ||
-            selectionInfo.outgoingConnectionIds.has(conn.id);
+            state.selectedNodes.has(conn.to.nodeId);
 
         const usesBezier = pathOptions.type !== 'orthogonal';
         if (canvasConnectionRenderer.enabled && !isSelected && usesBezier) {
@@ -1226,7 +1213,6 @@ export function createConnectionsApi({
             containerRect,
             viewport: getCurrentConnectionViewport(containerRect),
             laneById: getConnectionLaneMap(),
-            selectionInfo: getActiveConnectionSelectionInfo(),
             padding: 100
         };
     }
@@ -1325,7 +1311,6 @@ export function createConnectionsApi({
             containerRect,
             viewport: getCurrentConnectionViewport(containerRect),
             laneById: getConnectionLaneMap(),
-            selectionInfo: getActiveConnectionSelectionInfo(),
             padding: 100
         };
 
@@ -1428,7 +1413,6 @@ export function createConnectionsApi({
             containerRect,
             viewport: getCurrentConnectionViewport(containerRect),
             laneById: getConnectionLaneMap(),
-            selectionInfo: getActiveConnectionSelectionInfo(),
             padding: 100
         };
         for (const { conn, pathEl } of draggingState.connectionsToUpdate) {
