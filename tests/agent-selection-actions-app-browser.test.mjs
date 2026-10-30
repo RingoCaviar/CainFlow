@@ -26,10 +26,13 @@ async function request(app, text, plan) {
     await app.waitFor(`document.querySelectorAll('.prompt-agent-canvas-plan').length===${count + 1}`);
     return app.evaluate("(()=>{const c=selectionRequests.at(-1).messages.at(-1).content;return JSON.parse(typeof c==='string'?c:c.find(p=>p.type==='text').text)})()");
 }
+async function prepareAgent(app) {
+    await app.evaluate(`window.selectionRequests=[];window.selectionReply=null;window.failSelectionSave=false;const originalFetch=window.fetch;window.fetch=async(url,options={})=>{if(failSelectionSave&&String(url).startsWith('/api/workflows/')&&options.method==='POST'){failSelectionSave=false;return new Response(JSON.stringify({error:'controlled save failure'}),{status:500,headers:{'Content-Type':'application/json'}})}if(String(url)==='/proxy'&&options.body){const body=JSON.parse(options.body);if(body.messages){selectionRequests.push(body);return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(selectionReply)}}]}),{headers:{'Content-Type':'application/json'}})}}return originalFetch(url,options)};document.getElementById('btn-prompt-agent').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-provider-id=p]').click()`);
+}
 
 test('Agent uses send-time selection to revise, create or delete through reversible previewed actions without an insert button', { timeout: 45000 }, async () => {
     await withAppBrowser(session, async app => {
-        await app.evaluate(`window.selectionRequests=[];window.selectionReply=null;window.failSelectionSave=false;const originalFetch=window.fetch;window.fetch=async(url,options={})=>{if(failSelectionSave&&String(url).startsWith('/api/workflows/')&&options.method==='POST'){failSelectionSave=false;return new Response(JSON.stringify({error:'controlled save failure'}),{status:500,headers:{'Content-Type':'application/json'}})}if(String(url)==='/proxy'&&options.body){const body=JSON.parse(options.body);if(body.messages){selectionRequests.push(body);return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(selectionReply)}}]}),{headers:{'Content-Type':'application/json'}})}}return originalFetch(url,options)};document.getElementById('btn-prompt-agent').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-provider-id=p]').click()`);
+        await prepareAgent(app);
         assert.equal(await app.evaluate("document.getElementById('prompt-agent-insert-node-context')"), null);
         await select(app, 'target');
         const first = await request(app, '优化选中画面的提示词', { version: 1, steps: [{ id: 'revise', nodeId: 'source', type: 'Text', parameters: { text: 'optimized' }, execute: false }], connections: [] });
@@ -87,5 +90,26 @@ test('Agent uses send-time selection to revise, create or delete through reversi
         await reloadAppBrowser(app);
         await app.evaluate("document.getElementById('btn-prompt-agent').click()");
         assert.ok(await app.evaluate("[...document.querySelectorAll('.prompt-agent-canvas-plan')].some(card=>card.textContent.includes('删除 真实提示词 [source]')&&card.textContent.includes('移除连线'))"), 'the deletion and connection impact survive reopening');
+    });
+});
+
+test('an empty selected generation node can be deleted without reference pixels', async () => {
+    const nodes = [{ id: 'source', type: 'ImageImport', x: 40, y: 100 }, { id: 'target', type: 'ImageGenerate', x: 420, y: 100, width: 320 }];
+    const connections = [{ id: 'unfilled-reference', from: { nodeId: 'source', port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, type: 'image', order: 3 }];
+    const fixture = { ...session, nodes, connections, workflowTabs: [{ name: 'Selection', workflowId: 'selection-workflow', data: { workflowId: 'selection-workflow', nodes, connections } }] };
+    await withAppBrowser(fixture, async app => {
+        await prepareAgent(app);
+        await select(app, 'target');
+        const input = await request(app, '删除选中的空节点', { version: 1, steps: [], deletes: [{ nodeId: 'target' }], connections: [] });
+        assert.deepEqual(input.canvas.selectedIds, ['target']);
+        assert.ok(input.images.every(image => !image.visionAvailable));
+        await action(app, '仅应用');
+        await app.waitFor(`(${lastCard}).querySelector('[role=status]').textContent.includes('已应用并保存')`);
+        assert.ok(await app.evaluate("!!document.getElementById('source')&&!document.getElementById('target')"));
+        await action(app, '撤销本次画布操作');
+        await app.waitFor("!!document.getElementById('target')");
+        await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.connections.length===1)");
+        assert.deepEqual((await graph(app)).connections, connections);
+        assert.equal(await app.evaluate('selectionRequests.length'), 1);
     });
 });

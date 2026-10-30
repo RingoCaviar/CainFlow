@@ -491,6 +491,23 @@ test('selected generation context hydrates durable originals without requiring a
     assert.equal(test.request().messages.at(-1).content.find(part=>part.type==='image_url').image_url.url,'data:image/png;base64,ORIGINAL');
 });
 
+test('unavailable pixels on an implicit selection do not block a structural deletion proposal', async () => {
+    for (const assets of [[], ['media:missing']]) {
+        const canvasContext = createCanvasContext({ workflowId: 'w', selectedIds: ['target'], nodes: [
+            { id: 'source', type: 'ImageImport', mediaAssetKeys: assets }, { id: 'target', type: 'ImageGenerate' }
+        ], connections: [{ from: { nodeId: 'source', port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, order: 0 }] });
+        const test = replyHarness({ intent: 'generate', canvasPlan: { version: 1, steps: [], deletes: [{ nodeId: 'target' }] } }, {
+            message: '删除选中的空节点', canvasContext, context: { nodeId: 'target', referenceImages: [] }, getCanvasImage: async () => null
+        });
+        const reply = await test.result;
+        assert.equal(reply.canvasPlan.deletes[0].nodeId, 'target');
+        const content = test.request().messages.at(-1).content;
+        const input = JSON.parse(typeof content === 'string' ? content : content.find(part => part.type === 'text').text);
+        assert.deepEqual(input.canvas.selectedIds, ['target']);
+        assert.ok(input.images.every(image => !image.visionAvailable), 'the model never receives substituted preview pixels');
+    }
+});
+
 
 test('prompt-only followups preserve complete previous canvas batches including implicitly retained connections',async()=>{
     const canvasContext=createCanvasContext({workflowId:'w',nodes:[{id:'batch',type:'ImageGenerate',mediaAssetKeys:['media:a','media:b','media:c']},{id:'target',type:'ImageGenerate'}],connections:[{from:{nodeId:'batch',port:'image'},to:{nodeId:'target',port:'referenceImages'},order:0}]});
