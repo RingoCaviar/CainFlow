@@ -335,9 +335,10 @@ html:root #canvas-container .node.image-first-card > .node-body {
 
 .node.image-first-card .image-first-placeholder > span,
 .node.image-first-card .image-first-empty-name {
-    font-size: 24px;
-    font-weight: 600;
-    line-height: 1.4;
+    font-size: clamp(36px, 14cqi, 64px);
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--text-primary);
 }
 
 .node.image-first-card .image-first-empty-name {
@@ -349,7 +350,6 @@ html:root #canvas-container .node.image-first-card > .node-body {
     box-sizing: border-box;
     margin: 0;
     padding: 12px;
-    color: var(--text-secondary);
     text-align: center;
     overflow-wrap: anywhere;
     pointer-events: none;
