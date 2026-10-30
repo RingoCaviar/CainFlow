@@ -160,5 +160,19 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').checkVisibility()"), true);
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').click()");
         assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').dataset.mode"), 'expanded');
+        await app.evaluate("document.querySelectorAll('.toast').forEach(toast=>toast.remove());document.querySelectorAll('#canvas-navigation details[open]').forEach(menu=>menu.open=false);document.querySelector('[data-parameter-action=front-agent]').click()");
+        await app.waitFor("document.getElementById('prompt-agent-panel').classList.contains('active')");
+        for (const width of [1100, 600, 360]) {
+            await app.send('Emulation.setDeviceMetricsOverride', { width, height: 820, deviceScaleFactor: 1, mobile: false });
+            await app.evaluate("document.getElementById('prompt-agent-resize').dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true,cancelable:true}))");
+            await settle(app);
+            await app.evaluate("document.querySelectorAll('.toast').forEach(toast=>toast.remove())");
+            const bounds = await app.evaluate(`(()=>{const s=document.querySelector('.image-panel-switcher').getBoundingClientRect(),a=document.getElementById('prompt-agent-panel').getBoundingClientRect(),n=document.getElementById('canvas-navigation').getBoundingClientRect();return {left:s.left,right:s.right,agent:a.left,bottom:s.bottom,top:s.top,navigation:!(s.left<n.right&&s.right>n.left&&s.top<n.bottom&&s.bottom>n.top),buttons:[...document.querySelectorAll('.image-panel-switcher button')].every(b=>{const r=b.getBoundingClientRect();return document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest('button')===b})}})()`);
+            assert.ok(bounds.left >= 0 && bounds.right <= bounds.agent, `${width}: switcher clears the Agent: ${JSON.stringify(bounds)}`);
+            assert.ok(bounds.top >= 0 && bounds.bottom <= 820 && bounds.navigation && bounds.buttons, `${width}: both entries remain reachable outside canvas navigation: ${JSON.stringify(bounds)}`);
+        }
+        await app.evaluate("document.getElementById('btn-close-prompt-agent').click()");
+        await settle(app);
+        assert.equal(await app.evaluate("document.querySelector('.image-panel-switcher').classList.contains('is-stacked')"), false);
     });
 });

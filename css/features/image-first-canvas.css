@@ -51,6 +51,8 @@
 .image-parameter-resize-corner { position: absolute; right: 0; bottom: 0; width: 12px; height: 12px; cursor: nwse-resize; touch-action: none; border-right: 2px solid var(--text-secondary); border-bottom: 2px solid var(--text-secondary); }
 /* Recovery controls stay above modeless drawers and below toolbar/menu controls. */
 .image-panel-switcher { position: fixed; z-index: calc(var(--layer-toolbar) - 1); left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; gap: 5px; padding: 4px; border: 1px solid var(--border-color); border-radius: 8px; background: linear-gradient(var(--surface-panel-strong, var(--panel-bg)), var(--surface-panel-strong, var(--panel-bg))), var(--bg-canvas); box-shadow: var(--panel-shadow-strong); }
+.image-panel-switcher { width: max-content; }
+.image-panel-switcher.is-stacked { flex-direction: column; }
 .image-panel-switcher button { min-height: 28px; padding: 3px 8px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
 .image-panel-switcher button:hover:not(:disabled) { border-color: var(--border-color); background: var(--panel-hover-bg); color: var(--text-primary); }
 .image-panel-switcher button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
