@@ -101,6 +101,7 @@ export function createPromptAgentController({
     getSelectedModelId = () => '',
     setSelectedModelId = () => {},
     getSelectedCompactionModelId = () => '',
+    getSelectedCompactionProviderId = () => '',
     getPanelWidth = () => null,
     setPanelWidth = () => {},
     getAutoCompactTokenLimit = () => 12000,
@@ -233,7 +234,9 @@ export function createPromptAgentController({
         if (!getChatModels().some(model => model.id === modelId && model.modelId)) {
             throw new Error('所选压缩模型不可用，请在常规设置重新选择');
         }
-        return { modelId, config: captureThinkingConfig(modelId) };
+        const config = captureThinkingConfig(modelId);
+        return { modelId, config: config && preferredId
+            ? { ...config, providerId: getSelectedCompactionProviderId(modelId) || config.providerId } : config };
     }
     function getUsableChatModels() {
         return getChatModels().filter((model) => model?.id && model?.modelId);

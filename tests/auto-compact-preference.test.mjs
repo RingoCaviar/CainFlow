@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AUTO_COMPACT_STORAGE_KEY, COMPACTION_MODEL_STORAGE_KEY, migrateAutoCompactTokens, readAutoCompactTokens, readCompactionModelId, writeAutoCompactTokens, writeCompactionModelId } from '../js/features/prompt-agent/auto-compact-preference.js';
+import { AUTO_COMPACT_STORAGE_KEY, COMPACTION_MODEL_STORAGE_KEY, migrateAutoCompactTokens, readAutoCompactTokens, readCompactionModelId, writeAutoCompactTokens, writeCompactionModelId, readCompactionProviderId, writeCompactionProviderId } from '../js/features/prompt-agent/auto-compact-preference.js';
 import { measurePromptAgentContext } from '../js/features/prompt-agent/prompt-agent-token-budget.js';
 
 test('one persisted threshold applies across models and ignores legacy model values', () => {
@@ -68,4 +68,21 @@ test('global threshold survives a failed disk write, retry and app reconstructio
         globalThis.fetch = originalFetch;
         globalThis.setTimeout = originalTimeout;
     }
+});
+
+
+test('explicit compaction supplier choices persist per model without changing the chat selection', () => {
+    const data = new Map([['cainflow_prompt_agent_model_id', 'chat']]);
+    const storage = { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value) };
+    writeCompactionProviderId(storage, 'cheap', 'supplier-b');
+    writeCompactionProviderId(storage, 'other', 'supplier-c');
+    writeCompactionModelId(storage, 'cheap');
+    assert.equal(readCompactionProviderId(storage, 'cheap'), 'supplier-b');
+    assert.equal(readCompactionProviderId(storage, 'other'), 'supplier-c');
+    writeCompactionModelId(storage, '');
+    assert.equal(readCompactionProviderId({ ...storage }, 'cheap'), 'supplier-b');
+    writeCompactionProviderId(storage, 'cheap', '');
+    assert.equal(readCompactionProviderId(storage, 'cheap'), '');
+    assert.equal(readCompactionProviderId(storage, 'other'), 'supplier-c');
+    assert.equal(data.get('cainflow_prompt_agent_model_id'), 'chat');
 });
