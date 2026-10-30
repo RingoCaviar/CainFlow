@@ -155,20 +155,32 @@ export async function createPromptAgentModelReply({
 
     // Explicit mentions bind visual context to the named node, independent of canvas selection.
     // Read durable originals before the first request; topology alone does not give the model pixels.
-    const mentioned = [...new Set([...(canvasContext?.summary.mentionedIds || []),
+    const explicitMentions = new Set(canvasContext?.summary.mentionedIds || []);
+    const implicitSelection = id => !explicitMentions.has(id) && canvasContext?.summary.selectedIds?.includes(id);
+    const mentioned = [...new Set([...explicitMentions,
         ...(context?.nodeId && canvasContext?.nodes.some(node => node.id === context.nodeId) ? [context.nodeId] : [])])];
     if (mentioned.length) {
-        const hydrateNode = async (node, sourcePort = 'image', targetPort = '', requireAssets = false) => {
+        const hydrateNode = async (node, sourcePort = 'image', targetPort = '', requireAssets = false, allowUnavailable = false) => {
             if (!node) {
                 if (requireAssets) throw new Error('参考图来源已删除，请刷新后重试');
                 return [];
             }
             if (node.enabled === false) return [];
-            if (node.running || node.missing) throw new Error(`「${node.name}」参考图正在运行或原图缺失，请恢复后重试`);
-            if (requireAssets && !node.assets.length) throw new Error(`「${node.name}」参考原图尚不可用，请恢复后重试`);
+            const unavailable = message => {
+                if (!allowUnavailable) throw new Error(message);
+                return [{ sourceNodeId: node.id, sourcePort, targetPort, name: node.name,
+                    assetKeys: [...node.assets], images: [], referenceUnavailable: true, unavailableReason: message }];
+            };
+            // Selection is structural context as well as potential visual context.
+            // Missing pixels must not prevent the model from proposing to delete
+            // an empty node; keep their absence explicit and never use previews.
+            if (node.running || node.missing) return unavailable(`「${node.name}」参考图正在运行或原图缺失，请恢复后重试`);
+            if (requireAssets && !node.assets.length) return unavailable(`「${node.name}」参考原图尚不可用，请恢复后重试`);
             const result = [];
             for (const [index, assetKey] of node.assets.entries()) {
-                const dataUrl = await readOriginal(assetKey, node.name);
+                let dataUrl;
+                try { dataUrl = await readOriginal(assetKey, node.name); }
+                catch (error) { assertActive(); return unavailable(error.message); }
                 result.push({ referenceId: `canvas:${node.id}:${index}:${assetKey}`, sourceNodeId: node.id,
                     sourcePort, targetPort, sourceImageIndex: index, assetKey, dataUrl,
                     name: `${node.name} [${node.id}] 第 ${index + 1} 张`, contextOrigin: '本轮 @节点原图' });
@@ -188,7 +200,7 @@ export async function createPromptAgentModelReply({
                 const links = orderImageReferenceConnections( canvasContext.connections
                     .filter(link => link.to.nodeId === id && /^(?:referenceImages|image|image_\d+)$/.test(link.to.port)));
                 const references = [];
-                for (const link of links) references.push(...await hydrateNode(canvasContext.nodes.find(item => item.id === link.from.nodeId), link.from.port, link.to.port, true));
+                for (const link of links) references.push(...await hydrateNode(canvasContext.nodes.find(item => item.id === link.from.nodeId), link.from.port, link.to.port, true, implicitSelection(id)));
                 inputs.set(id, references);
                 if (context?.nodeId !== id) workflowReferenceImages = [...workflowReferenceImages, ...references];
             } else if (node.assets.length) {
@@ -198,7 +210,7 @@ export async function createPromptAgentModelReply({
         if (context && inputs.has(context.nodeId)) {
             context = { ...context, referenceImages: inputs.get(context.nodeId),
                 outputImages: referenceInputChangePermission(message, [context.nodeId])?.mode === 'clear' ? []
-                    : await hydrateNode(canvasContext.nodes.find(item => item.id === context.nodeId)) };
+                    : await hydrateNode(canvasContext.nodes.find(item => item.id === context.nodeId), 'image', '', false, implicitSelection(context.nodeId)) };
         }
     }
     const base = { message, context, conversation, workflowMemory, sizeSettings, imageSizeCapabilities, referenceImages, workflowReferenceImages, model, canvasContext };
@@ -241,7 +253,7 @@ export async function createPromptAgentModelReply({
         const request = { ...base, canvasReads, searchAllowed: !searchUsed && searchSettings.mode !== 'off', searchContext: search };
         if (canvasReads.length && measurePromptAgentContext(request).reached) throw new Error('画布详情达到本轮上下文预算，未读取部分无法确认；请用 @节点 缩小范围或先压缩上下文');
         const input = createPromptAgentInput(request);
-        if (round === 0) onContextImages(input.images.filter(image => image.origins.some(origin =>
+        if (round === 0) onContextImages(input.images.filter(image => image.reference.dataUrl && image.origins.some(origin =>
             ['节点输入', '节点生成结果', '本轮 @节点原图'].includes(origin))).map(image => image.reference));
         const plan = createChatRequestPlan({ provider, model, protocol: model.protocol, systemPrompt: getPromptAgentInstructions(canvasContext),
             messages: input.messages, media: input.media, capabilities: model.capabilities || {} });

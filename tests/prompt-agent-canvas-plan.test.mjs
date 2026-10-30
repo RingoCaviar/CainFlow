@@ -47,6 +47,19 @@ test('deletions preview their edge impact, preserve other reference order, and r
     assert.throws(() => assertCanvasPlanCurrent(plan, graph({ nodes, connections: [], selectedIds: [] })), /变化/);
 });
 
+test('refreshing a deletion preview includes newly affected connections before allowing application', () => {
+    const nodes = [{ id: 'remove', type: 'Text', customTitle: '旧名称', text: 'text' }, { id: 'target', type: 'ImageGenerate' }];
+    const state = { nodes: new Map(nodes.map(node => [node.id, node])), connections: [], selectedNodes: new Set(['remove']), runningNodeIds: new Set() };
+    const adapter = createPromptAgentCanvasAdapter({ state, serializeNodes: () => nodes, getWorkflowId: () => 'workflow-a' });
+    const plan = normalizeCanvasPlan({ version: 1, steps: [], deletes: [{ nodeId: 'remove' }] }, adapter.context());
+    state.connections.push({ id: 'new-edge', from: { nodeId: 'remove', port: 'text' }, to: { nodeId: 'target', port: 'prompt' } });
+    nodes[0].customTitle = '新名称';
+    adapter.refresh(plan);
+    assert.equal(plan.deletes[0].title, '新名称');
+    assert.ok(describeCanvasPlan(plan, adapter.context()).some(line => line.includes('移除连线') && line.includes('提示词')));
+    assertCanvasPlanCurrent(plan, adapter.context());
+});
+
 test('change list preserves real line breaks and quotes instead of displaying JSON escapes', () => {
     const before = '第一行\n保留"主体"\nC:\\notes\\image.png';
     const after = '新的第一行\n新的第二行';
