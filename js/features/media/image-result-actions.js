@@ -7,7 +7,7 @@ export function createImageResultActions({ documentRef, source, getWorkflowId, o
     downloadImage, copyImage, showToast = () => {}, disabled = false }) {
     const element = documentRef.createElement('div'); element.className = 'image-result-actions';
     element.setAttribute('role', 'toolbar'); element.setAttribute('aria-label', '图片结果操作');
-    const labels = { preview: '放大', reference: '用作参考', edit: '交给助手修改', download: '下载' };
+    const labels = { preview: '放大', reference: '交给助手', download: '下载' };
     const buttons = new Map();
     const current = workflowId => getWorkflowId() === workflowId && source.isCurrent() !== false;
     const execute = async action => {
@@ -25,11 +25,11 @@ export function createImageResultActions({ documentRef, source, getWorkflowId, o
                 if (source.restoreFocus) source.restoreFocus();
                 else if (button?.isConnected && !button.closest('[inert]')) button.focus({ preventScroll: true });
             });
-            else if (action === 'reference' || action === 'edit') {
+            else if (action === 'reference') {
                 source.beforeHandoff?.();
                 await prepareReference({ workflowId, image, assetKey: source.assetKey, historyId: source.historyId, name: source.name,
                     sourceNodeId: source.sourceNodeId, sourcePort: source.sourcePort, sourceImageIndex: source.sourceImageIndex,
-                    runId: source.runId }, { edit: action === 'edit' });
+                    runId: source.runId });
             } else if (action === 'download') await downloadImage(image, source);
             else if (action === 'copy') await copyImage(image);
         } catch (error) {

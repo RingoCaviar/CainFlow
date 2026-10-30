@@ -436,3 +436,10 @@ CLI显式退出统一既有desktop及stdlib ThreadingHTTPServer的daemon handler
 原缩小按钮字符的可见字形较按钮中心下偏约3.5px；改为对称SVG加减图标，并为预览缩放、适应和操作栏统一盒模型、行高和双向居中。预览“更多”及历史关闭按钮也改为SVG，保持可访问名称和原事件入口。
 
 `tests/preview-button-alignment-app-browser.test.mjs` 在真实应用测量可见内容中心：节点图片缩放/适应、操作栏、画布加减、生成次数加减、节点参数浮层工具，以及七套主题下历史预览按钮均在1px内。画布、次数与浮层工具未发现同类偏移，因此未改其实现。验证放大和适应操作、历史预览和Agent结果预览既有功能；截图 `.scratch/image-first-canvas/qa-060/preview-buttons.png` 已核对。
+
+
+## 单一图片助手入口（image-first-canvas#061）
+
+节点、历史详情和 Agent 结果共用“交给助手”，仅加入当前选中原图，不预填用途、不覆盖草稿或自动发送。沿用原图读取、去重和工作流有效性校验。
+
+定向真实应用验证：`node result actions` 与 `history original handoff` 通过，覆盖空草稿、已有草稿、选中批次原图、无自动执行和确认后参考连接。语法及 diff 检查通过。`assistant batch result` 在点击交接按钮之前因“生图参数不兼容”失败；恢复基线 993a5ef 的结果操作组件后同一位置复现，属于本次修改前已存在的批次创建阻塞，未将其记为通过。未运行全套或原生性能测试。

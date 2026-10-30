@@ -366,6 +366,8 @@ test('node result actions stage the selected original without rewiring or shrink
         const { evaluate, waitFor } = app;
         await generateReferenceSources(app);
         await waitFor("Boolean(document.querySelector('#source-a-image-results .image-result-actions'))");
+        assert.equal(await evaluate("document.querySelector('#source-a-image-results [data-result-action=reference]').textContent"), '交给助手');
+        assert.equal(await evaluate("document.querySelectorAll('#source-a-image-results [data-result-action=edit]').length"), 0);
         await evaluate("document.querySelector('#source-a-image-results [data-result-step=\"-1\"]').click()");
         await waitFor("document.querySelector('#source-a-image-results .image-node-result-count').textContent==='2 / 3'");
         await waitFor("document.querySelector('#source-a-image-results .image-node-result-preview img')?.naturalWidth>0");
@@ -389,7 +391,7 @@ test('node result actions stage the selected original without rewiring or shrink
     });
 });
 
-test('history original handoff preserves drafts, offers explicit insertion, and applies real reference edges only on confirmation', { timeout: 30000 }, async () => {
+test('history original handoff preserves drafts and applies real reference edges only on confirmation', { timeout: 30000 }, async () => {
     await withAppBrowser(referenceSession(), async app => {
         const { evaluate, waitFor } = app;
         await generateReferenceSources(app, { cleanupBeforeHistoryCommit: true });
@@ -399,18 +401,17 @@ test('history original handoff preserves drafts, offers explicit insertion, and 
         await evaluate("document.getElementById('btn-history').click()");
         await waitFor("document.querySelectorAll('#history-list .history-card').length===5");
         await evaluate("document.querySelector('#history-list .history-card').click()");
-        await waitFor("Boolean(document.querySelector('#history-image-result-actions [data-result-action=edit]'))");
+        await waitFor("Boolean(document.querySelector('#history-image-result-actions [data-result-action=reference]'))");
         await waitFor("document.getElementById('history-preview-img').naturalWidth===1024 && !document.getElementById('history-preview-img').classList.contains('history-preview-img-loading')");
         const selectedOriginal = await evaluate("(async()=>{const blob=await (await fetch(document.getElementById('history-preview-img').src)).blob();return new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.readAsDataURL(blob)})})()");
         assert.ok(referenceImages.includes(selectedOriginal));
-        assert.deepEqual(await evaluate("[...document.querySelectorAll('#history-image-result-actions button')].slice(0,4).map(b=>b.textContent)"), ['放大','用作参考','交给助手修改','下载']);
-        await evaluate("document.querySelector('#history-image-result-actions [data-result-action=edit]').click()");
+        assert.deepEqual(await evaluate("[...document.querySelectorAll('#history-image-result-actions button')].slice(0,4).map(b=>b.textContent)"), ['放大','交给助手','下载','更多']);
+        await evaluate("document.querySelector('#history-image-result-actions [data-result-action=reference]').click()");
         await waitFor("document.querySelectorAll('#prompt-agent-references img').length===1 && !document.querySelector('#prompt-agent-references .is-loading')");
         assert.equal(await evaluate("document.querySelector('#prompt-agent-references img').src"), selectedOriginal);
         assert.equal(await evaluate("document.getElementById('prompt-agent-input').value"), '保留我的修改说明');
         assert.equal(await evaluate("document.getElementById('history-preview-modal').classList.contains('hidden')"), true);
-        await evaluate("document.getElementById('prompt-agent-insert-image-request').click()");
-        assert.match(await evaluate("document.getElementById('prompt-agent-input').value"), /^保留我的修改说明\n/);
+        assert.equal(await evaluate("document.getElementById('prompt-agent-insert-image-request').checkVisibility()"), false);
         assert.equal(await evaluate('imageRequests.length'), 5);
         assert.equal(await evaluate("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length"), 2);
         await evaluate("window.assistantGenerate=true;document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=google][data-provider-id=p]').click();document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
@@ -422,7 +423,7 @@ test('history original handoff preserves drafts, offers explicit insertion, and 
     });
 });
 
-test('assistant batch result selects one original, retains all results on reopen, and prepares an unsent edit', { timeout: 30000 }, async () => {
+test('assistant batch result selects one original, retains all results on reopen, and prepares an attachment without inventing an edit request', { timeout: 30000 }, async () => {
     await withAppBrowser(session, async app => {
         const { evaluate, waitFor, send } = app;
         await controlImages(app);
@@ -437,11 +438,11 @@ test('assistant batch result selects one original, retains all results on reopen
         assert.equal(await evaluate("document.querySelector('.fullscreen-overlay img').src"), referenceImages[1]);
         await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
         await waitFor("!document.querySelector('.fullscreen-overlay')");
-        await evaluate("document.querySelectorAll('.prompt-agent-image-result')[1].querySelector('[data-result-action=edit]').click()");
+        await evaluate("document.querySelectorAll('.prompt-agent-image-result')[1].querySelector('[data-result-action=reference]').click()");
         await waitFor("document.querySelectorAll('#prompt-agent-references img').length===1 && !document.querySelector('#prompt-agent-references .is-loading')");
         assert.equal(await evaluate("document.querySelector('#prompt-agent-references img').src"), referenceImages[1]);
-        assert.match(await evaluate("document.getElementById('prompt-agent-input').value"), /这张原图为基础修改/);
-        assert.equal(await evaluate('imageRequests.length'), 4, 'no request after preparing an edit');
+        assert.equal(await evaluate("document.getElementById('prompt-agent-input').value"), '');
+        assert.equal(await evaluate('imageRequests.length'), 4, 'no request after preparing an attachment');
         await delay(1000); await reloadApp(app);
         await evaluate("document.getElementById('btn-prompt-agent').click()");
         await waitFor("document.querySelectorAll('.prompt-agent-image-result').length===3");
