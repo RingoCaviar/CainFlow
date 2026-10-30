@@ -22,6 +22,13 @@ test('compaction chooses and retains its own supplier while follow-chat keeps th
         await settings(app);
         await app.evaluate("(()=>{const select=document.getElementById('setting-agent-compaction-model');select.value='compact';select.dispatchEvent(new Event('change',{bubbles:true}))})()");
         assert.match(await app.evaluate("document.querySelector('#setting-agent-compaction-model + button').textContent"), /压缩模型.*供应商b/, 'legacy per-model conversation supplier remains visible until an explicit compression choice');
+        await choose(app, 'setting-agent-compaction-model', 'compact', 'b');
+        await closeSettings(app);
+        await app.evaluate("document.getElementById('btn-prompt-agent').click()");
+        await choose(app, 'prompt-agent-model', 'compact', 'c');
+        await choose(app, 'prompt-agent-model', 'chat', 'a');
+        await settings(app);
+        assert.match(await app.evaluate("document.querySelector('#setting-agent-compaction-model + button').textContent"), /压缩模型.*供应商b/, 'explicitly choosing the displayed legacy pair freezes its compression supplier independently of later conversation choices');
         await app.evaluate("document.querySelector('#setting-agent-compaction-model + button').click()");
         assert.ok(await app.evaluate("!!document.querySelector('#setting-agent-compaction-model-menu [data-model-id=compact][data-provider-id=c]')"), 'compression settings expose each bound supplier');
         await app.evaluate("document.querySelector('#setting-agent-compaction-model-menu [data-model-id=compact][data-provider-id=c]').click()");

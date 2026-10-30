@@ -121,7 +121,9 @@ export function createPromptAgentModelMenus({ documentRef, selects, parent = nul
                     event.stopPropagation();
                     if (item.disabled || select.disabled) return;
                     close(true);
-                    if (select.value !== option.value || (route && option.providerId !== undefined && route.getProviderId(option.value) !== option.providerId)) {
+                    // An inherited display value may still need an explicit persisted choice.
+                    const providerId = route?.getExplicitProviderId?.(option.value) ?? route?.getProviderId(option.value);
+                    if (select.value !== option.value || (route && option.providerId !== undefined && providerId !== option.providerId)) {
                         select.value = option.value;
                         if (route && option.providerId !== undefined) route.setProviderId(option.value, option.providerId);
                         select.dispatchEvent(new Event('input', { bubbles: true }));

@@ -948,6 +948,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                 selects: [{ select: compactionSelect, searchLabel: '压缩模型或供应商', route: {
                     getModels: () => getAvailablePromptAgentModels(state.models || [], state.providers || []),
                     getProviders: () => state.providers || [],
+                    getExplicitProviderId: modelId => readCompactionProviderId(localStorageRef, modelId),
                     getProviderId: modelId => readCompactionProviderId(localStorageRef, modelId)
                         || legacyProviderIds[modelId] || '',
                     setProviderId: (modelId, providerId) => writeCompactionProviderId(localStorageRef, modelId, providerId)
