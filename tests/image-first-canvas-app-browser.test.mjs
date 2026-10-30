@@ -19,7 +19,7 @@ const session = {
 };
 
 async function openNode(app, id) {
-    await app.evaluate(`document.querySelector('#${id} .image-first-placeholder button').click()`);
+    await app.evaluate(`document.querySelector('#${id} .image-first-placeholder').click()`);
     await app.waitFor(`document.getElementById('image-parameter-panel')?.hidden===false && document.getElementById('image-parameter-panel').dataset.nodeId==='${id}'`);
 }
 
@@ -43,6 +43,7 @@ test('one screen-space image editor follows selection and preserves edits, width
             { id: 'editor-second', left: '590px', top: '40px', width: 420 }
         ]);
 
+        assert.equal(await app.evaluate("document.querySelector('#editor-first .image-first-placeholder button')"), null);
         await openNode(app, 'editor-first');
         assert.equal((await editorMeasurements(app, 'editor-first')).panels, 1);
         await changeField(app, 'editor-first-prompt', 'preserved first image prompt');

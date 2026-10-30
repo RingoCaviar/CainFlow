@@ -18,7 +18,7 @@ const session = {
 
 test('making an image generation clone independent unlocks its detached parameter controls', { timeout: 30000 }, async () => {
     await withAppBrowser(session, async app => {
-        await app.evaluate("document.querySelector('#clone .image-first-placeholder button').click()");
+        await app.evaluate("document.querySelector('#clone .image-first-placeholder').click()");
         await app.waitFor("document.getElementById('image-parameter-panel').dataset.nodeId==='clone'");
         assert.equal(await app.evaluate("document.getElementById('clone-prompt').disabled"), true);
         assert.equal(await app.evaluate("document.getElementById('clone-apiconfig').disabled"), true);
@@ -43,7 +43,7 @@ test('a user-sized image card retains its preview height when opening, editing a
         const { previewHeight, ...layout } = original;
         assert.deepEqual(layout, { x: '40px', y: '40px', width: 460, height: 640 });
         assert.ok(previewHeight >= 400, 'the restored image preview keeps a substantial user-sized area');
-        await app.evaluate("document.querySelector('#source .image-first-placeholder button').click();document.querySelector('#image-parameter-panel [data-parameter-group-toggle=size]').click()");
+        await app.evaluate("document.querySelector('#source .image-first-placeholder').click();document.querySelector('#image-parameter-panel [data-parameter-group-toggle=size]').click()");
         await app.evaluate("(()=>{const input=document.getElementById('source-resolution');input.value='1024x1024';input.dispatchEvent(new Event('change',{bubbles:true}));})()");
         assert.deepEqual(await measurements(), original, 'editing parameters must not shrink the explicitly sized preview');
         await app.waitFor("(async()=>{const response=await fetch('/api/storage/documents/session').then(r=>r.json());const node=response.value?.nodes?.find(n=>n.id==='source');return node?.height===640 && node?.userResized===true})()");

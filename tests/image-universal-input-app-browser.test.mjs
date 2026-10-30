@@ -31,7 +31,7 @@ const session = {
 };
 
 async function openInputs(app) {
-    await app.evaluate("document.querySelector('#target .image-first-placeholder button').click()");
+    await app.evaluate("document.querySelector('#target .image-first-placeholder').click()");
     await app.waitFor("document.getElementById('image-parameter-panel')?.dataset.nodeId==='target' && !document.getElementById('image-parameter-panel').hidden");
     await app.evaluate("(()=>{const toggle=document.querySelector('#image-parameter-panel [data-parameter-group-toggle=input]');if(toggle.getAttribute('aria-expanded')!=='true')toggle.click()})()");
     await app.waitFor("document.querySelector('#image-parameter-panel [data-parameter-group=input]')?.hidden===false");
