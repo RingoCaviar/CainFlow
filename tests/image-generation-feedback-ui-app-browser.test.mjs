@@ -43,6 +43,11 @@ test('failure feedback appears once in parameters and preserves complete modal d
         assert.equal(await app.evaluate("!!document.querySelector('#failed > .image-first-run-feedback')"), false);
         const compact = await app.evaluate("(()=>{const panel=document.getElementById('image-parameter-panel'),row=panel.querySelector('.image-parameter-run-feedback'),summary=row.querySelector('.node-failure-summary');return {inPanel:panel.contains(row),summary:summary.textContent,width:summary.clientWidth,scrollWidth:summary.scrollWidth,height:summary.getBoundingClientRect().height}})()");
         assert.ok(compact.inPanel);
+        const errorStyle = await app.evaluate("(()=>{const row=document.querySelector('#image-parameter-panel .image-parameter-run-feedback'),style=getComputedStyle(row);return {background:style.backgroundColor,border:style.borderTopWidth,color:getComputedStyle(row.querySelector('.node-failure-summary')).color,ordinary:getComputedStyle(document.getElementById('image-parameter-panel')).color,icon:getComputedStyle(row,'::before').content}})()");
+        assert.notEqual(errorStyle.background, 'rgba(0, 0, 0, 0)', 'errors have a tinted surface');
+        assert.equal(errorStyle.border, '1px');
+        assert.notEqual(errorStyle.color, errorStyle.ordinary, 'error text retains its semantic color outside the canvas');
+        assert.equal(errorStyle.icon, '\"!\"');
         assert.equal(await app.evaluate("document.getElementById('failed-error').checkVisibility()"), false, 'only the concise failure and detail entry are shown');
         assert.ok(compact.summary.length < 200 && compact.summary.includes('测试失败'));
         assert.ok(compact.scrollWidth <= compact.width + 1 && compact.height <= 48);
@@ -66,6 +71,12 @@ test('failure feedback appears once in parameters and preserves complete modal d
         await app.waitFor("document.getElementById('modal-error').classList.contains('active')");
         await app.evaluate("if(!document.getElementById('btn-show-full-log').classList.contains('hidden'))document.getElementById('btn-show-full-log').click()");
         assert.match(await app.evaluate("document.getElementById('error-modal-detail').textContent+document.getElementById('error-modal-msg').textContent"), /完整错误尾标：保留所有排查细节/);
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+        await app.waitFor("!document.getElementById('modal-error').classList.contains('active')");
+        await app.evaluate("feedbackSuccess=true;document.querySelector('[data-parameter-action=generate]').click()");
+        await app.waitFor("document.getElementById('failed-run-status').dataset.status==='completed'");
+        assert.equal(await app.evaluate("getComputedStyle(document.querySelector('#image-parameter-panel .image-parameter-run-feedback'),'::before').content"), 'none', 'success clears the error icon');
+        assert.equal(await app.evaluate("getComputedStyle(document.querySelector('#image-parameter-panel .image-parameter-run-feedback')).borderTopWidth"), '0px', 'success clears the error border');
     });
 });
 
