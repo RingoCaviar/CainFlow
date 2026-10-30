@@ -25,7 +25,7 @@ test('save and preview nodes keep straight shell borders behind unoutlined half-
         for (const port of card.ports) {
             assert.equal(port.outerHit, true, `${card.type} ${port.direction} ${port.name} is clipped`);
             assert.equal(port.innerHit, false, `${card.type} ${port.direction} ${port.name} overlaps the card`);
-            assert.ok(Math.abs(port.edgeOffset - (port.direction === 'input' ? -4.8 : 4.8)) <= 0.5, `${card.type} ${port.direction} ${port.name} is ${port.edgeOffset}px off the edge`);
+            assert.ok(Math.abs(port.edgeOffset) <= 0.1, `${card.type} ${port.direction} ${port.name} is ${port.edgeOffset}px off the edge`);
             assert.ok(Math.abs(port.labelInset - 12) <= 0.5, `${card.type} ${port.direction} ${port.name} label is ${port.labelInset}px from the edge`);
             assert.ok(Math.abs(port.labelDotCenterOffset) <= 0.2, `${card.type} ${port.direction} ${port.name} label is ${port.labelDotCenterOffset}px off the circle center`);
             assert.equal(port.hasUnmaskedBorder, true, `${card.type} ${port.name} has an outline or masks the shell border`);

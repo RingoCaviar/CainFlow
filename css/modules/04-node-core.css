@@ -584,8 +584,8 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
 
 .custom-param-add,
 .custom-param-remove {
-    width: 28px;
-    height: 28px;
+    width: 36.4px;
+    height: 36.4px;
     padding: 0;
     border-radius: var(--radius-xs);
     border: 1px solid var(--border-input);
@@ -941,8 +941,8 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
 }
 
 .port-dot {
-    width: 28px;
-    height: 28px;
+    width: 36.4px;
+    height: 36.4px;
     border-radius: 50%;
     border: 0;
     --port-color: var(--port-any);
@@ -954,16 +954,16 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
 }
 
 .node-port.input .port-dot {
-    /* Larger outside half-circle; keep the label flow unchanged. */
-    margin-left: -28px;
-    left: -2.8px;
-    clip-path: path("M 14 0 A 14 14 0 0 0 14 28 Z");
+    /* Center the half-circle seam on the 12px-inset shell edge. */
+    margin-left: -36.4px;
+    left: 6.2px;
+    clip-path: path("M 18.2 0 A 18.2 18.2 0 0 0 18.2 36.4 Z");
 }
 
 .node-port.output .port-dot {
-    margin-right: -28px;
-    right: -2.8px;
-    clip-path: path("M 14 0 A 14 14 0 0 1 14 28 Z");
+    margin-right: -36.4px;
+    right: 6.2px;
+    clip-path: path("M 18.2 0 A 18.2 18.2 0 0 1 18.2 36.4 Z");
 }
 
 .port-dot.type-image {

@@ -11,11 +11,11 @@ test('the real canvas grid follows the public viewport across themes without mov
         connections: [{ id: 'edge', from: { nodeId: 'canvas-grid', port: 'text' }, to: { nodeId: 'target', port: 'text' }, type: 'text' }]
     }, async app => {
         const port = await app.evaluate(`(()=>{const dot=document.querySelector('#canvas-grid .node-port.output .port-dot'),r=dot.getBoundingClientRect();return {x:r.x+r.width*.75,y:r.y+r.height/2,width:r.width,height:r.height}})()`);
-        assert.equal(port.width, 28);
-        assert.equal(port.height, 28);
+        assert.ok(Math.abs(port.width - 36.4) < .02);
+        assert.ok(Math.abs(port.height - 36.4) < .02);
         await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: port.x, y: port.y });
         assert.deepEqual(await app.evaluate(`(()=>{const dot=document.querySelector('#canvas-grid .node-port.output .port-dot'),r=dot.getBoundingClientRect(),css=getComputedStyle(dot);return {hover:dot.matches(':hover'),width:r.width,height:r.height,transform:css.transform,transition:css.transitionProperty,hit:document.elementFromPoint(${port.x},${port.y})===dot}})()`),
-            { hover: true, width: 28, height: 28, transform: 'none', transition: 'box-shadow', hit: true }, 'hover keeps the enlarged port stable and reachable');
+            { hover: true, width: port.width, height: port.height, transform: 'none', transition: 'box-shadow', hit: true }, 'hover keeps the enlarged port stable and reachable');
         const samples = await app.evaluate(`(async()=>{
             const {createViewportApi}=await import('/js/canvas/viewport.js');
             const {createElements}=await import('/js/core/elements.js');
