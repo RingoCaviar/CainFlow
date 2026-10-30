@@ -203,7 +203,12 @@ export async function createPromptAgentModelReply({
     }
     const base = { message, context, conversation, workflowMemory, sizeSettings, imageSizeCapabilities, referenceImages, workflowReferenceImages, model, canvasContext };
     const previousTurn = [...(conversation?.archivedMessages || []), ...(conversation?.messages || [])].findLast(item => item.canvasPlan || item.promptPlan);
-    let previousReferences = previousTurn?.promptPlan?.referenceImages || conversation?.previousPromptPlan?.referenceImages || [];
+    const previousPrompt = previousTurn?.promptPlan || conversation?.previousPromptPlan;
+    const differentPromptTarget = context?.nodeId && previousPrompt?.targetNodeId && previousPrompt.targetNodeId !== context.nodeId;
+    // A first optimization has no prior plan: retain the originals read for this target.
+    // Existing same-target snapshots remain authoritative for detecting later changes.
+    let previousReferences = differentPromptTarget || !previousPrompt ? context?.referenceImages || []
+        : previousPrompt.referenceImages || [];
     const previousCanvas = previousTurn?.canvasPlan;
     let previousReferenceTarget = null;
     if (previousCanvas) {
