@@ -443,3 +443,12 @@ CLI显式退出统一既有desktop及stdlib ThreadingHTTPServer的daemon handler
 节点、历史详情和 Agent 结果共用“交给助手”，仅加入当前选中原图，不预填用途、不覆盖草稿或自动发送。沿用原图读取、去重和工作流有效性校验。
 
 定向真实应用验证：`node result actions` 与 `history original handoff` 通过，覆盖空草稿、已有草稿、选中批次原图、无自动执行和确认后参考连接。语法及 diff 检查通过。`assistant batch result` 在点击交接按钮之前因“生图参数不兼容”失败；恢复基线 993a5ef 的结果操作组件后同一位置复现，属于本次修改前已存在的批次创建阻塞，未将其记为通过。未运行全套或原生性能测试。
+
+
+## 隐藏次数控件的能力误判修复（image-first-canvas#062）
+
+#061 记录的 Agent 批次阻塞已定位并解除：次数控件暂存于关闭的节点参数浮层时，其包装字段被标记 hidden，能力读取误删 count。沿用已有 parameterGroup 标记表示界面隐藏；保持禁用控件、真实能力隐藏和参数值范围校验。
+
+`assistant batch result` 真实应用回归 1/1 通过，显式确认浮层未打开，随后创建并生成3张、交接选中原图且不填入修改要求、保存重开保留完整结果。`prompt-agent-effective-inputs.test.mjs` 7/7 通过，含暂存控件与真实能力隐藏的区分。未运行全套或原生性能测试。
+
+回顾：将字段从常规设置区移到浮层底部时，应保留既有“界面参数组”语义；仅验证手动打开浮层不足以覆盖 Agent 在浮层关闭时应用参数的路径。
