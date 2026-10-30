@@ -60,6 +60,20 @@ test('refreshing a deletion preview includes newly affected connections before a
     assertCanvasPlanCurrent(plan, adapter.context());
 });
 
+test('refreshing a mixed applied plan preserves completed deletion but re-enables its parameter changes', () => {
+    const nodes = [{ id: 'remove', type: 'Text', text: 'remove' }, { id: 'keep', type: 'Text', text: 'before' }];
+    const state = { nodes: new Map(nodes.map(node => [node.id, node])), connections: [], selectedNodes: new Set(['remove', 'keep']), runningNodeIds: new Set() };
+    const adapter = createPromptAgentCanvasAdapter({ state, serializeNodes: () => [...state.nodes.values()], getWorkflowId: () => 'workflow-a' });
+    const plan = normalizeCanvasPlan({ version: 1, steps: [{ id: 'revise', type: 'Text', nodeId: 'keep', parameters: { text: 'after' } }], deletes: [{ nodeId: 'remove' }] }, adapter.context());
+    state.nodes.delete('remove');
+    state.nodes.get('keep').text = 'manual change';
+    plan.appliedSignature = 'already-applied'; plan.completedDeletions = ['remove']; plan.bindings = { revise: 'keep' };
+    adapter.refresh(plan);
+    assert.equal(plan.appliedSignature, undefined, 'a mixed proposal must apply its previewed text change again');
+    adapter.refresh(plan);
+    assert.ok(describeCanvasPlan(plan, adapter.context()).some(line => line.includes('manual change → after')));
+});
+
 test('change list preserves real line breaks and quotes instead of displaying JSON escapes', () => {
     const before = '第一行\n保留"主体"\nC:\\notes\\image.png';
     const after = '新的第一行\n新的第二行';

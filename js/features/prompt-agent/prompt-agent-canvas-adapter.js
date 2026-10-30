@@ -191,6 +191,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                 state.connections = projectPlanConnections(plan, state.connections, ref => bindings[ref] || ref).map(link => ({...link,id:link.id || `conn_${crypto.randomUUID()}`}));
                 graphChanged();
                 plan.bindings = bindings; plan.appliedSignature = signature; plan.appliedSizes = cloneCanvasValue(sizes);
+                plan.completedDeletions = (plan.deletes || []).map(item => item.nodeId);
                 plan.referenceManifest = referenceManifest(context().nodes, state.connections, plan.steps.filter(s=>s.type==='ImageGenerate').map(s=>bindings[s.id]),canvasPlanExecutionNodeIds(plan));
                 plan.dependencies = [...new Set([...plan.dependencies, ...Object.values(bindings)])];
                 plan.baseline = canvasBaseline(context(), plan.dependencies, canvasPlanExecutionNodeIds(plan));
@@ -306,13 +307,13 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         refresh: plan => {
             if (activePlan) throw new Error('请等待当前方案执行结束');
             if (plan.workflowId !== getWorkflowId() || plan.dependencies.some(id => !state.nodes.has(id)
-                && !(plan.appliedSignature && plan.deletes?.some(item => item.nodeId === id)))) throw new Error('相关节点已删除或工作流已切换，请重新提出方案');
+                && !((plan.appliedSignature || plan.completedDeletions?.includes(id)) && plan.deletes?.some(item => item.nodeId === id)))) throw new Error('相关节点已删除或工作流已切换，请重新提出方案');
             if (prepare(cloneCanvasValue(plan)).steps.length !== plan.steps.length) throw new Error('自动保存节点需求已变化，请重新整理方案');
             validateGraph(plan);
             const current = context();
             assertPromptOnlyReferenceRecipe(plan, { ...cloneCanvasValue(plan), baseline: undefined, referenceManifest: undefined }, current);
             const deletedIds = new Set((plan.deletes || []).map(item => item.nodeId));
-            const deletionsApplied = plan.appliedSignature && deletedIds.size
+            const deletionsApplied = (plan.appliedSignature || [...deletedIds].every(id => plan.completedDeletions?.includes(id))) && deletedIds.size
                 && [...deletedIds].every(id => !state.nodes.has(id));
             if (!deletionsApplied && deletedIds.size) {
                 plan.deletes = plan.deletes.map(item => ({ ...item, title: current.nodes.find(node => node.id === item.nodeId).name }));
@@ -320,7 +321,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                 plan.dependencies = [...new Set([...plan.dependencies, ...plan.deletionConnections.flatMap(link => [link.from.nodeId, link.to.nodeId])])];
             }
             plan.baseline = canvasBaseline(current, plan.dependencies, canvasPlanExecutionNodeIds(plan));
-            if (!deletionsApplied) delete plan.appliedSignature;
+            if (!deletionsApplied || plan.steps.length) delete plan.appliedSignature;
         },
         focus: focusNode, stop: plan => Object.values(plan.bindings || {}).forEach(cancelNode),
         undo: async plan => { const reason = canUndo(plan); if (reason) throw new Error(reason); await session().undo(); } };
