@@ -129,9 +129,17 @@ test('automatic saves are previewed exactly once; disabled downstreams do not su
     adapter.prepare(plan); adapter.prepare(plan);
     assert.equal(plan.steps.length, 2); assert.equal(plan.steps[1].autoAddedForGeneration, true);
     assert.equal(plan.connections[0].to.ref, 'save_edit');
+    assert.equal(plan.steps[1].title, '保存节点');
     state.nodes.get('disabled').enabled = true;
     const connected = normalizeCanvasPlan({ version: 1, steps: [{ id: 'edit', type: 'ImageGenerate', nodeId: 'target', parameters: { prompt: 'new' } }] }, graph(), { mentionedIds: ['target'] });
     adapter.prepare(connected); assert.equal(connected.steps.length, 1);
+    const namedSave = { steps: [
+        { id: 'new', type: 'ImageGenerate', title: '宠物照片', parameters: {} },
+        { id: 'save', type: 'ImageSave', title: '我的成品', parameters: {} }
+    ], connections: [{ from: { ref: 'new', port: 'image' }, to: { ref: 'save', port: 'image' }, type: 'image' }], order: ['new', 'save'] };
+    adapter.prepare(namedSave);
+    assert.equal(namedSave.steps.length, 2);
+    assert.equal(namedSave.steps[1].title, '我的成品', 'explicitly named save steps retain their title');
 });
 
 test('applying new canvas nodes focuses one after save and does not refocus on repeat', async () => {
