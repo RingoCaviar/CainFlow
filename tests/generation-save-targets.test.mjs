@@ -67,15 +67,16 @@ function fixture(type = 'ImageGenerate') {
 
 for (const type of ['ImageGenerate', 'VideoGenerate']) {
     for (const mode of ['all', 'selected-only', 'target-node']) {
-        test(`${mode} ${type} creates and executes one reusable save with the generated batch`, async () => {
+        test(`${mode} ${type} executes an existing legacy save with the generated batch`, async () => {
             const f = fixture(type);
+            f.connect('existing-save', { automatic: true });
             const input = { mode, selectedNodeIds: ['generate'], targetNodeId: 'generate' };
             const prepared = f.prepare(input);
             const [saveId] = prepared.includedAutoSaveNodeIds;
             assert.ok(saveId);
             assert.equal(f.state.nodes.get(saveId).autoAddedForGeneration, true);
-            assert.equal(f.saved, 1);
-            assert.equal(f.changes[0].connectionIds.length, 1);
+            assert.equal(f.saved, 0);
+            assert.equal(f.changes.length, 0);
             const executed = [];
             let saveInput;
             const images = ['data:image/png;base64,AAAA', 'data:image/png;base64,BBBB'];
@@ -109,21 +110,38 @@ for (const type of ['ImageGenerate', 'VideoGenerate']) {
             assert.equal((await runner.runWorkflow(retryInput)).reason, 'finished');
             assert.deepEqual(f.directorySaves.map((entry) => entry.nodeId), [saveId, saveId]);
             assert.equal(f.state.nodes.size, 2);
-            assert.equal(f.saved, 1);
+            assert.equal(f.saved, 0);
         });
     }
 }
 
-test('disabled and missing downstream nodes do not block creation, and old disabled nodes are preserved', () => {
+for (const type of ['ImageGenerate', 'VideoGenerate']) {
+    for (const mode of ['all', 'selected-only', 'target-node']) {
+        test(`${mode} ${type} does not add or recreate save nodes on repeat`, () => {
+            const f = fixture(type);
+            const input = { mode, selectedNodeIds: ['generate'], targetNodeId: 'generate' };
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+                const prepared = f.prepare(input);
+                assert.deepEqual(prepared.includedAutoSaveNodeIds, []);
+                assert.deepEqual(f.core.resolveExecutionPlan(prepared).executionOrder, ['generate']);
+                assert.equal(f.state.nodes.size, 1);
+                assert.equal(f.state.connections.length, 0);
+                assert.equal(f.saved, 0);
+                assert.equal(f.changes.length, 0);
+            }
+        });
+    }
+}
+
+test('disabled and missing downstream nodes remain unchanged without replacement saves', () => {
     const f = fixture();
     f.connect('disabled', { enabled: false, automatic: true });
     f.connect('missing', { missing: true });
     const prepared = f.prepare({ mode: 'selected-only', selectedNodeIds: ['generate'] });
-    const save = f.state.nodes.get(prepared.includedAutoSaveNodeIds[0]);
-    assert.equal(save.enabled, true);
+    assert.deepEqual(prepared.includedAutoSaveNodeIds, []);
     assert.equal(f.state.nodes.get('disabled').enabled, false);
-    assert.ok(save.y >= 380 || save.y + 340 <= -40 || save.x >= 600, 'new save does not cover the disabled downstream node');
-    assert.equal(f.state.connections.length, 3);
+    assert.equal(f.state.nodes.size, 2);
+    assert.equal(f.state.connections.length, 2);
 });
 
 test('any enabled downstream node prevents creation without adding unrelated nodes to a selected run', () => {
@@ -137,7 +155,7 @@ test('any enabled downstream node prevents creation without adding unrelated nod
     assert.deepEqual(f.core.resolveExecutionPlan(prepared).executionOrder, ['generate']);
 });
 
-test('only generators in the run scope get automatic saves, and disabled generators get none', () => {
+test('preparation leaves out-of-scope and disabled generators unchanged', () => {
     const f = fixture();
     f.state.nodes.set('other', { ...f.source, id: 'other', data: {}, x: 700 });
     f.prepare({ mode: 'selected-only', selectedNodeIds: ['generate'] });
@@ -145,7 +163,7 @@ test('only generators in the run scope get automatic saves, and disabled generat
     f.source.enabled = false;
     const prepared = f.prepare({ mode: 'selected-only', selectedNodeIds: ['generate'] });
     assert.deepEqual(prepared.includedAutoSaveNodeIds, []);
-    assert.equal(f.saved, 1);
+    assert.equal(f.saved, 0);
 });
 
 test('scope extensions reject manual, disabled, disconnected and wrong-port save targets', () => {
@@ -178,8 +196,9 @@ test('an already running node in the run scope prevents preparation from changin
     assert.equal(f.saved, 0);
 });
 
-test('preparing on the editable workflow preserves automatic nodes in repeated active snapshots', async () => {
+test('preparing on the editable workflow preserves existing saves in repeated active snapshots', async () => {
     const f = fixture();
+    f.connect('existing-save', { automatic: true });
     Object.assign(f.state, { workflowTabs: [], workflowOrder: [], workflowFolders: [] });
     const serializer = createNodeSerializer({ state: f.state, documentRef: f.documentRef });
     const manager = createWorkflowManagerApi({
@@ -212,6 +231,7 @@ test('preparing on the editable workflow preserves automatic nodes in repeated a
 
 test('automatic-save identity survives real node serialization and restoration', () => {
     const f = fixture();
+    f.connect('existing-save', { automatic: true });
     const prepared = f.prepare({ mode: 'selected-only', selectedNodeIds: ['generate'] });
     const [saveId] = prepared.includedAutoSaveNodeIds;
     const serializer = createNodeSerializer({ state: f.state, documentRef: f.documentRef });
@@ -233,13 +253,5 @@ test('automatic-save identity survives real node serialization and restoration',
     lifecycle.addNode('ImageSave', saved.x, saved.y, saved, true);
     assert.equal(f.state.nodes.get(saveId).autoAddedForGeneration, true);
     assert.deepEqual(f.prepare({ mode: 'selected-only', selectedNodeIds: ['generate'] }).includedAutoSaveNodeIds, [saveId]);
-    assert.equal(f.saved, 1);
-});
-
-test('automatic save chooses nearby space above a tall obstruction instead of walking far down', () => {
-    const f = fixture();
-    f.state.nodes.set('wall', { id: 'wall', x: 320, y: 0, width: 240, height: 5000 });
-    const result = f.prepare({ mode: 'all' });
-    const save = f.state.nodes.get(result.includedAutoSaveNodeIds[0]);
-    assert.ok(Math.abs(save.y) <= 400, `save too far away: ${save.y}`);
+    assert.equal(f.saved, 0);
 });

@@ -88,6 +88,7 @@ export const PROMPT_AGENT_CANVAS_INSTRUCTIONS = `
 - connections 每项为 {"from":{"ref":"上游步骤id或真实节点ID","port":"image"},"to":{"ref":"目标步骤id","port":"referenceImages"}}。生图使用可接多图的 referenceImages 端口，每条连线带 order（从0递增），替换此端口时列出本次全部输入，其余非图片连接保留。需要移除输入时提供 disconnects:[{"ref":"目标步骤id","port":"referenceImages"}]。外部节点只使用已有输出，不重跑。 修改已有生图节点时，默认保留现有参考连接及批次；generate 意图或 imageRoles=[] 不代表用户要求断开。只有本轮用户明确要求断开、清空或替换参考图时才可移除旧来源，不能只列出部分旧来源而删掉其余来源。
 - 多步骤生图的 prompt 也按该步骤连接的 order 称图1、图2，并用短语说明每张图的作用；原图已经随连线传入，不重复写一段视觉复述。不同生图步骤的图号各自从1开始，不能将其他步骤的输入混入当前步骤。
 - 可创建 ImageImport、ImageGenerate、ImageResize、ImageMerge、ImagePreview、ImageCompare、ImageSave、Text。ImageImport 可以用 images 清单的 imageId（程序固定为本地原图资产），或画布提供的本地 assetKey；不能编造图片链接。ImageMerge 是现有多图合一能力，ImageResize 是普通尺寸调整，不是 AI 超分。其他类型不能新建或改参数，但选中或明确指定时可提出删除方案。
+- 单纯生成图片不需要附加 ImageSave。仅用户要求保存/导出或明确要求的工作流包含保存步骤时才提出保存节点；不要为每个生成节点自动补齐保存节点。已有保存节点和明确的保存步骤继续保留。
 - 参数白名单：ImageGenerate(prompt,aspect,resolution,customWidth,customHeight,quality,moderation,background,generationCount)；ImageResize(resizeMode,scalePercent,targetWidth,targetHeight,keepAspect,quality)；ImageMerge(inputCount)；ImageSave(filename)；Text(text)。其他类型 parameters={}。取值需遵守已有节点信息；不知道时省略，不臆造参数。
 - 单图续改继续使用下面的 promptPlan 与 targetSelection 合同，确保最新结果选择规则不变。多步骤方案不能借 canvasPlan 绕过续改图片身份校验。方案只是草稿，确认前不能声称已建图或执行。
 `;

@@ -23,20 +23,6 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         getGenerationContext: id => nodeAdapter?.getContext(id) });
     function prepare(plan) {
         normalizePlanInputs(plan);
-        // Automatically required saves are part of the preview, never a hidden execution mutation.
-        for (const step of [...plan.steps]) {
-            if (step.type !== 'ImageGenerate') continue;
-            const hasTarget = plan.connections.some(link => link.from.ref === step.id && link.from.port === 'image')
-                || (step.nodeId && state.connections.some(link => link.from.nodeId === step.nodeId && link.from.port === 'image'
-                    && !plan.deletes?.some(item => item.nodeId === link.to.nodeId) && state.nodes.get(link.to.nodeId)?.enabled !== false && state.nodes.has(link.to.nodeId)));
-            if (!hasTarget) {
-                const id = `save_${step.id}`;
-                if (plan.steps.some(item => item.id === id)) throw new Error('自动保存步骤名称冲突，请重新整理方案');
-                plan.steps.push({ id, type: 'ImageSave', title: '保存节点', parameters: {}, execute: true, autoAddedForGeneration: true });
-                plan.connections.push({ from: { ref: step.id, port: 'image' }, to: { ref: id, port: 'image' }, type: 'image' });
-                plan.order.push(id);
-            }
-        }
         return plan;
     }
     function modelsFor(plan, defaultModelId) {
@@ -326,7 +312,6 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
             if (activePlan) throw new Error('请等待当前方案执行结束');
             if (plan.workflowId !== getWorkflowId() || plan.dependencies.some(id => !state.nodes.has(id)
                 && !((plan.appliedSignature || plan.completedDeletions?.includes(id)) && plan.deletes?.some(item => item.nodeId === id)))) throw new Error('相关节点已删除或工作流已切换，请重新提出方案');
-            if (prepare(cloneCanvasValue(plan)).steps.length !== plan.steps.length) throw new Error('自动保存节点需求已变化，请重新整理方案');
             validateGraph(plan);
             const current = context();
             assertPromptOnlyReferenceRecipe(plan, { ...cloneCanvasValue(plan), baseline: undefined, referenceManifest: undefined }, current);
