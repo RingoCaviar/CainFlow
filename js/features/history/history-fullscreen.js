@@ -383,8 +383,8 @@ export function createHistoryFullscreenApi({
             if (deleteButton) {
                 event.stopPropagation();
                 const id = Number(deleteButton.dataset.id);
-                if (!confirmRef('确定要删除这条历史记录吗？')) return;
-                await deleteHistoryEntry(id);
+                if (!confirmRef('确定要删除这项媒体及对应的本地文件吗？此操作无法撤销。')) return;
+                try { await deleteHistoryEntry(id); } catch { await refresh(); return; }
                 await refresh();
                 return;
             }
@@ -577,8 +577,8 @@ export function createHistoryFullscreenApi({
             showToast('请先选择要删除的历史记录', 'warn');
             return;
         }
-        if (!confirmRef(`确定要删除选中的 ${state.selectedHistoryIds.size} 条历史记录吗？`)) return;
-        await deleteHistoryItems(Array.from(state.selectedHistoryIds));
+        if (!confirmRef(`确定要删除选中的 ${state.selectedHistoryIds.size} 项媒体及对应的本地文件吗？此操作无法撤销。`)) return;
+        if (await deleteHistoryItems(Array.from(state.selectedHistoryIds)) === false) { await refresh(); return; }
         state.selectedHistoryIds.clear();
         await refresh();
         exitBatchMode();
@@ -605,8 +605,8 @@ export function createHistoryFullscreenApi({
     }
 
     async function handleClearHistory() {
-        if (!confirmRef('确定要清空全部历史记录吗？此操作无法撤销。')) return;
-        await clearHistory();
+        if (!confirmRef('确定要删除当前保存目录及子文件夹中的全部图片和视频吗？对应本地文件也会删除，此操作无法撤销。')) return;
+        try { await clearHistory(); } catch { await refresh(); return; }
         await refresh();
         showToast('历史记录已清空', 'info');
     }
@@ -631,6 +631,11 @@ export function createHistoryFullscreenApi({
         });
 
         scroll?.addEventListener('scroll', onScroll, { passive: true });
+
+        windowRef.addEventListener('cainflow:media-directory-changed', () => {
+            state.selectedHistoryIds.clear();
+            if (!getEls().modal?.classList.contains('hidden')) void refresh();
+        });
 
         windowRef.addEventListener('resize', () => {
             if (!getEls().modal?.classList.contains('hidden') && viewState.items.length) {

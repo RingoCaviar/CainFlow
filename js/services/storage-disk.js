@@ -317,6 +317,7 @@ export function createDiskStorageApi(getState) {
         const response = await fetch('/api/storage/export-directory', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ directory })
         });
+        if (response.ok) globalThis.dispatchEvent?.(new Event('cainflow:media-directory-changed'));
         return response.ok;
     }
     async function deleteHandle(key) { return key === 'GLOBAL_SAVE_DIR' ? saveHandle(key, '') : true; }
@@ -419,104 +420,75 @@ export function createDiskStorageApi(getState) {
         return (await fetch(assetUrl(key), { method: 'DELETE' })).ok;
     }
     async function saveHistoryEntry(data) {
-        const provisionalOwners = [];
-        const releaseProvisionalOwners = () => Promise.allSettled(provisionalOwners.map(({ ownerType, ownerId, assetKey }) =>
-            removeMediaReference(ownerType, ownerId, assetKey)));
-        try {
-            const id = Date.now() * 1000 + Math.floor(Math.random() * 1000);
-            const mediaType = data?.mediaType === 'video' || data?.videoBlob || data?.video instanceof Blob ? 'video' : 'image';
-            const media = mediaType === 'video' ? (data.videoBlob || data.video) : data.image;
-            const mediaBlob = media instanceof Blob ? media : dataUrlToBlob(media);
-            if (!mediaBlob) return false;
-            const createsHistoryReference = !data?.mediaAssetKey;
-            const mediaAsset = data?.mediaAssetKey
-                ? { asset_key: data.mediaAssetKey }
-                : await putMediaAsset(mediaBlob, 'history', String(id));
-            const mediaKey = mediaAsset?.asset_key || '';
-            if (!mediaKey) return false;
-            if (createsHistoryReference) provisionalOwners.push({ ownerType: 'history', ownerId: String(id), assetKey: mediaKey });
-            const thumb = data.thumb || (mediaType === 'video' ? await createVideoThumbnail(mediaBlob, 256, mediaKey) : await createThumbnail(data.image));
-            const thumbKey = `thumb:${mediaKey}`;
-            // A full cache may reject the optional thumbnail. Preserve the original
-            // history entry without introducing a reference to a failed upload.
-            // Protect the thumbnail in the same transaction as its upload: another
-            // batch result can run collection before the history document commits.
-            const thumbnailOwner = { ownerType: 'history-thumbnail', ownerId: String(id), assetKey: thumbKey };
-            if (thumb) provisionalOwners.push(thumbnailOwner);
-            const thumbnailSaved = thumb ? await putAsset(thumbKey, thumb, 'thumbnail', {
-                ownerType: 'history-thumbnail', ownerId: String(id)
-            }) : false;
-            if (thumb && !thumbnailSaved) {
-                await Promise.allSettled([removeMediaReference(thumbnailOwner.ownerType, thumbnailOwner.ownerId, thumbKey)]);
-                provisionalOwners.splice(provisionalOwners.indexOf(thumbnailOwner), 1);
-            }
-            const entry = {
-                ...data, id, timestamp: Date.now(), mediaType, thumbAssetKey: thumbnailSaved ? thumbKey : '',
-                imageAssetKey: mediaType === 'image' ? mediaKey : '',
-                videoAssetKey: mediaType === 'video' ? mediaKey : '',
-                videoMimeType: mediaType === 'video' ? mediaBlob.type : '',
-                videoSizeBytes: mediaType === 'video' ? mediaBlob.size : 0
-            };
-            delete entry.image; delete entry.video; delete entry.videoBlob; delete entry.thumb;
-            const response = await fetch('/api/storage/history', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entry)
-            });
-            if (!response.ok) {
-                await releaseProvisionalOwners();
-                return false;
-            }
-            data.mediaAssetKey = mediaKey;
-            return { success: true, assetKey: mediaKey };
-        } catch (error) {
-            await releaseProvisionalOwners();
-            console.warn('Disk history save failed:', error);
-            return false;
-        }
+        const mediaType = data?.mediaType === 'video' || data?.videoBlob || data?.video instanceof Blob ? 'video' : 'image';
+        const media = mediaType === 'video' ? (data.videoBlob || data.video) : data.image;
+        const mediaBlob = media instanceof Blob ? media : dataUrlToBlob(media);
+        if (!mediaBlob) throw new Error('媒体内容为空，无法保存到本地');
+        const id = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+        const entry = { ...data, id, timestamp: Date.now(), usePromptFilename: getState()?.imageSaveUsePromptFilename === true, mediaType, mimeType: mediaBlob.type || data.videoMimeType || (mediaType === 'video' ? 'video/mp4' : 'image/png') };
+        delete entry.image; delete entry.video; delete entry.videoBlob; delete entry.thumb;
+        const metadata = new TextEncoder().encode(JSON.stringify(entry));
+        const size = new Uint8Array(4);
+        new DataView(size.buffer).setUint32(0, metadata.length);
+        const response = await fetch('/api/storage/library', {
+            method: 'POST', body: new Blob([size, metadata, mediaBlob], { type: 'application/octet-stream' })
+        });
+        if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || '本地保存失败');
+        const result = await response.json();
+        // The archive is authoritative. A cache quota failure cannot discard the saved original.
+        return { success: true, assetKey: data.mediaAssetKey || '', fileId: result.item.id };
     }
     async function getHistoryMetadata(options = {}) {
         const limit = Number.isFinite(options.limit) ? options.limit : 0;
-        const response = await fetch(`/api/storage/history?limit=${Math.max(0, limit || 0)}`, { cache: 'no-store' });
-        if (!response.ok && options.throwOnError) throw new Error(`读取历史失败：HTTP ${response.status}`);
-        if (!response.ok) return [];
-        const items = (await response.json()).items || [];
+        const response = await fetch(`/api/storage/library?limit=${Math.max(0, limit || 0)}`, { cache: 'no-store' });
+        if (!response.ok) {
+            const message = (await response.json().catch(() => ({}))).error || `读取保存目录失败：HTTP ${response.status}`;
+            globalThis.dispatchEvent?.(new CustomEvent('cainflow:storage-error', { detail: { message } }));
+            if (options.throwOnError) throw new Error(message);
+            return [];
+        }
+        const result = await response.json();
+        if (result.migrationErrors?.length) globalThis.dispatchEvent?.(new CustomEvent('cainflow:storage-error', {
+            detail: { message: `有 ${result.migrationErrors.length} 项旧历史迁移失败，原文件已保留，请检查保存目录后重试。` }
+        }));
+        const items = result.items || [];
         return options.includeThumbs === false ? items.map(({ thumb, ...item }) => item) : items;
     }
     async function hydrateHistory(entry) {
         if (!entry) return null;
         const key = entry.videoAssetKey || entry.imageAssetKey;
-        const blob = await getAssetBlob(key);
+        const response = entry.fileUrl ? await fetch(entry.fileUrl, { cache: 'no-store' }) : null;
+        const blob = response ? (response.ok ? await response.blob() : null) : await getAssetBlob(key);
         if (entry.mediaType === 'video') return { ...entry, video: blob, videoBlob: blob };
         return { ...entry, image: await blobToDataUrl(blob) };
     }
     async function getHistory() { return Promise.all((await getHistoryMetadata()).map(hydrateHistory)); }
-    async function getHistoryCount() {
-        const response = await fetch('/api/storage/maintenance', { cache: 'no-store' });
-        return response.ok ? Number((await response.json()).history || 0) : 0;
-    }
+    async function getHistoryCount() { return (await getHistoryMetadata({ includeThumbs: false })).length; }
     async function getHistoryEntry(id) {
-        const response = await fetch(`/api/storage/history/${encodeURIComponent(id)}`, { cache: 'no-store' });
+        const response = await fetch(`/api/storage/library/${encodeURIComponent(id)}`, { cache: 'no-store' });
         return response.ok ? hydrateHistory((await response.json()).item) : null;
     }
     async function updateHistoryThumb(id, thumb) {
-        const entry = await getHistoryEntry(id);
-        if (!entry || !thumb) return false;
-        const thumbKey = `thumb:${HISTORY_ASSET_KEY_PREFIX}${id}`;
-        let committed = false;
-        try {
-            if (!await putAsset(thumbKey, thumb, 'thumbnail', { ownerType: 'history-thumbnail', ownerId: String(id) })) return false;
-            const payload = { ...entry, thumbAssetKey: thumbKey };
-            delete payload.image; delete payload.video; delete payload.videoBlob; delete payload.thumb;
-            committed = (await fetch('/api/storage/history', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-            })).ok;
-            return committed;
-        } finally {
-            if (!committed && entry.thumbAssetKey !== thumbKey) await Promise.allSettled([
-                removeMediaReference('history-thumbnail', String(id), thumbKey)
-            ]);
-        }
+        const response = await fetch(`/api/storage/library/${encodeURIComponent(id)}/thumbnail`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ thumb })
+        });
+        return response.ok;
     }
-    async function deleteHistoryEntry(id) { return (await fetch(`/api/storage/history/${id}`, { method: 'DELETE' })).ok; }
+    async function deleteHistoryEntry(id) {
+        const response = await fetch(`/api/storage/library/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || result.success !== true) {
+            const message = result.error || '删除文件失败，请刷新历史后重试';
+            globalThis.dispatchEvent?.(new CustomEvent('cainflow:storage-error', { detail: { message } }));
+            throw new Error(message);
+        }
+        return true;
+    }
+    async function clearDirectoryHistory() {
+        const entries = await getHistoryMetadata({ throwOnError: true });
+        for (const entry of entries) await deleteHistoryEntry(entry.id);
+        return { historyDeleted: entries.length };
+    }
     async function getHistoryImageBlob(id) {
         const entry = await getHistoryEntry(id);
         return entry?.mediaType === 'image' ? dataUrlToBlob(entry.image) : null;
@@ -544,8 +516,8 @@ export function createDiskStorageApi(getState) {
         clearImageAssets: ({ preserveHistory = true, detailed = false } = {}) => postMaintenance('clear-assets', { mode: preserveHistory ? 'nodes' : 'all' }, { detailed }),
         clearOrphanedHistoryAssets: (options = {}) => postMaintenance('clear-assets', { mode: 'orphans' }, options),
         clearOrphanedNodeAssets: (_keepKeys, options = {}) => postMaintenance('clear-assets', { mode: 'node-orphans' }, options),
-        trimHistoryCache: () => postMaintenance('trim-history'), createThumbnail, createVideoThumbnail,
+        trimHistoryCache: () => getHistoryMetadata({ includeThumbs: false }), createThumbnail, createVideoThumbnail,
         saveHistoryEntry, getHistory, getHistoryMetadata, getHistoryCount, getHistoryEntry, getHistoryImageBlob,
-        updateHistoryThumb, clearHistory: (options = {}) => postMaintenance('clear-history', {}, options), deleteHistoryEntry
+        updateHistoryThumb, clearHistory: clearDirectoryHistory, deleteHistoryEntry
     };
 }

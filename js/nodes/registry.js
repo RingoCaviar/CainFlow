@@ -51,7 +51,7 @@ export const NODE_CONFIGS = Object.freeze(
 );
 
 export function listNodeDefinitions() {
-    return nodeDefinitions.slice();
+    return nodeDefinitions.filter(definition => definition.type !== 'ImageSave');
 }
 
 export function getNodeDefinition(type) {

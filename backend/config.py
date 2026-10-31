@@ -46,7 +46,7 @@ DATA_DIR = os.path.abspath(os.environ.get('CAINFLOW_DATA_DIR') or os.path.join(E
 ASSETS_DIR = os.path.join(DATA_DIR, 'assets')
 DATA_TEMP_DIR = os.path.join(DATA_DIR, 'temp')
 DATABASE_PATH = os.path.join(DATA_DIR, 'cainflow.db')
-EXPORTS_DIR = os.path.join(EXE_DIR, 'exports')
+EXPORTS_DIR = os.path.abspath(os.environ.get('CAINFLOW_EXPORTS_DIR') or os.path.join(EXE_DIR, 'exports'))
 
 
 def ensure_runtime_dirs():

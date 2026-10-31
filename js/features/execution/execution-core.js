@@ -412,45 +412,21 @@ export function createExecutionCoreApi({
 
     async function saveImageGenerationHistoryEntry(entry) {
         try {
-            const saved = await saveHistoryEntry(entry);
-            if (saved === false) {
-                addLog('warning', '生成历史保存失败', '图片已经生成成功，但写入历史记录失败。通常是图片过大、浏览器存储空间不足，或 IndexedDB 暂时不可用。', {
-                    nodeId: entry?.nodeId,
-                    model: entry?.model
-                });
-            }
+            const result = await saveHistoryEntry(entry);
+            if (result === false) throw new Error('保存目录写入失败');
+            return result;
         } catch (error) {
-            addLog('warning', '生成历史保存异常', '图片已经生成成功，但保存历史记录时发生异常，不影响本次生成结果继续传递到下游。', {
-                nodeId: entry?.nodeId,
-                model: entry?.model,
-                error: error?.message || String(error)
-            });
+            throw new Error(`图片已生成，但本地保存失败：${error.message || error}。请检查保存目录和磁盘空间。`, { cause: error });
         }
     }
 
     async function saveVideoGenerationHistoryEntry(entry) {
         try {
-            const saved = await saveHistoryEntry({
-                ...entry,
-                mediaType: 'video'
-            });
-            if (saved === false) {
-                addLog('warning', '视频历史保存失败', '视频已经生成成功，但写入历史记录失败。通常是视频过大、浏览器存储空间不足，或 IndexedDB 暂时不可用。', {
-                    nodeId: entry?.nodeId,
-                    model: entry?.model,
-                    videoUrl: entry?.videoUrl,
-                    videoSizeBytes: entry?.videoBlob?.size || entry?.videoSizeBytes || 0
-                });
-            }
-            return saved;
+            const result = await saveHistoryEntry({ ...entry, mediaType: 'video' });
+            if (result === false) throw new Error('保存目录写入失败');
+            return result;
         } catch (error) {
-            addLog('warning', '视频历史保存异常', '视频已经生成成功，但保存历史记录时发生异常，不影响本次生成结果继续传递到下游。', {
-                nodeId: entry?.nodeId,
-                model: entry?.model,
-                videoUrl: entry?.videoUrl,
-                error: error?.message || String(error)
-            });
-            return false;
+            throw new Error(`视频已生成，但本地保存失败：${error.message || error}。请检查保存目录和磁盘空间。`, { cause: error });
         }
     }
 
@@ -1977,17 +1953,17 @@ export function createExecutionCoreApi({
                                 : `图片生成 ${modelCfg.name}`,
                             signal
                         }).then(async (imageData) => {
-                            generatedImages[index] = imageData;
-                            incrementNodeApiGenerationProgress(node, 1, {
-                                current: nextGenerationIndex,
-                                total: progressTotal
-                            });
                             await saveImageGenerationHistoryEntry({
                                 nodeId: id,
                                 image: imageData,
                                 prompt,
                                 model: modelCfg.name,
                                 generationDurationSeconds: getNodeGenerationDurationSeconds(node)
+                            });
+                            generatedImages[index] = imageData;
+                            incrementNodeApiGenerationProgress(node, 1, {
+                                current: nextGenerationIndex,
+                                total: progressTotal
                             });
                             if (getImageHistorySidebarActive()) renderHistoryList();
                             markConcurrentRequestStatus(index, 'success');
@@ -2148,6 +2124,13 @@ export function createExecutionCoreApi({
                     }, { nodeType: 'ImageGenerate' });
 
                     const imageData = requestResult.imageData;
+                    await saveImageGenerationHistoryEntry({
+                        nodeId: id,
+                        image: imageData,
+                        prompt,
+                        model: modelCfg.name,
+                        generationDurationSeconds: getNodeGenerationDurationSeconds(node)
+                    });
                     if (requestResult.recovered) {
                         const generatedImages = getCanonicalImageList(node, { includeResizePreview: false }).slice(0, nextGenerationIndex);
                         generatedImages[nextGenerationIndex - 1] = imageData;
@@ -2158,13 +2141,6 @@ export function createExecutionCoreApi({
                             total: generationCount
                         });
                         await refreshDependentImageResizePreviews(id);
-                        await saveImageGenerationHistoryEntry({
-                            nodeId: id,
-                            image: imageData,
-                            prompt,
-                            model: modelCfg.name,
-                            generationDurationSeconds: getNodeGenerationDurationSeconds(node)
-                        });
                         if (getImageHistorySidebarActive()) renderHistoryList();
                         node.generationCompletedCount = nextGenerationIndex;
                         continue;
@@ -2179,14 +2155,6 @@ export function createExecutionCoreApi({
                         total: generationCount
                     });
                     await refreshDependentImageResizePreviews(id);
-
-                    await saveImageGenerationHistoryEntry({
-                        nodeId: id,
-                        image: imageData,
-                        prompt,
-                        model: modelCfg.name,
-                        generationDurationSeconds: getNodeGenerationDurationSeconds(node)
-                    });
                     if (getImageHistorySidebarActive()) renderHistoryList();
                 }
             } catch (err) {
@@ -2472,7 +2440,6 @@ export function createExecutionCoreApi({
             const payload = { images: imageList, video: previewVideo, videos: videoList };
             if (imageList.length > 0 || videoList.length > 0) {
                 await syncImageSaveNode(id, payload);
-                await autoSaveToDir(id, payload);
             } else {
                 applyImageSaveMediaState(node, payload);
                 const preview = node.el?.querySelector?.(`#${id}-save-preview`);

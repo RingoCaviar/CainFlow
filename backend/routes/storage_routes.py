@@ -1,4 +1,7 @@
 import ipaddress
+import json
+
+from backend.services.media_library import MediaLibrary
 from urllib.parse import parse_qs, unquote, urlparse
 
 from backend import config
@@ -42,6 +45,26 @@ def handle_get(handler):
     parsed = urlparse(handler.path)
     path = parsed.path
     if not _authorize_storage_path(handler, path):
+        return True
+    if path == '/api/storage/library' or path.startswith('/api/storage/library/'):
+        try:
+            library = MediaLibrary(storage_service)
+            if path == '/api/storage/library':
+                migration_errors = library.migrate_legacy()
+                items = library.list()
+                limit = max(0, int((parse_qs(parsed.query).get('limit') or ['0'])[0]))
+                write_json(handler, {'items': items[:limit] if limit else items, 'count': len(items), 'migrationErrors': migration_errors})
+            elif path.endswith('/file'):
+                media = library.read(int(path.split('/')[-2]))
+                if not media:
+                    write_error(handler, 404, '文件不存在，请刷新历史')
+                else:
+                    write_bytes(handler, media[1], content_type=media[0], headers={'Cache-Control': 'no-store'})
+            else:
+                item = library.get(int(path.rsplit('/', 1)[-1]))
+                write_json(handler, {'item': item}, status=200 if item else 404)
+        except (OSError, ValueError, StorageError) as error:
+            write_error(handler, 400, str(error))
         return True
     if path.startswith('/api/storage/documents/'):
         name = _document_name(path)
@@ -160,6 +183,10 @@ def handle_post(handler):
         if path == '/api/storage/undo-session':
             write_json(handler, storage_service.undo_media_request(read_json_body(handler)))
             return True
+        if path.startswith('/api/storage/library/') and path.endswith('/thumbnail'):
+            MediaLibrary(storage_service).update_thumbnail(int(path.split('/')[-2]), read_json_body(handler).get('thumb'))
+            write_json(handler, {'success': True})
+            return True
         if path == '/api/storage/history':
             history_id = storage_service.save_history(read_json_body(handler))
             write_json(handler, {'success': True, 'id': history_id})
@@ -259,6 +286,19 @@ def handle_post(handler):
                 storage_service.set_meta('browser_migration_started', '0')
             write_json(handler, {'success': True, 'completed': data.get('complete') is True})
             return True
+        if path == '/api/storage/library':
+            payload = read_request_body(handler)
+            if len(payload) < 4:
+                raise ValueError('媒体保存请求不完整')
+            size = int.from_bytes(payload[:4], 'big')
+            if size < 2 or size > 1024 * 1024 or len(payload) <= size + 4:
+                raise ValueError('媒体保存请求无效')
+            entry = json.loads(payload[4:4 + size].decode('utf-8'))
+            if not isinstance(entry, dict):
+                raise ValueError('媒体信息无效')
+            item = MediaLibrary(storage_service).save(entry, payload[4 + size:])
+            write_json(handler, {'success': True, 'item': item})
+            return True
         if path == '/api/storage/export-directory':
             directory = storage_service.set_export_directory(read_json_body(handler).get('directory', ''))
             write_json(handler, {'success': True, 'directory': directory})
@@ -268,7 +308,7 @@ def handle_post(handler):
             destination = storage_service.export_media(filename, read_request_body(handler))
             write_json(handler, {'success': True, 'filename': destination.rsplit('\\', 1)[-1].rsplit('/', 1)[-1]})
             return True
-    except (StorageError, ValueError) as error:
+    except (StorageError, ValueError, OSError) as error:
         write_error(handler, 400, str(error))
         return True
     return False
@@ -282,6 +322,13 @@ def handle_delete(handler):
         storage_service.assert_storage_writable()
     except StorageError as error:
         write_error(handler, 400, str(error))
+        return True
+    if path.startswith('/api/storage/library/'):
+        try:
+            deleted = MediaLibrary(storage_service).delete(int(path.rsplit('/', 1)[-1]))
+            write_json(handler, {'success': deleted}, status=200 if deleted else 404)
+        except (OSError, ValueError, StorageError) as error:
+            write_error(handler, 400, str(error))
         return True
     if path.startswith('/api/storage/assets/'):
         write_json(handler, {'success': storage_service.delete_asset(_asset_key(path))})

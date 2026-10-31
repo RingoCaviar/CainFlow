@@ -3,7 +3,7 @@ import { agentNodeDefinition as getNodeDefinition } from './prompt-agent-referen
 export const CANVAS_FIELDS = Object.freeze({
     ImageImport: [], ImageGenerate: ['prompt', 'aspect', 'resolution', 'customWidth', 'customHeight', 'quality', 'moderation', 'background', 'generationCount'],
     ImageResize: ['resizeMode', 'scalePercent', 'targetWidth', 'targetHeight', 'keepAspect', 'quality'],
-    ImageMerge: ['inputCount'], ImagePreview: [], ImageCompare: [], ImageSave: ['filename'], Text: ['text']
+    ImageMerge: ['inputCount'], ImagePreview: [], ImageCompare: [], Text: ['text']
 });
 export const CANVAS_TYPES = Object.keys(CANVAS_FIELDS);
 export const cloneCanvasValue = value => JSON.parse(JSON.stringify(value));

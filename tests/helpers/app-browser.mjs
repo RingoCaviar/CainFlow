@@ -26,7 +26,7 @@ export async function reloadAppBrowser({ evaluate, send, waitFor }) {
     await delay(500);
 }
 
-export async function withAppBrowser(session, task, { repoDirectory } = {}) {
+export async function withAppBrowser(session, task, { repoDirectory, initScript } = {}) {
     const server = await startCainflowServer({ session, repoDirectory });
     const profile = await mkdtemp(join(tmpdir(), 'cainflow-canvas-browser-'));
     const browser = spawn(chromePath, ['--headless=new', '--disable-gpu', '--no-sandbox', '--disable-extensions', `--user-data-dir=${profile}`, '--remote-debugging-port=0', 'about:blank'], { stdio: 'ignore' });
@@ -78,6 +78,7 @@ export async function withAppBrowser(session, task, { repoDirectory } = {}) {
         await send('Page.enable');
         await send('Runtime.enable');
         await send('Network.enable');
+        if (initScript) await send('Page.addScriptToEvaluateOnNewDocument', { source: initScript });
         await send('Page.navigate', { url: server.baseUrl });
         try {
             await waitFor("Boolean(document.getElementById('prompt-agent-model')?.options.length)");

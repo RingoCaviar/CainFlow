@@ -18,7 +18,7 @@ function createNodeElement() {
     };
 }
 
-test('runWorkflow passes every successful concurrent video result to the save node', async () => {
+test('retained legacy save nodes pass through concurrent videos without exporting again', async () => {
     const promptNode = {
         id: 'prompts', type: 'Text', enabled: true, data: { texts: ['first', 'second'] }, el: createNodeElement()
     };
@@ -72,8 +72,8 @@ test('runWorkflow passes every successful concurrent video result to the save no
         nodeConfigs: {},
         documentRef,
         windowRef: documentRef.defaultView,
-        syncImageSaveNode: async () => {},
-        autoSaveToDir: async (_id, payload) => { savedVideos = payload.videos; },
+        syncImageSaveNode: async (_id, payload) => { savedVideos = payload.videos; },
+        autoSaveToDir: async () => { assert.fail('retired save node must not export again'); },
         refreshDependentImageResizePreviews: async () => {},
         showToast: () => {}, addLog: () => {}, fitNodeToContent: () => {},
         getAbortMessage: () => ''

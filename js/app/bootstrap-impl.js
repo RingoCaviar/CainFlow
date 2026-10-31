@@ -1,3 +1,4 @@
+import { createRetiredSaveNodeCleanup } from '../features/persistence/retired-save-nodes.js';
 import { createImageFirstCanvas } from '../features/ui/image-first-canvas.js';
 import { createImageGenerationRevisionApi } from '../nodes/image-generation-revision.js';
 import { createAgentChatModelPreference } from '../features/prompt-agent/prompt-agent-model-preference.js';
@@ -1040,6 +1041,25 @@ const captureAgentRequestConfig = (modelId) => {
     const models = getAvailablePromptAgentModels(state.models || [], state.providers || []);
     return JSON.parse(JSON.stringify({ workflowId: workflowManagerApi.getActiveWorkflowId(), models, model: models.find(item => item.id === modelId), providers: state.providers || [] }));
 };
+window.addEventListener('cainflow:storage-error', event => showToast(event.detail?.message || '媒体文件操作失败', 'error'));
+window.addEventListener('cainflow:media-directory-changed', () => {
+    renderHistoryList();
+    document.dispatchEvent(new Event('cainflow:history-changed'));
+});
+let retiredSaveCleanupReady = false;
+const cleanupRetiredSaveNodes = createRetiredSaveNodeCleanup({
+    state, getWorkflowId: () => workflowManagerApi.getActiveWorkflowId(), session: getSessionManagerApi,
+    serializeNodes: () => nodeSerializer.serializeNodes(), removeNode, onNodesRemoved: handleNodesRemoved,
+    graphChanged: () => { connectionsApi.updateAllConnections(); connectionsApi.updatePortStyles(); handleNodeGraphChanged(); },
+    save: () => workflowManagerApi.saveActiveWorkflow({ silent: true }),
+    confirm: options => window.confirm(`${options.message}\n\n${options.note}`), showToast
+});
+const offerRetiredSaveNodeCleanup = options => retiredSaveCleanupReady ? cleanupRetiredSaveNodes(options) : Promise.resolve();
+new MutationObserver(records => {
+    if (records.some(record => [...record.addedNodes].some(node => node.nodeType === 1 && node.matches?.('.node-save')))) {
+        setTimeout(() => offerRetiredSaveNodeCleanup(), 0);
+    }
+}).observe(document.getElementById('nodes-layer'), { childList: true });
 const promptAgentController = createPromptAgentController({
     canvasAdapter: createPromptAgentCanvasAdapter({
         state, documentRef: document, serializeNodes: () => nodeSerializer.serializeNodes(),
@@ -1888,6 +1908,7 @@ const workflowManagerApi = createWorkflowManagerApi({
         const tab = (state.workflowTabs || []).find((candidate) => candidate.workflowId === workflow?.workflowId);
         promptAgentController.restoreWorkflow(tab?.data?.promptAgent || null);
         settingsControllerApi?.updateAgentCacheUsage();
+        setTimeout(() => offerRetiredSaveNodeCleanup({ reset: true }), 0);
     },
     getPromptAgentState: () => promptAgentController.snapshotWorkflow(),
     applyPromptAgentState: (value) => promptAgentController.syncWorkflowState(value),
@@ -2195,6 +2216,8 @@ registerGlobalBridges({
 });
 
 await startupPromise;
+retiredSaveCleanupReady = true;
+await offerRetiredSaveNodeCleanup({ reset: true });
 await getConversationWorkbenchControllerApi().init().catch((error) => {
     showToast(`加载对话工作台失败：${error.message}`, 'error');
 });

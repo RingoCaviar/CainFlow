@@ -40,7 +40,7 @@ export async function startCainflowServer({ session = null, repoDirectory = repo
         let startupLog = '', startupError;
         child = spawn(python, ['-u', '-c', isolatedServerLauncher, String(port)], {
             cwd: repoDirectory,
-            env: { ...process.env, PYTHONUNBUFFERED: '1', CAINFLOW_DATA_DIR: dataDir, CAINFLOW_WORKFLOWS_DIR: workflowsDir, CAINFLOW_SKIP_BROWSER_AUTO_OPEN: '1' },
+            env: { ...process.env, PYTHONUNBUFFERED: '1', CAINFLOW_DATA_DIR: dataDir, CAINFLOW_EXPORTS_DIR: join(dataDir, 'exports'), CAINFLOW_WORKFLOWS_DIR: workflowsDir, CAINFLOW_SKIP_BROWSER_AUTO_OPEN: '1' },
             stdio: ['ignore', 'pipe', 'pipe']
         });
         const backendProcess = child;

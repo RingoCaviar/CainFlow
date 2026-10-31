@@ -2,6 +2,12 @@
 
 ## Language
 
+**目录原文件**:
+生成图片或视频成功前写入保存目录的独立长期文件，以及用户放入该目录的受支持媒体。它不是可清理的 Media asset 缓存；从历史删除才会删除对应本地文件。
+
+**目录历史**:
+对当前保存目录及其子目录实际图片和视频的索引与浏览视图，不跨目录链接。切换目录不搬动文件；应用生成的提示词、模型等元数据与未被外部修改的原文件关联。
+
 **Canvas interaction**:
 One of panning, zooming, node dragging, or drawing a connection in the workflow editor.
 
