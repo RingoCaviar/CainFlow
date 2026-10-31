@@ -105,6 +105,9 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=advanced]').click();originalCompactPrompt.value=Array(14).fill('long prompt line').join('\\n');originalCompactPrompt.dispatchEvent(new Event('input',{bubbles:true}))");
         await settle(app);
         const automatic = await app.evaluate("(()=>{const e=originalCompactPrompt,s=getComputedStyle(e);return {height:e.offsetHeight,line:parseFloat(s.lineHeight),padding:parseFloat(s.paddingTop)+parseFloat(s.paddingBottom),font:parseFloat(s.fontSize)}})()");
+        const textBounds = await app.evaluate("(()=>{const e=originalCompactPrompt,s=getComputedStyle(e),r=e.getBoundingClientRect(),b=document.querySelector('#image-parameter-panel .image-parameter-tools').getBoundingClientRect();return {right:parseFloat(s.paddingRight),left:parseFloat(s.paddingLeft),textTop:r.top+parseFloat(s.paddingTop),toolsBottom:b.bottom}})()");
+        assert.ok(Math.abs(textBounds.right - textBounds.left) <= 1, 'prompt uses the full width with balanced side padding');
+        assert.ok(textBounds.textTop >= textBounds.toolsBottom, 'top tools cannot cover prompt text');
         assert.ok(automatic.font >= 13);
         assert.ok(automatic.height >= automatic.line * 3 + automatic.padding);
         assert.ok(automatic.height <= automatic.line * 6 + automatic.padding + 3);
