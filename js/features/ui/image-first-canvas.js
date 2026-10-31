@@ -334,7 +334,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         panel.hidden = false;
         panel.setAttribute('aria-hidden', 'false'); panel.inert = false;
         panel.dataset.nodeId = node.id;
-        panel.setAttribute('aria-label', `${node.customTitle || nodeLabels[node.type]} · 节点参数浮层`);
+        panel.setAttribute('aria-label', `${node.el.dataset.nodeTitle || node.customTitle || nodeLabels[node.type]} · 节点参数浮层`);
         if (group) { const view = views.get(node); if (view.group !== group) setGroup(node, group); }
         refreshNode(node.id);
         position();
