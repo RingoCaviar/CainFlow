@@ -105,9 +105,17 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=advanced]').click();originalCompactPrompt.value=Array(14).fill('long prompt line').join('\\n');originalCompactPrompt.dispatchEvent(new Event('input',{bubbles:true}))");
         await settle(app);
         const automatic = await app.evaluate("(()=>{const e=originalCompactPrompt,s=getComputedStyle(e);return {height:e.offsetHeight,line:parseFloat(s.lineHeight),padding:parseFloat(s.paddingTop)+parseFloat(s.paddingBottom),font:parseFloat(s.fontSize)}})()");
-        const textBounds = await app.evaluate("(()=>{const e=originalCompactPrompt,s=getComputedStyle(e),r=e.getBoundingClientRect(),b=document.querySelector('#image-parameter-panel .image-parameter-tools').getBoundingClientRect();return {right:parseFloat(s.paddingRight),left:parseFloat(s.paddingLeft),textTop:r.top+parseFloat(s.paddingTop),toolsBottom:b.bottom}})()");
+        const textBounds = await app.evaluate("(()=>{const e=originalCompactPrompt,s=getComputedStyle(e),r=e.getBoundingClientRect(),b=document.querySelector('#image-parameter-panel .image-parameter-tools').getBoundingClientRect();return {right:parseFloat(s.paddingRight),left:parseFloat(s.paddingLeft),textBottom:r.bottom,toolsTop:b.top,topPadding:parseFloat(s.paddingTop)}})()");
         assert.ok(Math.abs(textBounds.right - textBounds.left) <= 1, 'prompt uses the full width with balanced side padding');
-        assert.ok(textBounds.textTop >= textBounds.toolsBottom, 'top tools cannot cover prompt text');
+        assert.ok(textBounds.toolsTop >= textBounds.textBottom, 'tools sit below the prompt outside its input area');
+        assert.ok(textBounds.topPadding < 10, 'prompt no longer reserves a toolbar row');
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').click()");
+        assert.ok(await app.evaluate("!!document.querySelector('#image-parameter-panel.is-expanded > .image-parameter-header')"), 'expanded tools return to the draggable header');
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').click()");
+        assert.ok(await app.evaluate("!!document.querySelector('#image-parameter-panel .image-parameter-setting-bar > .image-parameter-header')"), 'restoring returns tools to settings');
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]').click()");
+        await open(app, 'image-0');
+        assert.equal(await app.evaluate("document.querySelectorAll('#image-parameter-panel [data-parameter-action=close]').length"), 1, 'reopening retains exactly one close control');
         assert.ok(automatic.font >= 13);
         assert.ok(automatic.height >= automatic.line * 3 + automatic.padding);
         assert.ok(automatic.height <= automatic.line * 6 + automatic.padding + 3);
@@ -120,7 +128,7 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
             await settle(app);
             const measurements = await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel'),s=p.querySelector('.image-parameter-scroll'),h=p.querySelector('.image-parameter-header');return {type:p.dataset.nodeType,height:p.offsetHeight,header:getComputedStyle(h).position,overflow:s.scrollWidth-s.clientWidth,footerHidden:p.querySelector('.image-parameter-footer').hidden}})()");
             assert.equal(measurements.type, type);
-            assert.equal(measurements.header, 'absolute');
+            assert.equal(measurements.header, type === 'ImageGenerate' ? 'static' : 'absolute');
             assert.ok(measurements.overflow <= 1, `${type} does not overflow horizontally`);
             if (type === 'ImageImport') {
                 assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').checkVisibility()"), false);
