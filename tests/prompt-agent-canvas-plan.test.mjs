@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCanvasContext } from '../js/features/prompt-agent/prompt-agent-canvas-context.js';
+import { prepareCanvasPlanRecreation } from '../js/features/prompt-agent/prompt-agent-canvas-recreation.js';
+import { createCanvasContext, canvasBaseline } from '../js/features/prompt-agent/prompt-agent-canvas-context.js';
 import { normalizeCanvasPlan, assertCanvasPlanCurrent, promptPlanToCanvas, describeCanvasPlan } from '../js/features/prompt-agent/prompt-agent-canvas-plan.js';
 import { createPromptAgentConversationStore } from '../js/features/prompt-agent/prompt-agent-conversation-store.js';
 import { createPromptAgentInput } from '../js/features/prompt-agent/prompt-agent-input.js';
@@ -357,4 +358,62 @@ test('application guard blocks a historical destructive plan before any graph mu
 test('prompt-only snapshot cannot be silently rebound to changed current source assets',()=>{
     const context=graph({connections:[{from:{nodeId:'source',port:'image'},to:{nodeId:'target',port:'referenceImages'},order:0}]});
     assert.throws(()=>promptPlanToCanvas({targetNodeId:'target',prompt:'new',preserveReferenceSnapshot:true,referenceImages:[{sourceNodeId:'source',sourcePort:'image',sourceImageIndex:0,assetKey:'media:old'}]},context),/参考图|原图/);
+});
+
+
+test('deleted plan-created nodes can be rebuilt without accepting other dependency changes', () => {
+    const nodes = [
+        { id: 'source', type: 'ImageImport', mediaAssetKeys: ['media:one'] },
+        { id: 'second', type: 'ImageImport', mediaAssetKeys: ['media:two'] },
+        { id: 'made', type: 'ImageGenerate', prompt: 'poster' },
+        { id: 'saved', type: 'ImageSave' }
+    ];
+    const connections = [
+        { id: 'first', order: 5, from: { nodeId: 'source', port: 'image' }, to: { nodeId: 'made', port: 'referenceImages' } },
+        { id: 'second', order: 9, from: { nodeId: 'second', port: 'image' }, to: { nodeId: 'made', port: 'referenceImages' } },
+        { id: 'save', from: { nodeId: 'made', port: 'image' }, to: { nodeId: 'saved', port: 'image' } }
+    ];
+    const context = graph({ nodes, connections });
+    const plan = { workflowId: 'workflow-a', steps: [{ id: 'generate', type: 'ImageGenerate' }, { id: 'save', type: 'ImageSave' }],
+        bindings: { generate: 'made', save: 'saved' }, dependencies: nodes.map(node => node.id) };
+    plan.baseline = canvasBaseline(context, plan.dependencies, ['made', 'saved']);
+    const afterDelete = graph({ nodes: nodes.filter(node => node.id !== 'made'), connections: [] });
+    const recovery = prepareCanvasPlanRecreation(plan, afterDelete);
+    assert.deepEqual([...recovery.missingIds], ['made']);
+    assert.deepEqual(recovery.affectedSteps, ['generate', 'save']);
+    assert.deepEqual(recovery.connections.map(edge => [edge.id, edge.order]), [['first', 5], ['second', 9], ['save', undefined]]);
+    assert.throws(() => prepareCanvasPlanRecreation(plan, { ...afterDelete, workflowId: 'other' }), /变化/);
+    assert.throws(() => prepareCanvasPlanRecreation(plan, graph({ nodes: nodes.filter(node => !['source', 'made'].includes(node.id)), connections: [] })), /变化/);
+    assert.throws(() => prepareCanvasPlanRecreation(plan, graph({ nodes: nodes.filter(node => node.id !== 'made').map(node => node.id === 'second' ? { ...node, mediaAssetKeys: ['media:changed'] } : node), connections: [] })), /变化/);
+    assert.throws(() => prepareCanvasPlanRecreation({ ...plan, steps: [{ id: 'generate', type: 'ImageGenerate', nodeId: 'made' }, plan.steps[1]] }, afterDelete), /变化/);
+    const saveDeleted = graph({ nodes: nodes.filter(node => node.id !== 'saved'), connections: connections.slice(0, 2) });
+    assert.deepEqual(prepareCanvasPlanRecreation(plan, saveDeleted).affectedSteps, ['save']);
+    saveDeleted.connections.reverse();
+    assert.throws(() => prepareCanvasPlanRecreation(plan, saveDeleted), /变化/);
+});
+
+
+test('recreation retains unrelated connection edits made during original asset loading', async () => {
+    const state = { nodes: new Map([
+        ['external-text', { id: 'external-text', type: 'Text' }],
+        ['external-image', { id: 'external-image', type: 'ImageGenerate' }]
+    ]), connections: [], selectedNodes: new Set(), models: [], providers: [] };
+    let serial = 0, editDuringLoad = false;
+    const edge = { id: 'unrelated-new', type: 'text', order: 12, from: { nodeId: 'external-text', port: 'text' }, to: { nodeId: 'external-image', port: 'prompt' } };
+    const adapter = createPromptAgentCanvasAdapter({ state, documentRef: { body: { children: [] } },
+        serializeNodes: () => [...state.nodes.values()], getWorkflowId: () => 'workflow-a',
+        addNode(type, x, y, data) { const id = `import-${++serial}`; state.nodes.set(id, { ...data, id, type, x, y }); return id; },
+        getImageAsset: async () => { if (editDuringLoad) state.connections = [edge]; return 'original'; },
+        session: () => ({ applyCanvasBatch: async (mutate, persist) => { await mutate(); await persist(); return { historyId: 'applied' }; } }),
+        save: async () => true, graphChanged() {}, origin: () => ({ x: 0, y: 0 }), focusNode() {}
+    });
+    const plan = normalizeCanvasPlan({ version: 1, steps: [{ id: 'input', type: 'ImageImport', imageId: 'original' }] }, adapter.context(),
+        { images: [{ imageId: 'original', reference: { assetKey: 'media:original' } }] });
+    await adapter.apply(plan, '');
+    state.nodes.delete(plan.bindings.input);
+    state.connections = [{ ...edge, id: 'unrelated-old' }];
+    editDuringLoad = true;
+    await adapter.apply(plan, '');
+    assert.deepEqual(state.connections, [edge], 'the removed edge stays removed and the new edge survives');
+    assert.ok(state.nodes.has(plan.bindings.input));
 });
