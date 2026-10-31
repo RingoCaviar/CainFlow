@@ -122,15 +122,14 @@ test('only relevant graph edits invalidate preview and workflow identity is fixe
     assert.throws(() => assertCanvasPlanCurrent(plan, graph({ workflowId: 'other' })), /已变化/);
 });
 
-test('automatic saves are previewed exactly once; disabled downstreams do not suppress them', () => {
+test('preparing a plan never appends saves and preserves explicitly requested saves', () => {
     const state = { nodes: new Map([['target', { id: 'target', type: 'ImageGenerate' }], ['disabled', { id: 'disabled', type: 'ImageSave', enabled: false }]]),
         connections: [{ from: { nodeId: 'target', port: 'image' }, to: { nodeId: 'disabled', port: 'image' } }] };
     const adapter = createPromptAgentCanvasAdapter({ state });
     const plan = normalizeCanvasPlan({ version: 1, steps: [{ id: 'edit', type: 'ImageGenerate', nodeId: 'target', parameters: { prompt: 'new' } }] }, graph(), { mentionedIds: ['target'] });
     adapter.prepare(plan); adapter.prepare(plan);
-    assert.equal(plan.steps.length, 2); assert.equal(plan.steps[1].autoAddedForGeneration, true);
-    assert.equal(plan.connections[0].to.ref, 'save_edit');
-    assert.equal(plan.steps[1].title, '保存节点');
+    assert.equal(plan.steps.length, 1);
+    assert.equal(plan.connections.length, 0);
     state.nodes.get('disabled').enabled = true;
     const connected = normalizeCanvasPlan({ version: 1, steps: [{ id: 'edit', type: 'ImageGenerate', nodeId: 'target', parameters: { prompt: 'new' } }] }, graph(), { mentionedIds: ['target'] });
     adapter.prepare(connected); assert.equal(connected.steps.length, 1);

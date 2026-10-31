@@ -947,13 +947,7 @@ async function runWorkflow(runInput = null, { waitForCompletion = false, retainR
             state, runInput,
             resolveExecutionPlan: (input) => getExecutionCoreApi().resolveExecutionPlan(input),
             normalizeRunOptions: (input) => getExecutionCoreApi().normalizeRunOptions(input),
-            addNode, generateId, scheduleSave, addLog,
-            isWorkflowCurrent: () => workflowManagerApi.getActiveWorkflowId() === preparedWorkflowId,
-            onConnectionsChanged: (changes) => {
-                registry.connectionProjectionApi?.interactions.topologyChanged(changes);
-                updatePortStyles();
-                handleNodeGraphChanged();
-            }
+            isWorkflowCurrent: () => workflowManagerApi.getActiveWorkflowId() === preparedWorkflowId
         });
         const workflowData = workflowManagerApi.getActiveWorkflowRuntimeData?.()
             || workflowManagerApi.getActiveWorkflowSnapshot();

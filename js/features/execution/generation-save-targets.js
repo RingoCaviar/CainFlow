@@ -1,5 +1,4 @@
-import { nodeBounds, findNearbyNodePosition } from './node-placement.js';
-/** Prepare automatic save nodes on the editable workflow before its run snapshot. */
+/** Preserve execution of existing legacy save targets without modifying the graph. */
 export function getGenerationOutputPort(node) {
     if (node?.type === 'ImageGenerate') return 'image';
     if (node?.type === 'VideoGenerate') return 'video';
@@ -14,12 +13,6 @@ function getEnabledOutputTargets(state, sourceNode) {
         const target = state.nodes.get(connection.to?.nodeId);
         return target && target.id !== sourceNode.id && target.enabled !== false;
     });
-}
-
-function getSavePosition(state, node) {
-    const zoom = Number(state.canvas?.zoom) || 1, source = nodeBounds(node, zoom);
-    return findNearbyNodePosition({ x: source.x + source.width + 80, y: source.y,
-        occupied: [...state.nodes.values()].map(item => nodeBounds(item, zoom)) });
 }
 
 export function getIncludedAutoSaveNodeIds(state, sourceNodeIds, requestedNodeIds) {
@@ -45,11 +38,6 @@ export function prepareGenerationSaveTargets({
     runInput = null,
     resolveExecutionPlan,
     normalizeRunOptions,
-    addNode,
-    generateId,
-    onConnectionsChanged = () => {},
-    scheduleSave = () => {},
-    addLog = () => {},
     isWorkflowCurrent = () => true
 }) {
     if (!isWorkflowCurrent()) throw new Error('工作流已切换，请在当前工作流重新运行。');
@@ -65,50 +53,8 @@ export function prepareGenerationSaveTargets({
         throw new Error('当前运行范围内有节点仍在运行，请等待完成后再运行。');
     }
     const sourceNodeIds = runnableNodeIds.filter((nodeId) => getGenerationOutputPort(state.nodes.get(nodeId)));
-    const automaticSaveIds = new Set();
-    const changedNodeIds = new Set();
-    const connectionIds = [];
-    let graphChanged = false;
-    try {
-        for (const nodeId of sourceNodeIds) {
-            if (!isWorkflowCurrent()) throw new Error('工作流已切换，请在当前工作流重新运行。');
-            const node = state.nodes.get(nodeId);
-            const port = getGenerationOutputPort(node);
-            const targets = getEnabledOutputTargets(state, node);
-            if (targets.length === 0) {
-                const position = getSavePosition(state, node);
-                const saveId = addNode('ImageSave', position.x, position.y, {
-                    autoAddedForGeneration: true,
-                    enabled: true
-                });
-                const saveNode = state.nodes.get(saveId);
-                if (!saveNode || saveNode.type !== 'ImageSave') {
-                    throw new Error('无法创建自动保存节点，请检查工作流后重试。');
-                }
-                saveNode.autoAddedForGeneration = true;
-                const connectionId = `conn_${generateId()}`;
-                state.connections.push({
-                    id: connectionId,
-                    from: { nodeId, port, type: port },
-                    to: { nodeId: saveId, port, type: port },
-                    type: port
-                });
-                graphChanged = true;
-                changedNodeIds.add(nodeId);
-                changedNodeIds.add(saveId);
-                connectionIds.push(connectionId);
-                automaticSaveIds.add(saveId);
-                addLog('info', '自动添加保存节点', `已为「${node.customTitle || node.defaultTitle || node.type}」添加保存节点`);
-            } else {
-                targets.forEach((connection) => automaticSaveIds.add(connection.to.nodeId));
-            }
-        }
-    } finally {
-        if (graphChanged) {
-            onConnectionsChanged({ nodeIds: [...changedNodeIds], connectionIds });
-            scheduleSave();
-        }
-    }
+    const automaticSaveIds = sourceNodeIds.flatMap(nodeId =>
+        getEnabledOutputTargets(state, state.nodes.get(nodeId)).map(connection => connection.to.nodeId));
     const includedAutoSaveNodeIds = getIncludedAutoSaveNodeIds(state, sourceNodeIds, automaticSaveIds);
     return { ...runOptions, includedAutoSaveNodeIds };
 }
