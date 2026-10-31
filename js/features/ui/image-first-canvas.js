@@ -40,6 +40,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     switcher.setAttribute('aria-label', '面板置顶');
     switcher.innerHTML = '<button type="button" data-parameter-action="front-parameters" aria-controls="image-parameter-panel" aria-expanded="false">打开参数</button><button type="button" data-parameter-action="front-agent" aria-controls="prompt-agent-panel" aria-expanded="false">打开助手</button>';
     documentRef.body.append(store, panel, switcher);
+    const header = panel.querySelector('.image-parameter-header');
     const scroll = panel.querySelector('.image-parameter-scroll');
     const feedback = panel.querySelector('.image-parameter-feedback');
     const footer = panel.querySelector('.image-parameter-footer');
@@ -100,6 +101,11 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         expandButton.setAttribute('aria-pressed', String(expanded));
         expandButton.textContent = expanded ? '⤡' : '⤢';
         dragHandle.hidden = heightHandle.hidden = cornerHandle.hidden = !expanded;
+        const settingsBar = !expanded && current?.type === 'ImageGenerate'
+            ? current.parameterRoot?.querySelector('.image-parameter-setting-bar') : null;
+        if (settingsBar) {
+            if (header.parentNode !== settingsBar) settingsBar.append(header);
+        } else if (header.parentNode !== panel) panel.prepend(header);
     }
     function setReturnFocus(node, candidate = documentRef.activeElement) {
         if (candidate?.isConnected && !panel.contains(candidate) && !candidate.closest?.('.image-parameter-store')
@@ -170,6 +176,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         positionFrame = windowRef.requestAnimationFrame(() => { positionFrame = null; position(); });
     }
     function park() {
+        if (header.parentNode !== panel) panel.prepend(header);
         if (current?.parameterRoot) {
             const countField = views.get(current)?.countField;
             if (countField) { current.parameterRoot.append(countField); countField.hidden = true; }

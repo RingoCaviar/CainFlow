@@ -641,9 +641,13 @@ html:root #canvas-container .node.image-first-media > .node-body {
 
 
 /* Compact editors reuse the original controls and leave canvas-card geometry alone. */
-/* Reserve only the top tool row, not a full-height strip beside every text line. */
-.image-parameter-panel:not(.is-expanded) .image-node-prompt-field:not(:has(.image-prompt-source:not(.hidden))) textarea { padding-top: 30px; padding-right: 9px; }
-.image-parameter-panel:not(.is-expanded) .image-prompt-source-label { padding-right: 64px; }
+.image-parameter-panel .image-parameter-setting-bar > .image-parameter-header {
+    position: static;
+    flex: 0 0 auto;
+    margin-left: auto;
+    align-self: center;
+}
+.image-parameter-panel:not(.is-expanded)[data-node-type="ImageGenerate"] .image-parameter-setting-bar { margin-right: 0; }
 .image-parameter-panel:not(.is-expanded) .image-import-mode-shell,
 .image-parameter-panel:not(.is-expanded) .image-first-parameter-content > .image-parameter-setting-bar { margin-right: 62px; }
 .image-parameter-panel:not(.is-expanded):is([data-node-type="ImagePreview"], [data-node-type="ImageCompare"], [data-node-type="ImageMerge"]) .image-input-detail > :first-child:not(.image-input-row),
