@@ -31,7 +31,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
             if (!hasTarget) {
                 const id = `save_${step.id}`;
                 if (plan.steps.some(item => item.id === id)) throw new Error('自动保存步骤名称冲突，请重新整理方案');
-                plan.steps.push({ id, type: 'ImageSave', title: `${step.title} · 保存`, parameters: {}, execute: true, autoAddedForGeneration: true });
+                plan.steps.push({ id, type: 'ImageSave', title: '保存节点', parameters: {}, execute: true, autoAddedForGeneration: true });
                 plan.connections.push({ from: { ref: step.id, port: 'image' }, to: { ref: id, port: 'image' }, type: 'image' });
                 plan.order.push(id);
             }
