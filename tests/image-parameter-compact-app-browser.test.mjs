@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { withAppBrowser } from './helpers/app-browser.mjs';
+import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 
 const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=';
 const types = ['ImageGenerate', 'ImageImport', 'ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge', 'ImageSave', 'CameraControl'];
@@ -187,5 +187,24 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         await app.evaluate("document.getElementById('btn-close-prompt-agent').click()");
         await settle(app);
         assert.equal(await app.evaluate("document.querySelector('.image-panel-switcher').classList.contains('is-stacked')"), false);
+    });
+});
+
+
+test('legacy automatic saves display their own name while ordinary custom names survive reload', { timeout: 30000 }, async () => {
+    await withAppBrowser({ ...session, nodes: [
+        { id: 'legacy-save', type: 'ImageSave', customTitle: '图片生成 · 保存', autoAddedForGeneration: true },
+        { id: 'named-save', type: 'ImageSave', customTitle: '我的成品' },
+        { id: 'other-auto-save', type: 'ImageSave', customTitle: '海报 · 保存', autoAddedForGeneration: true }
+    ], connections: [] }, async app => {
+        for (let reload = 0; reload < 2; reload++) {
+            for (const [id, name] of [['legacy-save', '保存节点'], ['named-save', '我的成品'], ['other-auto-save', '保存节点']]) {
+                assert.equal(await app.evaluate(`document.querySelector('#${id} .image-first-empty-name')?.textContent`), name);
+                assert.equal(await app.evaluate(`document.querySelector('#${id} .node-title').textContent`), name);
+                await open(app, id);
+                assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').getAttribute('aria-label')"), `${name} · 节点参数浮层`);
+            }
+            if (!reload) await reloadAppBrowser(app);
+        }
     });
 });

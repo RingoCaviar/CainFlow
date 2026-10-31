@@ -1134,7 +1134,11 @@ export function createNodeLifecycleApi({
     function applyNodeTitle(nodeData) {
         if (!nodeData?.el) return;
         const defaultTitle = getNodeDefaultTitle(nodeData);
-        const displayTitle = nodeData.customTitle || defaultTitle;
+        // Older Agent plans stored an upstream-prefixed title on automatic save nodes.
+        // Normalize presentation only: persisted plan baselines must not change on load.
+        const legacyAutoSaveTitle = nodeData.type === 'ImageSave' && nodeData.autoAddedForGeneration === true
+            && nodeData.customTitle?.endsWith(' · 保存');
+        const displayTitle = legacyAutoSaveTitle ? defaultTitle : nodeData.customTitle || defaultTitle;
         const titleEl = nodeData.el.querySelector('.node-title');
         if (titleEl) {
             titleEl.textContent = displayTitle;
