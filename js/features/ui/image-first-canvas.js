@@ -560,6 +560,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             groupButtons.set(name, button);
         }
         const promptField = form.querySelector('.image-node-prompt-field');
+        const promptActions = promptField?.querySelector('.image-prompt-actions');
+        if (promptActions) bar.append(promptActions);
         if (promptField) promptField.after(bar); else form.prepend(bar);
         const placeholder = documentRef.createElement('div'); placeholder.className = 'image-first-placeholder';
         const emptyText = documentRef.createElement('span');

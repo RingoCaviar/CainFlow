@@ -179,20 +179,20 @@
 .image-parameter-panel .image-node-prompt-field textarea {
     width: 100%;
     min-height: 0;
-    padding: 7px 9px 34px;
+    padding: 7px 9px;
     border-radius: 8px;
     font-size: 13px;
     line-height: 1.65;
 }
 
 .image-parameter-panel .image-prompt-actions {
-    position: absolute;
-    right: 5px;
-    bottom: 4px;
+    position: static;
+    flex: 0 0 auto;
+    align-self: center;
     display: flex;
     justify-content: flex-end;
     margin: 0;
-    max-width: calc(100% - 16px);
+    max-width: 100%;
 }
 
 .image-parameter-panel .image-prompt-actions .image-node-assistant {
