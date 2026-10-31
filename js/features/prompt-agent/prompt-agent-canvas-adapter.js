@@ -1,3 +1,4 @@
+import { prepareCanvasPlanRecreation } from './prompt-agent-canvas-recreation.js';
 import { normalizePlanInputs, projectPlanConnections, referenceManifest, assertReferenceInputsPreserved, isReferencePort, assertPromptOnlyReferenceRecipe } from './prompt-agent-reference-inputs.js';
 import { resolveAgentSize, sizeFields } from './prompt-agent-size.js';
 import { getEffectiveProtocol } from '../execution/provider-request-utils.js';
@@ -71,10 +72,10 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
             } catch (error) { error.stepId = step.id; error.message = `「${step.title}」${error.message}`; throw error; }
         }));
     }
-    function validateGraph(plan) {
+    function validateGraph(plan, connections = state.connections) {
         const ids = new Map(plan.steps.map(step => [step.id, step.nodeId || plan.bindings?.[step.id] || `new:${step.id}`]));
-        assertReferenceInputsPreserved(plan, state.connections, ref => ids.get(ref) || ref);
-        const links = projectPlanConnections(plan, state.connections, ref => ids.get(ref) || ref);
+        assertReferenceInputsPreserved(plan, connections, ref => ids.get(ref) || ref);
+        const links = projectPlanConnections(plan, connections, ref => ids.get(ref) || ref);
         for (const edge of links) {
             const source = state.nodes.get(edge.from.nodeId);
             if (source?.enabled === false && !state.connections.includes(edge)) throw new Error('不能新增或改写已禁用来源的输入关系。');
@@ -97,15 +98,18 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         }
         return { ids, links };
     }
+    const liveRecreationConnections = recreation => recreation.missingIds.size ? recreation.connections.map(edge =>
+        state.connections.find(current => current.id && current.id === edge.id) || edge) : state.connections;
     async function apply(plan, defaultModelId, onPlanChange = () => {}, isCurrent = () => true) {
         if (!isCurrent()) throw new Error('方案所属会话已变化');
         if (activePlan) throw new Error('另一个画布方案正在执行');
-        assertCanvasPlanCurrent(plan, context());
+        const recreation = prepareCanvasPlanRecreation(plan, context());
+        const connectionBase = liveRecreationConnections(recreation);
         assertCanvasPlanPromptInputs(plan, context());
         const selected = modelsFor(plan, defaultModelId);
         const sizes = sizesFor(plan, defaultModelId, selected);
         executionConfigs.set(plan.id, cloneCanvasValue({ models: state.models, providers: state.providers }));
-        const proposed = validateGraph(plan);
+        const proposed = validateGraph(plan, connectionBase);
         const signature = JSON.stringify({ sizes, steps: plan.steps, connections: plan.connections, disconnects: plan.disconnects || [], deletes: plan.deletes || [],
             models: Object.fromEntries(Object.entries(selected).map(([id, config]) => [id, { modelId: config.model.id, providerId: config.provider.id, thinking: config.thinking }])) });
         if (plan.appliedSignature === signature && plan.steps.every(step => state.nodes.has(plan.bindings?.[step.id]))) {
@@ -117,7 +121,8 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         if (!isCurrent()) throw new Error('读取素材期间会话已变化，未创建节点');
         if (getWorkflowId() !== workflowId) throw new Error('工作流已切换');
         if (JSON.stringify(executionConfigs.get(plan.id)) !== JSON.stringify({ models: state.models, providers: state.providers })) throw new Error('模型配置已变化，请检查模型后重新应用');
-        assertCanvasPlanCurrent(plan, context());
+        const latestRecreation = prepareCanvasPlanRecreation(plan, context());
+        if (JSON.stringify([...latestRecreation.missingIds]) !== JSON.stringify([...recreation.missingIds])) throw new Error('准备期间画布节点发生变化，请重试应用');
         const bindings = { ...(plan.bindings || {}) };
         const originalPlan = cloneCanvasValue(plan);
         const createdNodes = [];
@@ -125,6 +130,10 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         locked.forEach(([element]) => { element.inert = true; });
         try {
             const result = await session().applyCanvasBatch(async () => {
+                const currentRecreation = prepareCanvasPlanRecreation(plan, context());
+                if (JSON.stringify([...currentRecreation.missingIds]) !== JSON.stringify([...recreation.missingIds])) throw new Error('准备期间画布节点发生变化，请重试应用');
+                const currentConnections = liveRecreationConnections(currentRecreation);
+                validateGraph(plan, currentConnections);
                 const promptTargets = new Set((plan.promptInputChange?.targetNodeIds || []).filter(nodeId => {
                     const before = state.connections.filter(edge => edge.to.nodeId === nodeId && edge.to.port === 'prompt').at(-1);
                     const after = proposed.links.filter(edge => edge.to.nodeId === nodeId && edge.to.port === 'prompt').at(-1);
@@ -137,7 +146,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                 for (const id of plan.order) {
                     const step = plan.steps.find(item => item.id === id);
                     let nodeId = step.nodeId || bindings[id];
-                    if (!nodeId) {
+                    if (!nodeId || recreation.missingIds.has(nodeId)) {
                         const width = getNodeDefinition(step.type).defaultWidth || 300;
                         const parents = plan.connections.filter(link => link.to.ref === id).map(link =>
                             state.nodes.get(bindings[link.from.ref] || plan.steps.find(item => item.id === link.from.ref)?.nodeId || link.from.ref)).filter(Boolean);
@@ -188,8 +197,17 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                     await removeNode(item.nodeId, { onlyId: true, skipHistory: true, showToast: false, notifyReferences: false });
                     if (state.nodes.has(item.nodeId)) throw new Error(`无法删除「${item.title}」，画布未修改`);
                 }
-                state.connections = projectPlanConnections(plan, state.connections, ref => bindings[ref] || ref).map(link => ({...link,id:link.id || `conn_${crypto.randomUUID()}`}));
+                const replacementIds = new Map(plan.steps.filter(step => recreation.missingIds.has(plan.bindings?.[step.id]))
+                    .map(step => [plan.bindings[step.id], bindings[step.id]]));
+                const restoredConnections = recreation.missingIds.size ? currentConnections.map(edge => ({ ...edge,
+                    from: { ...edge.from, nodeId: replacementIds.get(edge.from.nodeId) || edge.from.nodeId },
+                    to: { ...edge.to, nodeId: replacementIds.get(edge.to.nodeId) || edge.to.nodeId }
+                })) : state.connections;
+                state.connections = projectPlanConnections(plan, restoredConnections, ref => bindings[ref] || ref).map(link => ({...link,id:link.id || `conn_${crypto.randomUUID()}`}));
                 graphChanged();
+                plan.completedSteps = (plan.completedSteps || []).filter(id => !recreation.affectedSteps.includes(id));
+                for (const id of recreation.affectedSteps) delete plan.completedReferenceOutputs?.[id];
+                plan.dependencies = plan.dependencies.filter(id => !recreation.missingIds.has(id));
                 plan.bindings = bindings; plan.appliedSignature = signature; plan.appliedSizes = cloneCanvasValue(sizes);
                 plan.completedDeletions = (plan.deletes || []).map(item => item.nodeId);
                 plan.referenceManifest = referenceManifest(context().nodes, state.connections, plan.steps.filter(s=>s.type==='ImageGenerate').map(s=>bindings[s.id]),canvasPlanExecutionNodeIds(plan));
