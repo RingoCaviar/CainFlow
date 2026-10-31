@@ -188,9 +188,10 @@
 .image-parameter-panel .image-prompt-actions {
     position: static;
     flex: 0 0 auto;
-    align-self: center;
+    align-self: stretch;
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
+    justify-content: space-between;
     margin: 0;
     max-width: 100%;
 }
@@ -641,7 +642,7 @@ html:root #canvas-container .node.image-first-media > .node-body {
 
 
 /* Compact editors reuse the original controls and leave canvas-card geometry alone. */
-.image-parameter-panel .image-parameter-setting-bar > .image-parameter-header {
+.image-parameter-panel .image-prompt-actions > .image-parameter-header {
     position: static;
     flex: 0 0 auto;
     margin-left: auto;

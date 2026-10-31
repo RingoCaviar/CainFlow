@@ -101,10 +101,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         expandButton.setAttribute('aria-pressed', String(expanded));
         expandButton.textContent = expanded ? '⤡' : '⤢';
         dragHandle.hidden = heightHandle.hidden = cornerHandle.hidden = !expanded;
-        const settingsBar = !expanded && current?.type === 'ImageGenerate'
-            ? current.parameterRoot?.querySelector('.image-parameter-setting-bar') : null;
-        if (settingsBar) {
-            if (header.parentNode !== settingsBar) settingsBar.append(header);
+        const promptActions = !expanded && current?.type === 'ImageGenerate'
+            ? current.parameterRoot?.querySelector('.image-prompt-actions') : null;
+        if (promptActions) {
+            if (header.parentNode !== promptActions) promptActions.append(header);
         } else if (header.parentNode !== panel) panel.prepend(header);
     }
     function setReturnFocus(node, candidate = documentRef.activeElement) {
@@ -561,8 +561,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         }
         const promptField = form.querySelector('.image-node-prompt-field');
         const promptActions = promptField?.querySelector('.image-prompt-actions');
-        if (promptActions) bar.append(promptActions);
-        if (promptField) promptField.after(bar); else form.prepend(bar);
+        if (promptField) promptField.after(...[promptActions, bar].filter(Boolean)); else form.prepend(bar);
         const placeholder = documentRef.createElement('div'); placeholder.className = 'image-first-placeholder';
         const emptyText = documentRef.createElement('span');
         placeholder.append(emptyText); body.prepend(placeholder);
