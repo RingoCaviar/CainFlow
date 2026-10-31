@@ -24,6 +24,10 @@ test('complete application previews, applies, executes and undoes a canvas plan 
         await evaluate(` document.getElementById('btn-prompt-agent').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-provider-id=\"p\"]').click(); document.getElementById('prompt-agent-input').value='生成一张海报，调整尺寸后保存'; document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));`);
         await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
         assert.equal(await evaluate("document.querySelectorAll('#nodes-layer .node').length"), 0);
+        assert.equal(await evaluate("document.querySelectorAll('.prompt-agent-step-heading').length"), 3);
+        assert.deepEqual(await evaluate("[...document.querySelectorAll('.prompt-agent-step-number')].map(el=>el.textContent)"), ['1', '2', '3']);
+        assert.equal(await evaluate("document.querySelector('.prompt-agent-plan-changes').open"), false);
+        assert.equal(await evaluate("document.querySelector('.prompt-agent-size-summary').closest('details').className"), 'prompt-agent-plan-changes');
         assert.equal(await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='仅应用').disabled"), true);
         await evaluate("document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=\"image-two\"][data-provider-id=\"p\"]').click();");
         assert.equal(await evaluate("document.getElementById('prompt-agent-image-model').value"), 'image-two');
@@ -106,6 +110,11 @@ test('sequential graph stops on failure and retries only unfinished steps withou
         await evaluate("document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=\"image\"][data-provider-id=\"p\"]').click();[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='应用并执行').click()");
         await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('部分步骤')");
         assert.deepEqual(await evaluate('generated'), ['one', 'two']);
+        assert.equal(await evaluate("document.querySelector('.prompt-agent-step-status[data-status=failed]').textContent"), '失败');
+        assert.equal(await evaluate("document.querySelector('.prompt-agent-run-error').open"), false);
+        assert.ok(await evaluate("document.querySelector('.prompt-agent-run-error p').textContent.length>0"));
+        await evaluate("document.querySelector('.prompt-agent-run-error summary').click()");
+        assert.equal(await evaluate("document.querySelector('.prompt-agent-run-error p').checkVisibility()"), true);
         assert.equal(await evaluate("document.querySelectorAll('#nodes-layer .node').length"), 6);
         assert.ok(await evaluate("Boolean(document.querySelector('.prompt-agent-result-image'))"));
         await evaluate("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click()");

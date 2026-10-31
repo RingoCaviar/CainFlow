@@ -10,7 +10,9 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     let busy = false;
     const element = (tag, text, owner = card) => { const node = documentRef.createElement(tag); node.textContent = text;
         if (tag === 'button') node.className = 'btn btn-secondary'; owner.appendChild(node); return node; };
-    const title = element('strong', '画布操作方案');
+    const header = element('header', ''); header.className = 'prompt-agent-plan-header';
+    const title = element('strong', '画布操作方案', header);
+    element('span', `${plan.steps.length + (plan.deletes?.length || 0)} 项操作`, header).className = 'prompt-agent-plan-count';
     title.title = plan.id;
     const inputs = element('div', ''); inputs.className = 'prompt-agent-plan-inputs';
     const references = adapter.inputs?.(plan) || [];
@@ -26,7 +28,7 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
             item.disabled = false; item.addEventListener('click', () => preview([data], 0));
         }).catch(() => { if (!destroyed) item.title = '参考原图读取失败，应用时将重新校验'; });
     }
-    const list = element('ol', '');
+    const list = element('ol', ''); list.className = 'prompt-agent-plan-steps';
     const stepStates = new Map();
     const refreshSelectors = [];
     const thinkingControls = [];
@@ -34,9 +36,13 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     const focusButtons = new Map();
     for (const id of plan.order) {
         const step = plan.steps.find(item => item.id === id);
-        const row = element('li', step.title, list);
-        stepStates.set(id, element('span', '', row));
-        const focus = element('button', '定位', row); focus.type = 'button'; focus.addEventListener('click', () => adapter.focus(step.nodeId || plan.bindings?.[id]));
+        const row = element('li', '', list);
+        const heading = element('div', '', row); heading.className = 'prompt-agent-step-heading';
+        element('span', String(stepStates.size + 1), heading).className = 'prompt-agent-step-number';
+        element('strong', step.title, heading).className = 'prompt-agent-step-title';
+        const badge = element('span', '', heading); badge.className = 'prompt-agent-step-status';
+        stepStates.set(id, badge);
+        const focus = element('button', '定位', heading); focus.type = 'button'; focus.addEventListener('click', () => adapter.focus(step.nodeId || plan.bindings?.[id]));
         focusButtons.set(id, focus);
         if (step.type === 'ImageGenerate') {
             const settings = element('details', '', row); settings.className = 'prompt-agent-step-settings';
@@ -80,8 +86,8 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         }
     }
     const modelMenus = createPromptAgentModelMenus({ documentRef, selects: modelSelectors });
-    const details = element('details', ''); details.open = false;
-    element('summary', '变更清单', details);
+    const details = element('details', ''); details.className = 'prompt-agent-plan-changes'; details.open = false;
+    element('summary', '变更与尺寸明细', details);
     const changes = element('ul', '', details);
     changes.className = 'prompt-agent-change-list';
     adapter.describe(plan, getModelId()).forEach(line => element('li', line, changes));
@@ -90,14 +96,16 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     let sizeIssue = null;
     let lastUnavailable = '';
     const sizePrompt = element('div', ''); sizePrompt.className = 'prompt-agent-size-clarification';
-    const sizeSummaries = element('div', ''); sizeSummaries.className = 'prompt-agent-size-summary';
+    const sizeSummaries = element('div', '', details); sizeSummaries.className = 'prompt-agent-size-summary';
     const repair = element('button', '配置模型与供应商'); repair.type = 'button'; repair.hidden = true;
     repair.addEventListener('click', () => { if (configurationTarget && isCurrent()) configure(configurationTarget); });
     const actions = element('div', ''); actions.className = 'prompt-agent-canvas-actions';
     const refresh = element('button', '刷新变更清单', details); refresh.type = 'button';
-    const apply = element('button', '仅应用', actions), execute = element('button', '应用并执行', actions);
+    const primaryActions = element('div', '', actions); primaryActions.className = 'prompt-agent-actions-primary';
+    const secondaryActions = element('div', '', actions); secondaryActions.className = 'prompt-agent-actions-secondary';
+    const apply = element('button', '仅应用', secondaryActions), execute = element('button', '应用并执行', primaryActions);
     execute.className = 'btn btn-primary';
-    const retry = element('button', '重试未完成步骤', actions), undo = element('button', '撤销本次画布操作', actions), stop = element('button', '停止', actions);
+    const retry = element('button', '重试未完成步骤', primaryActions), undo = element('button', '撤销本次画布操作', secondaryActions), stop = element('button', '停止', primaryActions);
     const buttons = [apply, execute, retry, undo, stop]; buttons.forEach(button => { button.type = 'button'; });
     function sync() {
         if (!busy && !plan.runs?.length) plan.agentSizes = Object.fromEntries(getModels().map(model => [model.id, getSize(model.id)]));
@@ -106,7 +114,11 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         focusButtons.forEach((button, id) => { button.disabled = !plan.bindings?.[id] && !plan.steps.find(step => step.id === id)?.nodeId; button.hidden = button.disabled; });
         refreshSelectors.forEach(refresh => refresh());
         changes.replaceChildren(); adapter.describe(plan, getModelId()).forEach(line => element('li', line, changes));
-        for (const [id, label] of stepStates) label.textContent = ` · ${{ draft: '待确认', applied: '待执行', pending: '等待执行', running: '执行中', completed: '已完成', failed: '失败', interrupted: '未完成' }[adapter.stepStatus(plan, id)] || '未执行'}`;
+        for (const [id, label] of stepStates) {
+            const stepStatus = adapter.stepStatus(plan, id);
+            label.dataset.status = stepStatus;
+            label.textContent = { draft: '待确认', applied: '待执行', pending: '等待执行', running: '执行中', completed: '已完成', failed: '失败', interrupted: '未完成' }[stepStatus] || '未执行';
+        }
         let unavailable = '';
         configurationTarget = null;
         try { adapter.modelsFor(plan, getModelId()); } catch (error) { unavailable = error.message; configurationTarget = error.configurationTarget; }
@@ -114,7 +126,7 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         if (!unavailable) try {
             const validated = adapter.sizesFor?.(plan, getModelId()) || {};
             const sizes = plan.runs?.length && plan.appliedSizes ? plan.appliedSizes : validated;
-            for (const [id, size] of Object.entries(sizes)) element('p', `${plan.steps.find(step => step.id === id).title} · ${size.summary}${size.sources ? "（" + [...new Set(Object.values(size.sources))].join("、") + "）" : ""}`, sizeSummaries);
+            for (const [id, size] of Object.entries(sizes)) element('p', `${plan.steps.find(step => step.id === id).title} · ${size.summary}${Object.values(size.sources || {}).some(Boolean) ? "（" + [...new Set(Object.values(size.sources).filter(Boolean))].join("、") + "）" : ""}`, sizeSummaries);
         } catch (error) {
             unavailable = error.message;
             if (error.sizeClarification && !plan.runs?.length) {

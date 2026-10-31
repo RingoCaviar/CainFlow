@@ -1506,7 +1506,13 @@ export function createPromptAgentController({
                 }).catch(() => renderImages(run.mediaAssetKeys.map(() => null)));
             } else renderImages([]);
         } else if (run.status === 'failed' && view.canvasPlan) {
-            clearElement(element); element.textContent = `步骤失败：${run.error || '请使用方案中的重试按钮'}`;
+            clearElement(element);
+            const details = documentRef.createElement('details'); details.className = 'prompt-agent-run-error';
+            const summary = documentRef.createElement('summary');
+            const step = view.canvasPlan.steps.find(item => (view.canvasPlan.bindings?.[item.id] || item.nodeId) === run.targetNodeId);
+            summary.textContent = `${step?.title || '生成步骤'} · 失败记录`;
+            const reason = documentRef.createElement('p'); reason.textContent = run.error || '请使用方案中的重试按钮';
+            details.append(summary, reason); element.append(details);
         } else if (run.status === 'failed') {
             renderFailedRun(element, view.plan, run.error || '未知错误', view.actionState);
         } else {
