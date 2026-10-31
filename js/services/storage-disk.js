@@ -438,9 +438,18 @@ export function createDiskStorageApi(getState) {
         // The archive is authoritative. A cache quota failure cannot discard the saved original.
         return { success: true, assetKey: data.mediaAssetKey || '', fileId: result.item.id };
     }
+    async function requestLibrary(url, options) {
+        try { return await fetch(url, options); }
+        catch (error) {
+            globalThis.dispatchEvent?.(new CustomEvent('cainflow:storage-error', {
+                detail: { message: `无法访问本地媒体服务：${error.message}` }
+            }));
+            throw error;
+        }
+    }
     async function getHistoryMetadata(options = {}) {
         const limit = Number.isFinite(options.limit) ? options.limit : 0;
-        const response = await fetch(`/api/storage/library?limit=${Math.max(0, limit || 0)}`, { cache: 'no-store' });
+        const response = await requestLibrary(`/api/storage/library?limit=${Math.max(0, limit || 0)}`, { cache: 'no-store' });
         if (!response.ok) {
             const message = (await response.json().catch(() => ({}))).error || `读取保存目录失败：HTTP ${response.status}`;
             globalThis.dispatchEvent?.(new CustomEvent('cainflow:storage-error', { detail: { message } }));
@@ -465,17 +474,17 @@ export function createDiskStorageApi(getState) {
     async function getHistory() { return Promise.all((await getHistoryMetadata()).map(hydrateHistory)); }
     async function getHistoryCount() { return (await getHistoryMetadata({ includeThumbs: false })).length; }
     async function getHistoryEntry(id) {
-        const response = await fetch(`/api/storage/library/${encodeURIComponent(id)}`, { cache: 'no-store' });
+        const response = await requestLibrary(`/api/storage/library/${encodeURIComponent(id)}`, { cache: 'no-store' });
         return response.ok ? hydrateHistory((await response.json()).item) : null;
     }
-    async function updateHistoryThumb(id, thumb) {
-        const response = await fetch(`/api/storage/library/${encodeURIComponent(id)}/thumbnail`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ thumb })
+    async function updateHistoryThumb(id, thumb, entry) {
+        const response = await requestLibrary(`/api/storage/library/${encodeURIComponent(id)}/thumbnail`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ thumb, fileVersion: entry?.fileVersion })
         });
         return response.ok;
     }
-    async function deleteHistoryEntry(id) {
-        const response = await fetch(`/api/storage/library/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    async function deleteHistoryEntry(id, entry) {
+        const response = await requestLibrary(`/api/storage/library/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { 'X-Media-Version': entry?.fileVersion || '' } });
         const result = await response.json().catch(() => ({}));
         if (!response.ok || result.success !== true) {
             const message = result.error || '删除文件失败，请刷新历史后重试';
@@ -484,9 +493,9 @@ export function createDiskStorageApi(getState) {
         }
         return true;
     }
-    async function clearDirectoryHistory() {
-        const entries = await getHistoryMetadata({ throwOnError: true });
-        for (const entry of entries) await deleteHistoryEntry(entry.id);
+    async function clearDirectoryHistory(entries) {
+        if (!Array.isArray(entries)) throw new Error('请刷新历史并确认要删除的文件');
+        for (const entry of entries) await deleteHistoryEntry(entry.id, entry);
         return { historyDeleted: entries.length };
     }
     async function getHistoryImageBlob(id) {

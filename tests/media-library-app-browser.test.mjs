@@ -43,7 +43,7 @@ test('generation archives the complete batch before publishing; directory histor
         assert.equal((await metadata(app)).count,3);
         const id=entries[0].id;
         assert.equal(await app.evaluate(`archiveApi.getHistoryEntry(${id}).then(e=>e.image.startsWith('data:image/png;base64,'))`),true);
-        await app.evaluate(`archiveApi.deleteHistoryEntry(${id})`);
+        await app.evaluate(`archiveApi.deleteHistoryEntry(${id}, ${JSON.stringify(entries[0])})`);
         await assert.rejects(stat(join(entries[0].directory,entries[0].relativePath)),{code:'ENOENT'});
         assert.equal((await metadata(app)).count,2);
         await reloadAppBrowser(app);

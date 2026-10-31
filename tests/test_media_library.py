@@ -28,7 +28,7 @@ class MediaLibraryTests(unittest.TestCase):
             self.assertTrue(files[0].exists())
             store.set_export_directory(os.path.join(root, 'exports'))
             self.assertEqual(2, len(library.list()))
-            self.assertTrue(library.delete(123))
+            self.assertTrue(library.delete(123, item['fileVersion']))
             self.assertFalse(files[0].exists())
             self.assertTrue(external.exists())
             self.assertIsNone(library.get(123))
@@ -56,7 +56,7 @@ class MediaLibraryTests(unittest.TestCase):
             self.assertEqual(b'video-original', library.read(7)[1])
             self.assertEqual([], MediaLibrary(store).migrate_legacy())
             self.assertEqual(2, len(library.list()))
-            library.delete(7)
+            library.delete(7, item['fileVersion'])
             self.assertEqual([], MediaLibrary(store).migrate_legacy())
             self.assertEqual(1, len(library.list()))
 
@@ -68,9 +68,10 @@ class MediaLibraryTests(unittest.TestCase):
             output = Path(item['directory'], item['relativePath'])
             output.write_bytes(b'external replacement')
             with self.assertRaisesRegex(ValueError, '文件已变化'):
-                library.delete(8)
+                library.delete(8, item['fileVersion'])
             self.assertEqual(b'external replacement', output.read_bytes())
             self.assertNotIn('prompt', library.list()[0])
+            item = library.get(8)
             outside = Path(root, 'outside'); outside.mkdir(); (outside / 'untouched.png').write_bytes(b'private')
             link = Path(root, 'exports', 'link')
             try:
@@ -80,12 +81,37 @@ class MediaLibraryTests(unittest.TestCase):
                 else:
                     link.symlink_to(outside, target_is_directory=True)
                 self.assertEqual(1, len(library.list()))
-                library.delete(8)
+                library.delete(8, item['fileVersion'])
                 self.assertEqual(b'private', (outside / 'untouched.png').read_bytes())
             finally:
                 if link.exists():
                     if os.name == 'nt': os.rmdir(link)
                     else: link.unlink()
+
+    def test_stale_file_version_rejected_even_after_another_scan(self):
+        with tempfile.TemporaryDirectory() as root:
+            library = MediaLibrary(self.make_store(root))
+            old = library.save({'id': 9, 'mimeType': 'image/png'}, b'old')
+            path = Path(old['directory'], old['relativePath'])
+            path.write_bytes(b'new replacement')
+            current = library.list()[0]
+            with self.assertRaisesRegex(ValueError, '文件已变化'):
+                library.delete(9, old['fileVersion'])
+            with self.assertRaisesRegex(ValueError, '文件已变化'):
+                library.update_thumbnail(9, 'data:image/png;base64,b2xk', old['fileVersion'])
+            self.assertEqual(b'new replacement', path.read_bytes())
+            self.assertFalse(library.get(9)['thumb'])
+            self.assertTrue(library.delete(9, current['fileVersion']))
+
+    def test_archive_directory_cannot_overlap_cache_maintenance_roots(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = self.make_store(root)
+            for directory in (store.assets_dir, store.temp_dir, store.assets_dir + '.quarantine'):
+                with self.assertRaisesRegex(Exception, '缓存'):
+                    store.set_export_directory(str(Path(directory, 'saved')))
+            store.put_document('export_settings', {'directory': str(Path(store.assets_dir, 'legacy-config'))})
+            with self.assertRaisesRegex(Exception, '缓存'):
+                MediaLibrary(store).save({'id': 1, 'mimeType': 'image/png'}, b'original')
 
 if __name__ == '__main__':
     unittest.main()
