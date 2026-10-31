@@ -759,3 +759,31 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     .prompt-agent-processing-dot { animation: none; }
     .prompt-agent-search-toggle .toggle-slider, .prompt-agent-search-toggle .toggle-slider::before { transition-duration: 300ms; }
 }
+
+/* Canvas plans: separate steps, configuration disclosure and action hierarchy. */
+.prompt-agent-canvas-plan { padding: 12px; border-radius: 10px; font-size: 13px; background: color-mix(in srgb, var(--bg-input) 45%, transparent); }
+.prompt-agent-plan-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.prompt-agent-plan-header strong { font-size: 14px; }
+.prompt-agent-plan-count { color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
+.prompt-agent-canvas-plan .prompt-agent-plan-inputs { margin: 6px 0 10px; color: var(--text-secondary); }
+.prompt-agent-canvas-plan .prompt-agent-plan-steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.prompt-agent-canvas-plan .prompt-agent-plan-steps > li { min-width: 0; margin: 0; padding: 9px; border: 1px solid var(--border-color); border-radius: 7px; background: var(--bg-input); }
+.prompt-agent-step-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.prompt-agent-step-number { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%; background: color-mix(in srgb, var(--accent-primary) 12%, transparent); color: var(--accent-primary); font-size: 12px; }
+.prompt-agent-step-title { flex: 1 1 80px; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+.prompt-agent-step-status { padding: 2px 6px; border-radius: 4px; color: var(--text-secondary); background: color-mix(in srgb, var(--text-secondary) 9%, transparent); font-size: 12px; white-space: nowrap; }
+.prompt-agent-step-status[data-status=failed] { color: var(--accent-red); background: color-mix(in srgb, var(--accent-red) 12%, transparent); }
+.prompt-agent-step-status[data-status=completed] { color: var(--accent-green); background: color-mix(in srgb, var(--accent-green) 12%, transparent); }
+.prompt-agent-step-status[data-status=running] { color: var(--accent-primary); background: color-mix(in srgb, var(--accent-primary) 12%, transparent); }
+.prompt-agent-canvas-plan .prompt-agent-step-heading button { padding: 3px 7px; min-height: 26px; }
+.prompt-agent-canvas-plan .prompt-agent-step-settings { margin-top: 7px; }
+.prompt-agent-canvas-plan .prompt-agent-step-settings summary { line-height: 1.6; }
+.prompt-agent-plan-changes { margin-top: 10px; padding: 8px 0; border-top: 1px solid var(--border-color); }
+.prompt-agent-plan-changes > summary { cursor: pointer; color: var(--text-secondary); }
+.prompt-agent-canvas-plan .prompt-agent-canvas-actions { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-color); }
+.prompt-agent-actions-primary, .prompt-agent-actions-secondary { display: flex; flex-wrap: wrap; gap: 6px; }
+.prompt-agent-canvas-actions .btn { min-height: 32px; padding: 5px 10px; }
+.prompt-agent-actions-secondary .btn { font-size: 12px; color: var(--text-secondary); background: transparent; }
+.prompt-agent-run-error { margin-top: 8px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--accent-red) 35%, transparent); border-radius: 7px; background: color-mix(in srgb, var(--accent-red) 7%, transparent); color: var(--accent-red); font-size: 12px; }
+.prompt-agent-run-error summary { cursor: pointer; }
+.prompt-agent-run-error p { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-primary); }
