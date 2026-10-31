@@ -12,6 +12,8 @@ Prompt Agent retains each generation attempt on its originating plan message. A 
 
 ## Presentation and automatic save nodes
 
+The automatic ImageSave creation paragraphs below are superseded by [ADR-0022](0022-generated-media-directory-history.md): generated media is archived directly and ImageSave is retired. Result ownership and recovery above remain in effect.
+
 - Fresh and restored run records share the same renderer. Clicking or pressing Enter/Space on a generated image opens its immutable batch in the existing fullscreen viewer, without changing a node's current preview or editing state.
 - Automatic ImageSave creation happens on the editable workflow before taking a run snapshot. For each enabled image/video generator in the original execution range, no direct media-output connection to an existing enabled target means an enabled ImageSave is added and connected. Disabled targets stay disabled.
 - The `autoAddedForGeneration` marker survives serialization. Bounded runs include connected, enabled automatic save nodes through validated `includedAutoSaveNodeIds`; retries reuse them without executing unrelated downstream branches. Running-node conflicts are checked before graph mutation, and the runtime receives the completed graph from the start.

@@ -1157,6 +1157,10 @@ export function createNodeLifecycleApi({
     }
 
     function addNode(type, x, y, restoreData, silent = false) {
+        if (type === 'ImageSave' && !restoreData?.id) {
+            showToast('保存节点已弃用，生成的图片和视频会自动保存', 'info');
+            return null;
+        }
         if (!silent) pushHistory();
         const normalizedType = normalizeNodeType(type);
         const config = nodeConfigs[normalizedType];

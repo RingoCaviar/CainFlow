@@ -925,8 +925,8 @@ export function createUiControllerApi({
         });
 
         documentRef.getElementById('btn-clear-history')?.addEventListener('click', async () => {
-            if (confirmRef('确定要清空所有历史记录吗？此操作无法撤销。')) {
-                await clearHistory();
+            if (confirmRef('确定要删除当前保存目录及子文件夹中的全部图片和视频吗？对应本地文件也会删除，此操作无法撤销。')) {
+                try { await clearHistory(); } catch (error) { showToast(error.message, 'error'); renderHistoryList(); return; }
                 renderHistoryList();
                 historyFullscreenApi?.refresh();
                 showToast('历史记录已清空', 'info');
@@ -1188,6 +1188,7 @@ export function createUiControllerApi({
         const cacheSidebar = documentRef.getElementById('cache-sidebar');
         const btnClose = documentRef.getElementById('btn-close-cache');
         const btnClear = documentRef.getElementById('btn-clear-cache');
+        if (btnClear) btnClear.hidden = true; // Directory originals are only deleted from history, never cache maintenance.
         const btnClearTemporary = documentRef.getElementById('btn-clear-temporary-cache');
 
         if (!btnToggle || !cacheSidebar) return;
@@ -1335,36 +1336,6 @@ export function createUiControllerApi({
             });
             return actionId === 'confirm';
         };
-
-        btnClear?.addEventListener('click', async () => {
-            const confirmed = await confirmCacheCleanup({
-                id: 'cache-clear-history-dialog',
-                title: '清理所有历史记录',
-                message: '确定要清理所有历史记录吗？',
-                note: '这将永久删除硬盘 data 目录中的历史生成图库及对应媒体，无法撤销。'
-            });
-            if (!confirmed) return;
-
-            try {
-                const result = await runCacheCleanup(() => clearHistory({ detailed: true }));
-                if (result.success === false) throw new Error('硬盘历史清理未完成');
-                if (result.gcSuspended || Number(result.candidatesRetained || 0) > 0
-                        || Number(result.orphanFilesFailed || 0) > 0) {
-                    const details = [];
-                    if (result.gcSuspended) details.push('媒体回收仍暂停');
-                    if (Number(result.candidatesRetained || 0) > 0) details.push(`${result.candidatesRetained} 项媒体仍待回收`);
-                    if (Number(result.orphanFilesFailed || 0) > 0) details.push(`${result.orphanFilesFailed} 个文件删除失败`);
-                    showToast(`历史记录已清空，但${details.join('，')}；请查看缓存面板`, 'warning', 8000);
-                } else {
-                    showToast('历史生成记录及无引用媒体已清理', 'success');
-                }
-                if (documentRef.getElementById('history-sidebar')?.classList.contains('active')) {
-                    renderHistoryList();
-                }
-            } catch (e) {
-                showToast('历史清理失败: ' + e.message, 'error');
-            }
-        });
 
         documentRef.getElementById('btn-clear-assets')?.addEventListener('click', async () => {
             const confirmed = await confirmCacheCleanup({

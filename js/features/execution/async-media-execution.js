@@ -255,7 +255,7 @@ export function createAsyncMediaExecutionApi({
                 model: modelCfg?.name || '',
                 generationDurationSeconds: getNodeGenerationDurationSeconds(node)
             });
-            addLog('info', '视频历史缓存完成', '视频结果已下载并写入历史记录缓存。', {
+            addLog('info', '视频自动保存完成', '视频结果已写入本地保存目录。', {
                 nodeId: node.id,
                 model: modelCfg?.name || '',
                 videoId: result.videoId || '',
@@ -265,14 +265,14 @@ export function createAsyncMediaExecutionApi({
             if (getImageHistorySidebarActive()) renderHistoryList();
             return videoBlob;
         } catch (error) {
-            addLog('warning', '视频历史缓存失败', '视频已经生成成功并会继续传递给下游，但保存到历史记录时下载/写入失败。', {
+            addLog('warning', '视频本地保存失败', '视频下载或写入保存目录失败，本轮未完成。', {
                 nodeId: node.id,
                 model: modelCfg?.name || '',
                 videoId: result?.videoId || '',
                 videoUrl: result?.videoUrl || '',
                 error: error?.message || String(error)
             });
-            return videoBlob;
+            throw error;
         }
     }
 
@@ -703,6 +703,13 @@ export function createAsyncMediaExecutionApi({
                 recoverySource: finalResult.recoverySource || 'backend'
             });
         }
+        await saveImageGenerationHistoryEntry({
+            nodeId: node.id,
+            image: imageData,
+            prompt: finalResult.prompt || node.data?.prompt || '',
+            model: finalResult.modelName || '',
+            generationDurationSeconds: getNodeGenerationDurationSeconds(node)
+        });
         commitImageGenerateOutputs(node, [imageData], finalResult.prompt || node.data?.prompt || '');
         commitAsyncImageTaskState(node, {
             imageTaskId: finalResult.imageTaskId,
@@ -713,13 +720,6 @@ export function createAsyncMediaExecutionApi({
             progress: finalResult.progress
         });
         await refreshDependentImageResizePreviews(node.id);
-        await saveImageGenerationHistoryEntry({
-            nodeId: node.id,
-            image: imageData,
-            prompt: finalResult.prompt || node.data?.prompt || '',
-            model: finalResult.modelName || '',
-            generationDurationSeconds: getNodeGenerationDurationSeconds(node)
-        });
         if (getImageHistorySidebarActive()) renderHistoryList();
         connectionProjection?.nodeGeometryChanged(node.id);
         return imageData;

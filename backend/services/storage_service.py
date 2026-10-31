@@ -3089,18 +3089,9 @@ class StorageService(UndoMediaMixin):
 
     def trim_history(self, max_entries=HISTORY_MAX_ENTRIES, retention_days=HISTORY_RETENTION_DAYS,
                      now_ms=None, max_deletions=None, cleanup=True):
-        now = int(time.time() * 1000) if now_ms is None else int(now_ms)
-        cutoff = now - max(1, retention_days) * 86400000
-        entries = self.list_history()
-        deleted = 0
-        for index, entry in enumerate(entries):
-            if max_deletions is not None and deleted >= max_deletions:
-                break
-            if index >= max_entries or int(entry.get('timestamp') or 0) < cutoff:
-                self.delete_history(entry['id'], cleanup=False)
-                deleted += 1
-        if deleted and cleanup:
-            self.cleanup_unreferenced_media_assets()
+        # Originals are retained until explicit user deletion. Never age/count-expire
+        # legacy records either: they are the upgrade migration's source of truth.
+        return 0
 
     @staticmethod
     def _filesystem_relative_key(relative):

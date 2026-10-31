@@ -241,11 +241,11 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
             autoResize: '开启后，超出阈值的大图会在导入时自动缩小；关闭后将保留原图。',
             maxSide: '阈值按边长换算为总像素上限，仅在自动缩放开启时生效。',
             globalSaveDir: [
-                '设置全局目录可统一管理生成的图片。',
-                '注意：受浏览器安全限制，无法读取完整路径，请自行记住所使用的文件夹位置。',
-                '局域网其他设备访问时无法使用自动保存功能。'
+                '生成的图片和视频自动保存到此目录。',
+                '历史记录读取此目录及子文件夹中的全部图片和视频；从历史删除也会删除本地文件。',
+                '切换目录不移动文件；切回原目录即可再次浏览。'
             ].join('\n'),
-            promptFilename: '开启后，保存节点会用生成该图片时的提示词加时间作为文件名。注意：如果提示词过长，可能导致部分环境下出现文件名相关问题。',
+            promptFilename: '开启后，自动保存的生成结果使用提示词摘要加唯一编号命名。',
             autoRetry: '默认关闭。开启后，工作流中失败的请求会按下方最大重试次数自动补试；已成功的结果会保留。',
             maxRetries: '开启自动重试后，初始失败最多允许再尝试执行多少轮。',
             autoCompactTokens: '所有工作流的 Agent 共用此阈值。达到估算 Token 数时尝试压缩上下文；它不是模型的最大上下文容量。',
@@ -441,13 +441,13 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                 <div class="card-row">
                     <div class="card-field">
                         <div class="general-settings-label-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('全局图片保存目录', generalHelpText.globalSaveDir)}
+                            ${dialogs.renderGeneralSettingsHelpLabel('图片和视频保存目录', generalHelpText.globalSaveDir)}
                         </div>
                         <div class="general-settings-dir-row">
                             <span id="global-dir-badge" class="${state.globalSaveDirHandle ? 'is-set' : 'is-missing'}">
                                 ${state.globalSaveDirHandle ? `当前目录: ${dialogs.escapeHtml(state.globalSaveDirHandle.name)}` : '<span class="general-settings-warning-text">⚠️ 未设置</span>'}
                             </span>
-                            <input id="setting-global-export-dir" type="text" aria-label="全局图片保存目录" value="${dialogs.escapeHtml(state.globalSaveDirHandle?.name || '')}" placeholder="输入绝对路径，留空使用程序旁 exports" style="min-width:0; flex:1 1 100%" />
+                            <input id="setting-global-export-dir" type="text" aria-label="图片和视频保存目录" value="${dialogs.escapeHtml(state.globalSaveDirHandle?.name || '')}" placeholder="输入绝对路径，留空使用程序旁 exports" style="min-width:0; flex:1 1 100%" />
                             ${windowRef.__cainflowDesktop ? '<button id="btn-choose-global-dir" class="btn btn-secondary btn-xs general-settings-dir-action">选择目录</button>' : ''}
                             <button id="btn-set-global-dir" class="btn btn-secondary btn-xs general-settings-dir-action">保存路径</button>
                             ${state.globalSaveDirHandle ? '<button id="btn-clear-global-dir" class="btn btn-ghost btn-xs general-settings-dir-action">恢复默认</button>' : ''}
@@ -456,7 +456,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <div class="general-settings-control-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('保存图片时使用提示词命名', generalHelpText.promptFilename, { emphasis: true })}
+                            ${dialogs.renderGeneralSettingsHelpLabel('使用提示词命名生成结果', generalHelpText.promptFilename, { emphasis: true })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-image-save-use-prompt-filename" ${imageSaveUsePromptFilename ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
