@@ -3553,13 +3553,27 @@ class StorageService(UndoMediaMixin):
 
     def get_export_directory(self):
         configured = self.get_document('export_settings', {}).get('value') or {}
-        return configured.get('directory') or self.exports_dir
+        directory = configured.get('directory') or self.exports_dir
+        self.validate_export_directory(directory)
+        return directory
+
+    def validate_export_directory(self, path):
+        resolved = os.path.normcase(os.path.realpath(path))
+        for protected in (self.assets_dir, self.temp_dir, self._media_quarantine_dir):
+            protected = os.path.normcase(os.path.realpath(protected))
+            try:
+                overlaps = os.path.commonpath([resolved, protected]) in (resolved, protected)
+            except ValueError:
+                overlaps = False
+            if overlaps:
+                raise StorageError('保存目录不能与媒体缓存、临时或隔离目录重叠，请选择独立目录')
 
     def set_export_directory(self, path):
         path = str(path or '').strip()
         resolved = self.exports_dir if not path else os.path.abspath(path)
         if path and not os.path.isabs(path):
             raise StorageError('Export directory must be an absolute path')
+        self.validate_export_directory(resolved)
         os.makedirs(resolved, exist_ok=True)
         probe = os.path.join(resolved, '.cainflow-write-test')
         try:

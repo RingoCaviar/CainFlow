@@ -480,7 +480,7 @@ export function createHistoryPreviewApi({
 
         const isVideo = isVideoHistoryItem(item);
         if (windowRef.confirm(`确定要从历史记录中删除这${isVideo ? '个视频' : '张图片'}及对应的本地文件吗？\n此操作无法撤销。`)) {
-            try { await deleteHistoryEntry(item.id); } catch { renderHistoryList(); return; }
+            try { await deleteHistoryEntry(item.id, item); } catch { renderHistoryList(); return; }
             showToast('已从历史记录中删除', 'info');
 
             previewState.items.splice(previewState.currentIndex, 1);
@@ -498,10 +498,10 @@ export function createHistoryPreviewApi({
         }
     }
 
-    async function deleteHistoryItems(ids) {
-        if (!ids || ids.length === 0) return;
+    async function deleteHistoryItems(items) {
+        if (!items || items.length === 0) return;
         try {
-            await Promise.all(ids.map((id) => deleteHistoryEntry(Number(id))));
+            await Promise.all(items.map((item) => deleteHistoryEntry(Number(item.id), item)));
             return true;
         } catch (e) {
             showToast(`删除未全部完成：${e.message}`, 'error');

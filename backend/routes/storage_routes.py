@@ -184,7 +184,8 @@ def handle_post(handler):
             write_json(handler, storage_service.undo_media_request(read_json_body(handler)))
             return True
         if path.startswith('/api/storage/library/') and path.endswith('/thumbnail'):
-            MediaLibrary(storage_service).update_thumbnail(int(path.split('/')[-2]), read_json_body(handler).get('thumb'))
+            payload = read_json_body(handler)
+            MediaLibrary(storage_service).update_thumbnail(int(path.split('/')[-2]), payload.get('thumb'), payload.get('fileVersion'))
             write_json(handler, {'success': True})
             return True
         if path == '/api/storage/history':
@@ -325,7 +326,7 @@ def handle_delete(handler):
         return True
     if path.startswith('/api/storage/library/'):
         try:
-            deleted = MediaLibrary(storage_service).delete(int(path.rsplit('/', 1)[-1]))
+            deleted = MediaLibrary(storage_service).delete(int(path.rsplit('/', 1)[-1]), handler.headers.get('X-Media-Version'))
             write_json(handler, {'success': deleted}, status=200 if deleted else 404)
         except (OSError, ValueError, StorageError) as error:
             write_error(handler, 400, str(error))

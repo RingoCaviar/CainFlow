@@ -353,7 +353,7 @@ export function createHistoryFullscreenApi({
                     : await makeThumbnail(media, 256, entry.videoAssetKey || entry.imageAssetKey || `history:${item.id}`);
                 if (!thumb) return;
                 if (version !== viewState.version) return;
-                if (!entry.thumb || needsHistoryVideoThumbnail(entry)) await updateHistoryThumb(item.id, thumb, entry);
+                if ((!entry.thumb || needsHistoryVideoThumbnail(entry)) && await updateHistoryThumb(item.id, thumb, entry) === false) throw new Error('文件已变化，丢弃旧缩略图');
                 if (version !== viewState.version) return;
                 item.thumb = thumb;
                 viewState.itemMap.set(item.id, item);
@@ -384,7 +384,7 @@ export function createHistoryFullscreenApi({
                 event.stopPropagation();
                 const id = Number(deleteButton.dataset.id);
                 if (!confirmRef('确定要删除这项媒体及对应的本地文件吗？此操作无法撤销。')) return;
-                try { await deleteHistoryEntry(id); } catch { await refresh(); return; }
+                try { await deleteHistoryEntry(id, viewState.itemMap.get(id)); } catch { await refresh(); return; }
                 await refresh();
                 return;
             }
@@ -578,7 +578,7 @@ export function createHistoryFullscreenApi({
             return;
         }
         if (!confirmRef(`确定要删除选中的 ${state.selectedHistoryIds.size} 项媒体及对应的本地文件吗？此操作无法撤销。`)) return;
-        if (await deleteHistoryItems(Array.from(state.selectedHistoryIds)) === false) { await refresh(); return; }
+        if (await deleteHistoryItems(viewState.items.filter(item => state.selectedHistoryIds.has(item.id))) === false) { await refresh(); return; }
         state.selectedHistoryIds.clear();
         await refresh();
         exitBatchMode();
@@ -605,8 +605,9 @@ export function createHistoryFullscreenApi({
     }
 
     async function handleClearHistory() {
+        const entries = await getHistoryMetadata({ throwOnError: true });
         if (!confirmRef('确定要删除当前保存目录及子文件夹中的全部图片和视频吗？对应本地文件也会删除，此操作无法撤销。')) return;
-        try { await clearHistory(); } catch { await refresh(); return; }
+        try { await clearHistory(entries); } catch { await refresh(); return; }
         await refresh();
         showToast('历史记录已清空', 'info');
     }

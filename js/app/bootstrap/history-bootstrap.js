@@ -36,7 +36,7 @@ export function createHistoryFeature({
             return false;
         }
         const thumbnail = await createVideoThumbnail(video, 256, entry.videoAssetKey || `history:${id}`);
-        if (!thumbnail || !await updateHistoryThumb(id, thumbnail)) {
+        if (!thumbnail || !await updateHistoryThumb(id, thumbnail, entry)) {
             showToast('重新生成视频缩略图失败', 'warning');
             return false;
         }

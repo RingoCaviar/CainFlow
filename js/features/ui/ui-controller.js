@@ -925,8 +925,9 @@ export function createUiControllerApi({
         });
 
         documentRef.getElementById('btn-clear-history')?.addEventListener('click', async () => {
+            const entries = await getHistoryMetadata({ throwOnError: true });
             if (confirmRef('确定要删除当前保存目录及子文件夹中的全部图片和视频吗？对应本地文件也会删除，此操作无法撤销。')) {
-                try { await clearHistory(); } catch (error) { showToast(error.message, 'error'); renderHistoryList(); return; }
+                try { await clearHistory(entries); } catch (error) { showToast(error.message, 'error'); renderHistoryList(); return; }
                 renderHistoryList();
                 historyFullscreenApi?.refresh();
                 showToast('历史记录已清空', 'info');
@@ -1046,10 +1047,11 @@ export function createUiControllerApi({
                 return;
             }
 
-            if (!confirmRef(`确定要删除选中的 ${state.selectedHistoryIds.size} 条记录吗？\n此操作无法撤销。`)) return;
+            if (!confirmRef(`确定要删除选中的 ${state.selectedHistoryIds.size} 项媒体及对应的本地文件吗？\n此操作无法撤销。`)) return;
 
             const idsToDelete = Array.from(state.selectedHistoryIds);
-            await historyPreviewApi.deleteHistoryItems(idsToDelete);
+            const items = (state.historyVisibleItems || []).filter(item => state.selectedHistoryIds.has(item.id));
+            if (items.length !== idsToDelete.length || await historyPreviewApi.deleteHistoryItems(items) === false) { renderHistoryList(); return; }
 
             state.selectedHistoryIds.clear();
             state.historySelectionMode = false;

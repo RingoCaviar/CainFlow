@@ -65,6 +65,7 @@ class MediaLibrary:
         return path
 
     def save(self, entry, body):
+        self.storage.assert_storage_writable()
         if not body:
             raise ValueError('媒体内容为空，未保存')
         mime = str(entry.get('mimeType') or '').split(';')[0].lower()
@@ -150,7 +151,7 @@ class MediaLibrary:
         metadata = json.loads(row['metadata'])
         media_type = 'video' if row['mime'].startswith('video/') else 'image'
         url = f"/api/storage/library/{row['id']}/file"
-        metadata.update(id=row['id'], mediaType=media_type, fileUrl=url, directory=row['root'], relativePath=row['path'],
+        metadata.update(fileVersion=f"{row['size']}:{row['mtime']}", id=row['id'], mediaType=media_type, fileUrl=url, directory=row['root'], relativePath=row['path'],
                         timestamp=metadata.get('timestamp') or row['mtime'] // 1000000,
                         videoMimeType=row['mime'] if media_type == 'video' else '', videoSizeBytes=row['size'] if media_type == 'video' else 0)
         # Directory originals are authoritative; cached media identities never replace them.
@@ -223,7 +224,7 @@ class MediaLibrary:
             with open(self._path(row), 'rb') as file:
                 return row['mime'], file.read()
 
-    def update_thumbnail(self, identifier, thumb):
+    def update_thumbnail(self, identifier, thumb, version=None):
         if not isinstance(thumb, str) or len(thumb) > 700000 or not thumb.startswith(('data:image/webp;base64,', 'data:image/jpeg;base64,', 'data:image/png;base64,')):
             raise ValueError('缩略图格式无效')
         body = base64.b64decode(thumb.split(',', 1)[1], validate=True)
@@ -232,21 +233,21 @@ class MediaLibrary:
             if not row:
                 raise ValueError('文件不存在，请刷新历史')
             info = os.stat(self._path(row))
-            if (info.st_size, info.st_mtime_ns) != (row['size'], row['mtime']):
+            if version != f"{row['size']}:{row['mtime']}" or (info.st_size, info.st_mtime_ns) != (row['size'], row['mtime']):
                 raise ValueError('文件已变化，请刷新历史')
             metadata = json.loads(row['metadata'])
             metadata.update(thumb=thumb, thumbSizeBytes=len(body))
             with self._db() as db:
                 db.execute('UPDATE files SET metadata=? WHERE id=?', (json.dumps(metadata, ensure_ascii=False), int(identifier)))
 
-    def delete(self, identifier):
+    def delete(self, identifier, version=None):
         with self.storage._lock:
             row = self._current_row(identifier)
             if not row:
                 return False
             path = self._path(row)
             info = os.stat(path)
-            if (info.st_size, info.st_mtime_ns) != (row['size'], row['mtime']):
+            if version != f"{row['size']}:{row['mtime']}" or (info.st_size, info.st_mtime_ns) != (row['size'], row['mtime']):
                 raise ValueError('文件已变化，请刷新历史后重新确认删除')
             os.unlink(path)
             with self._db() as db:

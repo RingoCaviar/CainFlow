@@ -58,7 +58,7 @@ export function createHistoryPanelApi({
                     if (!media || typeof makeThumbnail !== 'function') continue;
                     const thumb = await makeThumbnail(media, 256, entry.videoAssetKey || entry.imageAssetKey || `history:${item.id}`);
                     if (!thumb) continue;
-                    if (updateHistoryThumb) await updateHistoryThumb(item.id, thumb, entry);
+                    if (updateHistoryThumb && await updateHistoryThumb(item.id, thumb, entry) === false) continue;
                     const img = documentRef.querySelector(`#history-list .history-card[data-id="${item.id}"] img`);
                     if (img && token === renderToken) {
                         img.src = thumb;
@@ -146,7 +146,7 @@ export function createHistoryPanelApi({
             if (deleteButton) {
                 event.stopPropagation();
                 if (!confirm('确定要删除这项媒体及对应的本地文件吗？此操作无法撤销。')) return;
-                try { await deleteHistoryEntry(Number(deleteButton.dataset.id)); }
+                try { await deleteHistoryEntry(Number(deleteButton.dataset.id), itemsById.get(Number(deleteButton.dataset.id))); }
                 catch { /* Storage adapter reports the failed deletion. */ }
                 renderHistoryList();
                 return;
@@ -185,6 +185,7 @@ export function createHistoryPanelApi({
         ]);
         if (token !== renderToken) return;
         if (!list) return;
+        state.historyVisibleItems = items;
 
         if (!items.length) {
             list.innerHTML = '<div style="color:var(--text-secondary); text-align:center; padding: 40px 0; font-size:13px;">暂无历史记录</div>';
