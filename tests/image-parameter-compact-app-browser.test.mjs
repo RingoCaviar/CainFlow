@@ -109,13 +109,14 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         assert.ok(Math.abs(textBounds.right - textBounds.left) <= 1, 'prompt uses the full width with balanced side padding');
         assert.ok(textBounds.toolsTop >= textBounds.textBottom, 'tools sit below the prompt outside its input area');
         assert.ok(textBounds.topPadding < 10, 'prompt no longer reserves a toolbar row');
-        const assistantBounds = await app.evaluate("(()=>{const b=document.getElementById('image-0-assistant'),p=originalCompactPrompt,s=getComputedStyle(p);return {inBar:!!b.closest('.image-parameter-setting-bar'),top:b.getBoundingClientRect().top,bottom:p.getBoundingClientRect().bottom,padding:parseFloat(s.paddingBottom)}})()");
-        assert.ok(assistantBounds.inBar && assistantBounds.top >= assistantBounds.bottom, 'assistant action is below the textarea in settings');
+        const assistantBounds = await app.evaluate("(()=>{const b=document.getElementById('image-0-assistant'),p=originalCompactPrompt,s=getComputedStyle(p);return {ownRow:b.closest('.image-prompt-actions').previousElementSibling===p.closest('.image-node-prompt-field'),settingsTop:document.querySelector('#image-parameter-panel .image-parameter-setting-bar').getBoundingClientRect().top,actionBottom:b.getBoundingClientRect().bottom,top:b.getBoundingClientRect().top,bottom:p.getBoundingClientRect().bottom,padding:parseFloat(s.paddingBottom)}})()");
+        assert.ok(assistantBounds.ownRow && assistantBounds.top >= assistantBounds.bottom && assistantBounds.top - assistantBounds.bottom <= 10, 'assistant action is directly below the textarea');
+        assert.ok(assistantBounds.settingsTop >= assistantBounds.actionBottom, 'settings follow the independent prompt action row');
         assert.ok(assistantBounds.padding < 10, 'textarea reserves no bottom button space');
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').click()");
         assert.ok(await app.evaluate("!!document.querySelector('#image-parameter-panel.is-expanded > .image-parameter-header')"), 'expanded tools return to the draggable header');
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').click()");
-        assert.ok(await app.evaluate("!!document.querySelector('#image-parameter-panel .image-parameter-setting-bar > .image-parameter-header')"), 'restoring returns tools to settings');
+        assert.ok(await app.evaluate("!!document.querySelector('#image-parameter-panel .image-prompt-actions > .image-parameter-header')"), 'restoring returns tools to prompt actions');
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]').click()");
         await open(app, 'image-0');
         assert.equal(await app.evaluate("document.querySelectorAll('#image-parameter-panel [data-parameter-action=close]').length"), 1, 'reopening retains exactly one close control');
