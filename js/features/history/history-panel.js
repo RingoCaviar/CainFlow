@@ -44,11 +44,14 @@ export function createHistoryPanelApi({
         const missing = items.filter((item) => (!item.thumb || needsHistoryVideoThumbnail(item)) && (item.hasImage || item.hasVideo || item.mediaType === 'video'));
         if (!missing.length) return;
 
-        const run = windowRef.requestIdleCallback || ((callback) => setTimeout(() => callback({ timeRemaining: () => 16 }), 16));
+        const run = (callback) => windowRef.requestIdleCallback
+            ? windowRef.requestIdleCallback(callback, { timeout: 1000 })
+            : setTimeout(() => callback({ timeRemaining: () => 16 }), 16);
         let index = 0;
 
         const process = async (deadline) => {
-            while (index < missing.length && token === renderToken && deadline.timeRemaining() > 4) {
+            const firstIndex = index;
+            while (index < missing.length && token === renderToken && (index === firstIndex || deadline.timeRemaining() > 4)) {
                 const item = missing[index++];
                 try {
                     const entry = await hydrateHistoryItem(item.id);

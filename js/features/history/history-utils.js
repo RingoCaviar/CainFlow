@@ -111,8 +111,10 @@ export function buildHistoryCardMarkup({
     const durationText = escapeHistoryHtml(formatHistoryGenerationDuration(item.generationDurationSeconds ?? item.generationDuration));
     const isVideo = item.mediaType === 'video' || item.hasVideo;
     const videoSizeText = escapeHistoryHtml(formatHistoryVideoSize(item.videoSizeBytes));
-    const imageClass = thumb ? '' : 'history-card-img-pending';
-    const previewSource = thumb || (isVideo ? VIDEO_HISTORY_PLACEHOLDER : TRANSPARENT_HISTORY_PIXEL);
+    // Directory originals remain usable while thumbnail work waits for idle time.
+    const originalPreview = !isVideo && item.fileUrl ? item.fileUrl : '';
+    const imageClass = thumb || originalPreview ? '' : 'history-card-img-pending';
+    const previewSource = thumb || originalPreview || (isVideo ? VIDEO_HISTORY_PLACEHOLDER : TRANSPARENT_HISTORY_PIXEL);
 
     return `
         <article class="history-card ${selectedClass} ${multiClass} ${compactClass} ${isVideo ? 'history-card-video' : ''}" data-id="${item.id}" draggable="${isVideo ? 'false' : 'true'}" data-media-type="${isVideo ? 'video' : 'image'}">
