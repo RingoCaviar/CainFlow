@@ -113,5 +113,32 @@ class MediaLibraryTests(unittest.TestCase):
             with self.assertRaisesRegex(Exception, '缓存'):
                 MediaLibrary(store).save({'id': 1, 'mimeType': 'image/png'}, b'original')
 
+    def test_paged_directory_history_tracks_external_changes_and_switches(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = self.make_store(root)
+            store.initialize()
+            folder = Path(root, 'exports')
+            for i in range(25):
+                (folder / f'{i}.png').write_bytes(b'original')
+            library = MediaLibrary(store)
+            page = library.list_page(limit=10)
+            self.assertEqual(25, page['count'])
+            self.assertEqual(10, len(page['items']))
+            item = page['items'][0]
+            changed = folder / item['relativePath']
+            changed.write_bytes(b'changed original')
+            (folder / 'new.png').write_bytes(b'new')
+            other = next(p for p in folder.iterdir() if p != changed and p.name != 'new.png')
+            other.unlink()
+            current = library.list_page()
+            self.assertEqual(25, current['count'])
+            updated = next(i for i in current['items'] if i['id'] == item['id'])
+            self.assertNotEqual(item['fileVersion'], updated['fileVersion'])
+            self.assertNotIn(other.name, [i['relativePath'] for i in current['items']])
+            store.set_export_directory(str(Path(root, 'other')))
+            self.assertEqual(0, library.list_page()['count'])
+            store.set_export_directory(str(folder))
+            self.assertEqual(25, library.list_page()['count'])
+
 if __name__ == '__main__':
     unittest.main()

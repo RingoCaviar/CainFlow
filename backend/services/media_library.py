@@ -132,10 +132,10 @@ class MediaLibrary:
 
     def migrate_legacy(self):
         failures = []
+        with self._db() as db:
+            completed = {row['id'] for row in db.execute("SELECT id FROM files WHERE status != 'pending'")}
         for entry in self.storage.list_history():
-            with self._db() as db:
-                known = db.execute('SELECT status FROM files WHERE id=?', (entry['id'],)).fetchone()
-            if known and known['status'] != 'pending':
+            if entry['id'] in completed:
                 continue
             try:
                 asset = self.storage.get_asset(entry.get('videoAssetKey') or entry.get('imageAssetKey'))
@@ -165,40 +165,63 @@ class MediaLibrary:
         return metadata
 
     def list(self, limit=0):
+        return self.list_page(limit)['items']
+
+    def _scan_files(self, root):
+        # DirEntry reuses filesystem metadata, including on Windows, without
+        # separate lstat/stat calls for every entry. Never follow reparse points.
+        pending = [root]
+        while pending:
+            directory = pending.pop()
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    info = entry.stat(follow_symlinks=False)
+                    if stat.S_ISLNK(info.st_mode) or getattr(info, 'st_file_attributes', 0) & 0x400:
+                        continue
+                    if stat.S_ISDIR(info.st_mode):
+                        pending.append(entry.path)
+                    elif stat.S_ISREG(info.st_mode) and os.path.splitext(entry.name)[1].lower() in IMAGE_EXTENSIONS | VIDEO_EXTENSIONS:
+                        yield os.path.relpath(entry.path, root), info
+
+    def list_page(self, limit=0):
         root = self._root()
         if not os.path.isdir(root):
             raise FileNotFoundError('保存目录不存在或暂时不可访问')
-        items = []
         with self.storage._lock, self._db() as db:
-            def fail(error):
-                raise error
-            for directory, dirs, files in os.walk(root, followlinks=False, onerror=fail):
-                dirs[:] = [name for name in dirs if not self._linked(os.path.join(directory, name))]
-                for name in files:
-                    extension = os.path.splitext(name)[1].lower()
-                    if extension not in IMAGE_EXTENSIONS | VIDEO_EXTENSIONS:
-                        continue
-                    path = os.path.join(directory, name)
-                    if self._linked(path):
-                        continue
-                    relative = os.path.relpath(path, root)
-                    info = os.stat(path)
-                    row = db.execute('SELECT * FROM files WHERE root=? AND path=?', (root, relative)).fetchone()
-                    if row and row['status'] == 'pending':
-                        continue
-                    if not row or row['status'] == 'deleted':
-                        identifier = -int(uuid.uuid4().hex[:13], 16)
-                        mime = mimetypes.guess_type(name)[0] or ('video/mp4' if extension in VIDEO_EXTENSIONS else 'image/png')
-                        if row:
-                            db.execute('UPDATE files SET path=? WHERE id=?', (relative + '.deleted-' + str(row['id']), row['id']))
-                        db.execute("INSERT INTO files(id,root,path,metadata,mime,size,mtime,status) VALUES(?,?,?,?,?,?,?,'ready')",
-                                   (identifier, root, relative, '{}', mime, info.st_size, info.st_mtime_ns))
-                    elif row['size'] != info.st_size or row['mtime'] != info.st_mtime_ns:
-                        db.execute('UPDATE files SET metadata=?,size=?,mtime=?,digest=NULL WHERE id=?', ('{}', info.st_size, info.st_mtime_ns, row['id']))
-                    row = db.execute('SELECT * FROM files WHERE root=? AND path=?', (root, relative)).fetchone()
-                    items.append(self._item(row))
-        items.sort(key=lambda item: (item['timestamp'], item['id']), reverse=True)
-        return items[:limit] if limit > 0 else items
+            known = {row['path']: row for row in db.execute(
+                "SELECT id,path,status,size,mtime,json_extract(metadata,'$.timestamp') AS timestamp FROM files WHERE root=?", (root,))}
+            inserts, updates, tombstones, visible = [], [], [], []
+            for relative, info in self._scan_files(root):
+                row = known.get(relative)
+                if row and row['status'] == 'pending':
+                    continue
+                if not row or row['status'] == 'deleted':
+                    identifier = -int(uuid.uuid4().hex[:13], 16)
+                    extension = os.path.splitext(relative)[1].lower()
+                    mime = mimetypes.guess_type(relative)[0] or ('video/mp4' if extension in VIDEO_EXTENSIONS else 'image/png')
+                    if row:
+                        tombstones.append((relative + '.deleted-' + str(row['id']), row['id']))
+                    inserts.append((identifier, root, relative, '{}', mime, info.st_size, info.st_mtime_ns))
+                    timestamp = info.st_mtime_ns // 1000000
+                else:
+                    identifier = row['id']
+                    changed = row['size'] != info.st_size or row['mtime'] != info.st_mtime_ns
+                    if changed:
+                        updates.append(('{}', info.st_size, info.st_mtime_ns, identifier))
+                    timestamp = (row['timestamp'] if not changed else None) or info.st_mtime_ns // 1000000
+                visible.append((timestamp, identifier))
+            db.executemany('UPDATE files SET path=? WHERE id=?', tombstones)
+            db.executemany("INSERT INTO files(id,root,path,metadata,mime,size,mtime,status) VALUES(?,?,?,?,?,?,?,'ready')", inserts)
+            db.executemany('UPDATE files SET metadata=?,size=?,mtime=?,digest=NULL WHERE id=?', updates)
+            visible.sort(reverse=True)
+            selected = visible[:limit] if limit > 0 else visible
+            ids = [identifier for _, identifier in selected]
+            rows = {}
+            for offset in range(0, len(ids), 500):
+                batch = ids[offset:offset + 500]
+                rows.update((row['id'], row) for row in db.execute(
+                    'SELECT * FROM files WHERE id IN (' + ','.join('?' for _ in batch) + ')', batch))
+            return {'items': [self._item(rows[identifier]) for identifier in ids], 'count': len(visible)}
 
     def _current_row(self, identifier):
         with self._db() as db:
