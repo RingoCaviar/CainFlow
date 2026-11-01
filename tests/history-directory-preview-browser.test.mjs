@@ -6,12 +6,19 @@ import { withAppBrowser } from './helpers/app-browser.mjs';
 
 test('directory images remain visible before idle thumbnail work runs', {timeout:30000}, async () => {
     await withAppBrowser({autoCheckUpdatesOnLoad:false,models:[{id:'chat',modelId:'chat',name:'test',protocol:'openai',taskType:'chat',providerIds:['p']}],providers:[{id:'p',name:'test',endpoint:'https://controlled.test/v1',apikey:'test'}],nodes:[],connections:[]}, async app => {
-        await app.evaluate('window.requestIdleCallback=()=>1');
+        await app.evaluate(`window.requestIdleCallback=()=>1;
+            window.historyListRequests=0;
+            const originalFetch=window.fetch;
+            window.fetch=(url,...args)=>{
+                if(String(url).startsWith('/api/storage/library?')) window.historyListRequests++;
+                return originalFetch(url,...args);
+            };`);
         const image = await readFile(new URL('./fixtures/reference-red.png', import.meta.url));
         await writeFile(join(app.server.dataDir, 'exports', 'external.png'), image);
         await app.evaluate("document.getElementById('btn-history').click()");
         await app.waitFor("document.querySelectorAll('#history-list .history-card').length===1");
         await app.waitFor("document.querySelector('#history-list .history-card img')?.complete");
+        assert.equal(await app.evaluate('window.historyListRequests'), 1, 'sidebar gets its page and total in one request');
         assert.equal(await app.evaluate("document.querySelector('#history-list .history-card img').naturalWidth > 1"), true, 'a real original must appear instead of a transparent pixel');
     });
 });

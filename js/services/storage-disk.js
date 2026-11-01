@@ -447,22 +447,23 @@ export function createDiskStorageApi(getState) {
             throw error;
         }
     }
-    async function getHistoryMetadata(options = {}) {
+    async function getHistoryPage(options = {}) {
         const limit = Number.isFinite(options.limit) ? options.limit : 0;
         const response = await requestLibrary(`/api/storage/library?limit=${Math.max(0, limit || 0)}`, { cache: 'no-store' });
         if (!response.ok) {
             const message = (await response.json().catch(() => ({}))).error || `读取保存目录失败：HTTP ${response.status}`;
             globalThis.dispatchEvent?.(new CustomEvent('cainflow:storage-error', { detail: { message } }));
             if (options.throwOnError) throw new Error(message);
-            return [];
+            return { items: [], count: 0 };
         }
         const result = await response.json();
         if (result.migrationErrors?.length) globalThis.dispatchEvent?.(new CustomEvent('cainflow:storage-error', {
             detail: { message: `有 ${result.migrationErrors.length} 项旧历史迁移失败，原文件已保留，请检查保存目录后重试。` }
         }));
         const items = result.items || [];
-        return options.includeThumbs === false ? items.map(({ thumb, ...item }) => item) : items;
+        return { items: options.includeThumbs === false ? items.map(({ thumb, ...item }) => item) : items, count: result.count ?? items.length };
     }
+    async function getHistoryMetadata(options = {}) { return (await getHistoryPage(options)).items; }
     async function hydrateHistory(entry) {
         if (!entry) return null;
         const key = entry.videoAssetKey || entry.imageAssetKey;
@@ -472,7 +473,7 @@ export function createDiskStorageApi(getState) {
         return { ...entry, image: await blobToDataUrl(blob) };
     }
     async function getHistory() { return Promise.all((await getHistoryMetadata()).map(hydrateHistory)); }
-    async function getHistoryCount() { return (await getHistoryMetadata({ includeThumbs: false })).length; }
+    async function getHistoryCount() { return (await getHistoryPage({ limit: 1, includeThumbs: false })).count; }
     async function getHistoryEntry(id) {
         const response = await requestLibrary(`/api/storage/library/${encodeURIComponent(id)}`, { cache: 'no-store' });
         return response.ok ? hydrateHistory((await response.json()).item) : null;
@@ -526,7 +527,7 @@ export function createDiskStorageApi(getState) {
         clearOrphanedHistoryAssets: (options = {}) => postMaintenance('clear-assets', { mode: 'orphans' }, options),
         clearOrphanedNodeAssets: (_keepKeys, options = {}) => postMaintenance('clear-assets', { mode: 'node-orphans' }, options),
         trimHistoryCache: () => getHistoryMetadata({ includeThumbs: false }), createThumbnail, createVideoThumbnail,
-        saveHistoryEntry, getHistory, getHistoryMetadata, getHistoryCount, getHistoryEntry, getHistoryImageBlob,
+        saveHistoryEntry, getHistory, getHistoryMetadata, getHistoryPage, getHistoryCount, getHistoryEntry, getHistoryImageBlob,
         updateHistoryThumb, clearHistory: clearDirectoryHistory, deleteHistoryEntry
     };
 }

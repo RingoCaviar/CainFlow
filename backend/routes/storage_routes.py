@@ -51,9 +51,8 @@ def handle_get(handler):
             library = MediaLibrary(storage_service)
             if path == '/api/storage/library':
                 migration_errors = library.migrate_legacy()
-                items = library.list()
                 limit = max(0, int((parse_qs(parsed.query).get('limit') or ['0'])[0]))
-                write_json(handler, {'items': items[:limit] if limit else items, 'count': len(items), 'migrationErrors': migration_errors})
+                write_json(handler, {**library.list_page(limit), 'migrationErrors': migration_errors})
             elif path.endswith('/file'):
                 media = library.read(int(path.split('/')[-2]))
                 if not media:

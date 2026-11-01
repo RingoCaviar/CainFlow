@@ -7,6 +7,7 @@ import { createHistoryVideoContextMenu } from './history-video-context-menu.js';
 export function createHistoryPanelApi({
     state,
     getHistory,
+    getHistoryPage,
     getHistoryMetadata = async () => [],
     getHistoryCount = async () => (await getHistoryMetadata()).length,
     getHistoryEntry = async (id) => (await getHistory()).find((entry) => entry.id === id) || null,
@@ -182,10 +183,12 @@ export function createHistoryPanelApi({
         const token = ++renderToken;
         const list = documentRef.getElementById('history-list');
         const countBadge = documentRef.getElementById('history-total-count');
-        const [items, totalCount] = await Promise.all([
-            getHistoryMetadata({ limit: SIDEBAR_LIMIT, preserveCursorOrder: true }),
-            getHistoryCount()
-        ]);
+        const { items, count: totalCount } = getHistoryPage
+            ? await getHistoryPage({ limit: SIDEBAR_LIMIT })
+            : await Promise.all([
+                getHistoryMetadata({ limit: SIDEBAR_LIMIT, preserveCursorOrder: true }),
+                getHistoryCount()
+            ]).then(([items, count]) => ({ items, count }));
         if (token !== renderToken) return;
         if (!list) return;
         state.historyVisibleItems = items;
