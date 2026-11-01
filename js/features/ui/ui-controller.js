@@ -1,3 +1,4 @@
+import { deleteHistoryWithProgress } from '../history/history-delete-progress.js';
 /**
  * 负责主界面各类面板与按钮的事件装配，是通用 UI 行为的集中控制器。
  */
@@ -927,7 +928,7 @@ export function createUiControllerApi({
         documentRef.getElementById('btn-clear-history')?.addEventListener('click', async () => {
             const entries = await getHistoryMetadata({ throwOnError: true });
             if (confirmRef('确定要删除当前保存目录及子文件夹中的全部图片和视频吗？对应本地文件也会删除，此操作无法撤销。')) {
-                try { await clearHistory(entries); } catch (error) { showToast(error.message, 'error'); renderHistoryList(); return; }
+                try { await deleteHistoryWithProgress(entries, entry => clearHistory([entry]), documentRef); } catch (error) { showToast(error.message, 'error'); renderHistoryList(); return; }
                 renderHistoryList();
                 historyFullscreenApi?.refresh();
                 showToast('历史记录已清空', 'info');

@@ -1030,3 +1030,19 @@ body:has(#toolbar [aria-expanded="true"]:not(#btn-prompt-agent)) .help-panel {
 .integrity-item-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .integrity-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .integrity-missing-list { display: grid; gap: 8px; }
+
+.history-delete-progress {
+    width: min(380px, calc(100vw - 48px));
+    padding: 24px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--bg-panel, #18202e);
+    color: var(--text-primary);
+    box-shadow: 0 16px 48px #0006;
+}
+.history-delete-progress::backdrop { background: #0007; }
+.history-delete-progress h3 { margin: 0 0 16px; font-size: 16px; }
+.history-delete-progress p { margin: 10px 0; font-size: 13px; }
+.history-delete-progress progress { width: 100%; height: 12px; accent-color: var(--accent-color, #7c83ff); }
+.history-delete-progress button { display: block; margin: 20px 0 0 auto; padding: 7px 20px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-node); color: var(--text-primary); }
+.history-delete-progress button:disabled { opacity: .45; }
