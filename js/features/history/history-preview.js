@@ -1,3 +1,4 @@
+import { deleteHistoryWithProgress } from './history-delete-progress.js';
 /**
  * 管理历史记录详情预览，包括图片查看、下载、复制与删除等交互。
  */
@@ -501,7 +502,7 @@ export function createHistoryPreviewApi({
     async function deleteHistoryItems(items) {
         if (!items || items.length === 0) return;
         try {
-            await Promise.all(items.map((item) => deleteHistoryEntry(Number(item.id), item)));
+            await deleteHistoryWithProgress(items, item => deleteHistoryEntry(Number(item.id), item), documentRef);
             return true;
         } catch (e) {
             showToast(`删除未全部完成：${e.message}`, 'error');

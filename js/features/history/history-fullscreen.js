@@ -1,3 +1,4 @@
+import { deleteHistoryWithProgress } from './history-delete-progress.js';
 import {
     buildHistoryCardMarkup,
     escapeHistoryHtml,
@@ -607,7 +608,7 @@ export function createHistoryFullscreenApi({
     async function handleClearHistory() {
         const entries = await getHistoryMetadata({ throwOnError: true });
         if (!confirmRef('确定要删除当前保存目录及子文件夹中的全部图片和视频吗？对应本地文件也会删除，此操作无法撤销。')) return;
-        try { await clearHistory(entries); } catch { await refresh(); return; }
+        try { await deleteHistoryWithProgress(entries, entry => clearHistory([entry]), documentRef); } catch { await refresh(); return; }
         await refresh();
         showToast('历史记录已清空', 'info');
     }
