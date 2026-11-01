@@ -124,20 +124,28 @@ async function postMaintenance(action, extra = {}, { detailed = false } = {}) {
     return response.ok ? await response.json() : { success: false };
 }
 
-function createThumbnail(dataUrl, size = 256) {
+function createThumbnail(source, size = 256) {
     return new Promise((resolve) => {
-        const image = new Image();
-        image.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = size;
-            canvas.height = size;
-            const context = canvas.getContext('2d');
-            const side = Math.min(image.width, image.height);
-            context.drawImage(image, (image.width - side) / 2, (image.height - side) / 2, side, side, 0, 0, size, size);
-            resolve(canvas.toDataURL('image/webp', 0.8));
+        const loaded = typeof HTMLImageElement !== 'undefined' && source instanceof HTMLImageElement;
+        const image = loaded ? source : new Image();
+        const finish = () => {
+            try {
+                const width = image.naturalWidth;
+                const height = image.naturalHeight;
+                if (!width || !height) return resolve('');
+                const canvas = document.createElement('canvas');
+                canvas.width = size;
+                canvas.height = size;
+                const side = Math.min(width, height);
+                canvas.getContext('2d').drawImage(image, (width - side) / 2, (height - side) / 2, side, side, 0, 0, size, size);
+                resolve(canvas.toDataURL('image/webp', 0.8));
+            } catch { resolve(''); }
         };
-        image.onerror = () => resolve('');
-        image.src = dataUrl;
+        if (loaded) { finish(); return; }
+        const timer = setTimeout(() => { image.src = ''; resolve(''); }, 5000);
+        image.onload = () => { clearTimeout(timer); finish(); };
+        image.onerror = () => { clearTimeout(timer); resolve(''); };
+        image.src = source;
     });
 }
 
@@ -435,6 +443,15 @@ export function createDiskStorageApi(getState) {
         });
         if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || '本地保存失败');
         const result = await response.json();
+        if (mediaType === 'image') {
+            const previewUrl = URL.createObjectURL(mediaBlob);
+            try {
+                const thumb = await createThumbnail(previewUrl);
+                if (thumb) await updateHistoryThumb(result.item.id, thumb, result.item);
+            } catch (error) {
+                console.warn('Saved original; history thumbnail will be retried on browsing:', error);
+            } finally { URL.revokeObjectURL(previewUrl); }
+        }
         // The archive is authoritative. A cache quota failure cannot discard the saved original.
         return { success: true, assetKey: data.mediaAssetKey || '', fileId: result.item.id };
     }

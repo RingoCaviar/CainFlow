@@ -55,7 +55,9 @@ export function createHistoryPanelApi({
             while (index < missing.length && token === renderToken && (index === firstIndex || deadline.timeRemaining() > 4)) {
                 const item = missing[index++];
                 try {
-                    const entry = await hydrateHistoryItem(item.id);
+                    const preview = documentRef.querySelector(`#history-list .history-card[data-id="${item.id}"] img`);
+                    const reusable = item.mediaType !== 'video' && !item.hasVideo && preview?.complete && preview.naturalWidth > 1 && item.fileUrl;
+                    const entry = reusable ? { ...item, image: preview } : await hydrateHistoryItem(item.id);
                     const isVideo = entry?.mediaType === 'video' || entry?.hasVideo || entry?.videoBlob instanceof Blob;
                     const media = isVideo ? (entry.videoBlob || entry.video) : entry?.image;
                     const makeThumbnail = isVideo ? createVideoThumbnail : createThumbnail;

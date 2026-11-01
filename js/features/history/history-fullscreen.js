@@ -343,7 +343,9 @@ export function createHistoryFullscreenApi({
         }
 
         try {
-            const entry = await getHistoryEntry(item.id);
+            const preview = documentRef.querySelector(`#history-fullscreen-list .history-card[data-id="${item.id}"] img`);
+            const reusable = item.mediaType !== 'video' && !item.hasVideo && preview?.complete && preview.naturalWidth > 1 && item.fileUrl;
+            const entry = reusable ? { ...item, image: preview } : await getHistoryEntry(item.id);
             if (version !== viewState.version) return;
             const isVideo = entry?.mediaType === 'video' || entry?.hasVideo || entry?.videoBlob instanceof Blob;
             const media = isVideo ? (entry?.videoBlob || entry?.video) : entry?.image;
