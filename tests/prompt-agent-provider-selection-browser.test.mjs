@@ -54,7 +54,7 @@ test('four combined menus preserve model/provider identities; real requests and 
         const stepId=await evaluate("document.querySelector('select[id^=agent-step-model]').id");
         await evaluate("document.querySelector('.prompt-agent-step-settings').open=true");
         await choose(stepId,'image','a');
-        await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='应用并执行').click()");
+        await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='生成图片').click()");
         await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
         assert.equal(await evaluate('calls.length'),2);
         assert.ok(await evaluate("JSON.stringify(calls[1].headers).includes('first-key')"));

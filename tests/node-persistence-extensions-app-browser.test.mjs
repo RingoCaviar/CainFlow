@@ -68,7 +68,7 @@ async function activate(app, name) {
     await app.evaluate("document.getElementById('btn-close-workflow').click()");
 }
 
-test('background runtime and Save All preserve own JSON extensions while a failed new attempt cannot resurrect known old image fields', { timeout: 60000 }, async () => {
+test('background runtime and automatic saving preserve own JSON extensions while a failed new attempt cannot resurrect known old image fields', { timeout: 60000 }, async () => {
     await withAppBrowser({ ...configuration, nodes: [], connections: [] }, async app => {
         await app.send('Page.addScriptToEvaluateOnNewDocument', { source: "window.persistencePending=false;const persistenceFetch=window.fetch;window.fetch=async(url,options={})=>{if(String(url)==='/proxy'&&options.body){const body=JSON.parse(options.body);if(typeof body.prompt==='string'){persistencePending=true;return await new Promise(resolve=>window.releasePersistenceFailure=()=>{persistencePending=false;resolve(new Response(JSON.stringify({error:{message:'known new failure'}}),{status:400,headers:{'Content-Type':'application/json'}}))})}}return persistenceFetch(url,options)};" });
         await reloadAppBrowser(app);
@@ -92,7 +92,6 @@ test('background runtime and Save All preserve own JSON extensions while a faile
         await app.evaluate('releasePersistenceFailure()');
         await app.waitFor("!document.querySelector('.workflow-item[data-name=\"Extensions A\"]').classList.contains('is-running')");
         await waitForAutosave(app);
-        await app.waitFor("[...document.querySelectorAll('.toast')].some(toast=>/已保存 \\d+ 个工作流/.test(toast.textContent))");
         const completed = await app.evaluate("fetch('/api/workflows/Extensions%20A').then(response=>response.json())"), result = completed.nodes.find(node => node.id === 'shared');
         assert.deepEqual(completed.vendorWorkflow, extension); assert.equal(completed.futureWorkflowFalse, false); assert.equal(completed.futureWorkflowNull, null);
         assert.deepEqual(completed.canvas.vendorViewport, extension); assert.equal(completed.canvas.futureViewportZero, 0);

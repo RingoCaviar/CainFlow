@@ -25,6 +25,11 @@ const configuration = {
     ]
 };
 
+async function assertOriginalAspect(app) {
+    await app.waitFor("(()=>{const surface=document.querySelector('#batch-preview .node-media-aspect-surface'),img=surface?.querySelector('img');if(!img?.naturalWidth)return false;const r=surface.getBoundingClientRect();return r.width>0&&Math.abs(r.width/r.height-img.naturalWidth/img.naturalHeight)<0.02})()");
+    assert.equal(await app.evaluate("document.getElementById('batch-preview').offsetWidth"), 310, 'aspect updates retain the chosen card width');
+}
+
 async function controlled(app) {
     await app.send('Page.addScriptToEvaluateOnNewDocument', { source: `window.previewBatchRequests=[];const nativeFetch=window.fetch;window.fetch=async(url,options={})=>{
         if(String(url)==='/proxy'&&options.body&&typeof JSON.parse(options.body).prompt==='string'){
@@ -49,12 +54,11 @@ async function openBatch(app) {
     await app.waitFor("document.querySelectorAll('#batch-preview-preview [data-preview-batch-index]').length===3 && !document.querySelector('#batch-preview-preview .image-node-result-batch').hidden");
 }
 
-test('a preview can browse its complete batch with thumbnails and stable card size while preserving the whole output and saved position', { timeout: 45000 }, async () => {
+test('a preview can browse its complete batch with thumbnails and original aspect ratios while preserving the whole output and saved position', { timeout: 45000 }, async () => {
     await withAppBrowser(configuration, async app => {
         await controlled(app); await run(app);
         const before = await saved(app);
         const beforeOwners = await previewOwners(app);
-        const height = await app.evaluate("document.getElementById('batch-preview').offsetHeight");
         assert.equal(await app.evaluate("document.querySelector('#batch-preview-preview .image-save-preview-counter').tagName"), 'BUTTON');
         await openBatch(app);
         assert.deepEqual(await app.evaluate("Array.from(document.querySelectorAll('#batch-preview-preview [data-preview-batch-index]')).map(item=>Number(item.dataset.previewBatchIndex))"), [0, 1, 2]);
@@ -68,7 +72,7 @@ test('a preview can browse its complete batch with thumbnails and stable card si
         await app.evaluate("document.querySelector('#batch-preview-preview [data-preview-batch-index=\"0\"]').click()");
         await app.waitFor("document.querySelector('#batch-preview-preview .image-save-preview-counter').textContent==='1/3'");
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value.nodes.find(node=>node.id==='batch-preview')?.imagePreviewIndex===0)");
-        assert.equal(await app.evaluate("document.getElementById('batch-preview').offsetHeight"), height);
+        await assertOriginalAspect(app);
         assert.equal(await app.evaluate("Boolean(document.querySelector('.fullscreen-overlay'))"), false);
         const after = await saved(app);
         assert.deepEqual(after.nodes.find(node => node.id === 'batch-source').mediaAssetKeys, before.nodes.find(node => node.id === 'batch-source').mediaAssetKeys);
@@ -85,7 +89,7 @@ test('a preview can browse its complete batch with thumbnails and stable card si
 
         await reloadAppBrowser(app);
         await app.waitFor("document.querySelector('#batch-preview-preview .image-save-preview-counter')?.textContent==='1/3'");
-        assert.equal(await app.evaluate("document.getElementById('batch-preview').offsetHeight"), height);
+        await assertOriginalAspect(app);
         await app.evaluate("document.getElementById('batch-preview-fullscreen').click()");
         await app.waitFor("Boolean(document.querySelector('.fullscreen-overlay img'))");
         assert.equal(await app.evaluate(`document.querySelector('.fullscreen-overlay img').src===${JSON.stringify(originals[0])}`), true, 'the saved first position opens the first original');
@@ -101,7 +105,6 @@ test('a preview retains a missing first batch position and selects the second or
         const digest = createHash('sha256').update(Buffer.from(originals[0].split(',')[1], 'base64')).digest('hex');
         await unlink(join(app.server.dataDir, 'assets', digest.slice(0, 2), digest + '.png'));
         await reloadAppBrowser(app);
-        const height = await app.evaluate("document.getElementById('batch-preview').offsetHeight");
         assert.equal(await app.evaluate("Boolean(document.querySelector('#batch-preview-preview > img'))"), false, 'a missing first original stays a placeholder instead of displaying the second image');
         await openBatch(app);
         assert.deepEqual(await app.evaluate("Array.from(document.querySelectorAll('#batch-preview-preview [data-preview-batch-index]')).map(item=>Number(item.dataset.previewBatchIndex))"), [0, 1, 2]);
@@ -110,7 +113,7 @@ test('a preview retains a missing first batch position and selects the second or
         await app.evaluate("document.querySelector('#batch-preview-preview [data-preview-batch-index=\"1\"]').click()");
         await app.waitFor("document.querySelector('#batch-preview-preview .image-save-preview-counter').textContent==='2/3'");
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value.nodes.find(node=>node.id==='batch-preview')?.imagePreviewIndex===1)");
-        assert.equal(await app.evaluate("document.getElementById('batch-preview').offsetHeight"), height);
+        await assertOriginalAspect(app);
         await app.evaluate("document.querySelector('#batch-preview-preview [aria-label=\"关闭整批导航\"]').click()");
         assert.equal(await app.evaluate("document.activeElement===document.querySelector('#batch-preview-preview .image-save-preview-counter')"), true);
         await app.evaluate("document.getElementById('batch-preview-fullscreen').click()");

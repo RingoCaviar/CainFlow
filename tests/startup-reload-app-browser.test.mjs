@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { get } from 'node:http';
-import { withAppBrowser } from './helpers/app-browser.mjs';
+import { withAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
 
 const session = {
     autoCheckUpdatesOnLoad: false,
@@ -19,6 +19,7 @@ const graph = app => app.evaluate("fetch('/api/storage/documents/session').then(
 test('the real application serves a burst of assets and reloads without losing stylesheets or the saved graph', { timeout: 90000 }, async () => {
     await withAppBrowser(session, async app => {
         await app.waitFor('window.__cainflowAppReady===true');
+        await waitForAutosave(app);
         const original = await graph(app);
         const assets = await Promise.all(Array.from({ length: 128 }, () => new Promise(resolve => {
             get(`${app.server.baseUrl}/css/modules/04-node-core.css`, { agent: false }, response => {

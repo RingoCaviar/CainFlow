@@ -173,3 +173,19 @@ test('visible and background Save updates share partial-input and unsupported-UR
     assert.equal(empty.saveInputState, 'empty');
     assert.equal(empty.saveInputMessage, '');
 });
+
+for (const type of ['ImageResize', 'ColorReset']) {
+    test(`${type} runtime projection retains durable output identity independently of preview bytes`, async () => {
+        const metadata = { mediaAssetKeys: ['media:processed'], imageAssetKey: 'media:processed', imageCount: 1,
+            imageAssetReady: true, mediaIntegrity: { state: 'ready', itemCount: 1 } };
+        for (const imageList of [[nextImage], []]) {
+            const fixture = harness(type, { ...metadata, imageList }, { isSucceeded: true });
+            fixture.visible.data = { mediaAssetKeys: ['media:old'], imageAssetKey: 'media:old' };
+            await fixture.project();
+            for (const [field, value] of Object.entries(metadata)) assert.deepEqual(fixture.visible.data[field], value);
+            assert.notEqual(fixture.visible.data.mediaAssetKeys, fixture.runtimeNode.data.mediaAssetKeys);
+            assert.notEqual(fixture.visible.data.mediaIntegrity, fixture.runtimeNode.data.mediaIntegrity);
+            assert.deepEqual(fixture.mediaWrites, [], 'projection uses the runtime-owned asset without duplicating it');
+        }
+    });
+}

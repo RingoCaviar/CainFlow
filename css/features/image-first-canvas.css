@@ -745,7 +745,7 @@ html:root #canvas-container .node.image-first-media > .node-body {
 
 /* Loaded media owns preview height; node width and non-media controls stay independent. */
 html:root #canvas-container .node.node-media-aspect { min-height: 0 !important; }
-html:root #canvas-container .node.node-media-aspect > .node-body { width: 100%; height: auto; min-height: 0; flex: 0 0 auto; }
+html:root #canvas-container .node.node-media-aspect > .node-body { width: 100%; height: auto; min-height: 0; max-height: none; flex: 0 0 auto; }
 html:root #canvas-container .node.node-media-aspect :is(.image-node-results, .image-node-result-media, .image-import-upload-section, .image-import-url-section, .image-resize-preview-frame, .image-merge-panel, .camera-control-compact) { width: 100%; min-width: 0; box-sizing: border-box; flex: 0 0 auto; height: auto; min-height: 0; }
 html:root #canvas-container .node.node-media-aspect .node-media-aspect-surface {
     flex: 0 0 auto;

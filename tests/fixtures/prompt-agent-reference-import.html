@@ -32,9 +32,8 @@ try {
  list.querySelector('.prompt-agent-reference-option').click();await tick();await tick();check(created===4&&pending.children.length===4,'historyImport');
  list.querySelector('.prompt-agent-reference-option').click();check(created===4&&pending.children.length===3,'removeKeepsNode');
  list.querySelector('.prompt-agent-reference-option').click();await tick();await tick();check(created===4&&pending.children.length===4,'historyReuse');
- const search=document.getElementById('prompt-agent-reference-search');search.value='内容 65';search.dispatchEvent(new Event('input'));check(list.children.length===1&&pending.children.length===4,'search');
- document.getElementById('prompt-agent-tab-scene').click();check(list.children.length===0&&pending.children.length===4,'tabsKeepSelection');
- search.value='';search.dispatchEvent(new Event('input'));
+ check(!document.getElementById('prompt-agent-reference-search')&&list.children.length===65&&pending.children.length===4,'noRedundantSearch');
+ document.getElementById('prompt-agent-tab-scene').click();await tick();check(list.children.length===4&&pending.children.length===4,'tabsKeepSelection');
  for(const theme of ['light','dark','pink','pro','paper','glass-light','glass-dark']){document.documentElement.dataset.appTheme=theme;const picker=document.getElementById('prompt-agent-reference-picker');const a=picker.getBoundingClientRect(),b=panel.getBoundingClientRect();check(a.left>=b.left&&a.right<=b.right&&a.top>=b.top&&picker.scrollWidth<=picker.clientWidth,theme);}
  input.value='使用这些参考图';await controller.submit();check(requests[0].referenceImages.map(x=>x.sourceNodeId).join(',')==='1,2,3,4','sendOrder');
  const saved=JSON.parse(JSON.stringify(controller.snapshotWorkflow()));state.nodes.clear();controller.restoreWorkflow(saved);controller.open();check(document.querySelectorAll('.prompt-agent-message-references img').length===4,'restoreWithoutNodes');

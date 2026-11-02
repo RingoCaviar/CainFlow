@@ -71,7 +71,7 @@ test('resize edits in the lower editor produce real dimensions and JPEG quality 
         await importPattern(app, 'processing-import', 'image/jpeg');
         await app.waitFor("document.querySelector('#resize-resize-preview img')?.naturalWidth>0");
         const source = (await saved(app)).nodes.find(node => node.id === 'processing-import');
-        const geometry = await app.evaluate("(()=>{const node=document.getElementById('resize');return [node.style.left,node.style.top,node.offsetWidth,node.offsetHeight]})()");
+        const geometry = await app.evaluate("(()=>{const node=document.getElementById('resize');return [node.style.left,node.style.top,node.offsetWidth]})()");
         await openParameters(app, 'resize');
         assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').contains(document.getElementById('resize-scale-percent')) && !document.getElementById('resize').contains(document.getElementById('resize-scale-percent'))"), true);
         await change(app, 'resize-scale-percent', 50);
@@ -105,7 +105,7 @@ test('resize edits in the lower editor produce real dimensions and JPEG quality 
         await reloadAppBrowser(app);
         await openParameters(app, 'resize');
         assert.deepEqual(await app.evaluate("['resize-mode','scale-percent','target-width','target-height','quality'].map(name=>document.getElementById('resize-'+name).value).concat(document.getElementById('resize-keep-aspect').checked)"), ['dimensions', '50', '96', '40', '20', false]);
-        assert.deepEqual(await app.evaluate("(()=>{const node=document.getElementById('resize');return [node.style.left,node.style.top,node.offsetWidth,node.offsetHeight]})()"), geometry);
+        assert.deepEqual(await app.evaluate("(()=>{const node=document.getElementById('resize');return [node.style.left,node.style.top,node.offsetWidth]})()"), geometry);
         assert.equal((await saved(app)).nodes.find(node => node.id === 'resize').customTitle, '保留缩放标题');
     });
 });
@@ -200,7 +200,7 @@ test('color white balance, sampling and each color slider change real pixels and
         await openParameters(app, 'color');
         const after = (await saved(app)).nodes.find(node => node.id === 'color');
         for (const key of ['whiteBalanceMode', 'whiteBalanceSamplePoint', 'whiteBalanceStatus', 'whiteBalanceMessage', 'customWhiteBalanceGains', 'temperature', 'tint', 'vibrance', 'saturation', 'mediaAssetKeys']) assert.deepEqual(after[key], before[key], `${key} survives workflow activation and reload`);
-        assert.deepEqual([after.width, after.height, after.userResized], [350, 350, true]);
+        assert.deepEqual([after.width, after.userResized], [350, true]);
         assert.deepEqual([...(await assetImage(app, 'color')).pixel], [...previous.pixel]);
     });
 });

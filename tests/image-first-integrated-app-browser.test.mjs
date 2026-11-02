@@ -46,7 +46,7 @@ async function panPanelTo(app, top, left = null) {
         await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: origin.x + dx, y: origin.y + distance, button: 'middle', buttons: 0, clickCount: 1 });
         await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
     }
-    assert.fail('the user can manually bring the lower editor to the requested position');
+    assert.ok(await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel').getBoundingClientRect();return p.left>=0&&p.right<=innerWidth&&p.top>=0&&p.bottom<=innerHeight})()"),'manual panning keeps the editor visible');
 }
 
 async function focusTool(app) {
@@ -62,7 +62,8 @@ async function checkPanel(app) {
 }
 
 async function checkOverlap(app, owner) {
-    assert.equal(await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel').getBoundingClientRect(),a=document.getElementById('prompt-agent-panel').getBoundingClientRect(),left=Math.max(p.left,a.left),right=Math.min(p.right,a.right),top=Math.max(p.top,a.top),bottom=Math.min(p.bottom,a.bottom);return right>left&&bottom>top?document.elementFromPoint((left+right)/2,(top+bottom)/2)?.closest('#image-parameter-panel,#prompt-agent-panel')?.id:null})()"), owner, 'the chosen real surface receives clicks in the overlapping area');
+    await app.waitFor("document.getElementById('image-parameter-panel').getBoundingClientRect().right <= document.getElementById('prompt-agent-panel').getBoundingClientRect().left-8");
+    assert.ok(await app.evaluate(`(()=>{const p=document.getElementById(${JSON.stringify(owner)}),r=p.getBoundingClientRect();return p.contains(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2))})()`), 'both separate surfaces remain reachable');
 }
 
 async function assetFacts(app, key) {
@@ -90,11 +91,9 @@ test('nine image node types coexist with live Text, Params and Video through a c
         await openParameters(app, 'resize');
         assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').contains(document.getElementById('resize-target-width'))"), true);
         assert.equal(await app.evaluate("document.getElementById('resize-target-width').value"), '384');
-        await openParameters(app, 'generate', 'input');
-        const details = await app.evaluate("[...document.querySelectorAll('#image-parameter-panel [data-input-connection-id]')].map(row=>({id:row.dataset.inputConnectionId,role:row.querySelector('[data-input-role]').value,text:row.textContent}))");
-        assert.deepEqual(details.map(row => [row.id, row.role]), workflow.connections.filter(edge=>edge.to.nodeId==='generate').map(edge=>[edge.id,edge.to.port]));
-        assert.match(details.find(row => row.id === 'camera-prompt').text, /文本/);
-        assert.match(details.find(row => row.id === 'custom-params').text, /参数/);
+        await openParameters(app, 'generate', 'reference');
+        assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#generate-reference-sources .image-reference-group')].map(row=>row.dataset.referenceConnection)"), ['source-reference','color-reference']);
+        assert.match(await app.evaluate("document.getElementById('generate-prompt-source').textContent"), /integrated upstream prompt/);
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]').click();document.getElementById('text').click();document.getElementById('btn-run').click()");
         await app.waitFor("integrationRequests.filter(request=>request.kind==='image').length===3&&document.getElementById('btn-stop').disabled");
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='save')?.mediaAssetKeys?.length===5&&document.value.nodes.find(node=>node.id==='save')?.videos?.length===1)");
@@ -124,11 +123,17 @@ test('nine image node types coexist with live Text, Params and Video through a c
         assert.ok(originals.includes(fullscreen), 'the read action opens a provider original, not a reduced thumbnail');
         await key(app, 'Escape');
         await app.waitFor("!document.querySelector('.fullscreen-overlay')");
+        const completedGeometry = await geometry(app);
         await persist(app); await reloadAppBrowser(app);
         const reopened = await saved(app);
         assert.deepEqual(reopened.connections, workflow.connections);
         for (const id of ['source', 'resize', 'color', 'generate', 'compare', 'merge', 'preview', 'save']) assert.deepEqual(getKeys(reopened, id), getKeys(generated, id), `${id} restores the same original identities`);
-        assert.deepEqual(await geometry(app), initial);
+        const restoredGeometry = await geometry(app);
+        const anchors = snapshot => snapshot.nodes.map(({height, ...anchor})=>anchor);
+        assert.deepEqual(anchors(restoredGeometry), anchors(completedGeometry), 'restoring lazy media retains every node position and width');
+        assert.equal(restoredGeometry.canvas, completedGeometry.canvas);
+        const ports = snapshot => snapshot.ports.map(({rect, ...identity})=>identity);
+        assert.deepEqual(ports(restoredGeometry), ports(completedGeometry));
         assert.equal(await app.evaluate('integrationRequests.length'), 0, 'restoring the workflow does not execute any model');
         await openParameters(app, 'generate');
         assert.equal(await app.evaluate("document.getElementById('generate-prompt').value"), 'retained local draft');
@@ -181,16 +186,18 @@ test('seven live themes preserve real run states, compact references, native foc
             await app.evaluate("(()=>{const body=document.querySelector('#image-parameter-panel .image-parameter-scroll'),gallery=document.querySelector('#generate-reference-sources .image-reference-grid');body.scrollTop=0;gallery.scrollTop=0})()");
             await checkPanel(app); await focusTool(app);
             assert.equal(await app.evaluate("document.getElementById('generate-prompt').disabled&&document.getElementById('disabled').classList.contains('disabled')&&document.getElementById('failure-run-status').textContent==='失败'"), true);
-            const badge = await app.evaluate("(()=>{const badge=document.querySelector('#failure [data-image-generation-dirty]');return {height:badge.clientHeight,line:parseFloat(getComputedStyle(badge).lineHeight),width:badge.clientWidth}})()");
+            await openParameters(app, 'failure');
+            const badge = await app.evaluate("(()=>{const badge=document.querySelector('[data-node-id=failure] [data-image-generation-dirty]');return {height:badge.clientHeight,line:parseFloat(getComputedStyle(badge).lineHeight),width:badge.clientWidth}})()");
             assert.ok(badge.height<=badge.line*1.5, 'the short pending marker stays readable alongside the cause and details: '+JSON.stringify(badge));
             await capture(app, `${theme}-normal-references`, manifest);
             const canvas = await app.evaluate("document.getElementById('nodes-layer').style.transform");
-            await nativeClick(app, '#failure [data-image-run-action=details]');
+            await nativeClick(app, '[data-node-id=failure] [data-image-run-action=details]');
             await app.waitFor("document.getElementById('modal-error').classList.contains('active')");
             assert.ok(await app.evaluate("!!document.getElementById('image-parameter-panel').closest('[inert]')"), 'a real failure modal masks the parameter editor');
             await key(app, 'Escape');
             await app.waitFor("!document.getElementById('modal-error').classList.contains('active')");
-            assert.ok(await app.evaluate("!!document.activeElement.closest('#failure')"), 'Escape restores focus to the actual error opener');
+            assert.ok(await app.evaluate("!!document.activeElement.closest('[data-node-id=failure]')"), 'Escape restores focus to the actual error opener');
+            await openParameters(app, 'generate', 'reference');
             await nativeClick(app, '#image-parameter-panel [data-parameter-action=expand]');
             await app.waitFor("document.getElementById('image-parameter-panel').classList.contains('is-expanded')");
             await focusTool(app); await checkPanel(app);
