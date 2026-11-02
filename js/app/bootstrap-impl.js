@@ -125,6 +125,7 @@ import { registerGlobalBridges } from './register-global-bridges.js';
  */
 
 export async function initializeCainFlowApp() {
+let sessionRestorationComplete = false;
 const registry = createAppRegistry();
 
 // ===== 工具函数 =====
@@ -1185,6 +1186,7 @@ function getRuntimeSnapshotMediaProtection() {
 function getSessionManagerApi() {
     if (!registry.sessionManagerApi) {
         registry.sessionManagerApi = createSessionManagerApi({
+            canSaveSession: () => sessionRestorationComplete,
             state,
             selectionApi,
             storageKey: STORAGE_KEY,
@@ -2224,6 +2226,7 @@ registerGlobalBridges({
 });
 
 await startupPromise;
+sessionRestorationComplete = true;
 retiredSaveCleanupReady = true;
 await offerRetiredSaveNodeCleanup({ reset: true });
 await getConversationWorkbenchControllerApi().init().catch((error) => {

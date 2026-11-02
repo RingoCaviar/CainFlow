@@ -105,6 +105,7 @@ test('workflow panel refresh failure preserves every committed Open Workflow', a
             querySelectorAll: () => []
         };
         const documentRef = {
+            addEventListener() {},
             getElementById(id) {
                 if (id === 'btn-toggle-workflow') {
                     return { addEventListener(type, listener) { if (type === 'click') toggleWorkflowPanel = listener; } };

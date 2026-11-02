@@ -9,6 +9,7 @@ import { getSnapshotMediaKeys } from './snapshot-media-keys.js';
 
 export function createSessionManagerApi({
     state,
+    canSaveSession = () => true,
     selectionApi = createSelectionApi({ state }),
     storageKey,
     nodeSerializer,
@@ -327,6 +328,7 @@ export function createSessionManagerApi({
     }
 
     function saveState() {
+        if (!canSaveSession()) return false;
         if (state.canvasPlanApplying) return false;
         let serializedData = '';
         try {
@@ -410,6 +412,7 @@ export function createSessionManagerApi({
     }
 
     function scheduleSave(options = {}) {
+        if (!canSaveSession()) return;
         if (state.canvasPlanApplying) return;
         if (state.dragging || state.resizing) return;
         if (options.dirty !== false) {
