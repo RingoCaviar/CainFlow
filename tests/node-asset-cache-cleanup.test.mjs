@@ -170,7 +170,7 @@ test('manual image import cleanup warns when legacy images remain on disk', asyn
     assert.match(toasts[0][0], /1/);
 });
 
-test('history cleanup warns when collection retains registered media', async () => {
+test('cache maintenance cannot delete directory originals through the retired history-clear control', async () => {
     const { documentRef, elements } = createDocument();
     elements.set('btn-clear-cache', createElement());
     const toasts = [];
@@ -189,17 +189,11 @@ test('history cleanup warns when collection retains registered media', async () 
         locationRef: { reload() {} }, confirmRef: () => true, alertRef: () => {}
     });
     api.initCache();
-    const restoreFetch = mockHealthyStorageFetch();
-    try {
-        const click = elements.get('btn-clear-cache').click();
-        elements.get('cache-clear-history-dialog').onclick({
-            preventDefault() {}, target: { closest: () => ({ getAttribute: () => 'confirm' }) }
-        });
-        await click;
-    } finally { restoreFetch(); }
-    assert.equal(toasts.length, 1);
-    assert.equal(toasts[0][1], 'warning');
-    assert.match(toasts[0][0], /1 项媒体/);
+    assert.equal(elements.get('btn-clear-cache').hidden, true);
+    await elements.get('btn-clear-cache').click();
+    assert.equal(elements.has('cache-clear-history-dialog'), false);
+    assert.deepEqual(toasts, []);
+
 });
 
 test('manual temporary cleanup reports partial filesystem and browser cache failures', async () => {

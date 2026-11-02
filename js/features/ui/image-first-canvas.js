@@ -82,7 +82,16 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             right = Math.min(right, agentPanel.getBoundingClientRect().left - 12);
         }
         right = Math.max(left + 1, right);
-        return { left, right, width: right - left, height: Math.max(1, windowRef.innerHeight - top - 12), top };
+        // Canvas navigation and panel recovery controls must not cover the
+        // parameter footer, especially in short/narrow viewports.
+        let bottom = windowRef.innerHeight - 12;
+        for (const control of [switcher, documentRef.getElementById('canvas-navigation')]) {
+            if (!control?.getClientRects().length) continue;
+            const area = control.getBoundingClientRect();
+            if (area.right > left && area.left < right) bottom = Math.min(bottom, area.top - 8);
+        }
+        bottom = Math.max(top + 1, bottom);
+        return { left, right, bottom, width: right - left, height: Math.max(1, bottom - top), top };
     };
     const selectedNode = () => state.selectedNodes.size === 1 ? state.nodes.get([...state.selectedNodes][0]) : null;
     function updateSwitcher() {
@@ -166,7 +175,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             panel.style.setProperty('--image-parameter-available-height', `${bounds.height}px`);
             panel.style.width = `${width}px`; panel.style.height = `${height}px`;
             panel.style.left = `${clamp(expandedRect.left, bounds.left, Math.max(bounds.left, bounds.right - width))}px`;
-            panel.style.top = `${clamp(expandedRect.top, bounds.top, Math.max(bounds.top, windowRef.innerHeight - height - 12))}px`;
+            panel.style.top = `${clamp(expandedRect.top, bounds.top, Math.max(bounds.top, bounds.bottom - height))}px`;
             heightHandle.setAttribute('aria-valuenow', String(Math.round(height)));
             widthHandle.setAttribute('aria-valuenow', String(Math.round(width)));
             sizePrompt();
@@ -186,7 +195,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         sizePrompt();
         let height = panel.getBoundingClientRect().height;
         const preferredTop = Math.max(rect.bottom + 12, ...floatingBottoms);
-        const below = Math.max(0, windowRef.innerHeight - 12 - preferredTop);
+        const below = Math.max(0, bounds.bottom - preferredTop);
         const above = Math.max(0, rect.top - 12 - bounds.top);
         let top = preferredTop;
         if (height > below) {
@@ -199,7 +208,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 top = useAbove ? rect.top - 12 - height : preferredTop;
             }
         }
-        panel.style.top = `${clamp(top, bounds.top, Math.max(bounds.top, windowRef.innerHeight - height - 12))}px`;
+        panel.style.top = `${clamp(top, bounds.top, Math.max(bounds.top, bounds.bottom - height))}px`;
     }
     function schedulePosition() {
         if (positionFrame !== null || panel.hidden) return;

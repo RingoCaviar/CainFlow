@@ -13,83 +13,54 @@ function historyOwnerRows(server) {
     return JSON.parse(result.stdout);
 }
 
-test('a lost history commit response cannot release its durable original and thumbnail owners', { timeout: 15000 }, async () => {
+test('a lost archive response preserves the durable original independently of cache owners', { timeout: 15000 }, async () => {
     const nativeFetch = globalThis.fetch;
     const server = await startCainflowServer();
     globalThis.fetch = async (url, options = {}) => {
         const response = await nativeFetch(new URL(url, server.baseUrl), options);
-        if (url === '/api/storage/history' && options.method === 'POST') {
-            assert.equal(response.status, 200, 'the backend committed before the response was lost');
-            throw new TypeError('Controlled lost response after history commit');
+        if (url === '/api/storage/library' && options.method === 'POST') {
+            assert.equal(response.status, 200);
+            throw new TypeError('Controlled lost response after archive commit');
         }
         return response;
     };
     try {
         const storage = createDiskStorageApi(() => ({}));
-        assert.equal(await storage.saveHistoryEntry({
-            image: 'data:image/png;base64,aGVsbG8=', thumb: 'data:image/webp;base64,dGh1bWI='
-        }), false);
-        const entries = (await nativeFetch(`${server.baseUrl}/api/storage/history`).then(response => response.json())).items;
-        assert.equal(entries.length, 1);
-        const entry = entries[0];
-        assert.deepEqual(historyOwnerRows(server), [
-            ['history', String(entry.id), entry.imageAssetKey],
-            ['history-thumbnail', String(entry.id), entry.thumbAssetKey]
-        ]);
-        assert.equal(await nativeFetch(`${server.baseUrl}/api/storage/assets/${encodeURIComponent(entry.imageAssetKey)}`).then(response => response.text()), 'hello');
-        assert.equal(await nativeFetch(`${server.baseUrl}/api/storage/assets/${encodeURIComponent(entry.thumbAssetKey)}`).then(response => response.text()), 'thumb');
-    } finally {
-        globalThis.fetch = nativeFetch;
-        await server.stop();
-    }
+        await assert.rejects(storage.saveHistoryEntry({image: 'data:image/png;base64,aGVsbG8='}), /Controlled lost response/);
+        const { items } = await nativeFetch(`${server.baseUrl}/api/storage/library`).then(r => r.json());
+        assert.equal(items.length, 1);
+        assert.equal(await nativeFetch(new URL(items[0].fileUrl, server.baseUrl)).then(r => r.text()), 'hello');
+        assert.deepEqual(historyOwnerRows(server), [], 'directory originals are not disposable cache owners');
+    } finally { globalThis.fetch = nativeFetch; await server.stop(); }
 });
 
-test('a failed concurrent thumbnail update cannot release the successful update owner', { timeout: 15000 }, async () => {
+test('a failed concurrent thumbnail update cannot discard the successful directory thumbnail or original', { timeout: 15000 }, async () => {
     const nativeFetch = globalThis.fetch;
     const server = await startCainflowServer();
     globalThis.fetch = (url, options = {}) => nativeFetch(new URL(url, server.baseUrl), options);
     try {
         const storage = createDiskStorageApi(() => ({}));
-        assert.ok(await storage.saveHistoryEntry({ videoBlob: new Blob(['video'], { type: 'video/mp4' }),
-            thumb: 'data:image/webp;base64,b2xkLXRodW1i' }));
-        const entry = (await nativeFetch(`${server.baseUrl}/api/storage/history`).then(response => response.json())).items[0];
-        let reads = 0, commits = 0, releaseReads, committed;
-        const bothReadOldEntry = new Promise(resolve => { releaseReads = resolve; });
-        const successfulCommit = new Promise(resolve => { committed = resolve; });
+        await storage.saveHistoryEntry({videoBlob: new Blob(['video'], {type:'video/mp4'})});
+        const entry = (await storage.getHistoryMetadata())[0];
+        let writes = 0, finish;
+        const committed = new Promise(resolve => { finish = resolve; });
         globalThis.fetch = async (url, options = {}) => {
-            if (url === `/api/storage/history/${entry.id}`) {
-                const response = await nativeFetch(new URL(url, server.baseUrl), options);
-                assert.equal((await response.clone().json()).item.thumbAssetKey, entry.thumbAssetKey);
-                if (++reads === 2) releaseReads();
-                await bothReadOldEntry;
-                return response;
-            }
-            if (url === '/api/storage/history' && options.method === 'POST') {
-                if (++commits === 1) {
+            if (url === `/api/storage/library/${entry.id}/thumbnail`) {
+                if (++writes === 1) {
                     const response = await nativeFetch(new URL(url, server.baseUrl), options);
-                    assert.equal(response.status, 200);
-                    committed();
-                    return response;
+                    assert.equal(response.status, 200); finish(); return response;
                 }
-                await successfulCommit;
-                return new Response('', { status: 503 });
+                await committed; return new Response('', {status:503});
             }
             return nativeFetch(new URL(url, server.baseUrl), options);
         };
-        assert.deepEqual((await Promise.all([
-            storage.updateHistoryThumb(entry.id, 'data:image/webp;base64,bmV3LXRodW1i'),
-            storage.updateHistoryThumb(entry.id, 'data:image/webp;base64,bmV3LXRodW1i')
-        ])).sort(), [false, true]);
-        const updated = (await nativeFetch(`${server.baseUrl}/api/storage/history/${entry.id}`).then(response => response.json())).item;
-        assert.equal(updated.thumbAssetKey, `thumb:history:${entry.id}`);
-        assert.deepEqual(historyOwnerRows(server), [
-            ['history', String(entry.id), entry.videoAssetKey],
-            ['history-thumbnail', String(entry.id), updated.thumbAssetKey]
-        ]);
-    } finally {
-        globalThis.fetch = nativeFetch;
-        await server.stop();
-    }
+        const thumb = 'data:image/webp;base64,bmV3LXRodW1i';
+        assert.deepEqual((await Promise.all([storage.updateHistoryThumb(entry.id, thumb, entry), storage.updateHistoryThumb(entry.id, thumb, entry)])).sort(), [false,true]);
+        const updated = (await storage.getHistoryMetadata())[0];
+        assert.equal(updated.thumb, thumb);
+        assert.equal(await nativeFetch(new URL(updated.fileUrl, server.baseUrl)).then(r => r.text()), 'video');
+        assert.deepEqual(historyOwnerRows(server), []);
+    } finally { globalThis.fetch = nativeFetch; await server.stop(); }
 });
 
 test('binary node media is encoded for atomic owner materialization with its MIME, order and operation identity intact', async () => {
@@ -142,85 +113,52 @@ test('history restore checks media metadata and treats transport errors as unkno
     }
 });
 
-test('saving generated-image history creates the Media asset with the history owner', async () => {
+test('saving generated-image history archives exact bytes and metadata without creating cache owners', async () => {
     const originalFetch = globalThis.fetch;
     const requests = [];
     globalThis.fetch = async (url, options = {}) => {
-        requests.push({ url, options });
-        if (url === '/api/storage/media-assets') {
-            return new Response(JSON.stringify({ asset: { asset_key: 'media:shared-image' } }), { status: 200 });
-        }
-        return new Response(JSON.stringify({ success: true }), { status: 200 });
-    };
-
-    try {
-        const storage = createDiskStorageApi(() => ({}));
-        await storage.saveHistoryEntry({
-            nodeId: 'node-a',
-            image: 'data:image/png;base64,aGVsbG8=',
-            thumb: 'data:image/webp;base64,dGh1bWI='
-        });
-
-        const mediaWrite = requests.find(({ url }) => url === '/api/storage/media-assets');
-        assert.equal(mediaWrite.options.headers['X-CainFlow-Media-Owner-Type'], 'history');
-        assert.notEqual(mediaWrite.options.headers['X-CainFlow-Media-Owner-Id'], 'node-a');
-        const thumbnailWrite = requests.find(({ url }) => url.startsWith('/api/storage/assets/thumb'));
-        assert.equal(thumbnailWrite.options.headers['X-CainFlow-Media-Owner-Type'], 'history-thumbnail');
-        assert.equal(thumbnailWrite.options.headers['X-CainFlow-Media-Owner-Id'], mediaWrite.options.headers['X-CainFlow-Media-Owner-Id']);
-    } finally {
-        globalThis.fetch = originalFetch;
-    }
-});
-
-test('an optional thumbnail upload failure still commits the original history image', async () => {
-    const originalFetch = globalThis.fetch;
-    let historyEntry;
-    globalThis.fetch = async (url, options = {}) => {
-        if (url === '/api/storage/media-assets') return new Response(JSON.stringify({ asset: { asset_key: 'media:original' } }));
-        if (url.startsWith('/api/storage/assets/')) return new Response('', { status: 507 });
-        if (url === '/api/storage/history') historyEntry = JSON.parse(options.body);
-        return new Response(JSON.stringify({ success: true }));
+        requests.push({url, options});
+        return new Response(JSON.stringify({success:true, item:{id:42, fileVersion:'version'}}));
     };
     try {
-        const storage = createDiskStorageApi(() => ({}));
-        assert.deepEqual(await storage.saveHistoryEntry({
-            image: 'data:image/png;base64,aGVsbG8=', thumb: 'data:image/webp;base64,dGh1bWI='
-        }), { success: true, assetKey: 'media:original' });
-        assert.equal(historyEntry.imageAssetKey, 'media:original');
-        assert.equal(historyEntry.thumbAssetKey, '');
-    } finally {
-        globalThis.fetch = originalFetch;
-    }
+        const storage = createDiskStorageApi(() => ({imageSaveUsePromptFilename:true}));
+        assert.deepEqual(await storage.saveHistoryEntry({nodeId:'node-a', image:'data:image/png;base64,aGVsbG8=', mediaAssetKey:'media:shared'}), {success:true,assetKey:'media:shared',fileId:42});
+        assert.equal(requests.length,1);
+        assert.equal(requests[0].url,'/api/storage/library');
+        const bytes=await requests[0].options.body.arrayBuffer();
+        const length=new DataView(bytes).getUint32(0);
+        const metadata=JSON.parse(new TextDecoder().decode(bytes.slice(4,4+length)));
+        assert.equal(metadata.nodeId,'node-a'); assert.equal(metadata.usePromptFilename,true);
+        assert.equal(metadata.mediaType,'image'); assert.equal(metadata.image,undefined);
+        assert.equal(new TextDecoder().decode(bytes.slice(4+length)),'hello');
+    } finally { globalThis.fetch=originalFetch; }
 });
 
-test('history thumbnail updates protect the upload and retain an existing owner after a failed commit', async () => {
-    const originalFetch = globalThis.fetch;
+test('an optional thumbnail upload failure still commits the original directory image', async () => {
+    const originalFetch=globalThis.fetch, OriginalImage=globalThis.Image, originalDocument=globalThis.document;
+    const requests=[];
+    globalThis.Image=class {set src(value){this.naturalWidth=32;this.naturalHeight=32;queueMicrotask(()=>this.onload());}};
+    globalThis.document={createElement:()=>({getContext:()=>({drawImage(){}}),toDataURL:()=> 'data:image/webp;base64,dGh1bWI='})};
+    globalThis.fetch=async (url,options={})=>{
+        requests.push({url,options});
+        return url==='/api/storage/library' ? new Response(JSON.stringify({item:{id:42,fileVersion:'v1'}})) : new Response('',{status:507});
+    };
     try {
-        for (const previousThumbKey of ['', 'thumb:history:10', 'thumb:older-thumbnail']) {
-            const requests = [];
-            globalThis.fetch = async (url, options = {}) => {
-                requests.push({ url, options });
-                if (url === '/api/storage/history/10') return new Response(JSON.stringify({ item: {
-                    id: 10, mediaType: 'video', videoAssetKey: 'media:video',
-                    thumbAssetKey: previousThumbKey
-                } }));
-                if (url === '/api/storage/history') return new Response('', { status: 500 });
-                return new Response(JSON.stringify({ success: true }));
-            };
-            const storage = createDiskStorageApi(() => ({}));
-            assert.equal(await storage.updateHistoryThumb(10, 'data:image/webp;base64,dGh1bWI='), false);
-            const upload = requests.find(({ options }) => options.method === 'PUT');
-            assert.equal(upload.options.headers['X-CainFlow-Media-Owner-Type'], 'history-thumbnail');
-            assert.equal(upload.options.headers['X-CainFlow-Media-Owner-Id'], '10');
-            const releases = requests.filter(({ url }) => url === '/api/storage/media-assets')
-                .map(({ options }) => JSON.parse(options.body));
-            assert.deepEqual(releases, previousThumbKey === 'thumb:history:10' ? [] : [{
-                action: 'unreference', ownerType: 'history-thumbnail', ownerId: '10', assetKey: 'thumb:history:10'
-            }]);
-        }
-    } finally {
-        globalThis.fetch = originalFetch;
-    }
+        const result=await createDiskStorageApi(()=>({})).saveHistoryEntry({image:'data:image/png;base64,aGVsbG8='});
+        assert.deepEqual(result,{success:true,assetKey:'',fileId:42});
+        assert.equal(requests[1].url,'/api/storage/library/42/thumbnail');
+        assert.equal(JSON.parse(requests[1].options.body).fileVersion,'v1');
+    } finally {globalThis.fetch=originalFetch;globalThis.Image=OriginalImage;globalThis.document=originalDocument;}
+});
+
+test('directory thumbnail updates bind the file version and report failed writes without releasing shared cache owners',async()=>{
+    const originalFetch=globalThis.fetch;const requests=[];
+    globalThis.fetch=async(url,options)=>{requests.push({url,options});return new Response('',{status:409});};
+    try {
+        assert.equal(await createDiskStorageApi(()=>({})).updateHistoryThumb(10,'data:image/webp;base64,dGh1bWI=',{fileVersion:'old'}),false);
+        assert.equal(requests.length,1);assert.equal(requests[0].url,'/api/storage/library/10/thumbnail');
+        assert.deepEqual(JSON.parse(requests[0].options.body),{thumb:'data:image/webp;base64,dGh1bWI=',fileVersion:'old'});
+    } finally {globalThis.fetch=originalFetch;}
 });
 
 test('saving generated node images scopes one temporary owner to the operation', async () => {
@@ -361,37 +299,13 @@ test('saving an uploaded image scopes its Media asset owner to the workflow impo
     }
 });
 
-test('failed history persistence releases the provisional history owner', async () => {
-    const originalFetch = globalThis.fetch;
-    const requests = [];
-    globalThis.fetch = async (url, options = {}) => {
-        requests.push({ url, options });
-        if (url === '/api/storage/media-assets' && options.method === 'PUT') {
-            return new Response(JSON.stringify({ asset: { asset_key: 'media:shared-image' } }), { status: 200 });
-        }
-        if (url === '/api/storage/history') return new Response('', { status: 500 });
-        return new Response(JSON.stringify({ success: true }), { status: 200 });
-    };
-
+test('failed directory persistence rejects generation without releasing shared workflow media',async()=>{
+    const originalFetch=globalThis.fetch;const requests=[];
+    globalThis.fetch=async(url,options)=>{requests.push({url,options});return new Response(JSON.stringify({error:'controlled disk full'}),{status:507});};
     try {
-        const storage = createDiskStorageApi(() => ({}));
-        assert.equal(await storage.saveHistoryEntry({
-            image: 'data:image/png;base64,aGVsbG8=', thumb: 'data:image/webp;base64,dGh1bWI='
-        }), false);
-        const rollback = requests.find(({ url, options }) => (
-            url === '/api/storage/media-assets' && options.method === 'POST'
-        ));
-        assert.equal(JSON.parse(rollback.options.body).action, 'unreference');
-        assert.equal(JSON.parse(rollback.options.body).ownerType, 'history');
-        const releases = requests.filter(({ url, options }) => url === '/api/storage/media-assets' && options.method === 'POST')
-            .map(({ options }) => JSON.parse(options.body));
-        assert.deepEqual(releases.map(request => [request.ownerType, request.assetKey]), [
-            ['history', 'media:shared-image'], ['history-thumbnail', 'thumb:media:shared-image']
-        ]);
-        assert.equal(releases[0].ownerId, releases[1].ownerId);
-    } finally {
-        globalThis.fetch = originalFetch;
-    }
+        await assert.rejects(createDiskStorageApi(()=>({})).saveHistoryEntry({image:'data:image/png;base64,aGVsbG8=',mediaAssetKey:'media:shared'}),/controlled disk full/);
+        assert.deepEqual(requests.map(r=>r.url),['/api/storage/library']);
+    }finally{globalThis.fetch=originalFetch;}
 });
 
 test('versioned Media asset ownership methods map the workflow commit contract', async () => {

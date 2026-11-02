@@ -91,8 +91,8 @@ export async function withAppBrowser(session, task, { repoDirectory, initScript,
             const response = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
             if (response.exceptionDetails) throw new Error(JSON.stringify(response.exceptionDetails)); return response.result.value;
         };
-        const waitFor = async expression => {
-            for (let i = 0; i < 150; i++) { if (await evaluate(expression)) return; await delay(50); }
+        const waitFor = async (expression, timeout = 7500) => {
+            for (const deadline = Date.now() + timeout; Date.now() < deadline;) { if (await evaluate(expression)) return; await delay(50); }
             throw new Error(`Timed out: ${expression}\n${errors.slice(-8).join('\n')}\n${await evaluate('window.__cainflowBootstrapError')}\n${await evaluate('document.body.innerText.slice(-5000)')}`);
         };
         await send('Emulation.setDeviceMetricsOverride', { width: 1100, height: 820, deviceScaleFactor: 1, mobile: false });
