@@ -12,12 +12,54 @@
  * and only add component-specific overrides for truly unique visuals.
  */
 
-.workflow-item.is-open {
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), var(--workflow-card-bg)) !important;
-    border-color: rgba(59, 130, 246, 0.26) !important;
+/* Compact rows use a single active marker and restrained surface contrast. */
+#workflow-list .workflow-item {
+    background: color-mix(in srgb, var(--bg-canvas) 97%, var(--text-main)) !important;
+    border: 1px solid color-mix(in srgb, var(--bg-canvas) 88%, var(--text-main)) !important;
+    border-radius: 4px;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
 }
 
-.workflow-item.is-active {
-    background: linear-gradient(135deg, rgba(34, 197, 94, 0.14), var(--workflow-card-bg)) !important;
-    border-color: rgba(34, 197, 94, 0.42) !important;
+#workflow-list .workflow-item.is-open {
+    background: color-mix(in srgb, var(--bg-canvas) 94%, var(--text-main)) !important;
+}
+
+#workflow-list .workflow-item:hover {
+    background: color-mix(in srgb, var(--bg-canvas) 90%, var(--text-main)) !important;
+    border-color: color-mix(in srgb, var(--bg-canvas) 75%, var(--text-main)) !important;
+    --workflow-item-hover-offset: 0px;
+}
+
+#workflow-list .workflow-item.is-active {
+    background: color-mix(in srgb, var(--bg-canvas) 84%, var(--text-main)) !important;
+    border-color: color-mix(in srgb, var(--bg-canvas) 80%, var(--text-main)) !important;
+}
+
+#workflow-list .workflow-item.is-active:hover {
+    background: color-mix(in srgb, var(--bg-canvas) 80%, var(--text-main)) !important;
+}
+
+#workflow-list .workflow-item::before {
+    display: none;
+}
+
+#workflow-list .workflow-item.is-active::before {
+    display: block;
+    width: 2px;
+    background: var(--accent-primary);
+}
+
+#workflow-list .workflow-item.is-selected,
+#workflow-list .workflow-item.is-dragging {
+    border-color: var(--accent-primary) !important;
+}
+
+#workflow-list .workflow-item.is-dragging {
+    border-style: dashed !important;
+}
+
+#workflow-list .workflow-item:not(.is-open) .workflow-item-name {
+    color: color-mix(in srgb, var(--text-main) 80%, var(--bg-canvas));
 }

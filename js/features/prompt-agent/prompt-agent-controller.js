@@ -1,6 +1,6 @@
 import { bindTaskToReply, confirmTaskParameters } from './prompt-agent-task.js';
 import { sizeCapabilities, resolveAgentSize, parseSizeAnswer } from './prompt-agent-size.js';
-import { getEffectiveProtocol } from '../execution/provider-request-utils.js';
+import { getEffectiveProtocol, getModelProviders } from '../execution/provider-request-utils.js';
 import { createAgentSizeSettings } from './prompt-agent-size-ui.js';
 import { createThinkingControl } from '../execution/thinking-control.js';
 import { resolveAgentProvider } from './prompt-agent-provider.js';
@@ -145,7 +145,6 @@ export function createPromptAgentController({
     let referencePickerOpen = false;
     let referencePickerError = '';
     let referenceTab = 'scene';
-    let referenceQuery = '';
     let referenceLimit = 60;
     let historyReferences = [];
     let historyLoading = false;
@@ -210,6 +209,15 @@ export function createPromptAgentController({
         try { resolveAgentProvider(model, getProviders(), conversationStore.getProvider(purpose, model.id)); return null; }
         catch (error) { return error; }
     }
+    function initializeProvider(purpose, model) {
+        if (!model || conversationStore.getProvider(purpose, model.id)) return;
+        const providers = getProviders();
+        const provider = getModelProviders(model, providers).find(candidate => {
+            try { resolveAgentProvider(model, providers, candidate.id); return true; }
+            catch { return false; }
+        });
+        if (provider) conversationStore.setProvider(purpose, model.id, provider.id);
+    }
     function configureProvider(purpose, model) {
         openModelSettings(providerError(purpose, model)?.configurationTarget || { modelId: model?.id, field: 'providerIds' });
     }
@@ -269,6 +277,7 @@ export function createPromptAgentController({
             missing.textContent = '已选对话模型不可用，请检查配置'; missing.disabled = true; modelSelect.appendChild(missing);
         }
         modelSelect.value = selected;
+        initializeProvider('chat', models.find(model => model.id === selected));
         const error = providerError('chat', models.find(model => model.id === selected));
         const status = documentRef.getElementById('prompt-agent-model-status');
         if (status) status.textContent = error?.message || '已选对话模型不可用，请检查配置。';
@@ -290,6 +299,7 @@ export function createPromptAgentController({
         const models = getImageModels().filter((model) => model?.id && model?.modelId);
         const selectedId = conversationStore.getImageModelId();
         const valid = models.some((model) => model.id === selectedId);
+        initializeProvider('image', models.find(model => model.id === selectedId));
         if (imageModelSelect) {
             imageModelSelect.replaceChildren?.();
             const placeholder = documentRef.createElement('option');
@@ -722,18 +732,21 @@ export function createPromptAgentController({
         const focusedId = documentRef.activeElement?.getAttribute?.('data-reference-id');
         clearElement(referencePickerList);
         const allCandidates = referenceTab === 'history' ? historyReferences : (nodeAdapter?.getSceneReferenceImages?.() || []);
-        const filtered = allCandidates.filter(item => `${item.name} ${item.prompt || ''}`.toLowerCase().includes(referenceQuery.toLowerCase()));
+        const filtered = allCandidates;
         const candidates = filtered.slice(0, referenceLimit);
-        const selected = documentRef.getElementById('prompt-agent-picker-selected');
-        if (selected) { clearElement(selected); appendReferencePreviews(selected, pendingReferenceImages, { removable: true }); }
+        const clearSelection = documentRef.getElementById('prompt-agent-reference-clear');
+        if (clearSelection) clearSelection.hidden = pendingReferenceImages.length === 0;
+        const done = documentRef.getElementById('prompt-agent-reference-picker-close');
+        if (done) done.textContent = pendingReferenceImages.length ? `完成（${pendingReferenceImages.length}）` : '完成';
         const more = documentRef.getElementById('prompt-agent-reference-more');
         if (more) more.hidden = filtered.length <= referenceLimit;
         for (const tab of ['scene', 'history']) documentRef.getElementById(`prompt-agent-tab-${tab}`)?.setAttribute('aria-selected', String(referenceTab === tab));
         if (referencePickerStatus) referencePickerStatus.textContent = referenceTab === 'history' && (historyLoading || historyError)
             ? (historyLoading ? '正在加载历史图片…' : historyError)
             : candidates.length
-            ? `${filtered.length} 张图片${filtered.length > candidates.length ? ` · 显示前 ${candidates.length} 张` : ''} · 已选 ${pendingReferenceImages.length} 张，按勾选顺序编号`
-            : (referenceTab === 'history' ? (historyLoading ? '正在加载历史图片…' : historyError || '没有匹配的历史图片。') : '当前场景还没有匹配的图片导入节点。');
+            ? ''
+            : (referenceTab === 'history' ? (historyLoading ? '正在加载历史图片…' : historyError || '没有匹配的历史图片。') : '没有匹配的画布图片，可上传图片。');
+        if (referencePickerStatus) referencePickerStatus.hidden = !referencePickerStatus.textContent;
         candidates.forEach((candidate) => {
             const candidateKey = candidate.historyId ? referenceSource?.getReferenceId?.(candidate) || candidate.referenceId : getPromptAgentReferenceKey(candidate);
             const index = pendingReferenceImages.findIndex((item) => item.selectionKey === candidate.referenceId || getPromptAgentReferenceKey(item) === candidateKey);
@@ -769,11 +782,6 @@ export function createPromptAgentController({
             } else {
                 thumbnail.textContent = '读取原图';
             }
-            const check = documentRef.createElement('span');
-            check.className = 'prompt-agent-reference-check';
-            check.textContent = index >= 0 ? '✓' : '';
-            check.setAttribute('aria-hidden', 'true');
-            thumbnail.appendChild(check);
             if (index >= 0) {
                 const number = documentRef.createElement('span');
                 number.className = 'prompt-agent-reference-number';
@@ -789,7 +797,9 @@ export function createPromptAgentController({
             button.appendChild(label);
             button.addEventListener('click', () => candidate.historyId ? toggleImportedReference(candidate) : toggleSceneReference(candidate));
             const preview = documentRef.createElement('button');
-            preview.type = 'button'; preview.className = 'prompt-agent-reference-preview'; preview.textContent = '预览';
+            preview.type = 'button'; preview.className = 'prompt-agent-reference-preview';
+            preview.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>';
+            preview.title = '预览原图';
             preview.setAttribute('aria-label', `预览 ${candidate.name}`);
             preview.addEventListener('click', async () => {
                 const revision = workflowRevision;
@@ -1144,6 +1154,7 @@ export function createPromptAgentController({
         const message = documentRef.createElement('article');
         message.className = `prompt-agent-message prompt-agent-message-${role}`;
         message.setAttribute('data-role', role);
+        message.setAttribute('aria-label', role === 'user' ? '用户消息' : 'Agent 回复');
 
         if (role === 'agent' && workSummary.length) {
             const details = documentRef.createElement('details');
@@ -1183,7 +1194,9 @@ export function createPromptAgentController({
             appendReferencePreviews(references, referenceImages);
             message.appendChild(references);
         }
-        if (contextImages.length) appendContextImagePreviews(message, contextImages);
+        const attachmentSources = new Set(referenceImages.map(image => image.dataUrl).filter(Boolean));
+        const visibleContextImages = contextImages.filter(image => !image.dataUrl || !attachmentSources.has(image.dataUrl));
+        if (visibleContextImages.length) appendContextImagePreviews(message, visibleContextImages);
         messages.appendChild(message);
         contentObserver?.observe?.(message);
         if (followLatest || followLatestContent) scrollToLatest();
@@ -1797,8 +1810,14 @@ export function createPromptAgentController({
                     if (!isCurrentOperation(operation) || !userMessage?.isConnected) return;
                     const slotKey = image => image.sourceNodeId ? `${image.sourceNodeId}:${image.sourceImageIndex || 0}` : image.dataUrl;
                     const shown = new Set(referenceImages.map(slotKey));
+                    // Handing a result to Agent imports a new source node. Its
+                    // original canvas slot can still enter automatic context;
+                    // don't show that same image again beside its attachment.
+                    // Keep distinct automatic batch slots, even with equal pixels.
+                    const attachmentSources = new Set(referenceImages.map(image => image.dataUrl).filter(Boolean));
                     const snapshots = images.filter(image => {
-                        if (operation.removedReferenceNodeIds?.has(image.sourceNodeId) || shown.has(slotKey(image))) return false;
+                        if (operation.removedReferenceNodeIds?.has(image.sourceNodeId) || shown.has(slotKey(image))
+                            || (image.dataUrl && attachmentSources.has(image.dataUrl))) return false;
                         shown.add(slotKey(image)); return true;
                     });
                     if (!conversationStore.updateContextImages(userMessage.promptAgentMessageIndex, snapshots)) return;
@@ -1978,9 +1997,7 @@ export function createPromptAgentController({
             const target = documentRef.getElementById(`prompt-agent-tab-${tab === 'scene' ? 'history' : 'scene'}`);
             target?.click(); target?.focus();
         });
-        documentRef.getElementById('prompt-agent-reference-search')?.addEventListener('input', event => { referenceQuery = event.target.value; referenceLimit = 60; renderReferencePicker(); });
         documentRef.getElementById('prompt-agent-reference-more')?.addEventListener('click', () => { referenceLimit += 60; renderReferencePicker(); });
-        documentRef.getElementById('prompt-agent-reference-refresh')?.addEventListener('click', () => referenceTab === 'history' ? loadHistoryReferences() : renderReferencePicker());
         documentRef.getElementById('prompt-agent-reference-clear')?.addEventListener('click', () => { pendingReferenceImages = []; referencePickerError = ''; renderPendingReferences(); });
         const upload = documentRef.getElementById('prompt-agent-reference-upload');
         documentRef.getElementById('prompt-agent-reference-upload-button')?.addEventListener('click', () => upload?.click());
@@ -2074,7 +2091,7 @@ export function createPromptAgentController({
                     }
                 } : {}),
                 ...(isImage ? {
-                    getExtraSummary: () => sizeSettings?.getSummary?.() || '尺寸：跟随方案',
+                    getExtraSummary: () => sizeSettings?.getSummary?.() || '尺寸：自动',
                     renderExtra: (content, popoverId) => {
                         sizeSettings?.destroy();
                         sizeSettings = createAgentSizeSettings({ documentRef, parent: content, popoverId,
@@ -2160,9 +2177,7 @@ export function createPromptAgentController({
         workflowRevision += 1;
         importQueue = Promise.resolve();
         historyReferences = []; historyLoading = false; historyError = '';
-        referenceTab = 'scene'; referenceQuery = ''; referenceLimit = 60;
-        const search = documentRef.getElementById('prompt-agent-reference-search');
-        if (search) search.value = '';
+        referenceTab = 'scene'; referenceLimit = 60;
         pendingReferenceImages = [];
         referencePickerError = '';
         setCommandStatus();

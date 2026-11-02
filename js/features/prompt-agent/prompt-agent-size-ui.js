@@ -36,7 +36,7 @@ export function createAgentSizeSettings({ documentRef, parent, popoverId, getMod
     let destroyed = false;
     const getSummary = () => {
         const model = getModel(), value = getValue(model?.id) || {};
-        const resolution = value.resolution === undefined ? '跟随方案' : value.resolution || '自动';
+        const resolution = value.resolution === undefined ? '自动' : value.resolution || '自动';
         const parts = [resolution];
         if (value.resolution !== 'custom' && value.aspectRatio) parts.push(value.aspectRatio);
         if (value.resolution === 'custom') parts.push(`${value.customWidth || '—'}×${value.customHeight || '—'}`);
@@ -48,7 +48,7 @@ export function createAgentSizeSettings({ documentRef, parent, popoverId, getMod
         const capabilities = sizeCapabilities(getEffectiveProtocol(model || {}, getProvider(model)));
         for (const [key, options] of [['resolution', capabilities.resolutions], ['aspectRatio', capabilities.aspects]]) {
             const select = controls[key]; select.replaceChildren();
-            const values = [{ value: '__inherit__', label: '跟随方案' }, ...options];
+            const values = [{ value: '__inherit__', label: '自动' }, ...options.map(item => item.label === '自动' ? { ...item, label: '模型自动' } : item)];
             if (value[key] !== undefined && !values.some(item => item.value === String(value[key]))) values.push({ value: String(value[key]), label: `${value[key]}（当前不可用）`, disabled: true });
             for (const item of values) { const option = documentRef.createElement('option'); option.value = item.value; option.textContent = item.label; option.disabled = Boolean(item.disabled); select.appendChild(option); }
             select.value = value[key] === undefined ? '__inherit__' : String(value[key]); select.disabled = !model;

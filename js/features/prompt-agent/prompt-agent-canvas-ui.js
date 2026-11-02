@@ -11,9 +11,12 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     const element = (tag, text, owner = card) => { const node = documentRef.createElement(tag); node.textContent = text;
         if (tag === 'button') node.className = 'btn btn-secondary'; owner.appendChild(node); return node; };
     const header = element('header', ''); header.className = 'prompt-agent-plan-header';
-    const title = element('strong', '画布操作方案', header);
+    const generatesImages = plan.steps.some(step => step.type === 'ImageGenerate');
+    const title = element('strong', generatesImages ? '图片生成方案' : '画布修改方案', header);
     element('span', `${plan.steps.length + (plan.deletes?.length || 0)} 项操作`, header).className = 'prompt-agent-plan-count';
     title.title = plan.id;
+    const overview = element('details', ''); overview.className = 'prompt-agent-plan-overview';
+    element('summary', '查看详情', overview);
     const inputs = element('div', ''); inputs.className = 'prompt-agent-plan-inputs';
     const references = adapter.inputs?.(plan) || [];
     element('span', references.length ? `参考图 · ${references.length} 项`
@@ -29,6 +32,7 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         }).catch(() => { if (!destroyed) item.title = '参考原图读取失败，应用时将重新校验'; });
     }
     const list = element('ol', ''); list.className = 'prompt-agent-plan-steps';
+    overview.appendChild(inputs); overview.appendChild(list);
     const stepStates = new Map();
     const refreshSelectors = [];
     const thinkingControls = [];
@@ -87,6 +91,7 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     }
     const modelMenus = createPromptAgentModelMenus({ documentRef, selects: modelSelectors });
     const details = element('details', ''); details.className = 'prompt-agent-plan-changes'; details.open = false;
+    overview.appendChild(details);
     element('summary', '变更与尺寸明细', details);
     const changes = element('ul', '', details);
     changes.className = 'prompt-agent-change-list';
@@ -102,8 +107,10 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     const actions = element('div', ''); actions.className = 'prompt-agent-canvas-actions';
     const refresh = element('button', '刷新变更清单', details); refresh.type = 'button';
     const primaryActions = element('div', '', actions); primaryActions.className = 'prompt-agent-actions-primary';
-    const secondaryActions = element('div', '', actions); secondaryActions.className = 'prompt-agent-actions-secondary';
-    const apply = element('button', '仅应用', secondaryActions), execute = element('button', '应用并执行', primaryActions);
+    const moreActions = element('details', '', actions); moreActions.className = 'prompt-agent-actions-more';
+    const moreSummary = element('summary', '⋯', moreActions); moreSummary.setAttribute('aria-label', '更多方案操作');
+    const secondaryActions = element('div', '', moreActions); secondaryActions.className = 'prompt-agent-actions-secondary';
+    const apply = element('button', '仅应用', secondaryActions), execute = element('button', generatesImages ? '生成图片' : '应用并执行', primaryActions);
     execute.className = 'btn btn-primary';
     const retry = element('button', '重试未完成步骤', primaryActions), undo = element('button', '撤销本次画布操作', secondaryActions), stop = element('button', '停止', primaryActions);
     const buttons = [apply, execute, retry, undo, stop]; buttons.forEach(button => { button.type = 'button'; });
@@ -141,9 +148,14 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         repair.hidden = !configurationTarget; repair.disabled = busy;
         apply.disabled = execute.disabled = busy || !isCurrent() || Boolean(unavailable);
         retry.disabled = execute.disabled || !plan.runs?.length;
-        retry.hidden = !plan.runs?.length;
+        const failed = [...stepStates.keys()].some(id => ['failed', 'interrupted'].includes(adapter.stepStatus(plan, id)));
+        const completed = stepStates.size > 0 && [...stepStates.keys()].every(id => adapter.stepStatus(plan, id) === 'completed');
+        retry.hidden = !failed || busy;
+        if (completed && !card.classList.contains('is-completed')) overview.open = false;
+        card.classList.toggle('is-completed', completed);
+        title.textContent = completed ? '已完成' : generatesImages ? '图片生成方案' : '画布修改方案';
         undo.hidden = !Object.keys(plan.bindings || {}).length && !plan.appliedSignature;
-        execute.hidden = plan.steps.length === 0;
+        execute.hidden = plan.steps.length === 0 || completed || busy || failed;
         undo.disabled = busy || Boolean(adapter.canUndo(plan)); undo.title = adapter.canUndo(plan);
         stop.hidden = !busy;
         refresh.disabled = busy || !isCurrent();

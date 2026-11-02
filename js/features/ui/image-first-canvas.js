@@ -70,7 +70,19 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         // its full footprint even while its translated presentation is hidden.
         const top = expanded && toolbar?.getClientRects().length
             ? Math.min(toolbar.offsetHeight + 12, Math.max(12, windowRef.innerHeight - 12)) : 12;
-        return { width: Math.max(1, windowRef.innerWidth - 24), height: Math.max(1, windowRef.innerHeight - top - 12), top };
+        const canvas = documentRef.getElementById('canvas-container')?.getBoundingClientRect();
+        let left = Math.max(12, (canvas?.left || 0) + 12);
+        const workflowPanel = documentRef.getElementById('workflow-sidebar');
+        if (workflowPanel?.classList.contains('active') && !workflowPanel.hidden) {
+            left = Math.max(left, workflowPanel.getBoundingClientRect().right + 12);
+        }
+        let right = Math.min(windowRef.innerWidth - 12, (canvas?.right || windowRef.innerWidth) - 12);
+        const agentPanel = documentRef.getElementById('prompt-agent-panel');
+        if (agentPanel?.classList.contains('active') && !agentPanel.hidden) {
+            right = Math.min(right, agentPanel.getBoundingClientRect().left - 12);
+        }
+        right = Math.max(left + 1, right);
+        return { left, right, width: right - left, height: Math.max(1, windowRef.innerHeight - top - 12), top };
     };
     const selectedNode = () => state.selectedNodes.size === 1 ? state.nodes.get([...state.selectedNodes][0]) : null;
     function updateSwitcher() {
@@ -142,16 +154,18 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (panel.hidden || !current?.el?.isConnected) return;
         const rect = current.el.getBoundingClientRect();
         const bounds = available();
+        panel.style.maxHeight = `${bounds.height}px`;
+        panel.style.minWidth = `${Math.min(280, bounds.width)}px`;
         if (expanded) {
             if (!expandedRect) {
                 const width = Math.min(860, bounds.width);
                 const height = Math.min(680, bounds.height, Math.max(160, windowRef.innerHeight - bounds.top * 2));
-                expandedRect = { left: (windowRef.innerWidth - width) / 2, top: (windowRef.innerHeight - height) / 2, width, height };
+                expandedRect = { left: bounds.left + (bounds.width - width) / 2, top: (windowRef.innerHeight - height) / 2, width, height };
             }
             const width = Math.min(expandedRect.width, bounds.width), height = Math.min(expandedRect.height, bounds.height);
             panel.style.setProperty('--image-parameter-available-height', `${bounds.height}px`);
             panel.style.width = `${width}px`; panel.style.height = `${height}px`;
-            panel.style.left = `${clamp(expandedRect.left, 12, Math.max(12, windowRef.innerWidth - width - 12))}px`;
+            panel.style.left = `${clamp(expandedRect.left, bounds.left, Math.max(bounds.left, bounds.right - width))}px`;
             panel.style.top = `${clamp(expandedRect.top, bounds.top, Math.max(bounds.top, windowRef.innerHeight - height - 12))}px`;
             heightHandle.setAttribute('aria-valuenow', String(Math.round(height)));
             widthHandle.setAttribute('aria-valuenow', String(Math.round(width)));
@@ -163,13 +177,29 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const width = Math.min(compactImport ? modeWidth + 72 : currentWidthPreference(), bounds.width);
         panel.style.width = `${width}px`;
         panel.style.height = '';
-        panel.style.left = `${rect.left + rect.width / 2 - width / 2}px`;
+        panel.style.left = `${clamp(rect.left + rect.width / 2 - width / 2, bounds.left, Math.max(bounds.left, bounds.right - width))}px`;
         const floatingBottoms = ['.image-result-actions', '.node-run-cancel-btn']
             .map(selector => current.el.querySelector(selector)).filter(element => element?.getClientRects().length)
             .map(element => element.getBoundingClientRect().bottom + 12);
         panel.style.top = `${Math.max(rect.bottom + 12, ...floatingBottoms)}px`;
         widthHandle.setAttribute('aria-valuenow', String(Math.round(width)));
         sizePrompt();
+        let height = panel.getBoundingClientRect().height;
+        const preferredTop = Math.max(rect.bottom + 12, ...floatingBottoms);
+        const below = Math.max(0, windowRef.innerHeight - 12 - preferredTop);
+        const above = Math.max(0, rect.top - 12 - bounds.top);
+        let top = preferredTop;
+        if (height > below) {
+            if (height <= above) {
+                top = rect.top - 12 - height;
+            } else if (Math.max(above, below) >= 120) {
+                const useAbove = above >= below;
+                panel.style.maxHeight = `${Math.min(bounds.height, useAbove ? above : below)}px`;
+                height = panel.getBoundingClientRect().height;
+                top = useAbove ? rect.top - 12 - height : preferredTop;
+            }
+        }
+        panel.style.top = `${clamp(top, bounds.top, Math.max(bounds.top, windowRef.innerHeight - height - 12))}px`;
     }
     function schedulePosition() {
         if (positionFrame !== null || panel.hidden) return;
@@ -609,7 +639,15 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         updateSwitcher();
     });
     const agent = documentRef.getElementById('prompt-agent-panel');
-    if (agent) new windowRef.MutationObserver(updateSwitcher).observe(agent, { attributes: true, attributeFilter: ['class', 'hidden', 'style'] });
+    if (agent) new windowRef.MutationObserver(() => { updateSwitcher(); schedulePosition(); }).observe(agent, { attributes: true, attributeFilter: ['class', 'hidden', 'style'] });
+    if (agent && windowRef.ResizeObserver) new windowRef.ResizeObserver(schedulePosition).observe(agent);
+    agent?.addEventListener('transitionend', schedulePosition);
+    const workflowPanel = documentRef.getElementById('workflow-sidebar');
+    if (workflowPanel) {
+        new windowRef.MutationObserver(schedulePosition).observe(workflowPanel, { attributes: true, attributeFilter: ['class', 'hidden', 'style'] });
+        if (windowRef.ResizeObserver) new windowRef.ResizeObserver(schedulePosition).observe(workflowPanel);
+        workflowPanel.addEventListener('transitionend', schedulePosition);
+    }
     generate.addEventListener('click', () => {
         if (!current) return;
         if (generate.disabled) return;

@@ -1012,3 +1012,31 @@ test('image-first generation opens one fixed-size editor below the card without 
         assert.equal(await app.evaluate("document.getElementById('first-image-prompt').value"),'saved from lower editor');
     });
 });
+
+test('one result attachment is not repeated as an automatic context thumbnail', { timeout: 30000 }, async () => {
+    await withAppBrowser(referenceSession(), async app => {
+        const { evaluate, waitFor } = app;
+        await generateReferenceSources(app);
+        await openImageParameters(app, 'source-a');
+        await evaluate("window.assistantTargetId='source-a';document.getElementById('source-a-assistant').click();document.querySelector('#source-a-image-results [data-result-action=reference]').click()");
+        await waitFor("document.querySelectorAll('#prompt-agent-references img').length===1 && !document.querySelector('#prompt-agent-references .is-loading')");
+        const original = await evaluate("document.querySelector('#prompt-agent-references img').src");
+        await change(evaluate, 'prompt-agent-input', '给这张图片增加一杯奶茶');
+        await evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await waitFor("document.querySelector('.prompt-agent-message-agent') && !document.querySelector('.prompt-agent-processing')");
+        const images = await evaluate("[...document.querySelectorAll('.prompt-agent-message-user img')].map(img=>img.src)");
+        assert.equal(images.filter(src => src === original).length, 1);
+        assert.equal(await evaluate("document.querySelector('.prompt-agent-message-user .prompt-agent-message-role') === null"), true);
+        assert.equal(await evaluate("document.querySelector('.prompt-agent-message-agent .prompt-agent-message-role') === null"), true);
+        assert.equal(await evaluate("document.querySelector('.prompt-agent-plan-overview').open"), false);
+        assert.equal(await evaluate("document.querySelector('.prompt-agent-actions-more').open"), false);
+        assert.equal(await evaluate("document.querySelector('.prompt-agent-actions-primary .btn-primary').textContent"), '生成图片');
+        await evaluate("document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=image][data-provider-id=p]').click();document.querySelector('.prompt-agent-actions-primary .btn-primary').click()");
+        await waitFor("document.querySelector('.prompt-agent-canvas-plan.is-completed')");
+        assert.equal(await evaluate("document.querySelector('.prompt-agent-plan-overview').open"), false);
+        await evaluate("document.querySelector('.prompt-agent-plan-overview > summary').click()");
+        assert.equal(await evaluate("document.querySelector('.prompt-agent-plan-overview').open"), true);
+
+
+    });
+});

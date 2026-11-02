@@ -17,6 +17,7 @@ test('canvas edits autosave, new workflows require a name, copies activate and c
         assert.equal(await app.evaluate("document.querySelector('#text textarea').value"), 'autosaved text');
         await app.evaluate("window.autosaveNativeFetch=window.fetch;window.fetch=(url,options={})=>String(url).startsWith('/api/workflows/')&&options.method==='POST'?Promise.resolve(new Response(JSON.stringify({error:'controlled save failure'}),{status:500,headers:{'Content-Type':'application/json'}})):autosaveNativeFetch(url,options);const input=document.querySelector('#text textarea');input.value='retained after failure';input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}))");
         await app.waitFor("[...document.querySelectorAll('.toast button')].some(button=>button.textContent==='重试')");
+        assert.equal(await app.evaluate("[...document.querySelectorAll('.toast')].some(toast=>toast.textContent.includes('自动保存失败') && toast.textContent.includes('controlled save failure'))"), true);
         await app.evaluate(`document.getElementById('workflow-context-menu').dataset.targetName=${JSON.stringify(original)};document.getElementById('menu-close-workflow').click()`);
         await app.waitFor("!document.body.inert");
         assert.equal(await app.evaluate("document.querySelector('#text textarea').value"), 'retained after failure');
