@@ -55,7 +55,9 @@ test('resize and color cards preserve their original image surfaces and complete
             assert.equal(surfaceGeometry.padding, '12px');
             assert.equal(surfaceGeometry.header, 'absolute');
             assert.ok(surfaceGeometry.height > 240, 'user-sized image area remains substantial: ' + id + ' ' + JSON.stringify(surfaceGeometry));
-            assert.ok(surfaceGeometry.top > surfaceGeometry.bottom, 'normal editor stays below its card');
+            const editor = await app.evaluate("(()=>{const panel=document.getElementById('image-parameter-panel'),r=panel.getBoundingClientRect(),s=panel.querySelector('.image-parameter-scroll');return {top:r.top,bottom:r.bottom,viewport:innerHeight,content:s.scrollHeight,available:s.clientHeight}})()");
+            assert.ok(editor.top >= 12 && editor.bottom <= editor.viewport - 12, 'editor stays inside the viewport: ' + JSON.stringify(editor));
+            assert.ok(editor.content <= editor.available + 1, 'ordinary processing parameters fit without unnecessary scrolling: ' + JSON.stringify(editor));
         }
         await open(app, 'resize-card');
         await field(app, 'resize-card-target-width', '300');
