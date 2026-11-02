@@ -83,6 +83,7 @@ test('save image clicks open the editor, double clicks open the original, and or
         assert.equal(await app.evaluate("document.getElementById('save-card').classList.contains('image-first-card')"), true);
         await app.evaluate("(async()=>{const blob=await fetch('/tests/fixtures/reference-red.png').then(response=>response.blob()),files=new DataTransfer();files.items.add(new File([blob],'red.png',{type:'image/png'}));const input=document.getElementById('source-a-file');input.files=files.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()");
         await app.waitFor("document.querySelector('#save-card-save-preview img')?.naturalWidth>0");
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
         const before = await geometry(app);
         await open(app);
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]').click()");
