@@ -461,7 +461,8 @@ export function createCameraControlNodeApi(options = {}) {
 
     function buildScene() {
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color('#0f1722');
+        const paperTheme = documentRef.documentElement?.dataset.appTheme === 'paper';
+        scene.background = new THREE.Color(paperTheme ? '#eeece7' : '#0f1722');
 
         const ambientLight = new THREE.AmbientLight('#ffffff', 1.2);
         scene.add(ambientLight);
@@ -474,7 +475,9 @@ export function createCameraControlNodeApi(options = {}) {
         fillLight.position.set(-4, 4, -6);
         scene.add(fillLight);
 
-        const grid = new THREE.GridHelper(18, 18, '#4ade80', '#334155');
+        const grid = new THREE.GridHelper(18, 18,
+            paperTheme ? '#4e7669' : '#4ade80',
+            paperTheme ? '#b7b4aa' : '#334155');
         grid.position.y = -0.45;
         scene.add(grid);
 
