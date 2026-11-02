@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
+import { withAppBrowser, reloadAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
 
 const restored = [
     { id: 'legacy', type: 'ImageGenerate', x: 40, y: 100, height: 2309, width: 410,
@@ -47,8 +47,7 @@ async function assertRealEditors(app) {
 }
 
 async function saveFile(app) {
-    await app.evaluate("document.getElementById('btn-save').click()");
-    await app.waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
+    await waitForAutosave(app);
     await app.waitFor("fetch('/api/workflows/'+encodeURIComponent(document.getElementById('toolbar-workflow-name').textContent.trim())).then(response=>response.json()).then(graph=>graph.nodes?.find(node=>node.id==='manual')?.height===1200&&graph.nodes.find(node=>node.id==='legacy')?.textareaHeights?.prompt===1593)");
     return app.evaluate("fetch('/api/workflows/'+encodeURIComponent(document.getElementById('toolbar-workflow-name').textContent.trim())).then(response=>response.json())");
 }

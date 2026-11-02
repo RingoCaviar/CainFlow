@@ -49,7 +49,7 @@ The stable identity of a workflow across saving, renaming, folder moves, workflo
 _Avoid_: Workflow name as identity, workflow path as identity
 
 **Open Workflow record**:
-The authoritative current-session record of an open workflow's Workflow identity, mutable label, running state, pending explicit-save state, and whether it is active. Presentation details, folder placement, dirty state, run result, and the editable workflow document are not part of this record.
+The authoritative current-session record of an open workflow's Workflow identity, mutable label, running state, pending identity-persistence state, and whether it is active. Presentation details, folder placement, dirty state, run result, and the editable workflow document are not part of this record.
 _Avoid_: Workflow tab as authority, duplicate open-workflow state
 
 **Conversation**:

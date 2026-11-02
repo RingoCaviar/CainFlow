@@ -151,8 +151,9 @@ test('saving refuses to overwrite a same-name Workflow with a different identity
 
         assert.equal(await manager.saveActiveWorkflow({ silent: true }), false);
         assert.equal(saves.length, 1);
+        assert.ok(toasts.some(toast => toast.message === '同名工作流已属于另一工作流，请使用“另存为”保存当前工作流'));
         assert.deepEqual(toasts.at(-1), {
-            message: '同名工作流已属于另一工作流，请使用“另存为”保存当前工作流',
+            message: '工作流「Unsaved」自动保存失败，修改已保留',
             type: 'error'
         });
         assert.equal(manager.getActiveWorkflowSnapshot().mediaOwnershipRevision, 0);

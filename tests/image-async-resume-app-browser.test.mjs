@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
+import { withAppBrowser, reloadAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
 
 const bytes = await readFile(new URL('./fixtures/reference-blue.png', import.meta.url));
 const png = 'data:image/png;base64,' + bytes.toString('base64');
@@ -27,7 +27,7 @@ async function nativeClick(app, selector) {
 }
 const session = app => app.evaluate("fetch('/api/storage/documents/session').then(response=>response.json()).then(record=>record.value)");
 async function saveFile(app, condition) {
-    await nativeClick(app, '#btn-save');
+    await waitForAutosave(app);
     await app.waitFor(`fetch('/api/workflows/'+encodeURIComponent(document.getElementById('toolbar-workflow-name').textContent.trim())).then(response=>response.json()).then(graph=>{const node=graph.nodes?.find(node=>node.id==='async-image');return ${condition}})`);
     return app.evaluate("fetch('/api/workflows/'+encodeURIComponent(document.getElementById('toolbar-workflow-name').textContent.trim())).then(response=>response.json())");
 }

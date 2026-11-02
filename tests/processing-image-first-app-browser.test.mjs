@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
+import { withAppBrowser, reloadAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
 
 const configuration = {
     autoCheckUpdatesOnLoad: false,
@@ -191,8 +191,7 @@ test('color white balance, sampling and each color slider change real pixels and
         assert.ok(before.whiteBalanceSamplePoint.xRatio > 0 && before.whiteBalanceSamplePoint.xRatio < 0.34);
         assert.notDeepEqual(before.customWhiteBalanceGains, { r: 1, g: 1, b: 1 });
         assert.deepEqual([before.temperature, before.tint, before.vibrance, before.saturation], [22, -17, 31, -24]);
-        await app.evaluate("document.getElementById('btn-save-workflow').click()");
-        await app.waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
+        await waitForAutosave(app);
         await activateWorkflow(app, 'Processing B');
         assert.deepEqual(await app.evaluate("['temperature','saturation'].map(name=>document.getElementById('color-'+name).value)"), ['-9', '7']);
         await activateWorkflow(app, 'Processing A');
@@ -258,8 +257,7 @@ test('background processing uses A settings and media while B with the same node
         assert.deepEqual(completed.connections, [edge('source', 'resize'), edge('resize', 'color')]);
         assert.equal(completed.nodes.find(node => node.id === 'source').mediaAssetKeys.length, 1);
         assert.equal(await app.evaluate('processingBackgroundRequests'), 1, 'switching back does not regenerate A');
-        await app.evaluate("document.getElementById('btn-save-workflow').click()");
-        await app.waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
+        await waitForAutosave(app);
         const ownership = await app.evaluate("Promise.all(['processing-background-a','processing-background-b'].map(id=>fetch('/api/storage/media-owners?workflowId='+encodeURIComponent(id)).then(response=>response.json()).then(result=>result.owners.filter(owner=>owner.ownerType==='workflow-node'))))");
         assert.deepEqual(ownership[0].find(owner => owner.ownerId === 'resize')?.assetKeys, [resized.key]);
         assert.deepEqual(ownership[0].find(owner => owner.ownerId === 'color')?.assetKeys, [colored.key]);

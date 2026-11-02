@@ -13,7 +13,6 @@ export function createToolbarControllerApi({
     confirmRef = confirm,
     runWorkflow,
     saveState,
-    saveCurrentWorkflow = null,
     undo,
     redo,
     exportWorkflow,
@@ -153,14 +152,6 @@ export function createToolbarControllerApi({
                 } else {
                     state.abortController?.abort();
                 }
-            }
-        });
-        documentRef.getElementById('btn-save')?.addEventListener('click', () => {
-            if (typeof saveCurrentWorkflow === 'function') {
-                saveCurrentWorkflow();
-            } else {
-                saveState();
-                showToast('工作流已手动保存', 'success');
             }
         });
         documentRef.getElementById('btn-undo')?.addEventListener('click', undo);

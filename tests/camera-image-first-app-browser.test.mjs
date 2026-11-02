@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { withAppBrowser, reloadAppBrowser, delay } from './helpers/app-browser.mjs';
+import { withAppBrowser, reloadAppBrowser, delay, waitForAutosave } from './helpers/app-browser.mjs';
 
 const originals = await Promise.all(['red', 'blue', 'orange'].map(async color =>
     'data:image/png;base64,' + (await readFile(new URL(`./fixtures/reference-${color}.png`, import.meta.url))).toString('base64')));
@@ -182,8 +182,7 @@ test('the original camera editor keeps five controls and gestures and sends deri
         assert.equal(after.nodes.find(node => node.id === 'source').imagePreviewIndex, source.imagePreviewIndex);
         assert.deepEqual(await app.evaluate("(()=>{const node=document.getElementById('camera');return [node.style.left,node.style.top,node.offsetWidth]})()"), geometry.slice(0, 3), 'camera edits preserve canvas position and width while preview height follows its media');
         assert.ok(await app.evaluate("(()=>{const preview=document.querySelector('#camera .camera-control-node-preview'),image=preview.querySelector('img');return image?.naturalWidth>0&&Math.abs(preview.offsetHeight-preview.offsetWidth*image.naturalHeight/image.naturalWidth)<=2})()"), 'camera reference preview retains the original media ratio');
-        await app.evaluate("document.getElementById('btn-save-workflow').click()");
-        await app.waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
+        await waitForAutosave(app);
         const sourceOwner = await app.evaluate("(async()=>{const graph=(await fetch('/api/storage/documents/session').then(response=>response.json())).value;return (await fetch('/api/storage/media-owners?workflowId='+encodeURIComponent(graph.activeWorkflowId)).then(response=>response.json())).owners.find(owner=>owner.ownerType==='workflow-node'&&owner.ownerId==='source')})()");
         assert.ok(source.mediaAssetKeys.every(key => sourceOwner.assetKeys.includes(key)), 'using a single camera reference retains ownership of every source original');
         await reloadAppBrowser(app);

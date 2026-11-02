@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { withAppBrowser } from './helpers/app-browser.mjs';
+import { withAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
 
 const session = {
     autoCheckUpdatesOnLoad: false,
@@ -292,7 +292,7 @@ test('preserving deletion rejects expansion beyond reference capacity without re
         await app.evaluate("document.querySelector('#old-preview .image-save-preview-counter').click()");
         await app.waitFor("document.querySelectorAll('#old-preview [data-preview-batch-index]').length===4");
         await saved(app,"s=>['a','b'].every(id=>s.nodes.find(node=>node.id===id)?.mediaAssetKeys?.length===1)");
-        await app.evaluate("document.getElementById('btn-save').click()");
+        await waitForAutosave(app);
         await app.waitFor("fetch('/api/workflows/'+encodeURIComponent(document.getElementById('toolbar-workflow-name').textContent.trim())).then(response=>response.json()).then(graph=>graph.nodes?.find(node=>node.id==='old')?.imageCount===4&&graph.nodes.find(node=>node.id==='merge')?.enabled===false)");
         const before=await saved(app,"s=>s.nodes.length===5&&s.nodes.find(node=>node.id==='old')?.imageCount===4&&s.nodes.find(node=>node.id==='old')?.mediaAssetKeys?.length===4");
         assert.deepEqual(before.connections,connections);

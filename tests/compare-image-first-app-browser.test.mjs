@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
+import { withAppBrowser, reloadAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
 
 const originals = Object.fromEntries(await Promise.all(['red', 'blue', 'orange'].map(async color => [color,
     'data:image/png;base64,' + (await readFile(new URL(`./fixtures/reference-${color}.png`, import.meta.url))).toString('base64')])));
@@ -254,8 +254,7 @@ test('a background A/B comparison retains its split and media owners while a sam
         assert.equal(completed.nodes.find(node => node.id === 'compare').comparePosition, 27);
         assert.equal(await app.evaluate("parseFloat(document.getElementById('compare-compare').style.getPropertyValue('--compare-x'))"), 27);
         assert.equal(await app.evaluate('compareRequests.length'), 1, 'returning to the background result reuses its retained original');
-        await app.evaluate("document.getElementById('btn-save-workflow').click()");
-        await app.waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
+        await waitForAutosave(app);
         const owners = await app.evaluate("Promise.all(['compare-background-a','compare-background-b'].map(id=>fetch('/api/storage/media-owners?workflowId='+encodeURIComponent(id)).then(response=>response.json()).then(result=>result.owners.filter(owner=>owner.ownerType==='workflow-node'&&owner.ownerId==='compare'))))");
         assert.deepEqual(owners[0][0]?.assetKeys, [result.key]);
         assert.ok(owners[1].every(owner => !owner.assetKeys.length));

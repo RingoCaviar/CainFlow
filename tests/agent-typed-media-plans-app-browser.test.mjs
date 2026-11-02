@@ -4,7 +4,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { withAppBrowser, reloadAppBrowser, delay } from './helpers/app-browser.mjs';
+import { withAppBrowser, reloadAppBrowser, delay, waitForAutosave } from './helpers/app-browser.mjs';
 
 const blueFile = fileURLToPath(new URL('./fixtures/reference-blue.png', import.meta.url));
 const blueHash = createHash('sha256').update(await readFile(blueFile)).digest('hex');
@@ -141,12 +141,9 @@ test('a new video-only Agent Save uses the real Veo output, local bytes, player 
         assert.deepEqual(executed.connections, applied.connections);
         assert.deepEqual(result.videos.map(item => [item.id, item.assetKey]), source.videos.map(item => [item.id, item.assetKey]));
         assert.ok(!result.mediaAssetKeys?.length, 'the Save really has only the video role');
-        await app.evaluate("document.getElementById('btn-save').focus({preventScroll:true})");
-        await app.waitFor("document.getElementById('toolbar').getBoundingClientRect().top>-1");
-        await nativeClick(app, "document.getElementById('btn-save')");
-        await app.waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
+        await waitForAutosave(app);
         const persisted = await app.evaluate("fetch('/api/workflows/'+encodeURIComponent(document.getElementById('toolbar-workflow-name').textContent.trim())).then(response=>response.json())");
-        assert.deepEqual(persisted.nodes.find(node => node.id === target.id).videos.map(item => [item.id, item.assetKey]), source.videos.map(item => [item.id, item.assetKey]), 'the explicit workflow save persists the complete video identities');
+        assert.deepEqual(persisted.nodes.find(node => node.id === target.id).videos.map(item => [item.id, item.assetKey]), source.videos.map(item => [item.id, item.assetKey]), 'automatic saving persists the complete video identities');
         const ownerExpression = `fetch('/api/storage/media-owners?workflowId='+encodeURIComponent(${JSON.stringify(executed.activeWorkflowId)})).then(response=>response.json()).then(record=>record.owners.find(owner=>owner.ownerType==='workflow-node'&&owner.ownerId===${JSON.stringify(target.id)}))`;
         try { await app.waitFor(`${ownerExpression}.then(owner=>owner?.assetKeys.includes(${JSON.stringify(source.videos[0].assetKey)}))`); }
         catch (error) { throw new Error('The new Save did not acquire ownership of its retained local clip: ' + JSON.stringify({ workflowId: executed.activeWorkflowId, target: target.id, owner: await app.evaluate(ownerExpression) }), { cause: error }); }

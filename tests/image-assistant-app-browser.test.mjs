@@ -968,8 +968,8 @@ test('partial Agent retries freeze successful upstream originals and full regene
         const upstream=await evaluate("[...document.querySelectorAll('.node-generate')].find(node=>document.getElementById(node.id+'-prompt')?.value==='chain-source').id");
         await evaluate(`window.alternateGeneratedImage=true;document.getElementById('${upstream}').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()`);
         await waitFor(`imageRequests.filter(r=>r.contents).length===4 && document.getElementById('${upstream}-run-status').textContent==='完成' && document.getElementById('btn-stop').disabled`);
-        await evaluate("document.getElementById('btn-save-workflow').click()");
-        await waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
+        await waitForAutosave({ waitFor });
+        await waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>!document.value?.workflowTabs?.some(tab=>tab.dirty || tab.identityPendingSave))");
         await evaluate("document.querySelector('#modal-error .modal-close')?.click();[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='重试未完成步骤').click()");
         await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已完成上游')");
         assert.equal(await evaluate('imageRequests.filter(r=>r.contents).length'),4,'changed successful upstream cannot silently enter a partial retry');

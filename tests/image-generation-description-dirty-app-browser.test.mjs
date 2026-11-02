@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
+import { withAppBrowser, reloadAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
 
 const originalFile = fileURLToPath(new URL('./fixtures/reference-red.png', import.meta.url));
 const originalBase64 = (await readFile(originalFile)).toString('base64');
@@ -71,8 +71,7 @@ test('confirming an imported original description marks its generation target pe
         await generate(app, 2);
         assert.match(await app.evaluate('descriptionRequests[1].prompt'), /参考图 1：这张原图是红色产品主体，请保留其轮廓与材质。/);
         assert.deepEqual(await app.evaluate('descriptionRequests[1].references'), [originalBase64]);
-        await app.evaluate("document.getElementById('btn-save').click()");
-        await app.waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
+        await waitForAutosave(app);
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(record=>record.value.nodes.find(node=>node.id==='target')?.generationRevision?.dirty===false)");
         const completed = await saved(app), source = completed.nodes.find(node => node.id === 'reference'), target = completed.nodes.find(node => node.id === 'target');
         assert.equal(source.imageDescription, description); assert.deepEqual(source.mediaAssetKeys, sourceKeys);

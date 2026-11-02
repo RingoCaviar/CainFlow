@@ -1304,7 +1304,6 @@ function getToolbarControllerApi() {
             viewportApi,
             runWorkflow,
             saveState,
-            saveCurrentWorkflow: () => workflowManagerApi.saveActiveWorkflow(),
             undo,
             redo,
             exportWorkflow: (...args) => projectIoFeature.exportWorkflow(...args),
@@ -1620,7 +1619,10 @@ function getRuntimeControllerApi() {
             selectionApi,
             runWorkflow,
             saveState,
-            saveCurrentWorkflow: () => workflowManagerApi.saveActiveWorkflow(),
+            flushWorkflows: async () => {
+                const result = await workflowManagerApi.flushAutosave();
+                return result.results.every(item => item.status === 'committed');
+            },
             showToast,
             exportWorkflow: (...args) => projectIoFeature.exportWorkflow(...args),
             undo,
@@ -2145,7 +2147,11 @@ function copyToClipboard(text) {
 
 getGlobalInteractionsApi().initGlobalInteractions();
 getRuntimeControllerApi().initRuntimeBindings();
-installSessionPersistenceOnExit({ flushSession: () => getSessionManagerApi().flushSave() });
+installSessionPersistenceOnExit({
+    flushSession: () => getSessionManagerApi().flushSave(),
+    flushWorkflows: () => workflowManagerApi.flushAutosave(),
+    hasPendingWorkflows: () => workflowManagerApi.hasPendingAutosave()
+});
 window.cainflowPrepareExit = createDesktopExit({
     setBlocked: blocked => { document.body.inert = blocked; },
     settle: async () => {

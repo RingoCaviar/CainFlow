@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { reloadAppBrowser } from './app-browser.mjs';
+import { reloadAppBrowser, waitForAutosave } from './app-browser.mjs';
 
 export const originals = await Promise.all(['red', 'blue', 'orange'].map(async color =>
     'data:image/png;base64,' + (await readFile(new URL(`../fixtures/reference-${color}.png`, import.meta.url))).toString('base64')));
@@ -106,7 +106,6 @@ export async function key(app, value, code = value, modifiers = 0) {
 }
 
 export async function persist(app) {
-    await app.evaluate("document.getElementById('btn-save-workflow').click()");
-    await app.waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
+    await waitForAutosave(app);
     return saved(app);
 }

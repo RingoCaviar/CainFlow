@@ -6,7 +6,16 @@ import { join, resolve, sep } from 'node:path';
 import assert from 'node:assert/strict';
 
 export const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+export async function waitForAutosave({ waitFor }) {
+    // The session cache itself is debounced; don't read its previous clean
+    // snapshot before the new edit has reached it.
+    await delay(1100);
+    await waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>!document.value?.workflowTabs?.some(tab=>tab.dirty || tab.identityPendingSave))");
+}
 export async function reloadAppBrowser({ evaluate, send, waitFor }) {
+    // Let the product finish autosaving before navigating; otherwise Chromium
+    // correctly opens its native beforeunload protection dialog.
+    await waitForAutosave({ waitFor });
     const previous = await evaluate('performance.timeOrigin');
     const ready = `performance.timeOrigin!==${previous} && window.__cainflowAppReady===true && document.getElementById('prompt-agent-model')?.options.length>0`;
     const waitUntilReady = async () => {

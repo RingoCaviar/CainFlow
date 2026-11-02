@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { withAppBrowser } from './helpers/app-browser.mjs';
+import { withAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
 
-test('workflow title follows edits and explicit saving while zoom presets stay accessible', { timeout: 60000 }, async () => {
+test('workflow title stays visible during automatic saving while zoom presets stay accessible', { timeout: 60000 }, async () => {
     await withAppBrowser({ models: [{ id: 'chat', modelId: 'chat', name: '示例对话模型', protocol: 'openai', taskType: 'chat', providerIds: ['p'] }],
         providers: [{ id: 'p', name: '示例服务', endpoint: 'https://example.test/v1', apikey: 'test' }] }, async ({ evaluate, send, waitFor }) => {
         await waitFor("window.__cainflowAppReady === true");
@@ -15,21 +15,19 @@ test('workflow title follows edits and explicit saving while zoom presets stay a
         await evaluate("document.getElementById('canvas-container').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:360,clientY:180})); document.getElementById('context-menu-search-nodes').click()");
         await evaluate("document.querySelector('.node-picker-result[data-type=TextChat]').click()");
         await waitFor("Boolean(document.querySelector('#nodes-layer .node textarea[id$=\"-prompt\"]'))");
-        await waitFor("document.getElementById('toolbar-workflow-status').dataset.state === 'modified'");
-        await evaluate("document.getElementById('btn-save').click()");
-        await waitFor("document.getElementById('toolbar-workflow-status').dataset.state === 'saved'");
+        assert.equal(await evaluate("document.getElementById('toolbar-workflow-status').hidden"), true);
+        await waitForAutosave({ waitFor });
         await evaluate("const prompt=document.querySelector('#nodes-layer textarea[id$=\"-prompt\"]'); prompt.value='为新的创作整理灵感与提示词'; prompt.dispatchEvent(new Event('input',{bubbles:true}))");
-        await waitFor("document.getElementById('toolbar-workflow-status').dataset.state === 'modified'");
+        assert.equal(await evaluate("document.getElementById('toolbar-workflow-status').hidden"), true);
         assert.equal(await evaluate("document.getElementById('toolbar-workflow-name').textContent"), name);
-        await evaluate("document.getElementById('btn-save').click()");
-        await waitFor("document.getElementById('toolbar-workflow-status').dataset.state === 'saved'");
+        await waitForAutosave({ waitFor });
         await evaluate("document.getElementById('btn-toggle-workflow').click()");
         await waitFor("Boolean(document.querySelector('.workflow-item.is-active'))");
         await evaluate("document.querySelector('.workflow-item.is-active').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:120,clientY:220})); document.getElementById('menu-rename-workflow').click()");
         await waitFor("Boolean(document.getElementById('workflow-rename-input'))");
         await evaluate("document.getElementById('workflow-rename-input').value='UI体验优化'; document.querySelector('#workflow-rename-dialog [data-dialog-style-1-action=confirm]').click()");
         await waitFor("document.getElementById('toolbar-workflow-name').textContent === 'UI体验优化'");
-        assert.equal(await evaluate("document.getElementById('toolbar-workflow-status').dataset.state"), 'saved');
+        assert.equal(await evaluate("document.getElementById('toolbar-workflow-status').hidden"), true);
         await evaluate("document.getElementById('btn-close-workflow').click()");
         for (const [width, height] of [[1424, 900], [480, 720], [320, 240]]) {
             await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
