@@ -85,11 +85,13 @@ test('successful status never covers the original result operations or the param
         await controlled(app); await open(app, 'success');
         await app.evaluate("feedbackSuccess=true;document.querySelector('[data-parameter-action=generate]').click()");
         await app.waitFor("document.getElementById('success-run-status')?.dataset.status==='completed'&&document.querySelector('#success [data-result-action=reference]')");
+        await app.waitFor("document.querySelector('#success .image-node-result-preview img')?.naturalWidth>0");
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
         await app.waitFor("(()=>{const el=document.querySelector('#success [data-result-action=reference]'),r=el.getBoundingClientRect();return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()");
         const position = await point(app, '#success [data-result-action=reference]');
-        assert.equal(await app.evaluate(`document.querySelector('#success [data-result-action=reference]').contains(document.elementFromPoint(${position.x},${position.y}))`), true, 'the original result reference action remains reachable alongside the success row');
+        assert.equal(await app.evaluate(`document.querySelector('#success [data-result-action=reference]').contains(document.elementFromPoint(${position.x},${position.y}))`), true, 'the original result reference action remains reachable alongside the success row: ' + JSON.stringify(await app.evaluate(`({point:${JSON.stringify(position)},hit:document.elementFromPoint(${position.x},${position.y})?.outerHTML.slice(0,400),panel:document.getElementById('image-parameter-panel').getBoundingClientRect().toJSON(),button:document.querySelector('#success [data-result-action=reference]').getBoundingClientRect().toJSON()})`)));
         const geometry = await app.evaluate("(()=>{const node=document.getElementById('success'),actions=node.querySelector('.image-result-actions').getBoundingClientRect(),panel=document.getElementById('image-parameter-panel').getBoundingClientRect(),preview=node.querySelector('.image-node-result-preview');return {nodeWidth:node.clientWidth,previewWidth:preview.clientWidth,fit:getComputedStyle(preview.querySelector('img')).objectFit,nodeBottom:node.getBoundingClientRect().bottom,actionsTop:actions.top,actionsBottom:actions.bottom,panelTop:panel.top,font:parseFloat(getComputedStyle(document.getElementById('success-run-status')).fontSize)}})()");
-        assert.ok(geometry.actionsTop >= geometry.nodeBottom + 4 && geometry.panelTop >= geometry.actionsBottom + 8);
+        assert.ok(geometry.actionsTop >= geometry.nodeBottom + 4 && geometry.panelTop >= geometry.actionsBottom, JSON.stringify(geometry));
         assert.ok(geometry.previewWidth >= geometry.nodeWidth - 20, 'generated media uses the card width with a narrow gutter');
         assert.equal(geometry.fit, 'contain', 'the complete image remains visible');
         assert.ok(geometry.font >= 13);

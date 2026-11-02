@@ -57,6 +57,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     const persistWidthPreference = () => storage?.setItem(current?.type === 'ImageImport' ? 'cainflow_image_import_parameter_width' : 'cainflow_node_parameter_width', String(Math.round(currentWidthPreference())));
     let positionFrame = null, gesture = null, expanded = false, expandedRect = null, returnFocusElement = null;
     let ordinaryAnchor = null;
+    let preserveOrdinaryAnchor = false;
     const expandButton = panel.querySelector('[data-parameter-action="expand"]');
     const dragHandle = panel.querySelector('.image-parameter-drag-handle');
     const widthHandle = panel.querySelector('[data-parameter-resize="width"]');
@@ -199,7 +200,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         // changes to the node or available canvas invalidate the opening anchor.
         const anchorKey = [rect.left, rect.top, rect.width, rect.height,
             bounds.left, bounds.top, bounds.right, bounds.bottom, preferredTop, hasCancel].join(',');
-        if (ordinaryAnchor?.node === current && ordinaryAnchor.key === anchorKey) {
+        if (preserveOrdinaryAnchor && ordinaryAnchor?.node === current && ordinaryAnchor.key === anchorKey) {
             panel.style.left = `${clamp(ordinaryAnchor.left, bounds.left, Math.max(bounds.left, bounds.right - width))}px`;
             panel.style.top = `${ordinaryAnchor.top}px`;
             panel.style.maxHeight = `${Math.max(1, Math.min(ordinaryAnchor.maxHeight, bounds.bottom - ordinaryAnchor.top))}px`;
@@ -208,6 +209,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             scroll.scrollTop = scrollTop;
             return;
         }
+        preserveOrdinaryAnchor = false;
         panel.style.left = `${clamp(rect.left + rect.width / 2 - width / 2, bounds.left, Math.max(bounds.left, bounds.right - width))}px`;
         panel.style.top = `${preferredTop}px`;
         widthHandle.setAttribute('aria-valuenow', String(Math.round(width)));
@@ -240,6 +242,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     }
     function park() {
         ordinaryAnchor = null;
+        preserveOrdinaryAnchor = false;
         if (header.parentNode !== panel) panel.prepend(header);
         if (current?.parameterRoot) {
             const countField = views.get(current)?.countField;
@@ -261,6 +264,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (!view) return;
         if (current === node) close({ remember: false });
         view.observer.disconnect();
+        view.resizeObserver?.disconnect();
         cleanupElementResources(view.form);
         view.form.remove();
         views.delete(node);
@@ -445,6 +449,13 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     }
     function registerView(node, view, observed) {
         const { form } = view;
+        if (windowRef.ResizeObserver) {
+            view.resizeObserver = new windowRef.ResizeObserver(() => {
+                if (current === node) schedulePosition();
+            });
+            view.resizeObserver.observe(node.el);
+            view.resizeObserver.observe(form);
+        }
         form.dataset.nodeType = node.type;
         node.parameterRoot = form;
         node.el.classList.add('image-first-card');
@@ -689,6 +700,13 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         runToNode(current.id);
     });
     panel.addEventListener('mousedown', event => event.stopPropagation());
+    for (const type of ['pointerdown', 'click', 'keydown', 'input']) {
+        panel.addEventListener(type, event => {
+            // Freeze only while editing. Execution/result layout must finish
+            // settling before it becomes the anchor for the next edit.
+            preserveOrdinaryAnchor = !event.target.closest('[data-parameter-action], [data-parameter-resize]');
+        }, true);
+    }
     function finishGesture(cancelled = false) {
         const previous = gesture;
         if (!previous) return;
