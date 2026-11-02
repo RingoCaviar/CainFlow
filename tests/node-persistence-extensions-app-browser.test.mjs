@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
+import { withAppBrowser, reloadAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
 import { readFile } from 'node:fs/promises';
 
 const extension = { vendor: 'future-plugin', nested: [null, { flag: false, zero: 0 }], text: '保留未知配置' };
@@ -21,8 +21,7 @@ function assertOpaque(node) {
     assert.equal(Object.hasOwn(node, '__proto__'), true); assert.equal(Object.hasOwn(node.data, '__proto__'), true);
 }
 async function saveFile(app) {
-    await app.evaluate("document.getElementById('btn-save').click()");
-    await app.waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
+    await waitForAutosave(app);
     return app.evaluate("fetch('/api/workflows/'+encodeURIComponent(document.getElementById('toolbar-workflow-name').textContent.trim())).then(response=>response.json())");
 }
 
@@ -92,7 +91,7 @@ test('background runtime and Save All preserve own JSON extensions while a faile
         assert.equal(await app.evaluate("document.getElementById('shared-text').value"), 'B remains visible');
         await app.evaluate('releasePersistenceFailure()');
         await app.waitFor("!document.querySelector('.workflow-item[data-name=\"Extensions A\"]').classList.contains('is-running')");
-        await app.evaluate("document.getElementById('btn-save-workflow').click()");
+        await waitForAutosave(app);
         await app.waitFor("[...document.querySelectorAll('.toast')].some(toast=>/已保存 \\d+ 个工作流/.test(toast.textContent))");
         const completed = await app.evaluate("fetch('/api/workflows/Extensions%20A').then(response=>response.json())"), result = completed.nodes.find(node => node.id === 'shared');
         assert.deepEqual(completed.vendorWorkflow, extension); assert.equal(completed.futureWorkflowFalse, false); assert.equal(completed.futureWorkflowNull, null);

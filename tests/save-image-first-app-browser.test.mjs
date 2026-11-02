@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import { withAppBrowser, reloadAppBrowser, delay } from './helpers/app-browser.mjs';
+import { withAppBrowser, reloadAppBrowser, delay, waitForAutosave } from './helpers/app-browser.mjs';
 
 const originals = await Promise.all(['red', 'blue', 'orange'].map(async color =>
     'data:image/png;base64,' + (await readFile(new URL(`./fixtures/reference-${color}.png`, import.meta.url))).toString('base64')));
@@ -238,8 +238,7 @@ test('a save retains playable video and the whole image batch, writes real files
         assert.deepEqual((await readdir(directory)).sort(), files, 'cancelled or failed manual saves do not change the configured directory contents');
         assert.equal(await app.evaluate("fetch('/api/storage/export-directory').then(response=>response.json()).then(result=>result.directory)"), directory);
         assert.deepEqual((await saved(app)).connections, connections);
-        await app.evaluate("document.getElementById('btn-save-workflow').click()");
-        await app.waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
+        await waitForAutosave(app);
         const owner = await app.evaluate("(async()=>{const graph=(await fetch('/api/storage/documents/session').then(response=>response.json())).value;return (await fetch('/api/storage/media-owners?workflowId='+encodeURIComponent(graph.activeWorkflowId)).then(response=>response.json())).owners.find(owner=>owner.ownerType==='workflow-node'&&owner.ownerId==='save')})()");
         for (const key of [...result.mediaAssetKeys, ...result.videos.map(item => item.assetKey)]) assert.ok(owner.assetKeys.includes(key), 'the save node independently protects each retained image and clip');
         await reloadAppBrowser(app); await openSettings(app);
@@ -301,8 +300,7 @@ test('background saving uses A filename and media while a same-ID save node in B
         assert.equal(result.mediaAssetKeys.length, 3); assert.equal(result.videos.length, 1);
         assert.equal(result.videos[0].assetKey, completed.nodes.find(node => node.id === 'videos').videos[0].assetKey);
         assert.deepEqual(completed.connections, graphs[0].connections);
-        await app.evaluate("document.getElementById('btn-save-workflow').click()");
-        await app.waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
+        await waitForAutosave(app);
         const owners = await app.evaluate("Promise.all(['save-background-a','save-background-b'].map(id=>fetch('/api/storage/media-owners?workflowId='+encodeURIComponent(id)).then(response=>response.json()).then(result=>result.owners.filter(owner=>owner.ownerType==='workflow-node'&&owner.ownerId==='save'))))");
         for (const key of [...result.mediaAssetKeys, result.videos[0].assetKey]) assert.ok(owners[0][0]?.assetKeys.includes(key));
         assert.ok(owners[1].every(owner => !owner.assetKeys.length));

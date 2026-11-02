@@ -4,7 +4,7 @@ import { readFile, readdir, unlink, access } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join, resolve, sep } from 'node:path';
 import { startCainflowServer } from './helpers/browser-theme-fixture.mjs';
-import { withAppBrowser, reloadAppBrowser, delay } from './helpers/app-browser.mjs';
+import { withAppBrowser, reloadAppBrowser, delay, waitForAutosave } from './helpers/app-browser.mjs';
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const png = await readFile(new URL('./fixtures/reference-red.png', import.meta.url));
@@ -85,8 +85,7 @@ async function assetHash(app, key) {
     assert.equal(response.ok, true, key); return digest(Buffer.from(await response.arrayBuffer()));
 }
 async function saveA(app, expectedKeys) {
-    await app.evaluate("document.getElementById('btn-save-workflow').click()");
-    await app.waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
+    await waitForAutosave(app);
     await app.waitFor(`fetch('/api/workflows/Restart%20A').then(response=>response.json()).then(graph=>graph.nodes.find(node=>node.id==='source')?.imagePreviewIndex===1&&graph.nodes.find(node=>node.id==='merge')?.imagePreviewIndex===2&&JSON.stringify(graph.nodes.find(node=>node.id==='save')?.mediaAssetKeys)===${JSON.stringify(JSON.stringify(expectedKeys))})`);
 }
 async function restart(app, whileStopped = async () => {}) {

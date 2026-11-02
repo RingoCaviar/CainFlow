@@ -4,10 +4,10 @@ export function renderWorkflowToolbarStatus({ snapshot, dirty = false, documentR
     const status = documentRef.getElementById('toolbar-workflow-status');
     if (!title || !status) return;
     const active = snapshot?.active;
-    const record = snapshot?.open?.find(item => item.workflowId === active?.workflowId);
     const label = active?.label || '未打开工作流';
-    const state = !active ? 'empty' : dirty ? 'modified' : record?.pendingExplicitSave ? 'pending' : 'saved';
-    const message = { empty: '新建或打开工作流', modified: '有修改', pending: '待保存', saved: '已保存' }[state];
+    const state = active ? 'automatic' : 'empty';
+    const message = active ? '' : '新建或打开工作流';
+    status.hidden = !!active;
     if (title.textContent !== label) title.textContent = label;
     title.title = label;
     if (status.textContent !== message) status.textContent = message;

@@ -15,3 +15,22 @@ test('page exit flushes a pending session save once', () => {
 
     assert.equal(flushes, 1);
 });
+
+test('pending workflow writes guard browser exit and preserve the recovery session', async () => {
+    const listeners = new Map();
+    let pending = true, sessions = 0, writes = 0, prevented = 0;
+    installSessionPersistenceOnExit({
+        windowRef: { addEventListener: (type, listener) => listeners.set(type, listener) },
+        flushSession: () => { sessions++; },
+        hasPendingWorkflows: () => pending,
+        flushWorkflows: async () => { writes++; pending = false; }
+    });
+    listeners.get('beforeunload')({ preventDefault() { prevented++; } });
+    await Promise.resolve();
+    assert.equal(prevented, 1);
+    assert.equal(writes, 1);
+    assert.equal(sessions, 1);
+    listeners.get('beforeunload')({ preventDefault() { prevented++; } });
+    assert.equal(prevented, 1);
+    assert.equal(sessions, 2);
+});

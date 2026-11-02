@@ -32,7 +32,7 @@ test('save-all cannot reconstruct identity-bound saves from mutable Workflow tab
     const manager = readFileSync(`${root}/js/features/workflow/workflow-manager.js`, 'utf8');
     const saveAll = manager.match(/async function saveAllOpenWorkflows\([^\n]*\) \{[\s\S]*?\n    }/)?.[0] || '';
     assert.match(saveAll, /workflowDesk\.snapshot\(\)\.open/);
-    assert.match(saveAll, /workflowDesk\.workflows\(workflowIds\)\.save\(\)/);
+    assert.match(saveAll, /flushAutosave\(workflowIds\)/);
     assert.doesNotMatch(saveAll, /workflowDesk\.workflow\(|ensureWorkflowIdentity/);
 });
 

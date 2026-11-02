@@ -25,7 +25,7 @@ export function createHelpPanelApi({
         <div class="help-grid">
             <div class="help-item"><span class="help-desc">运行工作流</span><span class="help-key">Ctrl + Enter</span></div>
             <div class="help-item"><span class="help-desc">停止全部运行</span><span class="help-key">顶部停止</span></div>
-            <div class="help-item"><span class="help-desc">保存当前工作流</span><span class="help-key">Ctrl + S</span></div>
+            <div class="help-item"><span class="help-desc">停止修改 1 秒后自动保存，失败时提示重试</span></div>
             <div class="help-item"><span class="help-desc">导入 / 导出工作流</span><span class="help-key">Ctrl + O / E</span></div>
             <div class="help-item"><span class="help-desc">撤销上一步</span><span class="help-key">Ctrl + Z</span></div>
             <div class="help-item"><span class="help-desc">重做上一步</span><span class="help-key">Ctrl + Y / Ctrl + Shift + Z</span></div>

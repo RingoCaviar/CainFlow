@@ -17,7 +17,7 @@ export function createRuntimeControllerApi({
     selectionApi = createSelectionApi({ state }),
     runWorkflow,
     saveState,
-    saveCurrentWorkflow = null,
+    flushWorkflows = async () => true,
     showToast,
     exportWorkflow,
     undo,
@@ -160,15 +160,8 @@ export function createRuntimeControllerApi({
                 selectionApi.selectAllNodes();
             }
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); runWorkflow(); }
-            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                e.preventDefault();
-                if (typeof saveCurrentWorkflow === 'function') {
-                    saveCurrentWorkflow();
-                } else {
-                    saveState();
-                    showToast('工作流已保存', 'success');
-                }
-            }
+            // Suppress the browser's Save Page command; documents save automatically.
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') e.preventDefault();
             if ((e.ctrlKey || e.metaKey) && e.key === 'e') { e.preventDefault(); exportWorkflow(); }
             if ((e.ctrlKey || e.metaKey) && e.key === 'o') { e.preventDefault(); documentRef.getElementById('import-file')?.click(); }
             if ((e.ctrlKey || e.metaKey) && e.key === 'c' && canvasShortcutsEnabled && !hasTextSelection) { e.preventDefault(); copySelectedNode(); }
@@ -234,11 +227,10 @@ export function createRuntimeControllerApi({
                 showToast('设置保存失败，已取消强制刷新', 'error');
                 return false;
             }
-            const saved = typeof saveCurrentWorkflow === 'function'
-                ? await saveCurrentWorkflow()
-                : true;
+            const saved = await flushWorkflows();
             if (!saved) {
-                showToast('工作流文件保存失败；已保存会话并继续强制刷新', 'warning');
+                showToast('工作流保存失败，已取消强制刷新，修改已保留', 'error');
+                return false;
             }
         } catch (error) {
             showToast(`保存失败，已取消强制刷新：${error?.message || error}`, 'error');

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { withAppBrowser, reloadAppBrowser, delay } from './helpers/app-browser.mjs';
+import { withAppBrowser, reloadAppBrowser, delay, waitForAutosave } from './helpers/app-browser.mjs';
 
 const images = await Promise.all(['red', 'blue', 'orange'].map(async color => 'data:image/png;base64,' + (await readFile(new URL(`./fixtures/reference-${color}.png`, import.meta.url))).toString('base64')));
 const configuration = {
@@ -81,7 +81,7 @@ async function expectDirty(app, id, dirty) {
 }
 
 async function expectSavedOutputCleared(app, id, oldKeys) {
-    await app.evaluate("document.getElementById('btn-save-workflow').click()");
+    await waitForAutosave(app);
     await app.waitFor(`fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>{const node=document.value?.nodes.find(node=>node.id===${JSON.stringify(id)});return !!node&&!(node.mediaAssetKeys?.length)&&!node.imageAssetKey&&node.imageAssetReady!==true})`);
     const record = (await saved(app)).nodes.find(node => node.id === id);
     assert.deepEqual(record.mediaAssetKeys || [], [], 'an empty current attempt cannot serialize the previous result references');
@@ -101,8 +101,8 @@ test('waiting and running clear this attempt output and failure while preserving
             await app.waitFor(`document.getElementById('${id}-run-status').textContent==='失败'&&document.getElementById('btn-stop').disabled`);
             await app.evaluate("document.querySelector('#modal-error .modal-close')?.click()");
         }
-        await app.evaluate("document.getElementById('btn-save-workflow').click()");
-        await app.waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'&&fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.connections.length===4)");
+        await waitForAutosave(app);
+        await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.connections.length===4)");
         const originalConnections = (await saved(app)).connections;
         const oldKeys = (await saved(app)).nodes.find(node => node.id === 'target').mediaAssetKeys;
         assert.equal(oldKeys.length, 1);
@@ -177,8 +177,7 @@ test('effective settings mark generation pending while browsing, layout, selecti
         await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: startPoint.x + 40, y: startPoint.y + 25, button: 'left', buttons: 0, clickCount: 1 });
         await app.waitFor("parseFloat(document.getElementById('dirty-node').style.left)>80");
         await expectDirty(app, 'dirty-node', false);
-        await app.evaluate("document.getElementById('btn-save-workflow').click()");
-        await app.waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
+        await waitForAutosave(app);
         await reloadAppBrowser(app); await expectDirty(app, 'dirty-node', false);
         assert.equal((await saved(app)).nodes.find(node => node.id === 'dirty-node').generationRevision.successFingerprint, baseline.generationRevision.successFingerprint);
         assert.equal(await app.evaluate('statusRequests.length'), 0);
@@ -204,8 +203,8 @@ test('effective settings mark generation pending while browsing, layout, selecti
         assert.equal(record.apiConfigId, 'image-other'); assert.equal(record.providerId, 'q');
         await open(app, 'dirty-node'); await change(app, 'dirty-node-prompt', 'dirty-node pending after reopen');
         await expectDirty(app, 'dirty-node', true);
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]').click();document.getElementById('btn-save-workflow').click()");
-        await app.waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]').click()");
+        await waitForAutosave(app);
         await reloadAppBrowser(app); await expectDirty(app, 'dirty-node', true);
         assert.equal((await saved(app)).nodes.find(node => node.id === 'dirty-node').generationRevision.dirty, true);
         await app.evaluate("statusFailures['dirty-node']=1"); await start(app, 'dirty-node');
@@ -213,7 +212,7 @@ test('effective settings mark generation pending while browsing, layout, selecti
         assert.equal(await app.evaluate("document.getElementById('dirty-node-run-status').textContent"), '部分完成');
         await expectDirty(app, 'dirty-node', true);
         assert.equal(await app.evaluate("document.querySelector('#dirty-node-image-results .image-node-result-count').textContent.includes('1 / 1')"), true, 'a partially successful batch remains readable and pending');
-        await app.evaluate("document.getElementById('btn-save-workflow').click()");
+        await waitForAutosave(app);
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='dirty-node')?.mediaAssetKeys?.length===1)");
         const partialKeys = (await saved(app)).nodes.find(node => node.id === 'dirty-node').mediaAssetKeys;
         await app.evaluate("document.querySelector('#modal-error .modal-close')?.click();statusFailures['dirty-node']=2"); await start(app, 'dirty-node');
@@ -240,7 +239,7 @@ test('automatic retry clears the failed attempt and stale result before its held
     await withAppBrowser({ ...configuration, autoRetry: true, maxRetries: 1, nodes: [node('retry-node', 100, 120)], connections: [] }, async app => {
         await controlled(app); await start(app, 'retry-node'); await completed(app, 'retry-node');
         await app.waitFor("document.querySelector('#retry-node-image-results img')?.naturalWidth>0");
-        await app.evaluate("document.getElementById('btn-save-workflow').click()");
+        await waitForAutosave(app);
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='retry-node')?.mediaAssetKeys?.length===1)");
         const oldKeys = (await saved(app)).nodes.find(node => node.id === 'retry-node').mediaAssetKeys;
         await open(app, 'retry-node'); await change(app, 'retry-node-prompt', 'retry-node changed before retry');
@@ -263,8 +262,8 @@ test('automatic retry clears the failed attempt and stale result before its held
         await expectDirty(app, 'retry-node', true);
         assert.equal(await app.evaluate("document.getElementById('retry-node-image-results').hidden"), true);
         await expectSavedOutputCleared(app, 'retry-node', oldKeys);
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]')?.click();document.getElementById('btn-save-workflow').click()");
-        await app.waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]')?.click()");
+        await waitForAutosave(app);
         await reloadAppBrowser(app);
         await expectDirty(app, 'retry-node', true);
         await start(app, 'retry-node'); await completed(app, 'retry-node');
@@ -305,8 +304,8 @@ test('reference order, role, replacement and original bytes mark the effective r
         const count = await app.evaluate('statusRequests.length');
         await upload(app, 'replacement', 1); await pending();
         assert.equal(await app.evaluate('statusRequests.length'), count, 'replacing original bytes does not start generation');
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]').click();document.getElementById('btn-save-workflow').click()");
-        await app.waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]').click()");
+        await waitForAutosave(app);
         await reloadAppBrowser(app); await expectDirty(app, 'ref-target', true);
         await runSuccess(app, 'ref-target', true); await expectDirty(app, 'ref-target', false);
     });
@@ -344,8 +343,8 @@ test('a held background run confirms only its own recipe while an identical node
         const graphA = await saved(app);
         assert.equal(graphA.nodes.find(node => node.id === 'shared').generationRevision.dirty, false);
         assert.equal(graphA.nodes.find(node => node.id === 'shared').mediaAssetKeys.length, 1);
-        await activate(app, 'Status B'); await app.evaluate("document.getElementById('btn-save-workflow').click()");
-        await app.waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
+        await activate(app, 'Status B'); await waitForAutosave(app);
+        await waitForAutosave(app);
         await reloadAppBrowser(app); await expectDirty(app, 'shared', true);
         assert.equal(await app.evaluate("document.getElementById('shared-prompt').value"), 'shared B edited during A');
         assert.equal(await app.evaluate("document.getElementById('shared-image-results').hidden"), true);

@@ -1,3 +1,4 @@
+import { createWorkflowAutosave } from './workflow-autosave.js';
 /**
  * 负责工作流文件管理，包括列表渲染、保存、加载、删除与校验提示。
  */
@@ -180,6 +181,66 @@ export function createWorkflowManagerApi({
         finalizeWorkflowMutation: (operation) => finalizeWorkflowMutationProjection(operation)
     });
 
+    const autosaveFailures = new Map();
+    const relocatingWorkflows = new Set();
+    const autosave = createWorkflowAutosave({
+        isBlocked: id => relocatingWorkflows.has(id),
+        canSave: () => !state.canvasPlanApplying && !state.historyTransitionInProgress && !state.dragging && !state.resizing,
+        save: async (workflowId) => {
+            const tab = (state.workflowTabs || []).find(tab => tab.workflowId === workflowId);
+            if (!tab) return true;
+            if (getActiveWorkflowId() === workflowId) snapshotActiveWorkflow();
+            return (await workflowDesk.workflow(workflowId).save())?.status === 'committed';
+        },
+        onSaved: (workflowId, pending) => {
+            const tab = (state.workflowTabs || []).find(tab => tab.workflowId === workflowId);
+            if (tab) tab.dirty = pending;
+            autosaveFailures.get(workflowId)?.dismiss?.();
+            autosaveFailures.delete(workflowId);
+            void Promise.resolve(saveSession()).catch(error => console.warn('Session save failed:', error));
+        },
+        onFailure: (workflowId) => {
+            if (autosaveFailures.has(workflowId)) return;
+            const tab = (state.workflowTabs || []).find(tab => tab.workflowId === workflowId);
+            const toast = showToast(`工作流「${tab?.name || workflowId}」自动保存失败，修改已保留`, 'error', 0);
+            autosaveFailures.set(workflowId, toast);
+            if (toast?.element && documentRef.createElement) {
+                const retry = documentRef.createElement('button');
+                retry.type = 'button';
+                retry.className = 'btn btn-secondary';
+                retry.textContent = '重试';
+                retry.addEventListener('click', async () => {
+                    retry.disabled = true;
+                    try { await flushAutosave([workflowId]); } finally { retry.disabled = false; }
+                });
+                toast.element.appendChild(retry);
+            }
+        }
+    });
+
+    function queueAutosave(tab) {
+        if (!tab) return;
+        tab.dirty = true;
+        autosave.change(tab.workflowId || tab.data?.workflowId);
+    }
+
+    async function flushAutosave(workflowIds, options) {
+        snapshotActiveWorkflow();
+        const ids = workflowIds || workflowDesk.snapshot().open.map(record => record.workflowId);
+        for (const id of ids) {
+            const tab = (state.workflowTabs || []).find(tab => tab.workflowId === id);
+            if ((tab?.dirty || getOpenWorkflowRecord(id)?.pendingExplicitSave) && !autosave.isPending(id)) {
+                autosave.change(id);
+            }
+        }
+        return autosave.flush(ids, options);
+    }
+
+    function hasPendingAutosave() {
+        return autosave.hasPending() || (state.workflowTabs || []).some(tab => tab.dirty)
+            || workflowDesk.snapshot().open.some(record => record.pendingExplicitSave);
+    }
+
     function readPendingMediaReleases() {
         try {
             const value = JSON.parse(localStorageRef?.getItem?.(pendingMediaReleaseStorageKey) || '[]');
@@ -281,25 +342,46 @@ export function createWorkflowManagerApi({
     }
 
     async function mutateWorkflowThroughDesk(operation) {
+        if (operation.kind === 'relabel-many') {
+            const ids = operation.changes.map(change => change.workflowId);
+            const saved = await flushAutosave(ids);
+            if (saved.results.some(item => item.status !== 'committed')) return { ok: false };
+            ids.forEach(id => relocatingWorkflows.add(id));
+            const payload = await renameWorkflowFolderOnDisk(operation.previousFolderId, operation.folderId);
+            if (!payload) ids.forEach(id => relocatingWorkflows.delete(id));
+            return { ok: !!payload, projection: payload, compensate: async () => {
+                try {
+                    if (!await renameWorkflowFolderOnDisk(operation.folderId, operation.previousFolderId)) throw new Error('Workflow folder rename compensation failed');
+                } finally { ids.forEach(id => relocatingWorkflows.delete(id)); }
+            } };
+        }
         const tab = (state.workflowTabs || []).find((candidate) => (
             candidate?.workflowId === operation.workflowId
             || candidate?.data?.workflowId === operation.workflowId
         ));
         if (!tab) return { ok: false, kind: 'closed-workflow-handle' };
         if (operation.kind === 'save') {
-            const ok = await saveWorkflowToFile(tab.name, tab.data);
-            if (ok) tab.dirty = false;
+            const data = tab.data;
+            const ok = await saveWorkflowToFile(tab.name, data);
+            // Session snapshots may replace the document while I/O is pending.
+            if (data.mediaOwnershipRevision !== undefined) tab.data.mediaOwnershipRevision = data.mediaOwnershipRevision;
             return { ok };
+        }
+        if (operation.kind !== 'save' && operation.kind !== 'close') {
+            const saved = await flushAutosave([operation.workflowId]);
+            if (saved.results.some(result => result.status !== 'committed')) return { ok: false };
         }
         if (operation.kind === 'rename' || operation.kind === 'move') {
             const previousName = tab.name;
+            relocatingWorkflows.add(operation.workflowId);
             const ok = await renameWorkflowFile(previousName, operation.label);
+            if (!ok) relocatingWorkflows.delete(operation.workflowId);
             return {
                 ok,
                 compensate: async () => {
-                    if (!(await renameWorkflowFile(operation.label, previousName))) {
-                        throw new Error('Workflow rename compensation failed');
-                    }
+                    try {
+                        if (!(await renameWorkflowFile(operation.label, previousName))) throw new Error('Workflow rename compensation failed');
+                    } finally { relocatingWorkflows.delete(operation.workflowId); }
                 }
             };
         }
@@ -308,6 +390,9 @@ export function createWorkflowManagerApi({
             return { ok, handled: ok };
         }
         if (operation.kind === 'close') {
+            if ((state.workflowTabs || []).length === 1 && getActiveWorkflowId() === operation.workflowId) {
+                return { ok: true };
+            }
             if (getActiveWorkflowId() !== operation.workflowId) {
                 return { ok: true, projectionOnly: true };
             }
@@ -363,18 +448,6 @@ export function createWorkflowManagerApi({
                     })
             };
         }
-        if (operation.kind === 'relabel-many') {
-            const payload = await renameWorkflowFolderOnDisk(operation.previousFolderId, operation.folderId);
-            return {
-                ok: !!payload,
-                projection: payload,
-                compensate: async () => {
-                    if (!(await renameWorkflowFolderOnDisk(operation.folderId, operation.previousFolderId))) {
-                        throw new Error('Workflow folder rename compensation failed');
-                    }
-                }
-            };
-        }
         return { ok: false, kind: 'unsupported-workflow-mutation' };
     }
 
@@ -382,6 +455,8 @@ export function createWorkflowManagerApi({
         if (operation.kind === 'rename' || operation.kind === 'move') {
             const tab = (state.workflowTabs || []).find((candidate) => candidate.workflowId === operation.workflowId);
             replaceWorkflowNameInState(operation.previousLabel, operation.label, { publishActiveState: false });
+            relocatingWorkflows.delete(operation.workflowId);
+            if (tab?.dirty) queueAutosave(tab);
             return Object.freeze({ tab });
         }
         if ((operation.kind === 'copy' || operation.kind === 'save-as') && operation.registerOpen) {
@@ -397,6 +472,10 @@ export function createWorkflowManagerApi({
             })).filter(({ tab }) => !!tab);
             applyMovedWorkflowNames(operation.projection?.moved || [], { publishActiveState: false });
             replaceWorkflowFolderInState(operation.previousFolderId, operation.folderId);
+            for (const { tab } of entries) {
+                relocatingWorkflows.delete(tab.workflowId);
+                if (tab.dirty) queueAutosave(tab);
+            }
             return Object.freeze({ folder, entries: Object.freeze(entries) });
         }
         if (operation.kind === 'close-many') {
@@ -564,7 +643,19 @@ export function createWorkflowManagerApi({
         };
     }
 
-    async function saveWorkflowToFile(name, data, { returnOutcome = false } = {}) {
+    const workflowWriteQueues = new Map();
+    function saveWorkflowToFile(name, data, options = {}) {
+        const id = data?.workflowId || name;
+        const previous = workflowWriteQueues.get(id) || Promise.resolve();
+        const next = previous.catch(() => {}).then(() => persistWorkflowFile(name, data, options));
+        workflowWriteQueues.set(id, next);
+        void next.finally(() => {
+            if (workflowWriteQueues.get(id) === next) workflowWriteQueues.delete(id);
+        }).catch(() => {});
+        return next;
+    }
+
+    async function persistWorkflowFile(name, data, { returnOutcome = false } = {}) {
         const migrationKey = data?.workflowId || '';
         let migration = pendingLegacyMediaMigrations.get(migrationKey) || null;
         let documentPersisted = false;
@@ -661,12 +752,22 @@ export function createWorkflowManagerApi({
         const tab = getWorkflowTab(name);
         const storedData = tab?.data || await loadWorkflowFromFileService(name);
         const workflowId = tab?.workflowId || storedData?.workflowId || '';
+        if (workflowId) {
+            const saved = await flushAutosave([workflowId]);
+            if (saved.results.some(item => item.status !== 'committed')) return false;
+            await workflowWriteQueues.get(workflowId);
+        }
         const result = await deleteWorkflowFileService(name);
         if (result !== true) {
             showToast(result.message, 'error');
             return false;
         }
-        if (workflowId) await releaseOrQueueWorkflowMedia([workflowId]);
+        if (workflowId) {
+            autosave.forget(workflowId);
+            autosaveFailures.get(workflowId)?.dismiss?.();
+            autosaveFailures.delete(workflowId);
+            await releaseOrQueueWorkflowMedia([workflowId]);
+        }
         return true;
     }
 
@@ -712,12 +813,19 @@ export function createWorkflowManagerApi({
                 if (workflowId) workflowIds.push(workflowId);
             }
         }
+        if (deleteContents) {
+            const saved = await flushAutosave(workflowIds);
+            if (saved.results.some(item => item.status !== 'committed')) return null;
+        }
         const result = await deleteWorkflowFolderService(name, { deleteContents });
         if (result?.ok === false) {
             showToast(result.message, 'error');
             return null;
         }
-        if (deleteContents && workflowIds.length > 0) await releaseOrQueueWorkflowMedia(workflowIds);
+        if (deleteContents && workflowIds.length > 0) {
+            workflowIds.forEach(id => autosave.forget(id));
+            await releaseOrQueueWorkflowMedia(workflowIds);
+        }
         return result;
     }
 
@@ -1005,7 +1113,7 @@ export function createWorkflowManagerApi({
             snapshot.mediaOwnershipRestoreOwnerIds = previousData.mediaOwnershipRestoreOwnerIds;
         }
         replaceWorkflowTabData(tab, snapshot);
-        if (markDirty) tab.dirty = true;
+        if (markDirty) queueAutosave(tab);
         syncToolbarWorkflowStatus();
         return tab;
     }
@@ -1031,7 +1139,7 @@ export function createWorkflowManagerApi({
         const runResult = !isActive ? normalizeWorkflowRunResult(tab?.runResult) : '';
         item.classList.toggle('is-open', isOpen);
         item.classList.toggle('is-active', isActive);
-        item.classList.toggle('is-dirty', tab?.dirty === true);
+        item.classList.remove('is-dirty');
         item.classList.toggle('is-running', isWorkflowRunning(tab));
         item.classList.toggle('has-run-result', !!runResult);
         item.classList.toggle('is-run-success', runResult === RUN_RESULT_SUCCESS);
@@ -1624,6 +1732,14 @@ export function createWorkflowManagerApi({
             }));
         }
         if (tab && dirty) refreshWorkflowCardState(tab.name);
+        queuePendingWorkflowSaves();
+    }
+
+    function queuePendingWorkflowSaves() {
+        for (const record of workflowDesk.snapshot().open) {
+            const tab = getWorkflowTab(record.label);
+            if ((tab?.dirty || record.pendingExplicitSave) && !autosave.isPending(record.workflowId)) queueAutosave(tab);
+        }
     }
 
     function markActiveWorkflowDirty() {
@@ -1643,7 +1759,7 @@ export function createWorkflowManagerApi({
         // Do not replace the document captured when generation began: graph,
         // model settings and other conversation turns may have changed since.
         replaceWorkflowTabData(tab, { ...tab.data, promptAgent: snapshot });
-        tab.dirty = true;
+        queueAutosave(tab);
         refreshWorkflowCardState(tab.name);
         scheduleSave({ dirty: false });
         return true;
@@ -1848,11 +1964,34 @@ export function createWorkflowManagerApi({
         return true;
     }
 
-    async function removeWorkflowTabs(names, { persistRemoval, closeToken = null } = {}) {
+    async function removeWorkflowTabs(names, options = {}) {
+        const body = documentRef.body;
+        const previousInert = body?.inert;
+        if (body) body.inert = true;
+        try { return await removeWorkflowTabsNow(names, options); }
+        finally { if (body) body.inert = previousInert; }
+    }
+
+    async function removeWorkflowTabsNow(names, { persistRemoval, closeToken = null } = {}) {
         const removingNames = new Set(names);
         const removesActiveWorkflow = removingNames.has(getActiveWorkflowName());
         const previousActiveWorkflowId = getActiveWorkflowId();
         const previousActiveWorkflowName = getActiveWorkflowName();
+        if (removesActiveWorkflow && (state.workflowTabs || []).every(tab => removingNames.has(tab.name)) && persistRemoval) {
+            const removedNames = await persistRemoval(names);
+            // Close inactive records first, then let WorkflowDesk commit its safe-empty view.
+            const tabs = [...(state.workflowTabs || [])].sort((a, b) => Number(a.name === previousActiveWorkflowName) - Number(b.name === previousActiveWorkflowName));
+            for (const tab of tabs) {
+                if (!removedNames.includes(tab.name)) continue;
+                await workflowDesk.workflow(tab.workflowId).close();
+                releaseClosedWorkflowTabs();
+                autosave.forget(tab.workflowId);
+            }
+            renderWorkflowList();
+            scheduleSave({ dirty: false });
+            return { removed: removedNames.length > 0, complete: removedNames.length === names.length,
+                removedNames, tabs: state.workflowTabs };
+        }
         let fallbackTab = null;
         let createdFallback = false;
         let fallbackCleaned = false;
@@ -2284,7 +2423,7 @@ export function createWorkflowManagerApi({
             const colorIndex = Number.isInteger(tab?.colorIndex) ? tab.colorIndex % TAB_COLORS : 0;
             const displayName = getWorkflowBaseName(name);
             return `
-        <div class="workflow-item ${folderId ? 'is-nested' : ''} ${isOpen ? 'is-open' : ''} ${isActive ? 'is-active' : ''} ${dirty ? 'is-dirty' : ''} ${running ? 'is-running' : ''} ${runResultClass} ${selectedClass}"
+        <div class="workflow-item ${folderId ? 'is-nested' : ''} ${isOpen ? 'is-open' : ''} ${isActive ? 'is-active' : ''}  ${running ? 'is-running' : ''} ${runResultClass} ${selectedClass}"
              data-name="${escapeHtml(name)}"
              data-folder-id="${escapeHtml(folderId)}"
              data-tab-color="${colorIndex}"
@@ -2554,20 +2693,12 @@ export function createWorkflowManagerApi({
         return workflowTargetActivator.activate(name, { reloadFromFile });
     }
 
-    async function saveActiveWorkflow({ silent = false } = {}) {
+    async function saveActiveWorkflow() {
         const tab = snapshotActiveWorkflow();
-        if (!tab) {
-            showToast('请先从工作流管理面板打开或新建一个工作流', 'warning');
-            return false;
-        }
-        if ((await workflowDesk.workflow(getWorkflowIdentity(tab)).save()).status === 'committed') {
-            tab.dirty = false;
-            if (!silent) showToast(`工作流「${tab.name}」已保存`, 'success');
-            renderWorkflowList();
-            scheduleSave({ dirty: false });
-            return true;
-        }
-        return false;
+        if (!tab) return false;
+        queueAutosave(tab);
+        const result = await flushAutosave([tab.workflowId], { force: true });
+        return result.results.every(item => item.status === 'committed');
     }
 
     async function persistActiveHistoryTransition() {
@@ -2582,92 +2713,14 @@ export function createWorkflowManagerApi({
     }
 
     async function saveAllOpenWorkflows({ workflowIds: requestedIds, dirtyOnly = false } = {}) {
-        snapshotActiveWorkflow();
-        const requested = requestedIds ? new Set(requestedIds) : null;
-        const dirtyIds = dirtyOnly
-            ? new Set((state.workflowTabs || []).filter(tab => tab.dirty === true).map(getWorkflowIdentity))
-            : null;
         const workflowIds = workflowDesk.snapshot().open
-            .filter(({ workflowId, pendingExplicitSave }) => (!requested || requested.has(workflowId))
-                && (!dirtyIds || dirtyIds.has(workflowId) || pendingExplicitSave === true))
-            .map(({ workflowId }) => workflowId);
-        if (workflowIds.length === 0) {
-            if (!dirtyOnly) showToast('没有可保存的已打开工作流', 'info');
-            return Object.freeze({ status: 'completed', results: Object.freeze([]) });
+            .filter(record => (!requestedIds || requestedIds.includes(record.workflowId))
+                && (!dirtyOnly || getWorkflowTab(record.label)?.dirty || record.pendingExplicitSave || autosave.isPending(record.workflowId)))
+            .map(record => record.workflowId);
+        if (!dirtyOnly) {
+            for (const id of workflowIds) queueAutosave(getWorkflowTab(getOpenWorkflowRecord(id)?.label));
         }
-
-        const result = await workflowDesk.workflows(workflowIds).save();
-        const committedIds = new Set(
-            result.results
-                .filter(({ status }) => status === 'committed')
-                .map(({ workflowId }) => workflowId)
-        );
-        for (const tab of state.workflowTabs || []) {
-            if (committedIds.has(tab.workflowId)) tab.dirty = false;
-        }
-
-        const failedCount = result.results.length - committedIds.size;
-        showToast(
-            failedCount === 0
-                ? `已保存 ${committedIds.size} 个工作流`
-                : `已保存 ${committedIds.size} 个工作流，${failedCount} 个失败`,
-            failedCount === 0 ? 'success' : 'warning'
-        );
-        renderWorkflowList();
-        scheduleSave({ dirty: false });
-        return result;
-    }
-
-    async function saveWorkflowByName(name) {
-        if (!name) return false;
-        if (getActiveWorkflowName() === name) snapshotActiveWorkflow();
-        const tab = getWorkflowTab(name);
-        const data = tab ? tab.data : await loadWorkflowFromFile(name);
-        if (!data) return false;
-        const saved = tab
-            ? (await workflowDesk.workflow(getWorkflowIdentity(tab)).save()).status === 'committed'
-            : await saveWorkflowToFile(name, data);
-        if (saved) {
-            if (tab) tab.dirty = false;
-            showToast(`工作流「${name}」已保存`, 'success');
-            renderWorkflowList();
-            scheduleSave({ dirty: false });
-            return true;
-        }
-        return false;
-    }
-
-    async function closeWorkflowAfterSave(name) {
-        const tab = getWorkflowTab(name);
-        if (!tab) {
-            showToast(`工作流「${name}」未打开，无需关闭`, 'info');
-            return true;
-        }
-        if (isWorkflowRunning(tab)) {
-            showToast('该工作流正在运行，暂不能关闭', 'warning');
-            return false;
-        }
-        if (getActiveWorkflowName() === name) snapshotActiveWorkflow();
-        if ((await workflowDesk.workflow(getWorkflowIdentity(tab)).save()).status !== 'committed') return false;
-        tab.dirty = false;
-        if ((await workflowDesk.workflow(getWorkflowIdentity(tab)).close()).status !== 'committed') return false;
-        showToast(`已保存并关闭工作流「${name}」`, 'success');
-        return true;
-    }
-
-    async function closeWorkflowWithoutSaving(name) {
-        const tab = getWorkflowTab(name);
-        if (!tab) {
-            showToast(`工作流「${name}」未打开，无需关闭`, 'info');
-            return true;
-        }
-        if (isWorkflowRunning(tab)) {
-            showToast('该工作流正在运行，暂不能关闭', 'warning');
-            return false;
-        }
-        if ((await workflowDesk.workflow(getWorkflowIdentity(tab)).close()).status !== 'committed') return false;
-        showToast(`已关闭工作流「${name}」`, 'info');
-        return true;
+        return flushAutosave(workflowIds);
     }
 
     async function reopenWorkflowFromFile(name) {
@@ -2745,7 +2798,29 @@ export function createWorkflowManagerApi({
         return result;
     }
 
-    async function closeWorkflow(name) {
+    function releaseClosedWorkflowTabs() {
+        const open = new Set(workflowDesk.snapshot().open.map(record => record.workflowId));
+        for (const tab of state.workflowTabs || []) if (!open.has(tab.workflowId)) releaseWorkflowTabMemory(tab);
+        state.workflowTabs = (state.workflowTabs || []).filter(tab => open.has(tab.workflowId));
+    }
+
+    let closingWorkflows = false;
+    async function withWorkflowClose(action) {
+        if (closingWorkflows || state.isRunStarting || state.canvasPlanApplying || state.historyTransitionInProgress) {
+            showToast('工作流正在提交，请稍后关闭', 'warning');
+            return false;
+        }
+        closingWorkflows = true;
+        const body = documentRef.body;
+        const previousInert = body?.inert;
+        if (body) body.inert = true;
+        try { return await action(); }
+        finally { if (body) body.inert = previousInert; closingWorkflows = false; }
+    }
+
+    function closeWorkflow(name) { return withWorkflowClose(() => closeWorkflowNow(name)); }
+
+    async function closeWorkflowNow(name) {
         const tab = getWorkflowTab(name);
         if (!tab) return true;
         if (isWorkflowRunning(tab)) {
@@ -2754,23 +2829,20 @@ export function createWorkflowManagerApi({
         }
         if (getActiveWorkflowName() === name) snapshotActiveWorkflow();
 
-        if (tab.dirty) {
-            const decision = await promptWorkflowCloseDecision({
-                title: '关闭当前工作流',
-                message: `工作流「${name}」有未保存修改，关闭前是否保存？`,
-                note: '选择“是”会先保存当前工作流，再关闭；选择“否”会直接关闭并丢失未保存修改。'
-            });
-            if (decision === 'cancel') return false;
-            if (decision === 'save') {
-                if ((await workflowDesk.workflow(getWorkflowIdentity(tab)).save()).status !== 'committed') return false;
-                tab.dirty = false;
-            }
-        }
+        const saved = await flushAutosave([tab.workflowId]);
+        if (saved.results.some(item => item.status !== 'committed')) return false;
+        autosave.forget(tab.workflowId);
 
-        return (await workflowDesk.workflow(getWorkflowIdentity(tab)).close()).status === 'committed';
+        const closed = (await workflowDesk.workflow(getWorkflowIdentity(tab)).close()).status === 'committed';
+        if (closed) releaseClosedWorkflowTabs();
+        renderWorkflowList();
+        scheduleSave({ dirty: false });
+        return closed;
     }
 
-    async function closeOtherWorkflows() {
+    function closeOtherWorkflows() { return withWorkflowClose(closeOtherWorkflowsNow); }
+
+    async function closeOtherWorkflowsNow() {
         try {
             const runningInactiveTab = (state.workflowTabs || []).find((tab) => (
                 tab.name !== getActiveWorkflowName() && isWorkflowRunning(tab)
@@ -2782,37 +2854,19 @@ export function createWorkflowManagerApi({
             snapshotActiveWorkflow();
 
             const tabs = Array.isArray(state.workflowTabs) ? state.workflowTabs.slice() : [];
-            if (!getActiveWorkflowTab()) {
-                await ensureActiveWorkflowExists({ inheritCurrentCanvas: true });
-                return true;
-            }
+            if (!getActiveWorkflowTab()) return true;
             const inactiveTabs = tabs.filter((tab) => tab.name !== getActiveWorkflowName());
             if (inactiveTabs.length === 0) {
                 showToast('没有其他已打开的工作流', 'info');
                 return true;
             }
 
-            const dirtyTabs = inactiveTabs.filter((tab) => tab.dirty === true);
-            let shouldSaveDirtyTabs = false;
-            if (dirtyTabs.length > 0) {
-                const decision = await promptWorkflowCloseDecision({
-                    title: '关闭其他工作流',
-                    message: `有 ${dirtyTabs.length} 个其他工作流存在未保存修改，关闭前是否全部保存？`,
-                    note: '选择“是”会先保存这些工作流，再关闭其他已打开的工作流；选择“否”会直接关闭并丢失未保存修改。'
-                });
-                if (decision === 'cancel') return false;
-                shouldSaveDirtyTabs = decision === 'save';
-            }
-
             const inactiveWorkflowIds = inactiveTabs.map(getWorkflowIdentity);
-            const dirtyWorkflowIds = shouldSaveDirtyTabs
-                ? dirtyTabs.map(getWorkflowIdentity)
-                : [];
-            const closed = await workflowDesk.workflows(inactiveWorkflowIds).close({
-                saveWorkflowIds: dirtyWorkflowIds
-            });
+            const saved = await flushAutosave(inactiveWorkflowIds);
+            if (saved.results.some(item => item.status !== 'committed')) return false;
+            const closed = await workflowDesk.workflows(inactiveWorkflowIds).close();
             if (closed.status !== 'committed') return false;
-            showToast(shouldSaveDirtyTabs ? '已保存并关闭其他工作流' : '已关闭其他工作流', 'info');
+            inactiveWorkflowIds.forEach(id => autosave.forget(id));
             return true;
         } catch (error) {
             showToast(`关闭其他工作流失败: ${error.message || error}`, 'error', 6000);
@@ -2861,9 +2915,35 @@ export function createWorkflowManagerApi({
         return true;
     }
 
+    async function requestWorkflowName(title, suggested = '') {
+        const result = await openDialogStyle1({
+            id: 'workflow-name-dialog', title, message: '请输入工作流名称。',
+            cancelActionId: 'cancel', submitActionId: 'confirm', documentRef,
+            input: { id: 'workflow-name-input', label: '工作流名称', value: suggested,
+                maxLength: 120, rejectPattern: /[\\/:*?"<>|]/ },
+            actions: [{ id: 'cancel', label: '取消', variant: 'secondary' },
+                { id: 'confirm', label: '确定', variant: 'primary' }]
+        });
+        if (result?.actionId !== 'confirm') return null;
+        const name = result.value.trim();
+        if (!name || /[\\/:*?"<>|]/.test(name)) { showToast('请输入有效的工作流名称', 'warning'); return null; }
+        if (hasWorkflowBaseName(await fetchWorkflows(), name)) {
+            showToast(`已存在名为「${name}」的工作流`, 'warning'); return null;
+        }
+        return name;
+    }
+
+    async function promptCopyWorkflow(name) {
+        if (!getWorkflowTab(name) && !await openWorkflow(name)) return false;
+        const label = await requestWorkflowName('创建工作流副本', `${getWorkflowBaseName(name)} 副本`);
+        if (!label) return false;
+        const copied = await copyWorkflowById(getWorkflowTab(name).workflowId, label);
+        return copied ? openWorkflow(label) : false;
+    }
+
     async function createNewWorkflow() {
-        const names = await fetchWorkflows();
-        const name = findNextUnsavedName(names);
+        const name = await requestWorkflowName('新建工作流');
+        if (!name) return false;
         const shouldInheritCanvas = false;
         const data = getNewWorkflowData({ inheritCurrentCanvas: shouldInheritCanvas });
         const tab = {
@@ -2903,7 +2983,6 @@ export function createWorkflowManagerApi({
         void releaseOrQueueWorkflowMedia(readPendingMediaReleases());
         const btnToggle = documentRef.getElementById('btn-toggle-workflow');
         const btnClose = documentRef.getElementById('btn-close-workflow');
-        const btnSave = documentRef.getElementById('btn-save-workflow');
         const btnDeleteActive = documentRef.getElementById('btn-delete-active-workflow');
         const btnNew = documentRef.getElementById('btn-new-workflow');
         const btnNewFolder = documentRef.getElementById('btn-new-workflow-folder');
@@ -2936,9 +3015,6 @@ export function createWorkflowManagerApi({
             void closeOtherWorkflows();
         });
 
-        btnSave?.addEventListener('click', async () => {
-            await saveAllOpenWorkflows();
-        });
 
         btnDeleteActive?.addEventListener('click', async () => {
             if (workflowSelectionMode) {
@@ -3002,9 +3078,8 @@ export function createWorkflowManagerApi({
             });
         };
 
-        bindWorkflowMenuAction('menu-save-workflow', saveWorkflowByName);
-        bindWorkflowMenuAction('menu-save-close-workflow', closeWorkflowAfterSave);
-        bindWorkflowMenuAction('menu-close-discard-workflow', closeWorkflowWithoutSaving);
+        bindWorkflowMenuAction('menu-close-workflow', closeWorkflow);
+        bindWorkflowMenuAction('menu-copy-workflow', promptCopyWorkflow);
         bindWorkflowMenuAction('menu-reopen-workflow', reopenWorkflowFromFile);
         bindWorkflowMenuAction('menu-save-as-workflow', exportWorkflowByName);
         documentRef.getElementById('menu-toggle-workflow-selection')?.addEventListener('click', (event) => {
@@ -3062,9 +3137,10 @@ export function createWorkflowManagerApi({
                 workflowId: tab.workflowId || tab.data?.workflowId || ''
             });
             replaceWorkflowTabData(tab, nextData);
-            if (options.dirty === true) tab.dirty = true;
+            if (options.dirty === true) queueAutosave(tab);
             if (options.runResult !== undefined) tab.runResult = normalizeWorkflowRunResult(options.runResult);
         }
+        if (options.dirty === true && !autosave.isPending(tab.workflowId)) queueAutosave(tab);
         refreshWorkflowCardState(name);
         return true;
     }
@@ -3094,7 +3170,11 @@ export function createWorkflowManagerApi({
 
     return {
         applyWorkflowSidebarWidth,
-        activateRestoredWorkflowState: workflowSessionActivator.activate,
+        activateRestoredWorkflowState: async (...args) => {
+            const result = await workflowSessionActivator.activate(...args);
+            queuePendingWorkflowSaves();
+            return result;
+        },
         initWorkflow,
         loadWorkflowFromFile,
         openWorkflow,
@@ -3102,6 +3182,8 @@ export function createWorkflowManagerApi({
         expectNextMediaOwnerGeneration: (expectation) => mediaOwnership.expectTemporaryOwnerGeneration(expectation),
         clearExpectedMediaOwnerGeneration: (expectation) => mediaOwnership.clearTemporaryOwnerGeneration(expectation),
         saveAllOpenWorkflows,
+        flushAutosave,
+        hasPendingAutosave,
         markActiveWorkflowDirty,
         mutatePromptAgentByWorkflowId,
         refreshActiveWorkflowIntegrityState,

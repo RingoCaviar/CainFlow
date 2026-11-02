@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
+import { withAppBrowser, reloadAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
 
 const originals = Object.fromEntries(await Promise.all(['red', 'blue', 'orange', 'green', 'yellow'].map(async color => [color,
     'data:image/png;base64,' + (await readFile(new URL(`./fixtures/reference-${color}.png`, import.meta.url))).toString('base64')])));
@@ -307,8 +307,7 @@ test('background merge output and owners remain attached to A while the same-ID 
         assert.equal(completed.nodes.find(node => node.id === 'merge').imagePreviewIndex, 1);
         await app.waitFor("document.querySelector('#merge-merge-preview .image-save-preview-counter')?.textContent==='2/2'");
         assert.equal(await app.evaluate('mergeRequests.length'), 2, 'returning to A does not add a request beyond its initial and explicit background runs');
-        await app.evaluate("document.getElementById('btn-save-workflow').click()");
-        await app.waitFor("document.getElementById('toolbar-workflow-status').dataset.state==='saved'");
+        await waitForAutosave(app);
         const owners = await app.evaluate("Promise.all(['merge-background-a','merge-background-b'].map(id=>fetch('/api/storage/media-owners?workflowId='+encodeURIComponent(id)).then(response=>response.json()).then(result=>result.owners.filter(owner=>owner.ownerType==='workflow-node'&&owner.ownerId==='merge'))))");
         assert.deepEqual(owners[0][0]?.assetKeys, keys);
         assert.ok(owners[1].every(owner => !owner.assetKeys.length));

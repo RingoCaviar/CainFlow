@@ -31,7 +31,7 @@ test('canvas toolbar keeps action groups together across themes and wrapped widt
 
         assert.equal(await evaluate("document.querySelector('#side-bar, #btn-undo, #btn-redo') === null"), true);
         assert.equal(await evaluate("document.querySelector('#toolbar #toggle-retry, #toolbar #toggle-notifications, #toolbar #btn-theme-toggle') === null"), true);
-        for (const id of ['btn-toggle-workflow', 'btn-run', 'btn-stop', 'btn-save', 'btn-history', 'btn-prompt-agent', 'btn-settings']) {
+        for (const id of ['btn-toggle-workflow', 'btn-run', 'btn-stop', 'btn-history', 'btn-prompt-agent', 'btn-settings']) {
             assert.equal(await evaluate(`Boolean(document.querySelector('#toolbar > .toolbar-action-group > #${id}'))`), true, `${id} must remain directly accessible`);
         }
         await evaluate("document.querySelector('#toolbar-workflow-more summary').click()");
