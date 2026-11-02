@@ -48,6 +48,9 @@ async function propose(app, plan, request, mentions = []) {
 }
 
 async function action(app, label) {
+    if (['仅应用', '撤销本次画布操作'].includes(label)) {
+        await app.evaluate(`(${lastPlan}).querySelector('.prompt-agent-actions-more').open=true`);
+    }
     const expression = `[...(${lastPlan}).querySelectorAll('.prompt-agent-canvas-actions button')].find(button=>button.textContent===${JSON.stringify(label)})`;
     assert.equal(await app.evaluate(`(${expression}).disabled`), false, `${label} is available without a generation step or image model`);
     await nativeClick(app, expression);
@@ -108,12 +111,10 @@ async function createVideoAsset(app) {
     return app.evaluate("(async()=>{const canvas=document.createElement('canvas');canvas.width=96;canvas.height=64;const context=canvas.getContext('2d'),stream=canvas.captureStream(12),chunks=[],recorder=new MediaRecorder(stream,{mimeType:'video/webm;codecs=vp8',videoBitsPerSecond:250000}),stopped=new Promise(resolve=>recorder.onstop=resolve);recorder.ondataavailable=event=>{if(event.data.size)chunks.push(event.data)};recorder.start(80);for(let frame=0;frame<16;frame++){const pixels=context.createImageData(96,64);for(let index=0;index<pixels.data.length;index+=4){pixels.data[index]=(index*7+frame*23)%256;pixels.data[index+1]=(index*13+frame*37)%256;pixels.data[index+2]=(index*19+frame*41)%256;pixels.data[index+3]=255}context.putImageData(pixels,0,0);context.fillStyle='#fff';context.fillRect(frame*5,20,12,20);await new Promise(resolve=>setTimeout(resolve,80))}recorder.stop();await stopped;stream.getTracks().forEach(track=>track.stop());const blob=new Blob(chunks,{type:'video/webm'}),bytes=new Uint8Array(await blob.arrayBuffer());if(blob.size<1024)throw new Error('The native recording is unexpectedly small');const response=await fetch('/api/storage/media-assets',{method:'PUT',headers:{'Content-Type':'video/webm','X-CainFlow-Media-Owner-Type':'test-fixture','X-CainFlow-Media-Owner-Id':'agent-typed-media-video'},body:blob});if(!response.ok)throw new Error(await response.text());const result=await response.json(),digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).map(value=>value.toString(16).padStart(2,'0')).join('');return {key:result.asset.asset_key,size:blob.size,head:Array.from(bytes.slice(0,4)),digest}})()");
 }
 
-test('a new video-only Agent Save uses the real Veo output, local bytes, player and owner while an empty-media Save is rejected atomically', { timeout: 90000 }, async () => {
-    const originalInput = { id: 'original-video-role', from: { nodeId: 'video', port: 'video' }, to: { nodeId: 'retained', port: 'video' }, type: 'video' };
+test('generated video is automatically saved and Agent cannot recreate retired Save nodes', { timeout: 60000 }, async () => {
     await withAppBrowser({ ...configuration, nodes: [
-        { id: 'video', type: 'VideoGenerate', customTitle: '原始视频来源', x: 40, y: 120, apiConfigId: 'video', providerId: 'p', prompt: 'controlled playable original' },
-        { id: 'retained', type: 'ImageSave', x: 500, y: 120, filename: 'original-unused-save' }
-    ], connections: [originalInput] }, async app => {
+        { id: 'video', type: 'VideoGenerate', customTitle: '原始视频来源', x: 40, y: 120, apiConfigId: 'video', providerId: 'p', prompt: 'controlled playable original' }
+    ], connections: [] }, async app => {
         const video = await createVideoAsset(app), directory = join(app.server.dataDir, 'typed-video-exports');
         assert.deepEqual(video.head, [0x1a, 0x45, 0xdf, 0xa3]);
         assert.equal(await app.evaluate(`fetch('/api/storage/export-directory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({directory:${JSON.stringify(directory)}})}).then(response=>response.ok)`), true);
@@ -121,49 +122,31 @@ test('a new video-only Agent Save uses the real Veo output, local bytes, player 
         await app.evaluate("document.getElementById('video').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:200,clientY:180}));document.getElementById('context-menu-run-to-here').click()");
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(record=>record.value.nodes.find(node=>node.id==='video')?.videos?.[0]?.assetKey?.startsWith('media:'))");
         await app.waitFor("document.getElementById('btn-stop').disabled");
-        const source = (await saved(app)).nodes.find(node => node.id === 'video');
+        const generated = await saved(app), source = generated.nodes.find(node => node.id === 'video');
         assert.equal(await assetHash(app, source.videos[0].assetKey), video.digest);
-        await propose(app, { version: 1, steps: [{ id: 'save-video', type: 'ImageSave', title: '仅保存视频', parameters: { filename: 'agent-video-only' } }],
-            connections: [{ from: { ref: 'video', port: 'video' }, to: { ref: 'save-video', port: 'video' }, type: 'video' }] }, '把原始完整视频保存到新节点，不使用图片输入。', [['video', '原始视频来源']]);
-        await action(app, '仅应用');
-        await app.waitFor(`${status}?.includes('已应用并保存')`);
-        await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(record=>record.value.nodes.length===3)");
-        const applied = await saved(app), target = applied.nodes.find(node => node.type === 'ImageSave' && node.id !== 'retained');
-        assert.equal(applied.nodes.length, 3);
-        assert.deepEqual(applied.connections.find(edge => edge.id === originalInput.id), originalInput);
-        const input = applied.connections.find(edge => edge.to.nodeId === target.id);
-        assert.deepEqual([input.from, input.to, input.type], [{ nodeId: 'video', port: 'video' }, { nodeId: target.id, port: 'video' }, 'video']);
-        assert.equal(await app.evaluate("typedMediaRequests.filter(request=>request.kind==='video').length"), 1);
-        await action(app, '应用并执行');
-        await app.waitFor(`${status}?.includes('执行结束')`);
-        await app.waitFor(`fetch('/api/storage/documents/session').then(response=>response.json()).then(record=>record.value.nodes.find(node=>node.id===${JSON.stringify(target.id)})?.videos?.length===1)`);
-        const executed = await saved(app), result = executed.nodes.find(node => node.id === target.id);
-        assert.deepEqual(executed.connections, applied.connections);
-        assert.deepEqual(result.videos.map(item => [item.id, item.assetKey]), source.videos.map(item => [item.id, item.assetKey]));
-        assert.ok(!result.mediaAssetKeys?.length, 'the Save really has only the video role');
+        assert.deepEqual(generated.nodes.map(node => node.type), ['VideoGenerate'], 'generation does not insert a Save node');
         await waitForAutosave(app);
         const persisted = await app.evaluate("fetch('/api/workflows/'+encodeURIComponent(document.getElementById('toolbar-workflow-name').textContent.trim())).then(response=>response.json())");
-        assert.deepEqual(persisted.nodes.find(node => node.id === target.id).videos.map(item => [item.id, item.assetKey]), source.videos.map(item => [item.id, item.assetKey]), 'automatic saving persists the complete video identities');
-        const ownerExpression = `fetch('/api/storage/media-owners?workflowId='+encodeURIComponent(${JSON.stringify(executed.activeWorkflowId)})).then(response=>response.json()).then(record=>record.owners.find(owner=>owner.ownerType==='workflow-node'&&owner.ownerId===${JSON.stringify(target.id)}))`;
-        try { await app.waitFor(`${ownerExpression}.then(owner=>owner?.assetKeys.includes(${JSON.stringify(source.videos[0].assetKey)}))`); }
-        catch (error) { throw new Error('The new Save did not acquire ownership of its retained local clip: ' + JSON.stringify({ workflowId: executed.activeWorkflowId, target: target.id, owner: await app.evaluate(ownerExpression) }), { cause: error }); }
-        const owner = await app.evaluate(ownerExpression);
-        assert.ok(owner.assetKeys.includes(source.videos[0].assetKey), 'the new Save independently owns the retained local clip');
-        const playerSelector = `#${target.id}-save-preview .image-save-video-pane video`;
-        await app.waitFor(`document.querySelector(${JSON.stringify(playerSelector)})?.readyState>=2`);
-        const player = await app.evaluate(`(async()=>{const video=document.querySelector(${JSON.stringify(playerSelector)});video.muted=true;await video.play();await new Promise(resolve=>setTimeout(resolve,250));video.pause();const bytes=await(await fetch(video.currentSrc)).arrayBuffer();return {controls:video.controls,width:video.videoWidth,height:video.videoHeight,time:video.currentTime,digest:Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).map(value=>value.toString(16).padStart(2,'0')).join('')}})()`);
-        assert.deepEqual([player.controls, player.width, player.height], [true, 96, 64]);
-        assert.ok(player.time > 0); assert.equal(player.digest, video.digest);
+        assert.deepEqual(persisted.nodes[0].videos.map(item => [item.id, item.assetKey]), source.videos.map(item => [item.id, item.assetKey]));
+        const owners = await app.evaluate(`fetch('/api/storage/media-owners?workflowId='+encodeURIComponent(${JSON.stringify(generated.activeWorkflowId)})).then(response=>response.json())`);
+        assert.ok(owners.owners.some(owner => owner.ownerType === 'workflow-node' && owner.ownerId === 'video' && owner.assetKeys.includes(source.videos[0].assetKey)));
         let files = [];
-        for (let attempt = 0; attempt < 100; attempt++) { files = await readdir(directory).catch(() => []); if (files.length) break; await delay(50); }
-        assert.equal(files.length, 1); assert.match(files[0], /^agent-video-only.*\.webm$/);
+        for (let attempt = 0; attempt < 100; attempt++) {
+            files = (await readdir(directory, { recursive: true }).catch(() => [])).filter(file => file.endsWith('.webm'));
+            if (files.length) break;
+            await delay(50);
+        }
+        assert.equal(files.length, 1, 'one generated video is automatically written to the configured directory');
         assert.equal(createHash('sha256').update(await readFile(join(directory, files[0]))).digest('hex'), video.digest);
-        assert.deepEqual(await app.evaluate("typedMediaRequests.map(request=>request.kind)"), ['video', 'poll', 'chat'], 'executing the Save reuses its external source without billing or re-generating');
         const beforeRejected = await graph(app);
-        await propose(app, { version: 1, steps: [{ id: 'missing-media', type: 'ImageSave', title: '没有媒体的保存', parameters: { filename: 'must-not-exist' } }], connections: [] }, '检查没有图片或视频输入的保存方案必须拒绝。');
-        await action(app, '仅应用');
-        await app.waitFor(`${status}?.includes('缺少必要媒体输入')`);
+        const reply = { intent: 'generate', message: '保存视频', canvasPlan: { version: 1,
+            steps: [{ id: 'save-video', type: 'ImageSave', title: '仅保存视频', parameters: { filename: 'agent-video-only' } }],
+            connections: [{ from: { ref: 'video', port: 'video' }, to: { ref: 'save-video', port: 'video' }, type: 'video' }] } };
+        await app.evaluate(`typedMediaReply=${JSON.stringify(reply)};document.querySelector('[data-parameter-action=front-agent]').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.getElementById('prompt-agent-input').value='@原始视频来源[video] 保存视频';document.getElementById('prompt-agent-input').dispatchEvent(new Event('input',{bubbles:true}));`);
+        await nativeClick(app, "document.getElementById('prompt-agent-send')");
+        await app.waitFor("document.getElementById('prompt-agent-cancel').hidden&&document.getElementById('prompt-agent-messages').textContent.includes('不支持操作 ImageSave')");
+        assert.equal(await app.evaluate("document.querySelectorAll('.prompt-agent-canvas-plan').length"), 0);
         assert.deepEqual(await graph(app), beforeRejected);
-        assert.equal(await assetHash(app, source.videos[0].assetKey), video.digest);
+        assert.deepEqual(await app.evaluate("typedMediaRequests.map(request=>request.kind)"), ['video', 'poll', 'chat']);
     });
 });

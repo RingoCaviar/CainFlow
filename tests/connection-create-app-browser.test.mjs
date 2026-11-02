@@ -82,16 +82,16 @@ test('dragging an image output onto blank canvas creates a node with an immediat
     });
 });
 
-const allTypes = ['ImageImport', 'ImageCompare', 'ImageMerge', 'ImageResize', 'ColorReset', 'ImageGenerate', 'VideoGenerate', 'CameraControl', 'CustomParams', 'TextChat', 'Text', 'TextMerge', 'TextSplit', 'ImagePreview', 'ImageSave'];
+const allTypes = ['ImageImport', 'ImageCompare', 'ImageMerge', 'ImageResize', 'ColorReset', 'ImageGenerate', 'VideoGenerate', 'CameraControl', 'CustomParams', 'TextChat', 'Text', 'TextMerge', 'TextSplit', 'ImagePreview'];
 const inputCandidates = {
-    image: ['ImageCompare', 'ImageMerge', 'ImageResize', 'ColorReset', 'ImageGenerate', 'VideoGenerate', 'CameraControl', 'TextChat', 'ImagePreview', 'ImageSave'],
+    image: ['ImageCompare', 'ImageMerge', 'ImageResize', 'ColorReset', 'ImageGenerate', 'VideoGenerate', 'CameraControl', 'TextChat', 'ImagePreview'],
     text: ['ImageGenerate', 'VideoGenerate', 'TextChat', 'Text', 'TextMerge', 'TextSplit'],
-    params: ['ImageGenerate', 'VideoGenerate', 'TextChat'], video: ['ImageSave']
+    params: ['ImageGenerate', 'VideoGenerate', 'TextChat'], video: []
 };
 const outputCandidates = {
-    image: ['ImageImport', 'ImageCompare', 'ImageMerge', 'ImageResize', 'ColorReset', 'ImageGenerate', 'ImagePreview', 'ImageSave'],
+    image: ['ImageImport', 'ImageCompare', 'ImageMerge', 'ImageResize', 'ColorReset', 'ImageGenerate', 'ImagePreview'],
     text: ['CameraControl', 'TextChat', 'Text', 'TextMerge', 'TextSplit'],
-    params: ['CustomParams'], video: ['VideoGenerate', 'ImageSave'], any: allTypes
+    params: ['CustomParams'], video: ['VideoGenerate'], any: allTypes
 };
 const retained = [
     { id: 'retained-b', from: { nodeId: 'old-b', port: 'image' }, to: { nodeId: 'old-target', port: 'referenceImages' }, type: 'image', order: 0 },
@@ -129,7 +129,12 @@ for (const type of allTypes) for (const direction of ['input', 'output']) {
                     : direction === 'input' && type === 'ImageSave' && port.name === 'auto' ? [...new Set([...outputCandidates.image, ...outputCandidates.video])]
                     : direction === 'input' && ['ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge', 'CameraControl'].includes(type) && port.name === 'auto' ? outputCandidates.image
                     : (direction === 'output' ? inputCandidates : outputCandidates)[port.type];
-                assert.ok(expected?.length, `known compatibility contract for ${type}.${port.name}`);
+                assert.ok(Array.isArray(expected), `known compatibility contract for ${type}.${port.name}`);
+                if (!expected.length) {
+                    await dragFromPort(app, selector, { x: 620, y: 240 }, false);
+                    assert.equal(await app.evaluate("document.querySelectorAll('#connection-create-popup [data-popup-node-type]').length"), 0, 'retired Save nodes are not offered for video outputs');
+                    continue;
+                }
                 for (const [index, candidate] of expected.entries()) {
                     t.diagnostic(`${type}.${port.name} ${direction}: create ${candidate}`);
                     await dragFromPort(app, selector, { x: direction === 'output' ? 620 : 200, y: 240 });

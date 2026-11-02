@@ -24,7 +24,7 @@ test('compaction chooses and retains its own supplier while follow-chat keeps th
         assert.match(await app.evaluate("document.querySelector('#setting-agent-compaction-model + button').textContent"), /压缩模型.*供应商b/, 'legacy per-model conversation supplier remains visible until an explicit compression choice');
         await choose(app, 'setting-agent-compaction-model', 'compact', 'b');
         await closeSettings(app);
-        await app.evaluate("document.getElementById('btn-prompt-agent').click()");
+        await app.evaluate("if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click()");
         await choose(app, 'prompt-agent-model', 'compact', 'c');
         await choose(app, 'prompt-agent-model', 'chat', 'a');
         await settings(app);
@@ -34,7 +34,7 @@ test('compaction chooses and retains its own supplier while follow-chat keeps th
         await app.evaluate("document.querySelector('#setting-agent-compaction-model-menu [data-model-id=compact][data-provider-id=c]').click()");
         assert.match(await app.evaluate("document.querySelector('#setting-agent-compaction-model + button').textContent"), /压缩模型.*供应商c/);
         await closeSettings(app);
-        await app.evaluate("document.getElementById('btn-prompt-agent').click()");
+        await app.evaluate("if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click()");
         await command(app, '/compact');
         await app.waitFor("compactCalls.length===1&&document.getElementById('prompt-agent-cancel').hidden");
         assert.equal(await app.evaluate("compactCalls[0].body.model"), 'cheap-chat');
@@ -45,7 +45,7 @@ test('compaction chooses and retains its own supplier while follow-chat keeps th
         assert.match(await app.evaluate("document.querySelector('#setting-agent-compaction-model + button').textContent"), /压缩模型.*供应商c/);
         await app.evaluate("(()=>{const field=document.getElementById('setting-agent-auto-compact-tokens');field.value='1';field.dispatchEvent(new Event('change',{bubbles:true}))})()");
         await closeSettings(app);
-        await app.evaluate("document.getElementById('btn-prompt-agent').click()");
+        await app.evaluate("if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click()");
         await command(app, '继续创作并保留目标');
         await app.waitFor("compactCalls.some(call=>call.body.model==='cheap-chat')&&document.getElementById('prompt-agent-cancel').hidden");
         assert.equal(await app.evaluate("compactCalls.find(call=>call.body.model==='cheap-chat').headers.Authorization"), 'Bearer c-test-key', 'automatic compression shares the explicit manual supplier');
@@ -54,7 +54,9 @@ test('compaction chooses and retains its own supplier while follow-chat keeps th
         await app.evaluate("(()=>{const field=document.getElementById('setting-agent-auto-compact-tokens');field.value='1000000';field.dispatchEvent(new Event('change',{bubbles:true}))})()");
         await choose(app, 'setting-agent-compaction-model', '', '');
         await closeSettings(app);
-        await app.evaluate("document.getElementById('btn-prompt-agent').click()");
+        await app.evaluate("if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click()");
+        await command(app, '新增需要跟随对话供应商压缩的目标');
+        await app.waitFor("document.getElementById('prompt-agent-cancel').hidden&&compactCalls.some(call=>call.body.model==='main-chat')");
         await app.evaluate('compactCalls.length=0');
         await command(app, '/compact');
         await app.waitFor("compactCalls.length===1&&document.getElementById('prompt-agent-cancel').hidden");

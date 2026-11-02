@@ -172,6 +172,7 @@ test('the original camera editor keeps five controls and gestures and sends deri
         await action(app, 'target', 'context-menu-run-to-here');
         await app.waitFor("cameraRequests.length===7 && document.getElementById('btn-stop').disabled");
         const requests = await app.evaluate('cameraRequests');
+        await waitForAutosave(app);
         assert.ok(requests.at(-1).prompt.includes('MAIN PROMPT remains separate'));
         assert.ok(requests.at(-1).prompt.includes(camera.cameraPrompt), 'the provider receives the exact derived camera text through its own input role');
         const after = await saved(app);

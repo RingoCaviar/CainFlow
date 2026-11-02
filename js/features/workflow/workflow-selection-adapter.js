@@ -12,6 +12,7 @@ export function createWorkflowSessionSelectionAdapter({
     createWorkflowId = () => globalThis.crypto?.randomUUID?.()
         || `wf_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 11)}`,
     prepareEditorView = null,
+    resolveLegacyWorkflowName = async () => 'Unsaved',
     applyViewport = () => {},
     onViewApplied = () => {}
 }) {
@@ -30,7 +31,7 @@ export function createWorkflowSessionSelectionAdapter({
         const workflowTabs = hasLegacyActiveDocument
             ? [{
                 workflowId: legacyWorkflowId,
-                name: restoredState?.activeWorkflowName || '',
+                name: restoredState?.activeWorkflowName || await resolveLegacyWorkflowName(),
                 data: { ...activeDocument, workflowId: legacyWorkflowId },
                 identityPendingSave: true
             }]

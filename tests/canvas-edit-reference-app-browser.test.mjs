@@ -389,13 +389,25 @@ for(const [type,sourceType,port] of [['ImageMerge','ImageImport','image'],['Text
 
 const nodeTypes=['ImageImport','ImageCompare','ImageMerge','ImageResize','ColorReset','ImageGenerate','VideoGenerate','CameraControl','CustomParams','TextChat','Text','TextMerge','TextSplit','ImagePreview','ImageSave'];
 for(const type of nodeTypes) {
-    test(`${type} copy delete undo redo leaves an unrelated reference graph intact and preserves disabled state`,{timeout:30000},async()=>{
+    test(`${type} ${type === 'ImageSave' ? 'rejects duplication and preserves legacy delete undo' : 'copy delete undo redo'} leaves an unrelated reference graph intact and preserves disabled state`,{timeout:30000},async()=>{
         await withAppBrowser({...session,models:[...session.models,{id:'video',modelId:'veo-3',name:'受控视频',protocol:'veo-unified',taskType:'video',providerIds:['p']}],nodes:[
             ...session.nodes.map(n=>({...n,x:1600+n.x})),
             {id:'sample',type,x:60,y:260,enabled:false,customTitle:'复制样本',apiConfigId:type==='VideoGenerate'?'video':type==='TextChat'?'chat':'image',providerId:'p',params:[{key:'payload',value:'saved value'}],text:'one\n\ntwo',outputCount:2}
         ]},async app=>{
             await action(app,'sample','context-menu-copy-nodes');
             await paste(app);
+            if (type === 'ImageSave') {
+                await waitForAutosave(app);
+                assert.deepEqual((await saved(app,'s=>s.nodes.length===4')).connections,session.connections);
+                assert.equal(await app.evaluate("document.querySelectorAll('.node-save').length"),1,'retired Save nodes cannot be duplicated');
+                await action(app,'sample','context-menu-delete-nodes');
+                await saved(app,'s=>s.nodes.length===3');
+                await undo(app);
+                const restored=await saved(app,'s=>s.nodes.length===4');
+                assert.equal(restored.nodes.find(node=>node.id==='sample').enabled,false);
+                assert.deepEqual(restored.connections,session.connections);
+                return;
+            }
             const graph=await saved(app,'s=>s.nodes.length===5');
             const copy=graph.nodes.find(n=>!['a','b','target','sample'].includes(n.id));
             assert.equal(copy.type,type);

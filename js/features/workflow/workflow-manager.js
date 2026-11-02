@@ -290,6 +290,10 @@ export function createWorkflowManagerApi({
         workflowDesk,
         createWorkflowId,
         prepareEditorView: prepareDetachedEditorView,
+        resolveLegacyWorkflowName: async () => {
+            const names = await fetchWorkflows({ fallback: null });
+            return Array.isArray(names) ? findNextUnsavedName(names) : `Unsaved-${createWorkflowId()}`;
+        },
         applyViewport: () => viewportApi.updateCanvasTransform({ updateConnections: false }),
         onViewApplied: onWorkflowViewApplied
     });

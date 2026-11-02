@@ -11,6 +11,11 @@ test('refresh during restoration preserves open workflows and active identity', 
         providers: [{ id: 'p', endpoint: 'https://example.test', apikey: 'test' }],
         nodes: [], connections: []
     }, async app => {
+        const reload = async () => {
+            const previous = await app.evaluate('performance.timeOrigin');
+            await app.send('Page.reload', { ignoreCache: true });
+            await app.waitFor(`performance.timeOrigin !== ${previous}`);
+        };
         const tabs = ['A', 'B'].map(name => ({
             name, workflowId: 'id-' + name,
             data: { workflowId: 'id-' + name, nodes: [], connections: [] }
@@ -30,7 +35,7 @@ test('refresh during restoration preserves open workflows and active identity', 
         });
         // Seed only after the previous live page has exited, so its legitimate exit save cannot overwrite the fixture.
         const loading = await pauseRequest('/api/storage/documents/session', 'sessionReadStarted');
-        await app.send('Page.reload', { ignoreCache: true });
+        await reload();
         await app.waitFor('window.sessionReadStarted === true');
         await fetch(app.server.baseUrl + '/api/storage/documents/session', {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -43,17 +48,17 @@ test('refresh during restoration preserves open workflows and active identity', 
         const restoring = await pauseRequest('/api/storage/export-directory', 'restoreStarted');
         // Repeated refreshes while loadState awaits directory restoration must not persist empty defaults.
         for (let attempt = 0; attempt < 3; attempt++) {
-            await app.send('Page.reload', { ignoreCache: true });
+            await reload();
             await app.waitFor('window.restoreStarted === true');
             await delay(350);
             assert.deepEqual((await readSession()).workflowTabs.map(tab => tab.name), ['A', 'B']);
         }
         await app.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: restoring.identifier });
-        await app.send('Page.reload', { ignoreCache: true });
+        await reload();
         await app.waitFor('window.__cainflowAppReady === true');
         assert.equal(await app.evaluate("document.getElementById('toolbar-workflow-name').textContent"), 'B');
         // Exercise a normal ready-page exit too: the protection must not disable later session persistence.
-        await app.send('Page.reload', { ignoreCache: true });
+        await reload();
         await app.waitFor('window.__cainflowAppReady === true');
         const session = await readSession();
         assert.deepEqual(session.workflowTabs.map(tab => tab.name), ['A', 'B']);

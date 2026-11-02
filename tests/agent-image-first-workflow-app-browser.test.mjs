@@ -28,8 +28,16 @@ async function open(app, id) {
 }
 
 async function click(app, selector) {
-    const point = await app.evaluate(`(()=>{const rect=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:rect.x+rect.width/2,y:rect.y+rect.height/2}})()`);
-    await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+    await app.waitFor(`(()=>{const control=document.querySelector(${JSON.stringify(selector)}),rect=control.getBoundingClientRect();return control.contains(document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2))})()`);
+    let point;
+    // Opening Agent and switching results can reflow the image after its pixels decode.
+    // Re-read the hit point instead of clicking the coordinates from the old layout.
+    for (let attempt = 0; attempt < 30; attempt++) {
+        point = await app.evaluate(`(()=>{const rect=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:rect.x+rect.width/2,y:rect.y+rect.height/2}})()`);
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+        await delay(50);
+        if (await app.evaluate(`document.querySelector(${JSON.stringify(selector)}).contains(document.elementFromPoint(${point.x},${point.y}))`)) break;
+    }
     assert.ok(await app.evaluate(`document.querySelector(${JSON.stringify(selector)}).contains(document.elementFromPoint(${point.x},${point.y}))`), `the visible user control is reachable: ${selector}`);
     await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
     await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
@@ -50,6 +58,7 @@ async function chooseModel(app, purpose, model) {
 }
 
 async function planAction(app, label) {
+    await app.waitFor(`(()=>{const buttons=[...document.querySelectorAll('.prompt-agent-canvas-plan')].at(-1)?.querySelectorAll('.prompt-agent-canvas-actions button');return [...(buttons||[])].some(button=>button.textContent===${JSON.stringify(label)}&&!button.disabled)})()`);
     await app.evaluate(`(()=>{const buttons=[...document.querySelectorAll('.prompt-agent-canvas-plan')].at(-1)?.querySelectorAll('.prompt-agent-canvas-actions button'),button=[...(buttons||[])].find(button=>button.textContent===${JSON.stringify(label)});if(!button)throw new Error('Missing plan action: '+${JSON.stringify(label)});button.click()})()`);
 }
 
@@ -96,10 +105,10 @@ test('two result slots with identical original bytes stage separately while repe
     });
 });
 
-test('the visible in-prompt optimization control prepares one explicit target and preserves that target, existing drafts and attachments across selection and unmounted parameters', { timeout: 45000 }, async () => {
+test('the visible below-prompt optimization control prepares one explicit target and preserves that target, existing drafts and attachments across selection and unmounted parameters', { timeout: 45000 }, async () => {
     await withAppBrowser({ ...configuration, nodes: [generateNode('target-a', 40, 80, { customTitle: '明确主图A' }), generateNode('target-b', 710, 80, { customTitle: '另一个目标B' })], connections: [] }, async app => {
         await controlled(app); await open(app, 'target-a');
-        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-node-prompt-field').contains(document.getElementById('target-a-assistant'))"), true);
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-prompt-actions').contains(document.getElementById('target-a-assistant'))"), true);
         const initialModels = await app.evaluate("['prompt-agent-model','prompt-agent-image-model'].map(id=>document.getElementById(id).value)");
         await click(app, '#target-a-assistant');
         await app.waitFor("document.getElementById('prompt-agent-panel').classList.contains('active')");
@@ -125,10 +134,10 @@ test('the visible in-prompt optimization control prepares one explicit target an
         await attach(app);
         const before = await saved(app), attached = await app.evaluate("document.querySelector('#prompt-agent-references img').src");
         await open(app, 'target-a'); await click(app, '#target-a-assistant');
-        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), 'preserve this existing assistant draft');
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), 'preserve this existing assistant draft\n@明确主图A[target-a] ');
         assert.equal(await app.evaluate("document.querySelector('#prompt-agent-references img').src"), attached);
         await change(app, 'prompt-agent-input', ''); await click(app, '#target-a-assistant');
-        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), '', 'an existing original attachment is preserved without silently preparing another request');
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), '@明确主图A[target-a] ', 'the explicit target is inserted without replacing attachments or drafting another request');
         const after = await saved(app);
         assert.deepEqual(after.connections, before.connections);
         assert.deepEqual(after.nodes.map(node => [node.id, node.prompt]), before.nodes.map(node => [node.id, node.prompt]));
@@ -201,12 +210,12 @@ test('mixed legacy and canonical full-batch references preserve slot identities 
         assert.deepEqual((await saved(app)).connections, applied.connections);
         assert.equal(await app.evaluate('agentWorkflowRequests.filter(request=>request.contents).length'), 0, 'redo restores the graph without execution');
         const expected = [originals.red, originals.blue, originals.red, originals.orange, originals.red].map(image => image.split(',')[1]);
-        await app.evaluate('agentWorkflowFailNext=true'); await planAction(app, '应用并执行');
+        await app.evaluate('agentWorkflowFailNext=true'); await planAction(app, '生成图片');
         await app.waitFor("agentWorkflowRequests.filter(request=>request.contents).length===1&&document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('未完成')");
         await app.evaluate("document.querySelector('#modal-error .modal-close')?.click()");
         await planAction(app, '重试未完成步骤');
         await app.waitFor("agentWorkflowRequests.filter(request=>request.contents).length===2&&document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
-        await planAction(app, '应用并执行');
+        await planAction(app, '生成图片');
         await app.waitFor("agentWorkflowRequests.filter(request=>request.contents).length===3&&document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
         const sent = await app.evaluate("agentWorkflowRequests.filter(request=>request.contents).map(request=>({pixels:request.contents.flatMap(content=>content.parts).filter(part=>part.inlineData).map(part=>part.inlineData.data),size:request.generationConfig.imageConfig}))");
         for (const request of sent) {
@@ -228,14 +237,14 @@ test('mixed legacy and canonical full-batch references preserve slot identities 
         const restored = await saved(app);
         assert.deepEqual(restored.connections, applied.connections);
         for (const id of ['legacy-source', 'canonical-source']) assert.deepEqual(restored.nodes.find(node => node.id === id).mediaAssetKeys, keys(id));
-        await planAction(app, '应用并执行');
+        await planAction(app, '生成图片');
         await app.waitFor("agentWorkflowRequests.filter(request=>request.contents).length===1&&document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
         assert.deepEqual(await app.evaluate("agentWorkflowRequests.find(request=>request.contents).contents.flatMap(content=>content.parts).filter(part=>part.inlineData).map(part=>part.inlineData.data)"), expected);
         await open(app, 'target');
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=reference]').click();document.querySelector('[data-reference-connection=legacy-edge] .image-reference-move-down').click()");
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value.connections.find(edge=>edge.id==='legacy-edge').order>document.value.connections.find(edge=>edge.id==='canonical-edge').order)");
         const reordered = await saved(app);
-        await planAction(app, '应用并执行');
+        await planAction(app, '生成图片');
         await app.waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已变化')");
         assert.equal(await app.evaluate('agentWorkflowRequests.filter(request=>request.contents).length'), 1);
         assert.deepEqual((await saved(app)).connections, reordered.connections, 'stale rejection does not silently undo the user source ordering');
@@ -272,7 +281,7 @@ test('optimization previews and changes the real Text prompt source while derive
             assert.equal(input.currentNode.nodeId, 'target');
             assert.equal(input.currentNode.prompt, type === 'Text' ? source.text : originalSource.cameraPrompt, 'the actual Agent sees the effective source prompt rather than the inactive local draft');
             if (type === 'CameraControl') {
-                assert.equal(await app.evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].some(button=>['仅应用','应用并执行'].includes(button.textContent)&&!button.disabled)"), false, 'the read-only source cannot be bypassed by a successful-looking local prompt plan');
+                assert.equal(await app.evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].some(button=>['仅应用','生成图片','应用并执行'].includes(button.textContent)&&!button.disabled)"), false, 'the read-only source cannot be bypassed by a successful-looking local prompt plan');
                 const rejected = await saved(app);
                 assert.equal(rejected.nodes.find(node => node.id === 'target').prompt, 'ineffective local draft');
                 assert.deepEqual(rejected.connections, before.connections);
@@ -288,7 +297,7 @@ test('optimization previews and changes the real Text prompt source while derive
             assert.equal(applied.nodes.find(node => node.id === 'target').prompt, 'ineffective local draft');
             assert.deepEqual(applied.connections.filter(edge => edge.id === connection.id), before.connections);
             assert.equal(await app.evaluate('agentWorkflowRequests.filter(request=>request.contents).length'), 0);
-            await planAction(app, '应用并执行');
+            await planAction(app, '生成图片');
             await app.waitFor("agentWorkflowRequests.filter(request=>request.contents).length===1&&document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
             const sent = await app.evaluate("agentWorkflowRequests.find(request=>request.contents).contents.flatMap(content=>content.parts).filter(part=>part.text).map(part=>part.text).join('\\n')");
             assert.ok(sent.includes('optimized real upstream text'));
@@ -351,7 +360,7 @@ test('an explicit request can atomically disconnect the prompt source and use a 
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='switch-target')?.prompt==='new explicitly authorized local prompt'&&!document.value.connections.some(edge=>edge.id==='explicit-prompt-input'))");
         assert.deepEqual((await saved(app)).connections, applied.connections);
         assert.equal(await app.evaluate('agentWorkflowRequests.filter(request=>request.contents).length'), 0, 'redo restores only the graph');
-        await planAction(app, '应用并执行');
+        await planAction(app, '生成图片');
         await app.waitFor("agentWorkflowRequests.filter(request=>request.contents).length===1&&document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
         const prompt = await app.evaluate("agentWorkflowRequests.find(request=>request.contents).contents.flatMap(content=>content.parts).filter(part=>part.text).map(part=>part.text).join('\\n')");
         assert.ok(prompt.includes('new explicitly authorized local prompt'));
@@ -380,7 +389,7 @@ test('editing prompt prose cannot authorize an Agent proposal to disconnect its 
             await change(app, 'prompt-agent-input', '@输入目标[target] ' + request);
             await app.evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
             await app.waitFor("agentWorkflowRequests.filter(request=>request.messages).length===1&&document.getElementById('prompt-agent-cancel').hidden");
-            assert.equal(await app.evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].some(button=>['仅应用','应用并执行'].includes(button.textContent)&&!button.disabled)"), false);
+            assert.equal(await app.evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].some(button=>['仅应用','生成图片','应用并执行'].includes(button.textContent)&&!button.disabled)"), false);
             const after = await saved(app);
             assert.deepEqual(after.connections, before.connections, 'the malicious proposed disconnect never reaches the real graph');
             assert.equal(after.nodes.find(node => node.id === 'source').text, before.nodes.find(node => node.id === 'source').text);
