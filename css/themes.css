@@ -63,3 +63,10 @@
 #workflow-list .workflow-item:not(.is-open) .workflow-item-name {
     color: color-mix(in srgb, var(--text-main) 80%, var(--bg-canvas));
 }
+
+/* WebGL reads these resolved colors as well as the surrounding stage surface. */
+html[data-app-theme] .camera-control-editor-panel .camera-control-stage {
+    background: var(--bg-canvas);
+    color: var(--accent-primary);
+    border-color: var(--text-dim);
+}

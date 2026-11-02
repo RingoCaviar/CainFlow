@@ -525,6 +525,7 @@ export function createCameraControlNodeApi(options = {}) {
 
         return {
             scene,
+            grid,
             subjectGroup,
             cameraModel,
             frontMaterial,
@@ -640,6 +641,7 @@ export function createCameraControlNodeApi(options = {}) {
         }
 
         editor.disposed = true;
+        editor.themeObserver?.disconnect();
         editor.stageObserver?.disconnect();
         disposeTexture(editor.frontTexture);
         disposeTexture(editor.backTexture);
@@ -704,6 +706,7 @@ export function createCameraControlNodeApi(options = {}) {
             observerCamera,
             cameraHelper,
             scene: sceneBits.scene,
+            grid: sceneBits.grid,
             subjectGroup: sceneBits.subjectGroup,
             cameraModel: sceneBits.cameraModel,
             frontMaterial: sceneBits.frontMaterial,
@@ -723,6 +726,25 @@ export function createCameraControlNodeApi(options = {}) {
             viewModeButtons: new Map(),
             stageObserver: null
         };
+
+        const syncSceneTheme = () => {
+            if (editor.disposed) return;
+            const styles = (documentRef.defaultView || window).getComputedStyle(stage);
+            editor.scene.background.set(styles.backgroundColor);
+            const nextGrid = new THREE.GridHelper(18, 18,
+                styles.color, styles.borderTopColor);
+            nextGrid.position.y = -0.45;
+            editor.scene.remove(editor.grid);
+            editor.grid.geometry.dispose();
+            const materials = Array.isArray(editor.grid.material) ? editor.grid.material : [editor.grid.material];
+            materials.forEach(material => material.dispose());
+            editor.grid = nextGrid;
+            editor.scene.add(nextGrid);
+            requestRender(editor);
+        };
+        editor.themeObserver = new (documentRef.defaultView || window).MutationObserver(syncSceneTheme);
+        editor.themeObserver.observe(documentRef.documentElement, { attributes: true, attributeFilter: ['data-app-theme'] });
+        syncSceneTheme();
 
         SLIDER_KEYS.forEach((key) => {
             const slider = overlay.querySelector(`[data-camera-slider="${key}"]`);
