@@ -10,9 +10,11 @@ export async function waitForAutosave({ waitFor }) {
     // The session cache itself is debounced; don't read its previous clean
     // snapshot before the new edit has reached it.
     await delay(3100);
+    await waitFor("import('/js/app/bootstrap.js').then(module=>module.bootstrapCainFlowApp()).then(app=>!app.workflowManagerApi.hasPendingAutosave())");
     await waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>!document.value?.workflowTabs?.some(tab=>tab.dirty || tab.identityPendingSave))");
 }
 export async function reloadAppBrowser({ evaluate, send, waitFor }) {
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0 });
     // Let the product finish autosaving before navigating; otherwise Chromium
     // correctly opens its native beforeunload protection dialog.
     await waitForAutosave({ waitFor });
@@ -35,7 +37,9 @@ export async function reloadAppBrowser({ evaluate, send, waitFor }) {
     await delay(500);
 }
 
-export async function withAppBrowser(session, task, { repoDirectory, initScript } = {}) {
+// Legacy graph fixtures intentionally retain their Save nodes. Cancel only the
+// retirement prompt; migration tests can opt out and exercise either response.
+export async function withAppBrowser(session, task, { repoDirectory, initScript, preserveRetiredSaveNodes = true } = {}) {
     const server = await startCainflowServer({ session, repoDirectory });
     const profile = await mkdtemp(join(tmpdir(), 'cainflow-canvas-browser-'));
     const browser = spawn(chromePath, ['--headless=new', '--disable-gpu', '--no-sandbox', '--disable-extensions', `--user-data-dir=${profile}`, '--remote-debugging-port=0', 'about:blank'], { stdio: 'ignore' });
@@ -56,6 +60,10 @@ export async function withAppBrowser(session, task, { repoDirectory, initScript 
         };
         getDiagnostics = () => ({ backend: server.getDiagnostics(), networkFailures });
         socket.addEventListener('message', event => { const value = JSON.parse(event.data);
+            if (preserveRetiredSaveNodes && value.method === 'Page.javascriptDialogOpening'
+                && value.params.type === 'confirm' && value.params.message.includes('保存节点，我们已经弃用了')) {
+                void send('Page.handleJavaScriptDialog', { accept: false });
+            }
             if (value.method === 'Network.requestWillBeSent') {
                 requests.set(value.params.requestId, publicUrl(value.params.request.url));
                 if (requests.size > 1000) requests.delete(requests.keys().next().value);
@@ -72,7 +80,11 @@ export async function withAppBrowser(session, task, { repoDirectory, initScript 
             if (pending.has(value.id)) { pending.get(value.id)(value); pending.delete(value.id); } });
         const send = async (method, params = {}) => {
             const id = ++sequence;
-            const response = await new Promise(resolve => { pending.set(id, resolve); socket.send(JSON.stringify({ id, method, params })); });
+            const response = await new Promise((resolve, reject) => {
+                const timer = setTimeout(() => { pending.delete(id); reject(new Error(`Browser command timed out: ${method}`)); }, 15000);
+                pending.set(id, value => { clearTimeout(timer); resolve(value); });
+                socket.send(JSON.stringify({ id, method, params }));
+            });
             if (response.error) throw new Error(response.error.message); return response.result;
         };
         const evaluate = async expression => {

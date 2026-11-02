@@ -50,5 +50,5 @@ test('mentioned node thumbnails retain the actual reference order, preview origi
         assert.deepEqual(await thumbnails(app), originals);
         await upload(app, 'first', 'orange');
         assert.deepEqual(await thumbnails(app), originals, 'editing the live source cannot rewrite historical message images');
-    });
+    }, { preserveRetiredSaveNodes: true });
 });
