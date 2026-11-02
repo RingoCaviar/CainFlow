@@ -110,7 +110,7 @@ const protectedNodes = [
 ];
 const dynamicData = {
     TextSplit: { outputCount: 3, text: 'one\n\ntwo\n\nthree' },
-    TextMerge: { inputCount: 3 }, ImageMerge: { inputCount: 3 },
+    TextMerge: { inputCount: 1 }, ImageMerge: { inputCount: 3 },
     CustomParams: { params: [{ key: 'payload', value: '' }, { key: 'other', value: '' }] }
 };
 
@@ -145,6 +145,7 @@ for (const type of allTypes) for (const direction of ['input', 'output']) {
                     const links = await savedConnectionRecords(app, 3, id);
                     assert.deepEqual(links.filter(link => link.id.startsWith('retained-')), retained, `${type}.${port.name} -> ${candidate} leaves existing references and order intact`);
                     const link = links.find(link => !link.id.startsWith('retained-'));
+                    if(type==='TextMerge'&&direction==='input') assert.equal(await app.evaluate("!!document.querySelector('#source .node-port.input[data-port=text_2]')"),true,'connecting text adds the next free input');
                     if (direction === 'input' && port.name === 'auto') {
                         assert.equal(link.to.nodeId, 'source');
                         assert.notEqual(link.to.port, 'auto', 'a visual universal input stores its real logical role');

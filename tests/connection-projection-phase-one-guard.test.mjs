@@ -37,7 +37,7 @@ test('phase-one migrated callers do not retain rendering strategy vocabulary', a
         ['../js/canvas/canvas-interactions.js', ['function syncMarqueeSelection', 'if (isMarqueeAction)']],
         ['../js/features/ui/context-menu-controller.js', ['function ensureNodeSelected', "if (e.target.id === 'canvas-container'"]],
         ['../js/nodes/node-lifecycle.js', ['function scheduleNodeSizeConnectionRefresh', 'function selectNode', 'function renameNode']],
-        ['../js/nodes/node-dom-bindings.js', ['function scheduleConnectedInputFieldLayout', 'function toggleNodeCollapsed', 'function updateImageGenerateMaskPortVisibility']],
+        ['../js/nodes/node-dom-bindings.js', ['function scheduleConnectedInputFieldLayout', 'function updateImageGenerateMaskPortVisibility']],
         ['../js/features/workflow/workflow-runtime-manager.js', ['function applyVisibleNodeRunState']],
         ['../js/features/settings/model-settings.js', ['function syncImageGenerateResolutionOptions']],
         ['../js/app/bootstrap-impl.js', ['function adjustTextareaHeight', 'function refreshImageGenerateNodes']]

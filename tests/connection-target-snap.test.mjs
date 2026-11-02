@@ -84,7 +84,7 @@ test('reverse connection starts at an input and accepts only an output of the ma
     assert.equal(api.getConnectionTargetError(source, {
         nodeId: 'far', port: 'in', type: 'image', dir: 'input'
     }), '不能连接两个输入');
-    ports[0].classList.add('is-hidden-by-collapse');
+    ports[0].offsetParent = null;
     assert.equal(api.getNearestConnectionTarget(source, 0, 0), null);
 });
 

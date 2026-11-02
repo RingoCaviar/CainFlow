@@ -40,7 +40,6 @@ test('single-node layout callers report geometry intent without refresh strategy
     assert.match(sources[1], /function refreshNodeConnectionGeometry[\s\S]{0,500}nodeGeometryChanged\(nodeId\)/);
     assert.match(sources[1], /scheduleEnsureNodeContentVisible[\s\S]{0,250}nodeGeometryChanged\(nodeId\)/);
     assert.match(sources[2], /function scheduleConnectedInputFieldLayout[\s\S]{0,900}nodeGeometryChanged\(nodeId\)/);
-    assert.match(sources[2], /function toggleNodeCollapsed[\s\S]{0,1400}refreshNodesPortGeometry\(changedIds\)/);
     assert.match(
         sources[2],
         /maskPort\.setAttribute[\s\S]{0,300}nodeGeometryChanged\(id\)/

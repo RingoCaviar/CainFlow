@@ -44,7 +44,7 @@ test('resizing honors the measured content height at the final width', () => {
     assert.match(bindings, /minHeight:\s*Math\.max\(60, Math\.min\(defaultMinimum\.minHeight, resizeTargetMinHeight\)\)/);
     assert.match(interactions, /let dynamicMinHeight = typeof getNodeMinimumSize === 'function' \? 0 : r\.minHeight;/);
     assert.match(interactions, /dynamicMinHeight = Math\.max\(dynamicMinHeight, Number\(finalMinimum\.minHeight\) \|\| 0\)/);
-    assert.match(interactions, /finalHeight = Math\.max\(finalHeight, Number\(minimum\?\.minHeight\) \|\| 0\)/);
+    assert.match(interactions, /finalHeight = node\.el\.classList\.contains\('node-media-aspect'\) \? minimum\.minHeight : Math\.max\(finalHeight, Number\(minimum\?\.minHeight\) \|\| 0\)/);
 });
 
 test('safe scalar parameters use two columns at the minimum card width', () => {

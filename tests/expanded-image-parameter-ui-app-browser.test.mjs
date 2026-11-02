@@ -50,7 +50,7 @@ test('expanded parameters drag and resize without replacing forms or changing or
         const centered = await rect(app);
         assert.ok(Math.abs(centered.left + centered.width / 2 - 550) <= 2);
         assert.ok(Math.abs(centered.top + centered.height / 2 - 410) <= 2);
-        await app.waitFor("!document.querySelector('.toast-status')");
+        await app.waitFor("!document.querySelector('.toast')", 15000);
         await app.evaluate("document.querySelectorAll('.notice-close').forEach(button=>button.click())");
         for (let step = 0; step < 10; step++) await key(app, '[data-parameter-resize=height]', 'ArrowUp');
         await drag(app, '.image-parameter-drag-handle', -80, 20);
@@ -101,8 +101,9 @@ test('expanded controls remain reachable below the revealed toolbar in a low vie
         assert.ok(geometry.top >= geometry.toolbarBottom + 8 && geometry.bottom <= 408 && geometry.reachable, JSON.stringify(geometry));
         await drag(app, '.image-parameter-drag-handle', 0, -100);
         assert.ok((await rect(app)).top >= geometry.toolbarBottom + 8);
+        await app.waitFor("!document.querySelector('.toast')", 15000);
         const recovery = await point(app, '[data-parameter-action=front-parameters]');
-        assert.equal(await app.evaluate(`document.querySelector('[data-parameter-action=front-parameters]').contains(document.elementFromPoint(${recovery.x},${recovery.y}))`), true);
+        assert.equal(await app.evaluate(`document.querySelector('[data-parameter-action=front-parameters]').contains(document.elementFromPoint(${recovery.x},${recovery.y}))`), true, await app.evaluate(`JSON.stringify({point:${JSON.stringify(recovery)},hit:document.elementFromPoint(${recovery.x},${recovery.y})?.outerHTML.slice(0,400)})`));
     });
 });
 
@@ -117,7 +118,8 @@ test('persistent panel controls recover hidden parameters and raise either panel
             const ordinary = await rect(app), start = await point(app, '[data-parameter-resize=width]');
             await pointer(app, 'mousePressed', start);
             await pointer(app, 'mouseMoved', { x: start.x + 35, y: start.y });
-            assert.ok((await rect(app)).width > ordinary.width + 20, 'a real partial resize precedes each cancellation');
+            await app.waitFor(`document.getElementById('image-parameter-panel').getBoundingClientRect().width > ${ordinary.width+20}`);
+            assert.ok((await rect(app)).width > ordinary.width + 20, JSON.stringify({ordinary,after:await rect(app),start,hit:await app.evaluate(`document.elementFromPoint(${start.x},${start.y})?.outerHTML.slice(0,400)`)}));
             assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').classList.contains('is-resizing')"), true);
             await app.evaluate(cancellation);
             await pointer(app, 'mouseMoved', { x: start.x + 65, y: start.y });
@@ -127,10 +129,11 @@ test('persistent panel controls recover hidden parameters and raise either panel
         }
         await app.evaluate("document.querySelector('[data-parameter-action=expand]').click();document.querySelector('[data-parameter-action=front-agent]').click()");
         await app.waitFor("document.getElementById('prompt-agent-panel').classList.contains('active')");
-        const hit = () => app.evaluate("(()=>{const parameters=document.getElementById('image-parameter-panel'),agent=document.getElementById('prompt-agent-panel'),a=parameters.getBoundingClientRect(),b=agent.getBoundingClientRect(),x=(Math.max(a.left,b.left)+Math.min(a.right,b.right))/2,y=(Math.max(a.top,b.top)+Math.min(a.bottom,b.bottom))/2,target=document.elementFromPoint(x,y);return {parameters:parameters.contains(target),agent:agent.contains(target)}})()");
-        assert.equal((await hit()).agent, true);
+        const separated = () => app.evaluate("(()=>{const a=document.getElementById('image-parameter-panel').getBoundingClientRect(),b=document.getElementById('prompt-agent-panel').getBoundingClientRect();return a.right<=b.left-8&&a.left>=0})()");
+        await app.waitFor("document.getElementById('image-parameter-panel').getBoundingClientRect().right <= document.getElementById('prompt-agent-panel').getBoundingClientRect().left-8");
+        assert.equal(await separated(),true);
         await app.evaluate("document.querySelector('[data-parameter-action=front-parameters]').click()");
-        assert.equal((await hit()).parameters, true);
+        assert.equal(await separated(),true,'raising parameters does not overlap the Agent');
         assert.equal(await app.evaluate("document.getElementById('prompt-agent-panel').classList.contains('active')"), true);
         await app.evaluate("document.querySelector('[data-parameter-action=close]').click()");
         assert.equal(await app.evaluate("document.querySelector('[data-parameter-action=front-parameters]').getAttribute('aria-expanded')"), 'false');

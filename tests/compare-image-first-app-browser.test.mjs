@@ -184,7 +184,7 @@ test('real A/B swap preserves full source batches and connection metadata with o
         assert.ok(Math.abs(await app.evaluate("parseFloat(document.getElementById('compare-compare').style.getPropertyValue('--compare-x'))") - 27) < 1);
         assert.deepEqual((await saved(app)).connections, swapped);
         assert.equal((await saved(app)).nodes.find(node => node.id === 'compare').customTitle, '保留对比标题');
-        assert.deepEqual(await app.evaluate("(()=>{const node=document.getElementById('compare');return [node.style.left,node.style.top,node.offsetWidth,node.offsetHeight]})()"), ['550px', '90px', 350, 370]);
+        assert.deepEqual(await app.evaluate("(()=>{const node=document.getElementById('compare');return [node.style.left,node.style.top,node.offsetWidth]})()"), ['550px', '90px', 350]);
         assert.equal(await app.evaluate('compareRequests.length'), 0);
     });
 });

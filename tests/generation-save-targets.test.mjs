@@ -67,7 +67,7 @@ function fixture(type = 'ImageGenerate') {
 
 for (const type of ['ImageGenerate', 'VideoGenerate']) {
     for (const mode of ['all', 'selected-only', 'target-node']) {
-        test(`${mode} ${type} executes an existing legacy save with the generated batch`, async () => {
+        test(`${mode} ${type} passes the generated batch through a legacy save without exporting twice`, async () => {
             const f = fixture(type);
             f.connect('existing-save', { automatic: true });
             const input = { mode, selectedNodeIds: ['generate'], targetNodeId: 'generate' };
@@ -102,13 +102,11 @@ for (const type of ['ImageGenerate', 'VideoGenerate']) {
             assert.equal(result.reason, 'finished', JSON.stringify([...f.state.nodes.values()].map((node) => node.executionFailure)));
             assert.deepEqual(executed, ['generate', saveId]);
             assert.deepEqual(type === 'ImageGenerate' ? saveInput.image : saveInput.video, type === 'ImageGenerate' ? images : videos);
-            assert.equal(f.directorySaves[0].nodeId, saveId);
-            assert.deepEqual(type === 'ImageGenerate' ? f.directorySaves[0].payload.images : f.directorySaves[0].payload.videos,
-                type === 'ImageGenerate' ? images : videos);
+            assert.deepEqual(f.directorySaves, [], 'retired Save nodes only pass media through');
             const retryInput = f.prepare(input);
             assert.deepEqual(retryInput.includedAutoSaveNodeIds, [saveId]);
             assert.equal((await runner.runWorkflow(retryInput)).reason, 'finished');
-            assert.deepEqual(f.directorySaves.map((entry) => entry.nodeId), [saveId, saveId]);
+            assert.deepEqual(f.directorySaves, [], 'retry must not export through a retired Save node');
             assert.equal(f.state.nodes.size, 2);
             assert.equal(f.saved, 0);
         });

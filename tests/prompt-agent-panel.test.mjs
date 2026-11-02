@@ -488,7 +488,7 @@ test('unavailable chat models show a quiet hint and keep the draft until a model
 
     models = [TEST_CHAT_MODEL];
     elements['prompt-agent-input'].dispatch('focus');
-    assert.equal(elements['prompt-agent-model-hint'].hidden, false, 'new model requires an explicit provider selection');
+    assert.equal(elements['prompt-agent-model-hint'].hidden, true, 'the only compatible provider is selected with the model');
     assert.equal(elements['prompt-agent-send'].disabled, false);
     await elements['prompt-agent-form'].dispatch('submit');
     assert.equal(requests, 1);
@@ -1090,7 +1090,7 @@ test('the picker refreshes the current scene and exposes an empty state and keyb
     candidates = [];
     controller.refreshActionStates();
     assert.equal(elements['prompt-agent-reference-picker-list'].children.length, 0);
-    assert.match(elements['prompt-agent-reference-picker-status'].textContent, /还没有/);
+    assert.match(elements['prompt-agent-reference-picker-status'].textContent, /没有匹配/);
     elements['prompt-agent-form'].dispatch('keydown', { key: 'Escape' });
     assert.equal(elements['prompt-agent-reference-picker'].hidden, true);
     assert.equal(elements['prompt-agent-add-reference'].attributes.get('aria-expanded'), 'false');

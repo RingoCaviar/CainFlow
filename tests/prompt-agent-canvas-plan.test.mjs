@@ -16,7 +16,7 @@ const graph = (extra = {}) => createCanvasContext({ workflowId: 'workflow-a', no
 const draft = () => ({ version: 1, steps: [
     { id: 'hero', type: 'ImageGenerate', parameters: { prompt: '商品海报' } },
     { id: 'resize', type: 'ImageResize', parameters: { scalePercent: 50 } },
-    { id: 'save', type: 'ImageSave', parameters: { filename: 'product' } }
+    { id: 'save', type: 'ImagePreview', parameters: {} }
 ], connections: [
     { from: { ref: 'source', port: 'image' }, to: { ref: 'hero', port: 'image_1' } },
     { from: { ref: 'hero', port: 'image' }, to: { ref: 'resize', port: 'image' } },

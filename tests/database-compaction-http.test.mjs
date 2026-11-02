@@ -40,7 +40,9 @@ test('cache cleanup HTTP actions shrink SQLite while retaining other workflows a
             async () => (await fetch('/api/storage/maintenance', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'clear-temporary' })
             })).json(),
-            () => storage.clearHistory({ detailed: true })
+            async () => (await fetch('/api/storage/maintenance', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'clear-history' })
+            })).json()
         ];
         for (const action of actions) {
             await putDocument('logs_state', { text: 'x'.repeat(2 * 1024 * 1024) });
