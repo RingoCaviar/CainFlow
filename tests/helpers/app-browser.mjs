@@ -9,7 +9,7 @@ export const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 export async function waitForAutosave({ waitFor }) {
     // The session cache itself is debounced; don't read its previous clean
     // snapshot before the new edit has reached it.
-    await delay(1100);
+    await delay(3100);
     await waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>!document.value?.workflowTabs?.some(tab=>tab.dirty || tab.identityPendingSave))");
 }
 export async function reloadAppBrowser({ evaluate, send, waitFor }) {

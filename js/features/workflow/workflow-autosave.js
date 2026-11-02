@@ -1,6 +1,6 @@
 /** Debounce durable writes by workflow identity, retaining edits made during a write. */
 export function createWorkflowAutosave({ save, onFailure = () => {}, onSaved = () => {},
-    canSave = () => true, isBlocked = () => false, delay = 1000, setTimer = setTimeout, clearTimer = clearTimeout }) {
+    canSave = () => true, isBlocked = () => false, delay = 3000, setTimer = setTimeout, clearTimer = clearTimeout }) {
     const pending = new Map();
     const running = new Map();
     const timers = new Map();
