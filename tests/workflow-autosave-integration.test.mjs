@@ -47,7 +47,7 @@ async function harness(t, { restoredDirty = false } = {}) {
 
 test('a recovered unsaved workflow retries automatically without another edit', async t => {
     const h = await harness(t, { restoredDirty: true });
-    await new Promise(resolve => setTimeout(resolve, 1150));
+    await new Promise(resolve => setTimeout(resolve, 3150));
     assert.equal(h.disk.get('A').nodes[0].text, 'first');
     assert.equal(h.manager.hasPendingAutosave(), false);
 });
@@ -56,7 +56,7 @@ test('editing the active canvas and an inactive Agent conversation persists both
     const h = await harness(t);
     h.edit('automatic');
     h.manager.mutatePromptAgentByWorkflowId('B', () => ({ messages: [{ role: 'user', content: 'background conversation' }] }));
-    await new Promise(resolve => setTimeout(resolve, 1150));
+    await new Promise(resolve => setTimeout(resolve, 3150));
     assert.equal(h.disk.get('A').nodes[0].text, 'automatic');
     assert.equal(h.disk.get('B').promptAgent.messages[0].content, 'background conversation');
     assert.equal(h.manager.hasPendingAutosave(), false);
@@ -95,7 +95,7 @@ test('edits made during a slow rename save only to the new path', async t => {
     const renamed = h.manager.workflowDesk.workflow('A').rename('Renamed');
     while (!h.renameStarted()) await new Promise(resolve => setImmediate(resolve));
     h.edit('during rename');
-    await new Promise(resolve => setTimeout(resolve, 1100));
+    await new Promise(resolve => setTimeout(resolve, 3100));
     assert.equal(h.requests.length, 1);
     h.release(); await renamed;
     await h.manager.flushAutosave();

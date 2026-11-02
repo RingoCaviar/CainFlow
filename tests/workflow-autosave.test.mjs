@@ -16,14 +16,14 @@ function clock() {
     };
 }
 
-test('edits save once after one second of inactivity, independently for each workflow', async () => {
+test('edits save once after three seconds of inactivity, independently for each workflow', async () => {
     const time = clock(), saved = [];
     const autosave = createWorkflowAutosave({ ...time, save: async id => { saved.push(id); return true; } });
     autosave.change('a');
     await time.advance(600);
     autosave.change('a');
     autosave.change('b');
-    await time.advance(999);
+    await time.advance(2999);
     assert.deepEqual(saved, []);
     await time.advance(1);
     assert.deepEqual(saved, ['a', 'b']);
@@ -66,7 +66,7 @@ test('timer defers atomic canvas transactions while their own commit may persist
     const autosave = createWorkflowAutosave({ ...time, canSave: () => false,
         save: async () => { calls++; return true; } });
     autosave.change('a');
-    await time.advance(1000);
+    await time.advance(3000);
     assert.equal(calls, 0);
     await autosave.flush(['a'], { force: true });
     assert.equal(calls, 1);
