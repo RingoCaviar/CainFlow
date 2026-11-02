@@ -34,6 +34,13 @@ test('activating workflows persists the complete Open Workflow session immediate
     assert.equal(await adapter.activate('Default'), true);
     assert.equal(await adapter.activate('Unsaved'), true);
     assert.deepEqual(savedSessions, [['Default'], ['Default', 'Unsaved']]);
+
+    const background = state.workflowTabs.find(tab => tab.name === 'Default');
+    background.runResult = 'success';
+    assert.equal(await adapter.activate('Default'), true);
+    assert.equal(background.runResult, '', 'entering a workflow acknowledges its background completion');
+    assert.equal(await adapter.activate('Unsaved'), true);
+    assert.equal(background.runResult, '', 'leaving it again must not resurrect the notification');
 });
 
 test('workflow activation completes only after its Open Workflow session is durable', async () => {

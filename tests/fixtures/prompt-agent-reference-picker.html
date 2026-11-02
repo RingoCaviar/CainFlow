@@ -146,7 +146,7 @@ try {
     const originalNodes = state.nodes;
     state.nodes = new Map();
     plus.click();
-    check(list.children.length === 0 && document.getElementById('prompt-agent-reference-picker-status').textContent.includes('还没有'), 'empty scene must not show old candidates');
+    check(list.children.length === 0 && document.getElementById('prompt-agent-reference-picker-status').textContent.includes('没有匹配的画布图片'), 'empty scene must not show old candidates');
     state.nodes = originalNodes;
     controller.refreshActionStates();
     document.documentElement.dataset.appTheme = 'light';

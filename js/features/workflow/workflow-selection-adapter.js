@@ -53,6 +53,8 @@ export function createWorkflowSessionSelectionAdapter({
         state.workflowOrder = Array.isArray(restoredState?.workflowOrder) ? restoredState.workflowOrder : [];
         state.workflowFolders = Array.isArray(restoredState?.workflowFolders) ? restoredState.workflowFolders : [];
         const committed = workflowDesk.snapshot().active;
+        const activeTab = state.workflowTabs.find(tab => tab.workflowId === committed?.workflowId);
+        if (activeTab) activeTab.runResult = '';
         applyViewport();
         onViewApplied({
             workflowName: committed?.label || '',
@@ -235,6 +237,11 @@ export function createWorkflowSelectionAdapter({
                     async finalize() {
                         editorView.finalize?.();
                         const active = getActiveWorkflow();
+                        // A committed activation acknowledges the background run result.
+                        // Clear it before rendering and persisting so it cannot reappear
+                        // when the user leaves this workflow again.
+                        const activeTab = getWorkflowTab(active?.label || name);
+                        if (activeTab) activeTab.runResult = '';
                         const effects = [
                             () => onViewApplied({ workflowName: active?.label || name, workflowId: active?.workflowId || '' }),
                             onConnectionsChanged,
