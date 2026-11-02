@@ -262,3 +262,15 @@ html[data-app-theme="paper"] ::-webkit-scrollbar-thumb {
 }
 
 html[data-app-theme="paper"] * { scrollbar-color: #c8c4bb transparent; }
+
+/* Camera editor chrome follows the paper palette; the 3D stage keeps its own lighting. */
+html[data-app-theme="paper"] .camera-control-editor-overlay { background: var(--overlay-backdrop); }
+html[data-app-theme="paper"] .camera-control-editor-panel { background: var(--bg-modal); border-color: var(--panel-border); color: var(--text-primary); box-shadow: var(--panel-shadow); }
+html[data-app-theme="paper"] .camera-control-stage { background: var(--bg-canvas); border-color: var(--panel-border); }
+html[data-app-theme="paper"] :is(.camera-control-editor-reset, .camera-control-view-mode-btn) { background: var(--panel-control-bg); border-color: var(--panel-control-border); color: var(--text-secondary); }
+html[data-app-theme="paper"] :is(.camera-control-open-btn, .camera-control-editor-close, .camera-control-view-mode-btn.active) { background: var(--panel-active-bg); border-color: var(--panel-active-border); color: var(--accent-light); }
+html[data-app-theme="paper"] :is(.camera-control-editor-reset, .camera-control-editor-close, .camera-control-view-mode-btn):hover { background: var(--panel-hover-bg); border-color: var(--panel-hover-border); color: var(--text-primary); }
+html[data-app-theme="paper"] .camera-control-value { background: var(--bg-input); border-color: var(--border-input); color: var(--text-primary); }
+html[data-app-theme="paper"] :is(.camera-control-unit, .camera-control-editor-subtitle, .camera-control-editor-stage-note) { color: var(--text-secondary); }
+html[data-app-theme="paper"] .camera-control-sliders input[type="range"]::-webkit-slider-runnable-track { background: var(--surface-strong); }
+html[data-app-theme="paper"] .camera-control-sliders input[type="range"]::-moz-range-track { background: var(--surface-strong); }
