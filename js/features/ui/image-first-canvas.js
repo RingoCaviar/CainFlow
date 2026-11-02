@@ -190,10 +190,14 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const width = Math.min(current.type === 'CameraControl' ? 300 : compactImport ? modeWidth + 72 : currentWidthPreference(), bounds.width);
         panel.style.width = `${width}px`;
         panel.style.height = '';
+        const floatingBottoms = ['.image-result-actions', '.node-run-cancel-btn']
+            .map(selector => current.el.querySelector(selector)).filter(element => element?.getClientRects().length)
+            .map(element => element.getBoundingClientRect().bottom + 12);
+        const preferredTop = Math.max(rect.bottom + 12, ...floatingBottoms);
         // Content changes must not move the controls under the pointer. Only
         // changes to the node or available canvas invalidate the opening anchor.
         const anchorKey = [rect.left, rect.top, rect.width, rect.height,
-            bounds.left, bounds.top, bounds.right, bounds.bottom].join(',');
+            bounds.left, bounds.top, bounds.right, bounds.bottom, preferredTop].join(',');
         if (ordinaryAnchor?.node === current && ordinaryAnchor.key === anchorKey) {
             panel.style.left = `${clamp(ordinaryAnchor.left, bounds.left, Math.max(bounds.left, bounds.right - width))}px`;
             panel.style.top = `${ordinaryAnchor.top}px`;
@@ -204,14 +208,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             return;
         }
         panel.style.left = `${clamp(rect.left + rect.width / 2 - width / 2, bounds.left, Math.max(bounds.left, bounds.right - width))}px`;
-        const floatingBottoms = ['.image-result-actions', '.node-run-cancel-btn']
-            .map(selector => current.el.querySelector(selector)).filter(element => element?.getClientRects().length)
-            .map(element => element.getBoundingClientRect().bottom + 12);
-        panel.style.top = `${Math.max(rect.bottom + 12, ...floatingBottoms)}px`;
+        panel.style.top = `${preferredTop}px`;
         widthHandle.setAttribute('aria-valuenow', String(Math.round(width)));
         sizePrompt();
         let height = panel.getBoundingClientRect().height;
-        const preferredTop = Math.max(rect.bottom + 12, ...floatingBottoms);
         const below = Math.max(0, bounds.bottom - preferredTop);
         const above = Math.max(0, rect.top - 12 - bounds.top);
         let top = preferredTop;
