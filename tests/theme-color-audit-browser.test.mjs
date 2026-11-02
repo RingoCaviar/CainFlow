@@ -142,3 +142,14 @@ test('main panel text and download actions follow every theme', { timeout: 90000
         assert.deepEqual([...new Set(failures)], []);
     });
 });
+
+test('request body preview follows every theme with readable code', async () => {
+    await withAppBrowser(session, async ({ evaluate }) => {
+        await evaluate("const preview=document.createElement('pre');preview.id='audit-request-preview';preview.className='node-request-body-preview-code';preview.textContent='Request preview';document.body.appendChild(preview)");
+        for (const theme of themes) {
+            const colors=await evaluate(`(()=>{document.documentElement.dataset.appTheme='${theme}';const s=getComputedStyle(document.getElementById('audit-request-preview'));return {color:s.color,background:s.backgroundColor,base:getComputedStyle(document.documentElement).getPropertyValue('--bg-canvas')}})()`);
+            const bg=composite(parseColor(colors.background),parseColor(colors.base));
+            assert.ok(contrastRatio(parseColor(colors.color),bg)>=4.5, theme+' request preview contrast');
+        }
+    });
+});
