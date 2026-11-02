@@ -403,6 +403,10 @@ body.workflow-sidebar-resizing * {
     white-space: nowrap;
 }
 
+#workflow-sidebar > .drawer-header .icon-btn {
+    color: var(--text-primary);
+}
+
 #workflow-sidebar > .drawer-header > .header-right {
     width: 100%;
 }
@@ -1465,8 +1469,8 @@ body.workflow-sidebar-resizing * {
     overflow: auto;
     border: 1px solid var(--settings-dialog-divider, rgba(255, 255, 255, 0.12));
     border-radius: 8px;
-    background: rgba(3, 7, 18, 0.62);
-    color: #dbeafe;
+    background: var(--panel-control-bg);
+    color: var(--text-primary);
     font-family: var(--font-mono, Consolas, "Courier New", monospace);
     font-size: 11px;
     line-height: 1.55;
