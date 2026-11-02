@@ -56,6 +56,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     const setWidthPreference = width => { if (current?.type === 'ImageImport') importPreferredWidth = width; else preferredWidth = width; };
     const persistWidthPreference = () => storage?.setItem(current?.type === 'ImageImport' ? 'cainflow_image_import_parameter_width' : 'cainflow_node_parameter_width', String(Math.round(currentWidthPreference())));
     let positionFrame = null, gesture = null, expanded = false, expandedRect = null, returnFocusElement = null;
+    let ordinaryAnchor = null;
     const expandButton = panel.querySelector('[data-parameter-action="expand"]');
     const dragHandle = panel.querySelector('.image-parameter-drag-handle');
     const widthHandle = panel.querySelector('[data-parameter-resize="width"]');
@@ -161,11 +162,13 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
 
     function position() {
         if (panel.hidden || !current?.el?.isConnected) return;
+        const scrollTop = scroll.scrollTop;
         const rect = current.el.getBoundingClientRect();
         const bounds = available();
         panel.style.maxHeight = `${bounds.height}px`;
         panel.style.minWidth = `${Math.min(280, bounds.width)}px`;
         if (expanded) {
+            ordinaryAnchor = null;
             if (!expandedRect) {
                 const width = Math.min(860, bounds.width);
                 const height = Math.min(680, bounds.height, Math.max(160, windowRef.innerHeight - bounds.top * 2));
@@ -179,6 +182,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             heightHandle.setAttribute('aria-valuenow', String(Math.round(height)));
             widthHandle.setAttribute('aria-valuenow', String(Math.round(width)));
             sizePrompt();
+            scroll.scrollTop = scrollTop;
             return;
         }
         const compactImport = current.type === 'ImageImport' && panel.dataset.importMode === 'upload';
@@ -186,6 +190,19 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const width = Math.min(current.type === 'CameraControl' ? 300 : compactImport ? modeWidth + 72 : currentWidthPreference(), bounds.width);
         panel.style.width = `${width}px`;
         panel.style.height = '';
+        // Content changes must not move the controls under the pointer. Only
+        // changes to the node or available canvas invalidate the opening anchor.
+        const anchorKey = [rect.left, rect.top, rect.width, rect.height,
+            bounds.left, bounds.top, bounds.right, bounds.bottom].join(',');
+        if (ordinaryAnchor?.node === current && ordinaryAnchor.key === anchorKey) {
+            panel.style.left = `${clamp(ordinaryAnchor.left, bounds.left, Math.max(bounds.left, bounds.right - width))}px`;
+            panel.style.top = `${ordinaryAnchor.top}px`;
+            panel.style.maxHeight = `${Math.max(1, bounds.bottom - ordinaryAnchor.top)}px`;
+            widthHandle.setAttribute('aria-valuenow', String(Math.round(width)));
+            sizePrompt();
+            scroll.scrollTop = scrollTop;
+            return;
+        }
         panel.style.left = `${clamp(rect.left + rect.width / 2 - width / 2, bounds.left, Math.max(bounds.left, bounds.right - width))}px`;
         const floatingBottoms = ['.image-result-actions', '.node-run-cancel-btn']
             .map(selector => current.el.querySelector(selector)).filter(element => element?.getClientRects().length)
@@ -201,20 +218,20 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (height > below) {
             if (height <= above) {
                 top = rect.top - 12 - height;
-            } else if (Math.max(above, below) >= 120) {
-                const useAbove = above >= below;
-                panel.style.maxHeight = `${Math.min(bounds.height, useAbove ? above : below)}px`;
-                height = panel.getBoundingClientRect().height;
-                top = useAbove ? rect.top - 12 - height : preferredTop;
             }
         }
         panel.style.top = `${clamp(top, bounds.top, Math.max(bounds.top, bounds.bottom - height))}px`;
+        ordinaryAnchor = { node: current, key: anchorKey, left: parseFloat(panel.style.left), top: parseFloat(panel.style.top) };
+        // Measuring at the viewport limit can temporarily remove overflow and
+        // clamp the browser's scroll offset. Restore it after final layout.
+        scroll.scrollTop = scrollTop;
     }
     function schedulePosition() {
         if (positionFrame !== null || panel.hidden) return;
         positionFrame = windowRef.requestAnimationFrame(() => { positionFrame = null; position(); });
     }
     function park() {
+        ordinaryAnchor = null;
         if (header.parentNode !== panel) panel.prepend(header);
         if (current?.parameterRoot) {
             const countField = views.get(current)?.countField;
