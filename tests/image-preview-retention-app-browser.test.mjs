@@ -20,6 +20,13 @@ async function upload(app) {
     await app.waitFor("document.querySelector('#retained-preview-preview img')?.naturalWidth>0");
 }
 
+async function assertPreviewLayout(app) {
+    const layout = await app.evaluate("(()=>{const node=document.getElementById('retained-preview'),surface=node.querySelector('.node-media-aspect-surface'),controls=document.getElementById('retained-preview-controls');return {width:node.offsetWidth,mediaWidth:surface.offsetWidth,mediaHeight:surface.offsetHeight,controlsBottom:controls.getBoundingClientRect().bottom,nodeBottom:node.getBoundingClientRect().bottom}})()");
+    assert.equal(layout.width, 310, 'natural media height does not change the chosen width');
+    assert.ok(Math.abs(layout.mediaWidth-layout.mediaHeight)<=2, 'the original square image determines the preview aspect');
+    assert.ok(layout.controlsBottom<=layout.nodeBottom-4, 'controls remain above the bottom resize handle');
+}
+
 const previewOwners = app => app.evaluate("(async()=>{const saved=(await fetch('/api/storage/documents/session').then(r=>r.json())).value;const owners=(await fetch('/api/storage/media-owners?workflowId='+encodeURIComponent(saved.activeWorkflowId)).then(r=>r.json())).owners;return owners.filter(owner=>owner.ownerId==='retained-preview').map(({ownerType,ownerId,assetKeys,tombstoned})=>({ownerType,ownerId,assetKeys,tombstoned}))})()");
 
 test('disconnecting a preview retains the readable current-session image and zoom with an explicit stale state', { timeout: 45000 }, async () => {
@@ -39,14 +46,15 @@ test('disconnecting a preview retains the readable current-session image and zoo
         assert.equal(saved.source.mediaAssetKeys.length, 1);
         assert.deepEqual(saved.preview.mediaAssetKeys, saved.source.mediaAssetKeys, 'retaining the view does not create a copy of its source assets');
         assert.deepEqual(await previewOwners(app), beforeOwners, 'disconnecting a preview preserves the existing ownership contract without adding an owner');
-        assert.deepEqual([saved.preview.width,saved.preview.height], [310,360]);
+        assert.equal(saved.preview.width, 310);
+        await assertPreviewLayout(app);
         await evaluate("document.getElementById('retained-preview-fullscreen').click()");
         await waitFor("Boolean(document.querySelector('.fullscreen-overlay img'))");
         assert.equal(await evaluate("document.querySelector('.fullscreen-overlay img').src"), image, 'the retained preview opens its original without new generation');
     });
 });
 
-test('an old preview retains its explicit card size and zoom preference when the connected source is restored', { timeout: 45000 }, async () => {
+test('an old preview retains its chosen width, natural aspect and zoom preference when the connected source is restored', { timeout: 45000 }, async () => {
     await withAppBrowser(session, async app => {
         const { evaluate, waitFor } = app;
         await upload(app);
@@ -55,6 +63,6 @@ test('an old preview retains its explicit card size and zoom preference when the
         await reloadAppBrowser(app);
         await waitFor("document.querySelector('#retained-preview-preview img')?.naturalWidth>0");
         assert.equal(await evaluate("document.querySelector('#retained-preview-preview img').style.transform"), 'scale(1.25)');
-        assert.deepEqual(await evaluate("(()=>{const node=document.getElementById('retained-preview');return [parseFloat(node.style.width),parseFloat(node.style.height)]})()"), [310,360]);
+        await assertPreviewLayout(app);
     });
 });
