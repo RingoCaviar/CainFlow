@@ -239,9 +239,7 @@
 .image-parameter-footer .save-btn { width: auto; min-width: 72px; margin: 0; }
 .image-parameter-footer .image-node-run-actions { margin: 0; }
 .image-first-parameter-content > .image-parameter-footer {
-    position: sticky;
-    bottom: 0;
-    z-index: 1;
+    position: static;
     padding: 6px 0 0;
     background: linear-gradient(var(--surface-panel-strong, var(--panel-bg)), var(--surface-panel-strong, var(--panel-bg))), var(--surface-panel-underlay, var(--bg-canvas));
 }
