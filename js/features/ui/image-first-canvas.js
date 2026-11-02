@@ -194,14 +194,15 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             .map(selector => current.el.querySelector(selector)).filter(element => element?.getClientRects().length)
             .map(element => element.getBoundingClientRect().bottom + 12);
         const preferredTop = Math.max(rect.bottom + 12, ...floatingBottoms);
+        const hasCancel = !!current.el.querySelector('.node-run-cancel-btn')?.getClientRects().length;
         // Content changes must not move the controls under the pointer. Only
         // changes to the node or available canvas invalidate the opening anchor.
         const anchorKey = [rect.left, rect.top, rect.width, rect.height,
-            bounds.left, bounds.top, bounds.right, bounds.bottom, preferredTop].join(',');
+            bounds.left, bounds.top, bounds.right, bounds.bottom, preferredTop, hasCancel].join(',');
         if (ordinaryAnchor?.node === current && ordinaryAnchor.key === anchorKey) {
             panel.style.left = `${clamp(ordinaryAnchor.left, bounds.left, Math.max(bounds.left, bounds.right - width))}px`;
             panel.style.top = `${ordinaryAnchor.top}px`;
-            panel.style.maxHeight = `${Math.max(1, bounds.bottom - ordinaryAnchor.top)}px`;
+            panel.style.maxHeight = `${Math.max(1, Math.min(ordinaryAnchor.maxHeight, bounds.bottom - ordinaryAnchor.top))}px`;
             widthHandle.setAttribute('aria-valuenow', String(Math.round(width)));
             sizePrompt();
             scroll.scrollTop = scrollTop;
@@ -218,10 +219,17 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (height > below) {
             if (height <= above) {
                 top = rect.top - 12 - height;
+            } else if (hasCancel && Math.max(above, below) >= 120) {
+                // Running nodes must keep their external cancel control usable,
+                // even when the open reference group needs a scroll fallback.
+                const useAbove = above >= below;
+                panel.style.maxHeight = `${Math.min(bounds.height, useAbove ? above : below)}px`;
+                height = panel.getBoundingClientRect().height;
+                top = useAbove ? rect.top - 12 - height : preferredTop;
             }
         }
         panel.style.top = `${clamp(top, bounds.top, Math.max(bounds.top, bounds.bottom - height))}px`;
-        ordinaryAnchor = { node: current, key: anchorKey, left: parseFloat(panel.style.left), top: parseFloat(panel.style.top) };
+        ordinaryAnchor = { node: current, key: anchorKey, left: parseFloat(panel.style.left), top: parseFloat(panel.style.top), maxHeight: parseFloat(panel.style.maxHeight) };
         // Measuring at the viewport limit can temporarily remove overflow and
         // clamp the browser's scroll offset. Restore it after final layout.
         scroll.scrollTop = scrollTop;
