@@ -174,7 +174,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         }
         const compactImport = current.type === 'ImageImport' && panel.dataset.importMode === 'upload';
         const modeWidth = current.parameterRoot.querySelector('.image-import-mode-shell')?.offsetWidth || 112;
-        const width = Math.min(compactImport ? modeWidth + 72 : currentWidthPreference(), bounds.width);
+        const width = Math.min(current.type === 'CameraControl' ? 300 : compactImport ? modeWidth + 72 : currentWidthPreference(), bounds.width);
         panel.style.width = `${width}px`;
         panel.style.height = '';
         panel.style.left = `${clamp(rect.left + rect.width / 2 - width / 2, bounds.left, Math.max(bounds.left, bounds.right - width))}px`;

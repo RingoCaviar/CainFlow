@@ -782,3 +782,10 @@ html:root #canvas-container .node.node-media-aspect .node-media-aspect-surface {
 .image-parameter-panel:not(.is-expanded)[data-node-type="ImageSave"]:not(:has(.save-no-path-warning:not(.hidden))) .image-first-parameter-content > .node-field { margin-right: 32px; }
 
 .image-parameter-panel:not(.is-expanded)[data-node-type="CameraControl"] .image-camera-prompt-details > summary { padding-right: 32px; }
+
+/* Camera's compact editor only needs its source and the full-editor action. */
+.image-parameter-panel[data-node-type="CameraControl"] .image-parameter-scroll { padding: 6px 8px; }
+.image-parameter-panel[data-node-type="CameraControl"] .image-first-parameter-content.node-body { gap: 4px; }
+.image-parameter-panel[data-node-type="CameraControl"] .image-camera-prompt-details > summary { min-height: 24px; font-size: 12px; }
+.image-parameter-panel[data-node-type="CameraControl"] .image-parameter-footer { padding: 4px 8px 6px; }
+.image-parameter-panel[data-node-type="CameraControl"] .image-parameter-footer button { min-height: 28px; padding: 3px 10px; font-size: 12px; }

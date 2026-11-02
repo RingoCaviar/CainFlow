@@ -813,11 +813,13 @@
     -webkit-appearance: none;
     appearance: none;
     display: block;
-    width: 100%;
+    /* Keep endpoint thumbs inside the input's own rounded paint boundary. */
+    box-sizing: border-box;
+    width: calc(100% - 8px);
     min-height: 28px;
     height: 28px;
-    padding: 0;
-    margin: 0;
+    padding: 0 4px;
+    margin: 0 4px;
     background: transparent;
     border: 0;
     outline: none;
