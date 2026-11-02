@@ -85,6 +85,7 @@ test('successful status never covers the original result operations or the param
         await controlled(app); await open(app, 'success');
         await app.evaluate("feedbackSuccess=true;document.querySelector('[data-parameter-action=generate]').click()");
         await app.waitFor("document.getElementById('success-run-status')?.dataset.status==='completed'&&document.querySelector('#success [data-result-action=reference]')");
+        await app.waitFor("(()=>{const el=document.querySelector('#success [data-result-action=reference]'),r=el.getBoundingClientRect();return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()");
         const position = await point(app, '#success [data-result-action=reference]');
         assert.equal(await app.evaluate(`document.querySelector('#success [data-result-action=reference]').contains(document.elementFromPoint(${position.x},${position.y}))`), true, 'the original result reference action remains reachable alongside the success row');
         const geometry = await app.evaluate("(()=>{const node=document.getElementById('success'),actions=node.querySelector('.image-result-actions').getBoundingClientRect(),panel=document.getElementById('image-parameter-panel').getBoundingClientRect(),preview=node.querySelector('.image-node-result-preview');return {nodeWidth:node.clientWidth,previewWidth:preview.clientWidth,fit:getComputedStyle(preview.querySelector('img')).objectFit,nodeBottom:node.getBoundingClientRect().bottom,actionsTop:actions.top,actionsBottom:actions.bottom,panelTop:panel.top,font:parseFloat(getComputedStyle(document.getElementById('success-run-status')).fontSize)}})()");
@@ -104,14 +105,16 @@ test('a genuinely incomplete batch says partially completed with its real progre
         assert.equal(await app.evaluate("document.getElementById('partial-run-status').textContent"), '部分完成');
         assert.equal(await app.evaluate("document.getElementById('partial-generation-progress').textContent"), '1/2');
         assert.equal(await app.evaluate("document.getElementById('partial-generation-progress').checkVisibility()"), true, await app.evaluate("document.getElementById('partial-generation-progress').parentElement.outerHTML"));
-        assert.equal(await app.evaluate("document.querySelector('#partial [data-image-generation-dirty]').hidden"), false);
+        assert.equal(await app.evaluate("document.querySelector('[data-node-id=partial] [data-image-generation-dirty]').hidden"), false);
+        await app.evaluate("document.querySelector('[data-parameter-action=close]').click()");
         await press(app, '#partial .node-concurrent-status-dot[data-status=failed]');
         assert.match(await app.evaluate("document.querySelector('.node-concurrent-status-error-popover:not(.hidden)').textContent"), /partial-provider-failure-detail/);
+        await open(app, 'partial');
         await app.evaluate("partialFail=false;document.querySelector('[data-parameter-action=generate]').click()");
         await app.waitFor("partialRequests===4&&document.getElementById('partial-run-status').textContent==='完成'&&document.getElementById('btn-stop').disabled");
         assert.equal(await app.evaluate("document.getElementById('partial-generation-progress').textContent"), '2/2');
         assert.equal(await app.evaluate("document.getElementById('partial-generation-progress').checkVisibility()"), true);
-        assert.equal(await app.evaluate("document.querySelector('#partial [data-image-generation-dirty]').hidden"), true);
+        assert.equal(await app.evaluate("document.querySelector('[data-node-id=partial] [data-image-generation-dirty]').hidden"), true);
         assert.equal(await app.evaluate("document.querySelector('#partial .node-concurrent-status-dot[data-status=failed]')===null"), true);
     });
 });
@@ -121,11 +124,11 @@ test('waiting has no fabricated progress and the original reachable two-second c
         { id: 'reference-edge', from: { nodeId: 'upstream', port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, type: 'image', order: 0 }
     ] }, async app => {
         await controlled(app, true); await open(app, 'target');
-        await app.evaluate("document.querySelector('[data-parameter-group-toggle=input]').click();document.querySelector('[data-parameter-action=generate]').click()");
+        await app.evaluate("document.querySelector('[data-parameter-group-toggle=reference]').click();document.querySelector('[data-parameter-action=generate]').click()");
         await app.waitFor("feedbackRequests.length===1&&document.getElementById('target-run-status')?.dataset.status==='waiting'");
         assert.equal(await app.evaluate("document.getElementById('target-generation-progress').checkVisibility()"), false);
         assert.equal(await app.evaluate("document.querySelector('[data-parameter-action=generate]').disabled"), true);
-        assert.equal(await app.evaluate("[...document.querySelectorAll('.image-input-detail select,.image-input-detail button')].every(control=>control.disabled)"), true);
+        assert.equal(await app.evaluate("(()=>{const controls=[...document.querySelectorAll('.image-reference-overview .image-reference-drag')];return controls.length>0&&controls.every(control=>control.disabled)})()"), true);
         assert.equal(await app.evaluate("document.querySelector('#upstream .node-run-cancel-btn').closest('fieldset[disabled]')===null"), true);
         await press(app, '#upstream .node-run-cancel-btn', 150);
         await delay(350);

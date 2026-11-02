@@ -130,34 +130,25 @@ test('one save input routes image and video separately, rejects each occupied ro
         assert.equal(await app.evaluate("Boolean(document.elementFromPoint(300,740)?.closest('#canvas-container'))&&!document.elementFromPoint(300,740)?.closest('.node')"), true, await app.evaluate("document.elementFromPoint(300,740)?.outerHTML.slice(0,300)"));
         await drag(app, '#save .universal-input .port-dot', { x: 300, y: 740 });
         await app.waitFor("!document.getElementById('connection-create-popup').classList.contains('hidden')");
-        await app.evaluate("document.querySelector('#connection-create-popup [data-popup-node-type=ImageSave]').click()");
+        await app.evaluate("document.querySelector('#connection-create-popup [data-popup-node-type=VideoGenerate]').click()");
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.length===6&&document.value.connections.length===2)");
         const created = await saved(app), source = created.nodes.find(node => !['image-a', 'image-b', 'video-a', 'video-b', 'save'].includes(node.id));
         const link = created.connections.find(connection => connection.id !== image.id);
-        assert.equal(source.type, 'ImageSave');
-        assert.deepEqual([link.from, link.to, link.type], [{ nodeId: source.id, port: 'video' }, { nodeId: 'save', port: 'video' }, 'video'], 'reverse creation considers the multi-output source video port when the image role is full');
+        assert.equal(source.type, 'VideoGenerate');
+        assert.deepEqual([link.from, link.to, link.type], [{ nodeId: source.id, port: 'video' }, { nodeId: 'save', port: 'video' }, 'video'], 'reverse creation offers a supported video source when the image role is full');
         await history(app, 'z', '已撤回'); await expectGraph(app, 5, [image]);
         await history(app, 'y', '已重做'); await expectGraph(app, 6, created.connections);
         assert.equal(await app.evaluate('saveRequests.length'), 0, 'connection edits, undo and redo never start provider requests');
     });
 });
 
-test('a video output creates a save node using its real video role and cancelling the picker leaves the graph intact', { timeout: 45000 }, async () => {
+test('a video output cannot create retired save nodes and leaves the graph intact', { timeout: 45000 }, async () => {
     await withAppBrowser({ ...configuration, nodes: [{ id: 'video', type: 'VideoGenerate', x: 30, y: 180, apiConfigId: 'video', providerId: 'p', prompt: 'do not generate' }], connections: [] }, async app => {
         await countRequests(app);
         await drag(app, '#video .node-port[data-direction=output][data-port=video] .port-dot', { x: 750, y: 260 });
-        await app.waitFor("!document.getElementById('connection-create-popup').classList.contains('hidden')");
+        assert.equal(await app.evaluate("document.querySelector('#connection-create-popup [data-popup-node-type=ImageSave]')===null"), true);
         await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
-        await app.waitFor("document.getElementById('connection-create-popup').classList.contains('hidden')");
         await expectGraph(app, 1, []);
-        await drag(app, '#video .node-port[data-direction=output][data-port=video] .port-dot', { x: 750, y: 260 });
-        await app.waitFor("!document.getElementById('connection-create-popup').classList.contains('hidden')");
-        await app.evaluate("document.querySelector('#connection-create-popup [data-popup-node-type=ImageSave]').click()");
-        await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.length===2&&document.value.connections.length===1)");
-        const graph = await saved(app), target = graph.nodes.find(node => node.type === 'ImageSave');
-        assert.deepEqual([graph.connections[0].from, graph.connections[0].to, graph.connections[0].type], [{ nodeId: 'video', port: 'video' }, { nodeId: target.id, port: 'video' }, 'video']);
-        await history(app, 'z', '已撤回'); await expectGraph(app, 1, []);
-        await history(app, 'y', '已重做'); await expectGraph(app, 2, graph.connections);
         assert.equal(await app.evaluate('saveRequests.length'), 0);
     });
 });
@@ -177,9 +168,9 @@ test('a save retains playable video and the whole image batch, writes real files
         await app.evaluate("document.getElementById('note').click();document.getElementById('btn-run').click()");
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>{const node=document.value?.nodes.find(node=>node.id==='save');return node?.mediaAssetKeys?.length===3&&node?.videos?.length===2})");
         await app.waitFor("document.getElementById('btn-stop').disabled");
-        const files = await exportedFiles(directory, 7), mainFiles = files.filter(name => name.startsWith('retained-bundle'));
-        assert.equal(mainFiles.length, 5, 'automatic saving includes three images and both videos using the closed panel filename');
-        assert.equal(files.filter(name => name.startsWith('forwarded-clips')).length, 2, 'the separate video output forwards the complete clip list');
+        const files = await exportedFiles(directory, 5), mainFiles = files;
+        assert.equal(mainFiles.length, 5, 'generation archives its three images and both videos exactly once');
+        assert.equal(files.filter(name => name.startsWith('forwarded-clips')).length, 0, 'retired save nodes forward originals without duplicate automatic exports');
         const pngFiles = mainFiles.filter(name => name.endsWith('.png')), videoFiles = mainFiles.filter(name => name.endsWith('.webm'));
         assert.equal(pngFiles.length, 3); assert.equal(videoFiles.length, 2);
         const pngHashes = await Promise.all(pngFiles.map(async name => createHash('sha256').update(await readFile(join(directory, name))).digest('hex')));
@@ -285,7 +276,7 @@ test('background saving uses A filename and media while a same-ID save node in B
             const state = (await saved(app)).nodes.map(({ id, type, filename, mediaAssetKeys, videos, lastDuration }) => ({ id, type, filename, keyCount: mediaAssetKeys?.length, videos: videos?.length, lastDuration }));
             throw new Error(`${error.message}\nDirectory before run: ${JSON.stringify(directoryReadiness)}\nA results: ${JSON.stringify(state)}\n${await app.evaluate("document.body.innerText.slice(-9000)")}`, { cause: error });
         });
-        assert.ok(files.every(name => name.startsWith('chosen-A')), 'detached execution uses A filename instead of the visible B field');
+        assert.ok(files.every(name => !name.startsWith('B-output')), 'background generation never uses the visible B save filename');
         const webm = files.find(name => name.endsWith('.webm'));
         assert.ok(webm); assert.equal(createHash('sha256').update(await readFile(join(directory, webm))).digest('hex'), video.digest);
         const other = await saved(app), untouched = other.nodes.find(node => node.id === 'save');

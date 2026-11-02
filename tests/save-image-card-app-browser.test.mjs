@@ -27,7 +27,7 @@ async function clickPreview(app, count = 1) {
     await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', buttons: 0, clickCount: count });
 }
 
-test('save keeps its original media controls and separate outputs while filename and directory warning follow the screen-space editor', { timeout: 45000 }, async () => {
+test('legacy save retains its preview and separate outputs while media controls and filename use the screen-space editor', { timeout: 45000 }, async () => {
     await withAppBrowser(session, async app => {
         assert.equal(await app.evaluate("document.getElementById('save-card').classList.contains('image-first-card')"), true);
         await open(app);
@@ -35,7 +35,7 @@ test('save keeps its original media controls and separate outputs while filename
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#save-card .node-port[data-direction=input]')].filter(port=>port.getClientRects().length).map(port=>port.dataset.port)"), ['auto']);
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#save-card .node-port[data-direction=output]')].map(port=>[port.dataset.port,port.dataset.type,port.querySelector('.port-label').textContent.trim()])"), [['image', 'image', '图片输出'], ['video', 'video', '视频输出']]);
         assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').contains(document.getElementById('save-card-filename')) && document.getElementById('image-parameter-panel').contains(document.getElementById('save-card-path-warning'))"), true);
-        assert.equal(await app.evaluate("document.getElementById('save-card').contains(document.getElementById('save-card-save-preview')) && document.getElementById('save-card').contains(document.getElementById('save-card-manual-save')) && document.getElementById('save-card').contains(document.getElementById('save-card-view-full'))"), true);
+        assert.equal(await app.evaluate("document.getElementById('save-card').contains(document.getElementById('save-card-save-preview')) && document.getElementById('image-parameter-panel').contains(document.getElementById('save-card-manual-save')) && document.getElementById('image-parameter-panel').contains(document.getElementById('save-card-view-full'))"), true);
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=generate]').textContent"), '更新媒体');
         await app.evaluate("window.originalSaveElements=['save-preview','manual-save','view-full','filename','path-warning'].map(suffix=>document.getElementById('save-card-'+suffix));const input=document.getElementById('save-card-filename');input.value='edited-prefix';input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}))");
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]').click();document.getElementById('note').click()");

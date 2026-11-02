@@ -34,7 +34,7 @@ async function generate(app, requestCount) {
     await app.waitFor("!document.getElementById('image-parameter-panel').hidden&&document.getElementById('image-parameter-panel').dataset.nodeId==='target'");
     await app.evaluate("document.querySelector('[data-parameter-action=generate]').click()");
     await app.waitFor(`descriptionRequests.length===${requestCount}&&document.getElementById('target-run-status').textContent==='完成'&&document.getElementById('btn-stop').disabled`);
-    await app.waitFor("document.querySelector('#target [data-image-generation-dirty]').hidden");
+    await app.waitFor("document.querySelector('[data-node-id=target] [data-image-generation-dirty]').hidden");
     // A previous clean record may still be on disk during the session debounce.
     await app.waitFor(`fetch('/api/storage/documents/session').then(response=>response.json()).then(record=>{const node=record.value.nodes.find(node=>node.id==='target');return node?.generationRevision?.dirty===false&&node.generationRevision.successFingerprint!==${JSON.stringify(previousFingerprint) || 'undefined'}&&node.mediaAssetKeys?.length===1})`);
 }
@@ -63,7 +63,7 @@ test('confirming an imported original description marks its generation target pe
         await click(app, '.fullscreen-description-confirm');
         await app.waitFor("document.querySelector('.fullscreen-description-dialog').classList.contains('hidden')");
         assert.equal(await app.evaluate('descriptionRequests.length'), 1, 'confirming metadata never runs the generation target');
-        await app.waitFor("document.querySelector('#target [data-image-generation-dirty]').hidden===false");
+        await app.waitFor("document.querySelector('[data-node-id=target] [data-image-generation-dirty]').hidden===false");
         assert.ok(await app.evaluate("document.querySelector('#target-image-results img')?.naturalWidth>0"), 'editing only the description retains the readable previous result');
         await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
         await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
@@ -78,7 +78,7 @@ test('confirming an imported original description marks its generation target pe
         assert.equal(target.generationRevision.dirty, false);
         assert.deepEqual(completed.connections, baseline.connections);
         await reloadAppBrowser(app);
-        assert.equal(await app.evaluate("document.querySelector('#target [data-image-generation-dirty]').hidden"), true);
+        assert.equal(await app.evaluate("document.querySelector('[data-node-id=target] [data-image-generation-dirty]').hidden"), true);
         assert.equal((await saved(app)).nodes.find(node => node.id === 'reference').imageDescription, description);
         assert.equal(await app.evaluate('descriptionRequests.length'), 0, 'reopen restores the confirmed recipe without a provider request');
     });

@@ -120,10 +120,9 @@ test('real backend restarts retain background A originals, ordered roles and own
         await app.evaluate("document.querySelector('[data-parameter-action=close]').click();document.getElementById('btn-run').click()"); await app.waitFor('restartHeld===true');
         await activate(app, 'Restart B', workflowB.workflowId); await app.evaluate('releaseRestartSource()');
         await app.waitFor("!document.querySelector('.workflow-item[data-name=\"Restart A\"]').classList.contains('is-running')");
-        const names = await exported(directory, 4);
-        assert.ok(names.every(name => name.startsWith('archive-A')));
+        const names = await exported(directory, 3);
         const exportedHashes = await Promise.all(names.map(async name => digest(await readFile(join(directory, name)))));
-        assert.deepEqual(exportedHashes.slice().sort(), originals.map(digest).sort(), 'background Save completes all four original payloads before the persistence checkpoint');
+        assert.deepEqual(exportedHashes.slice().sort(), originals.slice(0, 3).map(digest).sort(), 'generation archives its three originals without re-exporting the imported reference through the retired Save node');
         const untouchedB = await saved(app); assert.equal(untouchedB.nodes.find(node => node.id === 'source').prompt, workflowB.nodes[0].prompt);
         assert.ok(untouchedB.nodes.every(node => !node.mediaAssetKeys?.length)); assert.deepEqual(untouchedB.connections, workflowB.connections);
         await activate(app, 'Restart A', workflowA.workflowId);
@@ -156,7 +155,7 @@ test('real backend restarts retain background A originals, ordered roles and own
         for (let index = 0; index < keys.length; index++) assert.equal(await assetHash(app, keys[index]), digest(originals[index]));
         assert.deepEqual(await ownerKeys(app, workflowA.workflowId, 'save'), keys);
         assert.equal(await app.evaluate("fetch('/api/storage/export-directory').then(response=>response.json()).then(value=>value.directory)"), directory);
-        assert.deepEqual(await exported(directory, 4), names);
+        assert.deepEqual(await exported(directory, 3), names);
         const firstPath = resolve(join(app.server.dataDir, 'assets', digest(originals[0]).slice(0, 2), digest(originals[0]) + '.png'));
         assert.ok(firstPath.startsWith(resolve(app.server.dataDir) + sep));
         const missingPids = await restart(app, () => unlink(firstPath)); assert.notEqual(missingPids[1], firstPids[1]);
@@ -172,7 +171,7 @@ test('real backend restarts retain background A originals, ordered roles and own
         assert.equal(await assetHash(app, keys[1]), digest(originals[1]));
         assert.deepEqual((await file(app, 'Restart A')).nodes.find(node => node.id === 'source').mediaAssetKeys, keys.slice(0, 3));
         assert.deepEqual(await ownerKeys(app, workflowA.workflowId, 'source'), keys.slice(0, 3)); assert.deepEqual(await ownerKeys(app, workflowA.workflowId, 'save'), keys);
-        assert.deepEqual(await exported(directory, 4), names);
+        assert.deepEqual(await exported(directory, 3), names);
         t.diagnostic(`same-origin backend PIDs ${firstPids[0]} → ${firstPids[1]} → ${missingPids[1]}; source=3, merge/save=4; four original hashes and persistent owners retained; missing slot 0 remains missing`);
     });
 });

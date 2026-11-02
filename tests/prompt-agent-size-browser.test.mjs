@@ -76,13 +76,13 @@ test('Agent asks for resolution without creating nodes, retains ratio, executes 
   assert.equal(await evaluate("document.querySelectorAll('#nodes-layer .node').length"),0);
   assert.equal(await evaluate('calls.length'),1);
   assert.ok(await evaluate("JSON.stringify(calls[0]).includes('imageSizeCapabilities')"));
-  assert.ok(await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='应用并执行').disabled"));
+  assert.ok(await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='生成图片').disabled"));
   // Text answers update the same persisted draft, without another model request or execution.
   await evaluate("document.getElementById('prompt-agent-input').value='用2K';document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
   assert.equal(await evaluate('calls.length'),1);
   assert.equal(await evaluate("document.querySelectorAll('.prompt-agent-canvas-plan').length"),1);
   assert.ok(await evaluate("document.querySelector('.prompt-agent-size-summary').textContent.includes('16:9')"));
-  await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='应用并执行').click()");
+  await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='生成图片').click()");
   await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
   assert.equal(await evaluate('calls.length'),2);
   assert.equal(await evaluate('calls[1].size'),'2048x1152');

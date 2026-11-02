@@ -17,6 +17,8 @@ async function pointer(app, type, location, clickCount = 1) {
         button: type === 'mouseMoved' ? 'none' : 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount });
 }
 async function click(app, selector, count = 1) {
+    await app.send('Input.dispatchMouseEvent', {type:'mouseMoved', ...await point(app, selector)});
+    await app.waitFor(`(()=>{const el=document.querySelector(${JSON.stringify(selector)}),r=el.getBoundingClientRect();return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()`);
     const location = await point(app, selector);
     await pointer(app, 'mousePressed', location, count); await pointer(app, 'mouseReleased', location, count);
 }
@@ -82,6 +84,8 @@ test('import and preview picture gestures distinguish node dragging, parameter s
             await app.waitFor("!document.querySelector('.fullscreen-overlay')");
         }
         await closeParameters(app);
+        await app.evaluate("document.querySelector('[data-nav=fit]').click()");
+        assert.ok(await app.evaluate("(()=>{const node=document.getElementById('preview').getBoundingClientRect(),controls=document.getElementById('preview-controls').getBoundingClientRect();return controls.bottom<=node.bottom-4})()"), 'aspect-sized preview contains its controls above the bottom resize handle');
         await click(app, '#preview-zoom-in');
         assert.equal(await app.evaluate("document.querySelector('#preview-preview img').style.transform"), 'scale(1.25)');
         assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').hidden"), true);

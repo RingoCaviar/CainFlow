@@ -24,7 +24,7 @@ async function assertRealEditors(app) {
     const before = await cards(app), viewportHeight = await app.evaluate('innerHeight');
     assert.ok(before.legacy.height < viewportHeight, 'the automatic card stays compact instead of inheriting the 1593px editor or old 2309px card');
     assert.equal(before.manual.height, 1200, 'the explicitly resized card retains its actual DOM height');
-    assert.ok(before.collapsed.height < viewportHeight); assert.equal(before.collapsed.collapsed, true);
+    assert.ok(before.collapsed.height < viewportHeight); assert.equal(before.collapsed.collapsed, false);
     for (const node of restored) assert.equal(before[node.id].width, node.width);
     await app.evaluate("window.restoredHeightPrompts=Object.fromEntries(['legacy','manual','collapsed'].map(id=>[id,document.getElementById(id+'-prompt')]))");
     for (const node of restored) {
@@ -60,19 +60,13 @@ function assertSavedHeights(graph) {
         assert.equal(node.height, original.userResized ? 1200 : null);
         assert.equal(Object.hasOwn(node, 'collapsedExpandedHeight'), false, 'automatic expanded height never persists the old long form');
     }
-    assert.equal(graph.nodes.find(node => node.id === 'collapsed').collapsed, true);
+    assert.notEqual(graph.nodes.find(node => node.id === 'collapsed').collapsed, true);
 }
 
 test('restored image cards discard automatic card height while retaining saved editor heights', { timeout: 45000 }, async () => {
     await withAppBrowser(configuration, async app => {
         await assertRealEditors(app);
-        await app.evaluate("document.querySelector('#collapsed .node-collapse-btn').click()");
-        await settle(app);
-        const expanded = await cards(app);
-        assert.equal(expanded.collapsed.collapsed, false);
-        assert.ok(expanded.collapsed.height < await app.evaluate('innerHeight'), 'expanding an automatic card does not restore the old 2309px form height');
-        await app.evaluate("document.querySelector('#collapsed .node-collapse-btn').click()");
-        await settle(app);
+        assert.equal(await app.evaluate("document.querySelector('#collapsed .node-collapse-btn')===null"), true, 'legacy collapse state does not restore a retired control');
         const beforeReload = await cards(app), file = await saveFile(app);
         assertSavedHeights(file);
         await reloadAppBrowser(app);

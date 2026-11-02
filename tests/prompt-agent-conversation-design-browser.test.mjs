@@ -25,10 +25,10 @@ test('conversation prose and compact plan remain usable in seven themes at 300px
         assert.ok(await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-plan details')].every(e=>!e.open)"));
         assert.ok(await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-plan button[hidden]')].every(e=>getComputedStyle(e).display==='none')"));
         const typography = await evaluate(`(()=>{const size=selector=>getComputedStyle(document.querySelector(selector)).fontSize;
-            return {message:size('.prompt-agent-message'), input:size('#prompt-agent-input'), title:size('.prompt-agent-canvas-plan > strong'),
+            return {message:size('.prompt-agent-message'), input:size('#prompt-agent-input'), title:size('.prompt-agent-plan-header > strong'),
                 model:size('.prompt-agent-model-trigger'), action:size('.prompt-agent-canvas-actions .btn'),
                 step:size('.prompt-agent-step-settings'), paragraphGap:getComputedStyle(document.querySelector('.prompt-agent-message-body p')).marginBottom};})()`);
-        assert.deepEqual(typography, { message: '14px', input: '14px', title: '13px', model: '13px', action: '13px', step: '12px', paragraphGap: '5px' });
+        assert.deepEqual(typography, { message: '14px', input: '14px', title: '14px', model: '13px', action: '13px', step: '12px', paragraphGap: '5px' });
         for (const theme of ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink']) {
             await evaluate(`document.documentElement.dataset.appTheme='${theme}'`); await delay(100);
             const underlayAlpha = await evaluate(`(()=>{const canvas=document.createElement('canvas'), context=canvas.getContext('2d');

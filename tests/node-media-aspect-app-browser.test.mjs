@@ -23,11 +23,14 @@ function proportional(value, expectedWidth = 320) {
 
 async function resize(app, edge, dx, dy) {
     await app.evaluate("document.getElementById('aspect-1').click()");
-    const handle = await app.evaluate(`(()=>{const h=document.querySelector('#aspect-1 [data-resize-edge=${edge}]'),r=h.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()`);
+    await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]').click()");
+    const handle = await app.evaluate(`(()=>{const h=document.querySelector('#aspect-1 [data-resize-edge=${edge}]'),r=h.getBoundingClientRect();return {x:r.left+r.width/2,y:'${edge}'==='right'?Math.max(80,r.top+35):r.top+r.height/2}})()`);
+    assert.ok(await app.evaluate(`document.elementFromPoint(${handle.x},${handle.y})?.closest('[data-resize-edge=${edge}]')?.closest('.node')?.id==='aspect-1'`), 'the visible resize edge is reachable: '+await app.evaluate(`document.elementFromPoint(${handle.x},${handle.y})?.outerHTML`));
     await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...handle });
     await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...handle, button: 'left', clickCount: 1 });
     await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: handle.x + dx, y: handle.y + dy, buttons: 1 });
     await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: handle.x + dx, y: handle.y + dy, button: 'left', clickCount: 1 });
+    await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
 }
 
 test('loaded image cards follow natural aspect at fixed node width, including batch changes and reload', { timeout: 60000 }, async () => {

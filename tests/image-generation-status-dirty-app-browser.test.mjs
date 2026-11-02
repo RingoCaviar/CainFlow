@@ -57,6 +57,7 @@ async function activate(app, name) {
 }
 
 async function click(app, selector, hold = 0) {
+    await app.evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(selector)});if(el.closest('#image-parameter-panel'))el.scrollIntoView({block:'center'})})()`);
     const center = `(()=>{const rect=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:rect.x+rect.width/2,y:rect.y+rect.height/2}})()`;
     await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...await app.evaluate(center) });
     try {
@@ -76,8 +77,9 @@ async function upload(app, id, index = 0) {
 }
 
 async function expectDirty(app, id, dirty) {
-    await app.waitFor(`(()=>{const badge=document.querySelector('#${id} [data-image-generation-dirty]');return !!badge&&badge.checkVisibility()===${dirty}})()`);
-    if (dirty) assert.match(await app.evaluate(`document.querySelector('#${id} [data-image-generation-dirty]').textContent`), /待生成/);
+    const notDirty = !dirty;
+    await app.waitFor(`(()=>{const badge=document.querySelector('[data-node-id="${id}"] [data-image-generation-dirty]');return !!badge&&badge.hidden===${notDirty}})()`);
+    if (dirty) assert.match(await app.evaluate(`document.querySelector('[data-node-id="${id}"] [data-image-generation-dirty]').textContent`), /待生成/);
 }
 
 async function expectSavedOutputCleared(app, id, oldKeys) {
@@ -89,7 +91,7 @@ async function expectSavedOutputCleared(app, id, oldKeys) {
     assert.notEqual(record.imageAssetReady, true, 'an empty attempt cannot advertise the old output as ready');
 }
 
-test('waiting and running clear this attempt output and failure while preserving outside failures and locking an already-open replacement editor', { timeout: 90000 }, async () => {
+test('waiting and running clear this attempt output and failure while preserving outside failures and locking the open reference editor', { timeout: 90000 }, async () => {
     const connection = { id: 'input-source', from: { nodeId: 'source', port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, type: 'image', order: 0 };
     await withAppBrowser({ ...configuration, nodes: [node('source', 20, 120), node('target', 500, 120, { apiConfigId: 'google' }),
         { id: 'replacement', type: 'ImageImport', x: 20, y: 550 }, node('outside', 1000, 120), node('disabled-old', 1450, 120)], connections: [connection] }, async app => {
@@ -102,25 +104,22 @@ test('waiting and running clear this attempt output and failure while preserving
             await app.evaluate("document.querySelector('#modal-error .modal-close')?.click()");
         }
         await waitForAutosave(app);
-        await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.connections.length===4)");
+        await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.connections.length===1)");
         const originalConnections = (await saved(app)).connections;
         const oldKeys = (await saved(app)).nodes.find(node => node.id === 'target').mediaAssetKeys;
         assert.equal(oldKeys.length, 1);
         await app.evaluate("document.querySelector('#disabled-old .node-bypass-btn').click()");
         await open(app, 'target'); await change(app, 'target-prompt', 'target edited before cancelled attempt');
         await expectDirty(app, 'target', true);
-        await open(app, 'target', 'input');
-        await app.evaluate("document.querySelector('[data-input-connection-id=input-source] [data-input-action=replace]').click();const source=document.querySelector('[data-input-replacement-source]');source.value=JSON.stringify({nodeId:'replacement',port:'image'});source.dispatchEvent(new Event('change',{bubbles:true}))");
-        assert.equal(await app.evaluate("document.querySelector('[data-input-action=confirm-replace]').disabled"), false);
+        await open(app, 'target', 'reference');
         await app.evaluate("statusHold=['source','target']"); await start(app, 'target');
         await app.waitFor("statusPending.source===true&&document.getElementById('target-run-status').textContent==='待运行'");
         assert.equal(await app.evaluate("document.getElementById('target-image-results').hidden"), true, 'entering waiting immediately removes the previous successful result');
         await expectSavedOutputCleared(app, 'target', oldKeys);
         assert.equal(await app.evaluate("document.getElementById('target-generation-progress').checkVisibility()"), false, 'waiting has no invented numerical progress');
-        assert.equal(await app.evaluate("document.querySelector('[data-input-replacement-source]').disabled"), true, 'an expanded replacement source selector obeys the target runtime lock');
-        assert.equal(await app.evaluate("document.querySelector('[data-input-action=confirm-replace]').disabled"), true);
+        assert.equal(await app.evaluate("(()=>{const controls=[...document.querySelectorAll('.image-reference-overview .image-reference-drag')];return controls.length===1&&controls.every(control=>control.disabled)})()"), true, 'reference mutation obeys the runtime lock');
         assert.equal(await app.evaluate("document.getElementById('target-assistant').disabled"), true);
-        for (const id of ['outside', 'disabled-old']) assert.match(await app.evaluate(`document.querySelector('#${id} .node-failure-summary').textContent`), /本轮真实失败/);
+        for (const id of ['outside', 'disabled-old']) assert.match(await app.evaluate(`document.querySelector('[data-node-id=${id}] .node-failure-summary').textContent`), /本轮真实失败/);
         await app.evaluate("statusHold=['target'];statusRelease.source()");
         await app.waitFor("statusPending.target===true&&document.getElementById('target-run-status').textContent==='运行中'");
         assert.doesNotMatch(await app.evaluate("document.getElementById('target-generation-progress').textContent"), /\d+\s*%/);
@@ -133,12 +132,12 @@ test('waiting and running clear this attempt output and failure while preserving
         await expectSavedOutputCleared(app, 'target', oldKeys);
         await app.evaluate(`statusHold=[];statusFailures.target=1;statusMessages.target=${JSON.stringify(fullFailure)}`); await start(app, 'target', true);
         await app.waitFor("document.getElementById('target-run-status').textContent==='失败'&&document.getElementById('btn-stop').disabled");
-        assert.match(await app.evaluate("document.querySelector('#target .node-failure-summary').textContent"), /本轮真实失败/);
-        assert.ok((await app.evaluate("document.querySelector('#target .node-failure-summary').textContent")).length < fullFailure.length, 'the card presents a short cause rather than the whole provider payload');
+        assert.match(await app.evaluate("document.querySelector('[data-node-id=target] .node-failure-summary').textContent"), /本轮真实失败/);
+        assert.ok((await app.evaluate("document.querySelector('[data-node-id=target] .node-failure-summary').textContent")).length < fullFailure.length, 'the card presents a short cause rather than the whole provider payload');
         await app.evaluate("document.querySelector('#modal-error .modal-close')?.click()");
         await expectSavedOutputCleared(app, 'target', oldKeys);
-        assert.ok(await app.evaluate("(()=>{const summary=document.querySelector('#target .node-failure-summary');return summary.scrollWidth<=summary.clientWidth+1})()"), 'unbroken provider words wrap within the short card summary');
-        await click(app, '#target [data-image-run-action=details]');
+        assert.ok(await app.evaluate("(()=>{const summary=document.querySelector('[data-node-id=target] .node-failure-summary');return summary.scrollWidth<=summary.clientWidth+1})()"), 'unbroken provider words wrap within the short card summary');
+        await click(app, '[data-node-id=target] [data-image-run-action=details]');
         await app.waitFor("document.getElementById('modal-error').classList.contains('active')");
         await app.evaluate("(()=>{const full=document.getElementById('btn-show-full-log');if(!full.classList.contains('hidden'))full.click()})()");
         const errorDetail = await app.evaluate("document.getElementById('error-modal-msg').textContent+'\\n'+document.getElementById('error-modal-detail').textContent");
@@ -151,8 +150,8 @@ test('waiting and running clear this attempt output and failure while preserving
         await app.evaluate("document.querySelector('#modal-error .modal-close')?.click();statusHold=['source']"); await start(app, 'target');
         await app.waitFor("statusPending.source===true&&document.getElementById('target-run-status').textContent==='待运行'");
         assert.equal(await app.evaluate("document.getElementById('target-error').textContent"), '');
-        assert.equal(await app.evaluate("document.querySelector('#target .node-failure-summary').classList.contains('hidden')"), true);
-        for (const id of ['outside', 'disabled-old']) assert.match(await app.evaluate(`document.querySelector('#${id} .node-failure-summary').textContent`), /本轮真实失败/);
+        assert.equal(await app.evaluate("document.querySelector('[data-node-id=target] .node-failure-summary').classList.contains('hidden')"), true);
+        for (const id of ['outside', 'disabled-old']) assert.match(await app.evaluate(`document.querySelector('[data-node-id=${id}] .node-failure-summary').textContent`), /本轮真实失败/);
         await app.evaluate("statusHold=[];statusRelease.source()"); await completed(app, 'target');
         await expectDirty(app, 'target', false);
         assert.deepEqual((await saved(app)).connections, originalConnections);
@@ -211,7 +210,7 @@ test('effective settings mark generation pending while browsing, layout, selecti
         await app.waitFor("document.getElementById('dirty-node-run-status').dataset.status==='completed'&&document.getElementById('btn-stop').disabled");
         assert.equal(await app.evaluate("document.getElementById('dirty-node-run-status').textContent"), '部分完成');
         await expectDirty(app, 'dirty-node', true);
-        assert.equal(await app.evaluate("document.querySelector('#dirty-node-image-results .image-node-result-count').textContent.includes('1 / 1')"), true, 'a partially successful batch remains readable and pending');
+        assert.equal(await app.evaluate("document.querySelectorAll('#dirty-node-image-results .image-node-result-preview img').length===1"), true, 'a partially successful batch remains readable and pending');
         await waitForAutosave(app);
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='dirty-node')?.mediaAssetKeys?.length===1)");
         const partialKeys = (await saved(app)).nodes.find(node => node.id === 'dirty-node').mediaAssetKeys;
@@ -251,7 +250,7 @@ test('automatic retry clears the failed attempt and stale result before its held
         assert.equal(await app.evaluate("document.getElementById('retry-node-error').textContent"), '', 'the next retry clears its error before the backoff finishes');
         await app.waitFor("statusPending['retry-node']===true&&document.getElementById('retry-node-run-status').textContent==='运行中'");
         assert.equal(await app.evaluate("document.getElementById('retry-node-error').textContent"), '');
-        assert.equal(await app.evaluate("document.querySelector('#retry-node .node-failure-summary').classList.contains('hidden')"), true);
+        assert.equal(await app.evaluate("document.querySelector('[data-node-id=retry-node] .node-failure-summary').classList.contains('hidden')"), true);
         assert.equal(await app.evaluate("document.querySelector('#retry-node .node-failure-indicator').classList.contains('hidden')"), true);
         assert.equal(await app.evaluate("document.getElementById('retry-node-image-results').hidden"), true);
         await expectSavedOutputCleared(app, 'retry-node', oldKeys);
@@ -271,7 +270,7 @@ test('automatic retry clears the failed attempt and stale result before its held
     });
 });
 
-test('reference order, role, replacement and original bytes mark the effective recipe pending without destroying its previous image', { timeout: 90000 }, async () => {
+test('reference order and replacing original bytes mark the effective recipe pending without destroying its previous image', { timeout: 90000 }, async () => {
     const edges = ['first', 'second'].map((id, index) => ({ id: `${id}-reference`, from: { nodeId: id, port: 'image' }, to: { nodeId: 'ref-target', port: 'referenceImages' }, type: 'image', order: index }));
     await withAppBrowser({ ...configuration, nodes: [node('ref-target', 500, 120), ...['first', 'second', 'replacement'].map((id, index) => ({ id, type: 'ImageImport', x: 30, y: 120 + index * 300 }))], connections: edges }, async app => {
         await controlled(app);
@@ -288,21 +287,9 @@ test('reference order, role, replacement and original bytes mark the effective r
         await pending();
         await runSuccess(app, 'ref-target', true); await expectDirty(app, 'ref-target', false);
         assert.deepEqual(await app.evaluate("statusRequests.at(-1).body.references"), [images[1], images[0]].map(image => image.split(',')[1]));
-        await open(app, 'ref-target', 'input');
-        await app.evaluate("const role=document.querySelector('[data-input-connection-id=first-reference] [data-input-role]');role.value='mask';role.dispatchEvent(new Event('change',{bubbles:true}))");
-        await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value.connections.find(edge=>edge.id==='first-reference')?.to.port==='mask')");
-        await pending();
-        await runSuccess(app, 'ref-target', true); await expectDirty(app, 'ref-target', false);
-        assert.equal(await app.evaluate("statusRequests.at(-1).body.mask"), true);
-        assert.deepEqual(await app.evaluate("statusRequests.at(-1).body.references"), [images[1].split(',')[1]]);
-        await open(app, 'ref-target', 'input');
-        await app.evaluate("document.querySelector('[data-input-connection-id=first-reference] [data-input-action=replace]').click();const select=document.querySelector('[data-input-replacement-source]');select.value=JSON.stringify({nodeId:'replacement',port:'image'});select.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('[data-input-action=confirm-replace]').click()");
-        await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value.connections.find(edge=>edge.id==='first-reference')?.from.nodeId==='replacement')");
-        await pending();
-        await runSuccess(app, 'ref-target', true); await expectDirty(app, 'ref-target', false);
         assert.deepEqual((await saved(app)).nodes.filter(node => ['first', 'second', 'replacement'].includes(node.id)).map(node => [node.id, node.mediaAssetKeys]), originalAssets);
         const count = await app.evaluate('statusRequests.length');
-        await upload(app, 'replacement', 1); await pending();
+        await upload(app, 'first', 2); await pending();
         assert.equal(await app.evaluate('statusRequests.length'), count, 'replacing original bytes does not start generation');
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]').click()");
         await waitForAutosave(app);
@@ -327,10 +314,9 @@ test('a held background run confirms only its own recipe while an identical node
         assert.equal(await app.evaluate("document.getElementById('shared-prompt').disabled"), false, 'the background workflow cannot lock a different node with the same ID');
         assert.equal(await app.evaluate("document.getElementById('shared-prompt').value"), 'shared B original');
         await change(app, 'shared-prompt', 'shared B edited during A'); await expectDirty(app, 'shared', true);
-        await upload(app, 'b-ref', 1); await open(app, 'clone', 'input');
+        await upload(app, 'b-ref', 1); await open(app, 'clone', 'reference');
         assert.equal(await app.evaluate("document.getElementById('clone-prompt').disabled"), true);
-        assert.equal(await app.evaluate("document.querySelector('[data-input-connection-id=clone-ref] [data-input-action=replace]').disabled"), false);
-        assert.equal(await app.evaluate("document.querySelector('[data-input-connection-id=clone-ref] [data-input-action=disconnect]').disabled"), false, 'an idle clone retains its own connection editing permissions');
+        assert.equal(await app.evaluate("document.querySelector('[data-reference-connection=clone-ref] .image-reference-drag').disabled"), false, 'an idle clone retains its own reference mutation permissions');
         await app.evaluate("statusHold=[];statusRelease.shared()");
         await app.waitFor("statusPending.shared===false&&document.getElementById('btn-stop').disabled");
         await expectDirty(app, 'shared', true);

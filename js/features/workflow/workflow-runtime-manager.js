@@ -880,6 +880,10 @@ export function createWorkflowRuntimeManager({
             const previewImage = runtimeNode.compareImageB || runtimeNode?.data?.compareImageB || runtimeNode?.data?.image || '';
             if (previewImage) await showResolutionBadge(runtimeNodeId, previewImage);
         } else if (runtimeNode.type === 'ImageResize') {
+            for (const field of ['mediaAssetKeys', 'imageAssetKey', 'imageCount', 'imageAssetReady', 'mediaIntegrity']) {
+                if (runtimeNode.data?.[field] !== undefined) node.data[field] = clonePlainValue(runtimeNode.data[field]);
+                else delete node.data[field];
+            }
             const images = normalizeImageList(runtimeNode.resizePreviewData || runtimeNode?.data?.imageList || runtimeNode?.data?.image || runtimeNode.imageData);
             const currentImage = images[0] || '';
             if (currentImage) {
@@ -903,6 +907,10 @@ export function createWorkflowRuntimeManager({
                 await showResolutionBadge(runtimeNodeId, currentImage);
             }
         } else if (runtimeNode.type === 'ColorReset') {
+            for (const field of ['mediaAssetKeys', 'imageAssetKey', 'imageCount', 'imageAssetReady', 'mediaIntegrity']) {
+                if (runtimeNode.data?.[field] !== undefined) node.data[field] = clonePlainValue(runtimeNode.data[field]);
+                else delete node.data[field];
+            }
             const currentImage = runtimeNode.colorResetPreviewData || runtimeNode?.data?.image || runtimeNode.imageData || '';
             if (currentImage) {
                 node.colorResetPreviewData = currentImage;
@@ -2015,7 +2023,7 @@ export function createWorkflowRuntimeManager({
                     const imageNodes = [...context.activePlanNodeIds]
                         .filter((nodeId) => context.state.nodes.get(nodeId)?.type === 'ImageGenerate');
                     const downstreamNodes = [...context.activePlanNodeIds]
-                        .filter((nodeId) => ['ImagePreview', 'ImageSave'].includes(context.state.nodes.get(nodeId)?.type));
+                        .filter((nodeId) => ['ImagePreview', 'ImageSave', 'ImageResize', 'ColorReset'].includes(context.state.nodes.get(nodeId)?.type));
                     for (const nodeId of [...imageNodes, ...downstreamNodes]) {
                         try {
                             await syncVisibleNodeResult(workflowReference, nodeId);
