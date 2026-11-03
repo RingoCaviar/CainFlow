@@ -339,6 +339,37 @@ body:has(#toolbar [aria-expanded="true"]:not(#btn-prompt-agent)) .help-panel {
     display: none;
 }
 
+#history-batch-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+}
+
+.history-batch-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    white-space: nowrap;
+}
+
+.history-batch-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.history-batch-actions .btn {
+    flex: 1 0 auto;
+    white-space: nowrap;
+}
+
+#btn-history-batch[aria-pressed="true"] {
+    color: var(--text-primary);
+    background: var(--panel-bg-soft);
+    border-color: var(--text-primary);
+}
+
 .drawer-content {
     padding: 0;
 }
