@@ -994,12 +994,20 @@ export function createUiControllerApi({
             copyToClipboard(fullText);
         });
 
-        documentRef.getElementById('btn-history-batch')?.addEventListener('click', () => {
-            state.historySelectionMode = true;
+        function setHistorySelectionMode(enabled) {
+            state.historySelectionMode = enabled;
             state.selectedHistoryIds.clear();
-            documentRef.getElementById('history-batch-toolbar').classList.remove('hidden');
+            documentRef.getElementById('history-batch-toolbar').classList.toggle('hidden', !enabled);
+            const button = documentRef.getElementById('btn-history-batch');
+            button?.setAttribute('aria-pressed', String(enabled));
+            button?.setAttribute('title', enabled ? '退出多选' : '批量选择');
+            button?.setAttribute('aria-label', enabled ? '退出多选' : '批量选择');
             renderHistoryList();
             historyFullscreenApi?.refresh();
+        }
+
+        documentRef.getElementById('btn-history-batch')?.addEventListener('click', () => {
+            setHistorySelectionMode(!state.historySelectionMode);
         });
 
         documentRef.getElementById('btn-batch-select-all')?.addEventListener('click', async () => {
@@ -1009,10 +1017,7 @@ export function createUiControllerApi({
         });
 
         documentRef.getElementById('btn-batch-cancel')?.addEventListener('click', () => {
-            state.historySelectionMode = false;
-            state.selectedHistoryIds.clear();
-            documentRef.getElementById('history-batch-toolbar').classList.add('hidden');
-            renderHistoryList();
+            setHistorySelectionMode(false);
         });
 
         documentRef.getElementById('btn-batch-download')?.addEventListener('click', async () => {
@@ -1036,10 +1041,7 @@ export function createUiControllerApi({
             showToast(failedCount > 0
                 ? `${desktopSave ? '已保存' : '已开始保存到本地'} ${startedCount} 项；${failedCount} 项${desktopSave ? '取消或失败' : '未能发起保存'}`
                 : `${desktopSave ? '已保存' : '已开始保存到本地'} ${startedCount} 项`, failedCount > 0 ? 'error' : 'success');
-            state.historySelectionMode = false;
-            state.selectedHistoryIds.clear();
-            documentRef.getElementById('history-batch-toolbar').classList.add('hidden');
-            renderHistoryList();
+            setHistorySelectionMode(false);
         });
 
         documentRef.getElementById('btn-batch-delete')?.addEventListener('click', async () => {
@@ -1054,10 +1056,7 @@ export function createUiControllerApi({
             const items = (state.historyVisibleItems || []).filter(item => state.selectedHistoryIds.has(item.id));
             if (items.length !== idsToDelete.length || await historyPreviewApi.deleteHistoryItems(items) === false) { renderHistoryList(); return; }
 
-            state.selectedHistoryIds.clear();
-            state.historySelectionMode = false;
-            documentRef.getElementById('history-batch-toolbar').classList.add('hidden');
-            renderHistoryList();
+            setHistorySelectionMode(false);
             showToast(`已成功删除 ${idsToDelete.length} 条记录`, 'success');
         });
 
