@@ -19,7 +19,7 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     element('summary', '查看详情', overview);
     const inputs = element('div', ''); inputs.className = 'prompt-agent-plan-inputs';
     const references = adapter.inputs?.(plan) || [];
-    element('span', references.length ? `参考图 · ${references.length} 项`
+    element('span', references.length ? `本次生图参考图 · ${references.length} 项`
         : plan.steps.some(step => step.type === 'ImageGenerate') ? '纯文字生成' : plan.steps.length ? '素材处理方案' : '删除节点方案', inputs);
     let destroyed = false;
     for (const reference of references) {

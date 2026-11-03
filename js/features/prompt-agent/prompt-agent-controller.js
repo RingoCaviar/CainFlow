@@ -649,7 +649,7 @@ export function createPromptAgentController({
             if (reference.sourceNodeId) item.dataset.sourceNodeId = reference.sourceNodeId;
             const image = documentRef.createElement('img');
             image.src = reference.dataUrl || reference.previewUrl || '';
-            image.alt = `${snapshot ? '引用图片' : '参考图'} ${numberOffset + index + 1}：${reference.name || '图片'}`;
+            image.alt = `${snapshot ? '自动读取的上下文图片' : '参考图'} ${numberOffset + index + 1}：${reference.name || '图片'}`;
             image.title = image.alt;
             image.draggable = false;
             if (!reference.loading && (reference.dataUrl || reference.previewUrl)) {
@@ -1191,6 +1191,12 @@ export function createPromptAgentController({
         if (referenceImages.length) {
             const references = documentRef.createElement('div');
             references.className = 'prompt-agent-message-references';
+            references.setAttribute('aria-label', '你发送的图片');
+            const label = documentRef.createElement('span');
+            label.className = 'prompt-agent-attachment-label';
+            label.textContent = `你发送的图片 · ${referenceImages.length} 张`;
+            label.style.flexBasis = '100%';
+            references.appendChild(label);
             appendReferencePreviews(references, referenceImages);
             message.appendChild(references);
         }
@@ -1213,9 +1219,19 @@ export function createPromptAgentController({
     function appendContextImagePreviews(message, images) {
         const strip = documentRef.createElement('div');
         strip.className = 'prompt-agent-message-references prompt-agent-message-context-images';
-        strip.setAttribute('aria-label', '本轮引用图片');
-        const numberOffset = message.querySelectorAll('.prompt-agent-message-references:not(.prompt-agent-message-context-images) img').length;
-        appendReferencePreviews(strip, images, { snapshot: true, numberOffset });
+        strip.setAttribute('aria-label', 'Agent 自动读取的上下文');
+        const details = documentRef.createElement('details');
+        const summary = documentRef.createElement('summary');
+        summary.textContent = `Agent 自动读取的上下文 · ${images.length} 张`;
+        details.appendChild(summary);
+        const explanation = documentRef.createElement('p');
+        explanation.textContent = '这些图片由 Agent 自动读取，用于理解对话；本次生图使用的参考图以方案为准。';
+        details.appendChild(explanation);
+        const previews = documentRef.createElement('div');
+        previews.className = 'prompt-agent-message-references';
+        appendReferencePreviews(previews, images, { snapshot: true });
+        details.appendChild(previews);
+        strip.appendChild(details);
         message.appendChild(strip);
     }
 
@@ -1231,7 +1247,7 @@ export function createPromptAgentController({
             const roleNames = { 'edit-target': '编辑目标', reference: '参考', supporting: '合成素材' };
             const roles = plan.referenceImages.filter((image) => roleNames[image.role])
                 .map((image, index) => `图 ${index + 1} · ${image.name || `图片 ${index + 1}`}：${roleNames[image.role]}${image.purpose ? `（${image.purpose}）` : ''}`);
-            parts.push([`参考图\n${plan.referenceImages.length} 张`, ...roles].join('\n'));
+            parts.push([`本次生图参考图\n${plan.referenceImages.length} 张`, ...roles].join('\n'));
         }
         return parts.join('\n\n');
     }
@@ -1389,9 +1405,14 @@ export function createPromptAgentController({
             strip.querySelectorAll('.prompt-agent-reference').forEach((item) => {
                 if (removed.has(item.dataset.sourceNodeId)) item.remove();
             });
-            if (!strip.children.length) strip.remove();
+            const count = strip.querySelectorAll('.prompt-agent-reference').length;
+            if (!count) { strip.remove(); return; }
+            const label = strip.querySelector('.prompt-agent-attachment-label');
+            if (label) label.textContent = `你发送的图片 · ${count} 张`;
+            const summary = strip.querySelector('summary');
+            if (summary) summary.textContent = `Agent 自动读取的上下文 · ${count} 张`;
+            strip.querySelectorAll('.prompt-agent-reference-number').forEach((number, index) => { number.textContent = String(index + 1); });
         });
-        messages?.querySelectorAll('.prompt-agent-message').forEach(message => message.querySelectorAll('.prompt-agent-message-references .prompt-agent-reference-number').forEach((number, index) => { number.textContent = String(index + 1); }));
         renderPendingReferences();
         if (changed) {
             conversationRevision += 1;

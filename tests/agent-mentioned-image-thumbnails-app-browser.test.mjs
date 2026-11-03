@@ -30,10 +30,15 @@ test('mentioned node thumbnails retain the actual reference order, preview origi
         const originals = await thumbnails(app);
         assert.equal(originals.length, 2);
         assert.notEqual(originals[0], originals[1]);
+        assert.equal(await app.evaluate("document.querySelector('.prompt-agent-message-context-images summary').textContent"), 'Agent 自动读取的上下文 · 2 张');
+        assert.equal(await app.evaluate("document.querySelector('.prompt-agent-message-context-images details').open"), false);
+        assert.match(await app.evaluate("document.querySelector('.prompt-agent-message-context-images').textContent"), /本次生图使用的参考图以方案为准/);
+        assert.equal(await app.evaluate("document.querySelector('.prompt-agent-message-user [aria-label=\"你发送的图片\"]') === null"), true);
+        assert.match(await app.evaluate("document.querySelector('.prompt-agent-plan-inputs').textContent"), /本次生图参考图/);
         assert.deepEqual(await app.evaluate("thumbnailRequests[0].messages.at(-1).content.filter(p=>p.type==='image_url').map(p=>p.image_url.url)"), originals);
         assert.equal(await app.evaluate("JSON.parse(thumbnailRequests[0].messages.at(-1).content.find(p=>p.type==='text').text).images.some(i=>i.origins.includes('本轮附件'))"), false);
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('.prompt-agent-message-context-images .prompt-agent-reference-number')].map(e=>e.textContent)"), ['1','2']);
-        await app.evaluate("document.querySelector('.prompt-agent-message-context-images img').click()");
+        await app.evaluate("document.querySelector('.prompt-agent-message-context-images summary').click();document.querySelector('.prompt-agent-message-context-images img').click()");
         await app.waitFor("!!document.querySelector('.fullscreen-overlay img')");
         assert.equal(await app.evaluate("document.querySelector('.fullscreen-overlay img').src"), originals[0]);
         await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
@@ -48,6 +53,8 @@ test('mentioned node thumbnails retain the actual reference order, preview origi
         await app.evaluate("document.getElementById('btn-prompt-agent').click()");
         await app.waitFor("document.querySelectorAll('.prompt-agent-message-context-images img').length===2");
         assert.deepEqual(await thumbnails(app), originals);
+        assert.equal(await app.evaluate("document.querySelector('.prompt-agent-message-context-images summary').textContent"), 'Agent 自动读取的上下文 · 2 张');
+        assert.equal(await app.evaluate("document.querySelector('.prompt-agent-message-context-images details').open"), false);
         await upload(app, 'first', 'orange');
         assert.deepEqual(await thumbnails(app), originals, 'editing the live source cannot rewrite historical message images');
     }, { preserveRetiredSaveNodes: true });
