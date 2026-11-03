@@ -18,6 +18,14 @@ const session = {
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=';
 const referenceImages = await Promise.all(['red','orange','yellow','blue','green'].map(async color =>
     'data:image/png;base64,' + (await readFile(new URL('./fixtures/reference-' + color + '.png', import.meta.url))).toString('base64')));
+const generationFailure = `(()=>{
+    const status=[...document.querySelectorAll('.prompt-agent-canvas-plan [role=status]')].at(-1)?.textContent||'';
+    if(status.includes('失败'))return status;
+    return [...document.querySelectorAll('.log-item.warning .log-summary-text')].map(item=>item.textContent).find(text=>text.includes('图片生成部分失败'))||'';
+})()`;
+// Workflow revision 409s have an existing application reconciliation path.
+// Keep them in diagnostics and judge the final plan status, not the intermediate response.
+const generationChecks = { failOnRequests: ['/api/storage/library', '/api/storage/media-assets'], failure: generationFailure };
 
 function referenceSession({ empty = false } = {}) {
     const sources = [
@@ -434,8 +442,10 @@ test('assistant batch result generates with the parameter editor closed, selects
         await evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
         await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
         assert.equal(await evaluate("document.getElementById('image-parameter-panel').hidden"), true, 'batch application must not depend on opening the node editor');
-        await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='生成图片').click()");
-        await waitFor("document.querySelectorAll('.prompt-agent-image-result').length===3");
+        await app.step('Agent batch: archive all three originals', async () => {
+            await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='生成图片').click()");
+            await waitFor("document.querySelectorAll('.prompt-agent-image-result').length===3");
+        }, generationChecks);
         await evaluate("document.querySelectorAll('.prompt-agent-image-result')[1].querySelector('[data-result-action=preview]').click()");
         await waitFor("Boolean(document.querySelector('.fullscreen-overlay img'))");
         assert.equal(await evaluate("document.querySelector('.fullscreen-overlay img').src"), referenceImages[1]);
@@ -934,8 +944,10 @@ test('prompt-only followup after applying a plan retains all reference originals
         await waitFor("document.querySelectorAll('.prompt-agent-canvas-plan').length===2");
         const followup=await evaluate("(()=>{const request=imageRequests.filter(r=>r.messages).findLast(r=>{const c=r.messages.at(-1).content;return JSON.parse(Array.isArray(c)?c.find(p=>p.type==='text').text:c).userRequest?.startsWith('只改提示词')});const c=request.messages.at(-1).content;return JSON.parse(c.find(p=>p.type==='text').text).images.filter(i=>['source-a','source-b'].includes(i.sourceNodeId)).map(i=>[i.sourceNodeId,i.sourceImageIndex])})()");
         assert.deepEqual(followup,[['source-a',0],['source-a',1],['source-a',2],['source-b',0],['source-b',1]], await evaluate("(()=>{const c=imageRequests.filter(r=>r.messages).at(-1).messages.at(-1).content;return JSON.stringify(JSON.parse(c.find(p=>p.type==='text').text).images)})()"));
-        await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-plan')].at(-1).querySelectorAll('button').forEach(b=>{if(b.textContent==='生成图片')b.click()})");
-        await waitFor("imageRequests.some(r=>r.contents)");
+        await app.step('Agent followup: save the plan before generation', async () => {
+            await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-plan')].at(-1).querySelectorAll('button').forEach(b=>{if(b.textContent==='生成图片')b.click()})");
+            await waitFor("imageRequests.some(r=>r.contents)");
+        }, generationChecks);
         const received=await evaluate("imageRequests.find(r=>r.contents).contents.flatMap(c=>c.parts).filter(p=>p.inlineData).map(p=>p.inlineData.data)");
         assert.deepEqual(received.map(image=>createHash('sha256').update(image).digest('hex')),referenceImages.map(image=>createHash('sha256').update(image.split(',')[1]).digest('hex')));
         assert.equal(await evaluate("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length"),2,'the previous target retains its original connections');

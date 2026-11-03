@@ -432,9 +432,10 @@ export function createDiskStorageApi(getState) {
         const media = mediaType === 'video' ? (data.videoBlob || data.video) : data.image;
         const mediaBlob = media instanceof Blob ? media : dataUrlToBlob(media);
         if (!mediaBlob) throw new Error('媒体内容为空，无法保存到本地');
-        const id = Date.now() * 1000 + Math.floor(Math.random() * 1000);
-        const entry = { ...data, id, timestamp: Date.now(), usePromptFilename: getState()?.imageSaveUsePromptFilename === true, mediaType, mimeType: mediaBlob.type || data.videoMimeType || (mediaType === 'video' ? 'video/mp4' : 'image/png') };
-        delete entry.image; delete entry.video; delete entry.videoBlob; delete entry.thumb;
+        // New originals receive their identity from the shared library transaction.
+        // A client clock/random suffix can collide within a concurrent batch.
+        const entry = { ...data, timestamp: Date.now(), usePromptFilename: getState()?.imageSaveUsePromptFilename === true, mediaType, mimeType: mediaBlob.type || data.videoMimeType || (mediaType === 'video' ? 'video/mp4' : 'image/png') };
+        delete entry.id; delete entry.image; delete entry.video; delete entry.videoBlob; delete entry.thumb;
         const metadata = new TextEncoder().encode(JSON.stringify(entry));
         const size = new Uint8Array(4);
         new DataView(size.buffer).setUint32(0, metadata.length);

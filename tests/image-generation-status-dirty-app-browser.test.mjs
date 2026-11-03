@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { withAppBrowser, reloadAppBrowser, delay, waitForAutosave } from './helpers/app-browser.mjs';
+import { uploadImageOriginal } from './helpers/image-upload.mjs';
 
 const images = await Promise.all(['red', 'blue', 'orange'].map(async color => 'data:image/png;base64,' + (await readFile(new URL(`./fixtures/reference-${color}.png`, import.meta.url))).toString('base64')));
 const configuration = {
@@ -72,8 +73,7 @@ async function click(app, selector, hold = 0) {
 }
 
 async function upload(app, id, index = 0) {
-    await app.evaluate(`(async()=>{const files=new DataTransfer();files.items.add(new File([await(await fetch(${JSON.stringify(images[index])})).blob()],'reference.png',{type:'image/png'}));const input=document.getElementById('${id}-file');input.files=files.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-    await app.waitFor(`fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='${id}')?.mediaAssetKeys?.length===1)`);
+    await uploadImageOriginal(app, id, images[index]);
 }
 
 async function expectDirty(app, id, dirty) {

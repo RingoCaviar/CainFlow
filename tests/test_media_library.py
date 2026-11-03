@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 import subprocess
 from pathlib import Path
@@ -10,6 +11,29 @@ from backend.services.media_library import MediaLibrary
 
 
 class MediaLibraryTests(unittest.TestCase):
+    def test_new_saves_allocate_distinct_ids_across_clients_and_clock_rollback(self):
+        with tempfile.TemporaryDirectory() as root:
+            stores = [self.make_store(root) for _ in range(3)]
+            for store in stores:
+                store.initialize()
+            payloads = [f'original-{index}'.encode() for index in range(3)]
+            with patch('backend.services.media_library.time.time', return_value=1793680000):
+                with ThreadPoolExecutor(max_workers=3) as pool:
+                    items = list(pool.map(lambda index: MediaLibrary(stores[index]).save(
+                        {'mimeType': 'image/png'}, payloads[index]), range(3)))
+            self.assertEqual(3, len({item['id'] for item in items}))
+            library = MediaLibrary(self.make_store(root))
+            with patch('backend.services.media_library.time.time', return_value=1793679999):
+                later = library.save({'mimeType': 'image/png'}, b'after restart')
+            self.assertNotIn(later['id'], [item['id'] for item in items])
+            for item, payload in zip(items, payloads):
+                self.assertLessEqual(item['id'], 2**53 - 1)
+                self.assertEqual(payload, library.read(item['id'])[1])
+                replay = library.save({'id': item['id'], 'mimeType': 'image/png'}, payload)
+                self.assertEqual(item['id'], replay['id'])
+                with self.assertRaisesRegex(ValueError, '保存请求已失效'):
+                    library.save({'id': item['id'], 'mimeType': 'image/png'}, b'different')
+
     def test_directory_history_roundtrip_switch_and_physical_delete(self):
         with tempfile.TemporaryDirectory() as root:
             store = StorageService(database_path=os.path.join(root, 'db.sqlite'), assets_dir=os.path.join(root, 'assets'), temp_dir=os.path.join(root, 'tmp'), exports_dir=os.path.join(root, 'exports'))
