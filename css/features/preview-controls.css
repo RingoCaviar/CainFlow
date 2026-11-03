@@ -1,4 +1,18 @@
 /* Shared controls for node, Agent, and history image previews. */
+.fullscreen-download-status:not([hidden]) {
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    max-width: min(60vw, 480px);
+    padding: 10px 16px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.85);
+    color: white;
+    overflow-wrap: anywhere;
+}
+
 .fullscreen-overlay .fullscreen-action-dock,
 #history-preview-modal .preview-action-dock {
     position: absolute;
@@ -33,7 +47,7 @@
     transform: translateX(0);
 }
 
-.preview-action-dock .preview-action-list > :is(.fullscreen-close, .fullscreen-copy-btn, .fullscreen-description-btn, .fullscreen-paint-btn, .fullscreen-crop-btn, .btn-close-preview) {
+.preview-action-dock .preview-action-list > :is(.fullscreen-close, .fullscreen-copy-btn, .fullscreen-download-btn, .fullscreen-description-btn, .fullscreen-paint-btn, .fullscreen-crop-btn, .btn-close-preview) {
     position: relative;
     top: auto;
     right: auto;
@@ -113,7 +127,7 @@
 
 @media (max-width: 520px) {
     .preview-action-dock .preview-action-list { gap: 4px; }
-    .preview-action-dock .preview-action-list > :is(.fullscreen-close, .fullscreen-copy-btn, .fullscreen-description-btn, .fullscreen-paint-btn, .fullscreen-crop-btn, .btn-close-preview) { width: 34px; height: 34px; min-width: 34px; }
+    .preview-action-dock .preview-action-list > :is(.fullscreen-close, .fullscreen-copy-btn, .fullscreen-download-btn, .fullscreen-description-btn, .fullscreen-paint-btn, .fullscreen-crop-btn, .btn-close-preview) { width: 34px; height: 34px; min-width: 34px; }
     .preview-action-dock .preview-action-list > .fullscreen-description-btn { width: auto; min-width: 38px; padding: 0 5px; }
 }
 

@@ -22,6 +22,10 @@ try {
     result.folded = getComputedStyle(actions).visibility === 'hidden';
     modal.querySelector('.preview-action-reveal').click();
     result.revealed = getComputedStyle(actions).visibility === 'visible';
+    let saved;
+    window.__cainflowDesktop = { saveFile: async (name, mime, blob) => { saved = { name, blob }; return '/chosen/history.svg'; } };
+    await document.getElementById('btn-download-preview').onclick(new MouseEvent('click'));
+    result.download = saved?.name === 'cainflow_1.svg' && await saved.blob.text() === await (await fetch(image)).text();
     const before = img.style.transform;
     document.getElementById('btn-preview-zoom-in').click();
     result.zoomIn = img.style.transform !== before;

@@ -1,4 +1,4 @@
-<!doctype html><html><head><link rel="stylesheet" href="../../css/modules/10-fullscreen-preview.css"></head>
+<!doctype html><html><head><link rel="stylesheet" href="../../css/modules/10-fullscreen-preview.css"><link rel="stylesheet" href="../../css/features/preview-controls.css"></head>
 <body><pre id="surface-result"></pre><script type="module">
 import { createMediaControllerApi } from '../../js/features/media/media-controller.js';
 const result = {};
@@ -63,6 +63,19 @@ try {
     check(img.src === images[1], 'navigation');
     overlay.querySelector('.fullscreen-copy-btn').click();
     check(copied === images[1] && overlay.isConnected, 'copy');
+    let savedImage = null;
+    window.__cainflowDesktop = { saveFile: async (name, mime, blob) => { savedImage = { name, mime, blob }; return '/chosen/image.svg'; } };
+    overlay.querySelector('.preview-action-reveal').click();
+    const download = overlay.querySelector('.fullscreen-download-btn');
+    check(getComputedStyle(download).visibility === 'visible', 'downloadEntry');
+    download.click();
+    while (download.disabled) await new Promise(resolve => setTimeout(resolve, 10));
+    check(savedImage?.name === 'cainflow_export.svg' && await savedImage.blob.text() === await (await fetch(images[1])).text() && overlay.isConnected, 'downloadCurrentOriginal');
+    window.__cainflowDesktop.saveFile = async () => { throw new Error('disk full'); };
+    download.click();
+    while (download.disabled) await new Promise(resolve => setTimeout(resolve, 10));
+    const status = overlay.querySelector('.fullscreen-download-status');
+    check(!status.hidden && status.textContent.includes('disk full'), 'downloadFailureVisible');
     check(Boolean(overlay.querySelector('.fullscreen-paint-btn')) === (source !== 'Agent'), 'paintEntry');
     overlay.querySelector('.fullscreen-description-btn').click();
     const descriptionDialog = overlay.querySelector('.fullscreen-description-dialog');

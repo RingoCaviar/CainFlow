@@ -1,4 +1,5 @@
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
+import { downloadPreviewImage } from './preview-image-download.js';
 import { createImagePreviewBatchNavigation } from '../../nodes/image-preview-batch-navigation.js';
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
 import { readImageSaveFilename } from '../../nodes/image-save-settings.js';
@@ -3768,6 +3769,9 @@ export function createMediaControllerApi({
             <button type="button" class="fullscreen-copy-btn" title="复制图片到剪贴板" aria-label="复制图片到剪贴板">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
             </button>
+            <button type="button" class="fullscreen-download-btn" title="下载图片" aria-label="下载图片">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5"/></svg>
+            </button>
             ${canDescribe ? '<button type="button" class="fullscreen-description-btn" title="添加图片介绍" aria-label="添加图片介绍">介绍</button>' : ''}
             ${nodeId ? `<div class="fullscreen-paint-btn" title="绘制/编辑">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
@@ -3786,6 +3790,7 @@ export function createMediaControllerApi({
             <div class="fullscreen-image-context-menu hidden">
                 <button type="button" class="fullscreen-image-copy-menu-item">复制图片</button>
             </div>
+            <div class="fullscreen-download-status" role="status" aria-live="polite" hidden></div>
             ${renderFullscreenCropControls(canCropImageImport)}
             <div class="preview-zoom-controls" role="toolbar" aria-label="预览缩放">
                 <button type="button" class="preview-zoom-out" title="缩小" aria-label="缩小"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>
@@ -4069,6 +4074,25 @@ export function createMediaControllerApi({
                 closeDescription();
             });
         }
+        overlay.querySelector('.fullscreen-download-btn').addEventListener('click', async (event) => {
+            event.stopPropagation();
+            const button = event.currentTarget;
+            if (button.disabled) return;
+            button.disabled = true;
+            const status = overlay.querySelector('.fullscreen-download-status');
+            status.hidden = true;
+            try {
+                await downloadPreviewImage(images[currentIndex] || '', {
+                    windowRef, documentRef, fetchRef,
+                    showToast: (message) => {
+                        status.textContent = message;
+                        status.hidden = false;
+                    }
+                });
+            } finally {
+                button.disabled = false;
+            }
+        });
         overlay.querySelector('.fullscreen-copy-btn').addEventListener('click', (event) => {
             event.stopPropagation();
             void copyImageToClipboard(getCurrentFullscreenImage(images, currentIndex, src));

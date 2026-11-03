@@ -2,6 +2,61 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { startHistoryDownload } from '../js/features/history/history-download.js';
+import { downloadPreviewImage } from '../js/features/media/preview-image-download.js';
+
+test('preview saves original bytes and format through desktop and browser pickers', async () => {
+    const blob = new Blob(['original jpeg bytes'], { type: 'image/jpeg' });
+    const notices = [];
+    const options = { documentRef: {}, showToast: (...args) => notices.push(args) };
+    let saved;
+    assert.equal(await downloadPreviewImage(blob, { ...options, windowRef: {
+        __cainflowDesktop: { saveFile: async (...args) => { saved = args; return 'chosen/image.jpg'; } }
+    } }), 'saved');
+    assert.deepEqual(saved.slice(0, 2), ['cainflow_export.jpg', 'image/jpeg']);
+    assert.equal(saved[2], blob);
+    let pickerOpened = false, closed = false;
+    assert.equal(await downloadPreviewImage('data:image/jpeg;base64,eA==', { ...options,
+        fetchRef: async () => { assert.equal(pickerOpened, true); return { ok: true, blob: async () => blob }; },
+        windowRef: { showSaveFilePicker: async ({ suggestedName }) => {
+            assert.equal(suggestedName, 'cainflow_export.jpg'); pickerOpened = true;
+            return { createWritable: async () => ({ write: async value => { assert.equal(value, blob); }, close: async () => { closed = true; } }) };
+        } }
+    }), 'saved');
+    assert.equal(closed, true);
+});
+
+test('preview cancellation is quiet and write failures are reported', async () => {
+    const blob = new Blob(['original'], { type: 'image/png' });
+    const notices = [];
+    const options = { documentRef: {}, showToast: (...args) => notices.push(args) };
+    assert.equal(await downloadPreviewImage(blob, { ...options, windowRef: {
+        showSaveFilePicker: async () => { throw new DOMException('Cancelled', 'AbortError'); }
+    } }), 'cancelled');
+    assert.equal(await downloadPreviewImage(blob, { ...options, windowRef: {
+        __cainflowDesktop: { saveFile: async () => null }
+    } }), 'cancelled');
+    assert.equal(notices.length, 0);
+    let aborted = false;
+    assert.equal(await downloadPreviewImage(blob, { ...options, windowRef: {
+        showSaveFilePicker: async () => ({ createWritable: async () => ({
+            write: async () => { throw new Error('disk full'); }, abort: async () => { aborted = true; }
+        }) })
+    } }), 'failed');
+    assert.equal(aborted, true);
+    assert.match(notices[0][0], /disk full/);
+    assert.equal(notices[0][1], 'error');
+});
+
+test('preview falls back to a blob download with the original extension', async () => {
+    const link = { click() { this.clicked = true; }, remove() {} };
+    assert.equal(await downloadPreviewImage(new Blob(['webp'], { type: 'image/webp' }), {
+        documentRef: { createElement: () => link, body: { appendChild() {} } },
+        windowRef: { setTimeout: task => task() }
+    }), 'started');
+    assert.equal(link.download, 'cainflow_export.webp');
+    assert.equal(link.clicked, true);
+    assert.match(link.href, /^blob:/);
+});
 
 test('history image download reports a started request', async () => {
     const downloaded = [];

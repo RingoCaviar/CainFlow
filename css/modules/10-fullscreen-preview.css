@@ -79,7 +79,7 @@
     box-shadow: 0 0 15px rgba(34, 211, 238, 0.4);
 }
 
-.fullscreen-copy-btn {
+.fullscreen-copy-btn, .fullscreen-download-btn {
     position: absolute;
     top: 16px;
     right: 72px;
@@ -98,7 +98,7 @@
     z-index: 10;
 }
 
-.fullscreen-copy-btn:hover {
+.fullscreen-copy-btn:hover, .fullscreen-download-btn:hover {
     background: var(--accent-cyan);
     color: black;
     transform: scale(1.1);
