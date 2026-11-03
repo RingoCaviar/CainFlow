@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import assert from 'node:assert/strict';
+import { sanitizeDetails } from '../../js/services/api-client.js';
 
 export const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 export async function waitForAutosave({ waitFor }) {
@@ -51,33 +52,61 @@ export async function withAppBrowser(session, task, { repoDirectory, initScript,
         const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then(response => response.json());
         socket = new WebSocket(targets.find(target => target.type === 'page').webSocketDebuggerUrl);
         await new Promise(resolve => socket.addEventListener('open', resolve, { once: true }));
-        let sequence = 0; const pending = new Map(), errors = [], networkFailures = [], requests = new Map();
+        let sequence = 0, requestSequence = 0, currentStep = null;
+        const pending = new Map(), errors = [], networkFailures = [], httpFailures = [], requests = new Map(), completedRequests = [];
         const publicUrl = raw => {
             try {
                 const url = new URL(raw);
                 return ['http:', 'https:'].includes(url.protocol) ? url.origin + url.pathname.slice(0, 300) : url.protocol;
             } catch { return 'invalid URL'; }
         };
-        getDiagnostics = () => ({ backend: server.getDiagnostics(), networkFailures });
+        const describeRequest = ({ bodyPromise, ...record }) => record;
+        getDiagnostics = () => ({ backend: server.getDiagnostics(), step: currentStep?.label,
+            networkFailures: networkFailures.map(describeRequest), httpFailures: httpFailures.map(describeRequest) });
+        const retain = (list, item, limit = 24) => { list.push(item); if (list.length > limit) list.shift(); };
         socket.addEventListener('message', event => { const value = JSON.parse(event.data);
             if (value.method === 'Network.requestWillBeSent') {
-                requests.set(value.params.requestId, publicUrl(value.params.request.url));
+                requests.set(value.params.requestId, { sequence: ++requestSequence, requestId: value.params.requestId,
+                    url: publicUrl(value.params.request.url), method: value.params.request.method, startedAt: Date.now() });
                 if (requests.size > 1000) requests.delete(requests.keys().next().value);
             }
+            if (value.method === 'Network.responseReceived') {
+                const record = requests.get(value.params.requestId);
+                if (record) {
+                    record.status = value.params.response.status;
+                    if (record.status >= 400) retain(httpFailures, record);
+                }
+            }
             if (value.method === 'Network.loadingFailed') {
-                networkFailures.push({ url: requests.get(value.params.requestId), error: value.params.errorText,
+                const record = requests.get(value.params.requestId) || { requestId: value.params.requestId };
+                retain(networkFailures, { ...record, error: value.params.errorText, finishedAt: Date.now(),
                     canceled: value.params.canceled === true, blockedReason: value.params.blockedReason });
-                if (networkFailures.length > 12) networkFailures.shift();
                 requests.delete(value.params.requestId);
             }
-            if (value.method === 'Network.loadingFinished') requests.delete(value.params.requestId);
+            if (value.method === 'Network.loadingFinished') {
+                const record = requests.get(value.params.requestId);
+                if (record) {
+                    record.finishedAt = Date.now();
+                    retain(completedRequests, record, 128);
+                    // Capture only bounded local API error fields, never headers,
+                    // submitted images, credentials or arbitrary response bodies.
+                    if (record.status >= 400 && record.url.startsWith(server.baseUrl + '/api/') && value.params.encodedDataLength < 65536) {
+                        record.bodyPromise = send('Network.getResponseBody', { requestId: record.requestId }, 1000).then(body => {
+                            const text = body.base64Encoded ? Buffer.from(body.body, 'base64').toString('utf8') : body.body;
+                            const payload = JSON.parse(text);
+                            record.detail = sanitizeDetails({ error: payload.error, message: payload.message, detail: payload.detail });
+                        }).catch(() => {});
+                    }
+                }
+                requests.delete(value.params.requestId);
+            }
             if (value.method === 'Runtime.exceptionThrown') errors.push(value.params.exceptionDetails.exception?.description || value.params.exceptionDetails.text);
             if (value.method === 'Runtime.consoleAPICalled' && value.params.type === 'error') errors.push(value.params.args.map(arg => arg.description || arg.value).join(' '));
             if (pending.has(value.id)) { pending.get(value.id)(value); pending.delete(value.id); } });
-        const send = async (method, params = {}) => {
+        const send = async (method, params = {}, timeout = 15000) => {
             const id = ++sequence;
             const response = await new Promise((resolve, reject) => {
-                const timer = setTimeout(() => { pending.delete(id); reject(new Error(`Browser command timed out: ${method}`)); }, 15000);
+                const timer = setTimeout(() => { pending.delete(id); reject(new Error(`Browser command timed out: ${method}`)); }, timeout);
                 pending.set(id, value => { clearTimeout(timer); resolve(value); });
                 socket.send(JSON.stringify({ id, method, params }));
             });
@@ -87,9 +116,43 @@ export async function withAppBrowser(session, task, { repoDirectory, initScript,
             const response = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
             if (response.exceptionDetails) throw new Error(JSON.stringify(response.exceptionDetails)); return response.result.value;
         };
-        const waitFor = async (expression, timeout = 7500) => {
-            for (const deadline = Date.now() + timeout; Date.now() < deadline;) { if (await evaluate(expression)) return; await delay(50); }
-            throw new Error(`Timed out: ${expression}\n${errors.slice(-8).join('\n')}\n${await evaluate('window.__cainflowBootstrapError')}\n${await evaluate('document.body.innerText.slice(-5000)')}`);
+        const checkStep = async () => {
+            if (!currentStep) return;
+            const matches = record => record.sequence > currentStep.after && record.url?.startsWith(server.baseUrl + '/')
+                && currentStep.failOnRequests.some(path => path.endsWith('/')
+                    ? record.url.startsWith(server.baseUrl + path) : record.url === server.baseUrl + path);
+            const failure = networkFailures.find(matches) || httpFailures.find(record => record.finishedAt && matches(record));
+            if (failure) {
+                await failure.bodyPromise;
+                throw new Error(`${failure.method} ${failure.url}: ${failure.error || `HTTP ${failure.status}`} ${JSON.stringify(failure.detail || '')}`);
+            }
+            if (currentStep.failure) {
+                const message = await evaluate(currentStep.failure);
+                if (message) throw new Error(`Operation failed: ${sanitizeDetails(String(message))}`);
+            }
+        };
+        const waitFor = async (expression, timeout = 7500, { interval = 50 } = {}) => {
+            for (const deadline = Date.now() + timeout; Date.now() < deadline;) {
+                await checkStep();
+                if (await (typeof expression === 'function' ? expression() : evaluate(expression))) { await checkStep(); return; }
+                await delay(interval);
+            }
+            throw new Error(`Timed out: ${currentStep?.label || expression}\n${errors.slice(-8).join('\n')}\n${await evaluate('window.__cainflowBootstrapError')}\n${await evaluate('document.body.innerText.slice(-5000)')}`);
+        };
+        const step = async (label, task, { failOnRequests = [], failure = null } = {}) => {
+            const previous = currentStep;
+            const scope = { label, after: requestSequence, failOnRequests, failure };
+            currentStep = scope;
+            try {
+                const result = await task({ completedRequest: (path, method) => completedRequests.some(record =>
+                    record.sequence > scope.after && record.url === server.baseUrl + path && record.method === method
+                    && record.status >= 200 && record.status < 300) });
+                await checkStep();
+                return result;
+            } catch (error) {
+                error.message = `[${label}] ${error.message}\nRequest diagnostics: ${JSON.stringify(getDiagnostics())}`;
+                throw error;
+            } finally { currentStep = previous; }
         };
         await send('Emulation.setDeviceMetricsOverride', { width: 1100, height: 820, deviceScaleFactor: 1, mobile: false });
         await send('Page.enable');
@@ -117,7 +180,7 @@ export async function withAppBrowser(session, task, { repoDirectory, initScript,
             await waitFor("Boolean(document.getElementById('prompt-agent-model')?.options.length)");
         }
         await delay(500);
-        return await task({ evaluate, send, waitFor, server });
+        return await task({ evaluate, send, waitFor, step, server });
     } catch (error) {
         const failure = error instanceof Error ? error : new Error(String(error));
         failure.message += `\nBrowser/server diagnostics: ${JSON.stringify(getDiagnostics())}`;

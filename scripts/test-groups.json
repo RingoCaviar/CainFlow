@@ -213,6 +213,8 @@
     }
   ],
   "tests": {
+    "tests/media-history-id-browser.test.mjs": {"tier": "browser", "groups": ["media", "history"]},
+    "tests/browser-operation-diagnostics.test.mjs": {"tier": "browser", "groups": ["tooling", "media"]},
     "tests/test-plan.test.mjs": {"tier": "fast", "groups": ["tooling"]},
     "tests/agent-canvas-input-preservation.test.mjs": {"tier": "fast", "groups": ["agent", "canvas"]},
     "tests/agent-canvas-prompt-targets.test.mjs": {"tier": "fast", "groups": ["agent", "canvas"]},

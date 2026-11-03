@@ -72,14 +72,21 @@ class MediaLibrary:
         extension = MIME_EXTENSIONS.get(mime)
         if not extension:
             raise ValueError('不支持的媒体文件格式')
-        identifier = int(entry.get('id') or int(time.time() * 1000000))
+        identifier = int(entry.get('id') or 0)
         digest = hashlib.sha256(body).hexdigest()
         metadata = {key: value for key, value in entry.items() if key not in {'image', 'video', 'videoBlob', 'thumb', 'fileUrl', 'directory', 'relativePath'}}
-        metadata.update(id=identifier, timestamp=entry.get('timestamp') or int(time.time() * 1000), mediaType='video' if mime.startswith('video/') else 'image')
+        metadata.update(timestamp=entry.get('timestamp') or int(time.time() * 1000), mediaType='video' if mime.startswith('video/') else 'image')
         with self.storage._lock:
             root = self._root()
             os.makedirs(root, exist_ok=True)
             with self._db() as db:
+                # Reserve new identities atomically across clients/processes. Keep
+                # explicit IDs for legacy migration and idempotent replay checks.
+                db.execute('BEGIN IMMEDIATE')
+                if not identifier:
+                    highest = db.execute('SELECT COALESCE(MAX(id), 0) FROM files').fetchone()[0]
+                    identifier = max(int(time.time() * 1000000), highest + 1)
+                metadata['id'] = identifier
                 row = db.execute('SELECT * FROM files WHERE id=?', (identifier,)).fetchone()
                 if row:
                     if row['digest'] != digest or row['status'] == 'deleted':
