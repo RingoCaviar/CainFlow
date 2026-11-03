@@ -1,3 +1,4 @@
+import { confirmAction, promptInput } from '../ui/app-dialogs.js';
 /**
  * 协议开发者面板
  * 提供可视化的协议参数编辑界面
@@ -812,9 +813,10 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
 
         // 绑定删除按钮
         container.querySelectorAll('.btn-remove-param').forEach(btn => {
-            btn.addEventListener('click', (e) => {
+            btn.addEventListener('click', async (e) => {
                 e.stopPropagation(); // 阻止触发折叠
-                if (confirm(`确定要删除参数"${btn.dataset.paramId}"吗？`)) {
+                const protocol = currentEditingProtocol;
+                if (await confirmAction({ documentRef, title: '删除参数', message: `确定要删除参数"${btn.dataset.paramId}"吗？`, confirmLabel: '删除参数', danger: true }) && currentEditingProtocol === protocol) {
                     delete currentEditingProtocol.parameters[btn.dataset.paramId];
                     renderParametersList(currentEditingProtocol.parameters);
                     refreshPreview();
@@ -1488,11 +1490,11 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             showToast(`无法测试：${error.message}`, 'error');
             return;
         }
-        const endpoint = prompt('输入要测试的供应商基础地址（不会创建任务）:', '');
+        const endpoint = await promptInput({ documentRef, title: '测试协议连通性', message: '输入要测试的供应商基础地址（不会创建任务）', confirmLabel: '下一步' });
         if (!endpoint) return;
         let requestPath = data.createPath || data.urlTemplate;
         if (data.variants && Object.keys(data.variants).length > 0) {
-            const modelId = prompt('输入要测试的精确模型 ID（仅选择其创建路径）:', Object.keys(data.variants)[0]);
+            const modelId = await promptInput({ documentRef, title: '选择测试模型', message: '输入要测试的精确模型 ID（仅选择其创建路径）', value: Object.keys(data.variants)[0], confirmLabel: '下一步' });
             if (!modelId) return;
             const variant = data.variants[modelId];
             if (!variant) {
@@ -1506,9 +1508,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
             showToast('请求路径模板必须生成 http 或 https 地址', 'error');
             return;
         }
-        const confirmed = typeof documentRef.defaultView?.confirm === 'function'
-            ? documentRef.defaultView.confirm(`将向 ${targetUrl} 发送 OPTIONS 请求，仅用于连通性测试，不会创建任务。继续吗？`)
-            : (typeof globalThis.confirm === 'function' ? globalThis.confirm(`将向 ${targetUrl} 发送 OPTIONS 请求，仅用于连通性测试，不会创建任务。继续吗？`) : false);
+        const confirmed = await confirmAction({ documentRef, title: '测试协议连通性', message: `将向 ${targetUrl} 发送 OPTIONS 请求，仅用于连通性测试，不会创建任务。`, confirmLabel: '开始测试' });
         if (!confirmed) {
             setSaveStatus('已取消联网测试，草稿保持不变', 'warning');
             showToast('已取消联网测试，草稿保持不变', 'warning');
@@ -1566,10 +1566,11 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
     /**
      * 添加新参数
      */
-    function addParameter() {
+    async function addParameter() {
         if (!currentEditingProtocol) return;
 
-        const paramId = prompt('输入新参数的ID（英文，如: myParam）:');
+        const paramId = await promptInput({ documentRef, title: '添加参数', message: '输入新参数的 ID（英文，如 myParam）', confirmLabel: '添加参数' });
+        if (paramId === null) return;
         if (!paramId || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(paramId)) {
             showToast('参数ID格式不正确', 'error');
             return;
@@ -1595,8 +1596,9 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
     /**
      * 创建新协议
      */
-    function createProtocol() {
-        const protocolId = prompt('输入新协议的ID（英文，如: my-custom）:');
+    async function createProtocol() {
+        const protocolId = await promptInput({ documentRef, title: '创建协议', message: '输入新协议的 ID（英文，如 my-custom）', confirmLabel: '创建协议' });
+        if (protocolId === null) return;
         if (!protocolId || !/^[a-z][a-z0-9\-]*$/.test(protocolId)) {
             showToast('协议ID格式不正确（小写字母、数字、连字符）', 'error');
             return;
@@ -1653,10 +1655,11 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         editProtocol(protocolId);
     }
 
-    function copyProtocol(protocolId) {
+    async function copyProtocol(protocolId) {
         const source = getProtocol(protocolId);
         if (!source) return;
-        const protocolIdCopy = prompt('输入副本协议 ID（英文）:', `${protocolId}-copy`);
+        const protocolIdCopy = await promptInput({ documentRef, title: '复制协议', message: '输入副本协议 ID（英文）', value: `${protocolId}-copy`, confirmLabel: '复制协议' });
+        if (protocolIdCopy === null) return;
         if (!protocolIdCopy || !/^[a-z][a-z0-9\-]*$/.test(protocolIdCopy) || getProtocol(protocolIdCopy)) {
             showToast('副本协议 ID 无效或已存在', 'error');
             return;
@@ -1681,7 +1684,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
         const confirmMsg = isBuiltIn
             ? `确定要恢复内置协议 "${protocol.label}" (${protocolId}) 的默认配置吗？`
             : `确定要删除协议 "${protocol.label}" (${protocolId}) 吗？\n\n注意：删除仅在当前会话有效，刷新页面后会恢复。`;
-        if (!confirm(confirmMsg)) {
+        if (!await confirmAction({ documentRef, title: isBuiltIn ? '恢复默认协议' : '删除协议', message: confirmMsg, confirmLabel: isBuiltIn ? '恢复默认' : '删除协议', danger: true })) {
             return;
         }
 
@@ -1712,7 +1715,7 @@ export function createProtocolDeveloperPanel({ documentRef, showToast, refreshIm
 
     async function restorePreviousProtocolRevision(protocolId = draftProtocol?.id) {
         if (!protocolId || !BUILT_IN_PROTOCOL_IDS.has(protocolId) || !getProtocolOverride(protocolId)) return;
-        if (!confirm(`确定恢复内置协议 “${protocolId}” 的上一份覆盖版本吗？当前覆盖会保存在备份中，可再次恢复。`)) return;
+        if (!await confirmAction({ documentRef, title: '恢复协议版本', message: `确定恢复内置协议 “${protocolId}” 的上一份覆盖版本吗？当前覆盖会保存在备份中，可再次恢复。`, confirmLabel: '恢复版本', danger: true })) return;
         try {
             const response = await fetch('/api/protocol/override/restore', {
                 method: 'POST',

@@ -1,3 +1,4 @@
+import { confirmAction } from '../ui/app-dialogs.js';
 /**
  * Handles model rendering, fetched model workflows, request previews, and node model dropdown refresh.
  */
@@ -603,8 +604,8 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
         });
 
         modelsList.querySelectorAll('.card-btn-delete').forEach((btn) => {
-            btn.addEventListener('click', (event) => {
-                if (!windowRef.confirm('确定删除此模型配置吗？')) return;
+            btn.addEventListener('click', async (event) => {
+                if (!await confirmAction({ documentRef, title: '删除模型', message: '确定删除此模型配置吗？', confirmLabel: '删除模型', danger: true })) return;
                 if (store.openModelProviderPanelId === event.target.dataset.id) {
                     store.openModelProviderPanelId = '';
                 }

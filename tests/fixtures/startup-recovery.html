@@ -1,12 +1,31 @@
 <!doctype html><html><body><iframe id="app" src="../../index.html"></iframe><pre id="surface-result"></pre>
 <script>
-document.getElementById('app').addEventListener('load',()=>setTimeout(()=>{
+document.getElementById('app').addEventListener('load',()=>setTimeout(async()=>{
  const child=document.getElementById('app').contentDocument;
  const recovery=child.getElementById('startup-recovery');
- document.getElementById('surface-result').textContent=JSON.stringify({
+ const result = {
  visible:!!recovery&&!recovery.hidden&&getComputedStyle(recovery).display!=='none', message:recovery?.querySelector('p')?.textContent,
  nodes:child.querySelectorAll('#nodes-layer > .node').length,
  ready:document.getElementById('app').contentWindow.__cainflowAppReady===true
- });
+ };
+ try {
+  const opener = recovery.querySelector(':scope > button');
+  const dialog = child.getElementById('startup-reload-dialog');
+  opener.click();
+  result.opened = dialog.open;
+  dialog.querySelector('[data-action="close"]').click();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  result.cancelled = !dialog.open && getComputedStyle(dialog).display === 'none';
+  const { getSurfaceCoordinator } = await import('../../js/features/ui/surface-coordinator.js');
+  getSurfaceCoordinator(child);
+  opener.focus();
+  opener.click();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  dialog.dispatchEvent(new child.defaultView.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await new Promise(resolve => setTimeout(resolve, 20));
+  result.escapeCancelled = !dialog.open && getComputedStyle(dialog).display === 'none';
+  result.focusReturned = child.activeElement === opener && !opener.closest('[inert]');
+ } catch(error) { result.error = String(error); }
+ document.getElementById('surface-result').textContent=JSON.stringify(result);
 },100));
 </script></body></html>

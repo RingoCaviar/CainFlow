@@ -32,7 +32,8 @@ function browserFixture({ downloadRemoteMedia = async () => { throw new Error('n
         downloadRemoteMedia,
         pushHistory: () => { undoCount += 1; return 'undo-1'; },
         showToast: (...args) => notices.push(args),
-        windowRef: { confirm: () => true },
+        windowRef: {},
+        confirmActionRef: async () => true,
         documentRef: { createElement: () => ({}) },
         FileReaderRef: class {}, createImageBitmapRef: async () => ({ close() {} }),
         URLRef: { createObjectURL: () => '', revokeObjectURL() {} }

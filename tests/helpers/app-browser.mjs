@@ -60,10 +60,6 @@ export async function withAppBrowser(session, task, { repoDirectory, initScript,
         };
         getDiagnostics = () => ({ backend: server.getDiagnostics(), networkFailures });
         socket.addEventListener('message', event => { const value = JSON.parse(event.data);
-            if (preserveRetiredSaveNodes && value.method === 'Page.javascriptDialogOpening'
-                && value.params.type === 'confirm' && value.params.message.includes('保存节点，我们已经弃用了')) {
-                void send('Page.handleJavaScriptDialog', { accept: false });
-            }
             if (value.method === 'Network.requestWillBeSent') {
                 requests.set(value.params.requestId, publicUrl(value.params.request.url));
                 if (requests.size > 1000) requests.delete(requests.keys().next().value);
@@ -99,6 +95,18 @@ export async function withAppBrowser(session, task, { repoDirectory, initScript,
         await send('Page.enable');
         await send('Runtime.enable');
         await send('Network.enable');
+        if (preserveRetiredSaveNodes) await send('Page.addScriptToEvaluateOnNewDocument', { source: `
+            document.addEventListener('DOMContentLoaded', () => {
+                const dismissRetirement = () => {
+                    const dialog = document.querySelector('#app-action-dialog:not(.hidden)');
+                    if (dialog?.querySelector('h3')?.textContent === '保存节点已弃用') {
+                        dialog.querySelector('[data-dialog-style-1-action="cancel"]')?.click();
+                    }
+                };
+                new MutationObserver(dismissRetirement).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+                dismissRetirement();
+            });
+        ` });
         if (initScript) await send('Page.addScriptToEvaluateOnNewDocument', { source: initScript });
         await send('Page.navigate', { url: server.baseUrl });
         try {

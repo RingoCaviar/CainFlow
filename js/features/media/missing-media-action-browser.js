@@ -1,3 +1,4 @@
+import { confirmAction } from '../ui/app-dialogs.js';
 import { createMissingMediaActionCoordinator, validateRecoveryBlob } from './missing-media-actions.js';
 
 function blobToDataUrl(blob, FileReaderRef) {
@@ -32,6 +33,7 @@ export function createMissingMediaBrowserActions({
     recoverTaskMedia,
     fetchRef = fetch,
     documentRef = document,
+    confirmActionRef = confirmAction,
     windowRef = window,
     FileReaderRef = FileReader,
     createImageBitmapRef = createImageBitmap,
@@ -85,9 +87,11 @@ export function createMissingMediaBrowserActions({
     }
 
     const coordinator = createMissingMediaActionCoordinator({
-        confirm: async (request) => windowRef.confirm(
-            request.kind === 'remove' ? '确认移除选中的媒体引用？此操作可撤销。' : '确认执行所选媒体恢复操作？'
-        ),
+        confirm: (request) => confirmActionRef({ documentRef, signal: request.signal,
+            title: request.kind === 'remove' ? '移除媒体引用' : '恢复媒体',
+            message: request.kind === 'remove' ? '确认移除选中的媒体引用？此操作可撤销。' : '确认执行所选媒体恢复操作？',
+            confirmLabel: request.kind === 'remove' ? '移除引用' : '恢复媒体', danger: request.kind === 'remove'
+        }),
         getContext,
         recordUndo: () => pushHistory(),
         recoverRemote: async (request) => {

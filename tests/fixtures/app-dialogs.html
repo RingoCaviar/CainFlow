@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN" data-app-theme="dark">
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../index.css">
+<body><button id="opener">操作</button><pre id="surface-result"></pre>
+<script type="module">
+const result = {};
+try {
+    const { confirmAction, promptInput } = await import('../../js/features/ui/app-dialogs.js');
+    const click = action => document.querySelector(`[data-dialog-style-1-action="${action}"]`).click();
+    let settled = false;
+    const pending = confirmAction({ title: '删除媒体', message: '<b>不可撤销</b>', danger: true, confirmLabel: '删除文件' });
+    pending.then(() => { settled = true; });
+    await Promise.resolve();
+    result.pending = !settled;
+    result.escaped = !document.querySelector('.dialog-style-1-message b');
+    result.danger = document.querySelector('[data-dialog-style-1-action="confirm"]').classList.contains('btn-danger');
+    click('cancel'); result.cancelled = await pending;
+    const accepted = confirmAction({ title: '覆盖画布', message: '确认后执行' });
+    result.duplicate = await confirmAction({ title: '重复点击', message: '不应再执行' });
+    click('confirm'); result.confirmed = await accepted;
+    const input = promptInput({ title: '复制协议', message: '输入 ID', value: 'my-protocol-copy' });
+    const field = document.querySelector('[data-dialog-style-1-input]');
+    result.defaultValue = field.value;
+    result.inputLabel = field.labels[0].textContent.trim();
+    field.value = 'new-protocol';
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    result.input = await input;
+    const cancelled = promptInput({ title: '取消输入', value: 'keep' });
+    document.querySelector('[data-dialog-style-1-input]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    result.cancelledInput = await cancelled;
+    const long = confirmAction({ title: '导入警告', message: `${'模型不可用\n'.repeat(120)}https://example.test/${'x'.repeat(500)}` });
+    const panel = document.querySelector('.dialog-style-1-panel');
+    const body = document.querySelector('.dialog-style-1-body');
+    const rect = panel.getBoundingClientRect();
+    result.longContentFits = rect.top >= 0 && rect.bottom <= innerHeight && body.scrollHeight > body.clientHeight && body.scrollWidth <= body.clientWidth;
+    click('cancel'); await long;
+    result.themes = [];
+    for (const theme of ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink']) {
+        document.documentElement.dataset.appTheme = theme;
+        const decision = confirmAction({ title: '删除媒体', message: '删除这项媒体及对应的本地文件，此操作无法撤销。', confirmLabel: '删除文件', danger: true });
+        const style = getComputedStyle(document.querySelector('.dialog-style-1-panel'));
+        result.themes.push({ theme, background: style.backgroundColor, color: style.color });
+        click('cancel'); await decision;
+    }
+    if (new URLSearchParams(location.search).has('preview')) {
+        document.documentElement.dataset.appTheme = new URLSearchParams(location.search).get('preview');
+        void confirmAction({ title: '删除媒体', message: '删除这项媒体及对应的本地文件，此操作无法撤销。', confirmLabel: '删除文件', danger: true });
+    }
+} catch (error) { result.error = error.stack || String(error); }
+document.getElementById('surface-result').textContent = JSON.stringify(result);
+</script>
