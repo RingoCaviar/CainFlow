@@ -2157,12 +2157,16 @@ installSessionPersistenceOnExit({
     hasPendingWorkflows: () => workflowManagerApi.hasPendingAutosave()
 });
 window.cainflowPrepareExit = createDesktopExit({
+    hasRunningTasks: () => state.isRunning || state.isRunStarting || state.activeRunCount > 0
+        || state.runningNodeIds.size > 0 || state.canvasPlanApplying || promptAgentController.hasRunningTasks()
+        || registry.conversationExecutionServiceApi?.hasRunningTasks()
+        || registry.conversationImageGenerationServiceApi?.hasRunningTasks(),
     setBlocked: blocked => { document.body.inert = blocked; },
-    settle: async () => {
+    settle: async ({ restart } = {}) => {
         if (state.canvasPlanApplying || state.isRunStarting) throw new Error('画布正在提交或启动，请稍后重新关闭');
-        promptAgentController.cancelRequest({ silent: true });
+        if (!restart) promptAgentController.cancelRequest({ silent: true });
         await getSessionManagerApi().waitForHistoryTransitions();
-        await getWorkflowRuntimeManagerApi().settleForExit();
+        if (!restart) await getWorkflowRuntimeManagerApi().settleForExit();
         await mediaControllerApi.waitForPendingImageImports();
         await getExecutionCoreApi().waitForPendingImageAssetSaves();
     },
@@ -2185,6 +2189,7 @@ window.cainflowPrepareExit = createDesktopExit({
     },
     release: () => getSessionManagerApi().endUndoSession(),
     finish: () => window.pywebview.api.finish_close(),
+    finishRestart: jobId => window.__cainflowDesktop.restartAfterUpdate(jobId),
     report: error => showToast(`退出收尾失败：${error.message}`, 'error', 8000),
     confirmDiscard: async error => {
         if (state.canvasPlanApplying || state.isRunStarting) return false;

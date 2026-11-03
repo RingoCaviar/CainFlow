@@ -3,6 +3,18 @@ import test from 'node:test';
 
 import { createConversationImageGenerationService } from '../js/features/conversation/conversation-image-generation-service.js';
 
+test('background conversation image setup remains busy until it finishes', async () => {
+    let finish;
+    const service = createConversationImageGenerationService({
+        ensureWorkflow: () => new Promise(resolve => { finish = resolve; }),
+        createImageNode: () => ({ id: 'node' }), executeImageNode: async () => ({})
+    });
+    const run = service.generate({ conversationId: 'background', prompt: 'image', model: {}, provider: {} });
+    assert.equal(service.hasRunningTasks(), true);
+    finish(true); await run;
+    assert.equal(service.hasRunningTasks(), false);
+});
+
 test('Conversation image generation creates and executes a configured ImageGenerate node', async () => {
     const calls = [];
     const service = createConversationImageGenerationService({
