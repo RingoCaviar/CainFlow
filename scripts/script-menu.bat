@@ -41,6 +41,8 @@ echo 4. 发布包冒烟测试
 echo 5. 构建 Windows 发布包
 echo 6. 一键部署虚拟环境
 echo 7. 删除虚拟环境
+echo 8. 日常检查（按改动选择，必要时升级全量）
+echo 9. 全量回归（全部测试）
 echo 0. 退出
 echo.
 
@@ -59,6 +61,8 @@ if "!ACTION!"=="4" goto release_smoke
 if "!ACTION!"=="5" goto build_release
 if "!ACTION!"=="6" goto setup_venv
 if "!ACTION!"=="7" goto delete_venv
+if "!ACTION!"=="8" goto daily_checks
+if "!ACTION!"=="9" goto full_checks
 if "!ACTION!"=="0" goto end
 
 echo.
@@ -89,6 +93,27 @@ if errorlevel 1 goto action_done
 powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%validate-release-readiness.ps1" -Python "!PYTHON_CMD!" -Node "!NODE_CMD!" -NoPause
 set "LAST_CODE=%ERRORLEVEL%"
 call :finish_action "发布准备校验" "!LAST_CODE!"
+goto action_done
+
+:daily_checks
+set "CHECK_SCRIPT=check-daily.ps1"
+set "CHECK_LABEL=日常检查"
+goto selected_checks
+
+:full_checks
+set "CHECK_SCRIPT=check-full.ps1"
+set "CHECK_LABEL=全量回归"
+
+:selected_checks
+call :require_python
+set "LAST_CODE=%ERRORLEVEL%"
+if errorlevel 1 goto action_done
+call :require_node
+set "LAST_CODE=%ERRORLEVEL%"
+if errorlevel 1 goto action_done
+powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%!CHECK_SCRIPT!" -Python "!PYTHON_CMD!" -Node "!NODE_CMD!"
+set "LAST_CODE=%ERRORLEVEL%"
+call :finish_action "!CHECK_LABEL!" "!LAST_CODE!"
 goto action_done
 
 :source_smoke

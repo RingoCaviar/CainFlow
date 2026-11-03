@@ -73,113 +73,6 @@ function Assert-CommandAvailable {
   }
 }
 
-function Invoke-NodeSyntaxChecks {
-  param(
-    [string]$RepoRoot,
-    [string]$NodeCommand
-  )
-
-  $files = @(
-    "index.js",
-    "js\app\bootstrap.js",
-    "js\app\bootstrap-impl.js",
-    "js\services\desktop-bridge.js",
-    "js\features\execution\execution-core.js",
-    "js\features\execution\workflow-runner.js",
-    "js\features\media\media-controller.js",
-    "js\features\workflow\workflow-manager.js",
-    "js\nodes\node-dom-bindings.js",
-    "js\features\settings\settings-controller.js"
-  )
-
-  foreach ($relativePath in $files) {
-    $absolutePath = Join-Path $RepoRoot $relativePath
-    if (!(Test-Path -LiteralPath $absolutePath -PathType Leaf)) {
-      throw "Syntax check target is missing: $relativePath"
-    }
-    Write-Host "Checking JS syntax: $relativePath"
-    & $NodeCommand --check $absolutePath
-    if ($LASTEXITCODE -ne 0) {
-      throw "Node syntax check failed: $relativePath"
-    }
-  }
-}
-
-function Invoke-PythonCompileChecks {
-  param(
-    [string]$RepoRoot,
-    [string]$PythonCommand
-  )
-
-  Push-Location $RepoRoot
-  try {
-    & $PythonCommand -m compileall -q server.py backend
-    if ($LASTEXITCODE -ne 0) {
-      throw "Python compileall reported failures."
-    }
-  } finally {
-    Pop-Location
-  }
-}
-
-function Invoke-NodeTests {
-  param(
-    [string]$RepoRoot,
-    [string]$NodeCommand
-  )
-
-  $testFiles = @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot "tests") -Filter "*.test.mjs" -File |
-    Sort-Object FullName |
-    ForEach-Object { Join-Path "tests" $_.Name })
-  if ($testFiles.Count -eq 0) {
-    throw "No Node test files were found."
-  }
-  # Relative paths keep the complete explicit file list within Windows command-line limits.
-  Push-Location $RepoRoot
-  try {
-    & $NodeCommand --test --test-reporter=tap --test-concurrency=1 @testFiles
-    if ($LASTEXITCODE -ne 0) {
-      throw "Node test suite failed."
-    }
-  } finally {
-    Pop-Location
-  }
-}
-
-function Invoke-PythonTests {
-  param(
-    [string]$RepoRoot,
-    [string]$PythonCommand
-  )
-
-  Push-Location $RepoRoot
-  try {
-    & $PythonCommand -m unittest discover -s tests -p "test_*.py" -q
-    if ($LASTEXITCODE -ne 0) {
-      throw "Python test suite failed."
-    }
-  } finally {
-    Pop-Location
-  }
-}
-
-function Invoke-StorageInitializationCheck {
-  param(
-    [string]$RepoRoot,
-    [string]$PythonCommand
-  )
-
-  Push-Location $RepoRoot
-  try {
-    & $PythonCommand -m unittest tests.test_storage_service tests.test_desktop_runtime
-    if ($LASTEXITCODE -ne 0) {
-      throw "Desktop and SQLite initialization tests failed."
-    }
-  } finally {
-    Pop-Location
-  }
-}
-
 function Invoke-MediaAssetSafetyGate {
   param([string]$RepoRoot, [string]$PythonCommand)
   $reportPath = Join-Path $RepoRoot "artifacts\media-asset-safety-report.json"
@@ -234,23 +127,12 @@ try {
   Write-Host "Node command: $Node"
   Write-Host "Python command: $Python"
 
-  Write-Step "Running frontend syntax checks"
-  Invoke-NodeSyntaxChecks -RepoRoot $repoRoot -NodeCommand $Node
-
-  Write-Step "Running backend compile checks"
-  Invoke-PythonCompileChecks -RepoRoot $repoRoot -PythonCommand $Python
-
-  Write-Step "Running complete Node test suite"
-  Invoke-NodeTests -RepoRoot $repoRoot -NodeCommand $Node
-
-  Write-Step "Running complete Python test suite"
-  Invoke-PythonTests -RepoRoot $repoRoot -PythonCommand $Python
+  Write-Step "Running complete regression (all tiers)"
+  & (Join-Path $repoRoot "scripts\check-full.ps1") -Python $Python -Node $Node
+  if ($LASTEXITCODE -ne 0) { throw "Complete regression failed." }
 
   Write-Step "Validating regression workflow fixtures"
   Invoke-WorkflowFixtureChecks -RepoRoot $repoRoot
-
-  Write-Step "Validating desktop security and SQLite initialization"
-  Invoke-StorageInitializationCheck -RepoRoot $repoRoot -PythonCommand $Python
 
   Write-Step "Generating Media asset safety report"
   Invoke-MediaAssetSafetyGate -RepoRoot $repoRoot -PythonCommand $Python

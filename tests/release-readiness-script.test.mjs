@@ -8,12 +8,13 @@ const validationScript = await readFile(
 );
 const releaseWorkflow = await readFile(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
 
-test('release readiness runs Python tests without an undeclared pytest dependency', () => {
-    assert.match(
-        validationScript,
-        /& \$PythonCommand -m unittest discover -s tests -p ['"]test_\*\.py['"] -q/
-    );
-    assert.doesNotMatch(validationScript, /& \$PythonCommand -m pytest\b/);
+test('release readiness delegates to the complete regression entry without duplicate Python runs', async () => {
+    const runner = await readFile(new URL('../scripts/run-tests.mjs', import.meta.url), 'utf8');
+    const fullEntry = await readFile(new URL('../scripts/check-full.ps1', import.meta.url), 'utf8');
+    assert.match(validationScript, /check-full\.ps1/);
+    assert.match(fullEntry, /"--mode", "full"/);
+    assert.match(runner, /'unittest'/);
+    assert.doesNotMatch(validationScript, /-m unittest|-m pytest|Invoke-StorageInitializationCheck/);
 });
 
 test('release readiness emits and enforces the Media asset safety report', () => {
