@@ -2219,6 +2219,7 @@ export function createPromptAgentController({
 
     return {
         init, open, close, toggle, submit, cancelRequest, removeNodeReferences, prepareNodeContext, prepareImageContext, refreshPreparedNodeContext: renderPreparedNodeContext,
+        hasRunningTasks: () => requestPending || activeRuns.size > 0,
         restoreWorkflow, snapshotWorkflow, syncWorkflowState, refreshActionStates, refreshResults: refreshRunViews, refreshModels: renderModelOptions
     };
 }

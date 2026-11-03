@@ -46,6 +46,8 @@ export async function initializeDesktopBridge() {
     runtimeInfo = await api.get_runtime_info();
     globalThis.__cainflowDesktop = {
         info: runtimeInfo,
+        restartAfterUpdate: runtimeInfo.updateRestart === true && typeof api.restart_after_update === 'function'
+            ? jobId => api.restart_after_update(jobId) : null,
         chooseDirectory: () => api.choose_directory(),
         openDirectory: (path) => api.open_directory(path),
         openExternal: (url) => api.open_external(url),

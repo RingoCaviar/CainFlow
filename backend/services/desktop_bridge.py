@@ -45,6 +45,16 @@ class DesktopBridge:
         self._window.destroy()
         return True
 
+    def restart_after_update(self, job_id):
+        from backend.services import update_service
+        update_service.request_update_restart(job_id)
+        try:
+            return self.finish_close()
+        except Exception:
+            self._close_allowed = False
+            update_service.cancel_update_restart(job_id)
+            raise
+
     def set_taskbar_status(self, status):
         return self._taskbar_service.set_status(status)
 
@@ -118,6 +128,7 @@ class DesktopBridge:
     def get_runtime_info(self):
         return {
             'desktop': True,
+            'updateRestart': bool(getattr(sys, 'frozen', False)) and sys.platform in ('win32', 'darwin'),
             'platform': sys.platform,
             'version': self._app_version,
             'dataDirectory': config.DATA_DIR,

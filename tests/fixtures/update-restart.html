@@ -1,0 +1,44 @@
+<!doctype html><html><meta charset="utf-8"><link rel="stylesheet" href="../../index.css">
+<body><pre id="surface-result"></pre><script type="module">
+import { createUpdateManager } from '../../js/features/update/update-manager.js';
+const result = {}, restarts = [], notices = new Map();
+const settle = () => new Promise(resolve => setTimeout(resolve, 20));
+function makeManager() {
+    localStorage.setItem('cainflow_update_status', 'downloading');
+    const timers = [];
+    const manager = createUpdateManager({ appVersion: '1', githubRepo: 'test/test',
+        showToast() {}, renderGeneralSettings() {}, exportWorkflow() {}, getProxyHeaders: () => ({}),
+        floatingNoticesApi: { upsertNotice: notice => notices.set(notice.id, notice), hideNotice: id => notices.delete(id) },
+        setTimeoutImpl: (fn, delay) => { timers.push({ fn, delay }); return timers.length; }, clearTimeoutImpl() {},
+        fetchImpl: async () => ({ ok: true, json: async () => ({ id: 'ready-job', status: 'completed', result: { success: true, applied: true } }) }) });
+    return { manager, timers };
+}
+try {
+    window.__cainflowDesktop = { restartAfterUpdate() {} };
+    window.cainflowPrepareExit = async ({ restartJobId }) => { restarts.push(restartJobId); return false; };
+    const desktop = makeManager();
+    await desktop.timers.find(timer => timer.delay === 0).fn(); await settle();
+    desktop.timers.find(timer => timer.delay === 450).fn(); await settle();
+    document.querySelector('#update-restart-confirm [data-dialog-style-1-action=cancel]').click(); await settle();
+    result.afterLater = restarts.length;
+    notices.get('update-restart').actions[0].onClick(); await settle();
+    const confirm = document.querySelector('#update-restart-confirm [data-dialog-style-1-action=confirm]');
+    confirm.click(); confirm.click(); await settle();
+    result.restarts = restarts;
+    result.retainedAfterFailure = notices.has('update-restart');
+    delete window.__cainflowDesktop;
+    const browser = makeManager();
+    await browser.timers.find(timer => timer.delay === 0).fn(); await settle();
+    browser.timers.find(timer => timer.delay === 450).fn(); await settle();
+    result.browserManual = document.getElementById('modal-update-result')?.textContent.includes('请重启')
+        && !document.querySelector('#update-restart-confirm:not(.hidden)');
+    if (location.search.includes('preview')) {
+        document.getElementById('modal-update-result')?.remove();
+        document.documentElement.dataset.appTheme = 'dark';
+        document.getElementById('surface-result').style.display = 'none';
+        window.__cainflowDesktop = { restartAfterUpdate() {} };
+        notices.get('update-restart').actions[0].onClick();
+    }
+} catch(error) { result.error = error.stack || String(error); }
+document.getElementById('surface-result').textContent = JSON.stringify(result);
+</script>

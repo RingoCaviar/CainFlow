@@ -758,49 +758,77 @@ def _get_pending_replace_script_name():
     return 'apply_cainflow_update.command' if sys.platform == 'darwin' else 'apply_cainflow_update.bat'
 
 
+def _get_restart_marker_path(target_path):
+    return target_path.with_name(f'.{target_path.name}.{os.getpid()}.restart')
+
+
 def _write_pending_replace_script(pending_path, target_path):
+    # A restarted onefile build must unpack its own runtime, not reuse the
+    # exiting instance's files (PyInstaller's PYINSTALLER_RESET_ENVIRONMENT).
     script_path = target_path.with_name(_get_pending_replace_script_name())
+    marker = _get_restart_marker_path(target_path)
+    _delete_file_quietly(marker)
     pid = os.getpid()
     if sys.platform == 'darwin':
-        source = _escape_shell_single_quoted_path(pending_path)
+        source = _escape_shell_single_quoted_path(pending_path) if pending_path else ''
         target = _escape_shell_single_quoted_path(target_path)
+        restart = _escape_shell_single_quoted_path(marker)
+        replace = """attempt=0
+while ! mv -f "$SOURCE" "$TARGET"; do
+    attempt=$((attempt + 1))
+    [ "$attempt" -ge 60 ] && exit 1
+    sleep 1
+done
+chmod +x "$TARGET" || exit 1
+""" if pending_path else ''
         script = f'''#!/bin/sh
 SOURCE='{source}'
 TARGET='{target}'
+RESTART='{restart}'
 PID='{pid}'
-
 while kill -0 "$PID" >/dev/null 2>&1; do
     sleep 1
 done
-
-while ! mv -f "$SOURCE" "$TARGET"; do
-    sleep 1
-done
-chmod +x "$TARGET" >/dev/null 2>&1
+{replace}
+if [ -f "$RESTART" ]; then
+    rm -- "$RESTART" || exit 1
+    export PYINSTALLER_RESET_ENVIRONMENT=1
+    "$TARGET" </dev/null >/dev/null 2>&1 &
+fi
 rm -- "$0" >/dev/null 2>&1
 '''
         script_path.write_text(script, encoding='utf-8')
         script_path.chmod(0o755)
         return script_path
 
-    script = f'''@echo off
-chcp 65001 >nul
-set "SOURCE={_escape_batch_path(pending_path)}"
-set "TARGET={_escape_batch_path(target_path)}"
-set "PID={pid}"
-
-:wait_process
-tasklist /FI "PID eq %PID%" | find "%PID%" >nul
-if not errorlevel 1 (
-    timeout /t 1 /nobreak >nul
-    goto wait_process
-)
-
+    replace = '''set "ATTEMPT=0"
 :replace_program
 move /Y "%SOURCE%" "%TARGET%" >nul
 if errorlevel 1 (
-    timeout /t 1 /nobreak >nul
+    set /a ATTEMPT+=1
+    if %ATTEMPT% geq 60 exit /b 1
+    ping -n 2 127.0.0.1 >nul
     goto replace_program
+)
+''' if pending_path else ''
+    script = f'''@echo off
+setlocal DisableDelayedExpansion
+chcp 65001 >nul
+set "SOURCE={_escape_batch_path(pending_path) if pending_path else ''}"
+set "TARGET={_escape_batch_path(target_path)}"
+set "RESTART={_escape_batch_path(marker)}"
+set "PID={pid}"
+:wait_process
+tasklist /FI "PID eq %PID%" | find "%PID%" >nul
+if not errorlevel 1 (
+    ping -n 2 127.0.0.1 >nul
+    goto wait_process
+)
+{replace}
+if exist "%RESTART%" (
+    del "%RESTART%" >nul 2>nul
+    set "PYINSTALLER_RESET_ENVIRONMENT=1"
+    start "" /b "%TARGET%"
 )
 del "%~f0" >nul 2>nul
 '''
@@ -1159,6 +1187,10 @@ def start_update_download(repo=None):
             snapshot['alreadyRunning'] = True
             return snapshot
 
+        if _UPDATE_JOB and _UPDATE_JOB.get('restartArmed'):
+            raise RuntimeError('正在重启，请勿重复下载更新')
+        if _UPDATE_JOB and _UPDATE_JOB.get('status') == 'completed' and (_UPDATE_JOB.get('result') or {}).get('success'):
+            return _snapshot_job(_UPDATE_JOB)
         cleanup_update_temp_files()
 
         job = {
@@ -1212,3 +1244,41 @@ def cancel_update_download(job_id=None):
             pass
 
     return snapshot
+
+
+def request_update_restart(job_id):
+    with _UPDATE_LOCK:
+        job = _UPDATE_JOB
+        if not job_id or not job or job.get('id') != job_id or job.get('status') != 'completed':
+            raise RuntimeError('更新尚未完成或已过期，请重新检查更新状态')
+        result = job.get('result') or {}
+        target = Path(config.MAIN_EXE_PATH).resolve()
+        if not getattr(sys, 'frozen', False) or target != Path(sys.executable).resolve():
+            raise RuntimeError('当前环境不支持自动重启，请手动重启主程序')
+        if not result.get('success') or result.get('targetPath') != str(target):
+            raise RuntimeError('更新目标无效，已取消重启')
+        if job.get('restartArmed'):
+            return True
+        if result.get('replacementPending'):
+            pending = target.with_name(f'{target.stem}.update{target.suffix}')
+            helper = target.with_name(_get_pending_replace_script_name())
+            if not pending.is_file() or not helper.is_file() or not result.get('helperStarted'):
+                raise RuntimeError('更新替换助手不可用，已取消重启')
+        elif result.get('applied'):
+            if not job.get('restartHelperStarted'):
+                helper = _write_pending_replace_script(None, target)
+                if not _launch_pending_replace_script(helper):
+                    raise RuntimeError('无法启动重启助手，已取消重启')
+                job['restartHelperStarted'] = True
+        else:
+            raise RuntimeError('更新尚未准备就绪，已取消重启')
+        _get_restart_marker_path(target).write_text(str(job_id), encoding='utf-8')
+        job['restartArmed'] = True
+        return True
+
+
+def cancel_update_restart(job_id):
+    with _UPDATE_LOCK:
+        if _UPDATE_JOB and _UPDATE_JOB.get('id') == job_id:
+            _delete_file_quietly(_get_restart_marker_path(Path(config.MAIN_EXE_PATH).resolve()))
+            _UPDATE_JOB['restartArmed'] = False

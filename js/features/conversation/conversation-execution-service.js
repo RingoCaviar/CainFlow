@@ -290,11 +290,11 @@ export function createConversationExecutionService({
             const text = String(response?.text || '');
             attempt.status = 'completed';
             attempt.finishedAt = now();
-            return persistFinal(run, { status: 'completed', text, attempts: run.attempts });
+            return await persistFinal(run, { status: 'completed', text, attempts: run.attempts });
         } finally {
             activeRuns.delete(conversation.id);
         }
     }
 
-    return { send, regenerate, stop, getRunState, recoverInterrupted };
+    return { send, regenerate, stop, getRunState, recoverInterrupted, hasRunningTasks: () => activeRuns.size > 0 };
 }

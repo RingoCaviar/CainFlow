@@ -1,4 +1,5 @@
 import { confirmAction } from '../ui/app-dialogs.js';
+import { openDialogStyle1 } from '../ui/dialog-style-1.js';
 /**
  * 管理版本更新检查、刷新提示与更新前备份导出等流程。
  */
@@ -26,6 +27,8 @@ export function createUpdateManager({
     let updateCheckProgressToast = null;
     let activeUpdateJobId = '';
     let handledTerminalUpdateJobId = '';
+    let readyUpdateJobId = '';
+    let restartPromptPending = false;
     const refreshNoticeDismissStorageKey = 'cainflow_refresh_notice_dismissed';
     const updateDownloadTextKey = 'cainflow_update_download_text';
     const updateDownloadSnapshotKey = 'cainflow_update_download_snapshot';
@@ -842,11 +845,55 @@ export function createUpdateManager({
         };
     }
 
+    function canRestartDesktop() {
+        return typeof windowRef.__cainflowDesktop?.restartAfterUpdate === 'function'
+            && typeof windowRef.cainflowPrepareExit === 'function';
+    }
+
+    async function showRestartDialog() {
+        if (restartPromptPending || !readyUpdateJobId || !canRestartDesktop()) return;
+        restartPromptPending = true;
+        try {
+            const action = await openDialogStyle1({
+                id: 'update-restart-confirm', documentRef,
+                title: '更新已准备就绪',
+                message: '点击“立即重启”将保存当前工作，关闭应用并自动启动新版，完成更新。',
+                note: '如果仍有生成或 Agent 任务运行，请等任务完成后再重启。',
+                actions: [
+                    { id: 'cancel', label: '稍后', variant: 'secondary', autofocus: true },
+                    { id: 'confirm', label: '立即重启', variant: 'primary' }
+                ]
+            });
+            if (action !== 'confirm') return;
+            if (await windowRef.cainflowPrepareExit({ restartJobId: readyUpdateJobId })) {
+                floatingNoticesApi?.hideNotice('update-restart');
+            }
+        } catch (error) {
+            showToast(`重启失败：${error.message}`, 'error', 8000);
+        } finally {
+            restartPromptPending = false;
+        }
+    }
+
     function notifyUpdateDownloadCompleted(jobId, snapshot, message) {
         if (handledTerminalUpdateJobId === jobId) return;
         handledTerminalUpdateJobId = jobId;
 
         setTimeoutImpl(() => {
+            const result = snapshot.result || {};
+            if (canRestartDesktop() && result.success === true
+                && (result.applied || (result.replacementPending && result.helperStarted))) {
+                readyUpdateJobId = jobId;
+                floatingNoticesApi?.hideNotice('update-canvas');
+                floatingNoticesApi?.upsertNotice({
+                    id: 'update-restart', priority: 30, className: 'update-canvas-notice',
+                    role: 'status', icon: '↑', title: '更新已准备就绪',
+                    meta: '保存当前工作后重启以使用新版',
+                    actions: [{ id: 'btn-restart-update', label: '立即重启', onClick: showRestartDialog }]
+                });
+                void showRestartDialog();
+                return;
+            }
             const dialog = getUpdateCompletionDialog(snapshot, message);
             showToast(dialog.message, dialog.type === 'info' ? 'info' : 'success', 12000);
             showUpdateResultDialog(dialog);
@@ -925,6 +972,7 @@ export function createUpdateManager({
     }
 
     async function downloadLatestUpdate(releaseData = null) {
+        if (readyUpdateJobId && canRestartDesktop()) return showRestartDialog();
         if (releaseData) latestReleaseData = releaseData;
         const activeRelease = releaseData || latestReleaseData;
 
@@ -1091,7 +1139,7 @@ export function createUpdateManager({
 
     async function syncExistingUpdateDownloadJob() {
         const storedStatus = localStorageRef.getItem('cainflow_update_status') || '';
-        if (storedStatus !== 'downloading' && storedStatus !== 'canceling') return;
+        if (!['downloading', 'canceling', 'downloaded'].includes(storedStatus)) return;
 
         try {
             const response = await fetchImpl('/api/update/status');

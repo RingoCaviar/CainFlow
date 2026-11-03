@@ -68,12 +68,14 @@ test('Conversation execution projects durable user and pending assistant message
         model: { id: 'm1', modelId: 'chat' }, provider: { id: 'p1' }
     });
 
+    assert.equal(service.hasRunningTasks(), true);
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(persisted.map((entry) => [entry.message.role, entry.message.status]), [
         ['user', 'completed'], ['assistant', 'pending']
     ]);
     gate.resolve({ text: '完成' });
     await request;
+    assert.equal(service.hasRunningTasks(), false);
 });
 
 function deferred() {
@@ -248,6 +250,9 @@ test('first user message derives a bounded local title', () => {
 test('regeneration appends a sibling assistant version without overwriting the previous reply', async () => {
     const appended = [];
     const api = memoryApi();
+    const persisted = deferred();
+    const originalUpdate = api.updateConversationMessage;
+    api.updateConversationMessage = async (...args) => { await persisted.promise; return originalUpdate(...args); };
     const originalAppend = api.appendConversationMessage;
     api.appendConversationMessage = async (id, input) => { appended.push(input); return originalAppend(id, input); };
     const service = createConversationExecutionService({
@@ -260,7 +265,12 @@ test('regeneration appends a sibling assistant version without overwriting the p
         { id: 'a1', parentMessageId: 'u1', role: 'assistant', status: 'completed', parts: [{ type: 'text', text: 'old version' }] }
     ];
 
-    await service.regenerate({ conversation: source, assistantMessageId: 'a1', model: { id: 'm1', modelId: 'chat' }, provider: { id: 'p1' } });
+    const request = service.regenerate({ conversation: source, assistantMessageId: 'a1', model: { id: 'm1', modelId: 'chat' }, provider: { id: 'p1' } });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(service.hasRunningTasks(), true, 'final persistence must block restart');
+    persisted.resolve();
+    await request;
+    assert.equal(service.hasRunningTasks(), false);
     assert.equal(appended.length, 1);
     assert.equal(appended[0].role, 'assistant');
     assert.equal(appended[0].parentMessageId, 'u1');
