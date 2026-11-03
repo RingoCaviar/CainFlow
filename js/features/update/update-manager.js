@@ -1,3 +1,4 @@
+import { confirmAction } from '../ui/app-dialogs.js';
 /**
  * 管理版本更新检查、刷新提示与更新前备份导出等流程。
  */
@@ -917,13 +918,10 @@ export function createUpdateManager({
         return text || `下载更新失败：HTTP ${response.status}`;
     }
 
-    function confirmUpdateDownload(releaseData = null) {
+    async function confirmUpdateDownload(releaseData = null) {
         const tagName = releaseData?.tag_name || localStorageRef.getItem('cainflow_update_version') || '最新版';
         const message = `即将从 GitHub 下载 ${tagName} 的 Release ZIP，并只覆盖 CainFlow 主程序。\n\n由于网络环境问题，下载速度可能不稳定；下载和替换期间请不要关闭 CainFlow。\n\n是否继续？`;
-        if (typeof windowRef.confirm === 'function') {
-            return windowRef.confirm(message);
-        }
-        return true;
+        return confirmAction({ documentRef, title: '下载并更新', message, confirmLabel: '下载并更新' });
     }
 
     async function downloadLatestUpdate(releaseData = null) {
@@ -935,7 +933,7 @@ export function createUpdateManager({
             return;
         }
 
-        if (!confirmUpdateDownload(activeRelease)) return;
+        if (!await confirmUpdateDownload(activeRelease)) return;
 
         updateDownloadInProgress = true;
         activeUpdateJobId = '';

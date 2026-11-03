@@ -1,3 +1,4 @@
+import { confirmAction } from '../ui/app-dialogs.js';
 import { deleteHistoryWithProgress } from './history-delete-progress.js';
 /**
  * 管理历史记录详情预览，包括图片查看、下载、复制与删除等交互。
@@ -480,7 +481,7 @@ export function createHistoryPreviewApi({
         if (!item) return;
 
         const isVideo = isVideoHistoryItem(item);
-        if (windowRef.confirm(`确定要从历史记录中删除这${isVideo ? '个视频' : '张图片'}及对应的本地文件吗？\n此操作无法撤销。`)) {
+        if (await confirmAction({ documentRef, title: '删除媒体', message: `从历史记录中删除这${isVideo ? '个视频' : '张图片'}及对应的本地文件，此操作无法撤销。`, confirmLabel: '删除文件', danger: true })) {
             try { await deleteHistoryEntry(item.id, item); } catch { renderHistoryList(); return; }
             showToast('已从历史记录中删除', 'info');
 

@@ -1,3 +1,4 @@
+import { confirmAction } from './app-dialogs.js';
 import { canUseCanvasShortcuts, isTextEditingTarget } from './shortcut-guard.js';
 import { installUiBoundaryAudit } from './ui-boundary-audit.js';
 import { getSurfaceCoordinator } from './surface-coordinator.js';
@@ -208,10 +209,10 @@ export function createRuntimeControllerApi({
 
     async function hardReload() {
         if (hardReloadInProgress) return false;
-        if (state.isRunning && !windowRef.confirm('工作流正在运行。强制刷新会中断当前界面的运行状态，确定继续吗？')) return false;
         hardReloadInProgress = true;
         let navigating = false;
         try {
+            if (state.isRunning && !await confirmAction({ documentRef, title: '强制刷新', message: '工作流正在运行。强制刷新会中断当前界面的运行状态。', confirmLabel: '强制刷新', danger: true })) return false;
             navigating = await saveAndNavigate();
             return navigating;
         } finally {

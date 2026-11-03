@@ -1,3 +1,4 @@
+import { confirmAction } from '../features/ui/app-dialogs.js';
 import { createRetiredSaveNodeCleanup } from '../features/persistence/retired-save-nodes.js';
 import { createImageFirstCanvas } from '../features/ui/image-first-canvas.js';
 import { createImageGenerationRevisionApi } from '../nodes/image-generation-revision.js';
@@ -1054,7 +1055,7 @@ const cleanupRetiredSaveNodes = createRetiredSaveNodeCleanup({
     serializeNodes: () => nodeSerializer.serializeNodes(), removeNode, onNodesRemoved: handleNodesRemoved,
     graphChanged: () => { connectionsApi.updateAllConnections(); connectionsApi.updatePortStyles(); handleNodeGraphChanged(); },
     save: () => workflowManagerApi.saveActiveWorkflow({ silent: true }),
-    confirm: options => window.confirm(`${options.message}\n\n${options.note}`), showToast
+    confirm: options => confirmAction({ ...options, confirmLabel: '清理旧节点', danger: true }), showToast
 });
 const offerRetiredSaveNodeCleanup = options => retiredSaveCleanupReady ? cleanupRetiredSaveNodes(options) : Promise.resolve();
 new MutationObserver(records => {
@@ -1377,7 +1378,8 @@ function getConversationWorkbenchControllerApi() {
                     origin
                 });
                 const preview = plan.nodes.map((node) => `${node.type} @ (${Math.round(node.x)}, ${Math.round(node.y)})`).join('\n');
-                if (!confirm(`将向当前工作流添加：\n${preview}\n\n资源引用将复用现有 Media asset。是否继续？`)) return { status: 'cancelled', nodeIds: [] };
+                if (!await confirmAction({ title: '添加到画布', message: `将向当前工作流添加：\n${preview}`, note: '资源引用将复用现有媒体。', confirmLabel: '添加节点' })) return { status: 'cancelled', nodeIds: [] };
+                if (workflowManagerApi.getActiveWorkflowId() !== workflowId) return { status: 'cancelled', nodeIds: [] };
                 const command = createCanvasMaterializationCommand({
                     addNode,
                     removeNode,

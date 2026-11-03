@@ -1,3 +1,4 @@
+import { confirmAction } from '../ui/app-dialogs.js';
 import { buildHistoryCardMarkup, needsHistoryVideoThumbnail } from './history-utils.js';
 import { createHistoryVideoContextMenu } from './history-video-context-menu.js';
 
@@ -151,7 +152,7 @@ export function createHistoryPanelApi({
             const deleteButton = event.target.closest('.delete-btn');
             if (deleteButton) {
                 event.stopPropagation();
-                if (!confirm('确定要删除这项媒体及对应的本地文件吗？此操作无法撤销。')) return;
+                if (!await confirmAction({ documentRef, title: '删除媒体', message: '删除这项媒体及对应的本地文件，此操作无法撤销。', confirmLabel: '删除文件', danger: true })) return;
                 try { await deleteHistoryEntry(Number(deleteButton.dataset.id), itemsById.get(Number(deleteButton.dataset.id))); }
                 catch { /* Storage adapter reports the failed deletion. */ }
                 renderHistoryList();

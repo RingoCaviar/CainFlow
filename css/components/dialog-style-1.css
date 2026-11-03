@@ -7,7 +7,8 @@
     justify-content: center;
 }
 
-.dialog-style-1.hidden {
+.dialog-style-1.hidden,
+dialog.dialog-style-1:not([open]) {
     display: none;
 }
 
@@ -19,6 +20,9 @@
 
 .dialog-style-1-panel {
     position: relative;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100dvh - 32px);
     width: min(480px, calc(100vw - 32px));
     border-radius: 8px;
     background: color-mix(in srgb, var(--settings-dialog-panel-bg, var(--panel-bg, rgba(22, 22, 42, 0.92))) 86%, transparent);
@@ -33,6 +37,7 @@
 .dialog-style-1-header,
 .dialog-style-1-footer {
     display: flex;
+    flex-shrink: 0;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
@@ -65,6 +70,9 @@
 
 .dialog-style-1-body {
     display: grid;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-wrap: anywhere;
     gap: 8px;
     padding: 16px;
 }

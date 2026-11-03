@@ -1,3 +1,4 @@
+import { confirmAction } from '../ui/app-dialogs.js';
 /**
  * 负责工作流项目的导入导出与恢复加载，是前端项目 IO 的统一入口。
  */
@@ -171,14 +172,14 @@ export function createProjectIoApi({
                     throw new Error('无效的 CainFlow 项目文件格式');
                 }
 
-                if (!windowRef.confirm('导入将覆盖当前画布节点和连线，当前 API 供应商与模型配置会保留，确定继续吗？')) {
+                if (!await confirmAction({ documentRef, title: '导入工作流', message: '导入将覆盖当前画布节点和连线，当前 API 供应商与模型配置会保留。', confirmLabel: '覆盖画布', danger: true })) {
                     return;
                 }
 
                 const currentState = JSON.parse(localStorageRef.getItem(storageKey) || '{}');
                 const modelResolution = resolveWorkflowModelReferences(importedData, state);
                 const warningMessage = buildWorkflowModelWarningMessage(modelResolution);
-                if (warningMessage && !windowRef.confirm(`${warningMessage}\n\n是否继续导入工作流？`)) {
+                if (warningMessage && !await confirmAction({ documentRef, title: '导入警告', message: warningMessage, confirmLabel: '继续导入' })) {
                     return;
                 }
 

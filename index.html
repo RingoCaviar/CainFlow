@@ -1599,8 +1599,21 @@
         style="position:fixed;inset:0;z-index:2147483647;padding:24px;background:var(--bg-canvas,#f6f7fb);color:var(--text-primary,#202434);align-content:center;text-align:center;font:16px/1.6 system-ui,sans-serif">
         <h1 id="startup-recovery-title">画布暂时未能启动</h1>
         <p>启动失败，工作流数据未被此恢复功能清除。请重新加载或关闭后重开。</p>
-        <button type="button" onclick="if(confirm('重新加载可能丢失未保存的修改，确定继续吗？')) location.reload()"
+        <button type="button" onclick="const dialog=document.getElementById('startup-reload-dialog');dialog.classList.remove('hidden');dialog.showModal()"
             style="padding:10px 20px;font:inherit;cursor:pointer">重新加载</button>
+        <!-- Keep recovery independent of the application module graph. -->
+        <dialog id="startup-reload-dialog" class="dialog-style-1 hidden" aria-labelledby="startup-reload-title"
+            style="margin:0;width:100vw;max-width:none;height:100vh;max-height:none;border:0;padding:0;background:transparent">
+            <div class="dialog-style-1-backdrop" onclick="this.parentElement.close()"></div>
+            <div class="dialog-style-1-panel">
+                <div class="dialog-style-1-header"><h3 id="startup-reload-title">重新加载</h3></div>
+                <div class="dialog-style-1-body"><p class="dialog-style-1-message">重新加载可能丢失未保存的修改，确定继续吗？</p></div>
+                <div class="dialog-style-1-footer">
+                    <button class="btn btn-secondary" type="button" autofocus data-action="close" onclick="this.closest('dialog').close()">取消</button>
+                    <button class="btn btn-danger" type="button" onclick="location.reload()">重新加载</button>
+                </div>
+            </div>
+        </dialog>
     </section>
     <script type="module" src="index.js" onerror="document.getElementById('startup-recovery').hidden=false"></script>
 </body>

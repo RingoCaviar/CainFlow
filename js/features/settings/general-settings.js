@@ -1,3 +1,4 @@
+import { confirmAction } from '../ui/app-dialogs.js';
 /**
  * Handles general settings rendering, notification sound, image save warnings, and cache usage.
  */
@@ -717,7 +718,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
             const previous = state.diagnosticStatus?.level || 'standard';
             const level = event.target.value;
             if (level === 'detailed' && localStorageRef.getItem('cainflow_detailed_diagnostics_consent') !== '1') {
-                const confirmed = windowRef.confirm('详细诊断会保存所有成功请求的截断正文，可能包含提示词和远端响应。是否启用？');
+                const confirmed = await confirmAction({ documentRef, title: '启用详细诊断', message: '详细诊断会保存所有成功请求的截断正文，可能包含提示词和远端响应。', confirmLabel: '启用详细诊断' });
                 if (!confirmed) { event.target.value = previous; return; }
                 localStorageRef.setItem('cainflow_detailed_diagnostics_consent', '1');
             }
@@ -732,7 +733,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
         });
 
         documentRef.getElementById('btn-clear-diagnostics')?.addEventListener('click', async () => {
-            if (!windowRef.confirm('确定清空全部诊断记录吗？前端运行历史不会被删除。')) return;
+            if (!await confirmAction({ documentRef, title: '清空诊断记录', message: '确定清空全部诊断记录吗？前端运行历史不会被删除。', confirmLabel: '清空记录', danger: true })) return;
             try {
                 const result = await diagnosticClient.clear('all');
                 const results = Object.fromEntries(Object.entries(result.adapters || {}).map(([name, adapter]) => [name, adapter?.success === true]));
@@ -809,9 +810,10 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                 const status = statusResponse.ok ? await statusResponse.json() : {};
                 const sizeMB = (scan.assetBytes / 1024 / 1024).toFixed(2);
                 const replacementWarning = status.hasUserData ? '\n\n硬盘已有数据，将先备份 SQLite，再用旧会话覆盖对应文档。' : '';
-                if (!windowRef.confirm(
-                    `发现 ${scan.documentCount} 组设置、${scan.assetCount} 个资产（${sizeMB} MB）、${scan.historyCount} 条历史。${replacementWarning}\n\n确认导入吗？`
-                )) return;
+                if (!await confirmAction({ documentRef, title: '导入浏览器旧数据',
+                    message: `发现 ${scan.documentCount} 组设置、${scan.assetCount} 个资产（${sizeMB} MB）、${scan.historyCount} 条历史。${replacementWarning}`,
+                    confirmLabel: '导入旧数据', danger: status.hasUserData === true
+                })) return;
                 button.textContent = '正在迁移...';
                 await migrateLegacyBrowserStorage(scan, { replace: status.hasUserData === true });
                 showToast('浏览器旧数据已迁移到硬盘，页面即将刷新', 'success', 5000);
@@ -825,7 +827,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
         });
 
         documentRef.getElementById('btn-clear-browser-storage')?.addEventListener('click', async () => {
-            if (!windowRef.confirm('只清除当前端口的 localStorage 和 IndexedDB 旧副本，硬盘数据不会删除。确认继续吗？')) return;
+            if (!await confirmAction({ documentRef, title: '清除浏览器旧数据', message: '只清除当前端口的 localStorage 和 IndexedDB 旧副本，硬盘数据不会删除。', confirmLabel: '清除旧数据', danger: true })) return;
             await clearLegacyBrowserStorage();
             showToast('当前端口的浏览器旧数据已清除', 'success');
         });

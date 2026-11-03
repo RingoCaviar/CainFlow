@@ -1,3 +1,4 @@
+import { confirmAction } from '../ui/app-dialogs.js';
 /**
  * Handles provider rendering, validation, bindings, and provider-side card state.
  */
@@ -318,8 +319,8 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
         });
 
         providersList.querySelectorAll('.card-btn-delete').forEach((btn) => {
-            btn.addEventListener('click', (event) => {
-                if (!windowRef.confirm('确定删除此供应商吗？绑定的模型可能会失效。')) return;
+            btn.addEventListener('click', async (event) => {
+                if (!await confirmAction({ documentRef, title: '删除供应商', message: '确定删除此供应商吗？绑定的模型可能会失效。', confirmLabel: '删除供应商', danger: true })) return;
                 const deps = getDeps();
                 const providerId = event.target.dataset.id;
                 state.providers = state.providers.filter((candidate) => candidate.id !== providerId);

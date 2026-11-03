@@ -120,7 +120,7 @@ export function getSurfaceCoordinator(documentRef) {
             : record.target.matches(MODALS) || windows.has(record.target)
                 || (modeless.has(record.target) && record.attributeName !== 'style'))) refresh();
     });
-    observer.observe(documentRef.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['hidden', 'class', 'style'] });
+    observer.observe(documentRef.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['hidden', 'open', 'class', 'style'] });
     documentRef.addEventListener('focusin', event => { previousFocus = event.relatedTarget || previousFocus; });
     documentRef.addEventListener('keydown', event => {
         refresh();

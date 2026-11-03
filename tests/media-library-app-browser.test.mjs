@@ -60,8 +60,9 @@ for(const accept of [false,true])test(`legacy save cleanup ${accept?'reconnects 
         {id:'a-s',from:{nodeId:'a',port:'image'},to:{nodeId:'s',port:'image'},type:'image',order:0},
         {id:'s-g',from:{nodeId:'s',port:'image'},to:{nodeId:'g',port:'referenceImages'},type:'image',order:0}]};
     await withAppBrowser(old,async app=>{
-        await app.waitFor('window.cleanupPrompts.length>0');
-        assert.match(await app.evaluate('cleanupPrompts[0]'),/保存节点.*弃用/);
+        await app.waitFor("!!document.querySelector('#app-action-dialog:not(.hidden)')");
+        assert.match(await app.evaluate("document.getElementById('app-action-dialog').textContent"), /保存节点.*弃用/s);
+        await app.evaluate("document.querySelector('#app-action-dialog [data-dialog-style-1-action=" + (accept ? 'confirm' : 'cancel') + "]').click()");
         if(accept){
             try { await app.waitFor("!document.getElementById('s')"); } catch(error) { error.message += '\nTOASTS: ' + await app.evaluate('JSON.stringify(window.cleanupToasts)'); throw error; }
             try { await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(d=>!d.value.nodes.some(n=>n.type==='ImageSave') && d.value.connections.length===1)"); }
@@ -71,7 +72,7 @@ for(const accept of [false,true])test(`legacy save cleanup ${accept?'reconnects 
             await reloadAppBrowser(app);assert.equal(await app.evaluate("!!document.getElementById('s')"),false);
         }else{assert.equal(await app.evaluate("!!document.getElementById('s')"),true)}
         assert.equal(await app.evaluate("document.querySelectorAll('#context-menu [data-type=ImageSave]').length"),0);
-    },{initScript:`window.cleanupToasts=[];document.addEventListener('DOMContentLoaded',()=>new MutationObserver(rs=>rs.forEach(r=>r.addedNodes.forEach(n=>{if(n.nodeType===1&&n.closest?.('#toast-container'))cleanupToasts.push(n.textContent)}))).observe(document.body,{childList:true,subtree:true}));window.cleanupPrompts=[];window.confirm=message=>{cleanupPrompts.push(message);return ${accept}}`});
+    },{preserveRetiredSaveNodes:false,initScript:`window.cleanupToasts=[];document.addEventListener('DOMContentLoaded',()=>new MutationObserver(rs=>rs.forEach(r=>r.addedNodes.forEach(n=>{if(n.nodeType===1&&n.closest?.('#toast-container'))cleanupToasts.push(n.textContent)}))).observe(document.body,{childList:true,subtree:true}));window.confirm=()=>{throw new Error('Native confirmation is forbidden')}`});
 });
 test('video generation archives every result without a save node and history reads the local original', {timeout:45000}, async()=>{
     const videoSession={...session,models:[...session.models,{id:'video',name:'受控视频',modelId:'veo-3',protocol:'veo-unified',taskType:'video',providerIds:['p']}],nodes:[{id:'video',type:'VideoGenerate',x:60,y:80,apiConfigId:'video',providerId:'p',prompt:'movie',generationCount:2}],connections:[]};

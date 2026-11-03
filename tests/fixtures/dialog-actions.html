@@ -1,0 +1,41 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><link rel="stylesheet" href="../../index.css">
+<body><pre id="surface-result"></pre>
+<script type="module">
+import { createUpdateManager } from '../../js/features/update/update-manager.js';
+import { createProjectIoApi } from '../../js/features/persistence/project-io.js';
+const result = {};
+const noop = () => {};
+const settle = () => new Promise(resolve => setTimeout(resolve, 20));
+const waitDialog = async () => { for (let i = 0; i < 50; i++) { if (document.querySelector('#app-action-dialog:not(.hidden) button')) return; await settle(); } };
+const decide = action => {
+    const button = document.querySelector(`#app-action-dialog [data-dialog-style-1-action="${action}"]`);
+    if (!button) throw new Error('Expected project confirmation dialog');
+    button.click();
+};
+window.confirm = () => { throw new Error('Native confirm must not be used'); };
+try {
+    let downloads = 0;
+    const manager = createUpdateManager({ appVersion: '1.0.0', githubRepo: 'example/project',
+        getProxyHeaders: () => ({}), showToast: noop, renderGeneralSettings: noop, exportWorkflow: noop,
+        setTimeoutImpl: () => 0, clearTimeoutImpl: noop,
+        fetchImpl: async () => { downloads++; throw new Error('Controlled download failure'); } });
+    const cancelled = manager.downloadLatestUpdate({ tag_name: 'v2.0.0' });
+    result.downloadsBeforeConfirm = downloads;
+    decide('cancel'); await cancelled; result.downloadsAfterCancel = downloads;
+    const accepted = manager.downloadLatestUpdate({ tag_name: 'v2.0.0' });
+    await manager.downloadLatestUpdate({ tag_name: 'v2.0.0' });
+    decide('confirm'); await accepted; result.downloadsAfterConfirm = downloads;
+
+    let imports = 0;
+    const api = createProjectIoApi({ state: { nodes: new Map(), providers: [], models: [] },
+        storageKey: 'test-import', nodeSerializer: {}, selectionApi: { reset: noop },
+        localStorageRef: { getItem: () => '{}', setItem: () => { imports++; } }, windowRef: { location: { reload: noop } }, getHandle: noop, addLog: noop, addNode: noop,
+        applyHistoryGridCols: noop, connectionProjectionMaintenance: {}, updatePortStyles: noop,
+        viewportApi: {}, showToast: noop, activateRestoredWorkflowState: async () => {} });
+    const file = new File([JSON.stringify({ nodes: [], connections: [] })], 'test.json');
+    api.importWorkflow(file); await waitDialog(); result.importsBeforeConfirm = imports;
+    decide('cancel'); await settle(); result.importsAfterCancel = imports;
+    api.importWorkflow(file); await waitDialog(); decide('confirm'); await settle(); result.importsAfterConfirm = imports;
+} catch (error) { result.error = error.stack || String(error); }
+document.getElementById('surface-result').textContent = JSON.stringify(result);
+</script>

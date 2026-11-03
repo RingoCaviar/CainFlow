@@ -11,5 +11,10 @@ test(`load failure at ${blockedPath} does not leave an empty canvas without reco
     assert.equal(result.ready, false);
     assert.equal(result.visible, true);
     assert.match(result.message, /启动失败/);
+    assert.equal(result.error, undefined);
+    assert.equal(result.opened, true);
+    assert.equal(result.cancelled, true);
+    assert.equal(result.escapeCancelled, true);
+    assert.equal(result.focusReturned, true);
 });
 }
