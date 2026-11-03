@@ -5,6 +5,7 @@ import { deleteHistoryWithProgress } from './history-delete-progress.js';
  */
 import { escapeHistoryHtml, formatHistoryGenerationDuration, formatHistoryVideoSize } from './history-utils.js';
 import { startHistoryDownload } from './history-download.js';
+import { downloadPreviewImage } from '../media/preview-image-download.js';
 import { createHistoryImageContextMenu } from './history-image-context-menu.js';
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 
@@ -42,6 +43,7 @@ export function createHistoryPreviewApi({
         loadToken: 0,
         imageObjectUrl: '',
         currentImageSource: '',
+        currentImageDownloadSource: null,
         videoObjectUrl: ''
     };
     const imageContextMenu = createHistoryImageContextMenu({ documentRef, windowRef });
@@ -218,13 +220,13 @@ export function createHistoryPreviewApi({
         if (!item) return { src: '', objectUrl: '' };
         if (item.imageBlob instanceof Blob) {
             const objectUrl = URL.createObjectURL(item.imageBlob);
-            return { src: objectUrl, objectUrl };
+            return { src: objectUrl, objectUrl, blob: item.imageBlob };
         }
         if (typeof getHistoryImageBlob === 'function' && item.id !== undefined) {
             const blob = await getHistoryImageBlob(item.id);
             if (blob instanceof Blob) {
                 const objectUrl = URL.createObjectURL(blob);
-                return { src: objectUrl, objectUrl };
+                return { src: objectUrl, objectUrl, blob };
             }
         }
         return { src: item.image || '', objectUrl: '' };
@@ -260,6 +262,7 @@ export function createHistoryPreviewApi({
 
         previewState.currentItem = item;
         previewState.currentImageSource = '';
+        previewState.currentImageDownloadSource = null;
         imageContextMenu.close();
         resetPreviewTransform();
         revokePreviewImageUrl();
@@ -310,6 +313,18 @@ export function createHistoryPreviewApi({
 
         btnDownload.onclick = async (e) => {
             e.stopPropagation();
+            if (!isVideo) {
+                if (btnDownload.disabled) return;
+                btnDownload.disabled = true;
+                try {
+                    await downloadPreviewImage(previewState.currentImageDownloadSource, {
+                        windowRef, documentRef, showToast, filename: `cainflow_${item.id}`
+                    });
+                } finally {
+                    btnDownload.disabled = false;
+                }
+                return;
+            }
             const fullItem = await getFullHistoryItem(previewState.currentItem || item);
             const started = await startHistoryDownload(fullItem, { downloadImage, documentRef, windowRef });
             const desktopSave = Boolean(windowRef.__cainflowDesktop?.saveFile);
@@ -339,7 +354,7 @@ export function createHistoryPreviewApi({
             const resolution = setPreviewVideoSource(fullItem, token);
             updatePreviewMeta(fullItem, resolution);
         } else {
-            const { src, objectUrl } = await getPreviewImageSource(fullItem);
+            const { src, objectUrl, blob } = await getPreviewImageSource(fullItem);
             if (token !== previewState.loadToken) {
                 if (objectUrl) URL.revokeObjectURL(objectUrl);
                 return;
@@ -353,6 +368,7 @@ export function createHistoryPreviewApi({
             const resolution = await setPreviewImageSource(src, token);
             if (token !== previewState.loadToken) return;
             previewState.currentImageSource = src;
+            previewState.currentImageDownloadSource = blob || src;
             updatePreviewMeta(fullItem, resolution);
         }
     }
@@ -385,6 +401,7 @@ export function createHistoryPreviewApi({
         previewState.currentIndex = -1;
         previewState.currentItem = null;
         previewState.currentImageSource = '';
+        previewState.currentImageDownloadSource = null;
         documentRef.removeEventListener('keydown', onPreviewKeyDown);
     }
 
