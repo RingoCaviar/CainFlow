@@ -966,7 +966,7 @@ const sceneReferences = [
     { referenceId: 'import-a', sourceNodeId: 'a', sourceImageIndex: 0, name: '主体', previewUrl: 'data:image/png;base64,AAAA' },
     { referenceId: 'import-b', sourceNodeId: 'b', sourceImageIndex: 0, name: '风格', previewUrl: 'data:image/png;base64,BBBB' }
 ];
-const previewNumbers = (container) => container.children.map((item) => item.querySelector('.prompt-agent-reference-number').textContent);
+const previewNumbers = (container) => container.querySelectorAll('.prompt-agent-reference-number').map(item => item.textContent);
 function sceneAdapter(readSceneReferenceImage = async (reference) => ({ ...reference, dataUrl: reference.previewUrl })) {
     return { getSelectedContext: () => null, getSceneReferenceImages: () => sceneReferences, readSceneReferenceImage };
 }
@@ -1008,7 +1008,13 @@ test('plus selects scene references in click order and renumbers after deselecti
     controller.restoreWorkflow(snapshot);
     const sent = elements['prompt-agent-messages'].children[0].querySelector('.prompt-agent-message-references');
     assert.deepEqual(previewNumbers(sent), ['1', '2']);
-    assert.equal(sent.children[0].children[0].alt, '参考图 1：风格');
+    assert.equal(sent.querySelector('.prompt-agent-attachment-label').textContent, '你发送的图片 · 2 张');
+    assert.equal(sent.querySelector('.prompt-agent-reference').children[0].alt, '参考图 1：风格');
+    controller.removeNodeReferences(['b']);
+    assert.equal(sent.querySelector('.prompt-agent-attachment-label').textContent, '你发送的图片 · 1 张');
+    assert.deepEqual(previewNumbers(sent), ['1']);
+    controller.removeNodeReferences(['a']);
+    assert.equal(elements['prompt-agent-messages'].children[0].querySelector('.prompt-agent-message-references'), null);
 });
 
 test('parallel original-image reads keep click order and prevent sending incomplete references', async () => {
