@@ -2074,7 +2074,7 @@ export function createNodeLifecycleApi({
     }
 
     function selectNode(id, isMulti) {
-        const result = selectionApi.selectNode(id, { isMulti, notify: false });
+        const result = selectionApi.selectNode(id, { isMulti });
         if (result.added) {
             state.activeNodeId = id;
             const node = state.nodes.get(id);
@@ -2084,7 +2084,6 @@ export function createNodeLifecycleApi({
             scheduleSave();
         }
         refreshNodeRelationCache();
-        selectionApi.notifyChanged(result.changedNodeIds);
         return result;
     }
 

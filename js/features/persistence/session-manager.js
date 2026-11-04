@@ -120,6 +120,7 @@ export function createSessionManagerApi({
     }
 
     async function releaseSnapshotMediaOwners(snapshot) {
+        if (snapshot?.kind === 'node-positions') return;
         await undoMedia.release(snapshot);
         return updateSnapshotMediaOwners(snapshot, removeMediaReference);
     }
@@ -514,6 +515,75 @@ export function createSessionManagerApi({
         return snapshot.historyId;
     }
 
+    // A move restores coordinates only, never a historical media value. The live
+    // nodes remain the media owners; later destructive edits protect their own snapshot.
+    function captureNodePositions(ids) {
+        const workflowId = getWorkflowSnapshot()?.active?.workflowId || 'workflow';
+        return { kind: 'node-positions', historyId: `${workflowId}:${Date.now()}:${Math.random().toString(36).slice(2)}`, positions: [...new Set(ids)].map(id => {
+            const node = state.nodes.get(id);
+            if (!node || !Number.isFinite(node.x) || !Number.isFinite(node.y)) throw new Error('移动目标已变化，请重新拖动');
+            return { id, x: node.x, y: node.y };
+        }) };
+    }
+
+    function pushNodeMoveHistory(ids) {
+        assertPreparedHistoryEditAllowed();
+        const snapshot = captureNodePositions(ids);
+        const workflowId = getWorkflowSnapshot()?.active?.workflowId;
+        const discarded = getRedoStack().splice(0).map(raw => JSON.parse(raw));
+        void releaseLegacySnapshotMediaOwners(discarded);
+        pushSnapshot(state.undoStack, snapshot);
+        updateHistoryButtons();
+        let promoted = false;
+        // Insertion/shake are graph edits. Upgrade before changing topology and
+        // keep the original coordinates, so one undo still reverses the whole drag.
+        return function promote() {
+            assertPreparedHistoryEditAllowed();
+            if (getWorkflowSnapshot()?.active?.workflowId !== workflowId
+                || JSON.parse(state.undoStack.at(-1) || 'null')?.historyId !== snapshot.historyId) {
+                throw new Error('拖动期间撤销记录已变化，请重新拖动后修改连线');
+            }
+            if (promoted) return;
+            const full = captureHistorySnapshot();
+            const positions = new Map(snapshot.positions.map(item => [item.id, item]));
+            for (const node of full.nodes) {
+                const position = positions.get(node.id);
+                if (position) { node.x = position.x; node.y = position.y; }
+            }
+            state.undoStack[state.undoStack.length - 1] = JSON.stringify(full);
+            snapshot.historyId = full.historyId;
+            promoted = true;
+        };
+    }
+
+    async function applyNodePositions(snapshot, sourceStack, destinationStack, label) {
+        const current = captureNodePositions(snapshot.positions.map(item => item.id));
+        const apply = positions => {
+            for (const { id, x, y } of positions) {
+                const node = state.nodes.get(id);
+                node.x = x; node.y = y;
+                node.el.style.left = `${x}px`; node.el.style.top = `${y}px`;
+            }
+            updateAllConnections();
+        };
+        apply(snapshot.positions);
+        try {
+            onBeforeSave({ dirty: true });
+            const saved = await persistHistoryTransition();
+            if (saved !== true && !saved?.committed) throw new Error('位置保存失败');
+        } catch {
+            apply(current.positions);
+            onBeforeSave({ dirty: true });
+            showToast(`工作流已被并发修改或保存失败，未${label}操作`, 'error');
+            return;
+        }
+        sourceStack.pop();
+        pushSnapshot(destinationStack, current);
+        updateHistoryButtons();
+        saveState();
+        showToast(`已${label}节点移动`, 'info');
+    }
+
     function assertPreparedHistoryEditAllowed() {
         if (historyTransition) throw new Error('撤销或重做正在保存，请稍后再修改');
         if (state.canvasPlanApplying) throw new Error('画布方案正在应用，请稍后再修改');
@@ -599,6 +669,10 @@ export function createSessionManagerApi({
             return;
         }
 
+        const positionSnapshot = JSON.parse(sourceStack.at(-1));
+        if (positionSnapshot?.kind === 'node-positions') {
+            return applyNodePositions(positionSnapshot, sourceStack, destinationStack, label);
+        }
         const currentSnapshot = captureHistorySnapshot();
         const raw = sourceStack.at(-1);
         let originalSnapshot;
@@ -701,6 +775,7 @@ export function createSessionManagerApi({
         loadViewportState,
         setBeforeSave,
         pushHistory,
+        pushNodeMoveHistory,
         prepareHistoryEdit,
         discardLatestHistory,
         updateUndoButton: updateHistoryButtons,

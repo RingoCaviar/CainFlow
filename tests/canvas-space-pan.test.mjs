@@ -6,6 +6,23 @@ function createClassList() {
     return { add() {}, remove() {}, contains() { return false; } };
 }
 
+test('shake detach upgrades drag history before topology changes and leaves edges alone if protection fails',()=>{
+    for(const fail of [false,true]) {
+        const calls=[];
+        const {state,windowListeners}=createHarness({connectionTargetApi:{
+            detachNodesFromConnections(){calls.push('detach');return {changed:false}},
+            showToast(){calls.push('error')}
+        }});
+        const node=state.nodes.get('node-1');node.el={classList:createClassList(),style:{setProperty(){},removeProperty(){}}};
+        state.connections=[{from:{nodeId:'node-1'},to:{nodeId:'other'}}];
+        state.dragging={nodes:['node-1'],startX:0,startY:0,startPositions:new Map([['node-1',{x:50,y:60}]]),isCloneDrag:false,
+            promoteHistory(){calls.push('protect');if(fail)throw Error('unavailable')},
+            connectionShake:{lastX:0,lastY:0,lastTime:95,activeSince:-300,reversalCount:4,travel:150}};
+        windowListeners.find(({type})=>type==='mousemove').listener({clientX:30,clientY:20,buttons:1});
+        assert.deepEqual(calls,fail?['protect','error']:['protect','detach']);
+    }
+});
+
 function createHarness({ getNodeMinimumSize = null, connectionTargetApi = {}, requestFrame = null } = {}) {
     const canvasListeners = [];
     const windowListeners = [];
@@ -51,8 +68,8 @@ function createHarness({ getNodeMinimumSize = null, connectionTargetApi = {}, re
         scheduleSave() { saveCalls.push(true); },
         getActiveWorkflowId: () => 'workflow-a',
         saveViewportState(value) { viewportSaveCalls.push(value); },
-        serializeOneNode() {}, addNode() {}, checkLineIntersection() {},
-        getConnectionSamplePoints() { return []; }, documentRef, getNodeMinimumSize,
+        serializeOneNode() {}, addNode() {}, checkLineIntersection: connectionTargetApi.checkLineIntersection || (() => false),
+        getConnectionSamplePoints: connectionTargetApi.getConnectionSamplePoints || (() => []), documentRef, getNodeMinimumSize,
         scheduleConnectionRefresh(options) { legacyRefreshCalls.push(options); },
         connectionProjection: {
             beginInteraction(kind, nodeIds) {
@@ -79,6 +96,23 @@ function createHarness({ getNodeMinimumSize = null, connectionTargetApi = {}, re
         draggingConnectionCalls, legacyRefreshCalls, saveCalls, viewportSaveCalls
     };
 }
+
+test('cutting records one protected snapshot per gesture before removing edges and refuses failed protection',()=>{
+    for(const fail of [false,true]) {
+        let calls=0;
+        const {state,canvasListeners,windowListeners}=createHarness({connectionTargetApi:{
+            getPortPosition:()=>({x:0,y:0}),getConnectionSamplePoints:()=>[{x:0,y:0},{x:100,y:100}],checkLineIntersection:()=>true,
+            pushHistory(){calls++;if(fail)throw Error('protection failed')}
+        }});
+        const start=canvasListeners.find(({type,options})=>type==='mousedown'&&!options).listener;
+        const move=windowListeners.find(({type})=>type==='mousemove').listener;
+        const edge={id:'edge',from:{nodeId:'node-1'},to:{nodeId:'other'}};
+        start({ctrlKey:true,button:2,clientX:0,clientY:0,preventDefault(){},stopPropagation(){}});
+        state.connections=[edge];move({clientX:10,clientY:10});
+        assert.equal(calls,1);assert.equal(state.connections.length,fail?1:0);
+        if(!fail){state.connections=[edge];move({clientX:20,clientY:20});assert.equal(calls,1);}
+    }
+});
 
 test('connection drawing coalesces pointer feedback and discards ended sessions', () => {
     const frames = [];

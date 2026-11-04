@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createSelectionApi } from '../js/canvas/selection.js';
+import { createNodeLifecycleApi } from '../js/nodes/node-lifecycle.js';
 import { createExecutionCoreApi } from '../js/features/execution/execution-core.js';
 import { createWorkflowRuntimeManager } from '../js/features/workflow/workflow-runtime-manager.js';
 
@@ -26,6 +27,21 @@ function createNode(id, type = 'Text') {
         }
     };
 }
+
+test('lifecycle selection notifies presentation and projection once', () => {
+    const node = createNode('selected');
+    const state = { nodes: new Map([[node.id, node]]), selectedNodes: new Set(), connections: [] };
+    let presentations = 0;
+    const appearances = [];
+    const selectionApi = createSelectionApi({ state, onChange: () => presentations++,
+        connectionProjection: { nodeAppearanceChanged: ids => appearances.push(ids) } });
+    const lifecycle = createNodeLifecycleApi({ state, selectionApi, nodesLayer: {}, scheduleSave() {},
+        documentRef: { defaultView: {} } });
+    lifecycle.selectNode(node.id, false);
+    assert.equal(presentations, 1);
+    assert.deepEqual(appearances, [[node.id]]);
+    assert.equal(state.activeNodeId, node.id);
+});
 
 test('select-all reports affected node ids through the appearance seam', () => {
     const calls = [];

@@ -19,10 +19,10 @@ test('workflow-editor selection callers report appearance intent without refresh
     assert.match(sources[1], /selectionApi\.clearSelection\(\);?/);
     assert.match(sources[2], /function ensureNodeSelected[\s\S]{0,300}selectionApi\.selectNode\(nodeEl\.id\)/);
     assert.match(sources[2], /e\.target\.id === 'canvas-container'[\s\S]{0,200}clearSelection\(\)/);
-    assert.match(
-        await read('../js/nodes/node-lifecycle.js'),
-        /function selectNode[\s\S]{0,600}selectionApi\.selectNode\(id, \{ isMulti, notify: false \}\)[\s\S]{0,600}selectionApi\.notifyChanged\(result\.changedNodeIds\)/
-    );
+    // SelectionApi owns both appearance and presentation notifications. The
+    // caller-behavior test verifies that lifecycle selection emits each once.
+    assert.match(await read('../js/nodes/node-lifecycle.js'),
+        /function selectNode[\s\S]{0,600}selectionApi\.selectNode\(id, \{ isMulti \}\)/);
     assert.doesNotMatch(combined, /marquee-clear-selection|marquee-selection-end|reason:\s*'marquee-selection'/);
 });
 

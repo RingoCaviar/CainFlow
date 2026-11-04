@@ -22,6 +22,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     runToNode, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
     panelManager = null, openAgent = () => {} }) {
     const views = new Map();
+    const dragClasses = new Set(['selected', 'is-interacting', 'connection-insert-candidate', 'connection-shake-armed']);
+    const presentationClasses = value => (value || '').split(/\s+/).filter(name => name && !dragClasses.has(name)).sort().join(' ');
     const surfaces = getSurfaceCoordinator(documentRef);
     const panel = documentRef.createElement('section');
     panel.id = 'image-parameter-panel';
@@ -419,7 +421,18 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (!state.selectedNodes.has(node.id) || state.selectedNodes.size !== 1) selectionApi.setSelection([node.id]);
         open(node, group);
     }
+    let selectionFrame = null;
     function selectionChanged() {
+        if (selectionFrame !== null) return;
+        selectionFrame = windowRef.requestAnimationFrame(() => {
+            selectionFrame = null;
+            // Pointer down establishes the drag after updating selection. Let
+            // movement paint first; open the final selection's editor on release.
+            if (state.dragging) { selectionChanged(); return; }
+            refreshSelection();
+        });
+    }
+    function refreshSelection() {
         sweep();
         updateSwitcher();
         const ids = Array.from(state.selectedNodes);
@@ -466,6 +479,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             for (const record of records) {
                 if (record.target === node.el && record.type === 'attributes') {
                     if (record.oldValue === node.el.getAttribute(record.attributeName)) continue;
+                    if (record.attributeName === 'class' && presentationClasses(record.oldValue) === presentationClasses(node.el.className)) {
+                        geometryChanged = true;
+                        continue;
+                    }
                     // Canvas geometry does not change the graph or settings.
                     // Only the current editor needs to follow its anchor.
                     if (record.attributeName === 'style') geometryChanged = true;

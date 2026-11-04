@@ -60,6 +60,37 @@ async function history(app, actionKey, feedback) {
 async function undo(app) { await history(app,'z','已撤回'); }
 async function redo(app) { await history(app,'y','已重做'); }
 
+test('repeated node moves never synchronously protect media and preserve originals through move, deletion, cleanup and undo redo', {timeout:45000}, async()=>{
+    await withAppBrowser({...session,nodes:[{id:'source',type:'ImageImport',x:60,y:260}],connections:[]},async app=>{
+        await app.evaluate(`(async()=>{const files=new DataTransfer();files.items.add(new File([await(await fetch('data:image/png;base64,${referencePixels[0]}')).blob()],'original.png',{type:'image/png'}));const input=document.getElementById('source-file');input.files=files.files;input.dispatchEvent(new Event('change',{bubbles:true}))})()`);
+        const original=(await saved(app,'s=>s.nodes[0]?.mediaAssetKeys?.length===1')).nodes[0].mediaAssetKeys[0];
+        await app.evaluate(`(()=>{window.moveSyncRequests=0;const open=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(method,url,async){if(async===false)moveSyncRequests++;return open.apply(this,arguments)};window.retainedMoveNode=document.getElementById('source')})()`);
+        for(let index=0;index<6;index++) {
+            await app.evaluate(`(async()=>{const node=document.getElementById('source'),header=node.querySelector('.node-header'),r=header.getBoundingClientRect();window.beforeMove=[parseFloat(node.style.left),parseFloat(node.style.top)];header.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,clientX:r.x+30,clientY:r.y+12}));document.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,buttons:1,clientX:r.x+60,clientY:r.y+32}));await new Promise(requestAnimationFrame);document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0}));window.afterMove=[parseFloat(node.style.left),parseFloat(node.style.top)]})()`);
+        }
+        assert.notDeepEqual(await app.evaluate('afterMove'),await app.evaluate('beforeMove'));
+        assert.equal(await app.evaluate('moveSyncRequests'),0);
+        await undo(app);
+        assert.deepEqual(await app.evaluate("[parseFloat(document.getElementById('source').style.left),parseFloat(document.getElementById('source').style.top)]"),await app.evaluate('beforeMove'));
+        await redo(app);
+        assert.deepEqual(await app.evaluate("[parseFloat(document.getElementById('source').style.left),parseFloat(document.getElementById('source').style.top)]"),await app.evaluate('afterMove'));
+        assert.equal(await app.evaluate("document.getElementById('source')===retainedMoveNode && moveSyncRequests===0"),true);
+        await app.evaluate(`(async()=>{const header=document.querySelector('#source .node-header'),r=header.getBoundingClientRect();header.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,ctrlKey:true,clientX:r.x+30,clientY:r.y+12}));document.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,buttons:1,ctrlKey:true,clientX:r.x+90,clientY:r.y+52}));await new Promise(requestAnimationFrame);document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0}));})()`);
+        await saved(app,'s=>s.nodes.length===2');
+        assert.ok(await app.evaluate('moveSyncRequests>0'),'Ctrl-drag cloning still protects its full undo snapshot');
+        await undo(app);await saved(app,'s=>s.nodes.length===1');
+        await action(app,'source','context-menu-delete-nodes');
+        await saved(app,'s=>s.nodes.length===0');
+        assert.ok(await app.evaluate('moveSyncRequests>0'),'destructive edits still acknowledge media protection');
+        await app.evaluate("fetch('/api/storage/maintenance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'clear-assets',mode:'all'})}).then(r=>{if(!r.ok)throw Error('cleanup failed');return r.json()})");
+        assert.equal(await app.evaluate(`fetch('/api/storage/assets/'+encodeURIComponent('${original}')).then(r=>r.ok)`),true);
+        await undo(app);
+        assert.deepEqual((await saved(app,'s=>s.nodes.length===1')).nodes[0].mediaAssetKeys,[original]);
+        await undo(app);
+        assert.deepEqual(await app.evaluate("[parseFloat(document.getElementById('source').style.left),parseFloat(document.getElementById('source').style.top)]"),await app.evaluate('beforeMove'));
+    });
+});
+
 async function reload(app, ready = 'window.__cainflowAppReady===true') {
     const previous = await app.evaluate('performance.timeOrigin');
     for (let attempt=0;attempt<2;attempt++) {

@@ -69,6 +69,7 @@ export function createNodeDomBindingsApi({
     createResultThumbnail,
     rememberResultThumbnail,
     pushHistory,
+    pushNodeMoveHistory = () => { pushHistory(); return () => {}; },
     removeNode,
     selectNode,
     toggleNodesEnabled,
@@ -2440,8 +2441,9 @@ export function createNodeDomBindingsApi({
                 state.dragging.deferSelectionOnDrag = true;
                 state.dragging.activateSelection = () => {
                     selectNode(id, false);
+                    if (isCloneDrag) pushHistory();
+                    else state.dragging.promoteHistory = pushNodeMoveHistory([id]);
                     if (state.dragging) state.dragging.selectionActivated = true;
-                    pushHistory();
                 };
                 return;
             }
@@ -2455,9 +2457,10 @@ export function createNodeDomBindingsApi({
                 showToast('选区中有节点正在运行，暂不能移动', 'warning');
                 return;
             }
-            state.dragging = createNodeDraggingState(nodesToDrag, pos, isCloneDrag);
-
-            pushHistory();
+            const dragging = createNodeDraggingState(nodesToDrag, pos, isCloneDrag);
+            if (isCloneDrag) pushHistory();
+            else dragging.promoteHistory = pushNodeMoveHistory(nodesToDrag);
+            state.dragging = dragging;
         });
 
         queryNodeControl(el, '.node-delete').addEventListener('click', (e) => {
