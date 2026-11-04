@@ -2,6 +2,7 @@ param(
   [string]$TagName = "",
   [string]$Python = "python",
   [string]$Node = "node",
+  [ValidateRange(1, 16)][int]$BrowserConcurrency = 2,
   [switch]$PauseOnExit,
   [switch]$PauseOnFailure,
   [switch]$NoPause
@@ -128,7 +129,7 @@ try {
   Write-Host "Python command: $Python"
 
   Write-Step "Running complete regression (all tiers)"
-  & (Join-Path $repoRoot "scripts\check-full.ps1") -Python $Python -Node $Node
+  & (Join-Path $repoRoot "scripts\check-full.ps1") -Python $Python -Node $Node -BrowserConcurrency $BrowserConcurrency
   if ($LASTEXITCODE -ne 0) { throw "Complete regression failed." }
 
   Write-Step "Validating regression workflow fixtures"

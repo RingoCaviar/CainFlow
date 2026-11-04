@@ -32,9 +32,10 @@ test('preview input refuses automatic replacement and applies an explicit source
   const changed={...edge,from:{nodeId:'next-image',port:'image'}};
   await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.connections[0]?.from.nodeId==='next-image')");
   assert.deepEqual((await graph(app)).connections,[changed]);
+  await app.evaluate("window.previewUndoToastSeen=false;window.previewUndoToastObserver=new MutationObserver(()=>{if([...document.querySelectorAll('.toast')].some(t=>t.textContent.includes('已撤回上一步操作'))){window.previewUndoToastSeen=true;window.previewUndoToastObserver.disconnect()}});previewUndoToastObserver.observe(document.getElementById('toast-container'),{childList:true,subtree:true})");
   await app.evaluate("document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,bubbles:true,cancelable:true}))");
   await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.connections[0]?.from.nodeId==='old-image')");
-  await app.waitFor("[...document.querySelectorAll('.toast')].some(t=>t.textContent.includes('已撤回上一步操作'))");
+  await app.waitFor("window.previewUndoToastSeen===true");
   await app.evaluate("document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'y',ctrlKey:true,bubbles:true,cancelable:true}))");
   await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.connections[0]?.from.nodeId==='next-image')");
   assert.deepEqual((await graph(app)).connections,[changed]);
