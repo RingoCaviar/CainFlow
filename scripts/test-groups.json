@@ -272,7 +272,6 @@
     "tests/database-compaction-http.test.mjs": {"tier": "browser", "groups": ["ui"]},
     "tests/declarative-protocol-schema.test.mjs": {"tier": "fast", "groups": ["protocol"]},
     "tests/default-theme.test.mjs": {"tier": "fast", "groups": ["theme"]},
-    "tests/default-workflow-neutral.test.mjs": {"tier": "integration", "groups": ["workflow"]},
     "tests/desktop-bridge-readiness.test.mjs": {"tier": "fast", "groups": ["desktop"]},
     "tests/desktop-download-bridge.test.mjs": {"tier": "fast", "groups": ["desktop"]},
     "tests/desktop-relative-open.test.mjs": {"tier": "fast", "groups": ["desktop"]},
