@@ -58,6 +58,22 @@ function createNode(id, x, outputPort, inputPort) {
     };
 }
 
+test('drag insertion upgrades history before graph writes and rejects failed media protection',()=>{
+    const {api,state}=createHarness(1);
+    const node=createNode('insert',100,createPort('text','output',180),createPort('text','input',100));
+    state.nodes.set(node.id,node);
+    for(const item of state.nodes.values()) {
+        item.el.querySelector=selector=>item.el.querySelectorAll(selector)[0];
+        for(const port of item.el.querySelectorAll('.node-port')) port.querySelector('.port-dot').classList=createClassList();
+    }
+    const before=state.connections.slice();let calls=0,fail=true;
+    state.dragging={promoteHistory(){calls++;assert.deepEqual(state.connections.slice(),before);if(fail)throw Error('protection unavailable')}};
+    const preview=()=>{state.connectionInsertPreview={connectionId:'connection-1',nodeId:'insert',inputPort:'text',outputPort:'text'}};
+    preview();assert.equal(api.commitConnectionInsertPreview(),false);assert.deepEqual(state.connections.slice(),before);
+    fail=false;preview();assert.equal(api.commitConnectionInsertPreview(),true);assert.equal(calls,2);
+    assert.equal(state.connections.length,2);
+});
+
 function createHarness(connectionCount, {
     requestAnimationFrameImpl,
     cancelAnimationFrameImpl,

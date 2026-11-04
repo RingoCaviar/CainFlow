@@ -29,6 +29,20 @@ test('the public image-first view ignores identical classes and positions its ed
         await app.evaluate('budgetView.reset();budgetView.node.el.classList.remove("connection-insert-candidate");budgetView.settle()');
         assert.deepEqual(await app.evaluate('({reads:budgetView.graphReads,writes:budgetView.summaryWrites})'), { reads: 0, writes: 0 }, 'a class attribute notification with an identical old value must do no presentation work');
 
+        await app.evaluate('budgetView.reset();budgetView.node.el.classList.add("selected","is-interacting","connection-insert-candidate");budgetView.settle()');
+        assert.equal(await app.evaluate('budgetView.graphReads'), 0, 'selection and drag decoration must not rebuild media presentation');
+        await app.evaluate('budgetView.node.el.classList.remove("selected","is-interacting","connection-insert-candidate");budgetView.settle()');
+        assert.equal(await app.evaluate('budgetView.graphReads'), 0, 'settling a drag must not rebuild media presentation');
+
+        assert.equal(await app.evaluate('budgetView.reset();budgetView.api.selectionChanged();budgetView.api.selectionChanged();budgetView.graphReads'), 0,
+            'selection notifications must not synchronously rebuild the parameter layer on pointer down');
+        await app.evaluate('budgetView.settle()');
+
+        await app.evaluate('budgetView.reset();budgetView.state.dragging={nodes:[budgetView.node.id]};budgetView.api.selectionChanged();budgetView.settle()');
+        assert.equal(await app.evaluate('budgetView.graphReads'), 0, 'dragging keeps expensive selection presentation off the input path');
+        await app.evaluate('budgetView.state.dragging=null;budgetView.settle()');
+        assert.ok(await app.evaluate('budgetView.graphReads>0'), 'the latest selection is presented after release');
+
         const before = await app.evaluate('budgetView.panel.style.left');
         await app.evaluate('budgetView.reset();budgetView.node.el.style.left="170px";budgetView.node.el.style.top="75px";budgetView.node.el.style.width="360px";budgetView.settle()');
         assert.notEqual(await app.evaluate('budgetView.panel.style.left'), before, 'the open editor still follows real node geometry');

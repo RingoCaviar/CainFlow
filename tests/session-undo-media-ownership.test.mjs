@@ -2,6 +2,71 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createSessionManagerApi } from '../js/features/persistence/session-manager.js';
 
+function moveHistoryFixture() {
+    const node={id:'image',type:'ImageImport',x:10,y:20,data:{mediaAssetKeys:['media:original']},el:{style:{},remove(){},querySelectorAll:()=>[]}};
+    const state={nodes:new Map([[node.id,node]]),selectedNodes:new Set(),connections:[],undoStack:[],redoStack:[]};
+    const protectedSnapshots=[],released=[],persist={ok:true,failProtection:false};
+    const manager=createSessionManagerApi({state,storageKey:'session',
+        nodeSerializer:{serializeNodes:()=>[...state.nodes.values()].map(({el,...n})=>n),buildStatePayload:()=>({})},
+        localStorageRef:{getItem:()=>null,setItem(){},length:0},documentRef:{getElementById:()=>null},showToast(){},
+        updateAllConnections(){},updatePortStyles(){},persistHistoryTransition:async()=>persist.ok,
+        addNode(type,x,y,data){state.nodes.set(data.id,{...data,type,x,y,el:{style:{},remove(){},querySelectorAll:()=>[]}})},
+        undoMedia:{protect(s){if(persist.failProtection)throw Error('protection unavailable');protectedSnapshots.push(structuredClone(s))},release:async s=>released.push(s),end:async()=>{}},
+    });
+    return {node,state,manager,protectedSnapshots,released,persist};
+}
+
+test('position-only history never protects or restores media and keeps live node identity through undo redo', async()=>{
+    const {node,state,manager,protectedSnapshots,released}=moveHistoryFixture();
+    manager.pushNodeMoveHistory(['image']);node.x=80;node.y=90;
+    node.data.mediaAssetKeys=['media:new-result'];
+    assert.doesNotMatch(state.undoStack[0],/media:|connections|ImageImport/);
+    await manager.undo();assert.equal(state.nodes.get('image'),node);assert.deepEqual([node.x,node.y],[10,20]);
+    assert.deepEqual(node.data.mediaAssetKeys,['media:new-result']);
+    await manager.redo();assert.deepEqual([node.x,node.y],[80,90]);
+    assert.deepEqual(protectedSnapshots,[]);manager.clearUndoStack();assert.deepEqual(released,[]);
+});
+
+test('failed position save rolls back coordinates and leaves undo and redo stacks unchanged',async()=>{
+    const {node,state,manager,persist}=moveHistoryFixture();
+    manager.pushNodeMoveHistory(['image']);node.x=80;persist.ok=false;
+    const before=[...state.undoStack];await manager.undo();
+    assert.equal(node.x,80);assert.deepEqual(state.undoStack,before);assert.deepEqual(state.redoStack,[]);
+    persist.ok=true;await manager.undo();assert.equal(node.x,10);
+});
+
+test('topology promotion protects full media before mutation and retains drag-start coordinates in one record',async()=>{
+    const {node,state,manager,protectedSnapshots,persist}=moveHistoryFixture();
+    const promote=manager.pushNodeMoveHistory(['image']);node.x=80;
+    persist.failProtection=true;assert.throws(promote,/protection/);
+    assert.equal(JSON.parse(state.undoStack[0]).kind,'node-positions');
+    persist.failProtection=false;promote();promote();
+    assert.equal(protectedSnapshots.length,1);assert.equal(state.undoStack.length,1);
+    assert.equal(JSON.parse(state.undoStack[0]).nodes[0].x,10);
+    assert.deepEqual(protectedSnapshots[0].nodes[0].data.mediaAssetKeys,['media:original']);
+});
+
+test('move then deletion restores protected originals before undoing coordinates, including redo',async()=>{
+    const {node,state,manager,protectedSnapshots}=moveHistoryFixture();
+    manager.pushNodeMoveHistory(['image']);node.x=80;
+    manager.pushHistory();state.nodes.clear();
+    assert.equal(protectedSnapshots.length,1);
+    await manager.undo();const restored=state.nodes.get('image');assert.equal(restored.x,80);
+    await manager.undo();assert.equal(restored.x,10);assert.equal(state.nodes.get('image'),restored);
+    await manager.redo();assert.equal(restored.x,80);
+    await manager.redo();assert.equal(state.nodes.size,0);
+});
+
+test('group movement is one coordinate record and stale topology promotion cannot replace a newer edit',async()=>{
+    const {node,state,manager,protectedSnapshots}=moveHistoryFixture();
+    const second={...node,id:'second',x:30,y:40,el:{...node.el,style:{}}};state.nodes.set(second.id,second);
+    const promote=manager.pushNodeMoveHistory(['image','second']);node.x=80;second.x=100;
+    await manager.undo();assert.deepEqual([node.x,second.x],[10,30]);
+    await manager.redo();assert.deepEqual([node.x,second.x],[80,100]);
+    assert.throws(promote,/记录已变化/);
+    assert.deepEqual(protectedSnapshots,[]);
+});
+
 test('session initialization removes legacy persisted undo snapshot metadata', () => {
     const removed = [];
     createSessionManagerApi({

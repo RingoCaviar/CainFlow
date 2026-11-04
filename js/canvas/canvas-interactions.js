@@ -30,6 +30,8 @@ export function createCanvasInteractionsApi({
     detachNodesFromConnections = null,
     updatePortStyles,
     scheduleSave,
+    showToast = () => {},
+    pushHistory = () => {},
     getActiveWorkflowId = () => '',
     saveViewportState = () => false,
     serializeOneNode,
@@ -55,6 +57,7 @@ export function createCanvasInteractionsApi({
     let sampleZoomOrigin = null;
     let sampleDrag = null;
     let sampleConnection = null;
+    let cuttingHistoryRecorded = false;
     const ZOOM_SETTLE_DELAY_MS = 120;
     const SHAKE_DETACH_DURATION_MS = 300;
     const SHAKE_SAMPLE_DISTANCE = 8;
@@ -806,6 +809,8 @@ export function createCanvasInteractionsApi({
                 shake.reversalCount >= SHAKE_MIN_REVERSALS &&
                 shake.travel >= SHAKE_MIN_TRAVEL
             ) {
+                try { draggingState.promoteHistory?.(); }
+                catch (error) { showToast(error.message, 'warning'); resetShakeTracker(draggingState, pos, now); return; }
                 const result = detachNodesFromConnections([nodeId], { save: false });
                 draggingState.connectionShakeDetached = result?.changed;
                 draggingState.connectionsToUpdate = [];
@@ -864,6 +869,7 @@ export function createCanvasInteractionsApi({
 
             if (e.ctrlKey && e.button === 2) {
                 state.isCutting = true;
+                cuttingHistoryRecorded = false;
                 const pos = viewportApi.screenToCanvas(e.clientX, e.clientY);
                 state.cutPath = [pos];
                 canvasContainer.style.cursor = 'crosshair';
@@ -951,6 +957,11 @@ export function createCanvasInteractionsApi({
                 }
 
                 if (changed) {
+                    if (!cuttingHistoryRecorded) {
+                        try { pushHistory(); }
+                        catch (error) { showToast(error.message, 'warning'); return; }
+                        cuttingHistoryRecorded = true;
+                    }
                     state.connections = state.connections.filter((c) => !connectionsToRemove.has(c.id));
                     updateAllConnections();
                     updatePortStyles();
@@ -1059,7 +1070,6 @@ export function createCanvasInteractionsApi({
 
                 if (hasDragMovement && !state.dragging.interactionVisualsActive) {
                     state.dragging.interactionVisualsActive = true;
-                    documentRef.body.classList.add('is-interacting');
                     documentRef.getElementById('connections-group').classList.add('is-interacting');
                     for (const nodeId of state.dragging.nodes) {
                         state.nodes.get(nodeId)?.el?.classList.add('is-interacting');
@@ -1214,6 +1224,8 @@ export function createCanvasInteractionsApi({
         }, true);
 
         windowRef.addEventListener('mouseup', (e) => {
+            // Read geometry before removing interaction styles across the canvas.
+            const dragEndPosition = state.dragging ? viewportApi.screenToCanvas(e.clientX, e.clientY) : null;
             documentRef.body.classList.remove('is-interacting');
             documentRef.getElementById('connections-group').classList.remove('is-interacting');
 
@@ -1247,8 +1259,7 @@ export function createCanvasInteractionsApi({
                 state.marquee = null;
             }
             if (state.dragging) {
-                const pos = viewportApi.screenToCanvas(e.clientX, e.clientY);
-                settleNodeDrag({ endPosition: pos });
+                settleNodeDrag({ endPosition: dragEndPosition });
             }
             settleNodeResize();
             if (state.connecting) {

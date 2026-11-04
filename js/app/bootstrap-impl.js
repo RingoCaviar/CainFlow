@@ -755,6 +755,7 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     rememberResultThumbnail: (nodeId, source, thumbnail) => mediaControllerApi.rememberResultThumbnail(nodeId, source, thumbnail),
     getPortPosition: (nodeId, portName, direction) => getPortPosition(nodeId, portName, direction),
     pushHistory,
+    pushNodeMoveHistory: ids => getSessionManagerApi().pushNodeMoveHistory(ids),
     removeNode: (nodeId, options) => removeNode(nodeId, options),
     selectNode: (nodeId, isMulti) => selectNode(nodeId, isMulti),
     toggleNodesEnabled: (nodeIds, referenceNodeId) => toggleNodesEnabled(nodeIds, referenceNodeId),
@@ -1259,6 +1260,8 @@ function getCanvasInteractionsApi() {
     if (!registry.canvasInteractionsApi) {
         registry.canvasInteractionsApi = createCanvasInteractionsApi({
             state,
+            showToast,
+            pushHistory,
             selectionApi,
             canvasContainer,
             nodesLayer,

@@ -1,4 +1,17 @@
 /* ===== Nodes ===== */
+/* Drag offsets belong to the card, not every control in its subtree. */
+@property --node-drag-x {
+    syntax: '<length>';
+    inherits: false;
+    initial-value: 0px;
+}
+
+@property --node-drag-y {
+    syntax: '<length>';
+    inherits: false;
+    initial-value: 0px;
+}
+
 .node {
     position: absolute;
     min-width: 80px;
@@ -105,6 +118,12 @@
 .node.is-interacting {
     transition: none !important;
     z-index: var(--layer-canvas-popup);
+}
+
+.node.is-interacting,
+.node.is-interacting * {
+    user-select: none !important;
+    cursor: inherit !important;
 }
 
 /* Ensure images don't steal clicks from the node container (so dragging works everywhere) */

@@ -1092,6 +1092,8 @@ export function createConnectionsApi({
                 showToast('节点正在运行，暂不能修改连线', 'warning');
                 return;
             }
+            try { pushHistory(); }
+            catch (error) { showToast(error.message, 'warning'); return; }
             state.connections = state.connections.filter((candidate) => candidate.id !== conn.id);
             pathById.get(conn.id)?.remove();
             pathById.delete(conn.id);
@@ -1467,6 +1469,8 @@ export function createConnectionsApi({
             outputTargetPort = outputPolicy.port;
         }
 
+        try { state.dragging?.promoteHistory?.(); }
+        catch (error) { clearConnectionInsertPreview(); showToast(error.message, 'warning'); return false; }
         state.connections = state.connections.filter((candidate) => candidate.id !== conn.id);
         state.connections.push(
             {

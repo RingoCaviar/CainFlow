@@ -39,6 +39,12 @@ test('image card supports drag to move, single click parameters and double click
         const initial = await evaluate(`(()=>{const node=document.getElementById('gesture-image'),rect=node.querySelector('.image-node-result-preview').getBoundingClientRect();return {left:parseFloat(node.style.left),top:parseFloat(node.style.top),x:rect.x+rect.width/2,y:rect.y+rect.height/2}})()`);
         await pointer(app, 'mousePressed', initial);
         await pointer(app, 'mouseMoved', { x: initial.x + 80, y: initial.y + 50 });
+        assert.deepEqual(await evaluate(`(()=>{const node=document.getElementById('gesture-image');return {
+            global:document.body.classList.contains('is-interacting'),local:node.classList.contains('is-interacting'),
+            childOffset:getComputedStyle(node.querySelector('.node-header')).getPropertyValue('--node-drag-x').trim(),
+            transform:getComputedStyle(node).transform};})()`), {
+            global:false,local:true,childOffset:'0px',transform:'matrix(1, 0, 0, 1, 80, 50)'
+        }, 'drag transforms stay on the node without invalidating the whole canvas or inheriting into controls');
         await pointer(app, 'mouseReleased', { x: initial.x + 80, y: initial.y + 50 });
         const moved = await evaluate(`(()=>{const node=document.getElementById('gesture-image');return {left:parseFloat(node.style.left),top:parseFloat(node.style.top),fullscreen:Boolean(document.querySelector('.fullscreen-overlay'))}})()`);
         assert.ok(moved.left > initial.left + 40 && moved.top > initial.top + 20, 'dragging the picture moves the node');
