@@ -116,6 +116,9 @@ test('persistent panel controls recover hidden parameters and raise either panel
         for (const cancellation of ["window.dispatchEvent(new PointerEvent('pointercancel',{pointerId:1,bubbles:true}))",
             "window.dispatchEvent(new Event('blur'))", "document.querySelector('[data-parameter-resize=width]').dispatchEvent(new PointerEvent('lostpointercapture',{pointerId:1,bubbles:true}))"]) {
             const ordinary = await rect(app), start = await point(app, '[data-parameter-resize=width]');
+            // Enter the handle before pressing, as a real pointer does. A first
+            // move after a synthetic press can lose capture in headless Chrome.
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...start });
             await pointer(app, 'mousePressed', start);
             await pointer(app, 'mouseMoved', { x: start.x + 35, y: start.y });
             await app.waitFor(`document.getElementById('image-parameter-panel').getBoundingClientRect().width > ${ordinary.width+20}`);
