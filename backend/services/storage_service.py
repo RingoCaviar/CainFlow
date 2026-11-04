@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import uuid
+import weakref
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from urllib.parse import quote, unquote_to_bytes
@@ -49,6 +50,9 @@ class StorageError(Exception):
 
 
 class StorageService(UndoMediaMixin):
+    _initialization_locks = weakref.WeakValueDictionary()
+    _initialization_locks_guard = threading.Lock()
+
     def __init__(self, database_path=None, assets_dir=None, temp_dir=None, exports_dir=None,
                  fast_check_budget_seconds=FAST_CHECK_BUDGET_SECONDS,
                  transition_fault_injector=None, supported_schema_version=SCHEMA_VERSION):
@@ -56,6 +60,9 @@ class StorageService(UndoMediaMixin):
         self.assets_dir = assets_dir or config.ASSETS_DIR
         self.temp_dir = temp_dir or config.DATA_TEMP_DIR
         self.exports_dir = exports_dir or config.EXPORTS_DIR
+        identity = os.path.normcase(os.path.abspath(self.database_path))
+        with self._initialization_locks_guard:
+            self._initialization_lock = self._initialization_locks.setdefault(identity, threading.RLock())
         self._lock = threading.RLock()
         self._initialized = False
         self._safety_status = None
@@ -71,7 +78,10 @@ class StorageService(UndoMediaMixin):
         self._undo_closing = False
 
     def initialize(self):
-        with self._lock:
+        if self._initialized:
+            return
+        # Serialize same-process instances before reading or replacing shared safety state.
+        with self._lock, self._initialization_lock:
             if self._initialized:
                 return
             fast_check_started = time.monotonic()
