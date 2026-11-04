@@ -2,6 +2,40 @@ import assert from 'node:assert/strict';
 import { latestResultRun } from '../js/features/prompt-agent/prompt-agent-result-order.js';
 import test from 'node:test';
 
+test('conversation snapshots detach mutable metadata without encoding reference image strings', () => {
+    const store = createPromptAgentConversationStore();
+    const dataUrl = 'data:image/png;base64,' + 'A'.repeat(4 * 1024 * 1024);
+    store.append({ role: 'user', text: 'reference', referenceImages: [{ name: 'original', dataUrl }] });
+    store.append({ role: 'agent', text: 'plan', canvasPlan: { id: 'archived', steps: [{ parameters: { prompt: 'original' } }] } });
+    store.compact('summary');
+    store.append({ role: 'agent', text: 'next', canvasPlan: { id: 'current', steps: [] } });
+    const stringify = JSON.stringify;
+    let encodedImage = false;
+    let snapshot;
+    try {
+        JSON.stringify = (...args) => {
+            const result = stringify(...args);
+            if (result?.includes(dataUrl)) encodedImage = true;
+            return result;
+        };
+        snapshot = store.snapshot();
+    } finally { JSON.stringify = stringify; }
+    assert.equal(encodedImage, false, 'snapshot cost must not scale with image bytes');
+    assert.equal(snapshot.referenceImages[0].dataUrl, dataUrl);
+    snapshot.referenceImages[0].name = 'changed';
+    snapshot.archivedMessages[0].referenceImages[0].dataUrl = 'changed';
+    snapshot.archivedMessages[1].canvasPlan.steps[0].parameters.prompt = 'changed';
+    const next = store.snapshot();
+    assert.equal(next.referenceImages[0].name, 'original');
+    assert.equal(next.archivedMessages[0].referenceImages[0].dataUrl, dataUrl);
+    assert.equal(next.archivedMessages[1].canvasPlan.steps[0].parameters.prompt, 'original');
+    assert.equal(store.hasCanvasPlan('archived'), true);
+    assert.equal(store.hasCanvasPlan('current'), true);
+    assert.equal(store.hasCanvasPlan('missing'), false);
+    store.clear();
+    assert.equal(store.hasCanvasPlan('archived'), false);
+});
+
 test('completion order survives compaction and restore; saving old results cannot reorder them', () => {
     const store = createPromptAgentConversationStore();
     const older = store.append({ role: 'agent', text: '旧方案' });

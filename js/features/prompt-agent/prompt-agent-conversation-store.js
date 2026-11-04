@@ -9,6 +9,19 @@ function clone(value) {
     return JSON.parse(JSON.stringify(value));
 }
 
+// Store entries have already been normalized to JSON data. Detach their
+// containers without re-encoding immutable strings (including large images)
+// whenever canvas selection or persistence requests a conversation snapshot.
+function copySnapshot(value) {
+    if (Array.isArray(value)) return value.map(item => copySnapshot(item) ?? null);
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.entries(value)
+            .filter(([, item]) => item !== undefined)
+            .map(([key, item]) => [key, copySnapshot(item)]));
+    }
+    return typeof value === 'number' && !Number.isFinite(value) ? null : value;
+}
+
 function normalizeContextSummary(summary) {
     if (typeof summary !== 'string' || !summary.trim()) throw new Error('上下文摘要不能为空。');
     const normalized = summary.trim();
@@ -219,25 +232,30 @@ export function createPromptAgentConversationStore() {
     }
 
     function snapshot() {
-        const snapshot = { version: 1, memory, messages: clone(messages) };
-        if (creativeTask) snapshot.creativeTask = clone(creativeTask);
-        if (Object.values(providerSettings).some(settings => Object.keys(settings).length)) snapshot.providerSettings = clone(providerSettings);
-        if (Object.keys(thinkingSettings.chat).length || Object.keys(thinkingSettings.image).length) snapshot.thinkingSettings = clone(thinkingSettings);
+        const snapshot = { version: 1, memory, messages: copySnapshot(messages) };
+        if (creativeTask) snapshot.creativeTask = copySnapshot(creativeTask);
+        if (Object.values(providerSettings).some(settings => Object.keys(settings).length)) snapshot.providerSettings = copySnapshot(providerSettings);
+        if (Object.keys(thinkingSettings.chat).length || Object.keys(thinkingSettings.image).length) snapshot.thinkingSettings = copySnapshot(thinkingSettings);
         if (searchSettings.mode !== 'auto' || searchSettings.modelId) snapshot.searchSettings = { ...searchSettings };
         if (imageModelId) snapshot.imageModelId = imageModelId;
-        if (Object.keys(sizeSettings).length) snapshot.sizeSettings = clone(sizeSettings);
+        if (Object.keys(sizeSettings).length) snapshot.sizeSettings = copySnapshot(sizeSettings);
         if (contextSummary) {
             snapshot.contextSummary = contextSummary;
             snapshot.compactedMessageCount = compactedMessageCount;
         }
-        if (archivedMessages.length) snapshot.archivedMessages = clone(archivedMessages);
+        if (archivedMessages.length) snapshot.archivedMessages = copySnapshot(archivedMessages);
         // Compaction may remove the last draft before a short follow-up. Keep
         // that complete draft separately only while no retained turn has one.
         if (previousPromptPlan && !messages.some((message) => message.promptPlan)) {
-            snapshot.previousPromptPlan = clone(previousPromptPlan);
+            snapshot.previousPromptPlan = copySnapshot(previousPromptPlan);
         }
-        if (referenceImages.length) snapshot.referenceImages = clone(referenceImages);
+        if (referenceImages.length) snapshot.referenceImages = copySnapshot(referenceImages);
         return snapshot;
+    }
+
+    function hasCanvasPlan(id) {
+        return Boolean(id) && (messages.some(message => message.canvasPlan?.id === id)
+            || archivedMessages.some(message => message.canvasPlan?.id === id));
     }
 
     function getContext() {
@@ -382,5 +400,5 @@ export function createPromptAgentConversationStore() {
             if (!message) return false;
             message.canvasPlan = clone(plan); return true;
         },
-        getSearchSettings: () => ({ ...searchSettings }), setSearchSettings };
+        hasCanvasPlan, getSearchSettings: () => ({ ...searchSettings }), setSearchSettings };
 }

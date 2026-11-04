@@ -1,6 +1,35 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { installSessionPersistenceOnExit } from '../js/features/persistence/session-persistence-lifecycle.js';
+import { createSessionManagerApi } from '../js/features/persistence/session-manager.js';
+
+test('a queued recovery save waits for a later drag or resize, but exit flush remains immediate', t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const state = { nodes: new Map(), connections: [], undoStack: [], workflowTabs: [] };
+    let captures = 0;
+    const manager = createSessionManagerApi({ state, storageKey: 'session',
+        nodeSerializer: { buildStatePayload() { captures++; return {}; } },
+        documentRef: { getElementById: () => null },
+        localStorageRef: { getItem: () => null, setItem() {} }, showToast() {} });
+    manager.scheduleSave();
+    state.dragging = { nodes: ['node'] };
+    t.mock.timers.tick(300);
+    assert.equal(captures, 0, 'a timer queued before pointer down must not serialize while dragging');
+    state.dragging = null;
+    state.resizing = { id: 'node' };
+    t.mock.timers.tick(300);
+    assert.equal(captures, 0);
+    state.resizing = null;
+    t.mock.timers.tick(300);
+    assert.equal(captures, 1, 'the deferred save is not lost even without another edit');
+    manager.scheduleSave();
+    state.dragging = { nodes: ['node'] };
+    manager.flushSave();
+    assert.equal(captures, 2, 'explicit exit flush still persists the latest state');
+    state.dragging = null;
+    t.mock.timers.tick(600);
+    assert.equal(captures, 2, 'flush cancels the pending timer');
+});
 
 test('page exit flushes a pending session save once', () => {
     const listeners = new Map();

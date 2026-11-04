@@ -412,6 +412,18 @@ export function createSessionManagerApi({
         }
     }
 
+    function runScheduledSave() {
+        // Selection can queue this timer immediately before a drag starts.
+        // Recheck at execution time so serializing the recovery session cannot
+        // interrupt the gesture. Explicit save/exit flushes still run directly.
+        saveTimer = null;
+        if (state.dragging || state.resizing) {
+            saveTimer = setTimeout(runScheduledSave, 300);
+            return;
+        }
+        saveState();
+    }
+
     function scheduleSave(options = {}) {
         if (!canSaveSession()) return;
         if (state.canvasPlanApplying) return;
@@ -420,7 +432,7 @@ export function createSessionManagerApi({
             onBeforeSave({ dirty: true });
         }
         clearTimeout(saveTimer);
-        saveTimer = setTimeout(saveState, 300);
+        saveTimer = setTimeout(runScheduledSave, 300);
     }
 
     function flushSave() {
