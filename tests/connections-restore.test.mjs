@@ -219,6 +219,68 @@ function createRestorationProjection(connections, overrides = {}) {
     });
 }
 
+test('internal drag paths translate without geometry reads while external edges redraw and real geometry invalidates reuse', () => {
+    let draws = 0;
+    const { api, state, paths, setOutputPortLeft, getPortRectReadCount } = createHarness(2, { distinctTargets: true,
+        createBezierPathImpl: (x,y,tx,ty) => { draws++; return `M ${x} ${y} L ${tx} ${ty}`; } });
+    api.updateAllConnections();
+    const ids = ['from','to-1'];
+    state.dragging = { nodes: ids, startPositions: new Map(ids.map(id=>[id,{x:state.nodes.get(id).x,y:state.nodes.get(id).y}])),
+        portOffsets: new Map(), isCloneDrag: false };
+    const before = paths[0].getAttribute('d');
+    for (const id of ids) { state.nodes.get(id).x += 20; api.invalidateNodePortCache(id, { translationOnly: true }); }
+    draws = 0;
+    api.updateDirtyConnections();
+    assert.equal(draws, 1, 'only the cross-selection edge is regenerated');
+    assert.equal(paths[0].getAttribute('d'), before);
+    assert.equal(paths[0].getAttribute('transform'), 'translate(20, 0)');
+    // Isolate the internal edge to prove its fast path reads no port rectangles.
+    const reads = getPortRectReadCount();
+    api.markConnectionDirty('connection-1');api.updateDirtyConnections();
+    assert.equal(getPortRectReadCount(), reads);
+    api.invalidateNodePortCache('to-2');api.markConnectionDirty('connection-1');
+    draws=0;api.updateDirtyConnections();
+    assert.equal(draws,1,'unrelated endpoint geometry does not invalidate the internal edge');
+    api.invalidateNodePortCache('from',{markDirty:false,measurementOnly:true});
+    api.markConnectionDirty('connection-1');draws=0;api.updateDirtyConnections();
+    assert.equal(draws,0,'fresh alignment measurement alone retains the rendered geometry baseline');
+    state.dragging.portOffsets.set('from-text-output', {dx:124,dy:24});
+    setOutputPortLeft(180);
+    api.invalidateNodePortCache('from');
+    draws = 0;api.updateDirtyConnections();
+    assert.equal(draws, 2, 'real geometry invalidates both internal and boundary edges');
+    assert.equal(paths[0].getAttribute('transform'), '');
+    assert.match(paths[0].getAttribute('d'), /^M 184 /, 'invalid geometry must not use the drag-start port offset');
+    state.nodes.get('from').x += 10;state.nodes.get('to-1').x += 10;
+    for(const id of ids)api.invalidateNodePortCache(id,{translationOnly:true});
+    api.updateDirtyConnections();
+    assert.equal(paths[0].getAttribute('transform'), 'translate(10, 0)', 'reuse rebases after geometry refresh');
+    state.dragging = null;
+    for(const id of ids)api.invalidateNodePortCache(id);
+    api.updateDirtyConnections();
+    assert.equal(paths[0].getAttribute('transform'), '', 'settlement removes temporary path translation');
+});
+
+test('drag reuse falls back on unequal movement zoom routing and hidden ports', () => {
+    const {api,state,paths,setPortsVisible}=createHarness(1);
+    api.updateAllConnections();
+    state.dragging={nodes:['from','to'],portOffsets:new Map(),isCloneDrag:false};
+    const move = () => {
+        for(const id of ['from','to']) {state.nodes.get(id).x+=10;api.invalidateNodePortCache(id,{translationOnly:true});}
+        api.updateDirtyConnections();
+    };
+    move();assert.match(paths[0].getAttribute('transform'),/translate/);
+    state.nodes.get('from').x+=5;api.markConnectionDirty('connection-1');api.updateDirtyConnections();
+    assert.equal(paths[0].getAttribute('transform'),'');
+    move();state.canvas.zoom=2;api.markConnectionDirty('connection-1');api.updateDirtyConnections();
+    assert.equal(paths[0].getAttribute('transform'),'');
+    move();state.connectionLineType='orthogonal';api.markConnectionDirty('connection-1');api.updateDirtyConnections();
+    assert.equal(paths[0].getAttribute('transform'),'');
+    move();setPortsVisible(false);api.invalidateNodePortCache('from');api.updateDirtyConnections();
+    assert.equal(paths[0].getAttribute('d'),'');
+    assert.equal(paths[0].getAttribute('transform'),'');
+});
+
 test('offscreen paths and shared SVG layers skip identical attributes while retaining all 400 connections and real geometry changes', () => {
     const { api, state, paths, connectionsGroup, originAxes } = createHarness(400);
     api.updateAllConnections();

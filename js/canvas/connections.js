@@ -33,6 +33,7 @@ export function createConnectionsApi({
     showToast,
     scheduleSave,
     onConnectionsChanged = () => {},
+    onNodeGeometryChanged = () => {},
     addNode = null,
     prepareHistoryEdit = null,
     discardCreatedNode = null,
@@ -42,6 +43,10 @@ export function createConnectionsApi({
     connectionRenderer = null
 }) {
     const pathById = new Map();
+    const renderedPathGeometry = new WeakMap();
+    const translatedPaths = new Set();
+    const nodeGeometryRevisions = new WeakMap();
+    let portGeometryRevision = 0;
     const connectionById = new Map();
     const connectionsByNodeId = new Map();
     const connectionsByPortKey = new Map();
@@ -57,6 +62,27 @@ export function createConnectionsApi({
     let laneMapCache = new Map();
     const portOrderCache = new Map();
     const view = documentRef.defaultView || window;
+    const observedEndpoints = new Map();
+    const endpointSizeObserver = view.ResizeObserver ? new view.ResizeObserver(entries => {
+        for (const entry of entries) {
+            const node = getNodeById(entry.target.id), observed = observedEndpoints.get(entry.target.id);
+            if (!node || node.el !== entry.target || observed?.el !== entry.target) continue;
+            const size = Array.isArray(entry.borderBoxSize) ? entry.borderBoxSize[0] : entry.borderBoxSize;
+            const width = size?.inlineSize ?? entry.contentRect.width;
+            const height = size?.blockSize ?? entry.contentRect.height;
+            if (observed.width === width && observed.height === height) continue;
+            observed.width = width; observed.height = height;
+            onNodeGeometryChanged(node.id);
+        }
+    }) : null;
+
+    function observeEndpoint(node) {
+        if (!endpointSizeObserver || !node?.el || observedEndpoints.get(node.id)?.el === node.el) return;
+        const previous = observedEndpoints.get(node.id);
+        if (previous) endpointSizeObserver.unobserve(previous.el);
+        observedEndpoints.set(node.id, { el: node.el });
+        endpointSizeObserver.observe(node.el, { box: 'border-box' });
+    }
     const INSERTION_PREVIEW_PADDING = 24;
     const OUTPUT_PORT_TRANSITION = 28;
     const INPUT_PORT_TURN_LEAD = 72;
@@ -101,6 +127,11 @@ export function createConnectionsApi({
     }
 
     function rebuildConnectionIndex() {
+        for (const [id, observed] of observedEndpoints) {
+            if (getNodeById(id)?.el === observed.el) continue;
+            endpointSizeObserver?.unobserve(observed.el);
+            observedEndpoints.delete(id);
+        }
         connectionById.clear();
         connectionsByNodeId.clear();
         connectionsByPortKey.clear();
@@ -120,6 +151,7 @@ export function createConnectionsApi({
     }
 
     function exportConnectionProjection() {
+        if (translatedPaths.size) updateAllConnections();
         return state.connections.map((connection) => ({
             id: connection.id,
             d: pathById.get(connection.id)?.getAttribute?.('d') || '',
@@ -131,6 +163,7 @@ export function createConnectionsApi({
     }
 
     function adoptConnectionProjection(projection = []) {
+        translatedPaths.clear();
         pathById.forEach((path) => path.remove?.());
         pathById.clear();
         flowDecorationById.forEach((decoration) => decoration.group?.remove?.());
@@ -367,13 +400,23 @@ export function createConnectionsApi({
         };
     }
 
-    function invalidateNodePortCache(nodeId = null, { markDirty = true } = {}) {
-        if (nodeId) {
-            const node = getNodeById(nodeId);
-            if (node) delete node._portPositionCache;
+    function invalidateNodePortCache(nodeId = null, { markDirty = true, translationOnly = false, measurementOnly = false } = {}) {
+        if (translationOnly && nodeId && state.dragging) {
             if (markDirty) markNodeConnectionsDirty(nodeId);
             return;
         }
+        // Drag-start offsets are valid only until actual size/port geometry changes.
+        state.dragging?.portOffsets?.clear();
+        if (nodeId) {
+            const node = getNodeById(nodeId);
+            if (node) {
+                if (!measurementOnly) nodeGeometryRevisions.set(node, (nodeGeometryRevisions.get(node) || 0) + 1);
+                delete node._portPositionCache;
+            }
+            if (markDirty) markNodeConnectionsDirty(nodeId);
+            return;
+        }
+        if (!measurementOnly) portGeometryRevision += 1;
         state.nodes.forEach((node) => {
             if (node) delete node._portPositionCache;
         });
@@ -580,6 +623,9 @@ export function createConnectionsApi({
     }
 
     function destroy() {
+        endpointSizeObserver?.disconnect();
+        observedEndpoints.clear();
+        translatedPaths.clear();
         clearConnectionTargetFeedback();
         stopFlowAnimation();
         flowDecorationById.forEach((decoration) => decoration.group?.remove?.());
@@ -1123,8 +1169,14 @@ export function createConnectionsApi({
             padding = 100
         } = context;
         let path = pathById.get(conn.id);
+        if (path) {
+            if (translatedPaths.delete(path)) setSvgAttribute(path, 'transform', '');
+            renderedPathGeometry.delete(path);
+        }
         const fromNode = getNodeById(conn.from?.nodeId);
         const toNode = getNodeById(conn.to?.nodeId);
+        observeEndpoint(fromNode);
+        observeEndpoint(toNode);
         if (!fromNode || !toNode) {
             if (path) {
                 setSvgAttribute(path, 'd', '');
@@ -1175,6 +1227,35 @@ export function createConnectionsApi({
         path.classList.toggle('selected', isSelected);
         path.removeAttribute('stroke');
         updateFlowDecoration(path, conn.id, hasRunningEndpoint(conn));
+        renderedPathGeometry.set(path, {
+            fromNode, toNode, fromX: fromNode.x, fromY: fromNode.y, toX: toNode.x, toY: toNode.y,
+            revision: portGeometryRevision, signature: getConnectionSignature([conn]),
+            fromRevision: nodeGeometryRevisions.get(fromNode) || 0, toRevision: nodeGeometryRevisions.get(toNode) || 0,
+            laneOffset: pathOptions.laneOffset, type: pathOptions.type, zoom: state.canvas.zoom
+        });
+        return true;
+    }
+
+    function translateInternalDragPath(conn, draggedIds, laneById) {
+        if (!draggedIds.has(conn.from.nodeId) || !draggedIds.has(conn.to.nodeId)) return false;
+        const path = pathById.get(conn.id), baseline = path && renderedPathGeometry.get(path);
+        const from = getNodeById(conn.from.nodeId), to = getNodeById(conn.to.nodeId);
+        if (!baseline || !path.getAttribute('d') || baseline.fromNode !== from || baseline.toNode !== to
+            || baseline.revision !== portGeometryRevision || baseline.zoom !== state.canvas.zoom
+            || baseline.fromRevision !== (nodeGeometryRevisions.get(from) || 0)
+            || baseline.toRevision !== (nodeGeometryRevisions.get(to) || 0)
+            || baseline.signature !== getConnectionSignature([conn]) || hasRunningEndpoint(conn)
+            || flowDecorationById.has(conn.id)) return false;
+        const options = getConnectionPathOptions(conn, laneById);
+        if (baseline.laneOffset !== options.laneOffset || baseline.type !== options.type) return false;
+        const dx = from.x - baseline.fromX, dy = from.y - baseline.fromY;
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)
+            || Math.abs(dx - (to.x - baseline.toX)) > 0.0001
+            || Math.abs(dy - (to.y - baseline.toY)) > 0.0001) return false;
+        setSvgAttribute(path, 'transform', `translate(${dx}, ${dy})`);
+        baseline.translation = { x: dx, y: dy };
+        path.classList.toggle('selected', state.selectedNodes.has(from.id) || state.selectedNodes.has(to.id));
+        translatedPaths.add(path);
         return true;
     }
 
@@ -1183,6 +1264,8 @@ export function createConnectionsApi({
     }
 
     function prepareWholeConnectionProjection({ reflectInteractionState = true } = {}) {
+        for (const path of translatedPaths) setSvgAttribute(path, 'transform', '');
+        translatedPaths.clear();
         const { x, y, zoom } = state.canvas;
         const isDragging = !!state.dragging;
         const isPanning = state.canvas.isPanning;
@@ -1308,21 +1391,22 @@ export function createConnectionsApi({
         setSvgAttribute(connectionsGroup, 'transform', `translate(${x}, ${y}) scale(${zoom})`);
         setSvgAttribute(originAxes, 'transform', `translate(${x}, ${y}) scale(${zoom})`);
 
-        const containerRect = canvasContainer.getBoundingClientRect();
-        const context = {
-            containerRect,
-            viewport: getCurrentConnectionViewport(containerRect),
-            laneById: getConnectionLaneMap(),
-            padding: 100
-        };
-
+        const laneById = getConnectionLaneMap();
+        const draggedIds = new Set(state.dragging?.isCloneDrag ? [] : state.dragging?.nodes || []);
+        let context = null;
         Array.from(dirtyConnectionIds).forEach((connId) => {
             const conn = connectionById.get(connId);
             if (!conn) {
+                translatedPaths.delete(pathById.get(connId));
                 pathById.get(connId)?.remove();
                 pathById.delete(connId);
                 removeFlowDecoration(connId);
                 return;
+            }
+            if (translateInternalDragPath(conn, draggedIds, laneById)) return;
+            if (!context) {
+                const containerRect = canvasContainer.getBoundingClientRect();
+                context = { containerRect, viewport: getCurrentConnectionViewport(containerRect), laneById, padding: 100 };
             }
             renderConnectionPath(conn, context);
         });
@@ -1337,20 +1421,22 @@ export function createConnectionsApi({
 
     function getRenderedPathEndpoints(path) {
         if (!path) return null;
+        const translation = translatedPaths.has(path) ? renderedPathGeometry.get(path)?.translation : null;
+        const point = (x, y) => ({ x: Number(x) + (translation?.x || 0), y: Number(y) + (translation?.y || 0) });
         try {
             const length = path.getTotalLength();
             const start = path.getPointAtLength(0);
             const end = path.getPointAtLength(length);
             return {
-                from: { x: Number(start.x), y: Number(start.y) },
-                to: { x: Number(end.x), y: Number(end.y) }
+                from: point(start.x, start.y),
+                to: point(end.x, end.y)
             };
         } catch {
             const values = (path.getAttribute('d') || '').match(/[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/gi)?.map(Number) || [];
             if (values.length < 4) return { from: null, to: null };
             return {
-                from: { x: values[0], y: values[1] },
-                to: { x: values.at(-2), y: values.at(-1) }
+                from: point(values[0], values[1]),
+                to: point(values.at(-2), values.at(-1))
             };
         }
     }
@@ -1380,6 +1466,7 @@ export function createConnectionsApi({
             const expected = { from: { x: from.x, y: from.y }, to: { x: to.x, y: to.y } };
             const actual = pathData ? getRenderedPathEndpoints(path) : { from: null, to: null };
             if (areEndpointsAligned(expected, actual)) return false;
+            if (path) renderedPathGeometry.delete(path);
             return {
                 connectionId: conn.id,
                 from: { nodeId: conn.from.nodeId, port: conn.from.port },

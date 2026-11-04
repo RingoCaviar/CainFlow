@@ -618,6 +618,7 @@ const mediaControllerApi = createMediaControllerApi({
     canvasContainer
 });
 const connectionsApi = createConnectionsApi({
+    onNodeGeometryChanged: nodeId => connectionProjectionInteractions.nodeGeometryChanged(nodeId),
     state,
     canvasContainer,
     connectionsGroup,

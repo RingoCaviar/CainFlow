@@ -46,10 +46,11 @@ export function createConnectionProjection({
             .filter((id) => typeof id === 'string' && id);
     }
 
-    function markGeometry(nodeIds) {
+    function markGeometry(nodeIds, { translationOnly = false } = {}) {
         normalizeIds(nodeIds).forEach((nodeId) => {
             pendingNodeIds.add(nodeId);
-            invalidateNodePortCache?.(nodeId);
+            if (translationOnly) invalidateNodePortCache?.(nodeId, { translationOnly: true });
+            else invalidateNodePortCache?.(nodeId);
         });
         wakeMaterializationSettlement();
     }
@@ -176,9 +177,9 @@ export function createConnectionProjection({
     function repairAlignmentNow(nodeIds = [], reason = 'interaction-settled') {
         const targets = normalizeIds(nodeIds);
         if (targets.length > 0) {
-            targets.forEach((nodeId) => invalidateNodePortCache?.(nodeId, { markDirty: false }));
+            targets.forEach((nodeId) => invalidateNodePortCache?.(nodeId, { markDirty: false, measurementOnly: true }));
         } else {
-            invalidateNodePortCache?.(undefined, { markDirty: false });
+            invalidateNodePortCache?.(undefined, { markDirty: false, measurementOnly: true });
         }
         const mismatches = detectMisalignedConnections?.({ nodeIds: targets }) || [];
         mismatches.forEach((item) => markConnectionDirty?.(item.connectionId || item));
@@ -291,7 +292,7 @@ export function createConnectionProjection({
                     if (destroyed) return;
                     if (closed) throw new Error('Canvas interaction is already closed');
                     normalizeIds(change.nodeIds).forEach((nodeId) => targets.add(nodeId));
-                    if (kind === CANVAS_INTERACTION_KIND.NODE_DRAG) markGeometry([...targets]);
+                    if (kind === CANVAS_INTERACTION_KIND.NODE_DRAG) markGeometry([...targets], { translationOnly: true });
                     schedule();
                 },
                 finish() {
@@ -299,7 +300,10 @@ export function createConnectionProjection({
                     if (closed) return Promise.resolve({ inspected: 0, corrected: 0 });
                     closed = true;
                     if (kind === CANVAS_INTERACTION_KIND.CONNECTION_DRAW) markGeometry([...targets]);
-                    commit();
+                    // Retain an aligned translated path; measure on the next frame
+                    // rather than synchronously rebuilding every edge on pointer up.
+                    if (kind === CANVAS_INTERACTION_KIND.NODE_DRAG) schedule();
+                    else commit();
                     return verifyAlignment([...targets]);
                 },
                 abort() {
