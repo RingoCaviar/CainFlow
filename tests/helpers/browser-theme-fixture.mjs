@@ -230,7 +230,8 @@ export function renderComputedFixture(fixtureUrl, profilePrefix, windowSize = ''
         assert.ok(match, 'fixture must publish computed styles');
         return JSON.parse(match[1].replaceAll('&quot;', '"'));
     } finally {
-        rmSync(profile, { recursive: true, force: true });
+        assert.ok(resolve(profile).startsWith(resolve(tmpdir()) + sep));
+        rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
 }
 
@@ -309,10 +310,12 @@ export async function renderComputedFixtureAtViewport(fixtureUrl, profilePrefix,
         }
         throw new Error('computed fixture did not publish results');
     } finally {
+        try { await client?.send('Browser.close'); } catch {}
         client?.close();
-        browser.kill();
-        await new Promise((resolve) => browser.once('exit', resolve));
-        rmSync(profile, { recursive: true, force: true });
+        if (browser.exitCode === null && browser.signalCode === null) browser.kill();
+        await new Promise((resolve) => browser.exitCode !== null || browser.signalCode !== null ? resolve() : browser.once('exit', resolve));
+        assert.ok(resolve(profile).startsWith(resolve(tmpdir()) + sep));
+        rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
 }
 
@@ -346,9 +349,11 @@ export async function renderHoveredFixture(fixtureUrl, profilePrefix) {
         const hovered = await client.send('Runtime.evaluate', { expression: 'JSON.stringify({ matchesHover: document.getElementById("hovered").matches(":hover"), border: getComputedStyle(document.querySelector("#hovered .node-glass-bg")).borderTopColor, shadow: getComputedStyle(document.querySelector("#hovered .node-glass-bg")).boxShadow })', returnByValue: true });
         return { ...JSON.parse(hovered.result.value), normal: JSON.parse(normal.result.value) };
     } finally {
+        try { await client?.send('Browser.close'); } catch {}
         client?.close();
-        browser.kill();
-        await new Promise((resolve) => browser.once('exit', resolve));
-        rmSync(profile, { recursive: true, force: true });
+        if (browser.exitCode === null && browser.signalCode === null) browser.kill();
+        await new Promise((resolve) => browser.exitCode !== null || browser.signalCode !== null ? resolve() : browser.once('exit', resolve));
+        assert.ok(resolve(profile).startsWith(resolve(tmpdir()) + sep));
+        rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
 }

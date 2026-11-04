@@ -214,14 +214,19 @@ test('a delayed original editor load cannot open or save into a different workfl
         await app.send('Network.enable');
         await app.send('Network.setCacheDisabled', { cacheDisabled: true });
         await app.evaluate('performance.setResourceTimingBufferSize(5000);performance.clearResourceTimings()');
-        await app.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: 4096, uploadThroughput: 1048576 });
+        let pausedRequest;
+        const unsubscribe = app.onProtocolEvent(event => { if (event.method === 'Fetch.requestPaused') pausedRequest = event.params.requestId; });
+        await app.send('Fetch.enable', { patterns: [{ urlPattern: '*camera-control-node.js', requestStage: 'Request' }] });
         try {
             await app.evaluate("document.getElementById('camera-camera-open').click()");
             assert.equal(await app.evaluate("Boolean(document.querySelector('.camera-control-editor-overlay'))"), false, 'the real lazy module is still loading under constrained network throughput');
+            for (let attempt = 0; attempt < 200 && !pausedRequest; attempt++) await delay(25);
+            assert.ok(pausedRequest, 'the real editor module request is paused');
             await activate(app, 'Camera B');
             await app.evaluate('window.cameraBActivatedAt=performance.now()');
         } finally {
-            await app.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+            try { if (pausedRequest) await app.send('Fetch.continueRequest', { requestId: pausedRequest }); }
+            finally { await app.send('Fetch.disable'); unsubscribe(); }
         }
         const moduleLoaded = "performance.getEntriesByType('resource').some(entry=>new URL(entry.name).pathname.endsWith('/camera-control-node.js'))";
         for (let attempt = 0; attempt < 600 && !(await app.evaluate(moduleLoaded)); attempt++) await delay(50);
@@ -229,6 +234,7 @@ test('a delayed original editor load cannot open or save into a different workfl
         assert.equal(await app.evaluate("performance.getEntriesByType('resource').find(entry=>new URL(entry.name).pathname.endsWith('/camera-control-node.js')).responseEnd>cameraBActivatedAt"), true, 'the original module actually finishes after B becomes active');
         await delay(500);
         assert.equal(await app.evaluate("Boolean(document.querySelector('.camera-control-editor-overlay'))"), false, 'finishing the previous workflow request must not open an editor for the same ID in B');
+        await waitForAutosave(app);
         const before = (await saved(app)).nodes.find(node => node.id === 'camera');
         assert.deepEqual(cameraValues(before), cameraValues(graphs[1].nodes[0]));
         assert.equal(before.cameraPreviewImage || '', '');
@@ -237,6 +243,7 @@ test('a delayed original editor load cannot open or save into a different workfl
         assert.equal(await app.evaluate("Number(document.querySelector('[data-camera-value=yaw]').value)"), -75);
         await app.evaluate("document.querySelector('.camera-control-editor-close').click()");
         await activate(app, 'Camera A');
+        await waitForAutosave(app);
         assert.deepEqual(cameraValues((await saved(app)).nodes.find(node => node.id === 'camera')), cameraValues(graphs[0].nodes[0]));
         assert.equal((await saved(app)).nodes.find(node => node.id === 'camera').cameraPreviewImage || '', '');
         assert.equal(await app.evaluate('cameraRequests.length'), 0);
@@ -263,6 +270,7 @@ test('background camera execution uses A settings while a same-ID B camera and c
         ];
         for (const graph of graphs) assert.equal(await app.evaluate(`fetch('/api/workflows/'+encodeURIComponent(${JSON.stringify(graph.name)}),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(${JSON.stringify(graph)})}).then(response=>response.ok)`), true);
         await activate(app, 'Run Camera A');
+        await waitForAutosave(app);
         const before = (await saved(app)).nodes.find(node => node.id === 'camera');
         await app.evaluate("document.getElementById('btn-run').click()");
         await app.waitFor('cameraPending===true');

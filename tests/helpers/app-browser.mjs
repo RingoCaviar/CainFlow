@@ -53,6 +53,7 @@ export async function withAppBrowser(session, task, { repoDirectory, initScript,
         socket = new WebSocket(targets.find(target => target.type === 'page').webSocketDebuggerUrl);
         await new Promise(resolve => socket.addEventListener('open', resolve, { once: true }));
         let sequence = 0, requestSequence = 0, currentStep = null;
+        const protocolListeners = new Set();
         const pending = new Map(), errors = [], networkFailures = [], httpFailures = [], requests = new Map(), completedRequests = [];
         const publicUrl = raw => {
             try {
@@ -100,6 +101,7 @@ export async function withAppBrowser(session, task, { repoDirectory, initScript,
                 }
                 requests.delete(value.params.requestId);
             }
+            for (const listener of protocolListeners) listener(value);
             if (value.method === 'Runtime.exceptionThrown') errors.push(value.params.exceptionDetails.exception?.description || value.params.exceptionDetails.text);
             if (value.method === 'Runtime.consoleAPICalled' && value.params.type === 'error') errors.push(value.params.args.map(arg => arg.description || arg.value).join(' '));
             if (pending.has(value.id)) { pending.get(value.id)(value); pending.delete(value.id); } });
@@ -180,7 +182,7 @@ export async function withAppBrowser(session, task, { repoDirectory, initScript,
             await waitFor("Boolean(document.getElementById('prompt-agent-model')?.options.length)");
         }
         await delay(500);
-        return await task({ evaluate, send, waitFor, step, server });
+        return await task({ evaluate, send, waitFor, step, server, onProtocolEvent: listener => { protocolListeners.add(listener); return () => protocolListeners.delete(listener); } });
     } catch (error) {
         const failure = error instanceof Error ? error : new Error(String(error));
         failure.message += `\nBrowser/server diagnostics: ${JSON.stringify(getDiagnostics())}`;
