@@ -928,6 +928,8 @@ export function createWorkflowRuntimeManager({
                 await showResolutionBadge(runtimeNodeId, currentImage);
             }
         } else if (runtimeNode.type === 'ImageGenerate') {
+            if (runtimeNode.data?.imageResultPersistence === 'transient') node.data.imageResultPersistence = 'transient';
+            else delete node.data.imageResultPersistence;
             const revision = readGenerationRevision(runtimeNode.data?.generationRevision);
             if (revision) node.data.generationRevision = revision;
             node.generationDirty = runtimeNode.generationDirty === true;

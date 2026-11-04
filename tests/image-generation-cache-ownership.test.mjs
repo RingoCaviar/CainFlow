@@ -98,7 +98,6 @@ test('image generation persists its result for restart and still publishes downs
 
     assert.deepEqual(generated.data.imageList, ['data:image/png;base64,AAAA']);
     assert.deepEqual(propagated, [
-        ['preview-1', ['data:image/png;base64,AAAA']],
         ['preview-1', ['data:image/png;base64,AAAA']]
     ]);
     assert.deepEqual(savedKeys, [['workflow-1', 'generate-1', 'data:image/png;base64,AAAA']]);
@@ -187,6 +186,33 @@ test('a failed new generation cannot restore the previous generated batch after 
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(node.data.imageResultPersistence, 'transient');
     assert.equal(node.data.mediaAssetKeys, undefined);
+});
+
+test('a settled media error stays observable to its attempt but does not poison other nodes or cleanup', async () => {
+    const { api, node, save, generate } = createSequentialGenerationHarness(async () => null, { withSaveNode: true });
+    save.data.mediaAssetKeys = ['media:independent'];
+    await generate();
+    await api.waitForPendingImageAssetSaves();
+    for (let read = 0; read < 2; read++) {
+        await assert.rejects(api.waitForPendingImageAssetSaves({ nodeId: node.id, requireSuccess: true }), /媒体保存失败/);
+    }
+    await api.waitForPendingImageAssetSaves({ nodeId: save.id, requireSuccess: true });
+    assert.deepEqual(save.data.mediaAssetKeys, ['media:independent'], 'unpersisted pixels must not replace a downstream result');
+});
+
+test('a superseded save failure cannot poison the newer generated media reference', async () => {
+    let rejectOld;
+    let writes = 0;
+    const { api, node, generate } = createSequentialGenerationHarness(() => ++writes === 1
+        ? new Promise((resolve, reject) => { rejectOld = reject; })
+        : Promise.resolve({ asset_key: 'media:newer' }));
+    await generate();
+    await new Promise(resolve => setImmediate(resolve));
+    await generate();
+    rejectOld(new Error('late old failure'));
+    await api.waitForPendingImageAssetSaves({ nodeId: node.id, requireSuccess: true });
+    assert.deepEqual(node.data.mediaAssetKeys, ['media:newer']);
+    assert.equal(node.data.imageResultPersistence, undefined);
 });
 
 test('two generated images in one workflow run retain the latest image with an immutable media operation', async () => {

@@ -1723,7 +1723,7 @@ function getWorkflowRunnerApi() {
         registry.workflowRunnerApi = createWorkflowRunnerApi({
             state,
             generationRevisionApi: registry.imageGenerationRevisionApi,
-            waitForPendingImageAssetSaves: () => getExecutionCoreApi().waitForPendingImageAssetSaves(),
+            waitForPendingImageAssetSaves: options => getExecutionCoreApi().waitForPendingImageAssetSaves(options),
             nodeConfigs: NODE_CONFIGS,
             resolveExecutionPlan: (runInput) => getExecutionCoreApi().resolveExecutionPlan(runInput),
             normalizeRunOptions: (runInput) => getExecutionCoreApi().normalizeRunOptions(runInput),

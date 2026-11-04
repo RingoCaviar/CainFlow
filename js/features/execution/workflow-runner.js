@@ -1320,7 +1320,7 @@ export function createWorkflowRunnerApi({
         const workflowId = getActiveWorkflowId();
         if (!workflowId || !node?.id || images.length === 0
             || getNodeImageResultPersistence(node.type) !== IMAGE_RESULT_PERSISTENCE.PERSISTENT) return false;
-        const assets = await saveWorkflowNodeMediaAssets(images, workflowId, node.id);
+        const assets = await saveWorkflowNodeMediaAssets(images, workflowId, node.id, node.activeMediaOperationId);
         const keys = assets.map((asset) => asset?.asset_key).filter(Boolean);
         if (keys.length !== images.length) return false;
         if (state.nodes.get(node.id) !== node) {
@@ -1353,7 +1353,7 @@ export function createWorkflowRunnerApi({
                 node.data.imageResultPersistence = 'transient';
                 delete node.data.mediaAssetKeys;
                 if (!(await persistConcurrentImageResults(node, images))) {
-                    showToast('图片已生成，但本地保存失败；关闭应用后可能无法恢复', 'warning');
+                    throw new Error('图片已生成，但本地媒体保存失败，请重试。');
                 }
             }
             else clearCanonicalImageOutput(node);
@@ -1835,8 +1835,13 @@ export function createWorkflowRunnerApi({
             });
             if (node.type === 'ImageGenerate') {
                 node.generationCompletedCount = aggregatedImages.length;
+                node.data.imageResultPersistence = 'transient';
+                delete node.data.mediaAssetKeys;
             }
-            await persistConcurrentImageResults(node, aggregatedImages);
+            const persisted = await persistConcurrentImageResults(node, aggregatedImages);
+            if (node.type === 'ImageGenerate' && !persisted) {
+                throw new Error('图片已生成，但本地媒体保存失败，请重试。');
+            }
             await propagateImagesToDownstreamPreview(node.id, aggregatedImages);
             await refreshDependentImageResizePreviews(node.id);
             connectionProjection?.nodeGeometryChanged(node.id);
@@ -1873,7 +1878,7 @@ export function createWorkflowRunnerApi({
         try {
             const result = await executeNodeWithInputBatches(node, inputs, signal, connections);
             // Durable source identities must settle before a downstream recipe is captured.
-            await waitForPendingImageAssetSaves();
+            await waitForPendingImageAssetSaves({ nodeId: node.id, requireSuccess: true });
             if (signal?.aborted) {
                 const error = new Error('Node run aborted'); error.name = 'AbortError'; throw error;
             }

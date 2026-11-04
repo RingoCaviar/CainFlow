@@ -95,6 +95,7 @@ export function createExecutionCoreApi({
     getImageHistorySidebarActive = () => false
 }) {
     const imageAssetSaveChains = new Map();
+    const imageAssetSaveFailures = new WeakMap();
 
     async function propagateImagesToDownstreamPreview(sourceNodeId, images = []) {
         const imageList = normalizeImageList(images);
@@ -271,6 +272,8 @@ export function createExecutionCoreApi({
         if (!node || !assetKey || imageList.length === 0) return;
         const workflowId = getActiveWorkflowId();
         const token = markNodeImageAssetPending(node, assetKey, imageList.length);
+        imageAssetSaveFailures.delete(node);
+        const runOperationId = node.activeMediaOperationId;
         const operationId = globalThis.crypto?.randomUUID?.()
             || `image_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
         if (node.activeMediaOperationId) {
@@ -280,6 +283,10 @@ export function createExecutionCoreApi({
         const reportSaveFailure = () => {
             if (node.data?.imageAssetSaveToken !== token || state.nodes.get(node.id) !== node) return;
             markNodeImageAssetFailed(node, token);
+            imageAssetSaveFailures.set(node, {
+                runOperationId,
+                error: new Error('图片已生成，但本地媒体保存失败，请重试。')
+            });
             showToast('图片已生成，但本地保存失败；关闭应用后可能无法恢复', 'warning');
             addLog('warning', '生成图片保存失败', '图片结果未能写入本地媒体存储，请检查存储空间并重新保存。', { nodeId: node.id });
         };
@@ -290,7 +297,8 @@ export function createExecutionCoreApi({
             const mediaAsset = imageList.length === 1 && workflowId
                 ? await saveWorkflowNodeMediaAsset(imageList[0], workflowId, node.id, operationId)
                 : null;
-            if (workflowId && !mediaAsset && mediaAssets.length !== imageList.length) {
+            if (workflowId && !mediaAsset?.asset_key && (mediaAssets.length !== imageList.length
+                || mediaAssets.some(asset => !asset?.asset_key))) {
                 reportSaveFailure();
                 return;
             }
@@ -331,9 +339,16 @@ export function createExecutionCoreApi({
         imageAssetSaveChains.set(assetKey, tracked);
     }
 
-    async function waitForPendingImageAssetSaves() {
+    async function waitForPendingImageAssetSaves({ nodeId = null, requireSuccess = false } = {}) {
         while (imageAssetSaveChains.size > 0) {
             await Promise.allSettled([...imageAssetSaveChains.values()]);
+        }
+        // Cleanup/close callers only drain work. A generation attempt must also
+        // validate its own outcome, even if its save settled before this wait.
+        if (requireSuccess) {
+            const node = state.nodes.get(nodeId);
+            const failure = imageAssetSaveFailures.get(node);
+            if (failure && failure.runOperationId === node.activeMediaOperationId) throw failure.error;
         }
     }
 
@@ -398,7 +413,7 @@ export function createExecutionCoreApi({
             delete node.data.mediaAssetKeys;
             delete node.data.imageAssetReady;
         }
-        if (normalizedImages.length > 0) {
+        if (normalizedImages.length > 0 && getNodeImageResultPersistence(node.type) !== IMAGE_RESULT_PERSISTENCE.PERSISTENT) {
             void propagateImagesToDownstreamPreview(node.id, normalizedImages).catch(() => {});
         }
     }
