@@ -54,9 +54,12 @@ test('import and preview picture gestures distinguish node dragging, parameter s
         await app.evaluate("document.getElementById('btn-run').click()");
         await app.waitFor("document.querySelector('#preview-preview img')?.naturalWidth>0");
         await app.waitFor("!document.getElementById('btn-run').disabled && !document.getElementById('media-import').classList.contains('running') && !document.getElementById('preview').classList.contains('running') && !document.getElementById('media-import-file').disabled");
+        await app.waitFor("import('/js/app/bootstrap.js').then(m=>m.bootstrapCainFlowApp()).then(app=>app.state.runningNodeIds.size===0 && ['media-import','preview'].every(id=>app.state.nodes.get(id)?.isSucceeded===true))");
         for (const [id, surface] of [['media-import', '#media-import-drop'], ['preview', '#preview-preview']]) {
             await closeParameters(app);
             const before = await app.evaluate(`(()=>{const element=document.getElementById('${id}');return {x:parseFloat(element.style.left),y:parseFloat(element.style.top)}})()`);
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...await point(app, surface) });
+            await app.waitFor(`(()=>{const e=document.querySelector(${JSON.stringify(surface)}),r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()`);
             const start = await point(app, surface);
             await pointer(app, 'mousePressed', start);
             await pointer(app, 'mouseMoved', { x: start.x + 44, y: start.y + 25 });

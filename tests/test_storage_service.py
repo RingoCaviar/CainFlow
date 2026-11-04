@@ -15,6 +15,38 @@ from backend.services.storage_service import StorageError, StorageService
 
 
 class StorageServiceTests(unittest.TestCase):
+    def test_concurrent_service_initialization_does_not_overlap_safety_file_updates(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            services = [StorageService(database_path=service.database_path, assets_dir=service.assets_dir,
+                                       temp_dir=service.temp_dir, exports_dir=service.exports_dir) for _ in range(2)]
+            original = StorageService._write_safety_status
+            writing = threading.Lock()
+            errors = []
+            start = threading.Barrier(2, timeout=5)
+            def guarded(instance, status):
+                if not writing.acquire(blocking=False):
+                    raise PermissionError('overlapping safety file update')
+                try:
+                    time.sleep(0.05)
+                    return original(instance, status)
+                finally:
+                    writing.release()
+            def initialize(instance):
+                try:
+                    start.wait()
+                    instance.initialize()
+                except Exception as error:
+                    errors.append(error)
+            with mock.patch.object(StorageService, '_write_safety_status', guarded):
+                threads = [threading.Thread(target=initialize, args=(instance,)) for instance in services]
+                for thread in threads: thread.start()
+                for thread in threads: thread.join(timeout=10)
+                self.assertTrue(all(not thread.is_alive() for thread in threads))
+            self.assertEqual([], errors)
+            self.assertEqual(services[0].get_storage_safety_status()['storageEpoch'],
+                             services[1].get_storage_safety_status()['storageEpoch'])
+
     def test_background_scan_flag_is_exposed_to_monitoring_without_persisting(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)
