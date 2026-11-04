@@ -333,6 +333,25 @@ test('finishing an interaction corrects only detected mismatches', async () => {
     assert.equal(calls.filter(([kind]) => kind === 'all').length, 0);
 });
 
+test('drag translation settles through fresh measurement after finish or abort without synchronous redraw', async () => {
+    for (const ending of ['finish','abort']) {
+        const calls = [], frames = [];
+        const projection = createConnectionProjection({
+            invalidateNodePortCache: (id, options) => calls.push([id, options?.translationOnly === true]),
+            updateDirtyConnections() {}, detectMisalignedConnections: () => [],
+            requestAnimationFrameRef: fn => {frames.push(fn);return frames.length;}, cancelAnimationFrameRef() {}
+        });
+        const drag = projection.interactions.beginInteraction('node-drag',['a','b']);
+        drag.changed();
+        assert.deepEqual(calls,[['a',true],['b',true]]);
+        const settled = drag[ending]();
+        assert.deepEqual(calls.slice(2),[], 'pointer release does not synchronously measure the graph');
+        while(frames.length)frames.shift()();
+        await settled;
+        assert.deepEqual(calls.slice(2),[['a',false],['b',false]]);
+    }
+});
+
 test('connection drawing settles only the endpoint geometry reported by the lease', async () => {
     const { api, calls, flushFrame } = createHarness();
     const interaction = api.interactions.beginInteraction('connection-draw', ['node-1']);

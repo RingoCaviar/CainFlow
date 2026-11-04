@@ -22,6 +22,39 @@ const session = {
 };
 const referencePixels = await Promise.all(['red','orange','yellow','blue','green'].map(async color => (await readFile(new URL(`./fixtures/reference-${color}.png`, import.meta.url))).toString('base64')));
 
+test('mixed selection reuses internal paths and stays aligned across resize release undo and blur', {timeout:45000}, async()=>{
+    await withAppBrowser(session,async app=>{
+        await select(app,['a','target']);
+        await app.evaluate(`window.dragFrames=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(r))));dragFrames()`);
+        await app.evaluate(`window.internalPath=document.querySelector('path[data-conn-id="edge-a"]');window.externalPath=document.querySelector('path[data-conn-id="edge-b"]');window.initialPath=internalPath.getAttribute('d');window.initialExternal=externalPath.getAttribute('d');
+            window.beginMixedDrag=()=>{const el=document.querySelector('#a .node-header'),r=el.getBoundingClientRect();window.dragPoint={x:r.x+25,y:r.y+12};el.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,clientX:dragPoint.x,clientY:dragPoint.y}));};
+            window.moveMixedDrag=dx=>document.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,buttons:1,clientX:dragPoint.x+dx,clientY:dragPoint.y+10}));
+            window.endMixedDrag=()=>document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0,clientX:dragPoint.x+60,clientY:dragPoint.y+10}));
+            window.edgesAligned=()=>['a','b'].every(id=>{const path=document.querySelector('path[data-conn-id="edge-'+id+'"]'),matrix=path.getScreenCTM();
+                const source=document.querySelector('#'+id+' .node-port[data-direction="output"] .port-dot').getBoundingClientRect();
+                const target=(document.querySelector('#target .universal-input .port-dot') || document.querySelector('#target .node-port[data-port="referenceImages"] .port-dot')).getBoundingClientRect();
+                const a=path.getPointAtLength(0).matrixTransform(matrix),b=path.getPointAtLength(path.getTotalLength()).matrixTransform(matrix);
+                return Math.hypot(a.x-source.x-source.width/2,a.y-source.y-source.height/2)<2 && Math.hypot(b.x-target.x-target.width/2,b.y-target.y-target.height/2)<2;});
+            beginMixedDrag();moveMixedDrag(30);dragFrames();`);
+        await app.waitFor("internalPath.getAttribute('transform')?.startsWith('translate(')");
+        assert.equal(await app.evaluate("internalPath.getAttribute('d')===initialPath"),true);
+        assert.equal(await app.evaluate("externalPath.getAttribute('d')!==initialExternal"),true);
+        assert.equal(await app.evaluate('edgesAligned()'),true);
+        await app.evaluate("document.getElementById('a').style.width='480px';dragFrames()");
+        await app.waitFor("internalPath.getAttribute('d')!==initialPath && edgesAligned()");
+        await app.evaluate("window.resizedPath=internalPath.getAttribute('d');moveMixedDrag(60);dragFrames()");
+        await app.waitFor("internalPath.getAttribute('transform')?.startsWith('translate(') && edgesAligned()");
+        assert.equal(await app.evaluate("internalPath.getAttribute('d')===resizedPath"),true);
+        await app.evaluate('endMixedDrag();dragFrames()');
+        await app.waitFor("edgesAligned()");
+        await undo(app);await app.waitFor('edgesAligned()');
+        await app.evaluate('beginMixedDrag();moveMixedDrag(30);dragFrames()');
+        await app.waitFor("internalPath.getAttribute('transform')?.startsWith('translate(')");
+        await app.evaluate("window.dispatchEvent(new Event('blur'));dragFrames()");
+        await app.waitFor("edgesAligned()");
+    });
+});
+
 async function action(app, id, menuId) {
     await app.evaluate(`document.getElementById('${id}').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:650,clientY:230}));document.getElementById('${menuId}').click()`);
 }
