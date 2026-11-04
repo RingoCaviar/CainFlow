@@ -11,7 +11,7 @@ const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAus
 const element = () => ({ style: {}, dataset: {}, classList: { add: noop, remove: noop, toggle: noop, contains: () => false },
     querySelector: () => null, querySelectorAll: () => [], getBoundingClientRect: () => ({ width: 240 }), setAttribute: noop, removeAttribute: noop,
     appendChild: noop, remove: noop, addEventListener: noop });
-function fixture({ fetchRef, onState = noop, autoRetry = false, concurrent = false, count = 1, saveDelay = 0 } = {}) {
+function fixture({ fetchRef, onState = noop, autoRetry = false, concurrent = false, count = 1, saveDelay = 0, saveMedia } = {}) {
     registerProtocol(OpenaiProtocol);
     const node = { id: 'target', type: 'ImageGenerate', enabled: true, apiConfigId: 'image', providerId: 'provider',
         data: { prompt: 'original prompt', resolution: 'auto', generationCount: count }, el: element() };
@@ -22,7 +22,7 @@ function fixture({ fetchRef, onState = noop, autoRetry = false, concurrent = fal
     const documentRef = { getElementById: id => id === 'target-apiconfig' ? { value: 'image' } : id === 'target-provider' ? { value: 'provider' } : null,
         querySelectorAll: () => [], addEventListener: noop, createElement: element, defaultView: { requestAnimationFrame: callback => callback(), addEventListener: noop } };
     let serial = 0;
-    const saveAsset = async () => { if (saveDelay) await new Promise(resolve => setTimeout(resolve, saveDelay)); return { asset_key: `media:output-${++serial}` }; };
+    const saveAsset = async () => { if (saveDelay) await new Promise(resolve => setTimeout(resolve, saveDelay)); return saveMedia ? saveMedia(++serial) : { asset_key: `media:output-${++serial}` }; };
     let revision;
     const core = createExecutionCoreApi({ state, nodeConfigs: {}, documentRef, windowRef: { requestAnimationFrame: callback => callback() },
         fetchRef: fetchRef || (async () => new Response(JSON.stringify({ data: [{ b64_json: png }] }), { headers: { 'Content-Type': 'application/json' } })),
@@ -54,6 +54,75 @@ test('public generation completes the captured recipe, and records a minimal tru
     assert.match(f.node.data.generationRevision.successFingerprint, /^gen1-/);
     assert.equal(f.node.data.mediaAssetKeys.length, 1);
 });
+
+for (const concurrent of [false, true]) {
+    for (const throws of [false, true]) {
+        test(`media persistence failure rejects completion and a later run recovers (concurrent=${concurrent}, throws=${throws})`, async () => {
+            let fail = true;
+            const f = fixture({ concurrent, count: 2, saveMedia: serial => {
+                if (fail) { if (throws) throw new Error('controlled media failure'); return null; }
+                return { asset_key: `media:retry-${serial}` };
+            } });
+            await f.run();
+            assert.equal(f.node.isSucceeded, false);
+            assert.equal(f.node.isFailed, true);
+            assert.match(f.node.executionFailure.message, /保存|持久化/);
+            assert.equal(f.node.data.generationRevision?.successFingerprint, undefined);
+            assert.equal(f.node.data.mediaAssetKeys, undefined);
+            fail = false;
+            await f.run();
+            assert.equal(f.node.isSucceeded, true);
+            assert.equal(f.node.executionFailure, undefined);
+            assert.equal(f.node.data.mediaAssetKeys.length, 2);
+            assert.ok(f.node.data.mediaAssetKeys.every(key => key.startsWith('media:retry-')));
+            assert.equal(f.node.data.imageResultPersistence, undefined);
+        });
+    }
+}
+
+test('automatic retry clears a settled media failure before a new generation attempt', async () => {
+    const f = fixture({ autoRetry: true, saveMedia: serial => serial === 1 ? null : { asset_key: 'media:retried' } });
+    await f.run();
+    assert.equal(f.node.isSucceeded, true);
+    assert.equal(f.node.executionFailure, undefined);
+    assert.deepEqual(f.node.data.mediaAssetKeys, ['media:retried']);
+});
+
+test('retrying as concurrent input batches cannot inherit an earlier serial media failure', async () => {
+    let fail = true;
+    const f = fixture({ saveMedia: serial => fail ? null : { asset_key: `media:retry-${serial}` } });
+    await f.run();
+    assert.equal(f.node.isFailed, true);
+    fail = false;
+    f.state.concurrentRequestMode = true;
+    f.state.nodes.set('prompts', { id: 'prompts', type: 'Text', enabled: true, data: { texts: ['first', 'second'] }, el: element() });
+    f.state.connections.push({ id: 'batch-input', from: { nodeId: 'prompts', port: 'text' }, to: { nodeId: f.node.id, port: 'prompt' }, type: 'text' });
+    await f.run();
+    assert.equal(f.node.isSucceeded, true, f.node.executionFailure?.message);
+    assert.equal(f.node.executionFailure, undefined);
+    assert.equal(f.node.data.mediaAssetKeys.length, 2);
+});
+
+for (const concurrent of [false, true]) {
+    test(`input-batch media persistence cannot report success or reuse a partial batch key (concurrent=${concurrent})`, async () => {
+        let fail = true;
+        const f = fixture({ concurrent, saveMedia: serial => fail
+            ? (concurrent || serial > 2 ? null : { asset_key: `media:partial-${serial}` })
+            : { asset_key: `media:complete-${serial}` } });
+        f.state.nodes.set('prompts', { id: 'prompts', type: 'Text', enabled: true, data: { texts: ['first', 'second'] }, el: element() });
+        f.state.connections.push({ id: 'batch-input', from: { nodeId: 'prompts', port: 'text' }, to: { nodeId: f.node.id, port: 'prompt' }, type: 'text' });
+        await f.run();
+        assert.equal(f.node.isSucceeded, false);
+        assert.match(f.node.executionFailure.message, /媒体保存失败/);
+        assert.equal(f.node.data.mediaAssetKeys, undefined);
+        assert.equal(f.node.data.imageResultPersistence, 'transient');
+        fail = false;
+        await f.run();
+        assert.equal(f.node.isSucceeded, true);
+        assert.equal(f.node.data.mediaAssetKeys.length, 2);
+        assert.ok(f.node.data.mediaAssetKeys.every(key => key.startsWith('media:complete-')));
+    });
+}
 
 test('automatic retry enters a new waiting attempt with the old partial outputs, failure and progress cleared', async () => {
     let requests = 0;

@@ -303,3 +303,55 @@ test('background camera execution uses A settings while a same-ID B camera and c
         assert.equal(await app.evaluate('cameraRequests.length'), 2);
     });
 });
+
+test('media write failure blocks camera downstream and retries without corrupting independent references', { timeout: 90000 }, async () => {
+    await withAppBrowser({ ...configuration, autoRetry: false, nodes: [
+        { id: 'source', type: 'ImageGenerate', x: 20, y: 140, apiConfigId: 'image', providerId: 'p', prompt: 'source originals', generationCount: 3 },
+        { id: 'camera', type: 'CameraControl', x: 450, y: 160 },
+        { id: 'target', type: 'ImageGenerate', x: 850, y: 140, apiConfigId: 'image', providerId: 'p', prompt: 'target output' },
+        { id: 'keeper', type: 'ImageImport', x: 20, y: 550 }
+    ], connections: [
+        { id: 'source-camera', from: { nodeId: 'source', port: 'image' }, to: { nodeId: 'camera', port: 'image' }, type: 'image' },
+        { id: 'camera-target', from: { nodeId: 'camera', port: 'text' }, to: { nodeId: 'target', port: 'camera_prompt' }, type: 'text' }
+    ] }, async app => {
+        await controlled(app);
+        await app.evaluate(`(async()=>{const transfer=new DataTransfer();transfer.items.add(new File([await(await fetch(${JSON.stringify(originals[0])})).blob()],'keeper.png',{type:'image/png'}));const input=document.getElementById('keeper-file');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+        await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(d=>d.value.nodes.find(n=>n.id==='keeper')?.mediaAssetKeys?.length===1)");
+        await action(app, 'source', 'context-menu-run-to-here');
+        await app.waitFor("cameraRequests.length===3 && document.getElementById('btn-stop').disabled");
+        await waitForAutosave(app);
+        const before = await saved(app), originalKeys = before.nodes.find(n => n.id === 'source').mediaAssetKeys;
+        const keeperKey = before.nodes.find(n => n.id === 'keeper').mediaAssetKeys[0];
+        assert.equal(originalKeys.length, 3);
+        assert.equal(keeperKey, originalKeys[0], 'the independent import shares an actual generated asset');
+        await app.evaluate(`(()=>{const nativeFetch=fetch;window.failedMediaWrites=0;window.fetch=async(url,options={})=>{if(String(url)==='/api/storage/media-assets'&&options.method==='POST'&&typeof options.body==='string'){const body=JSON.parse(options.body);if(body.action==='materialize-owner-list'&&JSON.parse(body.ownerId)[1]==='source'&&!failedMediaWrites){failedMediaWrites++;throw new TypeError('controlled media write failure');}}return nativeFetch(url,options)}})()`);
+        await action(app, 'target', 'context-menu-run-to-here');
+        await app.waitFor("document.getElementById('source').classList.contains('error') && document.getElementById('btn-stop').disabled");
+        assert.equal(await app.evaluate('failedMediaWrites'), 1);
+        assert.equal(await app.evaluate('cameraRequests.length'), 6, 'failed persistence must not run the downstream target');
+        const failure = await app.evaluate("import('/js/app/bootstrap.js').then(m=>m.bootstrapCainFlowApp()).then(app=>{const n=app.state.nodes.get('source');return {succeeded:n.isSucceeded,message:n.executionFailure?.message,persistence:n.data.imageResultPersistence}})");
+        assert.equal(failure.succeeded, false);
+        assert.match(failure.message, /媒体保存失败/);
+        assert.equal(failure.persistence, 'transient');
+        await waitForAutosave(app);
+        const failed = await saved(app);
+        assert.equal(failed.nodes.find(n => n.id === 'source').mediaAssetKeys, undefined, 'failed new pixels cannot claim the old durable keys');
+        assert.deepEqual(failed.nodes.find(n => n.id === 'keeper').mediaAssetKeys, [keeperKey]);
+        assert.equal(await app.evaluate(`fetch('/api/storage/assets/'+encodeURIComponent(${JSON.stringify(keeperKey)})).then(r=>r.ok)`), true);
+        await reloadAppBrowser(app);
+        assert.equal((await saved(app)).nodes.find(n => n.id === 'source').mediaAssetKeys, undefined);
+        await action(app, 'target', 'context-menu-run-to-here');
+        await app.waitFor("cameraRequests.length===4 && document.getElementById('target').classList.contains('completed') && document.getElementById('btn-stop').disabled");
+        await waitForAutosave(app);
+        const retried = await saved(app), source = retried.nodes.find(n => n.id === 'source');
+        assert.equal(source.mediaAssetKeys.length, 3);
+        assert.equal(source.imageResultPersistence, undefined);
+        assert.equal(retried.nodes.find(n => n.id === 'target').mediaAssetKeys.length, 1);
+        assert.deepEqual(retried.nodes.find(n => n.id === 'keeper').mediaAssetKeys, [keeperKey]);
+        const owners = await app.evaluate(`fetch('/api/storage/media-owners?workflowId='+encodeURIComponent(${JSON.stringify(retried.activeWorkflowId)})).then(r=>r.json()).then(r=>r.owners)`);
+        assert.deepEqual(owners.find(o => o.ownerType === 'workflow-node' && o.ownerId === 'source').assetKeys.slice().sort(), [...new Set(source.mediaAssetKeys)].sort());
+        assert.ok(owners.some(o => o.ownerId === 'keeper' && o.assetKeys.includes(keeperKey)));
+        await reloadAppBrowser(app);
+        assert.deepEqual((await saved(app)).nodes.find(n => n.id === 'source').mediaAssetKeys, source.mediaAssetKeys);
+    });
+});
