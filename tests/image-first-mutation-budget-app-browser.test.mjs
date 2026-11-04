@@ -2,6 +2,57 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { withAppBrowser } from './helpers/app-browser.mjs';
 
+test('dragging with image-heavy Agent history never JSON-encodes conversation images on the input path', { timeout: 45000 }, async () => {
+    const dataUrl = 'data:image/png;base64,' + 'A'.repeat(4 * 1024 * 1024);
+    const nodes = [{ id: 'drag-heavy', type: 'ImageGenerate', x: 100, y: 100 }];
+    const promptAgent = { messages: [
+        { role: 'user', text: 'reference', referenceImages: [{ name: 'reference', dataUrl }] },
+        { role: 'agent', text: 'plan', canvasPlan: { version: 1, id: 'drag-plan', steps: [], connections: [], order: [], runs: [], bindings: {} } }
+    ] };
+    const workflow = { workflowId: 'drag-heavy-workflow', nodes, connections: [], promptAgent };
+    await withAppBrowser({ ...workflow, autoCheckUpdatesOnLoad: false,
+        activeWorkflowId: workflow.workflowId, activeWorkflowName: 'Drag',
+        workflowTabs: [{ name: 'Drag', workflowId: workflow.workflowId, data: workflow }],
+        models: [{ id: 'chat', modelId: 'chat', protocol: 'openai', taskType: 'chat', providerIds: ['p'] }],
+        providers: [{ id: 'p', endpoint: 'https://controlled.test', apikey: 'test' }]
+    }, async app => {
+        await app.waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
+        const result = await app.evaluate(`(async () => {
+            const node = document.getElementById('drag-heavy'), header = node.querySelector('.node-header');
+            const initial = { x: parseFloat(node.style.left), y: parseFloat(node.style.top) };
+            const rect = header.getBoundingClientRect(), x = rect.x + 20, y = rect.y + 10;
+            const stringify = JSON.stringify;
+            let inputActive = false, dragging = false, encodedBytes = 0;
+            JSON.stringify = (...args) => {
+                const result = stringify(...args);
+                if ((inputActive || dragging) && result?.includes('data:image/png;base64,')) encodedBytes += result.length;
+                return result;
+            };
+            const dispatch = (target, type, dx = 0, dy = 0) => {
+                inputActive = true;
+                try { target.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, buttons: type === 'mouseup' ? 0 : 1, clientX: x + dx, clientY: y + dy })); }
+                finally { inputActive = false; }
+            };
+            try {
+                dragging = true;
+                dispatch(header, 'mousedown');
+                dispatch(document, 'mousemove', 60, 40);
+                await new Promise(requestAnimationFrame);
+                await new Promise(resolve => setTimeout(resolve, 450));
+                dispatch(document, 'mouseup', 60, 40);
+            } finally { JSON.stringify = stringify; }
+            return { encodedBytes, moved: parseFloat(node.style.left) > initial.x && parseFloat(node.style.top) > initial.y };
+        })()`);
+        assert.equal(result.moved, true, 'the real node drag must complete');
+        assert.equal(result.encodedBytes, 0, 'selection, plan availability and drag settlement must not encode image-heavy history');
+        await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value?.nodes?.[0]?.x>100)");
+        assert.equal(await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.workflowTabs[0].data.promptAgent.messages[0].referenceImages[0].dataUrl.length)"), dataUrl.length,
+            'deferred persistence must retain the complete image');
+        await app.evaluate("(()=>{const canvas=document.getElementById('canvas-container');canvas.focus();canvas.dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,bubbles:true,cancelable:true}));})()");
+        await app.waitFor("parseFloat(document.getElementById('drag-heavy').style.left)===100");
+    });
+});
+
 test('the public image-first view ignores identical classes and positions its editor without rebuilding input presentation', { timeout: 45000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes: [], connections: [],
         models: [{ id: 'chat', modelId: 'chat', protocol: 'openai', taskType: 'chat', providerIds: ['p'] }],

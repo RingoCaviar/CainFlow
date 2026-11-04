@@ -1674,7 +1674,7 @@ export function createPromptAgentController({
         if (!canvasAdapter || !message) return;
         const revision = workflowRevision, workflowId = getWorkflowId();
         const isCurrent = () => revision === workflowRevision && getWorkflowId() === workflowId && message.isConnected !== false
-            && [...(conversationStore.snapshot().archivedMessages || []), ...conversationStore.snapshot().messages].some(item => item.canvasPlan?.id === plan.id);
+            && conversationStore.hasCanvasPlan(plan.id);
         const changed = () => {
             if (isCurrent()) { if (conversationStore.updateCanvasPlan(plan.id, plan)) onStateChange(); }
             else mutateWorkflowConversation?.(workflowId, snapshot => {
