@@ -128,28 +128,35 @@ body.workspace-mode-conversation #toolbar .toolbar-action-group {
 
 .toolbar-workflow-current {
     display: flex;
+    flex: 0 1 auto;
     flex-direction: column;
     justify-content: center;
     height: 38px;
     min-width: 0;
-    max-width: 130px;
+    max-width: min(260px, calc(100vw - 140px));
     gap: 2px;
-    padding-inline: 4px;
+    padding-inline: 8px;
 }
 
 .toolbar-workflow-name {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12px;
-    color: var(--text-primary);
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.015em;
+    color: var(--text-link, var(--text-primary));
 }
 
-.toolbar-workflow-status { font-size: 11px; color: var(--text-secondary); }
+.toolbar-workflow-status { font-size: 11px; line-height: 1.2; color: var(--text-secondary); }
 .toolbar-workflow-status:is([data-state="modified"], [data-state="pending"]) { color: var(--panel-accent-text); }
 
-@media (max-width: 1200px) {
-    .toolbar-workflow-current { max-width: 90px; }
+@media (max-width: 600px) {
+    .toolbar-workflow-current { max-width: min(140px, calc(100vw - 200px)); }
 }
 
 .toolbar-more-shell {

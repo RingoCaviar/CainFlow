@@ -1,0 +1,18 @@
+{
+  "buildPath": "code",
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "css/features/image-first-canvas.css"
+        ],
+        "createdAt": "2026-11-05T06:14:41.186Z",
+        "reason": "Agent verified: line 63 is the existing .image-parameter-resize-corner functional resize grip (12px square with right/bottom borders), identical to HEAD; it is not a decorative card accent."
+      }
+    ]
+  }
+}

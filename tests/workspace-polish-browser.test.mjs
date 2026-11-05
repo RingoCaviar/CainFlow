@@ -4,6 +4,26 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { withAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
 
+test('zoom percentage label opens its preset menu with a real pointer', { timeout: 20000 }, async () => {
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false,
+        nodes: [{ id: 'zoom-source', type: 'ImageGenerate', x: 40, y: 80, width: 280, prompt: 'preview' }],
+        connections: []
+    }, async ({ evaluate, send, waitFor }) => {
+        await send('Emulation.setDeviceMetricsOverride', { width: 1424, height: 900, deviceScaleFactor: 1, mobile: false });
+        await evaluate("document.getElementById('zoom-source').click()");
+        const point = await evaluate("(() => { const r=document.getElementById('zoom-level').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()");
+        const clickPercentage = async () => {
+            await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+            await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
+            await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
+        };
+        await clickPercentage();
+        await waitFor("document.querySelector('.canvas-zoom-menu').open");
+        await clickPercentage();
+        await waitFor("!document.querySelector('.canvas-zoom-menu').open");
+    });
+});
+
 test('workflow title stays visible during automatic saving while zoom presets stay accessible', { timeout: 60000 }, async () => {
     await withAppBrowser({ models: [{ id: 'chat', modelId: 'chat', name: '示例对话模型', protocol: 'openai', taskType: 'chat', providerIds: ['p'] }],
         providers: [{ id: 'p', name: '示例服务', endpoint: 'https://example.test/v1', apikey: 'test' }] }, async ({ evaluate, send, waitFor }) => {

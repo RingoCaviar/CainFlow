@@ -1,0 +1,4 @@
+/config.local.json
+/hook.cache.json
+/live/*
+!/live/config.json
