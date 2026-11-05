@@ -7,8 +7,8 @@ import { join } from 'node:path';
 test('complete application previews, applies, executes and undoes a canvas plan with controlled models', { timeout: 60000 }, async () => {
     await withAppBrowser({ models: [
         { id: 'chat', modelId: 'chat', name: '受控对话', protocol: 'openai', taskType: 'chat', providerIds: ['p'], autoCompactTokenLimit: 100000 },
-        { id: 'image-one', modelId: 'gpt-image-1', name: '图片模型一', protocol: 'openai-image', taskType: 'image', providerIds: ['p'] },
-        { id: 'image-two', modelId: 'gpt-image-1', name: '图片模型二', protocol: 'openai-image', taskType: 'image', providerIds: ['p'] }
+        { id: 'image-one', modelId: 'gpt-image-1', name: '图片模型一', protocol: 'openai', taskType: 'image', providerIds: ['p'] },
+        { id: 'image-two', modelId: 'gpt-image-1', name: '图片模型二', protocol: 'openai', taskType: 'image', providerIds: ['p'] }
     ], providers: [{ id: 'p', name: 'Controlled', endpoint: 'https://controlled.test/v1', apikey: 'test' }] }, async ({ evaluate, send, waitFor }) => {
         await send('Page.addScriptToEvaluateOnNewDocument', { source: `window.agentRequests=[]; window.nativeFetch=window.fetch; window.fetch=async (url,options={})=>{
             if(String(url)==='/proxy' && options.body) { const body=JSON.parse(options.body); window.agentRequests.push(body);
@@ -96,7 +96,7 @@ test('complete application previews, applies, executes and undoes a canvas plan 
 test('sequential graph stops on failure and retries only unfinished steps without duplicate nodes', { timeout: 60000 }, async () => {
     await withAppBrowser({ models: [
         { id: 'chat', modelId: 'chat', protocol: 'openai', taskType: 'chat', providerIds: ['p'], autoCompactTokenLimit: 100000 },
-        { id: 'image', modelId: 'gpt-image-1', protocol: 'openai-image', taskType: 'image', providerIds: ['p'] }
+        { id: 'image', modelId: 'gpt-image-1', protocol: 'openai', taskType: 'image', providerIds: ['p'] }
     ], providers: [{ id: 'p', endpoint: 'https://controlled.test/v1', apikey: 'test' }], autoRetry: true }, async ({ evaluate, send, waitFor }) => {
         await send('Page.addScriptToEvaluateOnNewDocument', { source: `window.generated=[];window.nativeFetch=fetch;window.fetch=async(url,options={})=>{
             if(String(url)==='/proxy'&&options.body){const body=JSON.parse(options.body);

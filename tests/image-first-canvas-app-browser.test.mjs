@@ -6,7 +6,7 @@ const session = {
     autoCheckUpdatesOnLoad: false,
     models: [
         { id: 'chat', modelId: 'chat', name: '受控对话', protocol: 'openai', taskType: 'chat', providerIds: ['provider'] },
-        { id: 'image', modelId: 'gpt-image-1', name: '受控图片', protocol: 'openai-image', taskType: 'image', providerIds: ['provider'] }
+        { id: 'image', modelId: 'gpt-image-1', name: '受控图片', protocol: 'openai', taskType: 'image', providerIds: ['provider'] }
     ],
     providers: [{ id: 'provider', name: '受控供应商', endpoint: 'https://controlled.test/v1', apikey: 'test' }],
     nodes: [

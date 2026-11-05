@@ -23,7 +23,7 @@ test('retained legacy save nodes pass through concurrent videos without exportin
         id: 'prompts', type: 'Text', enabled: true, data: { texts: ['first', 'second'] }, el: createNodeElement()
     };
     const videoNode = {
-        id: 'video', type: 'VideoGenerate', enabled: true, data: {}, el: createNodeElement()
+        id: 'video', type: 'VideoGenerate', apiConfigId: 'model', enabled: true, data: {}, el: createNodeElement()
     };
     const saveNode = {
         id: 'save', type: 'ImageSave', enabled: true, data: {}, el: createNodeElement()
@@ -43,7 +43,8 @@ test('retained legacy save nodes pass through concurrent videos without exportin
     const state = {
         nodes: new Map([[promptNode.id, promptNode], [videoNode.id, videoNode], [saveNode.id, saveNode]]),
         connections,
-        providers: [], models: [], selectedNodes: new Set(),
+        providers: [{ id: 'provider', endpoint: 'https://controlled.test/v1', apikey: 'fixture' }],
+        models: [{ id: 'model', modelId: 'controlled', protocol: 'async-video-api', taskType: 'video', providerIds: ['provider'] }], selectedNodes: new Set(),
         runningNodeIds: new Set(), runningNodeCancelHandlers: new Map(),
         concurrentRequestMode: true
     };

@@ -137,6 +137,31 @@ test('release, drag threshold, window blur, and page hiding abort a hold', () =>
     }
 });
 
+test('keyboard cancellation shares the hold progress and aborts on release or focus loss', () => {
+    for (const key of ['Enter', ' ']) {
+        const harness = createHarness();
+        const event = { key, preventDefault() {}, stopPropagation() {} };
+        harness.button.dispatch('keydown', event);
+        assert.equal(harness.timers.size, 1);
+        harness.button.dispatch('keydown', { ...event, repeat: true });
+        assert.equal(harness.timers.size, 1);
+        harness.setClock(1000); harness.runFrame();
+        assert.equal(harness.styles.get('--node-cancel-progress'), '0.5');
+        harness.button.dispatch('keyup', event);
+        assert.equal(harness.timers.size, 0);
+        assert.deepEqual(harness.cancellations, []);
+        harness.button.dispatch('keydown', event);
+        harness.button.dispatch('blur');
+        assert.equal(harness.timers.size, 0);
+        harness.button.dispatch('keydown', event);
+        harness.fireTimer();
+        assert.deepEqual(harness.cancellations, ['node-a']);
+        harness.button.dispatch('keyup', event);
+        harness.cleanup();
+        assert.ok([...harness.button.listeners.values()].every(listeners => listeners.size === 0));
+    }
+});
+
 test('decorative animation disabling explicitly exempts functional animation elements', async () => {
     const [foundation, nodeView, settings] = await Promise.all([
         readFile(new URL('../css/modules/00-foundation.css', import.meta.url), 'utf8'),
@@ -145,7 +170,7 @@ test('decorative animation disabling explicitly exempts functional animation ele
     ]);
     assert.match(foundation, /:not\(\.functional-animation\)/);
     assert.match(nodeView, /node-run-cancel-btn__progress-fill functional-animation/);
-    assert.match(nodeView, /tabindex="-1" title="鼠标左键长按 2 秒取消此节点运行"/);
+    assert.match(nodeView, /tabindex="0" title="长按鼠标、Enter 或空格 2 秒取消此节点运行"/);
     assert.match(settings, /装饰动画/);
     assert.match(settings, /功能性动画仍会保留/);
 });

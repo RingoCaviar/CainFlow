@@ -4,7 +4,7 @@ import { withAppBrowser } from './helpers/app-browser.mjs';
 
 test('parameter editor uses viewport space and preserves scrolling without overlapping actions', { timeout: 60000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false,
-        models: [{ id: 'chat', modelId: 'chat', protocol: 'openai', taskType: 'chat', providerIds: ['p'] }, { id: 'image', modelId: 'gpt-image-1', protocol: 'openai-image', taskType: 'image', providerIds: ['p'] }],
+        models: [{ id: 'chat', modelId: 'chat', protocol: 'openai', taskType: 'chat', providerIds: ['p'] }, { id: 'image', modelId: 'gpt-image-1', protocol: 'openai', taskType: 'image', providerIds: ['p'] }],
         providers: [{ id: 'p', endpoint: 'https://controlled.test/v1', apikey: 'test' }],
         nodes: [{ id: 'image', type: 'ImageGenerate', x: 400, y: 230, width: 320, apiConfigId: 'image', providerId: 'p', prompt: 'A cat under an umbrella.\n'.repeat(6) }], connections: []
     }, async app => {

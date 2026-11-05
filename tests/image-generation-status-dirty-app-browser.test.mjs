@@ -9,8 +9,8 @@ const configuration = {
     autoCheckUpdatesOnLoad: false, autoRetry: false,
     models: [
         { id: 'chat', modelId: 'chat', name: '受控对话', protocol: 'openai', taskType: 'chat', providerIds: ['p'] },
-        { id: 'image', modelId: 'gpt-image-1', name: '受控图片', protocol: 'openai-image', taskType: 'image', providerIds: ['p', 'q'] },
-        { id: 'image-other', modelId: 'gpt-image-1.5', name: '另一图片配置', protocol: 'openai-image', taskType: 'image', providerIds: ['p', 'q'] },
+        { id: 'image', modelId: 'gpt-image-1', name: '受控图片', protocol: 'openai', taskType: 'image', providerIds: ['p', 'q'] },
+        { id: 'image-other', modelId: 'gpt-image-1.5', name: '另一图片配置', protocol: 'openai', taskType: 'image', providerIds: ['p', 'q'] },
         { id: 'google', modelId: 'gemini-image', name: '受控参考生图', protocol: 'google', taskType: 'image', providerIds: ['p'] }
     ],
     providers: [{ id: 'p', name: '供应商甲', endpoint: 'https://controlled.test/v1', apikey: 'test' }, { id: 'q', name: '供应商乙', endpoint: 'https://other-controlled.test/v1', apikey: 'test' }]

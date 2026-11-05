@@ -6,8 +6,10 @@ export function createPromptAgentPanelWidth({ panel, handle, windowRef, read = (
     let gesture = null;
     const bounds = () => {
         const available = panel?.parentElement?.clientWidth || windowRef?.innerWidth || 1200;
-        // Reserve a narrow column for canvas navigation beside the open panel.
-        const max = Math.max(1, Math.min(960, available - 124));
+        // Smaller desktops reserve a usable editor beside Agent. Clamping the
+        // presentation never replaces a saved preference from a wider window.
+        const reserve = available > 800 && available <= 1200 ? 360 : 124;
+        const max = Math.max(1, Math.min(960, available - reserve));
         return { min: Math.min(300, max), max };
     };
     const clamp = value => Math.max(bounds().min, Math.min(bounds().max, value));

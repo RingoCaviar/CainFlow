@@ -491,6 +491,16 @@
             <!-- Canvas Container -->
             <div id="canvas-container" tabindex="0">
                 <div class="canvas-grid" aria-hidden="true"></div>
+                <section id="canvas-empty-state" class="canvas-empty-state" aria-labelledby="canvas-empty-title" hidden>
+                    <h2 id="canvas-empty-title">从这里开始创作</h2>
+                    <p>添加节点搭建工作流，或让助手帮你规划画面。</p>
+                    <div class="canvas-empty-actions">
+                        <button id="canvas-add-first-node" class="btn btn-primary" type="button">添加第一个节点</button>
+                        <button id="canvas-open-agent" class="btn btn-secondary" type="button">让助手创建</button>
+                        <button id="canvas-configure-models" class="btn btn-ghost" type="button">配置模型</button>
+                    </div>
+                    <p class="canvas-empty-tip">也可以右键画布添加节点。修改会自动保存。</p>
+                </section>
                 <div id="floating-notices-container" aria-live="polite"></div>
                 <!-- SVG layer for connections -->
                 <svg id="connections-svg">
@@ -1287,6 +1297,12 @@
             </div>
             <div class="modal-body" id="settings-body">
                 <div id="settings-tab-api" class="settings-tab-pane active">
+                    <section id="settings-api-guide" class="settings-api-guide" aria-label="模型配置步骤">
+                        <h3>配置你的第一个模型</h3>
+                        <ol><li>添加供应商，填写接口地址与所需密钥。</li><li>获取模型列表，或手动添加模型并选择用途与兼容格式。</li><li>检查配置后，返回画布创作。</li></ol>
+                        <button id="btn-check-model-config" class="btn btn-secondary" type="button">检查配置</button>
+                        <p id="settings-api-status" role="status">检查仅核对本地配置，不会发送生成请求或产生模型费用。</p>
+                    </section>
                     <div class="settings-section">
                         <div class="settings-toolbar">
                             <div class="settings-toolbar-title">
@@ -1452,8 +1468,10 @@
                     <div class="error-suggestion-label">建议操作：</div>
                     <ul id="error-modal-suggestions" class="error-suggestion-list"></ul>
                 </div>
-                <div id="error-detail-label" class="error-detail-label">技术详情：</div>
+                <details id="error-technical-details">
+                <summary id="error-detail-label" class="error-detail-label">技术详情</summary>
                 <pre id="error-modal-detail" class="error-detail-pre"></pre>
+                </details>
                 <div id="error-modal-images" class="error-modal-images"></div>
             </div>
             <div class="modal-footer" style="display:flex; gap:10px; justify-content:flex-end; align-items: center;">

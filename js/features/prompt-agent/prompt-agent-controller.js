@@ -280,7 +280,7 @@ export function createPromptAgentController({
         initializeProvider('chat', models.find(model => model.id === selected));
         const error = providerError('chat', models.find(model => model.id === selected));
         const status = documentRef.getElementById('prompt-agent-model-status');
-        if (status) status.textContent = error?.message || '已选对话模型不可用，请检查配置。';
+        if (status) status.textContent = models.length === 0 ? '尚未配置可用的对话模型。' : error?.message || '已选对话模型不可用，请检查配置。';
         if (modelHint) modelHint.hidden = !error && models.some(model => model.id === selected);
         const configure = documentRef.getElementById('prompt-agent-add-model');
         if (configure) configure.textContent = '配置模型与供应商';
@@ -2158,9 +2158,21 @@ export function createPromptAgentController({
         const snapshot = conversationStore.snapshot();
         const transcript = [...(snapshot.archivedMessages || []), ...snapshot.messages];
         if (transcript.length === 0) {
-            const empty = documentRef.createElement('p');
+            const empty = documentRef.createElement('div');
             empty.className = 'prompt-agent-empty';
-            empty.textContent = '描述你想生成的画面。确认方案后点击生成，自动创建生图节点。';
+            const title = documentRef.createElement('strong'); title.textContent = '想创作什么画面？';
+            const help = documentRef.createElement('p'); help.textContent = '描述主体、风格和用途。助手先提供方案，确认后再应用或生成。';
+            empty.appendChild(title); empty.appendChild(help);
+            for (const [label, text] of [['产品摄影示例', '帮我规划一张产品摄影图：主体是一只白色陶瓷杯，柔和自然光，简洁背景，用于商品展示。'], ['人物肖像示例', '帮我规划一张人物肖像：自然表情，电影光线，暖色背景，请先提供方案。']]) {
+                const example = documentRef.createElement('button'); example.type = 'button'; example.textContent = label;
+                example.addEventListener('click', () => {
+                    const input = getElements().input;
+                    if (!input) return;
+                    if (!input.value.trim()) { input.value = text; input.dispatchEvent(new Event('input', { bubbles: true })); }
+                    input.focus();
+                });
+                empty.appendChild(example);
+            }
             messages.appendChild(empty);
             updateScrollBottomButton();
             return;

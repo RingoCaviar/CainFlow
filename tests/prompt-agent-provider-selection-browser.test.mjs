@@ -7,7 +7,7 @@ const providers = [{ id: 'a', name: '供应商甲', endpoint: 'https://first.tes
     { id: 'b', name: '供应商乙', endpoint: 'https://second.test/v1', apikey: 'second-key' }];
 const models = [{ id: 'chat', name: '对话模型', modelId: 'test-chat', taskType: 'chat', protocol: 'openai', providerIds: ['a','b'], agentSearch: 'images' },
     { id: 'other', name: '另一对话模型', modelId: 'other', taskType: 'chat', protocol: 'openai', providerIds: ['a','b'] },
-    { id: 'image', name: '图片模型', modelId: 'gpt-image-1', taskType: 'image', protocol: 'openai-image', providerIds: ['a','b'] }];
+    { id: 'image', name: '图片模型', modelId: 'gpt-image-1', taskType: 'image', protocol: 'openai', providerIds: ['a','b'] }];
 
 test('four combined menus preserve model/provider identities; real requests and statistics survive reconstruction', { timeout: 90000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false, models, providers }, async ({ evaluate, send, waitFor }) => {

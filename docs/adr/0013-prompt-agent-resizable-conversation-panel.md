@@ -52,6 +52,18 @@ switching nodes retains that mode for the current open session. Restoring return
 to the current node, and closing ends the enlarged session. The original control
 DOM remains the sole editor, including while the window is moved or resized.
 
+## Small-window editing context (2026-11-05, ux-ui-improvements#001)
+
+The coexistence policy above is refined for smaller desktops: at 801–1200px,
+Agent reserves horizontal canvas space instead of overlaying that canvas area.
+The parameter window shows its target name, an already displayed result thumbnail
+when available, and an explicit locate action. At narrower widths the existing
+window front/back controls remain available and parameters can use the viewport
+instead of being squeezed into the sliver beside Agent. Neither opening nor
+resizing these surfaces pans the canvas, changes node coordinates, discards drafts,
+or changes the persisted panel-width preference. Locating a node is an explicit
+user action. Larger windows retain the existing overlap policy.
+
 ## Original consequences (historical)
 
 - The canvas remains visible while the assistant is used, and users can tune the panel width to their workspace.

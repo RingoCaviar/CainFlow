@@ -62,6 +62,7 @@ test('the public workflow runner sends the complete ordered 65-image input to th
 
 for(const type of ['VideoGenerate','TextChat']) test(`${type} retains its existing aggregation limit in cached preview and public workflow execution`,async()=>{
  const {core,runner,target,requests,state}=fixture(),connections=structuredClone(state.connections);target.type=type;
+ state.models[0].taskType=type==='VideoGenerate'?'video':'chat';state.models[0].protocol=type==='VideoGenerate'?'async-video-api':'openai';
  assert.throws(()=>core.buildNodeRequestPreview(target.id),/最多接收 64 张/);
  await runner.runWorkflow({mode:'selected-only',selectedNodeIds:[target.id]});
  assert.match(target.executionFailure?.message||'',/最多接收 64 张/);

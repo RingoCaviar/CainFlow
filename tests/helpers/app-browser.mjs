@@ -7,6 +7,9 @@ import assert from 'node:assert/strict';
 import { sanitizeDetails } from '../../js/services/api-client.js';
 
 export const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+// Startup can intentionally wait for a user decision (for example retiring Save
+// nodes). Such a dialog is already an interactive boundary for its test.
+const appInteractive = "window.__cainflowAppReady===true || Boolean(document.querySelector('#app-action-dialog:not(.hidden)'))";
 export async function waitForAutosave({ waitFor }) {
     // The session cache itself is debounced; don't read its previous clean
     // snapshot before the new edit has reached it.
@@ -20,7 +23,7 @@ export async function reloadAppBrowser({ evaluate, send, waitFor }) {
     // correctly opens its native beforeunload protection dialog.
     await waitForAutosave({ waitFor });
     const previous = await evaluate('performance.timeOrigin');
-    const ready = `performance.timeOrigin!==${previous} && window.__cainflowAppReady===true && document.getElementById('prompt-agent-model')?.options.length>0`;
+    const ready = `performance.timeOrigin!==${previous} && (${appInteractive})`;
     const waitUntilReady = async () => {
         try { await waitFor(ready); }
         catch (error) {
@@ -175,11 +178,11 @@ export async function withAppBrowser(session, task, { repoDirectory, initScript,
         if (initScript) await send('Page.addScriptToEvaluateOnNewDocument', { source: initScript });
         await send('Page.navigate', { url: server.baseUrl });
         try {
-            await waitFor("Boolean(document.getElementById('prompt-agent-model')?.options.length)");
+            await waitFor(appInteractive);
         } catch (error) {
             if (!String(error).includes('Failed to fetch dynamically imported module')) throw error;
             await send('Page.reload', { ignoreCache: true });
-            await waitFor("Boolean(document.getElementById('prompt-agent-model')?.options.length)");
+            await waitFor(appInteractive);
         }
         await delay(500);
         return await task({ evaluate, send, waitFor, step, server, onProtocolEvent: listener => { protocolListeners.add(listener); return () => protocolListeners.delete(listener); } });

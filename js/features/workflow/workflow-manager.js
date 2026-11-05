@@ -292,7 +292,7 @@ export function createWorkflowManagerApi({
         prepareEditorView: prepareDetachedEditorView,
         resolveLegacyWorkflowName: async () => {
             const names = await fetchWorkflows({ fallback: null });
-            return Array.isArray(names) ? findNextUnsavedName(names) : `Unsaved-${createWorkflowId()}`;
+            return Array.isArray(names) ? findNextUntitledName(names) : `未命名工作流-${createWorkflowId()}`;
         },
         applyViewport: () => viewportApi.updateCanvasTransform({ updateConnections: false }),
         onViewApplied: onWorkflowViewApplied
@@ -1851,11 +1851,11 @@ export function createWorkflowManagerApi({
         return true;
     }
 
-    function findNextUnsavedName(names) {
-        if (!hasWorkflowBaseName(names, 'Unsaved')) return 'Unsaved';
+    function findNextUntitledName(names) {
+        if (!hasWorkflowBaseName(names, '未命名工作流')) return '未命名工作流';
         let index = 1;
-        while (hasWorkflowBaseName(names, `Unsaved ${index}`)) index += 1;
-        return `Unsaved ${index}`;
+        while (hasWorkflowBaseName(names, `未命名工作流 ${index}`)) index += 1;
+        return `未命名工作流 ${index}`;
     }
 
     function renderWorkflowEmpty(list, text = '暂无保存的工作流') {
@@ -1950,7 +1950,7 @@ export function createWorkflowManagerApi({
         if (getActiveWorkflowTab()) return true;
 
         const names = await fetchWorkflows();
-        const name = findNextUnsavedName(names);
+        const name = findNextUntitledName(names);
         const data = getNewWorkflowData({ inheritCurrentCanvas });
 
         const tab = {
@@ -2015,7 +2015,7 @@ export function createWorkflowManagerApi({
             if (!fallbackTab) {
                 const persistedNames = await fetchWorkflows();
                 const openNames = (state.workflowTabs || []).map((tab) => tab.name);
-                const fallbackName = findNextUnsavedName([...persistedNames, ...openNames]);
+                const fallbackName = findNextUntitledName([...persistedNames, ...openNames]);
                 fallbackTab = {
                     name: fallbackName,
                     data: getNewWorkflowData({ inheritCurrentCanvas: false }),

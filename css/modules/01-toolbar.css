@@ -60,6 +60,7 @@
 }
 
 #toolbar:hover,
+body:not(.preview-active):has(#canvas-empty-state:not([hidden])) #toolbar,
 #toolbar:focus-within,
 #toolbar:has(.btn.active:not(#btn-prompt-agent)),
 #toolbar:has([aria-expanded="true"]:not(#btn-prompt-agent)),

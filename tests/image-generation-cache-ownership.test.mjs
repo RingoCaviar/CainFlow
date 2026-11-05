@@ -275,7 +275,7 @@ test('batched workflow generation retains its own result and propagates downstre
     const state = {
         nodes: new Map([[prompt.id, prompt], [generated.id, generated], [preview.id, preview]]),
         connections,
-        models: [{ id: 'model', modelId: 'gpt-image-1', protocol: 'openai-image', taskType: 'image', providerIds: ['provider'] }],
+        models: [{ id: 'model', modelId: 'gpt-image-1', protocol: 'openai', taskType: 'image', providerIds: ['provider'] }],
         providers: [{ id: 'provider', endpoint: 'https://example.test/v1', apikey: 'controlled-key' }], selectedNodes: new Set(),
         runningNodeIds: new Set(), runningNodeCancelHandlers: new Map(), concurrentRequestMode: false
     };

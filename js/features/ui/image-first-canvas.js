@@ -8,6 +8,7 @@ import { projectImageOutput } from '../../nodes/image-output-projection.js';
 import { normalizeCameraState } from '../camera/camera-prompt-utils.js';
 import { getSurfaceCoordinator } from './surface-coordinator.js';
 import { renderImageNodeRunState } from '../../nodes/image-node-run-state.js';
+import { getNodeModelConfigurationIssue } from '../execution/model-configuration-readiness.js';
 
 const nodeLabels = { ImageGenerate: '图片生成', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比', ImageMerge: '多图合一', ImageSave: '保存节点', CameraControl: '视角控制' };
 const cameraFields = [['pitch', '俯仰角 Pitch'], ['yaw', '偏航角 Yaw'], ['distance', '距离 Distance'], ['fov', '视野角 FOV'], ['roll', '翻滚角 Roll']];
@@ -20,7 +21,7 @@ const emptyPreviewMessages = new Set(['无输入图片', '无输入视频', '运
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
     runToNode, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
-    panelManager = null, openAgent = () => {} }) {
+    panelManager = null, openAgent = () => {}, openModelSettings = () => {}, focusNode = () => {} }) {
     const views = new Map();
     const dragClasses = new Set(['selected', 'is-interacting', 'connection-insert-candidate', 'connection-shake-armed']);
     const presentationClasses = value => (value || '').split(/\s+/).filter(name => name && !dragClasses.has(name)).sort().join(' ');
@@ -44,10 +45,27 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     documentRef.body.append(store, panel, switcher);
     const header = panel.querySelector('.image-parameter-header');
     const scroll = panel.querySelector('.image-parameter-scroll');
+    const targetContext = documentRef.createElement('div');
+    targetContext.className = 'image-parameter-context';
+    targetContext.innerHTML = '<img alt="当前节点预览" hidden><strong></strong><button type="button">定位节点</button>';
+    scroll.before(targetContext);
+    targetContext.querySelector('button').addEventListener('click', () => { if (current) focusNode(current.id); });
     const feedback = panel.querySelector('.image-parameter-feedback');
     const footer = panel.querySelector('.image-parameter-footer');
     const countSlot = panel.querySelector('.image-parameter-count-slot');
     const generate = panel.querySelector('[data-parameter-action="generate"]');
+    const configuration = documentRef.createElement('div');
+    configuration.className = 'image-parameter-configuration';
+    configuration.hidden = true;
+    configuration.innerHTML = '<span role="status"></span><button type="button" data-parameter-action="configure-model">配置生图模型</button>';
+    const configurationMessage = configuration.querySelector('span');
+    const configureModel = configuration.querySelector('button');
+    footer.before(configuration);
+    configureModel.addEventListener('click', () => {
+        if (!current) return;
+        const issue = getNodeModelConfigurationIssue({ state, node: current, documentRef });
+        openModelSettings({ ...issue?.target, onClose: () => { if (current) refreshNode(current.id); } });
+    });
     const promptSizing = new WeakMap();
     const emptyPreviewLabels = new WeakMap();
     const storedWidth = Number(storage?.getItem('cainflow_node_parameter_width'));
@@ -83,7 +101,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         let right = Math.min(windowRef.innerWidth - 12, (canvas?.right || windowRef.innerWidth) - 12);
         const agentPanel = documentRef.getElementById('prompt-agent-panel');
         if (agentPanel?.classList.contains('active') && !agentPanel.hidden) {
-            right = Math.min(right, agentPanel.getBoundingClientRect().left - 12);
+            const besideAgent = Math.min(right, agentPanel.getBoundingClientRect().left - 12);
+            // At phone-sized widths use the existing window switcher instead
+            // of squeezing the editor to an unusably narrow strip.
+            right = besideAgent - left >= 280 ? besideAgent : windowRef.innerWidth - 12;
         }
         right = Math.max(left + 1, right);
         // Canvas navigation and panel recovery controls must not cover the
@@ -165,6 +186,14 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
 
     function position() {
         if (panel.hidden || !current?.el?.isConnected) return;
+        const name = current.customTitle || current.el.dataset.nodeTitle || nodeLabels[current.type] || current.type;
+        const title = targetContext.querySelector('strong');
+        if (title.textContent !== `当前编辑：${name}`) title.textContent = `当前编辑：${name}`;
+        const preview = targetContext.querySelector('img');
+        const source = (views.get(current)?.result?.querySelector('img') || current.el.querySelector('.node-body img'))?.getAttribute('src');
+        if (source && preview.getAttribute('src') !== source) preview.src = source;
+        preview.hidden = !source;
+        if (!source) preview.removeAttribute('src');
         const scrollTop = scroll.scrollTop;
         const rect = current.el.getBoundingClientRect();
         const bounds = available();
@@ -223,9 +252,9 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (height > below) {
             if (height <= above) {
                 top = rect.top - 12 - height;
-            } else if (hasCancel && Math.max(above, below) >= 120) {
-                // Running nodes must keep their external cancel control usable,
-                // even when the open reference group needs a scroll fallback.
+            } else if (floatingBottoms.length > 0 && Math.max(above, below) >= 120) {
+                // Keep cancel and result actions reachable even when larger
+                // controls or the target context require a scroll fallback.
                 const useAbove = above >= below;
                 panel.style.maxHeight = `${Math.min(bounds.height, useAbove ? above : below)}px`;
                 height = panel.getBoundingClientRect().height;
@@ -372,7 +401,11 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 : node.type === 'CameraControl' ? '编辑视角'
                 : node.type === 'ImageResize' ? (running ? '处理中' : '处理图片')
                     : node.type === 'ColorReset' ? (running ? '调色中' : '应用调色') : (running ? '生成中' : '生成'));
-            generate.disabled = running || node.enabled === false || (node.type === 'CameraControl' && (node.isClone || view.cameraOpen?.disabled));
+            const issue = node.type === 'ImageGenerate' ? getNodeModelConfigurationIssue({ state, node, documentRef }) : null;
+            if (configuration.parentNode !== footer.parentNode) footer.before(configuration);
+            configuration.hidden = !issue;
+            setText(configurationMessage, issue?.message || '');
+            generate.disabled = !!issue || running || node.enabled === false || (node.type === 'CameraControl' && (node.isClone || view.cameraOpen?.disabled));
             setText(feedback, node.type === 'ImageImport' ? '在卡片选择文件，或切换 URL 输入链接。'
                 : node.type === 'ImagePreview' ? (node.previewInputState === 'stale' ? '未更新 · 当前无输入' : node.previewInputState === 'empty' ? '当前无输入' : '预览当前连接的图片')
                     : node.type === 'ImageCompare' ? node.el.querySelector('.image-compare-container')?.dataset.compareMessage || 'B 为必需输入；A 可选，移动指针调整分界。'

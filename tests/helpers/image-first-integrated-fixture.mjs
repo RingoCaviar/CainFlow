@@ -9,7 +9,7 @@ export const configuration = {
     autoCheckUpdatesOnLoad: false, autoRetry: false,
     models: [
         { id: 'chat', modelId: 'chat', name: '受控对话', protocol: 'openai', taskType: 'chat', providerIds: ['p'] },
-        { id: 'image', modelId: 'gpt-image-1', name: '受控图片', protocol: 'openai-image', taskType: 'image', providerIds: ['p'] },
+        { id: 'image', modelId: 'gpt-image-1', name: '受控图片', protocol: 'openai', taskType: 'image', providerIds: ['p'] },
         { id: 'google', modelId: 'gemini-image', name: '完整参考图片', protocol: 'google', taskType: 'image', providerIds: ['p'] },
         { id: 'video', modelId: 'veo-3', name: '受控视频', protocol: 'veo-unified', taskType: 'video', providerIds: ['p'] }
     ],
