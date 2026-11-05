@@ -17,10 +17,28 @@ test('dragging with image-heavy Agent history never JSON-encodes conversation im
         providers: [{ id: 'p', endpoint: 'https://controlled.test', apikey: 'test' }]
     }, async app => {
         await app.waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
+        await app.evaluate(`(() => {
+            window.largeSaveBodies = [];
+            const nativeFetch = window.fetch;
+            window.fetch = (url, options = {}) => {
+                if (options.body?.size > 1024 * 1024 || options.body?.length > 1024 * 1024) {
+                    largeSaveBodies.push({ url: String(url), blob: options.body instanceof Blob });
+                }
+                return nativeFetch(url, options);
+            };
+            window.mainThreadImageEncodes = 0;
+            const NativeBlob = window.Blob;
+            window.Blob = new Proxy(NativeBlob, { construct(target, args) {
+                if (args[0]?.some(part => typeof part === 'string' && part.length > 1024 * 1024)) mainThreadImageEncodes++;
+                return Reflect.construct(target, args);
+            } });
+        })()`);
         const result = await app.evaluate(`(async () => {
-            const node = document.getElementById('drag-heavy'), header = node.querySelector('.node-header');
+            const node = document.getElementById('drag-heavy');
             const initial = { x: parseFloat(node.style.left), y: parseFloat(node.style.top) };
-            const rect = header.getBoundingClientRect(), x = rect.x + 20, y = rect.y + 10;
+            const rect = node.getBoundingClientRect(), x = rect.x + 8, y = rect.y + 8;
+            const target = document.elementFromPoint(x, y);
+            if (rect.width <= 0 || rect.height <= 0 || !node.contains(target)) throw new Error('Drag target must be visible and hittable');
             const stringify = JSON.stringify;
             let inputActive = false, dragging = false, encodedBytes = 0;
             JSON.stringify = (...args) => {
@@ -35,7 +53,7 @@ test('dragging with image-heavy Agent history never JSON-encodes conversation im
             };
             try {
                 dragging = true;
-                dispatch(header, 'mousedown');
+                dispatch(target, 'mousedown');
                 dispatch(document, 'mousemove', 60, 40);
                 await new Promise(requestAnimationFrame);
                 await new Promise(resolve => setTimeout(resolve, 450));
@@ -48,6 +66,12 @@ test('dragging with image-heavy Agent history never JSON-encodes conversation im
         await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value?.nodes?.[0]?.x>100)");
         assert.equal(await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.workflowTabs[0].data.promptAgent.messages[0].referenceImages[0].dataUrl.length)"), dataUrl.length,
             'deferred persistence must retain the complete image');
+        await app.waitFor("fetch('/api/workflows/Drag').then(r=>r.json()).then(r=>r.nodes?.[0]?.x>100 && r.promptAgent?.messages?.[0]?.referenceImages?.[0]?.dataUrl.length>4*1024*1024)");
+        const bodies = await app.evaluate('largeSaveBodies');
+        assert.ok(bodies.some(item => item.url.endsWith('/documents/session')));
+        assert.ok(bodies.some(item => item.url.endsWith('/workflows/Drag')));
+        assert.ok(bodies.every(item => item.blob), 'both recovery and workflow writes must avoid string transport');
+        assert.equal(await app.evaluate('mainThreadImageEncodes'), 0, 'the real worker must encode large bodies off the canvas thread');
         await app.evaluate("(()=>{const canvas=document.getElementById('canvas-container');canvas.focus();canvas.dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,bubbles:true,cancelable:true}));})()");
         await app.waitFor("parseFloat(document.getElementById('drag-heavy').style.left)===100");
     });
