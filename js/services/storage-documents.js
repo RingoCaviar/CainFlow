@@ -1,3 +1,5 @@
+import { createLargeJsonBody } from './large-json-body.js';
+
 const DIRECT_KEY_DOCUMENTS = new Map([
     ['nodeflow_ai_state', 'session'],
     ['nodeflow_ai_viewport_state', 'viewport_state'],
@@ -15,8 +17,8 @@ const GROUP_DOCUMENTS = [
 
 const KEEPALIVE_BODY_LIMIT = 60 * 1024;
 
-function canUseKeepalive(body) {
-    return new TextEncoder().encode(body).byteLength <= KEEPALIVE_BODY_LIMIT;
+class SerializedDocument {
+    constructor(json) { this.json = json; }
 }
 
 function parseStoredJson(value, fallback = null) {
@@ -99,6 +101,16 @@ class DiskStorageFacade {
         this.queueDocument(groupDefinition.name, group);
     }
 
+    // The session manager already produced valid JSON. Keep that immutable
+    // snapshot for synchronous reads and transport without parsing/re-encoding
+    // every reference image just to wrap it in the API's { value } envelope.
+    setSerializedJSON(key, json) {
+        const name = DIRECT_KEY_DOCUMENTS.get(key);
+        if (!name || typeof json !== 'string') throw new TypeError('Expected a serialized storage document');
+        this.values.set(key, json);
+        this.queueDocument(name, new SerializedDocument(json));
+    }
+
     removeItem(key) {
         key = String(key);
         this.values.delete(key);
@@ -164,9 +176,14 @@ class DiskStorageFacade {
     }
 
     async writeDocument(name, value) {
-        const body = JSON.stringify({ value });
-        const bytes = new TextEncoder().encode(body).byteLength;
-        const keepalive = canUseKeepalive(body) && this.keepaliveBytes + bytes <= KEEPALIVE_BODY_LIMIT;
+        const json = value instanceof SerializedDocument ? `{"value":${value.json}}` : JSON.stringify({ value });
+        // UTF-8 cannot be shorter than this string's UTF-16 code-unit count.
+        // Only measure small bodies for the shared keepalive budget. Large
+        // bodies use Blob transport, avoiding fetch's costly string conversion.
+        const large = json.length > KEEPALIVE_BODY_LIMIT;
+        const bytes = large ? 0 : new TextEncoder().encode(json).byteLength;
+        const keepalive = !large && this.keepaliveBytes + bytes <= KEEPALIVE_BODY_LIMIT;
+        const body = large || bytes > KEEPALIVE_BODY_LIMIT ? await createLargeJsonBody(json) : json;
         const options = { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body, keepalive };
         if (keepalive) this.keepaliveBytes += bytes;
         try {

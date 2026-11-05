@@ -400,7 +400,11 @@ export function createSessionManagerApi({
                 : 320;
             data.workspaceMode = state.workspaceMode === 'conversation' ? 'conversation' : 'canvas';
             serializedData = JSON.stringify(data);
-            localStorageRef.setItem(storageKey, serializedData);
+            if (typeof localStorageRef.setSerializedJSON === 'function') {
+                localStorageRef.setSerializedJSON(storageKey, serializedData);
+            } else {
+                localStorageRef.setItem(storageKey, serializedData);
+            }
             if (!saveUiBootstrapState()) return false;
             return true;
         } catch (e) {

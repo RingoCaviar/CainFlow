@@ -1,6 +1,7 @@
 /**
  * 封装工作流文件相关的前后端通信。
  */
+import { createLargeJsonBody } from './large-json-body.js';
 
 async function requestWorkflow(url, options, errorMessage) {
     try {
@@ -46,6 +47,7 @@ export async function fetchWorkflowEntries() {
 }
 
 export async function saveWorkflowToFile(name, data, { expectedMediaOwnershipRevision, expectedStorageEpoch } = {}) {
+    const json = JSON.stringify(data);
     const result = await requestWorkflow(
         `/api/workflows/${encodeURIComponent(name)}`,
         {
@@ -59,7 +61,7 @@ export async function saveWorkflowToFile(name, data, { expectedMediaOwnershipRev
                     'X-CainFlow-Expected-Storage-Epoch': String(expectedStorageEpoch)
                 } : {})
             },
-            body: JSON.stringify(data)
+            body: json.length > 60 * 1024 ? await createLargeJsonBody(json) : json
         },
         '保存工作流失败'
     );
