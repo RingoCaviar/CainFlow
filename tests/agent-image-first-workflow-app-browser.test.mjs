@@ -9,7 +9,7 @@ const configuration = {
     autoCheckUpdatesOnLoad: false, autoRetry: false,
     models: [
         { id: 'chat', modelId: 'chat', name: '受控对话', protocol: 'openai', taskType: 'chat', providerIds: ['p'] },
-        { id: 'image', modelId: 'gpt-image-1', name: '受控来源', protocol: 'openai-image', taskType: 'image', providerIds: ['p'] },
+        { id: 'image', modelId: 'gpt-image-1', name: '受控来源', protocol: 'openai', taskType: 'image', providerIds: ['p'] },
         { id: 'google', modelId: 'gemini-image', name: '受控目标', protocol: 'google', taskType: 'image', providerIds: ['p'] }
     ],
     providers: [{ id: 'p', name: '受控供应商', endpoint: 'https://controlled.test/v1', apikey: 'test' }]
@@ -38,7 +38,9 @@ async function click(app, selector) {
         await delay(50);
         if (await app.evaluate(`document.querySelector(${JSON.stringify(selector)}).contains(document.elementFromPoint(${point.x},${point.y}))`)) break;
     }
-    assert.ok(await app.evaluate(`document.querySelector(${JSON.stringify(selector)}).contains(document.elementFromPoint(${point.x},${point.y}))`), `the visible user control is reachable: ${selector}`);
+    const reachable = await app.evaluate(`document.querySelector(${JSON.stringify(selector)}).contains(document.elementFromPoint(${point.x},${point.y}))`);
+    const obstruction = reachable ? '' : await app.evaluate(`JSON.stringify({hit:document.elementFromPoint(${point.x},${point.y})?.outerHTML.slice(0,300),target:document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect().toJSON(),canvas:document.getElementById('canvas-container').getBoundingClientRect().toJSON(),parameters:document.getElementById('image-parameter-panel').getBoundingClientRect().toJSON()})`);
+    assert.ok(reachable, `the visible user control is reachable: ${selector} ${obstruction}`);
     await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
     await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
 }

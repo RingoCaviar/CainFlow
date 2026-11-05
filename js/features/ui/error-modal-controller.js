@@ -50,6 +50,8 @@ export function createErrorModalControllerApi({
         }
 
         const detailLabelEl = documentRef.getElementById('error-detail-label');
+        const technicalDetails = documentRef.getElementById('error-technical-details');
+        if (technicalDetails) { technicalDetails.open = false; technicalDetails.hidden = !detail; }
         const detailEl = documentRef.getElementById('error-modal-detail');
         if (detailEl) {
             detailEl.textContent = detail || '无详细信息';
@@ -99,6 +101,7 @@ export function createErrorModalControllerApi({
                         nodeId: log.nodeId || '',
                         nodeTitle: log.nodeTitle || ''
                     });
+                    if (technicalDetails) technicalDetails.open = true;
                 };
             } else {
                 btnFull.classList.add('hidden');

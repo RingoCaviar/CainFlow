@@ -18,9 +18,11 @@ const element = () => ({
 });
 
 function fixture(type = 'ImageGenerate') {
-    const source = { id: 'generate', type, enabled: true, data: { prompt: '受控生成' }, el: element(), x: 0, y: 0, width: 240 };
+    const source = { id: 'generate', type, apiConfigId: 'model', providerId: 'provider', enabled: true, data: { prompt: '受控生成' }, el: element(), x: 0, y: 0, width: 240 };
     const state = {
-        nodes: new Map([[source.id, source]]), connections: [], providers: [], models: [],
+        nodes: new Map([[source.id, source]]), connections: [],
+        providers: [{ id: 'provider', endpoint: 'https://controlled.test/v1', apikey: 'fixture' }],
+        models: [{ id: 'model', modelId: 'controlled', protocol: type === 'VideoGenerate' ? 'async-video-api' : 'openai', taskType: type === 'VideoGenerate' ? 'video' : 'image', providerIds: ['provider'] }],
         selectedNodes: new Set(), canvas: { zoom: 1, x: 0, y: 0 }, requestTimeoutEnabled: false
     };
     const documentRef = {

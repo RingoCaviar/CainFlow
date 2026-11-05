@@ -5,7 +5,7 @@ import { withAppBrowser } from './helpers/app-browser.mjs';
 const session = {
     autoCheckUpdatesOnLoad: false,
     models: [{ id: 'chat', modelId: 'chat', name: '受控对话', protocol: 'openai', taskType: 'chat', providerIds: ['p'] },
-        { id: 'image', modelId: 'gpt-image-1', name: '受控图片', protocol: 'openai-image', taskType: 'image', providerIds: ['p'] }],
+        { id: 'image', modelId: 'gpt-image-1', name: '受控图片', protocol: 'openai', taskType: 'image', providerIds: ['p'] }],
     providers: [{ id: 'p', endpoint: 'https://controlled.test/v1', apikey: 'test' }],
     nodes: [{ id: 'first', type: 'ImageGenerate', x: 80, y: 40, width: 420, height: 360, userResized: true, apiConfigId: 'image', providerId: 'p', prompt: 'first draft' },
         { id: 'second', type: 'ImageGenerate', x: 600, y: 40, width: 420, height: 360, userResized: true, apiConfigId: 'image', providerId: 'p', prompt: 'second draft' }],

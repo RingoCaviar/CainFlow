@@ -655,3 +655,5 @@ html[data-app-theme="glass-dark"] #canvas-container {
 html:root #canvas-container:is(.is-zooming, .is-panning),
 html:root body.is-interacting #canvas-container { --node-glass-filter-active: none; }
 html:root #canvas-container .node.is-interacting { --node-glass-filter-active: none; }
+/* Single-node cancellation has the same keyboard focus affordance as controls. */
+.node-run-cancel-btn:focus-visible { outline: 2px solid var(--text-link); outline-offset: 3px; }

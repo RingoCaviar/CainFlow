@@ -7,7 +7,7 @@ const providers = [{ id: 'a', name: '供应商甲', endpoint: 'https://controlle
     { id: 'b', name: '供应商乙', endpoint: 'https://controlled.test/v1', apikey: 'test' }];
 const models = [
     { id: 'chat', name: '同名模型', modelId: 'chat-test', taskType: 'chat', protocol: 'openai', agentSearch: 'images', providerIds: ['a'] },
-    { id: 'image', name: '同名模型', modelId: 'image-test', taskType: 'image', protocol: 'openai-image', providerIds: ['b', 'a'] }
+    { id: 'image', name: '同名模型', modelId: 'image-test', taskType: 'image', protocol: 'openai', providerIds: ['b', 'a'] }
 ];
 
 test('Agent model labels follow configured Provider order without exposing connection credentials', () => {

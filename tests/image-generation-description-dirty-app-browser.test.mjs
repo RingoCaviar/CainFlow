@@ -11,7 +11,7 @@ const description = '这张原图是红色产品主体，请保留其轮廓与�
 const configuration = {
     autoCheckUpdatesOnLoad: false, autoRetry: false,
     models: [{ id: 'chat', modelId: 'chat', name: '受控对话', protocol: 'openai', taskType: 'chat', providerIds: ['p'] },
-        { id: 'image', modelId: 'gpt-image-1', name: '受控图片', protocol: 'openai-image', taskType: 'image', providerIds: ['p'] }],
+        { id: 'image', modelId: 'gpt-image-1', name: '受控图片', protocol: 'openai', taskType: 'image', providerIds: ['p'] }],
     providers: [{ id: 'p', endpoint: 'https://controlled.test/v1', apikey: 'test' }],
     nodes: [{ id: 'reference', type: 'ImageImport', x: 40, y: 80, width: 330, height: 300, userResized: true },
         { id: 'target', type: 'ImageGenerate', x: 650, y: 80, width: 330, height: 300, userResized: true, apiConfigId: 'image', providerId: 'p', prompt: 'a clean product photo' }],

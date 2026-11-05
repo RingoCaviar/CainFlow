@@ -39,7 +39,7 @@ const colors = ['red', 'orange', 'blue', 'green'];
 const originals = await Promise.all(colors.map(color => readFile(new URL(`./fixtures/reference-${color}.png`, import.meta.url))));
 const configuration = { autoCheckUpdatesOnLoad: false, autoRetry: false,
     models: [{ id: 'chat', modelId: 'chat', name: 'chat', protocol: 'openai', taskType: 'chat', providerIds: ['p'] },
-        { id: 'image', modelId: 'gpt-image-1', name: 'controlled image', protocol: 'openai-image', taskType: 'image', providerIds: ['p'] }],
+        { id: 'image', modelId: 'gpt-image-1', name: 'controlled image', protocol: 'openai', taskType: 'image', providerIds: ['p'] }],
     providers: [{ id: 'p', endpoint: 'https://controlled.test/v1', apikey: 'fixture' }], nodes: [], connections: [] };
 const connection = (id, source, target, port, extra = {}) => ({ id, type: 'image', from: { nodeId: source, port: 'image' }, to: { nodeId: target, port }, ...extra });
 const workflowA = { workflowId: 'restart-workflow-a', nodes: [

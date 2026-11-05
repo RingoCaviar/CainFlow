@@ -4,7 +4,7 @@ import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 
 const edges = ['first', 'second'].map((id, order) => ({ id: `edge-${id}`, from: { nodeId: id, port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, type: 'image', order })).concat({ id: 'saved-output', from: { nodeId: 'target', port: 'image' }, to: { nodeId: 'sink', port: 'image' }, type: 'image' });
 const session = { autoCheckUpdatesOnLoad: false,
-    models: [{ id: 'chat', modelId: 'chat', name: '受控对话', autoCompactTokenLimit: 100000, protocol: 'openai', taskType: 'chat', providerIds: ['p'] }, { id: 'image', modelId: 'gpt-image-1', name: '受控生图', protocol: 'openai-image', taskType: 'image', providerIds: ['p'] }],
+    models: [{ id: 'chat', modelId: 'chat', name: '受控对话', autoCompactTokenLimit: 100000, protocol: 'openai', taskType: 'chat', providerIds: ['p'] }, { id: 'image', modelId: 'gpt-image-1', name: '受控生图', protocol: 'openai', taskType: 'image', providerIds: ['p'] }],
     providers: [{ id: 'p', name: '受控供应商', endpoint: 'https://controlled.test', apikey: 'test' }],
     nodes: [{ id: 'first', type: 'ImageImport', x: 20, y: 40 }, { id: 'second', type: 'ImageImport', x: 20, y: 400 },
         { id: 'target', type: 'ImageGenerate', apiConfigId: 'image', providerId: 'p', x: 500, y: 40, prompt: 'original prompt' }, { id: 'sink', type: 'ImageSave', x: 950, y: 40 }], connections: edges };

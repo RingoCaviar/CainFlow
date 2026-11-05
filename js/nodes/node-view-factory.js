@@ -215,7 +215,7 @@ function renderNodeHeader(id, config, options = {}) {
 
 function renderNodeRunCancelButton(id) {
     return `
-        <button type="button" class="node-run-cancel-btn" data-node-id="${id}" tabindex="-1" title="鼠标左键长按 2 秒取消此节点运行" aria-label="鼠标左键长按 2 秒取消此节点运行">
+        <button type="button" class="node-run-cancel-btn" data-node-id="${id}" tabindex="0" title="长按鼠标、Enter 或空格 2 秒取消此节点运行" aria-label="长按鼠标、Enter 或空格 2 秒取消此节点运行">
             <span class="node-run-cancel-btn__icon" aria-hidden="true">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
                     <line x1="18" y1="6" x2="6" y2="18"></line>

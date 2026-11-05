@@ -715,6 +715,8 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
     state, selectionApi, documentRef: document, windowRef: window, storage: diskStorage,
     panelManager,
     openAgent: () => promptAgentController.open(),
+    openModelSettings: target => settingsControllerApi.openModelSettings(target),
+    focusNode: nodeId => focusCanvasNode(nodeId, { avoidAgentPanel: true }),
     runToNode: nodeId => runWorkflow({ mode: 'target-node', targetNodeId: nodeId }),
     fitNode: (id, options) => fitNodeToContent(id, options),
     bindPorts: container => nodeDomBindingsApi.bindNodePorts(container),

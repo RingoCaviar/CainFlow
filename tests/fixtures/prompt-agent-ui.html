@@ -166,7 +166,7 @@ try {
     };
     const unavailable = !modelHint.hidden && document.getElementById('prompt-agent-send').disabled;
     const hintStyle = getComputedStyle(modelHint);
-    const subtleHint = hintStyle.fontSize === '12px' && hintStyle.backgroundColor === 'rgba(0, 0, 0, 0)';
+    const subtleHint = parseFloat(hintStyle.fontSize) >= 13 && hintStyle.backgroundColor === 'rgba(0, 0, 0, 0)';
     document.getElementById('prompt-agent-add-model').click();
     const addModelOpensSettings = settingsOpens === 1;
     document.getElementById('prompt-agent-add-image-model').click();
@@ -343,7 +343,8 @@ try {
     const changedModelReusesTarget = createdNodes.length === 1 && state.nodes.get('image-1')?.apiConfigId === 'image-first'
         && document.getElementById('image-1-apiconfig').value === 'image-first' && runs.at(-1).selectedNodeIds[0] === 'image-1';
     controller.restoreWorkflow({ version: 1, memory: '', messages: [], panelWidth: null });
-    const clearedForNewWorkflow = messages.querySelector('.prompt-agent-empty')?.textContent.includes('描述你想生成')
+    const clearedForNewWorkflow = Boolean(messages.querySelector('.prompt-agent-empty'))
+        && messages.querySelectorAll('[data-role="user"], [data-role="agent"]').length === 0
         && panel.style.width !== ''
         && !panel.classList.contains('active');
     input.value = '先讨论构图';

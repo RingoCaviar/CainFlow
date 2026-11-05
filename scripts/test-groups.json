@@ -582,6 +582,8 @@
     "tests/workflow-video-task-projection.test.mjs": {"tier": "fast", "groups": ["workflow", "media", "nodes"]},
     "tests/workflow-visible-node-layout.test.mjs": {"tier": "fast", "groups": ["workflow", "nodes", "canvas", "ui"]},
     "tests/workspace-mode-controller.test.mjs": {"tier": "fast", "groups": ["canvas"]},
-    "tests/workspace-polish-browser.test.mjs": {"tier": "browser", "groups": ["canvas", "ui"]}
+    "tests/workspace-polish-browser.test.mjs": {"tier": "browser", "groups": ["canvas", "ui"]},
+    "tests/ux-ui-improvements-app-browser.test.mjs": {"tier": "browser", "groups": ["canvas", "ui", "settings", "workflow", "nodes"]},
+    "tests/model-configuration-readiness.test.mjs": {"tier": "fast", "groups": ["nodes", "settings", "workflow"]}
   }
 }

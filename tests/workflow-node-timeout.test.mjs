@@ -71,9 +71,11 @@ test('runner aborts an individual node at its own timeout and reports a node tim
 });
 
 test('cancelling a running node durably fences its active Media operation before a late completion', async () => {
-    const node = { id: 'image-1', type: 'ImageGenerate', enabled: true, data: {}, el: createNodeElement() };
+    const node = { id: 'image-1', type: 'ImageGenerate', apiConfigId: 'model', enabled: true, data: {}, el: createNodeElement() };
     const state = {
-        nodes: new Map([[node.id, node]]), connections: [], providers: [], models: [],
+        nodes: new Map([[node.id, node]]), connections: [],
+        providers: [{ id: 'provider', endpoint: 'https://controlled.test/v1', apikey: 'fixture' }],
+        models: [{ id: 'model', modelId: 'controlled', protocol: 'openai', taskType: 'image', providerIds: ['provider'] }],
         selectedNodes: new Set(), requestTimeoutEnabled: false
     };
     let finishExecution;
@@ -97,7 +99,11 @@ test('cancelling a running node durably fences its active Media operation before
     });
 
     const run = api.runWorkflow({ mode: 'selected-only', selectedNodeIds: [node.id] });
-    while (!node.activeMediaOperationId || typeof finishExecution !== 'function') await new Promise((resolve) => setTimeout(resolve, 0));
+    const deadline = Date.now() + 5000;
+    while (!node.activeMediaOperationId || typeof finishExecution !== 'function') {
+        assert.ok(Date.now() < deadline, 'node execution must start before testing cancellation');
+        await new Promise((resolve) => setTimeout(resolve, 0));
+    }
     const operationId = node.activeMediaOperationId;
     node.activeMediaOperationIds.add('partial-image-operation');
     assert.equal(api.cancelRunningNode(node.id), true);

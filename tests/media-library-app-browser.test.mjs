@@ -6,7 +6,7 @@ import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 
 const image = await readFile(new URL('./fixtures/reference-red.png', import.meta.url));
 const session = { autoCheckUpdatesOnLoad:false,
-    models:[{id:'chat',name:'受控对话',modelId:'chat',protocol:'openai',taskType:'chat',providerIds:['p']},{id:'image',name:'受控图片',modelId:'gpt-image-1',protocol:'openai-image',taskType:'image',providerIds:['p']}],
+    models:[{id:'chat',name:'受控对话',modelId:'chat',protocol:'openai',taskType:'chat',providerIds:['p']},{id:'image',name:'受控图片',modelId:'gpt-image-1',protocol:'openai',taskType:'image',providerIds:['p']}],
     providers:[{id:'p',name:'受控供应商',endpoint:'https://controlled.test/v1',apikey:'test'}],
     nodes:[{id:'generate',type:'ImageGenerate',x:100,y:80,apiConfigId:'image',providerId:'p',prompt:'archive me',generationCount:2}],connections:[] };
 const setup = `window.archiveHeld=false;window.archiveMode='hold';window.archiveReleases=[];window.releaseArchive=()=>{window.archiveMode='normal';archiveReleases.forEach(resolve=>resolve())};window.archiveWrites=0;const originalFetch=fetch;window.fetch=async(url,options={})=>{

@@ -9,7 +9,7 @@ const opaque = { ...JSON.parse('{"__proto__":{"futureRoot":0}}'), vendorExtensio
 const configuration = {
     autoCheckUpdatesOnLoad: false,
     models: [{ id: 'chat', modelId: 'chat', protocol: 'openai', taskType: 'chat', providerIds: ['p'] },
-        { id: 'image', modelId: 'gpt-image-1', protocol: 'openai-image', taskType: 'image', providerIds: ['p'] }],
+        { id: 'image', modelId: 'gpt-image-1', protocol: 'openai', taskType: 'image', providerIds: ['p'] }],
     providers: [{ id: 'p', endpoint: 'https://controlled.test/v1', apikey: 'test' }]
 };
 const saved = app => app.evaluate("fetch('/api/storage/documents/session').then(response=>response.json()).then(record=>record.value)");

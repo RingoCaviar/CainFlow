@@ -53,7 +53,8 @@ try {
             check([...settings.children].every(el => { const r=el.getBoundingClientRect(); return r.left>=rect.left && r.right<=rect.right; }) && next.panel.scrollWidth<=next.panel.clientWidth, `${theme}-${key}`);
         }
     }
-    check(saved === 960 && !('panelWidth' in next.controller.snapshotWorkflow()), 'globalOnly');
+    // A 1200px host reserves 360px for usable canvas and parameter controls.
+    check(saved === 840 && !('panelWidth' in next.controller.snapshotWorkflow()), 'globalOnly');
     check(!next.panel.querySelector('.prompt-agent-header') && next.panel.querySelector('.prompt-agent-transcript').getBoundingClientRect().bottom <= next.panel.querySelector('.prompt-agent-settings').getBoundingClientRect().top, 'bottomSettings');
     if (new URLSearchParams(location.search).has('screenshot')) {
         document.documentElement.dataset.appTheme = 'dark';

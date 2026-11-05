@@ -28,6 +28,7 @@ import {
 } from '../execution/model-compatibility-format.js';
 import { bindSettingsCardOrder, reorderItemsById, toggleOrderedId } from './settings-card-order.js';
 import { bindCardToggleGestureGuard } from './card-toggle-gesture.js';
+import { getModelConfigurationIssue } from '../execution/model-configuration-readiness.js';
 
 export function createModelSettings({ ctx, store, dialogs, providerSettings, getDeps }) {
     const {
@@ -509,6 +510,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
             el.className = `api-config-card model-config-card${isCollapsed ? ' is-collapsed' : ''}`;
             el.dataset.modelId = mod.id;
             const taskType = normalizeModelTaskType(mod.taskType, mod);
+            const configurationIssue = getModelConfigurationIssue({ model: mod, providers: state.providers, taskType });
             const provider = providerSettings.getResolvedModelProvider(mod);
             const protocol = isKnownModelProtocol(mod.protocol) ? mod.protocol : '';
             const protocolOptions = [
@@ -540,6 +542,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                     </div>
                 </div>
                 <div class="card-collapsible" style="display:${isCollapsed ? 'none' : 'flex'};">
+                    <p class="model-configuration-status" role="status">${dialogs.escapeHtml(configurationIssue?.message || '本地配置完整 · 尚未验证接口连接')}</p>
                     <div class="card-row">
                         <div class="card-field"><label>模型代码 (Model ID)</label><input type="text" value="${mod.modelId}" placeholder="如: gemini-2.5-flash" data-id="${mod.id}" data-field="modelId" /></div>
                         <div class="card-field"><label>绑定供应商</label>
@@ -560,7 +563,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                             <select class="${protocol ? '' : 'invalid model-protocol-required'}" aria-invalid="${protocol ? 'false' : 'true'}" data-id="${mod.id}" data-field="protocol">${protocolOptions}</select>
                         </div>
                     </div>
-                    <div class="card-row">
+                    <details class="model-protocol-details"><summary>请求示例与格式说明（高级）</summary><div class="card-row">
                         <div class="card-field">
                             <label>请求示例</label>
                             <div style="font-size:11px;color:var(--text-dim);line-height:1.45;padding-top:8px;word-break:break-all;">${getModelRequestPreview(mod)}</div>
@@ -569,7 +572,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                             <label>格式说明</label>
                             <div style="font-size:11px;color:var(--text-dim);line-height:1.45;padding-top:8px;">${getModelProtocolHelp(mod)}</div>
                         </div>
-                    </div>
+                    </div></details>
                 </div>
             `;
             modelsList.appendChild(el);
@@ -795,6 +798,13 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
     }
 
     function addModel() {
+        if (state.providers.length === 0) {
+            showToast('请先添加供应商，再获取或添加模型。', 'info');
+            const addProvider = documentRef.getElementById('btn-add-provider');
+            addProvider?.scrollIntoView?.({ block: 'center' });
+            addProvider?.focus?.();
+            return;
+        }
         const defaultProvider = state.providers.length > 0 ? state.providers[0] : null;
         const newModelId = 'mod_' + Math.random().toString(36).substr(2, 9);
         state.models.push({

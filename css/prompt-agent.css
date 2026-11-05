@@ -74,6 +74,14 @@
     top: 12px;
 }
 
+/* Reserve canvas space on smaller desktops; very narrow windows retain the
+   existing front/back window controls without moving the user's canvas. */
+@media (min-width: 801px) and (max-width: 1200px) {
+    #main-layout:has(.prompt-agent-panel.active) #canvas-container {
+        margin-right: calc(var(--prompt-agent-width, 34vw) + 24px);
+    }
+}
+
 body:is(.toolbar-pinned, .toolbar-peek-active) .prompt-agent-panel.active,
 body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-prompt-agent), #toolbar [aria-expanded="true"]:not(#btn-prompt-agent)) .prompt-agent-panel.active {
     top: calc(var(--toolbar-height, 48px) + 8px);
@@ -99,7 +107,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     border-radius: 6px;
     background: var(--surface-control);
     color: var(--text-secondary);
-    font-size: 11px;
+    font-size: 13px;
 }
 .prompt-agent-model-label > span { flex: none; white-space: nowrap; }
 .prompt-agent-resize {
@@ -143,7 +151,7 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     margin: 0;
     padding: 0 6px 4px;
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.45;
 }
 .prompt-agent-model-hint button {
@@ -199,8 +207,12 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     color: var(--text-secondary);
     text-align: center;
     line-height: 1.6;
-    font-size: 13px;
+    font-size: 14px;
 }
+.prompt-agent-empty strong { display: block; font-size: 18px; color: var(--text-primary); }
+.prompt-agent-empty button { display: block; width: 100%; margin: 8px 0; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--surface-control); color: var(--text-primary); font: inherit; font-size: 13px; cursor: pointer; }
+.prompt-agent-empty button:hover { background: var(--surface-control-hover); }
+.prompt-agent-empty button:focus-visible { outline: 2px solid var(--text-link); outline-offset: 2px; }
 
 .prompt-agent-message {
     margin: 0 0 6px;

@@ -22,6 +22,7 @@ export function bindMouseNodeRunCancelHold({
     let holdTimer = null;
     let progressFrame = null;
     let activePointerId = null;
+    let activeKeyboardKey = null;
     let startedAt = 0;
     let startX = 0;
     let startY = 0;
@@ -56,7 +57,8 @@ export function bindMouseNodeRunCancelHold({
     const releasePointer = () => {
         const pointerId = activePointerId;
         activePointerId = null;
-        if (pointerId !== null && button.hasPointerCapture?.(pointerId)) {
+        activeKeyboardKey = null;
+        if (typeof pointerId === 'number' && button.hasPointerCapture?.(pointerId)) {
             button.releasePointerCapture(pointerId);
         }
     };
@@ -84,14 +86,13 @@ export function bindMouseNodeRunCancelHold({
         if (documentRef.visibilityState === 'hidden') abortHold();
     }
 
-    const handlePointerDown = (event) => {
-        if (event.pointerType !== 'mouse' || event.button !== 0) return;
+    const startHold = (event, pointerId) => {
         if (activePointerId !== null || !isNodeRunning(nodeId)) return;
 
         event.preventDefault();
         event.stopPropagation();
 
-        activePointerId = event.pointerId;
+        activePointerId = pointerId;
         startedAt = now();
         startX = event.clientX;
         startY = event.clientY;
@@ -100,7 +101,7 @@ export function bindMouseNodeRunCancelHold({
         button.classList.remove('is-canceling', 'is-holding');
         setProgress(0);
         button.classList.add('is-holding');
-        button.setPointerCapture?.(event.pointerId);
+        if (typeof pointerId === 'number') button.setPointerCapture?.(pointerId);
         view?.addEventListener?.('blur', abortHold);
         documentRef.addEventListener?.('visibilitychange', handleVisibilityChange);
         progressFrame = requestAnimationFrameRef(renderProgress);
@@ -127,6 +128,23 @@ export function bindMouseNodeRunCancelHold({
         }, holdMs);
     };
 
+    const handlePointerDown = (event) => {
+        if (event.pointerType !== 'mouse' || event.button !== 0) return;
+        startHold(event, event.pointerId);
+    };
+    const handleKeyDown = (event) => {
+        if (!['Enter', ' '].includes(event.key) || event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return;
+        event.preventDefault(); event.stopPropagation();
+        if (event.repeat || activePointerId !== null) return;
+        startHold(event, 'keyboard');
+        if (activePointerId === 'keyboard') activeKeyboardKey = event.key;
+    };
+    const handleKeyUp = (event) => {
+        if (activePointerId !== 'keyboard' || event.key !== activeKeyboardKey) return;
+        event.preventDefault(); event.stopPropagation();
+        resetHold({ keepCanceling: didTriggerCancel });
+    };
+
     const handlePointerMove = (event) => {
         if (activePointerId === null || event.pointerId !== activePointerId || didTriggerCancel) return;
         if (Math.hypot(event.clientX - startX, event.clientY - startY) > dragThreshold) resetHold();
@@ -151,6 +169,9 @@ export function bindMouseNodeRunCancelHold({
     button.addEventListener('contextmenu', suppressAction);
     button.addEventListener('mousedown', suppressAction);
     button.addEventListener('click', suppressAction);
+    button.addEventListener('keydown', handleKeyDown);
+    button.addEventListener('keyup', handleKeyUp);
+    button.addEventListener('blur', abortHold);
 
     return () => {
         resetHold();
@@ -161,5 +182,8 @@ export function bindMouseNodeRunCancelHold({
         button.removeEventListener('contextmenu', suppressAction);
         button.removeEventListener('mousedown', suppressAction);
         button.removeEventListener('click', suppressAction);
+        button.removeEventListener('keydown', handleKeyDown);
+        button.removeEventListener('keyup', handleKeyUp);
+        button.removeEventListener('blur', abortHold);
     };
 }

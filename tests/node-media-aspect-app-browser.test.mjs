@@ -36,7 +36,7 @@ async function resize(app, edge, dx, dy) {
 test('loaded image cards follow natural aspect at fixed node width, including batch changes and reload', { timeout: 60000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes, connections,
         models: [{ id: 'chat', modelId: 'chat', protocol: 'openai', taskType: 'chat', providerIds: ['p'] },
-            { id: 'image', modelId: 'gpt-image-1', protocol: 'openai-image', taskType: 'image', providerIds: ['p'] }],
+            { id: 'image', modelId: 'gpt-image-1', protocol: 'openai', taskType: 'image', providerIds: ['p'] }],
         providers: [{ id: 'p', endpoint: 'https://controlled.test/v1', apikey: 'test' }] }, async app => {
         await app.send('Page.addScriptToEvaluateOnNewDocument', { source: `window.aspectImages=[];for(const [width,height,color] of [[64,32,'red'],[32,64,'blue']]){const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;const context=canvas.getContext('2d');context.fillStyle=color;context.fillRect(0,0,width,height);aspectImages.push(canvas.toDataURL('image/png'));}const originalFetch=window.fetch;let request=0;window.fetch=async(url,options={})=>{if(String(url)==='/proxy'&&options.body)return new Response(JSON.stringify({data:[{b64_json:aspectImages[request++%2].split(',')[1]}]}),{headers:{'Content-Type':'application/json'}});return originalFetch(url,options)};` });
         await reloadAppBrowser(app);

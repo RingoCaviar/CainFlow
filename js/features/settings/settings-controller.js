@@ -11,6 +11,7 @@ import { createGeneralSettings } from './general-settings.js';
 import { createBackdropDismissalGuard } from './backdrop-dismissal.js';
 import { isKnownModelProtocol } from '../execution/model-protocol-registry.js';
 import { createSettingsCloseCoordinator } from './settings-close-coordinator.js';
+import { getModelConfigurationIssue } from '../execution/model-configuration-readiness.js';
 
 export function createSettingsControllerApi(options) {
     const { ctx, store } = createSettingsContext(options);
@@ -87,10 +88,7 @@ export function createSettingsControllerApi(options) {
         });
         const requestCloseSettings = (options) => closeCoordinator.requestCloseSettings(options);
         const handleEscape = () => closeCoordinator.handleEscape();
-        navigateToModelSettings = (target = {}) => {
-            dialogs.closeAllSettingsOverlays();
-            settingsModalApi.openSettingsModal({ onClose: target.onClose });
-            activateSettingsTab('api');
+        function focusConfigurationTarget(target = {}) {
             if (target.providerId) {
                 store.providerCollapseState.set(target.providerId, false);
                 providerSettingsApi.renderProviders();
@@ -104,10 +102,16 @@ export function createSettingsControllerApi(options) {
                 const id = target.providerId || target.modelId;
                 const card = id && [...documentRef.querySelectorAll(`[${attribute}]`)].find(item => item.getAttribute(attribute) === id);
                 const field = card && [...card.querySelectorAll('[data-field]')].find(item => item.dataset.field === target.field && item.type !== 'checkbox');
-                const focus = field || card?.querySelector('.provider-multiselect-trigger, input, select, button') || documentRef.getElementById('btn-add-model');
+                const focus = field || card?.querySelector('.provider-multiselect-trigger, input, select, button') || documentRef.getElementById(state.providers.length ? 'btn-add-model' : 'btn-add-provider');
                 (card || focus)?.scrollIntoView?.({ block: 'center' });
                 focus?.focus?.();
             });
+        }
+        navigateToModelSettings = (target = {}) => {
+            dialogs.closeAllSettingsOverlays();
+            settingsModalApi.openSettingsModal({ onClose: target.onClose });
+            activateSettingsTab('api');
+            focusConfigurationTarget(target);
         };
         windowRef.__cainflowSettingsModalApi = {
             ...settingsModalApi,
@@ -156,6 +160,19 @@ export function createSettingsControllerApi(options) {
         });
 
         documentRef.getElementById('btn-api-settings-help')?.addEventListener('click', dialogs.renderApiSettingsHelpDialog);
+        documentRef.getElementById('btn-check-model-config')?.addEventListener('click', () => {
+            const status = documentRef.getElementById('settings-api-status');
+            if (!state.providers.length || !state.models.length) {
+                status.textContent = !state.providers.length ? '请先添加供应商。' : '供应商已添加，请获取或添加模型。';
+                documentRef.getElementById(!state.providers.length ? 'btn-add-provider' : 'btn-add-model')?.focus();
+                return;
+            }
+            const incomplete = state.models.map(model => ({ model, issue: getModelConfigurationIssue({ model, providers: state.providers, taskType: model.taskType }) })).filter(item => item.issue);
+            status.textContent = incomplete.length
+                ? `${incomplete.length} 个模型配置待完善：${incomplete[0].model.name}，${incomplete[0].issue.message}。`
+                : `${state.models.length} 个模型本地配置完整。尚未验证接口连接，可返回画布尝试生成。`;
+            if (incomplete.length) focusConfigurationTarget(incomplete[0].issue.target);
+        });
         documentRef.getElementById('settings-body')?.addEventListener('scroll', dialogs.refreshGeneralSettingsHelpPopoverPosition, { passive: true });
 
         documentRef.querySelectorAll('.modal-tab-btn').forEach((btn) => {

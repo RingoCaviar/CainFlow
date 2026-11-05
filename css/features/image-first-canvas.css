@@ -41,6 +41,18 @@
 }
 
 .image-parameter-panel[hidden] { display: none; }
+.image-parameter-context { display: none; }
+.image-parameter-configuration { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px; margin: 8px 0; border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
+.image-parameter-configuration[hidden] { display: none; }
+.image-parameter-configuration span { flex: 1 1 160px; }
+.image-parameter-configuration button { min-height: 32px; padding: 4px 10px; border: 1px solid var(--node-control-border); border-radius: 6px; background: var(--node-control-surface); color: var(--text-link); font: inherit; cursor: pointer; }
+@media (max-width: 1200px) {
+    body:has(.prompt-agent-panel.active) .image-parameter-context { display: flex; flex: none; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border-color); }
+    .image-parameter-context strong { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+    .image-parameter-context img { width: 48px; height: 48px; object-fit: contain; border-radius: 4px; }
+    .image-parameter-context img[hidden] { display: none; }
+    .image-parameter-context button { flex: none; font: inherit; font-size: 13px; min-height: 30px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--surface-control); color: var(--text-primary); cursor: pointer; }
+}
 .image-parameter-panel.is-expanded { min-height: min(160px, var(--image-parameter-available-height, calc(100vh - 24px))); max-height: var(--image-parameter-available-height, calc(100vh - 24px)); }
 .image-parameter-panel :is(.image-parameter-drag-handle, [data-parameter-resize])[hidden] { display: none; }
 .image-parameter-drag-handle { display: flex; flex: 1 1 auto; min-height: 28px; align-items: center; color: var(--text-secondary); cursor: grab; touch-action: none; user-select: none; }
@@ -469,7 +481,7 @@ html:root #canvas-container .node.image-first-card > .node-body {
 }
 
 .image-parameter-setting-bar{display:flex;flex-wrap:wrap;gap:5px}
-.image-parameter-setting-bar button{min-height:28px;max-width:100%;padding:3px 6px;border:1px solid var(--node-control-border);border-radius:6px;background:var(--node-control-surface);color:var(--text-secondary);font-size:12px;cursor:pointer}
+.image-parameter-setting-bar button{min-height:30px;max-width:100%;padding:4px 8px;border:1px solid var(--node-control-border);border-radius:6px;background:var(--node-control-surface);color:var(--text-primary);font-size:13px;cursor:pointer}
 .image-parameter-setting-bar button[aria-expanded=true]{border-color:var(--accent-primary);color:var(--text-primary)}
 .image-parameter-resize{position:absolute;right:0;top:36px;bottom:0;width:5px;cursor:ew-resize;touch-action:none}
 .node.image-first-card .image-first-placeholder[hidden]{display:none}

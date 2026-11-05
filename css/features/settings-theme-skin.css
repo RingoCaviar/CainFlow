@@ -689,3 +689,10 @@ html:root #settings-modal #general-settings .retry-input-group .btn-retry-step:d
         flex-basis: 100%;
     }
 }
+/* Setup guidance uses the same semantic roles as the settings controls. */
+.settings-api-guide { padding: 16px; margin-bottom: 20px; border: 1px solid var(--panel-border); border-radius: 10px; background: var(--surface-panel, var(--bg-panel)); color: var(--text-primary); }
+.settings-api-guide h3 { margin: 0 0 8px; font-size: 16px; }
+.settings-api-guide ol { padding-left: 22px; line-height: 1.7; font-size: 14px; }
+.settings-api-guide p, .model-configuration-status, .model-protocol-details { font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
+.model-configuration-status { margin: 0; }
+.model-protocol-details summary { cursor: pointer; padding: 6px 0; }

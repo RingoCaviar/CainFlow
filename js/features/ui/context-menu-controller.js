@@ -861,6 +861,16 @@ export function createContextMenuControllerApi({
     }
 
     function initContextMenu() {
+        const emptyState = documentRef.getElementById('canvas-empty-state');
+        const nodesLayer = documentRef.getElementById('nodes-layer');
+        if (emptyState && nodesLayer) {
+            const refreshEmptyState = () => { emptyState.hidden = nodesLayer.childElementCount > 0; };
+            refreshEmptyState();
+            new documentRef.defaultView.MutationObserver(refreshEmptyState).observe(nodesLayer, { childList: true });
+            documentRef.getElementById('canvas-add-first-node').addEventListener('click', () => nodePicker.open());
+            documentRef.getElementById('canvas-open-agent').addEventListener('click', () => documentRef.getElementById('btn-prompt-agent').click());
+            documentRef.getElementById('canvas-configure-models').addEventListener('click', () => documentRef.getElementById('btn-settings').click());
+        }
         documentRef.querySelectorAll('#toolbar, #side-bar').forEach((chromeElement) => {
             chromeElement.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
