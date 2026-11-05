@@ -30,6 +30,15 @@ typography:
     fontSize: "15px"
     fontWeight: 600
     lineHeight: 1.25
+  parameter-title:
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif'
+    fontSize: "15px"
+    fontWeight: 600
+    lineHeight: 1.4
+  parameter-prompt:
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif'
+    fontSize: "14px"
+    lineHeight: 1.65
   workflow-title:
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif'
     fontSize: "16px"
@@ -75,6 +84,20 @@ components:
     typography: "{typography.body}"
     rounded: "{rounded.node}"
     width: "480px"
+  parameter-panel-title:
+    typography: "{typography.parameter-title}"
+  parameter-panel-content:
+    padding: "16px"
+  parameter-panel-prompt:
+    typography: "{typography.parameter-prompt}"
+    padding: "10px 12px"
+    rounded: "8px"
+  parameter-panel-model-entry:
+    width: "100%"
+    padding: "7px 10px"
+    rounded: "{rounded.sm}"
+  parameter-panel-footer:
+    padding: "12px 16px"
 ---
 
 # Design System: CainFlow
@@ -133,9 +156,13 @@ components:
 
 ## Layout
 
+图片导入与图片生成节点的具体外观、参数顺序和验收标准见 [节点样式规范](docs/node-style-spec.md)。该规范记录最新确认的无边框节点与无标题栏节点参数浮层。
+
 主区域为无限画布，顶部工具栏按品牌、工作流、运行、创作、工具与设置组织。工具栏支持自动收起与固定，空间不足时操作组换行。抽屉覆盖或占用相应可用空间，不沿用已移除的左侧工具栏留白。
 
-图片节点以结果完整展示为主，预览高度随真实媒体比例变化。选中后出现编辑入口和节点参数浮层；浮层在画布变换外定位，默认宽度由 frontmatter 的 parameter-panel 记录，并受视口宽度限制。编辑参数不改变节点或端口的画布坐标，不自动平移画布。
+画布节点取消装饰边框，保留当前主题底色；选中、运行和错误继续有明确的状态提示。图片类节点移除图像外侧留白，按真实媒体比例完整展示，保留轻圆角及缺失、恢复和空状态。图片导入与视角节点的画布内容以缩略图为主，文件选择、尺寸、角度和输入摘要放进其节点参数浮层；视角编辑沿用既有独立编辑器。文本、视频等其他节点保留原有内容与控件结构。
+
+节点参数浮层在画布变换外定位，默认宽度由 frontmatter 的 parameter-panel 记录，并受视口宽度限制。全部图片类参数浮层省略标题栏及右上角放大、关闭按钮；内容直接开始，设置入口位于内容下方。编辑参数不改变节点或端口的画布坐标，不自动平移画布。
 
 画布导航位于右下，使用 viewport-inset 的边缘留距。助手打开时导航避让其宽度；小窗口允许导航换行。间距条目是现有重复值的归档，并非新增的全局 CSS 变量或要求所有组件只能使用这些值。
 
@@ -183,7 +210,9 @@ components:
 
 ### Image Parameter Panel
 
-节点参数浮层与 Agent 可共存，必要时通过置顶入口找回。普通模式锚定当前节点，展开、输入和组切换保持稳定；放大模式仍使用同一组控件。参数保存与生成执行分开，不为视觉简化重新实现一份脱离真实节点状态的表单。
+全部九种现有图片类参数浮层沿用七主题语义表面；原本内嵌的文本和视频参数继续内嵌。浮层默认宽 480px、圆角 12px，无标题栏和右上角工具按钮，底栏不随中段内容滚动；普通控件与标签 13px，提示词 14px/1.65。生图节点的提示词在前，全宽紧凑模型入口及其他设置集中在提示词下方；共享内容间距 12px、字段网格间距 10px 12px，普通输入控件最小高度 34px。内容区和底栏的常规内距见 frontmatter；视口高度不超过 540px 或宽度不超过 480px 时收紧内距，视角控制保留所属紧凑规则。提示词自动高度为普通模式 5–8 行、放大模式 8–14 行；高度不超过 540px 时改为 3–4 行，保留编辑及执行入口可达性，已有手动高度不被自动覆盖。次数与主操作留在右下底栏；缩放节点的模式、滑轨和滑块使用主题输入、选中与强调语义。
+
+节点参数浮层与 Agent 可共存，必要时通过置顶入口找回。普通模式锚定当前节点，展开、输入和组切换保持稳定；放大模式仍使用同一组控件并保留拖动与尺寸调整。全部浮层不显示标题条、放大与关闭按钮；导入浮层的上传/URL 模式切换居中，其原始文件按钮和尺寸信息在内容区。窄内容区（不超过 340px）字段网格改单列。参数保存与生成执行分开，不为视觉简化重新实现一份脱离真实节点状态的表单。
 
 ## Do's and Don'ts
 
@@ -200,3 +229,5 @@ components:
 - **Don't** 从基础 CSS 中截取旧值覆盖后续共享皮肤和按钮边缘规则。
 - **Don't** 为界面迭代新增事实文案、假进度、虚构结果或默认付费请求。
 - **Don't** 留下临时 variant wrapper、预览 CSS、重复 ID 或脱离真实行为的交互控件。
+
+文本节点沿用图片卡片的无装饰边框与无阴影主题表面，编辑区取消内框并使用 14px/1.65 的产品字体，保留 12px 文本内距及键盘焦点。标题仅在选中时浮于卡片上方；多条文本导航、输入输出端口和原始文本控件继续工作。

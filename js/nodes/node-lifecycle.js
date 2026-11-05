@@ -857,8 +857,12 @@ export function createNodeLifecycleApi({
         }
         const configuredMinWidth = Number(config?.minWidth) || getDefaultNodeWidth(config);
         const headerWidth = getHeaderMinimumWidth(header, configuredMinWidth);
-        const headerHeight = getHeaderMeasuredHeight(header);
-        const portsRowSize = portsRow ? getElementMinimumSize(portsRow) : { width: 0, height: 0 };
+        // Floating headers and ports overlay the node. Counting their rendered
+        // height as stacked content feeds the current node height back into its
+        // next minimum on every resize gesture.
+        const isOutOfFlow = element => element && ['absolute', 'fixed'].includes(getComputedStyle(element).position);
+        const headerHeight = isOutOfFlow(header) ? 0 : getHeaderMeasuredHeight(header);
+        const portsRowSize = portsRow && !isOutOfFlow(portsRow) ? getElementMinimumSize(portsRow) : { width: 0, height: 0 };
         let bodySize = { width: 0, height: 0 };
         let bodyRenderedHeight = 0;
         const flexibleHeightElements = body?.querySelectorAll?.('textarea, .chat-response-area') || [];

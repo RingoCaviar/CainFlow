@@ -21,13 +21,31 @@ async function upload(app) {
     await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='import-card')?.mediaAssetKeys?.length===1)");
 }
 
+test('parameter windows center on their card until the viewport edge requires clamping', { timeout: 30000 }, async () => {
+    await withAppBrowser(session, async app => {
+        const measure = id => app.evaluate(`(()=>{const p=document.getElementById('image-parameter-panel').getBoundingClientRect(),n=document.getElementById(${JSON.stringify(id)}).getBoundingClientRect();return {left:p.left,right:p.right,expected:Math.max(12,Math.min(innerWidth-12-p.width,n.left+(n.width-p.width)/2))}})()`);
+        await open(app, 'import-card');
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        const normal = await measure('import-card');
+        assert.ok(Math.abs(normal.left-normal.expected)<=1, 'upload editor uses its rendered minimum width when centering');
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 480, deviceScaleFactor: 1, mobile: false });
+        await open(app, 'preview-card');
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        const edge = await measure('preview-card');
+        assert.ok(Math.abs(edge.left-edge.expected)<=1 && edge.left>=12 && edge.right<=348,
+            'a card beyond the right edge keeps the editor inside the viewport');
+    });
+});
+
 test('image import keeps its original upload and URL previews on a compact card while original fields follow the shared editor', { timeout: 45000 }, async () => {
     await withAppBrowser(session, async app => {
         await open(app, 'import-card');
         assert.equal(await app.evaluate("document.getElementById('import-card').classList.contains('image-first-card')"), true);
         assert.equal(await app.evaluate("document.querySelectorAll('#import-card .node-port[data-direction=input]').length"), 0);
         assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').contains(document.getElementById('import-card-url-input'))"), true);
-        assert.equal(await app.evaluate("document.getElementById('import-card').contains(document.getElementById('import-card-file')) && document.getElementById('import-card').contains(document.getElementById('import-card-select-btn'))"), true);
+        assert.equal(await app.evaluate("document.getElementById('import-card').contains(document.getElementById('import-card-file')) && document.getElementById('image-parameter-panel').contains(document.getElementById('import-card-select-btn'))"), true);
+        assert.equal(await app.evaluate("document.getElementById('import-card').contains(document.getElementById('import-card-res'))"), false,
+            'dimensions and the upload action stay in the editor, leaving only the thumbnail on the card');
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=generate]').hidden"), true, 'import does not present a generation action');
 
         await app.evaluate("document.querySelector('#image-parameter-panel .image-import-mode-btn[data-mode=url]').click()");

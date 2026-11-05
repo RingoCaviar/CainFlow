@@ -45,7 +45,7 @@ test('comparison retains its original image surface, advanced operation and old 
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-input-action=swap]')?.textContent"), '交换 A/B');
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-input-action=swap]').disabled"), false);
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=generate]').textContent"), '更新对比');
-        assert.deepEqual(await app.evaluate("(()=>{const card=document.getElementById('compare-card');return [card.style.left,card.style.top,card.offsetWidth,card.offsetHeight,getComputedStyle(card.querySelector('.node-body')).paddingLeft]})()"), ['620px', '40px', 400, 350, '12px']);
+        assert.deepEqual(await app.evaluate("(()=>{const card=document.getElementById('compare-card');return [card.style.left,card.style.top,card.offsetWidth,card.offsetHeight,getComputedStyle(card.querySelector('.node-body')).paddingLeft]})()"), ['620px', '40px', 400, 350, '0px']);
         assert.equal(await app.evaluate("document.getElementById('compare-card-compare').offsetHeight>240"), true);
         const editorSize = () => app.evaluate("(()=>{const panel=document.getElementById('image-parameter-panel'),button=panel.querySelector('[data-input-action=swap]');return [panel.getBoundingClientRect().width,getComputedStyle(button).fontSize]})()");
         const readable = await editorSize();

@@ -35,6 +35,55 @@ async function editorMeasurements(app, id) {
     return app.evaluate(`(()=>{const panel=document.getElementById('image-parameter-panel');return {panels:document.querySelectorAll('.image-parameter-panel:not([hidden])').length,width:panel.getBoundingClientRect().width,font:getComputedStyle(document.getElementById('${id}-prompt')).fontSize,ownsPrompt:panel.contains(document.getElementById('${id}-prompt'))}})()`);
 }
 
+test('ordinary parameters follow below their node and stop at the bottom instead of flipping above it', { timeout: 30000 }, async () => {
+    const nodes = [-100, 300, 600].map((y,index)=>({ ...session.nodes[0], id:`anchor-${index}`, x:80, y }));
+    await withAppBrowser({ ...session, nodes }, async app => {
+        const measure = () => app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel'),r=p.getBoundingClientRect(),n=document.getElementById(p.dataset.nodeId).getBoundingClientRect();return {top:r.top,bottom:r.bottom,height:r.height,nodeBottom:n.bottom,viewport:innerHeight}})()");
+        await openNode(app, 'anchor-0');
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        const free = await measure();
+        assert.ok(Math.abs(free.top-free.nodeBottom-12)<=1, 'available space places the editor directly below the node');
+        await openNode(app, 'anchor-1');
+        const edge = await measure();
+        await openNode(app, 'anchor-2');
+        const lower = await measure();
+        assert.ok(Math.abs(edge.height-lower.height)<=1 && Math.abs(edge.top-lower.top)<=1,
+            'moving the target farther down keeps the same lower-bound position instead of flipping above it');
+        assert.ok(lower.top>=12 && lower.bottom<=lower.viewport-12);
+    });
+});
+
+test('titleless parameter editor keeps execution reachable while long content scrolls in compact windows', { timeout: 30000 }, async () => {
+    await withAppBrowser(session, async app => {
+        await openNode(app, 'editor-first');
+        await changeField(app, 'editor-first-prompt', '需要保留和反复编辑的长提示词。\n'.repeat(80));
+        await app.evaluate("document.querySelector('[data-parameter-action=expand]').click()");
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 420, deviceScaleFactor: 1, mobile: false });
+        await app.evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
+        const measure = () => app.evaluate(`(()=>{
+            const panel=document.getElementById('image-parameter-panel');
+            const box=element=>{const r=element.getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right}};
+            const reachable=selector=>{const element=panel.querySelector(selector),r=element.getBoundingClientRect();return element.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))};
+            return {header:box(panel.querySelector('header')),footer:box(panel.querySelector('footer')),
+                title:panel.querySelector('h2').textContent,close:reachable('[data-parameter-action=close]'),run:reachable('[data-parameter-action=generate]'),
+                overflow:panel.scrollWidth>panel.clientWidth};
+        })()`);
+        const before = await measure();
+        assert.equal(before.title, '图片生成');
+        assert.equal(before.close, false, 'corner close control is absent');
+        assert.equal(before.run, true, 'generate stays directly clickable in a short window');
+        assert.equal(before.overflow, false);
+        assert.ok(await app.evaluate("document.querySelector('.image-parameter-scroll').clientHeight >= 140"),
+            'a collapsed toolbar leaves enough space for useful editing');
+        await app.evaluate("document.getElementById('editor-first-prompt').focus();document.getElementById('editor-first-prompt').scrollIntoView({block:'nearest'})");
+        assert.ok(await app.evaluate(`(()=>{const input=document.getElementById('editor-first-prompt').getBoundingClientRect(),scroll=document.querySelector('.image-parameter-scroll').getBoundingClientRect();return Math.min(input.bottom,scroll.bottom)-Math.max(input.top,scroll.top)>=60})()`),
+            'several prompt lines remain visible when editing in a short window');
+        await app.evaluate("document.querySelector('.image-parameter-scroll').scrollTop=10000");
+        assert.deepEqual(await measure(), before, 'scrolling content leaves the editor header and action bar in place');
+        assert.equal(await app.evaluate("document.getElementById('editor-first-prompt').value.split('\\n').length"), 81);
+    });
+});
+
 test('one screen-space image editor follows selection and preserves edits, width and layout across closing, zoom and reload', { timeout: 45000 }, async () => {
     await withAppBrowser(session, async app => {
         const originalLayout = await geometry(app);

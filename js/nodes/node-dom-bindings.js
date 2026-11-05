@@ -2397,6 +2397,47 @@ export function createNodeDomBindingsApi({
         el.addEventListener('click', stopBatchConnectionFollowupClick, true);
         el.addEventListener('dblclick', stopBatchConnectionFollowupClick, true);
 
+        if (type === 'Text') {
+            const text = el.querySelector('textarea');
+            if (text) {
+                const finishEditing = () => {
+                    el.classList.remove('is-text-editing');
+                    text.readOnly = true;
+                    text.tabIndex = -1;
+                };
+                const beginEditing = () => {
+                    const node = state.nodes.get(id);
+                    if (!node || node.isClone || isNodeRunning(id) || state.batchConnectionMode?.sourceNodeId) return;
+                    selectNode(id, false);
+                    el.classList.add('is-text-editing');
+                    text.readOnly = false;
+                    text.tabIndex = 0;
+                    text.focus({ preventScroll: true });
+                };
+                finishEditing();
+                el.tabIndex = 0;
+                el.addEventListener('dblclick', event => {
+                    if (!event.target.closest('.node-field-expand')) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    beginEditing();
+                });
+                el.addEventListener('keydown', event => {
+                    if (event.target === el && (event.key === 'Enter' || event.key === 'F2')) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        beginEditing();
+                    } else if (event.target === text && event.key === 'Escape') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        text.blur();
+                        el.focus({ preventScroll: true });
+                    }
+                });
+                text.addEventListener('blur', finishEditing);
+            }
+        }
+
         el.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
 

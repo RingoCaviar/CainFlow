@@ -12,13 +12,15 @@ test('parameter editor uses viewport space and preserves scrolling without overl
         await app.waitFor("document.getElementById('image-parameter-panel')?.hidden===false");
         const settle = () => app.evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
         await settle();
-        const fits = await app.evaluate("(()=>{const s=document.querySelector('.image-parameter-scroll');return {content:s.scrollHeight,available:s.clientHeight}})()");
-        assert.ok(fits.content <= fits.available + 1, JSON.stringify(fits));
+        const fits = await app.evaluate("(()=>{const s=document.querySelector('.image-parameter-scroll');return {horizontal:s.scrollWidth-s.clientWidth,available:s.clientHeight}})()");
+        assert.ok(fits.horizontal <= 1 && fits.available >= 120, JSON.stringify(fits));
         const origin = await app.evaluate("(()=>{const r=document.getElementById('image-parameter-panel').getBoundingClientRect();return {left:r.left,top:r.top}})()");
         for (const group of ['model', 'size', 'advanced', 'advanced']) {
             await app.evaluate(`document.querySelector('[data-parameter-group-toggle=${group}]').click()`);
             await settle();
-            assert.deepEqual(await app.evaluate("(()=>{const r=document.getElementById('image-parameter-panel').getBoundingClientRect();return {left:r.left,top:r.top}})()"), origin, `opening ${group} keeps the editor anchored`);
+            const position = await app.evaluate("(()=>{const r=document.getElementById('image-parameter-panel').getBoundingClientRect();return {left:r.left,top:r.top}})()");
+            assert.ok(Math.abs(position.left-origin.left)<=0.5 && Math.abs(position.top-origin.top)<=0.5,
+                `opening ${group} keeps the editor anchored within subpixel layout rounding`);
         }
         await app.send('Emulation.setDeviceMetricsOverride', { width: 700, height: 260, deviceScaleFactor: 1, mobile: false });
         await settle();
@@ -30,6 +32,7 @@ test('parameter editor uses viewport space and preserves scrolling without overl
         assert.equal(await app.evaluate("document.querySelector('.image-parameter-scroll').scrollTop"), before, 'layout refresh preserves scroll offset');
         assert.ok(await app.evaluate("(()=>{const f=document.querySelector('.image-parameter-footer');return f.getBoundingClientRect().top>=f.previousElementSibling.getBoundingClientRect().bottom-1})()"), 'footer does not cover preceding parameters');
         await app.evaluate("document.querySelector('.image-parameter-scroll').scrollTop=10000");
+        await app.waitFor("!document.querySelector('.toast')", 15000);
         const button = await app.evaluate("(()=>{const r=document.querySelector('.generation-count-btn[data-delta=\"1\"]').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()");
         const offset = await app.evaluate("document.querySelector('.image-parameter-scroll').scrollTop");
         await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...button, button: 'left', clickCount: 1 });
