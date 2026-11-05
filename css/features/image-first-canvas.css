@@ -773,6 +773,19 @@ html:root #canvas-container .node.node-media-aspect .node-media-aspect-surface {
 .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer { justify-content: center; }
 .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-count-slot { margin-left: 0; }
 
+.image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer > .save-btn[data-parameter-action="generate"] {
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.25;
+    min-height: 36px;
+    color: var(--text-primary);
+}
+
+.image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer > .save-btn[data-parameter-action="generate"]:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
 .image-parameter-panel .image-parameter-run-feedback .image-node-run-status { display: none; }
 .image-parameter-panel .image-parameter-run-feedback .image-node-run-actions { display: contents; }
 .image-parameter-panel .image-parameter-run-feedback:not(:has(.node-generation-progress-field:not([hidden]), .node-failure-summary:not(.hidden), [data-image-run-action="details"]:not([hidden]))) { display: none; }

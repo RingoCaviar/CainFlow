@@ -1,0 +1,258 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-05T05:35:38.141409+00:00",
+  "title": "Design System: CainFlow",
+  "extensions": {
+    "colorMeta": {
+      "light-primary": {
+        "role": "primary",
+        "displayName": "light primary"
+      },
+      "light-canvas": {
+        "role": "neutral",
+        "displayName": "light canvas"
+      },
+      "light-node": {
+        "role": "neutral",
+        "displayName": "light node"
+      },
+      "light-text": {
+        "role": "neutral",
+        "displayName": "light text"
+      },
+      "light-secondary-text": {
+        "role": "neutral",
+        "displayName": "light secondary text"
+      },
+      "light-danger": {
+        "role": "neutral",
+        "displayName": "light danger"
+      },
+      "paper-primary": {
+        "role": "primary",
+        "displayName": "paper primary"
+      },
+      "paper-canvas": {
+        "role": "neutral",
+        "displayName": "paper canvas"
+      },
+      "paper-node": {
+        "role": "neutral",
+        "displayName": "paper node"
+      },
+      "paper-text": {
+        "role": "neutral",
+        "displayName": "paper text"
+      },
+      "dark-primary": {
+        "role": "primary",
+        "displayName": "dark primary"
+      },
+      "dark-canvas": {
+        "role": "neutral",
+        "displayName": "dark canvas"
+      },
+      "dark-node": {
+        "role": "neutral",
+        "displayName": "dark node"
+      },
+      "dark-text": {
+        "role": "neutral",
+        "displayName": "dark text"
+      },
+      "pro-primary": {
+        "role": "primary",
+        "displayName": "pro primary"
+      },
+      "pro-canvas": {
+        "role": "neutral",
+        "displayName": "pro canvas"
+      },
+      "pro-node": {
+        "role": "neutral",
+        "displayName": "pro node"
+      },
+      "pro-text": {
+        "role": "neutral",
+        "displayName": "pro text"
+      },
+      "pink-primary": {
+        "role": "primary",
+        "displayName": "pink primary"
+      },
+      "pink-canvas": {
+        "role": "neutral",
+        "displayName": "pink canvas"
+      },
+      "pink-node": {
+        "role": "neutral",
+        "displayName": "pink node"
+      },
+      "pink-text": {
+        "role": "neutral",
+        "displayName": "pink text"
+      }
+    },
+    "typographyMeta": {
+      "title": {
+        "displayName": "选择器标题",
+        "purpose": "节点选择器的标题，不是统一展示字系统。"
+      },
+      "body": {
+        "displayName": "参数正文",
+        "purpose": "节点参数浮层正文。"
+      },
+      "label": {
+        "displayName": "操作标签",
+        "purpose": "基础按钮标签。"
+      },
+      "mono": {
+        "displayName": "技术内容",
+        "purpose": "代码与协议。"
+      },
+      "workflow-title": {
+        "displayName": "当前工作流名称",
+        "purpose": "16px 加粗；使用可读强调文字语义，窄窗口限宽，单行截断并保留完整悬停名称。"
+      },
+      "generation-action": {
+        "displayName": "生图操作文字",
+        "purpose": "用户选定的 15px、600 字重生成按钮，使用主题正文色。"
+      }
+    },
+    "shadows": [
+      {
+        "name": "node",
+        "value": "var(--shadow-node)",
+        "purpose": "节点静止状态；随当前主题变化。"
+      },
+      {
+        "name": "node-hover",
+        "value": "var(--shadow-node-hover)",
+        "purpose": "节点悬停状态。"
+      },
+      {
+        "name": "panel",
+        "value": "var(--panel-shadow-soft)",
+        "purpose": "导航、菜单等面板的层级。"
+      },
+      {
+        "name": "floating-panel",
+        "value": "var(--panel-shadow-strong)",
+        "purpose": "节点参数浮层等浮动编辑容器。"
+      }
+    ],
+    "motion": [
+      {
+        "name": "control-transition",
+        "value": "0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "基础控件状态过渡；来自 --transition。"
+      },
+      {
+        "name": "motion-fast",
+        "value": "0.16s ease",
+        "purpose": "工作台较快的状态反馈。"
+      },
+      {
+        "name": "motion-standard",
+        "value": "0.22s cubic-bezier(0.22, 1, 0.36, 1)",
+        "purpose": "工作台通用过渡。"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "canvas-navigation-wrap",
+        "value": "440px"
+      },
+      {
+        "name": "theme-menu-compact",
+        "value": "768px"
+      },
+      {
+        "name": "parameter-context-with-agent",
+        "value": "1200px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "主要操作",
+      "kind": "button",
+      "description": "主题填充色的主要动作；示例不触发生成。",
+      "html": "<button class=\"ds-primary\">生成</button>",
+      "css": ".ds-primary{font-family:var(--font);font-size:13px;font-weight:500;border-radius:var(--radius-sm);padding:6px 14px;cursor:pointer;transition:background var(--transition),border-color var(--transition),color var(--transition);background:var(--panel-primary-action-bg,var(--accent-primary));color:var(--panel-primary-action-text,#fff);border:1px solid var(--button-filled-edge,var(--accent-primary));}.ds-primary:hover{background:var(--panel-primary-action-hover-bg,var(--accent-primary));}.ds-primary:focus-visible{outline:2px solid var(--accent-primary);outline-offset:2px;}.ds-primary:active{transform:scale(.97);}.ds-primary:disabled{opacity:.58;cursor:not-allowed;}",
+      "refersTo": "button-primary"
+    },
+    {
+      "name": "次级操作",
+      "kind": "button",
+      "description": "较轻的表面与明确边框，用于辅助操作。",
+      "html": "<button class=\"ds-secondary\">历史</button>",
+      "css": ".ds-secondary{font-family:var(--font);font-size:13px;font-weight:500;border-radius:var(--radius-sm);padding:6px 14px;cursor:pointer;transition:background var(--transition),border-color var(--transition),color var(--transition);background:var(--panel-control-bg);color:var(--text-primary);border:1px solid var(--button-edge,var(--panel-border));}.ds-secondary:hover{background:var(--panel-hover-bg);border-color:var(--button-edge-hover,var(--panel-hover-border));}.ds-secondary:focus-visible{outline:2px solid var(--accent-primary);outline-offset:2px;}.ds-secondary:active{transform:scale(.97);}"
+    },
+    {
+      "name": "危险操作",
+      "kind": "button",
+      "description": "设置界面危险操作的语义映射；示例没有删除行为。",
+      "html": "<button class=\"ds-danger\">删除</button>",
+      "css": ".ds-danger{font-family:var(--font);font-size:13px;font-weight:500;border-radius:var(--radius-sm);padding:6px 14px;cursor:pointer;transition:background var(--transition),border-color var(--transition),color var(--transition);background:color-mix(in srgb,var(--accent-red) 14%,transparent);color:var(--text-primary);border:1px solid var(--button-danger-edge,var(--accent-red));}.ds-danger:hover{background:color-mix(in srgb,var(--accent-red) 18%,transparent);border-color:var(--accent-red);}.ds-danger:focus-visible{outline:2px solid var(--accent-primary);outline-offset:2px;}.ds-danger:active{transform:scale(.97);}"
+    },
+    {
+      "name": "节点查找输入框",
+      "kind": "input",
+      "description": "画布节点查找中的紧凑输入框。",
+      "html": "<input class=\"ds-search\" aria-label=\"查找节点\" placeholder=\"查找节点\">",
+      "css": ".ds-search{font-family:var(--font);font-size:13px;padding:8px;color:var(--text-primary);background:var(--panel-input-bg);border:1px solid var(--panel-input-border);border-radius:6px;}.ds-search:hover{border-color:var(--panel-hover-border);}.ds-search:focus-visible{outline:2px solid var(--accent-primary);outline-offset:2px;}"
+    },
+    {
+      "name": "画布导航",
+      "kind": "nav",
+      "description": "右下角缩放与适应画布控件的静态结构示例。",
+      "html": "<nav class=\"ds-navigation\" aria-label=\"画布导航示例\"><button class=\"ds-nav-icon\" aria-label=\"查找节点\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" aria-hidden=\"true\" focusable=\"false\">\n                            <circle cx=\"10.75\" cy=\"10.75\" r=\"6.75\" />\n                            <path d=\"m16 16 4.5 4.5\" />\n                        </svg></button><button aria-label=\"缩小\">−</button><button aria-label=\"当前缩放比例\">100%</button><button aria-label=\"放大\">＋</button><button class=\"ds-nav-icon\" aria-label=\"适应画布\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\">\n                            <rect x=\"7\" y=\"8\" width=\"10\" height=\"8\" rx=\"1\" />\n                            <path d=\"M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5\" />\n                        </svg></button></nav>",
+      "css": ".ds-navigation{display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:6px;width:max-content;max-width:100%;border:1px solid var(--panel-border);border-radius:10px;background:var(--panel-bg-strong);color:var(--text-primary);box-shadow:var(--panel-shadow-soft);}.ds-navigation button{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-width:34px;height:34px;padding:6px 8px;border:1px solid var(--panel-control-border);border-radius:6px;color:var(--text-primary);background:var(--panel-control-bg);cursor:pointer;}.ds-navigation .ds-nav-icon{width:34px;padding:0;}.ds-navigation svg{display:block;flex-shrink:0;}.ds-navigation button:hover{background:var(--panel-hover-bg);border-color:var(--panel-hover-border);}.ds-navigation button:focus-visible{outline:2px solid var(--accent-primary);outline-offset:2px;}"
+    },
+    {
+      "name": "图片节点卡片",
+      "kind": "card",
+      "description": "图片主体容器与真实空结果；无虚构图像或生成状态。",
+      "html": "<article class=\"ds-node\"><div class=\"ds-node-empty\">暂无结果</div></article>",
+      "css": ".ds-node{width:200px;overflow:hidden;border-radius:var(--radius-node);border:1px solid var(--border-node);background:var(--bg-node);color:var(--text-primary);box-shadow:var(--shadow-node);}.ds-node:hover{box-shadow:var(--shadow-node-hover);}.ds-node-empty{display:flex;align-items:center;justify-content:center;min-height:100px;padding:12px;font:13px var(--font);color:var(--text-secondary);}"
+    },
+    {
+      "name": "参考来源标签",
+      "kind": "custom",
+      "description": "参考图分组中的来源定位文字，不新增过滤标签组件。",
+      "html": "<button class=\"ds-reference\" type=\"button\">参考来源</button>",
+      "css": ".ds-reference{font-family:var(--font);font-size:12px;text-align:left;padding:3px 0;background:transparent;border:0;color:var(--text-primary);cursor:pointer;}.ds-reference:hover{color:var(--text-link);}.ds-reference:focus-visible{outline:2px solid var(--accent-primary);outline-offset:2px;}"
+    }
+  ],
+  "narrative": {
+    "northStar": "创作工作台",
+    "overview": "图片和节点关系居中，工具紧凑、按需展开。保留全部七套主题及其差异，层级沿用现有表面、边框和阴影，按钮与输入框保持克制、明确。",
+    "keyCharacteristics": [
+      "图片主体节点卡片",
+      "系统字体与紧凑控件",
+      "语义主题与组件所属皮肤",
+      "稳定的编辑浮层和明确的模态层级"
+    ],
+    "rules": [
+      {
+        "name": "The Semantic Roles Rule",
+        "body": "主题提供语义色板，组件所属样式负责结构与状态。",
+        "section": "colors"
+      },
+      {
+        "name": "The Functional Depth Rule",
+        "body": "深度服务遮挡关系、焦点和操作可达性。",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "沿用当前主题与最终级联。",
+      "保留键盘焦点及真实运行状态。"
+    ],
+    "donts": [
+      "不将单一主题强制推广到全部主题。",
+      "不留下临时预览包装、重复 ID 或虚构交互。"
+    ]
+  }
+}
