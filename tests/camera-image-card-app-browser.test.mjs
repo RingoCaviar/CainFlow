@@ -26,6 +26,12 @@ test('camera retains the dedicated editor button and preview while its reference
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#camera-card .node-port[data-direction=input]')].filter(port=>port.getClientRects().length).map(port=>port.dataset.port)"), ['auto']);
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#camera-card .node-port[data-direction=output]')].map(port=>[port.dataset.port,port.dataset.type,port.querySelector('.port-label').textContent.trim()])"), [['text', 'text', '相机提示词']]);
         assert.equal(await app.evaluate("document.getElementById('camera-card').contains(document.getElementById('camera-card-camera-open')) && document.getElementById('camera-card').contains(document.getElementById('camera-card-camera-preview'))"), true);
+        assert.equal(await app.evaluate("document.getElementById('camera-card-camera-open').checkVisibility()"), false,
+            'the card thumbnail does not display an editor button');
+        assert.equal(await app.evaluate("document.querySelector('#camera-card .image-first-summary')"), null,
+            'camera settings and input summaries do not take space on the canvas card');
+        assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').contains(document.querySelector('.image-first-parameter-content[data-node-id=\"camera-card\"] .image-first-summary'))"), true,
+            'the original camera summary is available in the parameter editor');
         assert.equal(await app.evaluate("!!document.querySelector('#image-parameter-panel .image-camera-prompt-details') && !document.querySelector('#camera-card .camera-control-note')"), true);
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=generate]').textContent"), '编辑视角');
         assert.equal(await app.evaluate("document.querySelectorAll('#image-parameter-panel input, #image-parameter-panel textarea').length"), 0, 'the lower panel summarizes existing camera state without adding duplicate editable controls');

@@ -28,6 +28,7 @@ async function open(app, id) {
 }
 
 async function click(app, selector) {
+    await app.evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'nearest'})`);
     await app.waitFor(`(()=>{const control=document.querySelector(${JSON.stringify(selector)}),rect=control.getBoundingClientRect();return control.contains(document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2))})()`);
     let point;
     // Opening Agent and switching results can reflow the image after its pixels decode.
@@ -88,6 +89,9 @@ test('two result slots with identical original bytes stage separately while repe
         const original = await saved(app), keys = original.nodes.find(node => node.id === 'duplicate-source').mediaAssetKeys;
         assert.equal(keys[0], keys[1], 'the distinct batch slots really share one durable original');
         await open(app, 'duplicate-source');
+        // Bottom-clamped editors may cover the card's result toolbar.
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
         await click(app, '#duplicate-source-image-results [data-result-action=reference]');
         await app.waitFor("document.querySelectorAll('#prompt-agent-references img').length===1&&!document.querySelector('#prompt-agent-references .is-loading')");
         await app.evaluate("document.querySelector('#duplicate-source-image-results [data-result-step=\"-1\"]').click()");

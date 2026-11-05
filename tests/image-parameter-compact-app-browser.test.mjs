@@ -28,6 +28,32 @@ async function open(app, id) {
 
 const settle = app => app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
 
+test('text cards select and drag before explicit editing, then Escape restores canvas interaction', { timeout: 30000 }, async () => {
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes: [{ id: 'text-card', type: 'Text', x: 80, y: 80, width: 260, height: 190, text: 'original draft' }], connections: [] }, async app => {
+        const point = await app.evaluate("(()=>{const r=document.getElementById('text-card-text').getBoundingClientRect();return {x:r.left+40,y:r.top+40}})()");
+        const mouse = (type, extra = {}) => app.send('Input.dispatchMouseEvent', { type, ...point, button: 'left', clickCount: 1, ...extra });
+        await mouse('mousePressed'); await mouse('mouseReleased');
+        assert.ok(await app.evaluate("document.getElementById('text-card').classList.contains('selected')&&document.activeElement!==document.getElementById('text-card-text')"), 'one click selects without entering the textarea');
+        const before = await app.evaluate("document.getElementById('text-card').style.left");
+        await mouse('mousePressed'); await mouse('mouseMoved', { x: point.x + 50, y: point.y + 30, buttons: 1 }); await mouse('mouseReleased', { x: point.x + 50, y: point.y + 30 });
+        assert.notEqual(await app.evaluate("document.getElementById('text-card').style.left"), before, 'dragging the text surface moves the node');
+        await mouse('mousePressed', { x: point.x + 50, y: point.y + 30, clickCount: 2 }); await mouse('mouseReleased', { x: point.x + 50, y: point.y + 30, clickCount: 2 });
+        assert.ok(await app.evaluate("document.activeElement===document.getElementById('text-card-text')&&!document.getElementById('text-card-text').readOnly"), 'double click enters editing');
+        await app.send('Input.insertText', { text: 'edited' });
+        assert.ok(await app.evaluate("document.getElementById('text-card-text').value.includes('edited')"));
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
+        assert.ok(await app.evaluate("document.getElementById('text-card-text').readOnly&&!document.getElementById('text-card').classList.contains('is-text-editing')"));
+    });
+});
+
+test('text node height remains stable across repeated zero-distance resize gestures', { timeout: 30000 }, async () => {
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes: [{ id: 'stable-text', type: 'Text', x: 80, y: 80, width: 260, height: 190, textareaHeights: {text: 188}, text: 'short text' }], connections: [] }, async app => {
+        const heights = await app.evaluate("(async()=>{const node=document.getElementById('stable-text'),heights=[];node.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,clientX:85,clientY:85}));document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));for(let i=0;i<12;i++){node.querySelector('.node-resize-handle--bottom-right').dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,clientX:300,clientY:300}));document.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,clientX:300,clientY:300}));document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));await new Promise(resolve=>requestAnimationFrame(resolve));heights.push(node.offsetHeight)}return heights})()");
+        assert.ok(Math.max(...heights)-Math.min(...heights)<=1, `zero-distance resize grows text node: ${heights.join(',')}`);
+    });
+});
+
 test('compact editors retain nine node forms, original controls, prompt drafts and ordered connections', { timeout: 60000 }, async () => {
     await withAppBrowser(session, async app => {
         const emptyNames = ['图片生成', '图片导入', '图片预览', '缩放图片', '复位颜色', '图片对比', '多图合一', '保存成品'];
@@ -56,7 +82,9 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         const alignment = await app.evaluate(`(()=>{const path=document.querySelector('[data-conn-id=image-edge]'),matrix=path.getScreenCTM();return [[path.getPointAtLength(0).matrixTransform(matrix),document.querySelector('#image-1 .node-port.output .port-dot')],[path.getPointAtLength(path.getTotalLength()).matrixTransform(matrix),document.querySelector('#image-0 .universal-input .port-dot')]].map(([point,dot])=>{const r=dot.getBoundingClientRect();return Math.hypot(point.x-(r.left+r.right)/2,point.y-(r.top+r.bottom)/2)})})()`);
         assert.ok(alignment.every(distance=>distance<1), 'connections follow the centered image ports');
         assert.equal(await app.evaluate("document.querySelectorAll('.node-collapse-btn,.node.collapsed,.node-body.is-collapsed').length"), 0);
-        await app.evaluate("document.querySelector('#text-source .node-header').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))");
+        assert.ok(await app.evaluate("(()=>{const n=document.getElementById('text-source'),t=n.querySelector('textarea'),s=getComputedStyle(t),g=getComputedStyle(n.querySelector('.node-glass-bg'));return s.borderTopStyle==='none'&&parseFloat(s.fontSize)>=14&&g.boxShadow==='none'&&g.backgroundColor!=='rgba(0, 0, 0, 0)'})()"), 'text editors share the unframed opaque theme surface and readable type');
+        assert.ok(await app.evaluate("(()=>{const n=document.getElementById('text-source'),r=n.getBoundingClientRect(),t=n.querySelector('textarea').getBoundingClientRect();return [...n.querySelectorAll('.port-dot')].every(dot=>{const d=dot.getBoundingClientRect();return Math.abs((d.top+d.bottom-r.top-r.bottom)/2)<1})&&[...n.querySelectorAll('.port-label')].every(label=>!label.checkVisibility())&&Math.abs(t.top-r.top)<=2})()"), 'text ports center on the shell with no label strip above the editable content');
+        await app.evaluate("document.querySelector('#text-source .node-header').dispatchEvent(new MouseEvent('mouseup',{bubbles:true}))");
         assert.equal(await app.evaluate("document.querySelector('#text-source .node-body').checkVisibility()"), true);
         await open(app, 'image-0');
         assert.equal(await app.evaluate("document.querySelector('#image-0 .image-first-summary')===null"), true);
@@ -75,8 +103,8 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         assert.ok(await app.evaluate("document.getElementById('image-0-prompt-source').textContent.includes('effective upstream prompt')"));
         await app.evaluate("window.originalCompactPrompt=document.getElementById('image-0-prompt');document.querySelector('#image-parameter-panel .generation-count-btn[data-delta=\"1\"]').click()");
         await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value?.nodes.find(n=>n.id==='image-0')?.generationCount===2)");
-        assert.equal(await app.evaluate("document.querySelector('#image-0-prompt-field').parentElement.contains(document.getElementById('image-0-generation-count'))"), true, 'the original count remains in its node parameter root');
-        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=model]').textContent"), '受控图片');
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel > .image-parameter-footer').contains(document.getElementById('image-0-generation-count'))"), true, 'the original count stays in the fixed action bar');
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=model]').textContent"), '模型 · 受控图片');
         await app.evaluate('getSelection().removeAllRanges()');
         const modelButton = await app.evaluate("(()=>{const r=document.querySelector('#image-parameter-panel [data-parameter-group-toggle=model]').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()");
         for (const clickCount of [1, 2]) {
@@ -87,7 +115,7 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         assert.ok(await app.evaluate("[...document.querySelectorAll('#image-parameter-panel button,#image-parameter-panel summary,#toolbar button')].every(e=>getComputedStyle(e).userSelect==='none')"));
         assert.equal(await app.evaluate("getComputedStyle(document.getElementById('image-0-prompt')).userSelect"), 'text');
 
-        assert.ok(await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel').getBoundingClientRect(),c=document.querySelector('#image-parameter-panel .image-parameter-count-slot').getBoundingClientRect(),g=document.querySelector('#image-parameter-panel [data-parameter-action=generate]').getBoundingClientRect();return Math.abs((c.left+g.right)/2-(p.left+p.width/2))<1})()"), 'count and generate controls are centered together');
+        assert.ok(await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel').getBoundingClientRect(),c=document.querySelector('#image-parameter-panel .image-parameter-count-slot').getBoundingClientRect(),g=document.querySelector('#image-parameter-panel [data-parameter-action=generate]').getBoundingClientRect();return g.right<=p.right-12&&g.right>=p.right-20&&c.right<=g.left&&g.left-c.right<=12})()"), 'count and generate controls align together at the right edge');
 
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=reference]').click()");
         assert.equal(await app.evaluate("document.querySelectorAll('#image-0-reference-sources .image-reference-more, #image-0-reference-sources .image-reference-source-actions, #image-0-reference-sources .image-reference-source-status').length"), 0);
@@ -107,22 +135,18 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         const automatic = await app.evaluate("(()=>{const e=originalCompactPrompt,s=getComputedStyle(e);return {height:e.offsetHeight,line:parseFloat(s.lineHeight),padding:parseFloat(s.paddingTop)+parseFloat(s.paddingBottom),font:parseFloat(s.fontSize)}})()");
         const textBounds = await app.evaluate("(()=>{const e=originalCompactPrompt,s=getComputedStyle(e),r=e.getBoundingClientRect(),b=document.querySelector('#image-parameter-panel .image-parameter-tools').getBoundingClientRect();return {right:parseFloat(s.paddingRight),left:parseFloat(s.paddingLeft),textBottom:r.bottom,toolsTop:b.top,topPadding:parseFloat(s.paddingTop)}})()");
         assert.ok(Math.abs(textBounds.right - textBounds.left) <= 1, 'prompt uses the full width with balanced side padding');
-        assert.ok(textBounds.toolsTop >= textBounds.textBottom, 'tools sit below the prompt outside its input area');
-        assert.ok(textBounds.topPadding < 10, 'prompt no longer reserves a toolbar row');
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-header').checkVisibility()"), false, 'parameter editors have no title bar or corner tools');
+        assert.ok(textBounds.topPadding <= 10, 'prompt no longer reserves a toolbar row');
+        await app.evaluate("document.querySelector('#image-parameter-panel .image-prompt-actions').scrollIntoView({block:'end'})");
+        await settle(app);
         const assistantBounds = await app.evaluate("(()=>{const b=document.getElementById('image-0-assistant'),p=originalCompactPrompt,s=getComputedStyle(p);return {ownRow:b.closest('.image-prompt-actions').previousElementSibling===p.closest('.image-node-prompt-field'),settingsTop:document.querySelector('#image-parameter-panel .image-parameter-setting-bar').getBoundingClientRect().top,actionBottom:b.getBoundingClientRect().bottom,top:b.getBoundingClientRect().top,bottom:p.getBoundingClientRect().bottom,padding:parseFloat(s.paddingBottom)}})()");
         assert.ok(assistantBounds.ownRow && assistantBounds.top >= assistantBounds.bottom && assistantBounds.top - assistantBounds.bottom <= 10, 'assistant action is directly below the textarea');
         assert.ok(assistantBounds.settingsTop >= assistantBounds.actionBottom, 'settings follow the independent prompt action row');
-        assert.ok(assistantBounds.padding < 10, 'textarea reserves no bottom button space');
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').click()");
-        assert.ok(await app.evaluate("!!document.querySelector('#image-parameter-panel.is-expanded > .image-parameter-header')"), 'expanded tools return to the draggable header');
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').click()");
-        assert.ok(await app.evaluate("!!document.querySelector('#image-parameter-panel .image-prompt-actions > .image-parameter-header')"), 'restoring returns tools to prompt actions');
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]').click()");
-        await open(app, 'image-0');
-        assert.equal(await app.evaluate("document.querySelectorAll('#image-parameter-panel [data-parameter-action=close]').length"), 1, 'reopening retains exactly one close control');
+        assert.ok(assistantBounds.padding <= 10, 'textarea reserves no bottom button space');
+        assert.ok(await app.evaluate("(()=>{const prompt=document.querySelector('#image-parameter-panel .image-node-prompt-field'),model=document.querySelector('#image-parameter-panel .image-parameter-model-entry');return Boolean(prompt.compareDocumentPosition(model)&Node.DOCUMENT_POSITION_FOLLOWING)})()"), 'model settings follow the prompt');
         assert.ok(automatic.font >= 13);
-        assert.ok(automatic.height >= automatic.line * 3 + automatic.padding);
-        assert.ok(automatic.height <= automatic.line * 6 + automatic.padding + 3);
+        assert.ok(automatic.height >= automatic.line * 5 + automatic.padding);
+        assert.ok(automatic.height <= automatic.line * 8 + automatic.padding + 3);
         await app.evaluate("originalCompactPrompt.style.height='260px';originalCompactPrompt.value='short';originalCompactPrompt.dispatchEvent(new Event('input',{bubbles:true}))");
         await settle(app);
         assert.equal(await app.evaluate('originalCompactPrompt.style.height'), '260px', 'typing respects a manually set editor height');
@@ -130,17 +154,17 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         for (const [index, type] of types.entries()) {
             await open(app, `image-${index}`);
             await settle(app);
-            const measurements = await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel'),s=p.querySelector('.image-parameter-scroll'),h=p.querySelector('.image-parameter-header');return {type:p.dataset.nodeType,height:p.offsetHeight,header:getComputedStyle(h).position,overflow:s.scrollWidth-s.clientWidth,footerHidden:p.querySelector('.image-parameter-footer').hidden}})()");
+            const measurements = await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel'),s=p.querySelector('.image-parameter-scroll'),h=p.querySelector('.image-parameter-header');return {type:p.dataset.nodeType,height:p.offsetHeight,header:h.checkVisibility(),overflow:s.scrollWidth-s.clientWidth,footerHidden:p.querySelector('.image-parameter-footer').hidden}})()");
             assert.equal(measurements.type, type);
-            assert.equal(measurements.header, type === 'ImageGenerate' ? 'static' : 'absolute');
+            assert.equal(measurements.header, false, `${type} has no visible title bar`);
             assert.ok(measurements.overflow <= 1, `${type} does not overflow horizontally`);
             if (type === 'ImageImport') {
                 assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').checkVisibility()"), false);
                 await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').click()");
                 assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').dataset.mode"), 'normal');
-                assert.equal(measurements.footerHidden, true); assert.ok(measurements.height < 64);
-                const alignment = await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel').getBoundingClientRect(),m=document.querySelector('#image-parameter-panel .image-import-mode-shell').getBoundingClientRect();return {width:p.width,offset:Math.abs(m.left+m.width/2-p.left-p.width/2)}})()");
-                assert.ok(alignment.width <= 280); assert.ok(alignment.offset <= 1);
+                assert.equal(measurements.footerHidden, true); assert.ok(measurements.height < 220);
+                const alignment = await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel').getBoundingClientRect(),m=document.querySelector('#image-parameter-panel .image-import-mode-shell').getBoundingClientRect(),c=document.querySelector('#image-parameter-panel [data-parameter-action=close]').getBoundingClientRect();return {width:p.width,offset:Math.abs((m.left+m.right-p.left-p.right)/2),clear:m.right<=c.left-4&&m.left>=p.left+8}})()");
+                assert.ok(alignment.width <= 280); assert.ok(alignment.offset<=1, 'import mode controls stay centered without a title strip');
                 assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-first-summary').checkVisibility()"), false);
                 await app.evaluate("document.querySelector('#image-parameter-panel .image-import-mode-btn[data-mode=url]').click()");
                 await settle(app);
@@ -185,7 +209,7 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         await open(app, 'image-1');
         assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').dataset.mode"), 'normal', 'switching from an expanded node restores the compact import mode');
         await open(app, 'image-0');
-        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').checkVisibility()"), true);
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').checkVisibility()"), false);
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').click()");
         assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').dataset.mode"), 'expanded');
         await app.evaluate("document.querySelectorAll('.toast').forEach(toast=>toast.remove());document.querySelectorAll('#canvas-navigation details[open]').forEach(menu=>menu.open=false);document.getElementById('image-0-assistant').click()");

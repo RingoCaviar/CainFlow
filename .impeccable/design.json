@@ -117,6 +117,14 @@
       "generation-action": {
         "displayName": "生图操作文字",
         "purpose": "用户选定的 15px、600 字重生成按钮，使用主题正文色。"
+      },
+      "parameter-title": {
+        "displayName": "节点参数标题",
+        "purpose": "仅用于参数浮层独立标题行；15px/600，行高 1.4。"
+      },
+      "parameter-prompt": {
+        "displayName": "节点提示词",
+        "purpose": "仅用于参数浮层提示词；14px，行高 1.65。"
       }
     },
     "shadows": [
@@ -170,6 +178,18 @@
       {
         "name": "parameter-context-with-agent",
         "value": "1200px"
+      },
+      {
+        "name": "parameter-compact-height",
+        "value": "540px"
+      },
+      {
+        "name": "parameter-compact-width",
+        "value": "480px"
+      },
+      {
+        "name": "parameter-fields-single-column",
+        "value": "340px (container)"
       }
     ]
   },
@@ -223,6 +243,14 @@
       "description": "参考图分组中的来源定位文字，不新增过滤标签组件。",
       "html": "<button class=\"ds-reference\" type=\"button\">参考来源</button>",
       "css": ".ds-reference{font-family:var(--font);font-size:12px;text-align:left;padding:3px 0;background:transparent;border:0;color:var(--text-primary);cursor:pointer;}.ds-reference:hover{color:var(--text-link);}.ds-reference:focus-visible{outline:2px solid var(--accent-primary);outline-offset:2px;}"
+    },
+    {
+      "name": "节点参数浮层",
+      "kind": "custom",
+      "refersTo": "parameter-panel",
+      "description": "全部九种现有图片类参数浮层沿用七主题语义表面；原本内嵌的文本和视频参数继续内嵌。浮层默认宽 480px、圆角 12px，独立标题行与底栏不随中段内容滚动；标题 15px/600、普通控件与标签 13px，提示词 14px/1.65。生图节点的全宽紧凑模型入口位于提示词之前；共享内容间距 12px、字段网格间距 10px 12px，普通输入控件最小高度 34px。内容区和底栏的常规内距见 frontmatter；视口高度不超过 540px 或宽度不超过 480px 时收紧内距，视角控制保留所属紧凑规则。提示词自动高度为普通模式 5–8 行、放大模式 8–14 行；高度不超过 540px 时改为 3–4 行，保留编辑及执行入口可达性，已有手动高度不被自动覆盖。次数与主操作留在右下底栏；缩放节点的模式、滑轨和滑块使用主题输入、选中与强调语义。 节点参数浮层与 Agent 可共存，必要时通过置顶入口找回。普通模式锚定当前节点，展开、输入和组切换保持稳定；放大模式仍使用同一组控件并保留拖动与尺寸调整。窄内容区（不超过 340px）字段网格改单列。参数保存与生成执行分开，不为视觉简化重新实现一份脱离真实节点状态的表单。 示例仅展示静态结构，不执行模型选择或生成。 导入浮层省略标题条，模式切换与关闭按钮位于顶部，原文件按钮和尺寸信息在内容区；其他浮层仍保留独立标题行。",
+      "html": "<section class=\"ds-parameter\"><header class=\"ds-parameter-header\"><h2>节点参数</h2></header><div class=\"ds-parameter-content\"><button type=\"button\" class=\"ds-parameter-model\" aria-expanded=\"false\">模型 · 选择模型</button><label class=\"ds-parameter-prompt\">提示词<textarea rows=\"5\" aria-label=\"提示词\"></textarea></label></div><footer class=\"ds-parameter-footer\">主操作区</footer></section>",
+      "css": ".ds-parameter{display:flex;flex-direction:column;width:480px;max-width:100%;max-height:60vh;overflow:hidden;border:1px solid var(--border-color);border-radius:12px;background:linear-gradient(var(--surface-panel-strong,var(--panel-bg)),var(--surface-panel-strong,var(--panel-bg))),var(--surface-panel-underlay,var(--bg-canvas));color:var(--text-primary);box-shadow:var(--panel-shadow-strong);font:13px/1.6 var(--font);}.ds-parameter-header{flex:none;min-height:48px;padding:8px 12px 8px 16px;border-bottom:1px solid var(--border-color);}.ds-parameter-header h2{margin:0;font-size:15px;font-weight:600;line-height:1.4;}.ds-parameter-content{display:flex;flex-direction:column;gap:12px;min-height:0;padding:16px;overflow:auto;}.ds-parameter-model{width:100%;min-height:36px;padding:7px 10px;border:1px solid var(--border-input);border-radius:6px;background:var(--bg-input);color:var(--text-primary);font:inherit;text-align:left;}.ds-parameter-model:hover{background:var(--panel-hover-bg);}.ds-parameter-prompt{display:flex;flex-direction:column;gap:6px;}.ds-parameter-prompt textarea{min-height:0;padding:10px 12px;border:1px solid var(--border-input);border-radius:8px;background:var(--bg-input);color:var(--text-primary);font:14px/1.65 var(--font);resize:vertical;}.ds-parameter :is(button,textarea):focus-visible{outline:2px solid var(--accent-primary);outline-offset:-2px;}.ds-parameter-footer{flex:none;display:flex;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--border-color);}@media(max-height:540px),(max-width:480px){.ds-parameter-header{min-height:42px;padding:5px 8px 5px 12px;}.ds-parameter-content{padding:12px;}.ds-parameter-footer{padding:8px 12px;}}"
     }
   ],
   "narrative": {

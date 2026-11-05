@@ -25,6 +25,7 @@ async function open(app, id = 'first') {
     await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
 }
 async function nativeClick(app, selector) {
+    await app.evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'nearest'})`);
     const point = await app.evaluate(`(()=>{const rect=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:rect.x+rect.width/2,y:rect.y+rect.height/2}})()`);
     await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
     assert.equal(await app.evaluate(`document.querySelector(${JSON.stringify(selector)}).contains(document.elementFromPoint(${point.x},${point.y}))`), true, `${selector} is reachable through the real parameter panel`);

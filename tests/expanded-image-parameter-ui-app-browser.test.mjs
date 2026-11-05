@@ -81,7 +81,8 @@ test('expanded parameters drag and resize without replacing forms or changing or
         await app.waitFor("(()=>{const panel=document.getElementById('image-parameter-panel').getBoundingClientRect(),node=document.getElementById('first').getBoundingClientRect();return Math.abs(panel.left-node.left-node.width/2+panel.width/2)<=1})()");
         const placement = await app.evaluate("(()=>{const panel=document.getElementById('image-parameter-panel').getBoundingClientRect(),node=document.getElementById('first').getBoundingClientRect();return {left:panel.left,expected:node.left+node.width/2-panel.width/2,top:panel.top,bottom:node.bottom}})()");
         assert.ok(Math.abs(placement.left - placement.expected) <= 1, 'ordinary positioning follows its node without pulling the panel back into the viewport');
-        assert.ok(placement.top > placement.bottom);
+        assert.ok(placement.top <= placement.bottom + 12 && placement.top >= 12,
+            'ordinary positioning follows below the card and stops at the viewport boundary');
         await app.evaluate("document.querySelector('[data-parameter-action=expand]').click();document.querySelector('[data-parameter-action=close]').click()");
         await open(app);
         assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').dataset.mode"), 'normal');

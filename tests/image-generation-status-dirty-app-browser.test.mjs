@@ -123,6 +123,10 @@ test('waiting and running clear this attempt output and failure while preserving
         await app.evaluate("statusHold=['target'];statusRelease.source()");
         await app.waitFor("statusPending.target===true&&document.getElementById('target-run-status').textContent==='运行中'");
         assert.doesNotMatch(await app.evaluate("document.getElementById('target-generation-progress').textContent"), /\d+\s*%/);
+        // A bottom-clamped parameter editor can overlap its card. Dismiss it
+        // through the supported keyboard action before using the card cancel.
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
         await click(app, '#target .node-run-cancel-btn', 150);
         assert.equal(await app.evaluate("statusPending.target&&document.getElementById('target-run-status').textContent==='运行中'"), true, 'a short native press cannot cancel the protected request');
         await click(app, '#target .node-run-cancel-btn', 2150);
@@ -137,6 +141,7 @@ test('waiting and running clear this attempt output and failure while preserving
         await app.evaluate("document.querySelector('#modal-error .modal-close')?.click()");
         await expectSavedOutputCleared(app, 'target', oldKeys);
         assert.ok(await app.evaluate("(()=>{const summary=document.querySelector('[data-node-id=target] .node-failure-summary');return summary.scrollWidth<=summary.clientWidth+1})()"), 'unbroken provider words wrap within the short card summary');
+        await open(app, 'target', 'reference');
         await click(app, '[data-node-id=target] [data-image-run-action=details]');
         await app.waitFor("document.getElementById('modal-error').classList.contains('active')");
         await app.evaluate("(()=>{const full=document.getElementById('btn-show-full-log');if(!full.classList.contains('hidden'))full.click()})()");

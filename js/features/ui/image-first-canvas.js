@@ -31,7 +31,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     panel.className = 'image-parameter-panel';
     panel.setAttribute('aria-label', '节点参数浮层');
     panel.hidden = true;
-    panel.innerHTML = `<header class="image-parameter-header"><span class="image-parameter-drag-handle" tabindex="0" role="button" aria-label="拖动节点参数浮层" hidden>⠿</span><div class="image-parameter-tools"><button type="button" data-parameter-action="expand" aria-label="放大节点参数浮层" aria-pressed="false">⤢</button><button type="button" data-parameter-action="close" aria-label="关闭节点参数浮层">×</button></div></header>
+    const toolIcon = name => `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${name === 'close' ? '<path d="m6 6 12 12M6 18 18 6"/>' : name === 'restore' ? '<path d="M8 3v5H3m18 8h-5v5M8 8 3 3m13 13 5 5"/>' : '<path d="M14 3h7v7M10 21H3v-7M21 3l-7 7M3 21l7-7"/>'}</svg>`;
+    panel.innerHTML = `<header class="image-parameter-header"><h2 class="image-parameter-title"></h2><span class="image-parameter-drag-handle" tabindex="0" role="button" aria-label="拖动节点参数浮层" hidden><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/></svg></span><div class="image-parameter-tools"><button type="button" data-parameter-action="expand" aria-label="放大节点参数浮层" aria-pressed="false">${toolIcon('expand')}</button><button type="button" data-parameter-action="close" aria-label="关闭节点参数浮层">${toolIcon('close')}</button></div></header>
         <div class="image-parameter-scroll"></div><footer class="image-parameter-footer"><span class="image-parameter-feedback"></span><span class="image-parameter-count-slot" hidden></span><button type="button" class="save-btn" data-parameter-action="generate">生成</button></footer>
         <span class="image-parameter-resize" data-parameter-resize="width" tabindex="0" role="separator" aria-orientation="vertical" aria-label="调整节点参数浮层宽度"></span>
         <span class="image-parameter-resize-height" data-parameter-resize="height" tabindex="0" role="separator" aria-orientation="horizontal" aria-label="调整节点参数浮层高度" hidden></span>
@@ -88,9 +89,12 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
     const available = () => {
         const toolbar = documentRef.getElementById('toolbar');
-        // The toolbar reveals itself on hover. Keep floating controls outside
-        // its full footprint even while its translated presentation is hidden.
-        const top = expanded && toolbar?.getClientRects().length
+        // Reserve the toolbar only while it is exposed; a collapsed, wrapping
+        // toolbar must not consume the editor's usable height in small windows.
+        const toolbarActive = toolbar && (documentRef.body.matches('.toolbar-pinned, .toolbar-peek-active')
+            || toolbar.matches(':hover, :focus-within')
+            || toolbar.querySelector('details[open], .btn.active:not(#btn-prompt-agent), [aria-expanded="true"]:not(#btn-prompt-agent)'));
+        const top = expanded && toolbarActive
             ? Math.min(toolbar.offsetHeight + 12, Math.max(12, windowRef.innerHeight - 12)) : 12;
         const canvas = documentRef.getElementById('canvas-container')?.getBoundingClientRect();
         let left = Math.max(12, (canvas?.left || 0) + 12);
@@ -145,13 +149,9 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         panel.classList.toggle('is-expanded', expanded); panel.dataset.mode = expanded ? 'expanded' : 'normal';
         expandButton.setAttribute('aria-label', expanded ? '还原节点参数浮层' : '放大节点参数浮层');
         expandButton.setAttribute('aria-pressed', String(expanded));
-        expandButton.textContent = expanded ? '⤡' : '⤢';
+        expandButton.innerHTML = toolIcon(expanded ? 'restore' : 'expand');
         dragHandle.hidden = heightHandle.hidden = cornerHandle.hidden = !expanded;
-        const promptActions = !expanded && current?.type === 'ImageGenerate'
-            ? current.parameterRoot?.querySelector('.image-prompt-actions') : null;
-        if (promptActions) {
-            if (header.parentNode !== promptActions) promptActions.append(header);
-        } else if (header.parentNode !== panel) panel.prepend(header);
+        if (header.parentNode !== panel) panel.prepend(header);
     }
     function setReturnFocus(node, candidate = documentRef.activeElement) {
         if (candidate?.isConnected && !panel.contains(candidate) && !candidate.closest?.('.image-parameter-store')
@@ -170,7 +170,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         }
         if (sizing.autoHeight && prompt.style.height !== sizing.autoHeight) sizing.manual = true;
         if (sizing.manual) return;
-        const key = `${panel.style.width}\n${prompt.value}`;
+        const compactHeight = windowRef.innerHeight <= 540;
+        const key = `${expanded}\n${compactHeight}\n${panel.style.width}\n${prompt.value}`;
         if (sizing.key === key) return;
         sizing.key = key;
         const style = windowRef.getComputedStyle(prompt);
@@ -178,8 +179,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const padding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
         const border = Number.parseFloat(style.borderTopWidth) + Number.parseFloat(style.borderBottomWidth);
         prompt.style.height = 'auto';
-        const height = Math.min(line * 6 + padding + border,
-            Math.max(line * 3 + padding + border, prompt.scrollHeight + border));
+        const height = Math.min(line * (compactHeight ? 4 : expanded ? 14 : 8) + padding + border,
+            Math.max(line * (compactHeight ? 3 : expanded ? 8 : 5) + padding + border, prompt.scrollHeight + border));
         sizing.autoHeight = `${Math.ceil(height)}px`;
         prompt.style.height = sizing.autoHeight;
     }
@@ -187,6 +188,9 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     function position() {
         if (panel.hidden || !current?.el?.isConnected) return;
         const name = current.customTitle || current.el.dataset.nodeTitle || nodeLabels[current.type] || current.type;
+        const panelTitle = panel.querySelector('.image-parameter-title');
+        setText(panelTitle, name);
+        panelTitle.title = name;
         const title = targetContext.querySelector('strong');
         if (title.textContent !== `当前编辑：${name}`) title.textContent = `当前编辑：${name}`;
         const preview = targetContext.querySelector('img');
@@ -219,7 +223,9 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         }
         const compactImport = current.type === 'ImageImport' && panel.dataset.importMode === 'upload';
         const modeWidth = current.parameterRoot.querySelector('.image-import-mode-shell')?.offsetWidth || 112;
-        const width = Math.min(current.type === 'CameraControl' ? 300 : compactImport ? modeWidth + 72 : currentWidthPreference(), bounds.width);
+        const desiredWidth = current.type === 'CameraControl' ? 300 : compactImport ? modeWidth + 72 : currentWidthPreference();
+        // Position with the same minimum width that CSS actually renders.
+        const width = Math.min(Math.max(desiredWidth, Math.min(280, bounds.width)), bounds.width);
         panel.style.width = `${width}px`;
         panel.style.height = '';
         const floatingBottoms = ['.image-result-actions', '.node-run-cancel-btn']
@@ -245,23 +251,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         panel.style.top = `${preferredTop}px`;
         widthHandle.setAttribute('aria-valuenow', String(Math.round(width)));
         sizePrompt();
-        let height = panel.getBoundingClientRect().height;
-        const below = Math.max(0, bounds.bottom - preferredTop);
-        const above = Math.max(0, rect.top - 12 - bounds.top);
-        let top = preferredTop;
-        if (height > below) {
-            if (height <= above) {
-                top = rect.top - 12 - height;
-            } else if (floatingBottoms.length > 0 && Math.max(above, below) >= 120) {
-                // Keep cancel and result actions reachable even when larger
-                // controls or the target context require a scroll fallback.
-                const useAbove = above >= below;
-                panel.style.maxHeight = `${Math.min(bounds.height, useAbove ? above : below)}px`;
-                height = panel.getBoundingClientRect().height;
-                top = useAbove ? rect.top - 12 - height : preferredTop;
-            }
-        }
-        panel.style.top = `${clamp(top, bounds.top, Math.max(bounds.top, bounds.bottom - height))}px`;
+        const height = panel.getBoundingClientRect().height;
+        // Follow below the card until the bottom boundary is reached, then
+        // stay at that boundary instead of flipping above the card.
+        panel.style.top = `${clamp(preferredTop, bounds.top, Math.max(bounds.top, bounds.bottom - height))}px`;
         ordinaryAnchor = { node: current, key: anchorKey, left: parseFloat(panel.style.left), top: parseFloat(panel.style.top), maxHeight: parseFloat(panel.style.maxHeight) };
         // Measuring at the viewport limit can temporarily remove overflow and
         // clamp the browser's scroll offset. Restore it after final layout.
@@ -346,7 +339,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             const model = state.models.find(item => item.id === settings.apiConfigId);
             const { count } = projectImageReferences({ state, targetId: node.id });
             for (const [group, button] of view.groupButtons || []) {
-                const text = group === 'model' ? (model?.name || model?.modelId || '选择模型')
+                const text = group === 'model' ? `模型 · ${model?.name || model?.modelId || '选择模型'}`
                     : group === 'size' ? `${settings.aspect || '自动'} · ${settings.resolution || '自动'}`
                         : group === 'reference' ? `参考 ${count}` : '更多参数';
                 setText(button, text);
@@ -433,7 +426,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         current = node; closed = null;
         updateMode();
         if (node.parameterRoot.parentNode !== scroll) scroll.append(node.parameterRoot);
-        if (footer.parentNode !== node.parameterRoot) node.parameterRoot.append(footer);
+        if (footer.parentNode !== panel) panel.append(footer);
         const view = views.get(node);
         countSlot.hidden = !view.countField;
         if (view.countField) {
@@ -563,6 +556,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             const modeInput = body.querySelector(`[id="${node.id}-import-mode"]`);
             if (mode) form.append(mode);
             if (modeInput) form.append(modeInput);
+            const selectFile = body.querySelector(`[id="${node.id}-select-btn"]`);
+            const resolution = body.querySelector(`[id="${node.id}-res"]`);
+            if (selectFile) form.append(selectFile);
+            if (resolution) form.append(resolution);
             const urlSection = body.querySelector(`[id="${node.id}-url-section"]`);
             urlFields = documentRef.createElement('div'); urlFields.className = 'image-import-url-fields';
             urlFields.dataset.imageImportMode = 'url';
@@ -595,7 +592,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             const suffix = { ImageCompare: 'compare', ImageMerge: 'merge-preview', ImageSave: 'save-preview', CameraControl: 'camera-preview' }[node.type] || 'preview';
             observed.push(body.querySelector(`[id="${node.id}-${suffix}"]`));
         }
-        if (node.type === 'ImageImport' || node.type === 'ImageSave') form.append(summary);
+        if (['ImageImport', 'ImageSave', 'CameraControl'].includes(node.type)) form.append(summary);
         else body.append(summary);
         if (node.type === 'ImageSave') {
             const tools = body.querySelector('.image-save-preview-tools');
@@ -686,7 +683,11 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         }
         const promptField = form.querySelector('.image-node-prompt-field');
         const promptActions = promptField?.querySelector('.image-prompt-actions');
-        if (promptField) promptField.after(...[promptActions, bar].filter(Boolean)); else form.prepend(bar);
+        const modelEntry = groupButtons.get('model');
+        modelEntry.classList.add('image-parameter-model-entry');
+        if (promptField && promptActions) promptField.after(promptActions);
+        // Prompt editing leads; every configuration entry and its details follow below.
+        form.append(modelEntry, bar, ...sections);
         const placeholder = documentRef.createElement('div'); placeholder.className = 'image-first-placeholder';
         const emptyText = documentRef.createElement('span');
         placeholder.append(emptyText); body.prepend(placeholder);
@@ -733,6 +734,12 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (agent?.classList.contains('active')) surfaces?.bringToFront?.(agent);
         updateSwitcher();
     });
+    const toolbar = documentRef.getElementById('toolbar');
+    if (toolbar) {
+        for (const event of ['focusin', 'focusout', 'pointerenter', 'pointerleave', 'transitionend']) toolbar.addEventListener(event, schedulePosition);
+        new windowRef.MutationObserver(schedulePosition).observe(toolbar, { attributes: true, subtree: true, attributeFilter: ['class', 'aria-expanded', 'open'] });
+        new windowRef.MutationObserver(schedulePosition).observe(documentRef.body, { attributes: true, attributeFilter: ['class'] });
+    }
     const agent = documentRef.getElementById('prompt-agent-panel');
     if (agent) new windowRef.MutationObserver(() => { updateSwitcher(); schedulePosition(); }).observe(agent, { attributes: true, attributeFilter: ['class', 'hidden', 'style'] });
     if (agent && windowRef.ResizeObserver) new windowRef.ResizeObserver(schedulePosition).observe(agent);

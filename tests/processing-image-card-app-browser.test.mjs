@@ -52,7 +52,7 @@ test('resize and color cards preserve their original image surfaces and complete
             assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=generate]').textContent"), action);
             assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('#${id} .node-port[data-direction=input]')].filter(port=>port.getClientRects().length).map(port=>port.dataset.port)`), ['auto']);
             const surfaceGeometry = await app.evaluate(`(()=>{const card=document.getElementById('${id}'),surface=document.getElementById('${id}-${surface}');return {padding:getComputedStyle(card.querySelector('.node-body')).paddingLeft,height:surface.offsetHeight,header:getComputedStyle(card.querySelector('.node-header')).position,top:document.getElementById('image-parameter-panel').getBoundingClientRect().top,bottom:card.getBoundingClientRect().bottom}})()`);
-            assert.equal(surfaceGeometry.padding, '12px');
+            assert.equal(surfaceGeometry.padding, '0px', 'processing thumbnails meet the card edge without a decorative mat');
             assert.equal(surfaceGeometry.header, 'absolute');
             assert.ok(surfaceGeometry.height > 240, 'user-sized image area remains substantial: ' + id + ' ' + JSON.stringify(surfaceGeometry));
             const editor = await app.evaluate("(()=>{const panel=document.getElementById('image-parameter-panel'),r=panel.getBoundingClientRect(),s=panel.querySelector('.image-parameter-scroll');return {top:r.top,bottom:r.bottom,viewport:innerHeight,content:s.scrollHeight,available:s.clientHeight}})()");

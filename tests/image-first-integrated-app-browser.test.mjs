@@ -56,6 +56,10 @@ async function focusTool(app) {
 }
 
 async function checkPanel(app) {
+    assert.ok(await app.evaluate("[...document.querySelectorAll('#nodes-layer > .image-first-card')].every(node=>{const glass=node.querySelector(':scope > .node-glass-bg');return getComputedStyle(node).backgroundColor!=='rgba(0, 0, 0, 0)'||(glass&&getComputedStyle(glass).backgroundColor!=='rgba(0, 0, 0, 0)')})"),
+        'borderless image nodes retain their theme background instead of becoming transparent');
+    assert.ok(await app.evaluate("[...document.querySelectorAll('#nodes-layer > .node')].every(node=>{const s=getComputedStyle(node),glass=node.querySelector(':scope > .node-glass-bg');return s.borderTopColor==='rgba(0, 0, 0, 0)'&&(!glass||getComputedStyle(glass).borderTopStyle==='none')})"),
+        'all canvas nodes remain free of decorative borders in each live theme');
     assert.ok(await app.evaluate("(()=>{const panel=document.getElementById('image-parameter-panel'),scroll=panel.querySelector('.image-parameter-scroll'),input=document.getElementById('generate-prompt');return scroll.scrollWidth<=scroll.clientWidth+1&&parseFloat(getComputedStyle(input).fontSize)>=13&&input===window.integrationOriginalPrompt})()"), 'the original form stays readable and does not overflow horizontally');
     assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#generate-reference-sources [data-reference-number]')].map(element=>element.dataset.referenceNumber)"), ['1', '2', '3', '4', '5']);
     assert.equal(await app.evaluate("document.querySelector('[data-reference-connection=disabled-reference]').dataset.enabled"), 'false');
@@ -232,7 +236,7 @@ test('seven live themes preserve real run states, compact references, native foc
             await key(app, 'Enter');
             await app.waitFor("document.getElementById('image-parameter-panel').classList.contains('is-expanded')");
             const enlarged = await app.evaluate("document.getElementById('image-parameter-panel').getBoundingClientRect().toJSON()");
-            assert.ok(enlarged.left>=8&&enlarged.right<=352&&enlarged.bottom<=412&&enlarged.top>=await app.evaluate("document.getElementById('toolbar').offsetHeight+12")-1);
+            assert.ok(enlarged.left>=8&&enlarged.right<=352&&enlarged.bottom<=412&&enlarged.top>=await app.evaluate("Math.max(12,document.getElementById('toolbar').getBoundingClientRect().bottom+8)")-1);
             await nativeClick(app, '[data-parameter-action=front-parameters]');
             await focusTool(app); await checkPanel(app);
             await capture(app, `${theme}-narrow-expanded-50`, manifest);

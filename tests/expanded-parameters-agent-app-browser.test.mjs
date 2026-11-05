@@ -43,6 +43,8 @@ async function point(app, selector) {
 }
 
 async function click(app, selector) {
+    await app.evaluate("document.querySelectorAll('.notice-close').forEach(button=>button.click())");
+    await app.waitFor("!document.querySelector('.toast')", 15000);
     const position = await point(app, selector);
     await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...position });
     const hit = await app.evaluate(`(()=>{const target=document.querySelector(${JSON.stringify(selector)}),hit=document.elementFromPoint(${position.x},${position.y});return {reachable:target.contains(hit),hit:hit?.outerHTML.slice(0,240),point:${JSON.stringify(position)},rect:target.getBoundingClientRect().toJSON()}})()`);
@@ -121,14 +123,14 @@ test('enlarging reuses the original controls, supports dragging and bidirectiona
         await change(app, 'first-prompt', 'first edited without recreating the form');
         await expand(app);
         const enlarged = await panelRect(app);
-        assert.ok(Math.abs(enlarged.x + enlarged.width / 2 - 550) < 2 && Math.abs(enlarged.y + enlarged.height / 2 - 410) < 2, 'the initial enlarged window is centered in the actual viewport');
+        assert.ok(Math.abs(enlarged.x + enlarged.width / 2 - 550) <= 2 && Math.abs(enlarged.y + enlarged.height / 2 - 410) <= 2, 'the initial enlarged window is centered in the actual viewport, allowing the navigation clearance');
         assert.equal(await app.evaluate("originalFirstPrompt===document.getElementById('first-prompt')&&originalFirstForm.contains(originalFirstPrompt)&&document.getElementById('image-parameter-panel').contains(originalFirstForm)"), true);
         await app.evaluate("document.querySelector('[data-parameter-resize=height]').focus({preventScroll:true})");
         for (let step = 0; step < 8; step++) await key(app, 'ArrowUp');
         assert.ok((await panelRect(app)).height < enlarged.height - 50, 'the height edge is keyboard operable as well as pointer operable');
         await gesture(app, '.image-parameter-drag-handle', -35, -40);
         const moved = await panelRect(app);
-        const toolbarBottom = await app.evaluate("document.getElementById('toolbar').offsetHeight+12");
+        const toolbarBottom = await app.evaluate("Math.max(12,document.getElementById('toolbar').getBoundingClientRect().bottom+8)");
         assert.ok(Math.abs(moved.x - enlarged.x + 35) < 2 && moved.top >= toolbarBottom - 1 && moved.top <= enlarged.top, 'dragging moves the window while keeping its header outside the revealing toolbar');
         await gesture(app, '[data-parameter-resize=both]', -65, -45);
         const shrunk = await panelRect(app);
@@ -285,7 +287,8 @@ test('a narrow low viewport and low canvas zoom constrain temporary window bound
         await expand(app);
         const enlarged = await panelRect(app);
         assert.ok(enlarged.left >= 8 && enlarged.top >= 8 && enlarged.right <= 352 && enlarged.bottom <= 412, 'active enlargement keeps its window controls in the narrow viewport');
-        assert.ok(enlarged.top >= await app.evaluate("document.getElementById('toolbar').offsetHeight+12") - 1, 'the enlarged header stays below the complete native toolbar footprint');
+        assert.ok(enlarged.top >= await app.evaluate("Math.max(12,document.getElementById('toolbar').getBoundingClientRect().bottom+8)") - 1,
+            'the enlarged header avoids the visible toolbar while recovering space when it is collapsed');
         const recovery = await point(app, '[data-parameter-action=front-parameters]');
         assert.ok(recovery.y > enlarged.bottom, 'the recovery controls stay outside the expanded parameter window');
         await app.waitFor("!document.querySelector('.toast')", 15000);
