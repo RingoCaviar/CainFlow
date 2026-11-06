@@ -25,6 +25,45 @@ async function clickPreview(app, clickCount = 1) {
     await pointer(app, 'mouseReleased', point, clickCount);
 }
 
+test('parameter overlay follows a held canvas pan and clamps before release without replacing controls', { timeout: 45000 }, async () => {
+    await withAppBrowser(session, async app => {
+        await app.evaluate("document.getElementById('gesture-image').click()");
+        await app.waitFor("!document.getElementById('image-parameter-panel').hidden");
+        const snapshot = () => app.evaluate(`(()=>{
+            const panel=document.getElementById('image-parameter-panel'), rect=panel.getBoundingClientRect();
+            const node=document.getElementById('gesture-image').getBoundingClientRect();
+            return {left:rect.left,top:rect.top,right:rect.right,bottom:rect.bottom,nodeLeft:node.left,
+                width:innerWidth,height:innerHeight};
+        })()`);
+        await app.evaluate(`window.panPrompt=document.getElementById('gesture-image-prompt');
+            panPrompt.value='retained draft';panPrompt.focus();panPrompt.setSelectionRange(2,5);`);
+        const before = await snapshot();
+        const start = { x: 850, y: 180 };
+        const pan = async (type, x, y) => app.send('Input.dispatchMouseEvent', {
+            type, x, y, button: type === 'mouseMoved' ? 'none' : 'middle',
+            buttons: type === 'mouseReleased' ? 0 : 4, clickCount: 1
+        });
+        await pan('mousePressed', start.x, start.y);
+        try {
+            await pan('mouseMoved', start.x + 60, start.y + 40);
+            await app.waitFor(`document.getElementById('gesture-image').getBoundingClientRect().left > ${before.nodeLeft + 30}`);
+            await delay(80);
+            const during = await snapshot();
+            assert.ok(Math.abs(during.left - before.left - 60) < 2, 'overlay moves while middle button remains held');
+            await pan('mouseMoved', start.x + 300, start.y + 1000);
+            await delay(80);
+            const edge = await snapshot();
+            assert.ok(edge.left >= 0 && edge.right <= edge.width && edge.bottom <= edge.height,
+                'overlay stays in the viewport before releasing the mouse');
+            assert.deepEqual(await app.evaluate(`({same:panPrompt===document.getElementById('gesture-image-prompt'),
+                value:panPrompt.value,start:panPrompt.selectionStart,end:panPrompt.selectionEnd})`),
+                { same: true, value: 'retained draft', start: 2, end: 5 });
+        } finally {
+            await pan('mouseReleased', start.x + 300, start.y + 1000);
+        }
+    });
+});
+
 test('image card supports drag to move, single click parameters and double click original preview', { timeout: 45000 }, async () => {
     await withAppBrowser(session, async app => {
         const { evaluate, send, waitFor } = app;

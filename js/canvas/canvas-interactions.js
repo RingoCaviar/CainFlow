@@ -114,6 +114,9 @@ export function createCanvasInteractionsApi({
                 updateConnections: false,
                 dispatchTransformEvent: false
             });
+            // Position screen-space overlays in this frame without waking the
+            // full canvas projection and connection-rendering subscribers.
+            documentRef.dispatchEvent?.(new CustomEvent('cainflow:canvas-pan-frame'));
         });
     }
 
