@@ -37,8 +37,9 @@ test('preview zoom controls center their visible glyphs and preserve zoom/fit ac
             assert.ok(Math.abs(control.x) <= 1 && Math.abs(control.y) <= 1, JSON.stringify(control));
         }
         await app.evaluate("document.querySelector('.fullscreen-overlay .fullscreen-close').click();document.getElementById('generate').click()");
-        const otherControls = await app.evaluate(alignment('.generation-count-btn, #canvas-navigation [data-nav=minus], #canvas-navigation [data-nav=plus], .image-parameter-tools button'));
-        assert.ok(otherControls.length >= 6);
+        await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-settings-entry').click()");
+        const otherControls = await app.evaluate(alignment('#canvas-navigation [data-nav=minus], #canvas-navigation [data-nav=plus], .image-parameter-settings-entry, [data-parameter-action=generate]'));
+        assert.ok(otherControls.length >= 4);
         for (const control of otherControls) assert.ok(Math.abs(control.x) <= 1 && Math.abs(control.y) <= 1, JSON.stringify(control));
         await app.evaluate("document.getElementById('history-preview-modal').classList.remove('hidden');document.querySelector('#history-preview-modal .preview-action-dock').classList.add('is-expanded')");
         for (const theme of ['light', 'dark', 'pink', 'pro', 'paper', 'glass-light', 'glass-dark']) {

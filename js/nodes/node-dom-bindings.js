@@ -894,13 +894,18 @@ export function createNodeDomBindingsApi({
         });
     }
 
+    let stopSelectPositioning = null;
     function closeNodeSelectDropdowns(exceptWrapper = null) {
+        stopSelectPositioning?.();
+        stopSelectPositioning = null;
         surfaces?.forgetPopover('node-select');
         documentRef.querySelectorAll('.node-select').forEach((wrapper) => {
             if (exceptWrapper && wrapper === exceptWrapper) return;
             wrapper.classList.remove('open');
             wrapper.querySelector('.node-select-trigger')?.setAttribute('aria-expanded', 'false');
-            wrapper.querySelector('.node-select-panel')?.classList.add('hidden');
+            const panel = wrapper.querySelector('.node-select-panel');
+            if (panel?.matches(':popover-open')) panel.hidePopover();
+            panel?.classList.add('hidden');
         });
     }
 
@@ -977,7 +982,44 @@ export function createNodeDomBindingsApi({
             panel.classList.toggle('hidden', !willOpen);
             wrapper.classList.toggle('open', willOpen);
             trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
-            if (willOpen) surfaces?.openPopover('node-select', { element: panel, trigger, close: closeNodeSelectDropdowns });
+            if (willOpen) {
+                // Keep the original menu in its DOM/theme context, but render
+                // in the top layer so scroll containers cannot clip options.
+                panel.setAttribute('popover', 'manual');
+                Object.assign(panel.style, { position: 'fixed', inset: 'auto', margin: '0', boxSizing: 'border-box' });
+                panel.showPopover();
+                const view = documentRef.defaultView;
+                const position = () => {
+                    if (!trigger.isConnected || !trigger.getClientRects().length) { closeNodeSelectDropdowns(); return; }
+                    const r = trigger.getBoundingClientRect();
+                    const below = Math.max(0, view.innerHeight - r.bottom - 14);
+                    const above = Math.max(0, r.top - 14);
+                    const up = below < Math.min(220, panel.scrollHeight) && above > below;
+                    panel.style.width = `${Math.min(r.width, Math.max(0, view.innerWidth - 16))}px`;
+                    panel.style.maxHeight = `${Math.min(220, up ? above : below)}px`;
+                    panel.style.left = `${Math.max(8, Math.min(r.left, view.innerWidth - panel.offsetWidth - 8))}px`;
+                    panel.style.top = `${up ? Math.max(8, r.top - panel.offsetHeight - 6) : r.bottom + 6}px`;
+                };
+                const reposition = event => { if (!panel.contains(event.target)) position(); };
+                let positionFrame = null;
+                const schedulePosition = () => {
+                    if (positionFrame !== null) view.cancelAnimationFrame(positionFrame);
+                    positionFrame = view.requestAnimationFrame(() => { positionFrame = null; position(); });
+                };
+                view.addEventListener('resize', schedulePosition);
+                documentRef.addEventListener('scroll', reposition, true);
+                stopSelectPositioning = () => {
+                    view.removeEventListener('resize', schedulePosition);
+                    if (positionFrame !== null) view.cancelAnimationFrame(positionFrame);
+                    documentRef.removeEventListener('scroll', reposition, true);
+                };
+                position();
+                surfaces?.openPopover('node-select', {
+                element: panel, trigger,
+                parent: wrapper.closest('.image-parameter-settings-popup')?.id || null,
+                close: closeNodeSelectDropdowns
+                });
+            }
         });
 
         panel?.addEventListener('mousedown', (event) => {

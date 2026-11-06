@@ -12,7 +12,15 @@ import { createAgentWebImageReader } from '../../js/features/prompt-agent/prompt
 const result = {};
 const check = (ok, message) => { if (!ok) throw new Error(message); };
 const tick = () => new Promise(resolve => setTimeout(resolve, 20));
-const until = async predicate => { for (let i = 0; i < 40 && !predicate(); i++) await tick(); };
+const until = predicate => {
+    if (predicate()) return Promise.resolve();
+    return new Promise(resolve => {
+        const observer = new MutationObserver(() => {
+            if (predicate()) { observer.disconnect(); resolve(); }
+        });
+        observer.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+    });
+};
 try {
     window.IntersectionObserver = undefined;
     const page = new DOMParser().parseFromString(await (await fetch('../../index.html')).text(), 'text/html');

@@ -30,16 +30,12 @@ async function assertRealEditors(app) {
     for (const node of restored) {
         await app.evaluate(`document.getElementById(${JSON.stringify(node.id)}).click()`);
         await app.waitFor(`!document.getElementById('image-parameter-panel').hidden&&document.getElementById('image-parameter-panel').dataset.nodeId===${JSON.stringify(node.id)}`);
-        if (await app.evaluate("document.getElementById('image-parameter-panel').dataset.mode!=='expanded'")) {
-            await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').click()");
-        }
         await settle(app);
         const editor = await app.evaluate(`(()=>{const id=${JSON.stringify(node.id)},prompt=document.getElementById(id+'-prompt'),panel=document.getElementById('image-parameter-panel'),scroll=panel.querySelector('.image-parameter-scroll');return {height:prompt.offsetHeight,value:prompt.value,original:prompt===restoredHeightPrompts[id],inPanel:panel.contains(prompt),inCard:document.getElementById(id).contains(prompt),count:document.querySelectorAll('#'+id+'-prompt').length,scrollHeight:scroll.scrollHeight,clientHeight:scroll.clientHeight}})()`);
-        assert.equal(editor.height, node.textareaHeights.prompt, node.id);
+        assert.ok(editor.height>=65&&editor.height<=164, node.id+' follows two-to-six-line prompt bounds');
         assert.equal(editor.value, node.prompt); assert.equal(editor.original, true); assert.equal(editor.inPanel, true);
         assert.equal(editor.inCard, false); assert.equal(editor.count, 1);
         assert.ok(editor.scrollHeight >= editor.height, 'the original editor remains reachable in the panel scroll area');
-        if (editor.height > viewportHeight) assert.ok(editor.scrollHeight > editor.clientHeight, 'the 1593px editor scrolls inside the bounded panel');
         assert.deepEqual(await cards(app), before, 'selecting and mounting editors never enlarges the image cards');
     }
     await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]').click()");
@@ -48,14 +44,14 @@ async function assertRealEditors(app) {
 
 async function saveFile(app) {
     await waitForAutosave(app);
-    await app.waitFor("fetch('/api/workflows/'+encodeURIComponent(document.getElementById('toolbar-workflow-name').textContent.trim())).then(response=>response.json()).then(graph=>graph.nodes?.find(node=>node.id==='manual')?.height===1200&&graph.nodes.find(node=>node.id==='legacy')?.textareaHeights?.prompt===1593)");
+    await app.waitFor("fetch('/api/workflows/'+encodeURIComponent(document.getElementById('toolbar-workflow-name').textContent.trim())).then(response=>response.json()).then(graph=>graph.nodes?.find(node=>node.id==='manual')?.height===1200&&graph.nodes.find(node=>node.id==='legacy')?.textareaHeights?.prompt<=164)");
     return app.evaluate("fetch('/api/workflows/'+encodeURIComponent(document.getElementById('toolbar-workflow-name').textContent.trim())).then(response=>response.json())");
 }
 function assertSavedHeights(graph) {
     assert.equal(graph.nodes.length, 3); assert.deepEqual(graph.connections, []);
     for (const original of restored) {
         const node = graph.nodes.find(node => node.id === original.id);
-        assert.equal(node.textareaHeights.prompt, original.textareaHeights.prompt);
+        assert.ok(node.textareaHeights.prompt<=164, 'saved prompt respects automatic height bounds');
         assert.equal(node.prompt, original.prompt); assert.equal(node.userResized, original.userResized);
         assert.equal(node.height, original.userResized ? 1200 : null);
         assert.equal(Object.hasOwn(node, 'collapsedExpandedHeight'), false, 'automatic expanded height never persists the old long form');
@@ -63,7 +59,7 @@ function assertSavedHeights(graph) {
     assert.notEqual(graph.nodes.find(node => node.id === 'collapsed').collapsed, true);
 }
 
-test('restored image cards discard automatic card height while retaining saved editor heights', { timeout: 45000 }, async () => {
+test('restored image cards discard automatic card height and bound legacy editor heights to two through six lines', { timeout: 45000 }, async () => {
     await withAppBrowser(configuration, async app => {
         await assertRealEditors(app);
         assert.equal(await app.evaluate("document.querySelector('#collapsed .node-collapse-btn')===null"), true, 'legacy collapse state does not restore a retired control');

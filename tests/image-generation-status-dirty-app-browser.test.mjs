@@ -77,9 +77,13 @@ async function upload(app, id, index = 0) {
 }
 
 async function expectDirty(app, id, dirty) {
-    const notDirty = !dirty;
-    await app.waitFor(`(()=>{const badge=document.querySelector('[data-node-id="${id}"] [data-image-generation-dirty]');return !!badge&&badge.hidden===${notDirty}})()`);
-    if (dirty) assert.match(await app.evaluate(`document.querySelector('[data-node-id="${id}"] [data-image-generation-dirty]').textContent`), /待生成/);
+    assert.equal(await app.evaluate(`document.querySelector('[data-node-id="${id}"] [data-image-generation-dirty]')`), null, 'pending settings do not add a presentation row');
+    await app.waitFor(`fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>{const node=document.value?.nodes.find(node=>node.id===${JSON.stringify(id)});return !!node&&node.generationRevision?.dirty===${dirty}})`);
+}
+
+async function expectUnconfirmed(app, id) {
+    assert.equal(await app.evaluate(`document.querySelector('[data-node-id="${id}"] [data-image-generation-dirty]')`), null);
+    assert.equal((await saved(app)).nodes.find(node=>node.id===id).generationRevision, undefined, 'a node without generation history has no confirmed recipe');
 }
 
 async function expectSavedOutputCleared(app, id, oldKeys) {
@@ -118,7 +122,7 @@ test('waiting and running clear this attempt output and failure while preserving
         await expectSavedOutputCleared(app, 'target', oldKeys);
         assert.equal(await app.evaluate("document.getElementById('target-generation-progress').checkVisibility()"), false, 'waiting has no invented numerical progress');
         assert.equal(await app.evaluate("(()=>{const controls=[...document.querySelectorAll('.image-reference-overview .image-reference-drag')];return controls.length===1&&controls.every(control=>control.disabled)})()"), true, 'reference mutation obeys the runtime lock');
-        assert.equal(await app.evaluate("document.getElementById('target-assistant').disabled"), true);
+        assert.equal(await app.evaluate("document.getElementById('target-assistant')"), null);
         for (const id of ['outside', 'disabled-old']) assert.match(await app.evaluate(`document.querySelector('[data-node-id=${id}] .node-failure-summary').textContent`), /本轮真实失败/);
         await app.evaluate("statusHold=['target'];statusRelease.source()");
         await app.waitFor("statusPending.target===true&&document.getElementById('target-run-status').textContent==='运行中'");
@@ -167,13 +171,13 @@ test('waiting and running clear this attempt output and failure while preserving
 test('effective settings mark generation pending while browsing, layout, selection, window presentation and reload preserve a confirmed recipe', { timeout: 90000 }, async () => {
     await withAppBrowser({ ...configuration, nodes: [node('dirty-node', 60, 120, { generationCount: 2 }), { id: 'note', type: 'Text', x: 900, y: 120, text: 'unrelated selection' }], connections: [] }, async app => {
         await controlled(app);
-        await expectDirty(app, 'dirty-node', false);
+        await expectUnconfirmed(app, 'dirty-node');
         await runSuccess(app, 'dirty-node'); await expectDirty(app, 'dirty-node', false);
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='dirty-node')?.generationRevision?.dirty===false)");
         const baseline = (await saved(app)).nodes.find(node => node.id === 'dirty-node');
         assert.ok(typeof baseline.generationRevision.successFingerprint === 'string');
         await open(app, 'dirty-node');
-        await app.evaluate("document.querySelector('#dirty-node-image-results [data-result-step=\"-1\"]').click();document.querySelector('#image-parameter-panel [data-parameter-action=expand]').click();document.getElementById('btn-prompt-agent').click();document.querySelector('[data-parameter-action=front-parameters]').click();document.querySelector('[data-parameter-action=front-agent]').click();document.getElementById('btn-close-prompt-agent').click();document.querySelector('#image-parameter-panel [data-parameter-action=close]').click();document.getElementById('note').click()");
+        await app.evaluate("document.querySelector('#dirty-node-image-results [data-result-step=\"-1\"]').click();document.querySelector('#image-parameter-panel .image-parameter-settings-entry').click();document.getElementById('btn-prompt-agent').click();document.querySelector('[data-parameter-action=front-parameters]').click();document.querySelector('[data-parameter-action=front-agent]').click();document.getElementById('btn-close-prompt-agent').click();document.querySelector('#image-parameter-panel [data-parameter-action=close]').click();document.getElementById('note').click()");
         await expectDirty(app, 'dirty-node', false);
         const startPoint = await app.evaluate("(()=>{const rect=document.querySelector('#dirty-node-image-results .image-node-result-preview').getBoundingClientRect();return {x:rect.x+rect.width/2,y:rect.y+rect.height/2}})()");
         await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...startPoint, button: 'left', buttons: 1, clickCount: 1 });
@@ -230,7 +234,8 @@ test('effective settings mark generation pending while browsing, layout, selecti
         const legacy = { ...record }; delete legacy.generationRevision;
         const count = await app.evaluate('statusRequests.length');
         assert.equal(await app.evaluate(`fetch('/api/workflows/Legacy%20status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(${JSON.stringify({ workflowId: 'legacy-status-recipe', nodes: [legacy], connections: [] })})}).then(response=>response.ok)`), true);
-        await activate(app, 'Legacy status'); await expectDirty(app, 'dirty-node', false);
+        await activate(app, 'Legacy status');
+        await expectUnconfirmed(app, 'dirty-node');
         await app.waitFor("document.querySelector('#dirty-node-image-results img')?.naturalWidth>0");
         const restoredLegacy = (await saved(app)).nodes.find(node => node.id === 'dirty-node');
         assert.ok(!restoredLegacy.generationRevision?.successFingerprint, 'loading a real old image does not invent its historical generation configuration');
@@ -310,12 +315,12 @@ test('a held background run confirms only its own recipe while an identical node
             ['Status A', { workflowId: 'status-a', nodes: [node('shared', 50, 120)], connections: [] }],
             ['Status B', { workflowId: 'status-b', nodes: [node('shared', 50, 120, { prompt: 'shared B original' }), node('clone', 500, 120, { isClone: true, cloneSourceId: 'shared' }), { id: 'b-ref', type: 'ImageImport', x: 20, y: 500 }], connections: [{ id: 'clone-ref', from: { nodeId: 'b-ref', port: 'image' }, to: { nodeId: 'clone', port: 'referenceImages' }, type: 'image', order: 0 }] }]
         ]) assert.equal(await app.evaluate(`fetch('/api/workflows/${encodeURIComponent(name)}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(${JSON.stringify(document)})}).then(response=>response.ok)`), true);
-        await activate(app, 'Status A'); await expectDirty(app, 'shared', false);
+        await activate(app, 'Status A'); await expectUnconfirmed(app, 'shared');
         await open(app, 'shared'); await change(app, 'shared-prompt', 'shared A pending'); await expectDirty(app, 'shared', true);
         await app.evaluate("statusHold=['shared']"); await start(app, 'shared');
         await app.waitFor("statusPending.shared===true&&document.getElementById('shared-run-status').textContent==='运行中'");
         assert.equal(await app.evaluate("document.getElementById('shared-prompt').disabled"), true);
-        await activate(app, 'Status B'); await open(app, 'shared'); await expectDirty(app, 'shared', false);
+        await activate(app, 'Status B'); await open(app, 'shared'); await expectUnconfirmed(app, 'shared');
         assert.equal(await app.evaluate("document.getElementById('shared-prompt').disabled"), false, 'the background workflow cannot lock a different node with the same ID');
         assert.equal(await app.evaluate("document.getElementById('shared-prompt').value"), 'shared B original');
         await change(app, 'shared-prompt', 'shared B edited during A'); await expectDirty(app, 'shared', true);

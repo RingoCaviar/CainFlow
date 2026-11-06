@@ -64,7 +64,6 @@ test('failure feedback appears once in parameters and preserves complete modal d
         await app.waitFor("!document.getElementById('modal-error').classList.contains('active')");
         await app.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 500, deviceScaleFactor: 1, mobile: false });
         await open(app, 'failed');
-        await app.evaluate("document.querySelector('[data-parameter-action=expand]').click()");
         assert.equal(await app.evaluate("document.getElementById('failed-error').checkVisibility()"), false, 'the legacy full error must not duplicate the summary');
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .node-failure-summary').checkVisibility()"), true);
         await app.evaluate("document.querySelector('#image-parameter-panel [data-image-run-action=details]').click()");
@@ -107,7 +106,8 @@ test('a genuinely incomplete batch says partially completed with its real progre
         assert.equal(await app.evaluate("document.getElementById('partial-run-status').textContent"), '部分完成');
         assert.equal(await app.evaluate("document.getElementById('partial-generation-progress').textContent"), '1/2');
         assert.equal(await app.evaluate("document.getElementById('partial-generation-progress').checkVisibility()"), true, await app.evaluate("document.getElementById('partial-generation-progress').parentElement.outerHTML"));
-        assert.equal(await app.evaluate("document.querySelector('[data-node-id=partial] [data-image-generation-dirty]').hidden"), false);
+        assert.equal(await app.evaluate("!document.querySelector('[data-node-id=partial] [data-image-generation-dirty]')"), true);
+        await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.nodes.find(n=>n.id==='partial')?.generationRevision?.dirty===true)");
         await app.evaluate("document.querySelector('[data-parameter-action=close]').click()");
         await press(app, '#partial .node-concurrent-status-dot[data-status=failed]');
         assert.match(await app.evaluate("document.querySelector('.node-concurrent-status-error-popover:not(.hidden)').textContent"), /partial-provider-failure-detail/);
@@ -116,7 +116,8 @@ test('a genuinely incomplete batch says partially completed with its real progre
         await app.waitFor("partialRequests===4&&document.getElementById('partial-run-status').textContent==='完成'&&document.getElementById('btn-stop').disabled");
         assert.equal(await app.evaluate("document.getElementById('partial-generation-progress').textContent"), '2/2');
         assert.equal(await app.evaluate("document.getElementById('partial-generation-progress').checkVisibility()"), true);
-        assert.equal(await app.evaluate("document.querySelector('[data-node-id=partial] [data-image-generation-dirty]').hidden"), true);
+        assert.equal(await app.evaluate("!document.querySelector('[data-node-id=partial] [data-image-generation-dirty]')"), true);
+        await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.nodes.find(n=>n.id==='partial')?.generationRevision?.dirty===false)");
         assert.equal(await app.evaluate("document.querySelector('#partial .node-concurrent-status-dot[data-status=failed]')===null"), true);
     });
 });

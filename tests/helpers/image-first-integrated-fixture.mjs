@@ -83,7 +83,9 @@ export async function upload(app, id = 'source', index = 0) {
 export async function openParameters(app, id, group = null) {
     await app.evaluate(`document.querySelectorAll('.notice-close').forEach(button=>button.click());document.getElementById(${JSON.stringify(id)}).click()`);
     await app.waitFor(`!document.getElementById('image-parameter-panel').hidden&&document.getElementById('image-parameter-panel').dataset.nodeId===${JSON.stringify(id)}`);
-    if (group) await app.evaluate(`(()=>{const toggle=document.querySelector('#image-parameter-panel [data-parameter-group-toggle=${group}]');if(toggle?.getAttribute('aria-expanded')!=='true')toggle.click()})()`);
+    await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+    if (group) await app.evaluate(`(()=>{const toggle=document.querySelector('#image-parameter-panel [data-parameter-group-toggle=${group}]');if(!document.querySelector('#image-parameter-panel .image-parameter-settings-popup')?.matches(':popover-open')||toggle?.getAttribute('aria-expanded')!=='true')toggle.click()})()`);
+    else await app.evaluate("(()=>{const popup=document.querySelector('#image-parameter-panel .image-parameter-settings-popup');if(popup?.matches(':popover-open'))document.querySelector('#image-parameter-panel .image-parameter-settings-entry').click()})()");
 }
 
 export async function runNode(app, id, selected = false) {

@@ -28,12 +28,6 @@ async function open(app, id = 'first') {
     await app.waitFor(`!document.getElementById('image-parameter-panel').hidden&&document.getElementById('image-parameter-panel').dataset.nodeId==='${id}'`);
 }
 
-async function expand(app) {
-    await app.waitFor("Boolean(document.querySelector('#image-parameter-panel [data-parameter-action=expand]'))");
-    await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').click()");
-    await app.waitFor("document.getElementById('image-parameter-panel').classList.contains('is-expanded')");
-}
-
 async function change(app, id, value) {
     await app.evaluate(`(()=>{const input=document.getElementById(${JSON.stringify(id)});input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
 }
@@ -109,113 +103,6 @@ async function panTo(app, targetTop) {
     assert.ok(bounds.top>=12&&bounds.bottom<=408,'manual panning preserves visible panel bounds');
 }
 
-test('enlarging reuses the original controls, supports dragging and bidirectional resizing, and restores the current lower anchor and preferred width', { timeout: 60000 }, async () => {
-    await withAppBrowser(session, async app => {
-        await open(app);
-        await app.evaluate("document.querySelector('#image-parameter-panel [role=separator]').focus({preventScroll:true})");
-        for (let step = 0; step < 3; step++) {
-            await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight' });
-            await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowRight', code: 'ArrowRight' });
-        }
-        assert.equal((await panelRect(app)).width, 510);
-        const before = await canvasView(app);
-        await app.evaluate("window.originalFirstPrompt=document.getElementById('first-prompt');window.originalFirstForm=originalFirstPrompt.closest('.image-first-parameter-content')");
-        await change(app, 'first-prompt', 'first edited without recreating the form');
-        await expand(app);
-        const enlarged = await panelRect(app);
-        assert.ok(Math.abs(enlarged.x + enlarged.width / 2 - 550) <= 2 && Math.abs(enlarged.y + enlarged.height / 2 - 410) <= 2, 'the initial enlarged window is centered in the actual viewport, allowing the navigation clearance');
-        assert.equal(await app.evaluate("originalFirstPrompt===document.getElementById('first-prompt')&&originalFirstForm.contains(originalFirstPrompt)&&document.getElementById('image-parameter-panel').contains(originalFirstForm)"), true);
-        await app.evaluate("document.querySelector('[data-parameter-resize=height]').focus({preventScroll:true})");
-        for (let step = 0; step < 8; step++) await key(app, 'ArrowUp');
-        assert.ok((await panelRect(app)).height < enlarged.height - 50, 'the height edge is keyboard operable as well as pointer operable');
-        await gesture(app, '.image-parameter-drag-handle', -35, -40);
-        const moved = await panelRect(app);
-        const toolbarBottom = await app.evaluate("Math.max(12,document.getElementById('toolbar').getBoundingClientRect().bottom+8)");
-        assert.ok(Math.abs(moved.x - enlarged.x + 35) < 2 && moved.top >= toolbarBottom - 1 && moved.top <= enlarged.top, 'dragging moves the window while keeping its header outside the revealing toolbar');
-        await gesture(app, '[data-parameter-resize=both]', -65, -45);
-        const shrunk = await panelRect(app);
-        assert.ok(shrunk.width < moved.width - 50 && shrunk.height < moved.height - 30);
-        await gesture(app, '[data-parameter-resize=both]', 45, 30);
-        const grown = await panelRect(app);
-        assert.ok(grown.width > shrunk.width + 30 && grown.height > shrunk.height + 20);
-        await open(app, 'second');
-        assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').classList.contains('is-expanded')"), true);
-        assert.deepEqual(await panelRect(app), grown, 'switching the edited node preserves this enlarged rectangle');
-        await change(app, 'second-prompt', 'second independent draft');
-        await open(app);
-        assert.equal(await app.evaluate("document.getElementById('first-prompt')===originalFirstPrompt&&document.getElementById('first-prompt').value==='first edited without recreating the form'"), true);
-        await open(app, 'second');
-        await click(app, '#image-parameter-panel [data-parameter-action=expand]');
-        const normal = await panelRect(app), anchor = await app.evaluate("document.getElementById('second').getBoundingClientRect().bottom");
-        assert.equal(normal.width, 510, 'expanded resizing never replaces the normal width preference');
-        assert.ok(normal.top>=12&&normal.bottom<=808,'restoring keeps the panel inside the canvas');
-        await expand(app);
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]').click()");
-        await open(app);
-        assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').classList.contains('is-expanded')"), false);
-        assert.equal((await panelRect(app)).width, 510);
-        assert.deepEqual(await canvasView(app), before, 'window operations never pan or rewrite the canvas');
-        await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='second')?.prompt==='second independent draft')");
-        await reloadAppBrowser(app); await open(app);
-        assert.equal((await panelRect(app)).width, 510);
-        assert.equal(await app.evaluate("document.getElementById('first-prompt').value"), 'first edited without recreating the form');
-        assert.equal(await app.evaluate("document.getElementById('second-prompt').value"), 'second independent draft');
-        assert.deepEqual(await canvasView(app), before);
-    });
-});
-
-test('separated parameter and Agent windows remain accessible without losing drafts, original attachments, models or the held real request', { timeout: 90000 }, async () => {
-    await withAppBrowser(session, async app => {
-        await controlledAgent(app); await open(app);
-        await change(app, 'first-prompt', 'edited while reading the assistant');
-        await app.evaluate("document.getElementById('btn-prompt-agent').click()");
-        await app.waitFor("document.getElementById('prompt-agent-panel').classList.contains('active')");
-        assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').hidden"), false, 'opening Agent keeps the parameter editor open');
-        await app.evaluate("document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=image-other][data-provider-id=p]').click()");
-        await change(app, 'prompt-agent-input', 'send this conversation with its original attachment');
-        await attach(app, 'submitted-original.png');
-        await app.evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
-        await app.waitFor('expandedAgentPending===true');
-        await change(app, 'prompt-agent-input', 'keep this next draft while the previous request runs');
-        await attach(app, 'next-original.png');
-        await waitForAutosave(app);
-        const graph = await saved(app), referenceSource = await app.evaluate("document.querySelector('#prompt-agent-references img').src");
-        await expand(app);
-        const separated = async () => {
-            await app.waitFor("document.getElementById('image-parameter-panel').getBoundingClientRect().right <= document.getElementById('prompt-agent-panel').getBoundingClientRect().left-8");
-            const bounds=await panelRect(app); assert.ok(bounds.left>=12&&bounds.bottom<=808);
-        };
-        await separated();
-        await clickVisibleSurface(app,'prompt-agent-panel'); await separated();
-        await clickVisibleSurface(app,'image-parameter-panel'); await separated();
-        const initial=await panelRect(app);
-        await gesture(app,'[data-parameter-resize=both]',320-initial.width,250-initial.height);
-        await gesture(app,'.image-parameter-drag-handle',500,0);
-        await separated();
-        await click(app,'[data-parameter-action=front-agent]'); await separated();
-        await click(app,'[data-parameter-action=front-parameters]'); await separated();
-        await click(app,'[data-parameter-action=front-agent]');
-        await click(app, '#btn-close-prompt-agent');
-        assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').hidden"), false);
-        await click(app, '[data-parameter-action=front-agent]');
-        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), 'keep this next draft while the previous request runs');
-        assert.deepEqual(await app.evaluate("['prompt-agent-model','prompt-agent-image-model'].map(id=>document.getElementById(id).value)"), ['chat', 'image-other']);
-        assert.equal(await app.evaluate("document.querySelector('#prompt-agent-references img').src"), referenceSource);
-        assert.equal(await app.evaluate('expandedAgentAborted'), false);
-        assert.equal(await app.evaluate('expandedAgentRequests.length'), 1);
-        assert.equal(await app.evaluate("document.getElementById('prompt-agent-cancel').hidden"), false);
-        await app.evaluate('releaseExpandedAgent()');
-        await app.waitFor("document.getElementById('prompt-agent-cancel').hidden&&document.getElementById('prompt-agent-messages').textContent.includes('受控回复已完成')");
-        assert.ok((await app.evaluate('expandedAgentRequests[0].messages')).some(message => JSON.stringify(message.content).includes('data:image/')), 'the actual request keeps its original reference image');
-        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), 'keep this next draft while the previous request runs');
-        assert.equal(await app.evaluate("document.querySelectorAll('#prompt-agent-references img').length"), 1);
-        assert.equal(await app.evaluate("document.getElementById('first-prompt').value"), 'edited while reading the assistant');
-        const after = await saved(app);
-        assert.deepEqual(after.connections, graph.connections);
-        assert.deepEqual(after.nodes.map(node => ({ id: node.id, x: node.x, y: node.y, mediaAssetKeys: node.mediaAssetKeys })), graph.nodes.map(node => ({ id: node.id, x: node.x, y: node.y, mediaAssetKeys: node.mediaAssetKeys })));
-    });
-});
-
 test('native text undo and panel buttons never undo or delete graph nodes, and Escape handles popups and true modals before modeless windows', { timeout: 60000 }, async () => {
     await withAppBrowser(session, async app => {
         const cloneDialog = "document.getElementById('first').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:200,clientY:160}));document.getElementById('context-menu-clone-node').click()";
@@ -223,7 +110,7 @@ test('native text undo and panel buttons never undo or delete graph nodes, and E
         await app.evaluate("document.getElementById('clone-node-count-input').value='1';document.getElementById('btn-confirm-clone-node-count').click()");
         await app.waitFor("document.querySelectorAll('#nodes-layer>.node').length===3");
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.length===3)");
-        await open(app); await expand(app);
+        await open(app);
         const before = await canvasView(app);
         await app.evaluate("document.getElementById('first-prompt').focus({preventScroll:true});document.getElementById('first-prompt').select()");
         await app.send('Input.insertText', { text: 'a native editable draft with undo history' });
@@ -231,7 +118,7 @@ test('native text undo and panel buttons never undo or delete graph nodes, and E
         await key(app, 'z', 'KeyZ', 2, 90);
         assert.equal(await app.evaluate("document.getElementById('first-prompt').value"), 'first original draft', 'Ctrl+Z invokes native textarea undo');
         assert.equal(await app.evaluate("document.querySelectorAll('#nodes-layer>.node').length"), 3, 'native text undo does not consume graph history');
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').focus({preventScroll:true})");
+        await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-settings-entry').focus({preventScroll:true})");
         await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 8, y: 600 });
         await key(app, 'z', 'KeyZ', 2, 90); await key(app, 'Delete', 'Delete', 0, 46);
         assert.equal(await app.evaluate("document.querySelectorAll('#nodes-layer>.node').length"), 3, 'a focused parameter tool also excludes canvas undo and deletion');
@@ -259,7 +146,7 @@ test('native text undo and panel buttons never undo or delete graph nodes, and E
         await app.waitFor("document.getElementById('image-parameter-panel').hidden");
         assert.equal(await app.evaluate('document.activeElement?.id'), 'first', 'closing returns keyboard focus to the original node without scrolling');
         assert.deepEqual(await canvasView(app), before);
-        await open(app); await expand(app);
+        await open(app);
         await app.evaluate("document.getElementById('btn-prompt-agent').click();document.getElementById('btn-history').click()");
         await app.waitFor("document.getElementById('history-sidebar').classList.contains('active')");
         assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').hidden&&!document.getElementById('prompt-agent-panel').classList.contains('active')"), true, 'other primary panels retain mutual exclusion with both modeless windows');
@@ -271,48 +158,51 @@ test('native text undo and panel buttons never undo or delete graph nodes, and E
     });
 });
 
-test('a narrow low viewport and low canvas zoom constrain temporary window bounds without overwriting normal width or automatically moving the canvas', { timeout: 60000 }, async () => {
+
+test('separated parameter and Agent windows remain accessible without losing drafts, original attachments, models or the held real request', { timeout: 90000 }, async () => {
     await withAppBrowser(session, async app => {
-        await open(app);
-        await app.evaluate("document.querySelector('#image-parameter-panel [role=separator]').focus({preventScroll:true})");
-        for (let step = 0; step < 3; step++) await key(app, 'ArrowRight');
-        const initial = await canvasView(app), width = (await panelRect(app)).width;
-        assert.equal(width, 510);
-        await app.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 420, deviceScaleFactor: 1, mobile: false });
-        await app.evaluate("document.querySelectorAll('.notice-close').forEach(button=>button.click())");
-        await app.waitFor("document.getElementById('image-parameter-panel').getBoundingClientRect().width<=336 && document.getElementById('image-parameter-panel').getBoundingClientRect().bottom<=408");
-        const constrained = await panelRect(app), bottom = await app.evaluate("document.getElementById('first').getBoundingClientRect().bottom");
-        assert.ok(constrained.top>=12&&constrained.bottom<=408,`normal mode stays inside the visible canvas: ${JSON.stringify(constrained)}`);
-        assert.deepEqual(await canvasView(app), initial, 'viewport constraints do not pan, zoom, or rearrange the graph');
-        await expand(app);
-        const enlarged = await panelRect(app);
-        assert.ok(enlarged.left >= 8 && enlarged.top >= 8 && enlarged.right <= 352 && enlarged.bottom <= 412, 'active enlargement keeps its window controls in the narrow viewport');
-        assert.ok(enlarged.top >= await app.evaluate("Math.max(12,document.getElementById('toolbar').getBoundingClientRect().bottom+8)") - 1,
-            'the enlarged header avoids the visible toolbar while recovering space when it is collapsed');
-        const recovery = await point(app, '[data-parameter-action=front-parameters]');
-        assert.ok(recovery.y > enlarged.bottom, 'the recovery controls stay outside the expanded parameter window');
-        await app.waitFor("!document.querySelector('.toast')", 15000);
-        await click(app, '[data-parameter-action=front-parameters]');
-        assert.ok(await app.evaluate("(()=>{const panel=document.getElementById('image-parameter-panel'),scroll=panel.querySelector('.image-parameter-scroll');return scroll.scrollWidth<=scroll.clientWidth+1&&parseFloat(getComputedStyle(document.getElementById('first-prompt')).fontSize)>=13})()"));
-        await click(app, '#image-parameter-panel [data-parameter-action=expand]');
-        assert.ok((await panelRect(app)).top>=12&&(await panelRect(app)).bottom<=408);
-        await app.evaluate("document.querySelector('#canvas-navigation .canvas-zoom-menu>summary').click();document.querySelector('#canvas-navigation [data-zoom=\"0.5\"]').click()");
-        await app.waitFor("document.getElementById('zoom-level').textContent==='50%'");
-        assert.equal((await panelRect(app)).width, constrained.width);
-        await panTo(app, await app.evaluate("document.getElementById('toolbar').offsetHeight+24"));
-        assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').hidden"), false, 'deliberate panning preserves the editor');
-        await click(app, '#first-prompt');
-        await app.send('Input.insertText', { text: 'readable narrow-screen edit at fifty percent zoom' });
-        assert.match(await app.evaluate("document.getElementById('first-prompt').value"), /readable narrow-screen edit/);
-        await panTo(app, 80);
-        const footer = await point(app, '#image-parameter-panel [data-parameter-action=generate]');
-        assert.ok(footer.y > 0 && footer.y < 420);
-        assert.equal(await app.evaluate(`document.elementFromPoint(${footer.x},${footer.y})?.closest('[data-parameter-action=generate]')!==null`), true, await app.evaluate(`document.elementFromPoint(${footer.x},${footer.y})?.outerHTML.slice(0,400)`));
-        const navigated = await canvasView(app);
-        await app.send('Emulation.setDeviceMetricsOverride', { width: 1100, height: 820, deviceScaleFactor: 1, mobile: false });
-        await app.waitFor(`document.getElementById('image-parameter-panel').getBoundingClientRect().width===${width}`);
-        assert.deepEqual(await canvasView(app), navigated, 'restoring viewport size preserves the manually chosen canvas view');
-        assert.deepEqual(navigated.nodes, initial.nodes);
-        assert.equal(await app.evaluate('window.scrollX===0&&window.scrollY===0'), true);
+        await controlledAgent(app); await open(app);
+        await change(app, 'first-prompt', 'edited while reading the assistant');
+        await app.evaluate("document.getElementById('btn-prompt-agent').click()");
+        await app.waitFor("document.getElementById('prompt-agent-panel').classList.contains('active')");
+        assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').hidden"), false, 'opening Agent keeps the parameter editor open');
+        await app.evaluate("document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=image-other][data-provider-id=p]').click()");
+        await change(app, 'prompt-agent-input', 'send this conversation with its original attachment');
+        await attach(app, 'submitted-original.png');
+        await app.evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await app.waitFor('expandedAgentPending===true');
+        await change(app, 'prompt-agent-input', 'keep this next draft while the previous request runs');
+        await attach(app, 'next-original.png');
+        await waitForAutosave(app);
+        const graph = await saved(app), referenceSource = await app.evaluate("document.querySelector('#prompt-agent-references img').src");
+
+        const separated = async () => {
+            await app.waitFor("document.getElementById('image-parameter-panel').getBoundingClientRect().right <= document.getElementById('prompt-agent-panel').getBoundingClientRect().left-8");
+            const bounds=await panelRect(app); assert.ok(bounds.left>=12&&bounds.bottom<=808);
+        };
+        await separated();
+        await clickVisibleSurface(app,'prompt-agent-panel'); await separated();
+        await clickVisibleSurface(app,'image-parameter-panel'); await separated();
+        await click(app,'[data-parameter-action=front-agent]'); await separated();
+        await click(app,'[data-parameter-action=front-parameters]'); await separated();
+        await click(app,'[data-parameter-action=front-agent]');
+        await click(app, '#btn-close-prompt-agent');
+        assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').hidden"), false);
+        await click(app, '[data-parameter-action=front-agent]');
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), 'keep this next draft while the previous request runs');
+        assert.deepEqual(await app.evaluate("['prompt-agent-model','prompt-agent-image-model'].map(id=>document.getElementById(id).value)"), ['chat', 'image-other']);
+        assert.equal(await app.evaluate("document.querySelector('#prompt-agent-references img').src"), referenceSource);
+        assert.equal(await app.evaluate('expandedAgentAborted'), false);
+        assert.equal(await app.evaluate('expandedAgentRequests.length'), 1);
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-cancel').hidden"), false);
+        await app.evaluate('releaseExpandedAgent()');
+        await app.waitFor("document.getElementById('prompt-agent-cancel').hidden&&document.getElementById('prompt-agent-messages').textContent.includes('受控回复已完成')");
+        assert.ok((await app.evaluate('expandedAgentRequests[0].messages')).some(message => JSON.stringify(message.content).includes('data:image/')), 'the actual request keeps its original reference image');
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), 'keep this next draft while the previous request runs');
+        assert.equal(await app.evaluate("document.querySelectorAll('#prompt-agent-references img').length"), 1);
+        assert.equal(await app.evaluate("document.getElementById('first-prompt').value"), 'edited while reading the assistant');
+        const after = await saved(app);
+        assert.deepEqual(after.connections, graph.connections);
+        assert.deepEqual(after.nodes.map(node => ({ id: node.id, x: node.x, y: node.y, mediaAssetKeys: node.mediaAssetKeys })), graph.nodes.map(node => ({ id: node.id, x: node.x, y: node.y, mediaAssetKeys: node.mediaAssetKeys })));
     });
 });

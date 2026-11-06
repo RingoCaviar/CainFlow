@@ -177,9 +177,13 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
                         const complete = images.every(Boolean);
                         await openPreview(complete ? images : [images[index]], complete ? index : 0, () => {
                             if (getWorkflowId() !== workflowId || state.nodes.get(nodeId) !== target) return;
-                            const row = [...container.querySelectorAll('.image-reference-group')].find(item => item.dataset.referenceConnection === group.connection.id);
-                            const current = [...(row?.querySelectorAll('[data-source-image-index]') || [])].find(item => Number(item.dataset.sourceImageIndex) === index);
-                            if (current?.isConnected && !current.disabled && !current.closest('[inert]')) current.focus({ preventScroll: true });
+                            documentRef.defaultView.requestAnimationFrame(() => {
+                                if (getWorkflowId() !== workflowId || state.nodes.get(nodeId) !== target) return;
+                                target.onImageFirstSelect?.('reference');
+                                const row = [...container.querySelectorAll('.image-reference-group')].find(item => item.dataset.referenceConnection === group.connection.id);
+                                const current = [...(row?.querySelectorAll('[data-source-image-index]') || [])].find(item => Number(item.dataset.sourceImageIndex) === index);
+                                if (current?.isConnected && !current.disabled && !current.closest('[inert]')) current.focus({ preventScroll: true });
+                            });
                         });
                     } catch (error) {
                         if (getWorkflowId() === workflowId && state.nodes.get(nodeId) === target) showToast(error.message || '原图不可用', 'warning');

@@ -33,6 +33,8 @@ test('parameter editor uses viewport space and preserves scrolling without overl
         assert.ok(await app.evaluate("(()=>{const f=document.querySelector('.image-parameter-footer');return f.getBoundingClientRect().top>=f.previousElementSibling.getBoundingClientRect().bottom-1})()"), 'footer does not cover preceding parameters');
         await app.evaluate("document.querySelector('.image-parameter-scroll').scrollTop=10000");
         await app.waitFor("!document.querySelector('.toast')", 15000);
+        await app.evaluate("document.querySelector('[data-parameter-group-toggle=advanced]').click();document.querySelector('#image-parameter-panel .image-parameter-settings-popup').scrollTop=10000");
+        await settle();
         const button = await app.evaluate("(()=>{const r=document.querySelector('.generation-count-btn[data-delta=\"1\"]').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()");
         const offset = await app.evaluate("document.querySelector('.image-parameter-scroll').scrollTop");
         await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...button, button: 'left', clickCount: 1 });

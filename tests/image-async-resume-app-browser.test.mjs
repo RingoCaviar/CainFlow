@@ -61,7 +61,7 @@ test('the original native async-image resume control restores the saved task, po
         assert.deepEqual(await app.evaluate('asyncImageRequests'), [], 'loading the saved task never starts creation or polling');
         await app.evaluate("holdAsyncImage=false;document.getElementById('async-image').click()");
         await app.waitFor("document.getElementById('image-parameter-panel').dataset.nodeId==='async-image'&&!document.getElementById('image-parameter-panel').hidden");
-        await nativeClick(app, '#image-parameter-panel [data-parameter-action=expand]');
+
         assert.equal(await app.evaluate("document.getElementById('async-image-resume-image-id').value"), taskId);
         await nativeClick(app, '#async-image-resume-image');
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(record=>record.value.nodes.find(node=>node.id==='async-image')?.mediaAssetKeys?.length===1)");

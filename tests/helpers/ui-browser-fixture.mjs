@@ -27,7 +27,7 @@ export async function runUiFixture(fixturePath, { screenshotPath = null, blocked
     try {
         const url = `http://127.0.0.1:${server.address().port}/${fixturePath}`;
         const output = await new Promise((resolve, reject) => {
-            const browser = spawn(chromePath, ['--headless=new', '--disable-gpu', '--no-sandbox', '--disable-extensions', `--user-data-dir=${profile}`, `--window-size=${windowSize}`, '--virtual-time-budget=3000', '--dump-dom',
+            const browser = spawn(chromePath, ['--headless=new', '--no-proxy-server', '--disable-gpu', '--no-sandbox', '--disable-extensions', `--user-data-dir=${profile}`, `--window-size=${windowSize}`, '--virtual-time-budget=3000', '--dump-dom',
                 ...(screenshotPath ? [`--screenshot=${screenshotPath}`] : []), url]);
             let stdout = '', stderr = '';
             const timeout = setTimeout(() => { browser.kill(); reject(new Error('UI fixture timed out')); }, 20000);

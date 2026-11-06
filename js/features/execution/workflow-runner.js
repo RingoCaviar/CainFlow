@@ -509,7 +509,7 @@ export function createWorkflowRunnerApi({
     function setNodeRunningLock(node, locked) {
         if (!node?.el) return;
         node.el.classList.toggle('running-locked', locked);
-        const selector = 'input, select, textarea, button:not(.node-run-cancel-btn)';
+        const selector = 'input, select, textarea, button:not(.node-run-cancel-btn):not([data-parameter-group-toggle])';
         const controls = new Set(node.el.querySelectorAll(selector));
         node.parameterRoot?.querySelectorAll(selector).forEach(control => controls.add(control));
         controls.forEach(control => setControlRunningLock(control, locked));

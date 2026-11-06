@@ -28,8 +28,10 @@ const session = {
 async function openReferences(app) {
     await app.evaluate("document.querySelector('#target .image-first-placeholder').click()");
     await app.waitFor("document.getElementById('image-parameter-panel')?.dataset.nodeId==='target' && !document.getElementById('image-parameter-panel').hidden");
-    await app.evaluate("(()=>{const toggle=document.querySelector('#image-parameter-panel [data-parameter-group-toggle=reference]');if(toggle.getAttribute('aria-expanded')!=='true')toggle.click()})()");
-    await app.waitFor("document.querySelector('#image-parameter-panel [data-parameter-group=reference]')?.hidden===false");
+    await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+    await app.evaluate("(()=>{const toggle=document.querySelector('#image-parameter-panel [data-parameter-group-toggle=reference]');if(!document.querySelector('#image-parameter-panel .image-parameter-settings-popup').matches(':popover-open')||toggle.getAttribute('aria-expanded')!=='true')toggle.click()})()");
+    await app.waitFor("document.querySelector('#image-parameter-panel [data-parameter-group=reference]')?.checkVisibility()===true");
+    await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
 }
 
 async function populateSources(app) {
@@ -51,7 +53,7 @@ test('reference gallery shares rows for single sources, spans complete batches, 
         await openReferences(app);
         const layout = await app.evaluate("(()=>{const gallery=document.querySelector('#target-reference-sources .image-reference-grid'),rows=[...gallery.querySelectorAll('.image-reference-group')];return {tops:rows.map(row=>row.offsetTop),widths:rows.map(row=>row.getBoundingClientRect().width),height:gallery.clientHeight,overflow:gallery.scrollWidth>gallery.clientWidth+1,slots:rows.map(row=>row.querySelectorAll('[data-source-image-index]').length),nodeHeight:document.getElementById('target').offsetHeight}})()");
         assert.equal(layout.tops[0], layout.tops[1], 'single-image sources share a compact row');
-        assert.ok(layout.widths[2] > layout.widths[0] * 1.8, 'a multi-image source spans the gallery columns');
+        assert.ok(layout.widths[2] > layout.widths[0] * 1.8, 'a multi-image source spans the gallery columns: '+JSON.stringify(layout));
         assert.ok(layout.height <= 210);
         assert.equal(layout.overflow, false);
         assert.deepEqual(layout.slots, [1, 1, 6]);

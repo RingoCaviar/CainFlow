@@ -31,6 +31,146 @@ async function geometry(app) {
     return app.evaluate(`['editor-first','editor-second'].map(id=>{const element=document.getElementById(id);return {id,left:element.style.left,top:element.style.top,width:element.offsetWidth}})`);
 }
 
+async function nativeClick(app, selector) {
+    const point = await app.evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)}),r=e.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()`);
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+    await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
+}
+
+test('prompt grows from two to six lines, then scrolls and shrinks again without a dirty status row', { timeout: 30000 }, async () => {
+    await withAppBrowser({ ...session, nodes: [{...session.nodes[0], textareaHeights: {prompt: 400}}] }, async app => {
+        await openNode(app, 'editor-first');
+        const measures = [];
+        for (const lines of [1, 4, 12, 20, 1]) {
+            await changeField(app, 'editor-first-prompt', Array(lines).fill('short line').join('\n'));
+            await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+            measures.push(await app.evaluate("(()=>{const p=document.getElementById('editor-first-prompt'),s=getComputedStyle(p);return {h:p.offsetHeight,line:parseFloat(s.lineHeight),extra:parseFloat(s.paddingTop)+parseFloat(s.paddingBottom)+parseFloat(s.borderTopWidth)+parseFloat(s.borderBottomWidth),scroll:p.scrollHeight,client:p.clientHeight}})()"));
+        }
+        assert.ok(Math.abs(measures[0].h-(measures[0].line*2+measures[0].extra))<=2, JSON.stringify(measures));
+        assert.ok(measures[1].h>measures[0].h);
+        assert.ok(Math.abs(measures[2].h-(measures[2].line*6+measures[2].extra))<=2);
+        assert.equal(measures[2].h, measures[3].h);
+        assert.ok(measures[3].scroll>measures[3].client);
+        assert.equal(measures[4].h, measures[0].h);
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-image-generation-dirty]')"), null);
+    });
+});
+
+test('parameter dropdowns escape scrolling containers and keep every option reachable', { timeout: 30000 }, async () => {
+    await withAppBrowser({ ...session, models: session.models.map(model => model.id === 'image' ? {...model, modelId: 'gemini-image', protocol: 'google'} : model) }, async app => {
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 480, height: 540, deviceScaleFactor: 1, mobile: false });
+        await openNode(app, 'editor-first');
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        await nativeClick(app, '#image-parameter-panel .image-parameter-settings-entry');
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        for (const id of ['aspect', 'resolution']) {
+            await app.evaluate(`document.getElementById('editor-first-${id}').nextElementSibling.scrollIntoView({block:'nearest'})`);
+            await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+            await nativeClick(app, `#editor-first-${id} + .node-select .node-select-trigger`);
+            await app.send('Emulation.setDeviceMetricsOverride', { width: 400, height: 380, deviceScaleFactor: 1, mobile: false });
+            await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+            const result = await app.evaluate(`(()=>{const p=document.querySelector('#editor-first-${id} + .node-select .node-select-panel'),r=p.getBoundingClientRect(),items=[...p.querySelectorAll('button')];items.at(-1).scrollIntoView({block:'nearest'});const b=items.at(-1).getBoundingClientRect();return {classes:p.className,open:p.matches(':popover-open'),parentOpen:p.closest('.image-parameter-settings-popup').matches(':popover-open'),style:p.style.cssText,bounds:r.toJSON(),reachable:items.at(-1).contains(document.elementFromPoint(b.left+b.width/2,b.top+b.height/2))}})()`);
+            assert.ok(result.bounds.top>=8&&result.bounds.bottom<=372&&result.reachable, `${id}: ${JSON.stringify(result)}`);
+            await nativeClick(app, `#editor-first-${id} + .node-select .node-select-option:last-child`);
+        }
+    });
+});
+
+test('native model and provider selectors remain inside the open settings submenu', { timeout: 30000 }, async () => {
+    await withAppBrowser(session, async app => {
+        await openNode(app, 'editor-first');
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        await nativeClick(app, '#image-parameter-panel .image-parameter-model-entry');
+        await nativeClick(app, '#editor-first-parameter-settings [data-parameter-group=model] .node-select-trigger');
+        assert.ok(await app.evaluate("document.getElementById('editor-first-parameter-settings').matches(':popover-open')"), 'opening model options must not close their parent');
+        assert.ok(await app.evaluate("document.querySelector('#editor-first-parameter-settings .node-select-option').checkVisibility()"));
+        await nativeClick(app, '#editor-first-parameter-settings .node-select-option');
+        await nativeClick(app, '#editor-first-provider-field .node-select-trigger');
+        assert.ok(await app.evaluate("document.querySelector('#editor-first-provider-field .node-select-option').checkVisibility()"));
+        await nativeClick(app, '#editor-first-provider-field .node-select-option');
+        assert.equal(await app.evaluate("document.getElementById('editor-first-provider').value"), 'provider');
+    });
+});
+
+test('model entry restores its fields after Escape and reopening', { timeout: 30000 }, async () => {
+    await withAppBrowser(session, async app => {
+        await openNode(app, 'editor-first');
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        for (let i = 0; i < 3; i++) {
+            await nativeClick(app, '#image-parameter-panel .image-parameter-model-entry');
+            assert.ok(await app.evaluate("document.querySelector('#editor-first-parameter-settings [data-parameter-group=model]').checkVisibility()"), `model fields visible on open ${i+1}`);
+            await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+            await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
+        }
+    });
+});
+
+test('footer entries toggle their menus and size entry reports current settings', { timeout: 30000 }, async () => {
+    await withAppBrowser(session, async app => {
+        await openNode(app, 'editor-first');
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-settings-entry').textContent"), '自动 · 自动');
+        const modelEntry = '#image-parameter-panel .image-parameter-model-entry';
+        await nativeClick(app, modelEntry); await nativeClick(app, modelEntry);
+        assert.equal(await app.evaluate("document.getElementById('editor-first-parameter-settings').matches(':popover-open')"), false, 'second model click closes menu');
+        await nativeClick(app, modelEntry);
+        assert.ok(await app.evaluate("document.querySelector('#editor-first-parameter-settings [data-parameter-group=model]').checkVisibility()"));
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
+        await nativeClick(app, '#image-parameter-panel .image-parameter-settings-entry');
+        assert.ok(await app.evaluate("document.querySelector('#editor-first-parameter-settings [data-parameter-group=size]').checkVisibility()"), 'size summary opens size settings directly');
+        await nativeClick(app, '#editor-first-parameter-settings [data-parameter-group-toggle=reference]');
+        await nativeClick(app, '#image-parameter-panel .image-parameter-settings-entry');
+        await nativeClick(app, '#image-parameter-panel .image-parameter-settings-entry');
+        assert.ok(await app.evaluate("document.querySelector('#editor-first-parameter-settings [data-parameter-group=size]').checkVisibility()"), 'reopening returns to size settings even after browsing references');
+        await nativeClick(app, '#editor-first-parameter-settings [data-parameter-group-toggle=size]');
+        await changeField(app, 'editor-first-aspect', '3:4');
+        await changeField(app, 'editor-first-resolution', '1K');
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-settings-entry').textContent"), '3:4 · 1K');
+        await changeField(app, 'editor-first-aspect', ''); await changeField(app, 'editor-first-resolution', '');
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-settings-entry').textContent"), '自动 · 自动');
+    });
+});
+
+test('an already open submenu follows viewport constraints when the window shrinks', { timeout: 30000 }, async () => {
+    await withAppBrowser(session, async app => {
+        await openNode(app, 'editor-first');
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        await nativeClick(app, '#image-parameter-panel .image-parameter-settings-entry');
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 300, deviceScaleFactor: 1, mobile: false });
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        const bounds = await app.evaluate("document.getElementById('editor-first-parameter-settings').getBoundingClientRect().toJSON()");
+        assert.ok(bounds.left>=12&&bounds.right<=348&&bounds.top>=12&&bounds.bottom<=288, JSON.stringify(bounds));
+    });
+});
+
+test('generation keeps prompt above one footer row and reuses settings through a dismissible submenu', { timeout: 30000 }, async () => {
+    await withAppBrowser(session, async app => {
+        await openNode(app, 'editor-first');
+        assert.ok(await app.evaluate("!document.querySelector('#editor-first-prompt-field>label')&&!document.getElementById('editor-first-assistant')"));
+        assert.equal(await app.evaluate("document.getElementById('editor-first-prompt').getAttribute('aria-label')"), '提示词');
+        const controls = await app.evaluate("(()=>{const f=document.querySelector('.image-parameter-footer'),m=f.querySelector('.image-parameter-model-entry').getBoundingClientRect(),g=f.querySelector('[data-parameter-action=generate]').getBoundingClientRect(),s=f.querySelector('.image-parameter-settings-entry').getBoundingClientRect();return {aligned:Math.abs(m.top-g.top)<2&&Math.abs(s.top-g.top)<2,width:m.width,ordered:s.right<m.left&&m.right<g.left}})()");
+        assert.ok(controls.aligned&&controls.ordered&&controls.width<=190);
+        await nativeClick(app, '#image-parameter-panel .image-parameter-settings-entry');
+        assert.ok(await app.evaluate("document.getElementById('editor-first-parameter-settings').matches(':popover-open')&&document.getElementById('editor-first-parameter-settings').contains(document.getElementById('editor-first-generation-count'))"));
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=size]').click()");
+        await changeField(app, 'editor-first-resolution', 'custom');
+        await changeField(app, 'editor-first-custom-resolution-width', '1536');
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
+        assert.equal(await app.evaluate("document.getElementById('editor-first-parameter-settings').matches(':popover-open')"), false);
+        assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').hidden"), false, 'Escape dismisses the submenu before the editor');
+        await openNode(app, 'editor-second'); await openNode(app, 'editor-first');
+        assert.equal(await app.evaluate("document.getElementById('editor-first-custom-resolution-width').value"), '1536');
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 640, deviceScaleFactor: 1, mobile: false });
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        await nativeClick(app, '#image-parameter-panel .image-parameter-settings-entry');
+        const bounds = await app.evaluate("document.getElementById('editor-first-parameter-settings').getBoundingClientRect().toJSON()");
+        assert.ok(bounds.left>=12&&bounds.right<=348&&bounds.top>=12);
+    });
+});
+
 async function editorMeasurements(app, id) {
     return app.evaluate(`(()=>{const panel=document.getElementById('image-parameter-panel');return {panels:document.querySelectorAll('.image-parameter-panel:not([hidden])').length,width:panel.getBoundingClientRect().width,font:getComputedStyle(document.getElementById('${id}-prompt')).fontSize,ownsPrompt:panel.contains(document.getElementById('${id}-prompt'))}})()`);
 }
@@ -57,7 +197,6 @@ test('titleless parameter editor keeps execution reachable while long content sc
     await withAppBrowser(session, async app => {
         await openNode(app, 'editor-first');
         await changeField(app, 'editor-first-prompt', '需要保留和反复编辑的长提示词。\n'.repeat(80));
-        await app.evaluate("document.querySelector('[data-parameter-action=expand]').click()");
         await app.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 420, deviceScaleFactor: 1, mobile: false });
         await app.evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
         const measure = () => app.evaluate(`(()=>{
