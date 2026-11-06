@@ -1479,7 +1479,7 @@ export function createPromptAgentController({
             image.addEventListener('pointerdown', () => { dragged = false; });
             image.addEventListener('dragstart', (event) => {
                 dragToken = beginAgentResultDrag(event.dataTransfer, {
-                    dataUrl: source, name: `生成结果 ${index + 1}`,
+                    dataUrl: source, name: `生成结果 ${index + 1}`, image,
                     isCurrent: () => revision === workflowRevision && image.isConnected
                 });
                 if (!dragToken) { event.preventDefault(); return; }
