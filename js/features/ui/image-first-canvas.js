@@ -70,7 +70,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     const promptSizing = new WeakMap();
     const emptyPreviewLabels = new WeakMap();
     const storedWidth = Number(storage?.getItem('cainflow_node_parameter_width'));
-    let current = null, closed = null, preferredWidth = storedWidth >= 280 && storedWidth <= 960 ? storedWidth : 480;
+    let current = null, closed = null, preferredWidth = storedWidth >= 280 && storedWidth <= 960 ? storedWidth : 560;
     const storedImportWidth = Number(storage?.getItem('cainflow_image_import_parameter_width'));
     let importPreferredWidth = storedImportWidth >= 280 && storedImportWidth <= 960 ? storedImportWidth : 280;
     const currentWidthPreference = () => current?.type === 'ImageImport' ? importPreferredWidth : preferredWidth;
@@ -189,13 +189,18 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         positionSettingsPopup();
     }
     function positionSettingsPopup() {
-        const popup = views.get(current)?.settingsPopup;
+        const view = views.get(current);
+        const popup = view?.settingsPopup;
         if (!popup?.matches(':popover-open')) return;
         const rect = footer.getBoundingClientRect();
         const bottom = Math.min(rect.top - 6, windowRef.innerHeight - 12);
-        popup.style.width = `${Math.max(0, Math.min(panel.offsetWidth - 24, windowRef.innerWidth - 24))}px`;
+        const width = view.group === 'more' ? Math.min(400, panel.offsetWidth) : panel.offsetWidth - 24;
+        popup.style.width = `${Math.max(0, Math.min(width, windowRef.innerWidth - 24))}px`;
         popup.style.maxHeight = `${Math.max(0, bottom - 12)}px`;
-        popup.style.left = `${clamp(rect.left + 12, 12, Math.max(12, windowRef.innerWidth - popup.offsetWidth - 12))}px`;
+        const anchorLeft = view.group === 'more'
+            ? view.groupButtons.get('more').getBoundingClientRect().right - popup.offsetWidth
+            : rect.left + 12;
+        popup.style.left = `${clamp(anchorLeft, 12, Math.max(12, windowRef.innerWidth - popup.offsetWidth - 12))}px`;
         popup.style.top = `${Math.max(12, bottom - popup.offsetHeight)}px`;
     }
     function positionPanel() {
@@ -320,14 +325,16 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             } else if (view.form.parentNode === view.fragment) store.append(view.form);
         }
     }
-    function setGroup(node, group) {
+    function setGroup(node, group, { focus = false } = {}) {
         const view = views.get(node);
         if (!view) return;
+        if (view.settingsPopup && ['reference', 'advanced'].includes(group)) group = 'more';
+        if (view.settingsPopup?.matches(':popover-open')) surfaces?.closePopovers?.(panel);
         // A submenu entry selects a page; closing the popup must not turn the
         // next activation of that same page into an empty menu.
         view.group = view.settingsPopup ? group : view.group === group ? null : group;
         for (const section of view.sections) {
-            section.hidden = section.dataset.parameterGroup !== view.group;
+            section.hidden = section.dataset.parameterGroup !== view.group && !(view.settingsPopup && view.group === 'more' && ['reference', 'advanced'].includes(section.dataset.parameterGroup));
             if (section.tagName === 'DETAILS') section.open = !section.hidden;
         }
         view.form.querySelectorAll('[data-parameter-group-toggle]').forEach(button => {
@@ -335,9 +342,15 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         });
         for (const [name, button] of view.groupButtons || []) button.setAttribute('aria-expanded', String(name === view.group));
         if (view.settingsPopup && current === node) {
+            view.settingsPopup.setAttribute('aria-label', group === 'model' ? '模型与供应商' : group === 'size' ? '宽高比与分辨率' : '更多设置');
             view.settingsPopup.showPopover();
-            surfaces?.openPopover?.(view.settingsPopup.id, { element: view.settingsPopup, trigger: group === 'model' ? view.groupButtons.get('model') : view.settingsEntry, owner: panel, close: () => view.settingsPopup.hidePopover() });
+            surfaces?.openPopover?.(view.settingsPopup.id, { element: view.settingsPopup, trigger: view.groupButtons.get(group), relatedTriggers: [...view.groupButtons.values()], owner: panel, close: () => view.settingsPopup.hidePopover() });
             positionSettingsPopup();
+            if (focus) {
+                const control = view.sections.filter(section => !section.hidden).flatMap(section => Array.from(section.querySelectorAll('button, input, select, textarea, [tabindex]')))
+                    .find(element => !element.disabled && element.tabIndex >= 0 && element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }));
+                (control || view.groupButtons.get(group))?.focus({ preventScroll: true });
+            }
         }
         schedulePosition();
     }
@@ -368,14 +381,21 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 : automaticLabel(settings.resolution);
             const sizeSummary = `${automaticLabel(settings.aspect)} · ${resolutionLabel}`;
             if (view.settingsEntry) {
-                setText(view.settingsEntry, sizeSummary);
+                setText(view.settingsEntry.querySelector('.image-parameter-entry-label'), sizeSummary);
                 view.settingsEntry.title = `比例与分辨率：${sizeSummary}`;
+                view.settingsEntry.setAttribute('aria-label', view.settingsEntry.title);
             }
             for (const [group, button] of view.groupButtons || []) {
+                if (group === 'size') continue;
+                if (group === 'more') {
+                    button.title = `更多设置：参考图 ${count} 张、质量与高级参数`;
+                    continue;
+                }
                 const text = group === 'model' ? `模型 · ${model?.name || model?.modelId || '选择模型'}`
                     : group === 'size' ? sizeSummary
-                        : group === 'reference' ? `参考 ${count}` : '更多参数';
-                setText(button, text);
+                        : '更多设置';
+                setText(button.querySelector('.image-parameter-entry-label') || button, text);
+                button.setAttribute('aria-label', text);
                 if (button.title !== text) button.title = text;
             }
             view.placeholder.hidden = !view.result.hidden;
@@ -419,6 +439,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 ? (view.urlFields.hidden ? 'upload' : 'url') : '';
             widthHandle.hidden = node.type === 'ImageImport' && panel.dataset.importMode === 'upload';
             const running = state.runningNodeIds?.has(node.id) || ['waiting', 'running'].includes(node.runStatus) || node.el.classList.contains('running');
+            const generationCount = node.type === 'ImageGenerate' ? readImageGenerationSettings(node, documentRef).generationCount : 1;
             generate.hidden = node.type === 'ImageImport' || node.type === 'ImageSave';
             setText(generate, node.type === 'ImagePreview' ? (running ? '更新中' : '更新预览')
                 : node.type === 'ImageCompare' ? (running ? '更新中' : '更新对比')
@@ -426,7 +447,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 : node.type === 'ImageSave' ? (running ? '更新中' : '更新媒体')
                 : node.type === 'CameraControl' ? '编辑视角'
                 : node.type === 'ImageResize' ? (running ? '处理中' : '处理图片')
-                    : node.type === 'ColorReset' ? (running ? '调色中' : '应用调色') : (running ? '生成中' : '生成'));
+                    : node.type === 'ColorReset' ? (running ? '调色中' : '应用调色') : (running ? '生成中' : generationCount > 1 ? `生成 ×${generationCount}` : '生成'));
             const issue = node.type === 'ImageGenerate' ? getNodeModelConfigurationIssue({ state, node, documentRef }) : null;
             if (configuration.parentNode !== footer.parentNode) footer.before(configuration);
             configuration.hidden = !issue;
@@ -468,8 +489,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         }
         if (view.footerTools) {
             footer.insertBefore(view.footerTools, generate);
-            view.settingsPopup.append(countSlot);
-        } else footer.insertBefore(countSlot, generate);
+        }
+        footer.insertBefore(countSlot, generate);
         panel.dataset.nodeType = node.type;
         panel.hidden = false;
         panel.setAttribute('aria-hidden', 'false'); panel.inert = false;
@@ -531,6 +552,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             });
             view.resizeObserver.observe(node.el);
             view.resizeObserver.observe(form);
+            if (view.settingsPopup) view.resizeObserver.observe(view.settingsPopup);
         }
         form.dataset.nodeType = node.type;
         node.parameterRoot = form;
@@ -709,17 +731,23 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             if (label) label.textContent = '次数';
         }
         group(grids[1], 'size');
-        group(form.querySelector('.node-advanced-parameters'), 'advanced');
-        const bar = documentRef.createElement('div'); bar.className = 'image-parameter-setting-bar';
+        const advanced = form.querySelector('.node-advanced-parameters');
+        const advancedGrid = advanced.querySelector('.node-parameter-grid');
+        advancedGrid.classList.add('image-parameter-output-options');
+        for (const suffix of ['quality-field', 'background-field', 'moderation-field', 'search-field']) {
+            const field = form.querySelector(`[id="${nodeId}-${suffix}"]`);
+            if (field) advancedGrid.append(field);
+        }
+        group(advanced, 'advanced');
         const groupButtons = new Map();
-        for (const [name, label] of [['reference','参考图'],['model','模型 / 供应商'],['size','尺寸 / 质量'],['advanced','更多参数']]) {
+        for (const [name, label] of [['model','模型 / 供应商'],['size','尺寸'],['more','更多设置']]) {
             const button = documentRef.createElement('button'); button.type = 'button'; button.textContent = label;
             button.dataset.nodeReadAction = 'true'; button.dataset.parameterGroupToggle = name; button.setAttribute('aria-expanded', 'false');
-            button.addEventListener('click', () => {
+            button.addEventListener('click', event => {
                 const view = views.get(node);
-                if (name === 'model' && view?.group === 'model' && view.settingsPopup?.matches(':popover-open')) view.settingsPopup.hidePopover();
-                else setGroup(node, name);
-            }); bar.append(button);
+                if (view?.group === name && view.settingsPopup?.matches(':popover-open')) view.settingsPopup.hidePopover();
+                else setGroup(node, name, { focus: event.detail === 0 });
+            });
             groupButtons.set(name, button);
         }
         const promptField = form.querySelector('.image-node-prompt-field');
@@ -727,8 +755,17 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         promptActions?.remove();
         promptField?.querySelector('label')?.remove();
         promptField?.querySelector('textarea')?.setAttribute('aria-label', '提示词');
+        const moreEntry = groupButtons.get('more');
+        moreEntry.className = 'image-parameter-more-entry';
+        moreEntry.setAttribute('aria-label', '更多设置');
+        moreEntry.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>';
         const modelEntry = groupButtons.get('model');
         modelEntry.classList.add('image-parameter-model-entry');
+        modelEntry.dataset.compactLabel = '模型';
+        const modelLabel = documentRef.createElement('span');
+        modelLabel.className = 'image-parameter-entry-label';
+        modelLabel.textContent = modelEntry.textContent;
+        modelEntry.replaceChildren(modelLabel);
         const settingsPopup = documentRef.createElement('div');
         settingsPopup.className = 'image-parameter-settings-popup';
         settingsPopup.id = `${node.id}-parameter-settings`;
@@ -736,26 +773,23 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         // dismissal would close before the trigger's click handler can toggle.
         settingsPopup.setAttribute('popover', 'manual');
         settingsPopup.setAttribute('aria-label', '生成参数');
-        settingsPopup.append(bar, ...sections);
-        const settingsEntry = documentRef.createElement('button');
-        settingsEntry.type = 'button';
+        settingsPopup.append(...sections);
+        const settingsEntry = groupButtons.get('size');
         settingsEntry.className = 'image-parameter-settings-entry';
-        settingsEntry.textContent = '参数';
-        settingsEntry.setAttribute('aria-controls', settingsPopup.id);
-        settingsEntry.setAttribute('aria-expanded', 'false');
-        settingsEntry.addEventListener('click', () => {
-            if (settingsPopup.matches(':popover-open')) settingsPopup.hidePopover();
-            else setGroup(node, 'size');
-        });
+        settingsEntry.dataset.compactLabel = '尺寸';
+        const settingsLabel = documentRef.createElement('span');
+        settingsLabel.className = 'image-parameter-entry-label';
+        settingsLabel.textContent = '尺寸';
+        settingsEntry.replaceChildren(settingsLabel);
+        for (const button of groupButtons.values()) button.setAttribute('aria-controls', settingsPopup.id);
         settingsPopup.addEventListener('toggle', () => {
             const visible = settingsPopup.matches(':popover-open');
-            settingsEntry.setAttribute('aria-expanded', String(visible));
-            modelEntry.setAttribute('aria-expanded', String(visible && views.get(node)?.group === 'model'));
+            for (const [name, button] of groupButtons) button.setAttribute('aria-expanded', String(visible && views.get(node)?.group === name));
             if (!visible) surfaces?.forgetPopover?.(settingsPopup.id);
         });
         const footerTools = documentRef.createElement('div');
         footerTools.className = 'image-parameter-footer-tools';
-        footerTools.append(settingsEntry, modelEntry);
+        footerTools.append(settingsEntry, modelEntry, moreEntry);
         form.append(settingsPopup, footerTools);
         const placeholder = documentRef.createElement('div'); placeholder.className = 'image-first-placeholder';
         const emptyText = documentRef.createElement('span');
@@ -781,6 +815,9 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, emptyText, result, countField, groupButtons, settingsPopup, settingsEntry, footerTools, group: null }, [result, progress]);
     }
     updateMode(); updateSwitcher();
+    for (const type of ['input', 'change']) countSlot.addEventListener(type, () => {
+        if (current) { refreshNode(current.id); onSettingsChanged(current.id); }
+    });
     surfaces?.registerModeless?.(panel, { close: () => close(), isOpen: () => !panel.hidden, opener: () => returnFocusElement });
     panelManager?.registerAuxiliary?.('parameters', { close: () => close({ remember: false }) });
     panel.querySelector('[data-parameter-action="close"]').addEventListener('click', () => {

@@ -25,6 +25,7 @@ async function controlled(app) {
 }
 
 async function open(app, id, group) {
+    if (group === 'reference' || group === 'advanced') group = 'more';
     await app.evaluate(`document.querySelectorAll('.notice-close').forEach(button=>button.click());document.getElementById(${JSON.stringify(id)}).click()`);
     await app.waitFor(`!document.getElementById('image-parameter-panel').hidden&&document.getElementById('image-parameter-panel').dataset.nodeId===${JSON.stringify(id)}`);
     if (group) await app.evaluate(`(()=>{const button=document.querySelector('#image-parameter-panel [data-parameter-group-toggle=${group}]');if(button.getAttribute('aria-expanded')!=='true')button.click()})()`);
@@ -121,7 +122,7 @@ test('waiting and running clear this attempt output and failure while preserving
         assert.equal(await app.evaluate("document.getElementById('target-image-results').hidden"), true, 'entering waiting immediately removes the previous successful result');
         await expectSavedOutputCleared(app, 'target', oldKeys);
         assert.equal(await app.evaluate("document.getElementById('target-generation-progress').checkVisibility()"), false, 'waiting has no invented numerical progress');
-        assert.equal(await app.evaluate("(()=>{const controls=[...document.querySelectorAll('.image-reference-overview .image-reference-drag')];return controls.length===1&&controls.every(control=>control.disabled)})()"), true, 'reference mutation obeys the runtime lock');
+        assert.equal(await app.evaluate("(()=>{const controls=[...document.querySelectorAll('.image-reference-overview .image-reference-drag')];return controls.length===1&&controls.every(control=>control.dataset.reorderDisabled==='true')})()"), true, 'reference mutation obeys the runtime lock');
         assert.equal(await app.evaluate("document.getElementById('target-assistant')"), null);
         for (const id of ['outside', 'disabled-old']) assert.match(await app.evaluate(`document.querySelector('[data-node-id=${id}] .node-failure-summary').textContent`), /本轮真实失败/);
         await app.evaluate("statusHold=['target'];statusRelease.source()");
@@ -146,6 +147,9 @@ test('waiting and running clear this attempt output and failure while preserving
         await expectSavedOutputCleared(app, 'target', oldKeys);
         assert.ok(await app.evaluate("(()=>{const summary=document.querySelector('[data-node-id=target] .node-failure-summary');return summary.scrollWidth<=summary.clientWidth+1})()"), 'unbroken provider words wrap within the short card summary');
         await open(app, 'target', 'reference');
+        await click(app, '[data-node-id=target] [data-image-run-action=details]');
+        await app.waitFor("!document.querySelector('.image-parameter-settings-popup:popover-open')");
+        assert.equal(await app.evaluate("document.getElementById('modal-error').classList.contains('active')"), false, 'the first outside click dismisses More settings');
         await click(app, '[data-node-id=target] [data-image-run-action=details]');
         await app.waitFor("document.getElementById('modal-error').classList.contains('active')");
         await app.evaluate("(()=>{const full=document.getElementById('btn-show-full-log');if(!full.classList.contains('hidden'))full.click()})()");
@@ -293,7 +297,7 @@ test('reference order and replacing original bytes mark the effective recipe pen
             assert.ok(await app.evaluate("document.querySelector('#ref-target-image-results img')?.naturalWidth>0"), 'relationship edits retain the readable previous result');
         };
         await open(app, 'ref-target', 'reference');
-        await app.evaluate("document.querySelector('[data-reference-connection=second-reference] .image-reference-move-up').click()");
+        await app.evaluate("document.querySelector('[data-reference-connection=second-reference] .image-reference-thumbnail').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',altKey:true,bubbles:true,cancelable:true}))");
         await pending();
         await runSuccess(app, 'ref-target', true); await expectDirty(app, 'ref-target', false);
         assert.deepEqual(await app.evaluate("statusRequests.at(-1).body.references"), [images[1], images[0]].map(image => image.split(',')[1]));
@@ -326,7 +330,7 @@ test('a held background run confirms only its own recipe while an identical node
         await change(app, 'shared-prompt', 'shared B edited during A'); await expectDirty(app, 'shared', true);
         await upload(app, 'b-ref', 1); await open(app, 'clone', 'reference');
         assert.equal(await app.evaluate("document.getElementById('clone-prompt').disabled"), true);
-        assert.equal(await app.evaluate("document.querySelector('[data-reference-connection=clone-ref] .image-reference-drag').disabled"), false, 'an idle clone retains its own reference mutation permissions');
+        assert.equal(await app.evaluate("document.querySelector('[data-reference-connection=clone-ref] .image-reference-drag').dataset.reorderDisabled"), 'false', 'an idle clone retains its own reference mutation permissions');
         await app.evaluate("statusHold=[];statusRelease.shared()");
         await app.waitFor("statusPending.shared===false&&document.getElementById('btn-stop').disabled");
         await expectDirty(app, 'shared', true);

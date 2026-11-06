@@ -86,6 +86,7 @@ test('successful status never covers the original result operations or the param
         await app.waitFor("document.getElementById('success-run-status')?.dataset.status==='completed'&&document.querySelector('#success [data-result-action=reference]')");
         await app.waitFor("document.querySelector('#success .image-node-result-preview img')?.naturalWidth>0");
         await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        await app.waitFor("document.getElementById('image-parameter-panel').getBoundingClientRect().top>=document.querySelector('#success .image-result-actions').getBoundingClientRect().bottom");
         await app.waitFor("(()=>{const el=document.querySelector('#success [data-result-action=reference]'),r=el.getBoundingClientRect();return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()");
         const position = await point(app, '#success [data-result-action=reference]');
         assert.equal(await app.evaluate(`document.querySelector('#success [data-result-action=reference]').contains(document.elementFromPoint(${position.x},${position.y}))`), true, 'the original result reference action remains reachable alongside the success row: ' + JSON.stringify(await app.evaluate(`({point:${JSON.stringify(position)},hit:document.elementFromPoint(${position.x},${position.y})?.outerHTML.slice(0,400),panel:document.getElementById('image-parameter-panel').getBoundingClientRect().toJSON(),button:document.querySelector('#success [data-result-action=reference]').getBoundingClientRect().toJSON()})`)));
@@ -127,11 +128,11 @@ test('waiting has no fabricated progress and the original reachable two-second c
         { id: 'reference-edge', from: { nodeId: 'upstream', port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, type: 'image', order: 0 }
     ] }, async app => {
         await controlled(app, true); await open(app, 'target');
-        await app.evaluate("document.querySelector('[data-parameter-group-toggle=reference]').click();document.querySelector('[data-parameter-action=generate]').click()");
+        await app.evaluate("document.querySelector('[data-parameter-group-toggle=more]').click();document.querySelector('[data-parameter-action=generate]').click()");
         await app.waitFor("feedbackRequests.length===1&&document.getElementById('target-run-status')?.dataset.status==='waiting'");
         assert.equal(await app.evaluate("document.getElementById('target-generation-progress').checkVisibility()"), false);
         assert.equal(await app.evaluate("document.querySelector('[data-parameter-action=generate]').disabled"), true);
-        assert.equal(await app.evaluate("(()=>{const controls=[...document.querySelectorAll('.image-reference-overview .image-reference-drag')];return controls.length>0&&controls.every(control=>control.disabled)})()"), true);
+        assert.equal(await app.evaluate("(()=>{const controls=[...document.querySelectorAll('.image-reference-overview .image-reference-drag')];return controls.length>0&&controls.every(control=>control.dataset.reorderDisabled==='true')})()"), true);
         assert.equal(await app.evaluate("document.querySelector('#upstream .node-run-cancel-btn').closest('fieldset[disabled]')===null"), true);
         await press(app, '#upstream .node-run-cancel-btn', 150);
         await delay(350);

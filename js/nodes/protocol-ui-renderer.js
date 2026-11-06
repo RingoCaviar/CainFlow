@@ -19,14 +19,14 @@ function escapeHtml(str) {
 /**
  * 渲染节点表单字段容器
  */
-function renderNodeFormField({ label, content, fieldClass = '', fieldId = '', note = '' }) {
+function renderNodeFormField({ label, content, fieldClass = '', fieldId = '', inputId = '', note = '' }) {
     const classes = ['node-field', 'node-form-field'];
     if (fieldClass) classes.push(fieldClass);
     const fieldIdAttr = fieldId ? ` id="${fieldId}"` : '';
     const noteHtml = note ? `<div class="node-field-note">${note}</div>` : '';
     return `
         <div class="${classes.join(' ')}"${fieldIdAttr}>
-            ${label ? `<label>${escapeHtml(label)}</label>` : ''}
+            ${label ? `<label${inputId ? ` for="${escapeHtml(inputId)}"` : ''}>${escapeHtml(label)}</label>` : ''}
             ${content}
             ${noteHtml}
         </div>
@@ -196,6 +196,7 @@ export function renderProtocolParameters(nodeId, protocol, taskType, restoreData
             // 包装成表单字段
             const fieldHtml = renderNodeFormField({
                 label: isToggle ? '' : (param.label || paramId),
+                inputId: `${nodeId}-param-${param.id}`,
                 content: isToggle
                     ? `<label class="node-field-inline-label" for="${nodeId}-param-${param.id}">${escapeHtml(param.label || paramId)}</label>${controlHtml}`
                     : controlHtml,

@@ -925,6 +925,12 @@ export function createNodeDomBindingsApi({
 
         const selectedOption = selectEl.selectedOptions?.[0] || selectEl.options?.[0] || null;
         const selectedLabel = selectedOption?.textContent || selectEl.value || '--';
+        const labelledBy = (selectEl.getAttribute('aria-labelledby') || '').split(/\s+/)
+            .map(id => documentRef.getElementById(id)?.textContent?.trim()).filter(Boolean).join(' ');
+        const fieldLabel = labelledBy || selectEl.getAttribute('aria-label')
+            || selectEl.labels?.[0]?.textContent?.trim()
+            || selectEl.closest('.node-field')?.querySelector(':scope > label')?.textContent?.trim();
+        trigger.setAttribute('aria-label', fieldLabel ? `${fieldLabel}：${selectedLabel}` : selectedLabel);
         const triggerLabel = trigger.querySelector('.node-select-trigger-label');
         triggerLabel.textContent = selectedLabel;
         triggerLabel.title = selectedLabel;
@@ -957,6 +963,9 @@ export function createNodeDomBindingsApi({
         if (!selectEl || selectEl.dataset.customNodeSelectBound === '1') return;
         selectEl.dataset.customNodeSelectBound = '1';
         selectEl.classList.add('node-select-native');
+        // The visible trigger owns keyboard navigation for this custom select.
+        selectEl.tabIndex = -1;
+        selectEl.setAttribute('aria-hidden', 'true');
 
         const wrapper = documentRef.createElement('div');
         wrapper.className = 'node-select';
@@ -1036,7 +1045,7 @@ export function createNodeDomBindingsApi({
 
         if (typeof MutationObserver !== 'undefined') {
             const observer = new MutationObserver(() => renderCustomSelectOptions(selectEl, wrapper));
-            observer.observe(selectEl, { childList: true, subtree: true, attributes: true, attributeFilter: ['selected', 'disabled', 'label', 'value'] });
+            observer.observe(selectEl, { childList: true, subtree: true, attributes: true, attributeFilter: ['selected', 'disabled', 'label', 'value', 'aria-label', 'aria-labelledby'] });
             if (!Array.isArray(selectEl._cleanupFns)) {
                 selectEl._cleanupFns = [];
             }
@@ -1886,7 +1895,7 @@ export function createNodeDomBindingsApi({
         const model = state.models.find(item => item.id === documentRef.getElementById(`${id}-apiconfig`)?.value) || {};
         const provider = getResolvedProviderForModel(model, state.providers, documentRef.getElementById(`${id}-provider`)?.value) || {};
         const supportsThinking = getThinkingCapability({ model, provider, task: 'image', protocol: model.protocol }).supported;
-        const thinking = node?.el?.querySelector('.thinking-control');
+        const thinking = node?.el ? queryNodeControl(node.el, '.thinking-control') : null;
         const hasThinkingDraft = Boolean(node?.data?.thinking && node.data.thinking.mode !== 'inherit');
         if (thinking) thinking.hidden = !supportsThinking && !hasThinkingDraft;
         if (node?.data?.thinking && node.data.thinking.mode !== 'inherit') configured.push(supportsThinking ? '思考：已自定义' : '思考草稿：当前不适用');
@@ -2668,7 +2677,9 @@ export function createNodeDomBindingsApi({
                     if (type === 'ImageGenerate') syncImageAdvancedSummary(id);
                     scheduleSave();
                 } });
-            el.addEventListener('change', event => { if (event.target.id === `${id}-apiconfig` || event.target.id === `${id}-provider`) queueMicrotask(control.refresh); });
+            for (const suffix of ['apiconfig', 'provider']) {
+                documentRef.getElementById(`${id}-${suffix}`)?.addEventListener('change', () => queueMicrotask(control.refresh));
+            }
             el._thinkingControl = control;
             const promptField = documentRef.getElementById(`${id}-prompt`)?.closest('.node-field') || documentRef.getElementById(`${id}-sysprompt`)?.closest('.node-field');
             if (type === 'ImageGenerate') {

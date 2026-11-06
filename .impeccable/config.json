@@ -12,6 +12,15 @@
         ],
         "createdAt": "2026-11-05T06:14:41.186Z",
         "reason": "Agent verified: line 63 is the existing .image-parameter-resize-corner functional resize grip (12px square with right/bottom borders), identical to HEAD; it is not a decorative card accent."
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "css/features/node-canvas-theme-skin.css"
+        ],
+        "createdAt": "2026-11-06T08:39:19.307Z",
+        "reason": "Agent review: the only side-tab match is the pre-existing .image-prompt-source quotation marker (also present in HEAD), distinguishing inherited upstream text from the inactive local prompt draft; it is not a decorative reference-image card border."
       }
     ]
   }

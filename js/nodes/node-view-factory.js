@@ -458,7 +458,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             content: `
                 <div class="generation-count-control">
                     <button type="button" class="generation-count-btn" data-target="${id}" data-delta="-1" title="减少生成次数">-</button>
-                    <input type="number" id="${id}-generation-count" class="generation-count-input" value="${generationCount}" min="1" step="1" />
+                    <input type="number" id="${id}-generation-count" class="generation-count-input" aria-label="生成次数" value="${generationCount}" min="1" step="1" />
                     <button type="button" class="generation-count-btn" data-target="${id}" data-delta="1" title="增加生成次数">+</button>
                 </div>
             `

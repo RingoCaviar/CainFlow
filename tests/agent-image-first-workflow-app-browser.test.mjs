@@ -220,7 +220,7 @@ test('mixed legacy and canonical full-batch references preserve slot identities 
         await app.waitFor("agentWorkflowRequests.filter(request=>request.contents).length===1&&document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
         assert.deepEqual(await app.evaluate("agentWorkflowRequests.find(request=>request.contents).contents.flatMap(content=>content.parts).filter(part=>part.inlineData).map(part=>part.inlineData.data)"), expected);
         await open(app, 'target');
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=reference]').click();document.querySelector('[data-reference-connection=legacy-edge] .image-reference-move-down').click()");
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=more]').click();document.querySelector('[data-reference-connection=legacy-edge] .image-reference-thumbnail').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',altKey:true,bubbles:true,cancelable:true}))");
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value.connections.find(edge=>edge.id==='legacy-edge').order>document.value.connections.find(edge=>edge.id==='canonical-edge').order)");
         const reordered = await saved(app);
         await planAction(app, '生成图片');
