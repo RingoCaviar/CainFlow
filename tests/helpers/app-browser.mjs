@@ -46,7 +46,7 @@ export async function reloadAppBrowser({ evaluate, send, waitFor }) {
 export async function withAppBrowser(session, task, { repoDirectory, initScript, preserveRetiredSaveNodes = true } = {}) {
     const server = await startCainflowServer({ session, repoDirectory });
     const profile = await mkdtemp(join(tmpdir(), 'cainflow-canvas-browser-'));
-    const browser = spawn(chromePath, ['--headless=new', '--disable-gpu', '--no-sandbox', '--disable-extensions', `--user-data-dir=${profile}`, '--remote-debugging-port=0', 'about:blank'], { stdio: 'ignore' });
+    const browser = spawn(chromePath, ['--headless=new', '--no-proxy-server', '--disable-gpu', '--no-sandbox', '--disable-extensions', `--user-data-dir=${profile}`, '--remote-debugging-port=0', 'about:blank'], { stdio: 'ignore' });
     let socket, getDiagnostics = () => ({ backend: server.getDiagnostics() });
     try {
         let port;
@@ -57,7 +57,7 @@ export async function withAppBrowser(session, task, { repoDirectory, initScript,
         await new Promise(resolve => socket.addEventListener('open', resolve, { once: true }));
         let sequence = 0, requestSequence = 0, currentStep = null;
         const protocolListeners = new Set();
-        const pending = new Map(), errors = [], networkFailures = [], httpFailures = [], requests = new Map(), completedRequests = [];
+        const pending = new Map(), errors = [], networkFailures = [], httpFailures = [], requests = new Map(), completedRequests = [], workflowWrites = [];
         const publicUrl = raw => {
             try {
                 const url = new URL(raw);
@@ -66,12 +66,24 @@ export async function withAppBrowser(session, task, { repoDirectory, initScript,
         };
         const describeRequest = ({ bodyPromise, ...record }) => record;
         getDiagnostics = () => ({ backend: server.getDiagnostics(), step: currentStep?.label,
-            networkFailures: networkFailures.map(describeRequest), httpFailures: httpFailures.map(describeRequest) });
+            workflowWrites: workflowWrites.map(describeRequest), networkFailures: networkFailures.map(describeRequest), httpFailures: httpFailures.map(describeRequest) });
         const retain = (list, item, limit = 24) => { list.push(item); if (list.length > limit) list.shift(); };
         socket.addEventListener('message', event => { const value = JSON.parse(event.data);
             if (value.method === 'Network.requestWillBeSent') {
                 requests.set(value.params.requestId, { sequence: ++requestSequence, requestId: value.params.requestId,
                     url: publicUrl(value.params.request.url), method: value.params.request.method, startedAt: Date.now() });
+                if (value.params.request.url.startsWith(server.baseUrl + '/api/workflows/')) {
+                    const record = requests.get(value.params.requestId);
+                    if (record.method === 'POST') {
+                        try {
+                            const data = JSON.parse(value.params.request.postData || '{}');
+                            record.workflowId = data.workflowId;
+                            record.mediaOwnershipRevision = data.mediaOwnershipRevision;
+                            record.expectedMediaOwnershipRevision = value.params.request.headers['X-CainFlow-Expected-Media-Ownership-Revision'];
+                        } catch {}
+                    }
+                    retain(workflowWrites, record, 24);
+                }
                 if (requests.size > 1000) requests.delete(requests.keys().next().value);
             }
             if (value.method === 'Network.responseReceived') {

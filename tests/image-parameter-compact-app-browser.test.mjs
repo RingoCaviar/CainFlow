@@ -90,7 +90,7 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         assert.equal(await app.evaluate("document.querySelector('#image-0 .image-first-summary')===null"), true);
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-first-summary')===null"), true);
         assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=reference]').textContent.includes('1')"));
-        assert.ok(await app.evaluate("!!document.querySelector('#image-parameter-panel [data-image-generation-dirty]')"));
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-image-generation-dirty]')"), null);
         assert.equal(await app.evaluate("document.querySelector('#image-0-prompt-source details').open"), true);
         assert.equal(await app.evaluate("document.querySelector('#image-0-prompt-field .image-local-prompt-draft').open"), false);
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=input]')===null"), true);
@@ -103,7 +103,7 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         assert.ok(await app.evaluate("document.getElementById('image-0-prompt-source').textContent.includes('effective upstream prompt')"));
         await app.evaluate("window.originalCompactPrompt=document.getElementById('image-0-prompt');document.querySelector('#image-parameter-panel .generation-count-btn[data-delta=\"1\"]').click()");
         await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value?.nodes.find(n=>n.id==='image-0')?.generationCount===2)");
-        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel > .image-parameter-footer').contains(document.getElementById('image-0-generation-count'))"), true, 'the original count stays in the fixed action bar');
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-settings-popup').contains(document.getElementById('image-0-generation-count'))"), true, 'the original count stays in the settings submenu');
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=model]').textContent"), '模型 · 受控图片');
         await app.evaluate('getSelection().removeAllRanges()');
         const modelButton = await app.evaluate("(()=>{const r=document.querySelector('#image-parameter-panel [data-parameter-group-toggle=model]').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()");
@@ -115,7 +115,7 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         assert.ok(await app.evaluate("[...document.querySelectorAll('#image-parameter-panel button,#image-parameter-panel summary,#toolbar button')].every(e=>getComputedStyle(e).userSelect==='none')"));
         assert.equal(await app.evaluate("getComputedStyle(document.getElementById('image-0-prompt')).userSelect"), 'text');
 
-        assert.ok(await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel').getBoundingClientRect(),c=document.querySelector('#image-parameter-panel .image-parameter-count-slot').getBoundingClientRect(),g=document.querySelector('#image-parameter-panel [data-parameter-action=generate]').getBoundingClientRect();return g.right<=p.right-12&&g.right>=p.right-20&&c.right<=g.left&&g.left-c.right<=12})()"), 'count and generate controls align together at the right edge');
+        assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-footer').contains(document.querySelector('#image-parameter-panel .image-parameter-model-entry'))"), 'model and generate share the footer');
 
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=reference]').click()");
         assert.equal(await app.evaluate("document.querySelectorAll('#image-0-reference-sources .image-reference-more, #image-0-reference-sources .image-reference-source-actions, #image-0-reference-sources .image-reference-source-status').length"), 0);
@@ -137,19 +137,12 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         assert.ok(Math.abs(textBounds.right - textBounds.left) <= 1, 'prompt uses the full width with balanced side padding');
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-header').checkVisibility()"), false, 'parameter editors have no title bar or corner tools');
         assert.ok(textBounds.topPadding <= 10, 'prompt no longer reserves a toolbar row');
-        await app.evaluate("document.querySelector('#image-parameter-panel .image-prompt-actions').scrollIntoView({block:'end'})");
-        await settle(app);
-        const assistantBounds = await app.evaluate("(()=>{const b=document.getElementById('image-0-assistant'),p=originalCompactPrompt,s=getComputedStyle(p);return {ownRow:b.closest('.image-prompt-actions').previousElementSibling===p.closest('.image-node-prompt-field'),settingsTop:document.querySelector('#image-parameter-panel .image-parameter-setting-bar').getBoundingClientRect().top,actionBottom:b.getBoundingClientRect().bottom,top:b.getBoundingClientRect().top,bottom:p.getBoundingClientRect().bottom,padding:parseFloat(s.paddingBottom)}})()");
-        assert.ok(assistantBounds.ownRow && assistantBounds.top >= assistantBounds.bottom && assistantBounds.top - assistantBounds.bottom <= 10, 'assistant action is directly below the textarea');
-        assert.ok(assistantBounds.settingsTop >= assistantBounds.actionBottom, 'settings follow the independent prompt action row');
-        assert.ok(assistantBounds.padding <= 10, 'textarea reserves no bottom button space');
-        assert.ok(await app.evaluate("(()=>{const prompt=document.querySelector('#image-parameter-panel .image-node-prompt-field'),model=document.querySelector('#image-parameter-panel .image-parameter-model-entry');return Boolean(prompt.compareDocumentPosition(model)&Node.DOCUMENT_POSITION_FOLLOWING)})()"), 'model settings follow the prompt');
         assert.ok(automatic.font >= 13);
-        assert.ok(automatic.height >= automatic.line * 5 + automatic.padding);
-        assert.ok(automatic.height <= automatic.line * 8 + automatic.padding + 3);
+        assert.ok(automatic.height >= automatic.line * 2 + automatic.padding);
+        assert.ok(automatic.height <= automatic.line * 6 + automatic.padding + 3);
         await app.evaluate("originalCompactPrompt.style.height='260px';originalCompactPrompt.value='short';originalCompactPrompt.dispatchEvent(new Event('input',{bubbles:true}))");
         await settle(app);
-        assert.equal(await app.evaluate('originalCompactPrompt.style.height'), '260px', 'typing respects a manually set editor height');
+        assert.ok(await app.evaluate("originalCompactPrompt.offsetHeight<=Math.ceil(parseFloat(getComputedStyle(originalCompactPrompt).lineHeight)*6+24)"), 'automatic editor height stays within six lines');
 
         for (const [index, type] of types.entries()) {
             await open(app, `image-${index}`);
@@ -201,7 +194,7 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         assert.equal(await app.evaluate("document.getElementById('image-0-generation-count').value"), '2');
         assert.equal(await app.evaluate('document.getElementById("image-0-prompt")===originalCompactPrompt'), true);
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#nodes-layer>.image-first-card')].map(n=>[n.id,n.style.left,n.style.top,n.offsetWidth])"), geometry);
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').click();document.querySelector('#image-parameter-panel [data-parameter-group-toggle=advanced]').click()");
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=advanced]').click()");
         await settle(app);
         assert.ok(await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel').getBoundingClientRect(),b=document.querySelector('#image-parameter-panel [data-parameter-action=generate]').getBoundingClientRect();return b.top>=p.top&&b.bottom<=p.bottom+1})()"), 'expanded long settings keep the primary action reachable');
         await open(app, 'image-8');
@@ -210,9 +203,8 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').dataset.mode"), 'normal', 'switching from an expanded node restores the compact import mode');
         await open(app, 'image-0');
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').checkVisibility()"), false);
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').click()");
-        assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').dataset.mode"), 'expanded');
-        await app.evaluate("document.querySelectorAll('.toast').forEach(toast=>toast.remove());document.querySelectorAll('#canvas-navigation details[open]').forEach(menu=>menu.open=false);document.getElementById('image-0-assistant').click()");
+
+        await app.evaluate("document.querySelectorAll('.toast').forEach(toast=>toast.remove());document.querySelectorAll('#canvas-navigation details[open]').forEach(menu=>menu.open=false);document.getElementById('btn-prompt-agent').click()");
         await app.waitFor("document.getElementById('prompt-agent-panel').classList.contains('active')");
         for (const width of [1100, 600, 360]) {
             await app.send('Emulation.setDeviceMetricsOverride', { width, height: 820, deviceScaleFactor: 1, mobile: false });

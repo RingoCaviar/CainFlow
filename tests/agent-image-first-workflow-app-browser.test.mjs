@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { withAppBrowser, reloadAppBrowser, delay } from './helpers/app-browser.mjs';
+import { withAppBrowser, reloadAppBrowser, delay, waitForAutosave } from './helpers/app-browser.mjs';
 
 const originals = Object.fromEntries(await Promise.all(['red', 'blue', 'orange', 'yellow'].map(async color =>
     [color, 'data:image/png;base64,' + (await readFile(new URL(`./fixtures/reference-${color}.png`, import.meta.url))).toString('base64')])));
@@ -25,6 +25,19 @@ async function controlled(app, reply = { intent: 'chat', message: '已读明确�
 async function open(app, id) {
     await app.evaluate(`document.querySelectorAll('.notice-close').forEach(button=>button.click());document.getElementById(${JSON.stringify(id)}).click()`);
     await app.waitFor(`!document.getElementById('image-parameter-panel').hidden&&document.getElementById('image-parameter-panel').dataset.nodeId===${JSON.stringify(id)}`);
+}
+
+async function openAgent(app, id, sources = []) {
+    await app.evaluate("if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click()");
+    await app.waitFor("document.getElementById('prompt-agent-panel').classList.contains('active')");
+    await change(app, 'prompt-agent-input', '');
+    for (const nodeId of [id, ...sources]) {
+        await app.evaluate("(()=>{const input=document.getElementById('prompt-agent-input');input.value+='@';input.setSelectionRange(input.value.length,input.value.length);input.dispatchEvent(new Event('input',{bubbles:true}))})()");
+        await app.waitFor("Boolean(document.querySelector('.prompt-agent-node-mentions [role=option]'))");
+        await app.evaluate(`(()=>{const option=[...document.querySelectorAll('.prompt-agent-node-mentions [role=option]')].find(button=>button.textContent.endsWith(' · '+${JSON.stringify(nodeId)}));if(!option)throw new Error('Missing mention candidate');option.click()})()`);
+    }
+    const draft = await app.evaluate("document.getElementById('prompt-agent-input').value");
+    await change(app, 'prompt-agent-input', draft + '优化提示词');
 }
 
 async function click(app, selector) {
@@ -61,6 +74,7 @@ async function chooseModel(app, purpose, model) {
 }
 
 async function planAction(app, label) {
+    if (['生成图片', '重试未完成步骤'].includes(label)) await waitForAutosave(app);
     await app.waitFor(`(()=>{const buttons=[...document.querySelectorAll('.prompt-agent-canvas-plan')].at(-1)?.querySelectorAll('.prompt-agent-canvas-actions button');return [...(buttons||[])].some(button=>button.textContent===${JSON.stringify(label)}&&!button.disabled)})()`);
     await app.evaluate(`(()=>{const buttons=[...document.querySelectorAll('.prompt-agent-canvas-plan')].at(-1)?.querySelectorAll('.prompt-agent-canvas-actions button'),button=[...(buttons||[])].find(button=>button.textContent===${JSON.stringify(label)});if(!button)throw new Error('Missing plan action: '+${JSON.stringify(label)});button.click()})()`);
 }
@@ -111,47 +125,6 @@ test('two result slots with identical original bytes stage separately while repe
     });
 });
 
-test('the visible below-prompt optimization control prepares one explicit target and preserves that target, existing drafts and attachments across selection and unmounted parameters', { timeout: 45000 }, async () => {
-    await withAppBrowser({ ...configuration, nodes: [generateNode('target-a', 40, 80, { customTitle: '明确主图A' }), generateNode('target-b', 710, 80, { customTitle: '另一个目标B' })], connections: [] }, async app => {
-        await controlled(app); await open(app, 'target-a');
-        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-prompt-actions').contains(document.getElementById('target-a-assistant'))"), true);
-        const initialModels = await app.evaluate("['prompt-agent-model','prompt-agent-image-model'].map(id=>document.getElementById(id).value)");
-        await click(app, '#target-a-assistant');
-        await app.waitFor("document.getElementById('prompt-agent-panel').classList.contains('active')");
-        const prepared = await app.evaluate("document.getElementById('prompt-agent-input').value");
-        assert.match(prepared, /@明确主图A\[target-a\]/);
-        await click(app, '#target-a-assistant');
-        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), prepared);
-        assert.deepEqual(await app.evaluate("['prompt-agent-model','prompt-agent-image-model'].map(id=>document.getElementById(id).value)"), initialModels);
-        assert.equal(await app.evaluate('agentWorkflowRequests.length'), 0);
-        await open(app, 'target-b');
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]').click()");
-        assert.equal(await app.evaluate("document.getElementById('target-a-assistant').checkVisibility()"), false, 'the original A form is now parked outside the visible parameter window');
-        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), prepared);
-        await chooseModel(app, 'chat', 'chat');
-        await app.evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
-        await app.waitFor("agentWorkflowRequests.length===1&&document.getElementById('prompt-agent-cancel').hidden");
-        const input = await chatInput(app);
-        assert.equal(input.currentNode.nodeId, 'target-a', 'the actual request follows the explicit token rather than the newly selected B');
-        assert.match(input.userRequest, /\[target-a\]/);
-        assert.ok(!input.userRequest.includes('[target-b]'));
-        assert.equal(input.currentNode.prompt, 'target-a local draft');
-        await change(app, 'prompt-agent-input', 'preserve this existing assistant draft');
-        await attach(app);
-        const before = await saved(app), attached = await app.evaluate("document.querySelector('#prompt-agent-references img').src");
-        await open(app, 'target-a'); await click(app, '#target-a-assistant');
-        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), 'preserve this existing assistant draft\n@明确主图A[target-a] ');
-        assert.equal(await app.evaluate("document.querySelector('#prompt-agent-references img').src"), attached);
-        await change(app, 'prompt-agent-input', ''); await click(app, '#target-a-assistant');
-        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), '@明确主图A[target-a] ', 'the explicit target is inserted without replacing attachments or drafting another request');
-        const after = await saved(app);
-        assert.deepEqual(after.connections, before.connections);
-        assert.deepEqual(after.nodes.map(node => [node.id, node.prompt]), before.nodes.map(node => [node.id, node.prompt]));
-        assert.equal(await app.evaluate("document.getElementById('prompt-agent-image-model').value"), '');
-        assert.equal(await app.evaluate('agentWorkflowRequests.length'), 1);
-    });
-});
-
 test('mixed legacy and canonical full-batch references preserve slot identities and exact edges through apply, undo, retry, regeneration, reload and stale rejection', { timeout: 90000 }, async () => {
     const connections = [
         { id: 'canonical-edge', from: { nodeId: 'canonical-source', port: 'image', extension: { side: 'from-B' } }, to: { nodeId: 'target', port: 'referenceImages', extension: { side: 'to-B' } }, type: 'image', order: 44, extension: { keep: ['B', 2] } },
@@ -179,7 +152,7 @@ test('mixed legacy and canonical full-batch references preserve slot identities 
         assert.deepEqual(original.connections, canonicalConnections);
         assert.equal(keys('legacy-source')[0], keys('legacy-source')[2]);
         assert.equal(keys('canonical-source')[1], keys('legacy-source')[0]);
-        await open(app, 'target'); await click(app, '#target-assistant');
+        await open(app, 'target'); await openAgent(app, 'target');
         await chooseModel(app, 'chat', 'chat');
         await change(app, 'prompt-agent-input', '@混合来源目标[target] 优化提示词并保留全部参考来源及其顺序');
         await open(app, 'unrelated');
@@ -269,7 +242,7 @@ test('optimization previews and changes the real Text prompt source while derive
         await withAppBrowser({ ...configuration, nodes: [source, generateNode('target', 430, 90, { customTitle: '真实输入目标', prompt: 'ineffective local draft' }), generateNode('unrelated', 900, 90)], connections: [connection] }, async app => {
             await controlled(app, reply); await open(app, 'target');
             assert.equal(await app.evaluate("document.getElementById('target-prompt').readOnly"), true);
-            await click(app, '#target-assistant');
+            await openAgent(app, 'target', type === 'Text' ? ['prompt-source'] : []);
             const draft = await app.evaluate("document.getElementById('prompt-agent-input').value"), before = await saved(app), originalSource = before.nodes.find(node => node.id === source.id);
             assert.match(draft, /\[target\]/);
             if (type === 'Text') {
@@ -341,7 +314,7 @@ test('an explicit request can atomically disconnect the prompt source and use a 
         generateNode('switch-target', 430, 100, { customTitle: '切换目标', prompt: 'old local draft retained behind input' })
     ], connections: [edge] }, async app => {
         await controlled(app, reply); await open(app, 'switch-target');
-        await click(app, '#switch-target-assistant');
+        await openAgent(app, 'switch-target');
         await change(app, 'prompt-agent-input', '断开提示词输入 @切换目标[switch-target]，改用本地提示词');
         await chooseModel(app, 'chat', 'chat');
         await app.evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
@@ -391,7 +364,7 @@ test('editing prompt prose cannot authorize an Agent proposal to disconnect its 
         ], connections: [edge] }, async app => {
             await controlled(app, reply); await open(app, 'target');
             const before = await saved(app);
-            await click(app, '#target-assistant'); await chooseModel(app, 'chat', 'chat');
+            await openAgent(app, 'target'); await chooseModel(app, 'chat', 'chat');
             await change(app, 'prompt-agent-input', '@输入目标[target] ' + request);
             await app.evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
             await app.waitFor("agentWorkflowRequests.filter(request=>request.messages).length===1&&document.getElementById('prompt-agent-cancel').hidden");

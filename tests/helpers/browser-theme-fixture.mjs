@@ -20,7 +20,7 @@ const isolatedServerLauncher = `
 import sys
 from backend import main
 main.initialize_runtime()
-with main.create_server(port=int(sys.argv[1])) as server:
+with main.create_server(host="127.0.0.1", port=int(sys.argv[1])) as server:
     main.config.PORT = server.server_address[1]
     main.print_banner()
     server.serve_forever()
@@ -40,7 +40,7 @@ export async function startCainflowServer({ session = null, repoDirectory = repo
         let startupLog = '', startupError;
         child = spawn(python, ['-u', '-c', isolatedServerLauncher, String(port)], {
             cwd: repoDirectory,
-            env: { ...process.env, PYTHONUNBUFFERED: '1', CAINFLOW_DATA_DIR: dataDir, CAINFLOW_EXPORTS_DIR: join(dataDir, 'exports'), CAINFLOW_WORKFLOWS_DIR: workflowsDir, CAINFLOW_SKIP_BROWSER_AUTO_OPEN: '1' },
+            env: { ...process.env, NO_PROXY: [process.env.NO_PROXY, '127.0.0.1,localhost,::1'].filter(Boolean).join(','), no_proxy: [process.env.no_proxy, '127.0.0.1,localhost,::1'].filter(Boolean).join(','), PYTHONUNBUFFERED: '1', CAINFLOW_DATA_DIR: dataDir, CAINFLOW_EXPORTS_DIR: join(dataDir, 'exports'), CAINFLOW_WORKFLOWS_DIR: workflowsDir, CAINFLOW_SKIP_BROWSER_AUTO_OPEN: '1' },
             stdio: ['ignore', 'pipe', 'pipe']
         });
         const backendProcess = child;
@@ -200,7 +200,7 @@ export function verifyScreenshotMatrix({ fixtureUrl, baselineDirectoryUrl, profi
             const url = new URL(fixtureUrl);
             url.searchParams.set('theme', themeId);
             const result = spawnSync(chromePath, [
-                '--headless=new', '--disable-gpu', '--no-sandbox', '--disable-extensions',
+                '--headless=new', '--no-proxy-server', '--disable-gpu', '--no-sandbox', '--disable-extensions',
                 `--user-data-dir=${join(outputDir, `profile-${themeId}`)}`,
                 `--window-size=${windowSize}`, '--virtual-time-budget=1000',
                 `--screenshot=${screenshotPath}`, url.href,
@@ -224,7 +224,7 @@ export function renderComputedFixture(fixtureUrl, profilePrefix, windowSize = ''
     const profile = mkdtempSync(join(tmpdir(), profilePrefix));
     try {
         const sizeArg = windowSize ? [`--window-size=${windowSize}`] : [];
-        const result = spawnSync(chromePath, ['--headless=new', '--disable-gpu', '--no-sandbox', '--disable-extensions', ...sizeArg, `--user-data-dir=${profile}`, '--virtual-time-budget=1000', '--dump-dom', fixtureUrl.href], { encoding: 'utf8', timeout: 15000 });
+        const result = spawnSync(chromePath, ['--headless=new', '--no-proxy-server', '--disable-gpu', '--no-sandbox', '--disable-extensions', ...sizeArg, `--user-data-dir=${profile}`, '--virtual-time-budget=1000', '--dump-dom', fixtureUrl.href], { encoding: 'utf8', timeout: 15000 });
         assert.equal(result.status, 0, result.stderr);
         const match = result.stdout.match(/<pre id="surface-result">([^<]+)<\/pre>/);
         assert.ok(match, 'fixture must publish computed styles');
@@ -236,6 +236,20 @@ export function renderComputedFixture(fixtureUrl, profilePrefix, windowSize = ''
 }
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+async function removeClosedBrowserProfile(profile) {
+    assert.ok(resolve(profile).startsWith(resolve(tmpdir()) + sep), 'only an isolated temporary browser profile may be removed');
+    // Chrome subprocesses can release profile handles after the main process
+    // exits on Windows. Retry only transient filesystem locks, then fail loudly.
+    for (let attempt = 0; ; attempt += 1) {
+        try { rmSync(profile, { recursive: true, force: true }); return; }
+        catch (error) {
+            if (attempt >= 40 || !['EPERM', 'EBUSY', 'ENOTEMPTY', 'EACCES'].includes(error.code)) throw error;
+            await delay(100);
+        }
+    }
+}
+
 
 async function connectToPage(port, expectedUrl) {
     for (let attempt = 0; attempt < 80; attempt += 1) {
@@ -287,7 +301,7 @@ export async function renderComputedFixtureAtViewport(fixtureUrl, profilePrefix,
     const profile = mkdtempSync(join(tmpdir(), profilePrefix));
     const port = 20000 + Math.floor(Math.random() * 20000);
     const browser = spawn(chromePath, [
-        '--headless=new', '--disable-gpu', '--no-sandbox', '--disable-extensions',
+        '--headless=new', '--no-proxy-server', '--disable-gpu', '--no-sandbox', '--disable-extensions',
         `--user-data-dir=${profile}`, `--remote-debugging-port=${port}`, fixtureUrl.href,
     ], { stdio: 'ignore' });
     let client;
@@ -314,8 +328,7 @@ export async function renderComputedFixtureAtViewport(fixtureUrl, profilePrefix,
         client?.close();
         if (browser.exitCode === null && browser.signalCode === null) browser.kill();
         await new Promise((resolve) => browser.exitCode !== null || browser.signalCode !== null ? resolve() : browser.once('exit', resolve));
-        assert.ok(resolve(profile).startsWith(resolve(tmpdir()) + sep));
-        rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+        await removeClosedBrowserProfile(profile);
     }
 }
 
@@ -324,7 +337,7 @@ export async function renderHoveredFixture(fixtureUrl, profilePrefix) {
     const profile = mkdtempSync(join(tmpdir(), profilePrefix));
     const port = 20000 + Math.floor(Math.random() * 20000);
     const browser = spawn(chromePath, [
-        '--headless=new', '--disable-gpu', '--no-sandbox', '--disable-extensions',
+        '--headless=new', '--no-proxy-server', '--disable-gpu', '--no-sandbox', '--disable-extensions',
         `--user-data-dir=${profile}`, `--remote-debugging-port=${port}`, '--window-size=1280,960', fixtureUrl.href,
     ], { stdio: 'ignore' });
     let client;
@@ -353,7 +366,6 @@ export async function renderHoveredFixture(fixtureUrl, profilePrefix) {
         client?.close();
         if (browser.exitCode === null && browser.signalCode === null) browser.kill();
         await new Promise((resolve) => browser.exitCode !== null || browser.signalCode !== null ? resolve() : browser.once('exit', resolve));
-        assert.ok(resolve(profile).startsWith(resolve(tmpdir()) + sep));
-        rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+        await removeClosedBrowserProfile(profile);
     }
 }

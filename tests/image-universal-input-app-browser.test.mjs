@@ -33,8 +33,10 @@ const session = {
 async function openInputs(app) {
     await app.evaluate("document.querySelector('#target .image-first-placeholder').click()");
     await app.waitFor("document.getElementById('image-parameter-panel')?.dataset.nodeId==='target' && !document.getElementById('image-parameter-panel').hidden");
-    await app.evaluate("(()=>{const toggle=document.querySelector('#image-parameter-panel [data-parameter-group-toggle=reference]');if(toggle.getAttribute('aria-expanded')!=='true')toggle.click()})()");
-    await app.waitFor("document.querySelector('#image-parameter-panel [data-parameter-group=reference]')?.hidden===false");
+    await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+    await app.evaluate("(()=>{const toggle=document.querySelector('#image-parameter-panel [data-parameter-group-toggle=reference]');if(!document.querySelector('#image-parameter-panel .image-parameter-settings-popup').matches(':popover-open')||toggle.getAttribute('aria-expanded')!=='true')toggle.click()})()");
+    await app.waitFor("document.querySelector('#image-parameter-panel [data-parameter-group=reference]')?.checkVisibility()===true");
+    await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
 }
 
 async function generateSources(app, sources) {
@@ -60,7 +62,7 @@ test('generation has one visible input and compact reference controls preserve a
         assert.equal(await app.evaluate("document.querySelectorAll('#target .node-port[data-direction=input]:not([data-port=auto])').length"), 5,
             'canonical inputs stay available for existing logical endpoint adapters');
         assert.ok(await app.evaluate("[...document.querySelectorAll('.image-first-card .node-port')].filter(p=>p.getClientRects().length).every(p=>getComputedStyle(p.querySelector('.port-label')).display==='none'&&p.title&&p.getAttribute('aria-label')&&p.querySelector('.port-dot').getClientRects().length)"), 'image ports keep their dots and accessible hover names without visible labels');
-        assert.notEqual(await app.evaluate("getComputedStyle(document.querySelector('#words .port-label')).display"), 'none', 'text ports retain their labels');
+        assert.equal(await app.evaluate("getComputedStyle(document.querySelector('#words .port-label')).display"), 'none', 'text ports hide labels under the shared node style');
         assert.equal(await app.evaluate("(()=>{const p=document.querySelector('#target .universal-input');p.removeAttribute('title');p.dispatchEvent(new Event('pointerenter'));return p.title===p.getAttribute('aria-label')})()"), true, 'hover restores its normal hint after an execution-error hint was cleared');
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#untouched .node-port[data-direction=input]')].filter(port=>port.dataset.port!=='auto').map(port=>port.dataset.port)"), ['imageA', 'imageB'],
             'the migrated comparison card retains both canonical logical inputs');

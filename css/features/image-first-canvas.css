@@ -968,3 +968,22 @@ html:root #canvas-container .node.node-text .text-multi-nav:not(.hidden) { paddi
 }
 #canvas-container .node.node-text:not(.is-text-editing) .node-field-expand { cursor: grab; }
 #canvas-container .node.node-text.is-text-editing textarea { pointer-events: auto; user-select: text; caret-color: var(--text-primary); cursor: text; }
+
+/* Prompt above, one compact action row below. */
+.image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex: 1 1 auto; min-width: 0; }
+.image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-model-entry { width: auto; flex: 0 1 190px; min-width: 80px; min-height: 32px; padding: 5px 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; }
+.image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer { gap: 8px; padding: 10px 12px; }
+.image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer > .save-btn[data-parameter-action="generate"] { min-width: 64px; min-height: 32px; font-size: 13px; }
+.image-parameter-settings-entry { padding: 5px 10px; border: 1px solid var(--border-input); border-radius: 6px; background: var(--bg-input); color: var(--text-primary); font: inherit; cursor: pointer; }
+.image-parameter-settings-popup { position: fixed; inset: auto; margin: 0; padding: 12px; box-sizing: border-box; overflow: auto; border: 1px solid var(--border-color); border-radius: 10px; background: var(--surface-panel-strong, var(--panel-bg)); color: var(--text-primary); box-shadow: var(--panel-shadow-strong); }
+.image-parameter-settings-popup:not(:popover-open) { display: none; }
+.image-parameter-settings-popup:popover-open { display: flex; flex-direction: column; gap: 12px; }
+.image-parameter-settings-popup .image-parameter-setting-bar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.image-parameter-settings-popup .image-parameter-count-slot { display: block; }
+.image-parameter-settings-popup .image-parameter-count-control { display: flex; align-items: center; gap: 6px; }
+.image-parameter-settings-popup .image-parameter-count-control input { width: 48px; }
+.image-parameter-settings-popup [hidden] { display: none; }
+@media (max-width: 480px) { .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-model-entry { flex-basis: 140px; } }
+.image-parameter-settings-popup .node-field.image-parameter-count-control { flex-direction: row; justify-content: flex-end; }
+.image-parameter-settings-popup .image-parameter-count-control label { margin: 0 auto 0 0; }
+.image-parameter-panel .image-node-prompt-field textarea { resize: none; }

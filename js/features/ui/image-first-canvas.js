@@ -165,27 +165,40 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (!prompt?.getClientRects().length) return;
         let sizing = promptSizing.get(prompt);
         if (!sizing) {
-            sizing = { manual: !!prompt.style.height, autoHeight: '', key: '' };
+            sizing = { key: '' };
             promptSizing.set(prompt, sizing);
         }
-        if (sizing.autoHeight && prompt.style.height !== sizing.autoHeight) sizing.manual = true;
-        if (sizing.manual) return;
-        const compactHeight = windowRef.innerHeight <= 540;
-        const key = `${expanded}\n${compactHeight}\n${panel.style.width}\n${prompt.value}`;
+        const key = `${panel.style.width}\n${prompt.value}`;
         if (sizing.key === key) return;
         sizing.key = key;
         const style = windowRef.getComputedStyle(prompt);
         const line = Number.parseFloat(style.lineHeight) || 21;
         const padding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
         const border = Number.parseFloat(style.borderTopWidth) + Number.parseFloat(style.borderBottomWidth);
-        prompt.style.height = 'auto';
-        const height = Math.min(line * (compactHeight ? 4 : expanded ? 14 : 8) + padding + border,
-            Math.max(line * (compactHeight ? 3 : expanded ? 8 : 5) + padding + border, prompt.scrollHeight + border));
-        sizing.autoHeight = `${Math.ceil(height)}px`;
-        prompt.style.height = sizing.autoHeight;
+        // Collapse before measuring: height:auto retains the textarea's rows
+        // intrinsic height and would prevent shrinking to two lines.
+        prompt.style.height = '0px';
+        const height = Math.min(line * 6 + padding + border,
+            Math.max(line * 2 + padding + border, prompt.scrollHeight + border));
+        prompt.style.height = `${Math.ceil(height)}px`;
+        prompt.style.overflowY = prompt.scrollHeight > prompt.clientHeight ? 'auto' : 'hidden';
     }
 
     function position() {
+        positionPanel();
+        positionSettingsPopup();
+    }
+    function positionSettingsPopup() {
+        const popup = views.get(current)?.settingsPopup;
+        if (!popup?.matches(':popover-open')) return;
+        const rect = footer.getBoundingClientRect();
+        const bottom = Math.min(rect.top - 6, windowRef.innerHeight - 12);
+        popup.style.width = `${Math.max(0, Math.min(panel.offsetWidth - 24, windowRef.innerWidth - 24))}px`;
+        popup.style.maxHeight = `${Math.max(0, bottom - 12)}px`;
+        popup.style.left = `${clamp(rect.left + 12, 12, Math.max(12, windowRef.innerWidth - popup.offsetWidth - 12))}px`;
+        popup.style.top = `${Math.max(12, bottom - popup.offsetHeight)}px`;
+    }
+    function positionPanel() {
         if (panel.hidden || !current?.el?.isConnected) return;
         const name = current.customTitle || current.el.dataset.nodeTitle || nodeLabels[current.type] || current.type;
         const panelTitle = panel.querySelector('.image-parameter-title');
@@ -269,7 +282,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         preserveOrdinaryAnchor = false;
         if (header.parentNode !== panel) panel.prepend(header);
         if (current?.parameterRoot) {
-            const countField = views.get(current)?.countField;
+            const currentView = views.get(current);
+            currentView?.settingsPopup?.hidePopover?.();
+            if (currentView?.footerTools) current.parameterRoot.append(currentView.footerTools);
+            const countField = currentView?.countField;
             if (countField) { current.parameterRoot.append(countField); countField.hidden = true; }
             panel.append(footer);
             store.append(current.parameterRoot);
@@ -307,7 +323,9 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     function setGroup(node, group) {
         const view = views.get(node);
         if (!view) return;
-        view.group = view.group === group ? null : group;
+        // A submenu entry selects a page; closing the popup must not turn the
+        // next activation of that same page into an empty menu.
+        view.group = view.settingsPopup ? group : view.group === group ? null : group;
         for (const section of view.sections) {
             section.hidden = section.dataset.parameterGroup !== view.group;
             if (section.tagName === 'DETAILS') section.open = !section.hidden;
@@ -315,6 +333,12 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         view.form.querySelectorAll('[data-parameter-group-toggle]').forEach(button => {
             button.setAttribute('aria-expanded', String(button.dataset.parameterGroupToggle === view.group));
         });
+        for (const [name, button] of view.groupButtons || []) button.setAttribute('aria-expanded', String(name === view.group));
+        if (view.settingsPopup && current === node) {
+            view.settingsPopup.showPopover();
+            surfaces?.openPopover?.(view.settingsPopup.id, { element: view.settingsPopup, trigger: group === 'model' ? view.groupButtons.get('model') : view.settingsEntry, owner: panel, close: () => view.settingsPopup.hidePopover() });
+            positionSettingsPopup();
+        }
         schedulePosition();
     }
     function setText(element, text) {
@@ -338,9 +362,18 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             const settings = readImageGenerationSettings(node, documentRef);
             const model = state.models.find(item => item.id === settings.apiConfigId);
             const { count } = projectImageReferences({ state, targetId: node.id });
+            const automaticLabel = value => !value || value === 'auto' ? '自动' : value;
+            const resolutionLabel = settings.resolution === 'custom'
+                ? `${settings.customWidth || '自动'} × ${settings.customHeight || '自动'}`
+                : automaticLabel(settings.resolution);
+            const sizeSummary = `${automaticLabel(settings.aspect)} · ${resolutionLabel}`;
+            if (view.settingsEntry) {
+                setText(view.settingsEntry, sizeSummary);
+                view.settingsEntry.title = `比例与分辨率：${sizeSummary}`;
+            }
             for (const [group, button] of view.groupButtons || []) {
                 const text = group === 'model' ? `模型 · ${model?.name || model?.modelId || '选择模型'}`
-                    : group === 'size' ? `${settings.aspect || '自动'} · ${settings.resolution || '自动'}`
+                    : group === 'size' ? sizeSummary
                         : group === 'reference' ? `参考 ${count}` : '更多参数';
                 setText(button, text);
                 if (button.title !== text) button.title = text;
@@ -433,12 +466,16 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             if (view.countField.parentNode !== countSlot) countSlot.append(view.countField);
             view.countField.hidden = false;
         }
+        if (view.footerTools) {
+            footer.insertBefore(view.footerTools, generate);
+            view.settingsPopup.append(countSlot);
+        } else footer.insertBefore(countSlot, generate);
         panel.dataset.nodeType = node.type;
         panel.hidden = false;
         panel.setAttribute('aria-hidden', 'false'); panel.inert = false;
         panel.dataset.nodeId = node.id;
         panel.setAttribute('aria-label', `${node.el.dataset.nodeTitle || node.customTitle || nodeLabels[node.type]} · 节点参数浮层`);
-        if (group) { const view = views.get(node); if (view.group !== group) setGroup(node, group); }
+        if (group) { const view = views.get(node); if (view.group !== group || view.settingsPopup && !view.settingsPopup.matches(':popover-open')) setGroup(node, group); }
         refreshNode(node.id);
         position();
         surfaces?.bringToFront?.(panel); updateSwitcher();
@@ -525,7 +562,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         observer.observe(node.el, { attributes: true, attributeOldValue: true, attributeFilter: ['style','class','data-node-title'] });
         view.observer = observer;
         views.set(node, view); store.append(form);
-        node.onImageFirstSelect = () => select(node);
+        node.onImageFirstSelect = group => select(node, group);
         form.addEventListener('mousedown', event => event.stopPropagation());
         form.addEventListener('input', () => { refreshNode(node.id); onSettingsChanged(node.id); });
         form.addEventListener('change', () => { refreshNode(node.id); onSettingsChanged(node.id); });
@@ -624,7 +661,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const bar = documentRef.createElement('div'); bar.className = 'image-parameter-setting-bar';
         for (const [name, label] of [['settings', node.type === 'ImageResize' ? '缩放设置' : '颜色设置'], ['input', '输入']]) {
             const button = documentRef.createElement('button'); button.type = 'button'; button.textContent = label;
-            button.dataset.parameterGroupToggle = name; button.setAttribute('aria-expanded', String(name === 'settings'));
+            button.dataset.nodeReadAction = 'true'; button.dataset.parameterGroupToggle = name; button.setAttribute('aria-expanded', String(name === 'settings'));
             button.addEventListener('click', () => setGroup(node, name)); bar.append(button);
         }
         form.prepend(bar);
@@ -677,17 +714,49 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const groupButtons = new Map();
         for (const [name, label] of [['reference','参考图'],['model','模型 / 供应商'],['size','尺寸 / 质量'],['advanced','更多参数']]) {
             const button = documentRef.createElement('button'); button.type = 'button'; button.textContent = label;
-            button.dataset.parameterGroupToggle = name; button.setAttribute('aria-expanded', 'false');
-            button.addEventListener('click', () => setGroup(node, name)); bar.append(button);
+            button.dataset.nodeReadAction = 'true'; button.dataset.parameterGroupToggle = name; button.setAttribute('aria-expanded', 'false');
+            button.addEventListener('click', () => {
+                const view = views.get(node);
+                if (name === 'model' && view?.group === 'model' && view.settingsPopup?.matches(':popover-open')) view.settingsPopup.hidePopover();
+                else setGroup(node, name);
+            }); bar.append(button);
             groupButtons.set(name, button);
         }
         const promptField = form.querySelector('.image-node-prompt-field');
         const promptActions = promptField?.querySelector('.image-prompt-actions');
+        promptActions?.remove();
+        promptField?.querySelector('label')?.remove();
+        promptField?.querySelector('textarea')?.setAttribute('aria-label', '提示词');
         const modelEntry = groupButtons.get('model');
         modelEntry.classList.add('image-parameter-model-entry');
-        if (promptField && promptActions) promptField.after(promptActions);
-        // Prompt editing leads; every configuration entry and its details follow below.
-        form.append(modelEntry, bar, ...sections);
+        const settingsPopup = documentRef.createElement('div');
+        settingsPopup.className = 'image-parameter-settings-popup';
+        settingsPopup.id = `${node.id}-parameter-settings`;
+        // The coordinator owns outside-click/Escape dismissal. Native auto
+        // dismissal would close before the trigger's click handler can toggle.
+        settingsPopup.setAttribute('popover', 'manual');
+        settingsPopup.setAttribute('aria-label', '生成参数');
+        settingsPopup.append(bar, ...sections);
+        const settingsEntry = documentRef.createElement('button');
+        settingsEntry.type = 'button';
+        settingsEntry.className = 'image-parameter-settings-entry';
+        settingsEntry.textContent = '参数';
+        settingsEntry.setAttribute('aria-controls', settingsPopup.id);
+        settingsEntry.setAttribute('aria-expanded', 'false');
+        settingsEntry.addEventListener('click', () => {
+            if (settingsPopup.matches(':popover-open')) settingsPopup.hidePopover();
+            else setGroup(node, 'size');
+        });
+        settingsPopup.addEventListener('toggle', () => {
+            const visible = settingsPopup.matches(':popover-open');
+            settingsEntry.setAttribute('aria-expanded', String(visible));
+            modelEntry.setAttribute('aria-expanded', String(visible && views.get(node)?.group === 'model'));
+            if (!visible) surfaces?.forgetPopover?.(settingsPopup.id);
+        });
+        const footerTools = documentRef.createElement('div');
+        footerTools.className = 'image-parameter-footer-tools';
+        footerTools.append(settingsEntry, modelEntry);
+        form.append(settingsPopup, footerTools);
         const placeholder = documentRef.createElement('div'); placeholder.className = 'image-first-placeholder';
         const emptyText = documentRef.createElement('span');
         placeholder.append(emptyText); body.prepend(placeholder);
@@ -697,8 +766,6 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const runFeedback = documentRef.createElement('div'); runFeedback.className = 'image-parameter-run-feedback';
         runFeedback.setAttribute('aria-label', '本轮生成状态');
         if (runState) runFeedback.append(runState);
-        const dirty = documentRef.createElement('span'); dirty.dataset.imageGenerationDirty = '';
-        dirty.textContent = '设置待生成'; dirty.hidden = true;
         const failureSummary = node.el.querySelector('.node-failure-summary');
         if (failureSummary) runFeedback.append(failureSummary);
         const failureDetails = documentRef.createElement('button'); failureDetails.type = 'button';
@@ -710,8 +777,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const fullError = body.querySelector(`[id="${nodeId}-error"]`);
         if (fullError) { fullError.tabIndex = 0; fullError.setAttribute('aria-label', '完整运行错误'); form.append(fullError); }
         body.append(placeholder, result);
-        form.append(dirty, runFeedback);
-        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, emptyText, result, countField, groupButtons, group: null }, [result, progress]);
+        form.append(runFeedback);
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, emptyText, result, countField, groupButtons, settingsPopup, settingsEntry, footerTools, group: null }, [result, progress]);
     }
     updateMode(); updateSwitcher();
     surfaces?.registerModeless?.(panel, { close: () => close(), isOpen: () => !panel.hidden, opener: () => returnFocusElement });
