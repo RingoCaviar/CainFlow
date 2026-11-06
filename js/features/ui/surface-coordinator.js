@@ -161,7 +161,7 @@ export function getSurfaceCoordinator(documentRef) {
             event.preventDefault(); event.stopImmediatePropagation();
             suppressClick = true;
         } else if (popovers.size && ![...popovers.values()].some(entry => entry.element.contains(event.target)
-            || (entry.trigger?.matches('button, [aria-expanded], [data-submenu-target]') && entry.trigger.contains(event.target)))) {
+            || [entry.trigger, ...entry.relatedTriggers].some(trigger => trigger?.matches('button, [aria-expanded], [data-submenu-target]') && trigger.contains(event.target)))) {
             closePopovers();
             event.preventDefault(); event.stopImmediatePropagation(); suppressClick = true;
         } else if (!top) {
@@ -212,7 +212,7 @@ export function getSurfaceCoordinator(documentRef) {
             if (opener && visible(opener) && !opener.closest('[inert]')) opener.focus({ preventScroll: true });
         },
         registerEscape(element, handler) { escapeHandlers.set(element, handler); return () => escapeHandlers.delete(element); },
-        openPopover(id, { element, trigger, owner = null, parent = null, close }) {
+        openPopover(id, { element, trigger, relatedTriggers = [], owner = null, parent = null, close }) {
             refresh();
             owner ||= popovers.get(parent)?.owner || trigger?.closest(MODALS)
                 || modelessStack().findLast(([element]) => trigger && element.contains(trigger))?.[0] || null;
@@ -222,7 +222,7 @@ export function getSurfaceCoordinator(documentRef) {
             for (const [otherId, other] of [...popovers]) {
                 if (otherId !== parent && other.parent !== id && otherId !== id) closePopover(otherId);
             }
-            popovers.set(id, { element, trigger, owner, parent, close, zIndex: popovers.get(id)?.zIndex ?? element.style.zIndex });
+            popovers.set(id, { element, trigger, relatedTriggers, owner, parent, close, zIndex: popovers.get(id)?.zIndex ?? element.style.zIndex });
             refresh();
         },
         forgetPopover(id) {

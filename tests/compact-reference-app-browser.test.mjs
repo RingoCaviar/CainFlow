@@ -29,7 +29,7 @@ async function openReferences(app) {
     await app.evaluate("document.querySelector('#target .image-first-placeholder').click()");
     await app.waitFor("document.getElementById('image-parameter-panel')?.dataset.nodeId==='target' && !document.getElementById('image-parameter-panel').hidden");
     await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
-    await app.evaluate("(()=>{const toggle=document.querySelector('#image-parameter-panel [data-parameter-group-toggle=reference]');if(!document.querySelector('#image-parameter-panel .image-parameter-settings-popup').matches(':popover-open')||toggle.getAttribute('aria-expanded')!=='true')toggle.click()})()");
+    await app.evaluate("(()=>{const toggle=document.querySelector('#image-parameter-panel [data-parameter-group-toggle=more]');if(!document.querySelector('#image-parameter-panel .image-parameter-settings-popup').matches(':popover-open')||toggle.getAttribute('aria-expanded')!=='true')toggle.click()})()");
     await app.waitFor("document.querySelector('#image-parameter-panel [data-parameter-group=reference]')?.checkVisibility()===true");
     await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
 }
@@ -47,14 +47,15 @@ async function populateSources(app) {
     }
 }
 
-test('reference gallery shares rows for single sources, spans complete batches, without redundant source details', { timeout: 60000 }, async () => {
+test('reference gallery uses square thumbnails with overlay numbers and preserves complete source batches', { timeout: 60000 }, async () => {
     await withAppBrowser(session, async app => {
         await populateSources(app);
         await openReferences(app);
-        const layout = await app.evaluate("(()=>{const gallery=document.querySelector('#target-reference-sources .image-reference-grid'),rows=[...gallery.querySelectorAll('.image-reference-group')];return {tops:rows.map(row=>row.offsetTop),widths:rows.map(row=>row.getBoundingClientRect().width),height:gallery.clientHeight,overflow:gallery.scrollWidth>gallery.clientWidth+1,slots:rows.map(row=>row.querySelectorAll('[data-source-image-index]').length),nodeHeight:document.getElementById('target').offsetHeight}})()");
-        assert.equal(layout.tops[0], layout.tops[1], 'single-image sources share a compact row');
-        assert.ok(layout.widths[2] > layout.widths[0] * 1.8, 'a multi-image source spans the gallery columns: '+JSON.stringify(layout));
-        assert.ok(layout.height <= 210);
+        const layout = await app.evaluate("(()=>{const gallery=document.querySelector('#target-reference-sources .image-reference-grid'),rows=[...gallery.querySelectorAll('.image-reference-group')],tiles=[...gallery.querySelectorAll('.image-reference-thumbnail')];return {tops:tiles.map(tile=>tile.getBoundingClientRect().top),height:gallery.clientHeight,overflow:gallery.scrollWidth>gallery.clientWidth+1,slots:rows.map(row=>row.querySelectorAll('[data-source-image-index]').length),nodeHeight:document.getElementById('target').offsetHeight}})()");
+        assert.equal(layout.tops[0], layout.tops[1], 'thumbnails share a compact grid row');
+        assert.equal(await app.evaluate("[...document.querySelectorAll('#target-reference-sources .image-reference-thumbnail')].every(tile=>{const r=tile.getBoundingClientRect(),n=tile.querySelector('.image-reference-number').getBoundingClientRect();return r.width===64&&r.height===64&&n.right<r.right&&n.bottom<r.bottom&&n.top>r.top+r.height/2})"), true, 'every thumbnail is square and its number floats inside the lower-right corner');
+        assert.equal(await app.evaluate("document.querySelectorAll('#target-reference-sources .image-reference-heading, #target-reference-sources .image-reference-tools, #target-reference-sources .image-reference-source-name').length"), 0, 'source names and toolbars do not take visible space');
+        assert.ok(layout.height <= 212);
         assert.equal(layout.overflow, false);
         assert.deepEqual(layout.slots, [1, 1, 6]);
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#target-reference-sources [data-reference-number]')].map(item=>item.dataset.referenceNumber)"), ['1', '2', '3', '4', '5', '6', '7', '8']);
@@ -62,12 +63,10 @@ test('reference gallery shares rows for single sources, spans complete batches, 
         assert.equal(await app.evaluate("document.querySelectorAll('#target-reference-sources .image-reference-details').length"), 0);
         assert.equal(await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.nodes.find(n=>n.id==='single-a').imageDescription)"), description, 'source descriptions are retained as data');
         await app.evaluate("document.querySelector('#image-parameter-panel [role=separator]').focus({preventScroll:true})");
-        for (let step = 0; step < 18; step += 1) {
-            await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowLeft', code: 'ArrowLeft' });
-            await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowLeft', code: 'ArrowLeft' });
-        }
-        assert.equal(await app.evaluate("(()=>{const gallery=document.querySelector('#target-reference-sources .image-reference-grid'),rows=[...gallery.querySelectorAll('.image-reference-group')];return rows[0].offsetTop!==rows[1].offsetTop&&gallery.scrollWidth<=gallery.clientWidth+1&&gallery.clientHeight<=210})()"), true,
-            'reducing the editor width reduces columns without overflowing or losing batch slots');
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Home', code: 'Home' });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Home', code: 'Home' });
+        assert.equal(await app.evaluate("(()=>{const gallery=document.querySelector('#target-reference-sources .image-reference-grid');return gallery.scrollWidth<=gallery.clientWidth+1&&gallery.clientHeight<=212})()"), true,
+            'reducing the editor width wraps square thumbnails without overflowing or losing batch slots');
         assert.equal(await app.evaluate("document.getElementById('target').offsetHeight"), layout.nodeHeight, 'gallery edits never change the image card height');
     });
 });
@@ -93,5 +92,53 @@ test('canvas source enable control preserves every edge and source position whil
         await reloadAppBrowser(app);
         await openReferences(app);
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#target-reference-sources [data-reference-number]')].map(item=>item.dataset.referenceNumber)"), ['1', '2', '3', '4', '5', '6', '7', '8']);
+    });
+});
+
+test('thumbnail hover actions and native drag reorder or disconnect a whole source with undo', { timeout: 60000 }, async () => {
+    await withAppBrowser(session, async app => {
+        await populateSources(app);
+        await openReferences(app);
+        const point = selector => app.evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+        const click = async position => {
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...position });
+            await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...position, button: 'left', clickCount: 1 });
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...position, button: 'left', clickCount: 1 });
+        };
+        const batchTile = '[data-reference-connection=edge-batch] .image-reference-thumbnail';
+        const close = '[data-reference-connection=edge-batch] .image-reference-disconnect';
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 5 });
+        assert.equal(await app.evaluate(`getComputedStyle(document.querySelector('${close}')).opacity`), '0', 'disconnect is hidden at rest');
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...await point(batchTile) });
+        assert.equal(await app.evaluate(`getComputedStyle(document.querySelector('${close}')).opacity`), '1', 'hover reveals the close button on the thumbnail');
+
+        let dragData;
+        const unsubscribe = app.onProtocolEvent(event => { if (event.method === 'Input.dragIntercepted') dragData = event.params.data; });
+        await app.send('Input.setInterceptDrags', { enabled: true });
+        try {
+            const start = await point(batchTile), end = await point('[data-reference-connection=edge-single-a] .image-reference-thumbnail');
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...start });
+            await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...start, button: 'left', clickCount: 1 });
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: start.x - 12, y: start.y, button: 'left', buttons: 1 });
+            await app.waitFor(() => Boolean(dragData));
+            for (const type of ['dragEnter', 'dragOver', 'drop']) await app.send('Input.dispatchDragEvent', { type, ...end, data: dragData });
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...end, button: 'left', clickCount: 1 });
+        } finally { unsubscribe(); await app.send('Input.setInterceptDrags', { enabled: false }); }
+        const order = () => app.evaluate("[...document.querySelectorAll('#target-reference-sources .image-reference-group')].map(group=>group.dataset.referenceConnection)");
+        assert.deepEqual(await order(), ['edge-batch', 'edge-single-a', 'edge-single-b'], 'dragging one thumbnail moves its complete source batch');
+        assert.deepEqual(await app.evaluate("[...document.querySelectorAll('[data-reference-connection=edge-batch] [data-reference-number]')].map(tile=>tile.dataset.referenceNumber)"), ['1', '2', '3', '4', '5', '6']);
+        assert.equal(await app.evaluate("document.querySelector('.fullscreen-overlay')===null"), true, 'dragging does not open the preview');
+
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...await point(batchTile) });
+        await click(await point(close));
+        assert.deepEqual(await order(), ['edge-single-a', 'edge-single-b']);
+        assert.equal(await app.evaluate("document.querySelector('.fullscreen-overlay')===null"), true, 'disconnect click does not bubble into preview');
+        await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(d=>!d.value.connections.some(c=>c.id==='edge-batch')&&d.value.connections.some(c=>c.id==='shared-batch')&&d.value.nodes.find(n=>n.id==='batch').mediaAssetKeys.length===6)");
+        await app.evaluate("document.getElementById('canvas-container').focus()");
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'z', code: 'KeyZ', modifiers: 2 });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'z', code: 'KeyZ' });
+        await app.waitFor("document.querySelectorAll('#target-reference-sources [data-reference-number]').length===8");
+        assert.deepEqual(await order(), ['edge-batch', 'edge-single-a', 'edge-single-b'], 'undo restores the batch and its prior order');
+        assert.equal(await app.evaluate('window.referenceGalleryRequests'), 8, 'sorting, disconnect and undo do not regenerate images');
     });
 });

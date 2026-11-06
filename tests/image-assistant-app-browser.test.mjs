@@ -72,7 +72,7 @@ async function openImageParameters(app, id) {
 async function openImageReferences(app, id = 'reference-target') {
     await openImageParameters(app, id);
     if (await app.evaluate("!document.querySelector('#image-parameter-panel [data-parameter-group=reference]').checkVisibility()"))
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=reference]').click()");
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=more]').click()");
 }
 
 async function createImage({ evaluate, waitFor }) {
@@ -150,19 +150,20 @@ test('content-first image card keeps common parameters aligned with the real req
     });
 });
 
-test('old image nodes retain coordinates, width and saved prompt height on reopen', { timeout: 30000 }, async () => {
+test('old image nodes retain coordinates and width while short prompts use two lines on reopen', { timeout: 30000 }, async () => {
     await withAppBrowser({ ...session, nodes: [{ id: 'old-image', type: 'ImageGenerate', x: 213, y: 187, width: 476,
         apiConfigId: 'image', providerId: 'p', prompt: 'saved local draft', textareaHeights: { prompt: 241 } }], connections: [] }, async ({ evaluate, waitFor, send }) => {
         await waitFor("Boolean(document.getElementById('old-image-prompt'))");
         await openImageParameters({ evaluate, waitFor }, 'old-image');
         const geometry = () => evaluate(`(()=>{const node=document.getElementById('old-image');return {x:node.style.left,y:node.style.top,width:node.offsetWidth,promptHeight:document.getElementById('old-image-prompt').offsetHeight}})()`);
-        assert.deepEqual(await geometry(), { x: '213px', y: '187px', width: 476, promptHeight: 69 });
+        const twoLineHeight = await evaluate("(()=>{const s=getComputedStyle(document.getElementById('old-image-prompt'));return Math.ceil(parseFloat(s.lineHeight)*2+parseFloat(s.paddingTop)+parseFloat(s.paddingBottom)+parseFloat(s.borderTopWidth)+parseFloat(s.borderBottomWidth))})()");
+        assert.deepEqual(await geometry(), { x: '213px', y: '187px', width: 476, promptHeight: twoLineHeight });
         await change(evaluate, 'old-image-prompt', 'edited local draft');
         await delay(1000);
         await reloadApp({ evaluate, send, waitFor });
         await waitFor("Boolean(document.getElementById('old-image-prompt'))");
         await openImageParameters({ evaluate, waitFor }, 'old-image');
-        assert.deepEqual(await geometry(), { x: '213px', y: '187px', width: 476, promptHeight: 69 });
+        assert.deepEqual(await geometry(), { x: '213px', y: '187px', width: 476, promptHeight: twoLineHeight });
     });
 });
 
@@ -236,8 +237,7 @@ test('reference overview retains ordered source batches and empty sources, with 
         await openImageReferences(app);
         await waitFor("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length===3");
         assert.deepEqual(await evaluate("[...document.querySelectorAll('#reference-target-reference-sources [data-reference-number]')].map(el=>el.dataset.referenceNumber)"), ['1','2','3','4','5']);
-        assert.match(await evaluate("document.getElementById('reference-target-reference-sources').textContent"), /待产出 · 0 张/);
-        await evaluate("document.querySelector('#reference-target-reference-sources .image-reference-expand').click()");
+        assert.match(await evaluate("document.querySelector('[data-reference-connection=edge-source-empty]').getAttribute('aria-label')"), /待产出 · 0 张/);
         assert.deepEqual(await evaluate("[...document.querySelectorAll('#reference-target-reference-sources [data-reference-number]')].map(el=>el.dataset.referenceNumber)"), ['1','2','3','4','5']);
         assert.equal(await evaluate("document.querySelector('#reference-target-reference-sources [data-reference-number=\"4\"]').disabled"), false, 'available original can be previewed');
         await evaluate("document.querySelector('#reference-target-reference-sources [data-reference-number=\"4\"]').click()");
@@ -251,7 +251,7 @@ test('reference overview retains ordered source batches and empty sources, with 
         await waitFor("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length===3");
         assert.deepEqual(await evaluate("[...document.querySelectorAll('#reference-target-reference-sources [data-reference-number]')].map(el=>el.dataset.referenceNumber)"), ['1','2','3','4','5']);
         assert.equal(await evaluate('imageRequests.length'), 0, 'reopening the overview does not generate sources');
-        await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-locate').click()");
+        await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-thumbnail').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',altKey:true,bubbles:true,cancelable:true}))");
         assert.equal(await evaluate("document.getElementById('source-b').classList.contains('selected')"), true);
     });
 });
@@ -262,8 +262,8 @@ test('reference source moves survive reload, reach the real request, and disconn
         await generateReferenceSources(app);
         await openImageReferences(app);
         await change(evaluate, 'reference-target-apiconfig', 'google');
-        assert.ok(await evaluate("Boolean(document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-move-up'))"), 'source has an accessible move action');
-        await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-move-up').click()");
+        assert.ok(await evaluate("Boolean(document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-thumbnail'))"), 'source has an accessible move action');
+        await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-thumbnail').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',altKey:true,bubbles:true,cancelable:true}))");
         const order = () => evaluate("[...document.querySelectorAll('#reference-target-reference-sources .image-reference-group')].map(group=>group.dataset.referenceConnection)");
         assert.deepEqual(await order(), ['edge-source-b','edge-source-a']);
         await delay(1000); await reloadApp(app);
@@ -275,12 +275,12 @@ test('reference source moves survive reload, reach the real request, and disconn
         await waitFor('imageRequests.some(r=>r.contents)');
         assert.deepEqual(await evaluate("imageRequests.find(r=>r.contents).contents.flatMap(c=>c.parts).filter(p=>p.inlineData).map(p=>p.inlineData.data)"), [...referenceImages.slice(3),...referenceImages.slice(0,3)].map(image=>image.split(',')[1]));
         await openImageReferences(app);
-        assert.equal(await evaluate("document.querySelector('[data-reference-connection=\"edge-source-a\"] .image-reference-move-up').disabled"), true);
+        assert.equal(await evaluate("document.querySelector('[data-reference-connection=\"edge-source-a\"] .image-reference-disconnect').disabled"), true);
         await evaluate("document.querySelector('[data-conn-id=\"edge-source-b\"]').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))");
         assert.deepEqual(await order(), ['edge-source-b','edge-source-a'], 'running input connections cannot be removed');
         await evaluate('window.releaseTargetResponse();window.holdTargetResponse=false');
         await waitFor("!document.getElementById('reference-target-prompt').disabled"); await delay(300);
-        assert.match(await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-locate').textContent"), /2\s*张/);
+        assert.match(await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"]').getAttribute('aria-label')"), /2\s*张/);
         await evaluate("document.querySelector('[data-conn-id=\"edge-source-b\"]').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))");
         assert.deepEqual(await order(), ['edge-source-a']);
         assert.ok(await evaluate("document.getElementById('source-b')!==null"));
@@ -297,7 +297,7 @@ test('reference source moves survive reload, reach the real request, and disconn
         const dragState = await evaluate(`(()=>{const transfer=new DataTransfer(),root=document.getElementById('reference-target-reference-sources'),handle=root.querySelector('[data-reference-connection="edge-source-a"] .image-reference-drag'),target=root.querySelector('[data-reference-connection="edge-source-b"]');handle.dispatchEvent(new DragEvent('dragstart',{bubbles:true,cancelable:true,dataTransfer:transfer}));const payload=transfer.getData('application/x-cainflow-reference');target.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));handle.dispatchEvent(new DragEvent('dragend',{bubbles:true,dataTransfer:transfer}));return {payload,duplicates:document.querySelectorAll('[data-reference-connection="edge-source-a"]').length,toasts:[...document.querySelectorAll('.toast')].map(t=>t.textContent)}})()`);
         assert.equal(dragState.payload, 'edge-source-a', JSON.stringify(dragState));
         assert.deepEqual(await order(), ['edge-source-a','edge-source-b'], JSON.stringify(dragState));
-        await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-move-up').click()");
+        await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-thumbnail').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',altKey:true,bubbles:true,cancelable:true}))");
         assert.deepEqual(await order(), ['edge-source-b','edge-source-a']);
     });
 });
@@ -310,8 +310,8 @@ test('clone parameters remain read-only while reference connections follow canva
         await openImageReferences(app);
         const { evaluate } = app;
         assert.equal(await evaluate("document.getElementById('reference-target-prompt').disabled"), true);
-        assert.equal(await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-move-up').disabled"), false);
-        await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-move-up').click()");
+        assert.equal(await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-disconnect').disabled"), false);
+        await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-thumbnail').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',altKey:true,bubbles:true,cancelable:true}))");
         assert.deepEqual(await evaluate("[...document.querySelectorAll('#reference-target-reference-sources .image-reference-group')].map(el=>el.dataset.referenceConnection)"), ['edge-source-b','edge-source-a']);
         assert.equal(await evaluate("document.getElementById('source-a-prompt').value"), 'source-a');
         assert.equal(await evaluate("document.getElementById('reference-target-prompt').disabled"), true);
@@ -553,17 +553,19 @@ test('seven themes and narrow panels keep creation actions legible and keyboard 
             await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
         };
         await openImageParameters(app, 'reference-target');
-        await evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=advanced]').click();document.querySelector('#image-parameter-panel [data-parameter-group-toggle=advanced]').focus()");
+        await evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=more]').focus()");
         assert.equal(await evaluate("document.activeElement.checkVisibility()"), true, 'the current parameter group control is visible and keyboard reachable');
         await enter();
         assert.equal(await evaluate("document.getElementById('reference-target-advanced-parameters').open"),true);
+        await evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=more]').focus()");
         await enter();
-        assert.equal(await evaluate("document.getElementById('reference-target-advanced-parameters').open"),true, 'selecting the current submenu page retains its content');
-        await evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=reference]').focus()");
+        assert.equal(await evaluate("document.querySelector('#image-parameter-panel .image-parameter-settings-popup').matches(':popover-open')"),false, 'activating More again closes its popup');
+        await evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=more]').focus()");
         await enter();
         assert.equal(await evaluate("document.getElementById('reference-target-reference-sources').checkVisibility()"), true);
-        await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-move-up').focus()");
-        await enter();
+        await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-thumbnail').focus()");
+        await send('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowLeft',code:'ArrowLeft',modifiers:1});
+        await send('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowLeft',code:'ArrowLeft'});
         assert.equal(await evaluate("document.querySelector('#reference-target-reference-sources .image-reference-group').dataset.referenceConnection"),'edge-source-b');
         await evaluate("document.querySelector('#reference-target-reference-sources [data-reference-number=\"1\"]').focus()");
         await enter();
@@ -627,7 +629,7 @@ test('old workflow completes source review, ordered generation through Agent, un
         await generateReferenceSources(app);
         assert.match(await evaluate("document.getElementById('reference-target-prompt-source').textContent"),/上游已确认描述/);
         assert.equal(await evaluate("document.getElementById('reference-target-prompt').value"),'保留的本地稿');
-        await evaluate("document.querySelector('[data-conn-id=old-prompt-link]').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-move-up').click()");
+        await evaluate("document.querySelector('[data-conn-id=old-prompt-link]').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-thumbnail').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',altKey:true,bubbles:true,cancelable:true}))");
         await change(evaluate,'reference-target-apiconfig','google');
         await evaluate("window.assistantTargetId='reference-target';window.keepReferenceSources=true;(id=>{if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click();const input=document.getElementById('prompt-agent-input');if(!input.value.includes('['+id+']')){input.value+=(input.value?'\\n':'')+'@';input.setSelectionRange(input.value.length,input.value.length);input.dispatchEvent(new Event('input',{bubbles:true}));const option=[...document.querySelectorAll('.prompt-agent-node-mentions [role=option]')].find(b=>b.textContent.endsWith(' · '+id));if(!option)throw new Error('Missing node mention '+id);option.click()}})(\"reference-target\");document.getElementById('prompt-agent-input').value+='使用乙和甲作为参考图，保持乙在前。';document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=google][data-provider-id=p]').click();document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
         await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
@@ -647,9 +649,10 @@ test('old workflow completes source review, ordered generation through Agent, un
         await waitFor(`Boolean(document.getElementById('${importId}')) && [...document.querySelectorAll('.toast')].some(t=>t.textContent.includes('已重做上一步操作'))`);
         await delay(1000);await reloadApp(app);
         await waitFor("document.querySelector('#source-a-image-results .image-node-result-count')?.textContent.endsWith('/ 3')");
-        assert.deepEqual(await evaluate("[...document.querySelectorAll('#reference-target-reference-sources .image-reference-locate')].map(el=>el.textContent.split(' · ')[0])"),['乙','甲']);
+        assert.deepEqual(await evaluate("[...document.querySelectorAll('#reference-target-reference-sources .image-reference-group')].map(el=>el.getAttribute('aria-label').split(' · ')[0])"),['乙','甲']);
         await openImageParameters(app,'reference-target');
-        assert.deepEqual(await evaluate("(()=>{const node=document.getElementById('reference-target');return {x:node.style.left,y:node.style.top,width:node.offsetWidth,promptHeight:document.getElementById('reference-target-prompt').offsetHeight}})()"),{x:'500px',y:'120px',width:476,promptHeight:69});
+        const twoLineHeight = await evaluate("(()=>{const s=getComputedStyle(document.getElementById('reference-target-prompt'));return Math.ceil(parseFloat(s.lineHeight)*2+parseFloat(s.paddingTop)+parseFloat(s.paddingBottom)+parseFloat(s.borderTopWidth)+parseFloat(s.borderBottomWidth))})()");
+        assert.deepEqual(await evaluate("(()=>{const node=document.getElementById('reference-target');return {x:node.style.left,y:node.style.top,width:node.offsetWidth,promptHeight:document.getElementById('reference-target-prompt').offsetHeight}})()"),{x:'500px',y:'120px',width:476,promptHeight:twoLineHeight});
         assert.equal(await evaluate("document.getElementById('reference-target-prompt').value"),'助手优化后的提示词');
         assert.equal(await evaluate('imageRequests.length'),0);
     });
@@ -663,7 +666,7 @@ test('unsupported retained thinking remains reachable for explicit reset before 
         await controlImages(app);
         await change(evaluate,'thinking-image-apiconfig','image');
         await openImageParameters(app,'thinking-image');
-        await evaluate("(()=>{const toggle=document.querySelector('#image-parameter-panel [data-parameter-group-toggle=advanced]');if(!document.querySelector('#image-parameter-panel .image-parameter-settings-popup').matches(':popover-open')||toggle.getAttribute('aria-expanded')!=='true')toggle.click()})()");
+        await evaluate("(()=>{const toggle=document.querySelector('#image-parameter-panel [data-parameter-group-toggle=more]');if(!document.querySelector('#image-parameter-panel .image-parameter-settings-popup').matches(':popover-open')||toggle.getAttribute('aria-expanded')!=='true')toggle.click()})()");
         assert.equal(await evaluate("document.querySelector('#image-parameter-panel .thinking-control').hidden"),false);
         await evaluate("document.querySelector('#image-parameter-panel .thinking-control > summary').click()");
         assert.ok(await evaluate("document.querySelector('#image-parameter-panel .thinking-control select').checkVisibility()"));
@@ -684,7 +687,7 @@ test('disabled reference sources stay visible without consuming actual request i
         await evaluate("document.querySelector('#source-a .node-bypass-btn').click()");
         await waitFor("document.querySelector('#reference-target-reference-sources .image-reference-group')?.dataset.enabled==='false'");
         assert.deepEqual(await evaluate("[...document.querySelectorAll('#reference-target-reference-sources [data-reference-number]')].map(el=>el.dataset.referenceNumber)"),['1','2']);
-        assert.match(await evaluate("document.querySelector('#reference-target-reference-sources .image-reference-group').textContent"),/甲.*3 张/s);
+        assert.match(await evaluate("document.querySelector('#reference-target-reference-sources .image-reference-group').getAttribute('aria-label')"),/甲.*3 张/s);
         await change(evaluate,'reference-target-apiconfig','google');
         await evaluate("(()=>{const node=document.getElementById('reference-target'),r=node.getBoundingClientRect();node.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,clientX:r.left+12,clientY:r.top+12}));window.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0}));node.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:600,clientY:180}));document.getElementById('context-menu-run-selected').click()})()");
         await waitFor('imageRequests.some(r=>r.contents)');
@@ -753,7 +756,7 @@ test('assistant optimization sends the mentioned generation target reference ori
 });
 
 
-test('many reference sources stay in a compact wrapping gallery with every original accessible', { timeout: 30000 }, async () => {
+test('many reference sources stay in a bounded thumbnail grid with every original accessible', { timeout: 30000 }, async () => {
     const sources = Array.from({length:16}, (_,index)=>({id:'compact-'+index,type:'ImageImport',customTitle:'参考素材 '+(index+1),x:-800,y:index*200}));
     await withAppBrowser({...session,nodes:[...sources,{id:'compact-target',type:'ImageGenerate',x:100,y:100,apiConfigId:'image',providerId:'p',prompt:'保留参考图'}],connections:sources.map((source,order)=>({id:'compact-edge-'+order,from:{nodeId:source.id,port:'image'},to:{nodeId:'compact-target',port:'referenceImages'},type:'image',order}))}, async app => {
         const {evaluate,waitFor,send}=app;
@@ -763,9 +766,9 @@ test('many reference sources stay in a compact wrapping gallery with every origi
         await waitFor("document.querySelectorAll('#compact-target-reference-sources [data-reference-number]').length===16");
         await delay(1000); // Let the real import/media-save queue settle before opening an original.
 
-        const layout = await evaluate("(()=>{const root=document.getElementById('compact-target-reference-sources'),groups=[...root.querySelectorAll('.image-reference-group')];return {height:root.offsetHeight,tops:groups.slice(0,2).map(el=>el.offsetTop),overflow:root.scrollWidth>root.clientWidth+1,images:root.querySelectorAll('[data-reference-number]').length}})()");
+        const layout = await evaluate("(()=>{const root=document.getElementById('compact-target-reference-sources'),tiles=[...root.querySelectorAll('.image-reference-item')];return {height:root.offsetHeight,tops:tiles.slice(0,2).map(el=>el.offsetTop),overflow:root.scrollWidth>root.clientWidth+1,images:root.querySelectorAll('[data-reference-number]').length}})()");
         assert.ok(layout.height<=270, 'sixteen references must not make the node grow sixteen rows: '+layout.height);
-        assert.equal(layout.tops[0],layout.tops[1], 'reference sources share a row at normal node width');
+        assert.equal(layout.tops[1],layout.tops[0], 'square thumbnails share rows within the bounded gallery');
         assert.equal(layout.overflow,false);
         assert.equal(layout.images,16,'all reference slots remain available inside the bounded gallery');
         if (process.env.CAINFLOW_UI_CAPTURE) {
@@ -776,7 +779,6 @@ test('many reference sources stay in a compact wrapping gallery with every origi
             await writeFile(join(process.env.CAINFLOW_UI_CAPTURE,'reference-gallery-layout.json'),JSON.stringify(layout,null,2));
         }
 
-        await evaluate("document.querySelector('#compact-target-reference-sources .image-reference-expand').click()");
         assert.ok(await evaluate("document.getElementById('compact-target-reference-sources').offsetHeight<=380"));
         await evaluate("document.querySelector('#compact-target-reference-sources [data-reference-number=\"16\"]').scrollIntoView({block:'nearest'});document.querySelector('#compact-target-reference-sources [data-reference-number=\"16\"]').click()");
         await waitFor("Boolean(document.querySelector('.fullscreen-overlay img'))");
@@ -784,7 +786,7 @@ test('many reference sources stay in a compact wrapping gallery with every origi
         await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});
         await waitFor("!document.querySelector('.fullscreen-overlay')");
         await waitFor("document.activeElement.dataset.referenceNumber==='16'");
-        await evaluate("document.querySelector('[data-reference-connection=\"compact-edge-15\"] .image-reference-move-up').click()");
+        await evaluate("document.querySelector('[data-reference-connection=\"compact-edge-15\"] .image-reference-thumbnail').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',altKey:true,bubbles:true,cancelable:true}))");
         assert.equal(await evaluate("(()=>{const grid=document.querySelector('#compact-target-reference-sources .image-reference-grid'),focus=document.activeElement,r=focus.getBoundingClientRect(),bounds=grid.getBoundingClientRect();return grid.scrollTop>0&&r.top>=bounds.top&&r.bottom<=bounds.bottom})()"),true,'reordering a late source preserves scrolling and leaves the focused source visible');
 
         await send('Emulation.setDeviceMetricsOverride',{width:320,height:820,deviceScaleFactor:1,mobile:false});
@@ -802,9 +804,9 @@ test('reordering a legacy reference batch taller than the gallery keeps its focu
         const {evaluate,waitFor}=app;
         await openImageReferences(app, 'target');
         await waitFor("document.querySelectorAll('#target-reference-sources [data-reference-number]').length===64");
-        assert.equal(await evaluate("document.querySelector('[data-reference-connection=\"edge-many\"]').offsetHeight>document.querySelector('#target-reference-sources .image-reference-grid').clientHeight"),true,'legacy batch placeholders actually exceed the viewport');
-        await evaluate("document.querySelector('[data-reference-connection=\"edge-many\"] .image-reference-move-down').click()");
-        assert.equal(await evaluate("(()=>{const bounds=document.querySelector('#target-reference-sources .image-reference-grid').getBoundingClientRect(),r=document.activeElement.getBoundingClientRect();return document.activeElement.classList.contains('image-reference-locate')&&r.top>=bounds.top&&r.bottom<=bounds.bottom})()"),true,'a tall source must restore focus to a visible control');
+        assert.equal(await evaluate("(()=>{const tiles=[...document.querySelectorAll('[data-reference-connection=edge-many] .image-reference-item')];return tiles.at(-1).getBoundingClientRect().bottom-tiles[0].getBoundingClientRect().top>document.querySelector('#target-reference-sources .image-reference-grid').clientHeight})()"),true,'legacy batch thumbnails actually exceed the viewport');
+        await evaluate("document.querySelector('[data-reference-connection=\"edge-many\"] .image-reference-thumbnail').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',altKey:true,bubbles:true,cancelable:true}))");
+        assert.equal(await evaluate("(()=>{const bounds=document.querySelector('#target-reference-sources .image-reference-grid').getBoundingClientRect(),r=document.activeElement.getBoundingClientRect();return document.activeElement.matches('.image-reference-thumbnail, .image-reference-disconnect')&&r.top>=bounds.top&&r.bottom<=bounds.bottom})()"),true,'a tall source must restore focus to a visible control');
     });
 });
 
@@ -877,7 +879,7 @@ test('selected-node optimization keeps active reference order through apply, reg
         await waitFor("imageRequests.filter(r=>r.contents).length===1 && document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
         assert.deepEqual((await received()).map(image=>createHash('sha256').update(image).digest('hex')),expected);
         assert.equal(await evaluate("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length"),3,'disabled source stays connected throughout');
-        await evaluate("document.querySelector('[data-reference-connection=\"edge-source-a\"] .image-reference-move-up').click();[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='生成图片').click()");
+        await evaluate("document.querySelector('[data-reference-connection=\"edge-source-a\"] .image-reference-thumbnail').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',altKey:true,bubbles:true,cancelable:true}));[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='生成图片').click()");
         await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已变化')");
         assert.equal(await evaluate('imageRequests.filter(r=>r.contents).length'),1,'stale plan cannot reorder back or start a request');
         assert.equal(await evaluate("document.querySelector('#reference-target-reference-sources .image-reference-group').dataset.referenceConnection"),'edge-source-a');

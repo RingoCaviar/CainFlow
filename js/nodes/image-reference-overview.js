@@ -8,7 +8,7 @@ import { getImageDescription } from '../features/execution/reference-image-descr
 export function createImageReferenceOverview({ state, documentRef, getCachedOutputValue,
     createThumbnail = async source => source, readSourceImages = async () => [], readAsset = null, openPreview = () => {},
     focusNode = () => {}, getWorkflowId = () => '', showToast = () => {}, onLayout = () => {},
-    moveSource = () => false }) {
+    moveSource = () => false, disconnectSource = () => false }) {
     const views = new WeakMap();
     const assetsOf = getImageOutputAssets;
     const sameList = (left, right) => left.length === right.length && left.every((value, index) => value === right[index]);
@@ -32,7 +32,7 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
         if (target?.type !== 'ImageGenerate' || !container) return;
         let view = views.get(container);
         if (!view) {
-            view = { expanded: false, groups: [], revision: 0 };
+            view = { groups: [], revision: 0 };
             views.set(container, view);
             if (!Array.isArray(target.el._cleanupFns)) target.el._cleanupFns = [];
             target.el._cleanupFns.push(() => {
@@ -60,14 +60,14 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
                 && sameList(old.images, group.images) && sameList(old.assets, group.assets);
         })) return;
         view.stopThumbnails?.();
+        view.drag = null;
         view.groups = groups; view.disabled = disabled; view.revision += 1;
         const revision = view.revision;
         const scrollTop = container.querySelector('.image-reference-grid')?.scrollTop || 0;
         container.replaceChildren();
         if (!groups.length) { container.textContent = '连接参考图来源后，在此核对图片与输入顺序。'; onLayout(nodeId); return; }
-        container.dataset.expanded = String(view.expanded);
         const gallery = documentRef.createElement('div'); gallery.className = 'image-reference-grid';
-        gallery.setAttribute('role', 'group'); gallery.setAttribute('aria-label', '参考图来源，图片较多时可滚动');
+        gallery.setAttribute('role', 'group'); gallery.setAttribute('aria-label', '参考图，拖动缩略图调整来源顺序，图片较多时可滚动');
         gallery.tabIndex = 0;
         container.append(gallery);
         const pendingThumbnails = new Map();
@@ -78,11 +78,12 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
             if (!Observer) {
                 // Native lazy images are the fallback; do not eagerly create
                 // a mipmap for every source when visibility observation is absent.
-                image.src = source;
+                if (typeof source === 'string') image.src = source;
+                else void source().then(src => { if (image.isConnected) image.src = src; }).catch(() => image.remove());
                 return;
             }
             pendingThumbnails.set(control, () => {
-                void Promise.resolve().then(() => createThumbnail(source)).then(src => {
+                void Promise.resolve().then(() => typeof source === 'function' ? source() : source).then(createThumbnail).then(src => {
                     if (views.get(container) === view && view.revision === revision && image.isConnected) image.src = src;
                 }).catch(() => { image.remove(); });
             });
@@ -104,62 +105,87 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
         };
         const slots = new Map(projection.slots.map(slot => [`${slot.connection.id}:${slot.index}`, slot]));
         const moveLocked = disabled || groups.some(group => group.running);
-        const mutate = (operation, connectionId, focusSelector = '.image-reference-locate') => {
+        const mutate = (operation, connectionId, focusSelector = '.image-reference-thumbnail:not(:disabled)') => {
             if (state.nodes.get(nodeId) !== target) return;
             try {
                 if (!operation()) { showToast('当前不能修改来源连接，请检查运行状态。', 'warning'); return; }
                 render(nodeId);
                 const row = [...container.querySelectorAll('.image-reference-group')].find(item => item.dataset.referenceConnection === connectionId);
-                const control = row?.querySelector(focusSelector) || container.querySelector('.image-reference-locate') || target.el.querySelector('textarea');
-                const grid = row?.closest('.image-reference-grid');
+                const control = row?.querySelector(focusSelector) || row?.querySelector('.image-reference-disconnect:not(:disabled)')
+                    || container.querySelector('.image-reference-thumbnail:not(:disabled), .image-reference-disconnect:not(:disabled)')
+                    || target.parameterRoot?.querySelector('textarea') || target.el.querySelector('textarea');
+                const grid = control?.closest('.image-reference-grid');
                 if (grid) {
-                    if (row.offsetHeight > grid.clientHeight || row.offsetTop < grid.scrollTop) grid.scrollTop = row.offsetTop;
-                    else if (row.offsetTop + row.offsetHeight > grid.scrollTop + grid.clientHeight) {
-                        grid.scrollTop = row.offsetTop + row.offsetHeight - grid.clientHeight;
-                    }
+                    const bounds = grid.getBoundingClientRect(), rect = control.getBoundingClientRect();
+                    if (rect.top < bounds.top) grid.scrollTop -= bounds.top - rect.top + 2;
+                    else if (rect.bottom > bounds.bottom) grid.scrollTop += rect.bottom - bounds.bottom + 2;
                 }
                 control?.focus({ preventScroll: true });
             } catch (error) { showToast(error.message || '来源连接修改失败', 'warning'); }
+        };
+        const clearDrag = () => {
+            view.drag = null;
+            gallery.querySelectorAll('.is-dragging, .is-drop-target').forEach(row => row.classList.remove('is-dragging', 'is-drop-target'));
         };
         for (const [groupIndex, group] of groups.entries()) {
             const row = documentRef.createElement('div'); row.className = `image-reference-group${group.count === 1 ? ' image-reference-single' : group.count > 1 ? ' image-reference-batch' : ''}`;
             row.dataset.referenceConnection = group.connection.id;
             row.dataset.enabled = String(group.enabled);
-            const heading = documentRef.createElement('div'); heading.className = 'image-reference-heading';
-            const locate = button(`${group.name} · ${group.running ? '运行中' : `${group.count} 张`}`, () => focusNode(group.source.id), disabled || !group.source);
-            locate.className = 'image-reference-locate'; locate.title = `定位来源：${group.name} · ${group.count} 张`;
-            const drag = connectionButton('⠿', () => {}, moveLocked, 'image-reference-drag');
-            drag.setAttribute('aria-label', `拖动${group.name}来源组`); drag.draggable = !moveLocked;
-            drag.addEventListener('dragstart', event => {
-                if (moveLocked) { event.preventDefault(); return; }
+            row.setAttribute('role', 'group'); row.setAttribute('aria-label', `${group.name} · ${group.count} 张`);
+            row.addEventListener('dragstart', event => {
+                if (moveLocked || groups.length < 2 || event.target.closest('.image-reference-disconnect')) { event.preventDefault(); return; }
                 event.stopPropagation();
                 view.drag = { workflowId: getWorkflowId(), target, connectionId: group.connection.id };
                 event.dataTransfer?.setData('application/x-cainflow-reference', group.connection.id);
+                if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+                row.classList.add('is-dragging');
             });
-            drag.addEventListener('dragend', () => { view.drag = null; });
+            row.addEventListener('dragend', clearDrag);
             row.addEventListener('dragover', event => {
                 if (!view.drag || moveLocked) return;
                 event.preventDefault(); event.stopPropagation();
+                if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+                gallery.querySelectorAll('.is-drop-target').forEach(other => other.classList.remove('is-drop-target'));
+                if (view.drag.connectionId !== group.connection.id) row.classList.add('is-drop-target');
             });
+            row.addEventListener('dragleave', event => { if (!row.contains(event.relatedTarget)) row.classList.remove('is-drop-target'); });
             row.addEventListener('drop', event => {
                 if (!view.drag) return;
                 event.preventDefault(); event.stopPropagation();
-                const pending = view.drag; view.drag = null;
+                const pending = view.drag; clearDrag();
                 if (moveLocked || pending.workflowId !== getWorkflowId() || pending.target !== state.nodes.get(nodeId) || pending.connectionId === group.connection.id) return;
                 mutate(() => moveSource(nodeId, pending.connectionId, group.connection.id), pending.connectionId);
             });
-            const up = connectionButton('↑', () => mutate(() => moveSource(nodeId, group.connection.id, groups[groupIndex - 1]?.connection.id), group.connection.id), moveLocked || groupIndex === 0, 'image-reference-move-up');
-            up.setAttribute('aria-label', `前移${group.name}来源组`); up.title = '前移来源组';
-            const down = connectionButton('↓', () => mutate(() => moveSource(nodeId, group.connection.id, groups[groupIndex + 1]?.connection.id), group.connection.id), moveLocked || groupIndex === groups.length - 1, 'image-reference-move-down');
-            down.setAttribute('aria-label', `后移${group.name}来源组`); down.title = '后移来源组';
-            heading.append(drag, locate); row.append(heading);
+            const disconnectLocked = disabled || group.running;
+            const disconnect = () => {
+                if (disconnectLocked) return;
+                const next = groups[groupIndex + 1] || groups[groupIndex - 1];
+                mutate(() => disconnectSource(nodeId, group.connection.id), next?.connection.id);
+            };
+            row.addEventListener('keydown', event => {
+                if (event.target.closest('.image-reference-disconnect')) return;
+                if (event.key === 'Delete') { event.preventDefault(); event.stopPropagation(); disconnect(); }
+                else if (event.altKey && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
+                    event.preventDefault(); event.stopPropagation();
+                    const neighbor = groups[groupIndex + (event.key === 'ArrowLeft' ? -1 : 1)];
+                    if (!moveLocked && neighbor) mutate(() => moveSource(nodeId, group.connection.id, neighbor.connection.id), group.connection.id);
+                } else if (event.altKey && event.key === 'Enter' && group.source) {
+                    event.preventDefault(); event.stopPropagation(); focusNode(group.source.id);
+                }
+            });
             const strip = documentRef.createElement('div'); strip.className = 'image-reference-thumbnails';
-            for (let index = 0; index < group.count; index += 1) {
+            let sourceImages;
+            for (let index = 0; index < Math.max(1, group.count); index += 1) {
+                const empty = group.count === 0;
                 const number = slots.get(`${group.connection.id}:${index}`)?.number;
-                const label = `${number ? `参考图 ${number}` : group.running ? '来源运行中' : '已停用来源'}，来自${group.name}，源批次第 ${index + 1} 张`;
+                const label = `${number ? `参考图 ${number}` : group.running ? '来源运行中' : empty ? '等待来源输出' : '已停用来源'}，来自${group.name}${empty ? '' : `，源批次第 ${index + 1} 张`}`;
                 const asset = group.assets[index], original = group.images[index];
                 const missing = group.missingPositions.includes(index);
-                const preview = button(String(number || index + 1), async control => {
+                const tile = documentRef.createElement('div'); tile.className = 'image-reference-item image-reference-drag';
+                tile.draggable = !moveLocked && groups.length > 1;
+                tile.dataset.reorderDisabled = String(moveLocked);
+                const preview = button('', async control => {
+                    if (empty) { if (group.source) focusNode(group.source.id); return; }
                     control.focus();
                     const workflowId = getWorkflowId();
                     try {
@@ -188,33 +214,37 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
                     } catch (error) {
                         if (getWorkflowId() === workflowId && state.nodes.get(nodeId) === target) showToast(error.message || '原图不可用', 'warning');
                     }
-                }, disabled || group.running || missing || (!asset && !original));
+                }, disabled || group.running || missing || (!empty && !asset && !original));
                 preview.className = 'image-reference-thumbnail';
                 if (number) preview.dataset.referenceNumber = String(number);
-                preview.dataset.sourceImageIndex = String(index);
-                preview.setAttribute('aria-label', label); preview.title = label;
-                const image = documentRef.createElement('img'); image.alt = ''; image.loading = 'lazy'; image.decoding = 'async';
-                const thumbnail = missing || group.running ? '' : /^data:image\//i.test(original || '') ? original : (group.count === 1 ? group.thumbnail : '');
+                if (!empty) preview.dataset.sourceImageIndex = String(index);
+                preview.setAttribute('aria-label', label);
+                preview.setAttribute('aria-keyshortcuts', 'Alt+ArrowLeft Alt+ArrowRight Delete Alt+Enter');
+                preview.title = `${label}\n拖动排序；Alt+←/→调整来源顺序；Delete断开来源；Alt+Enter定位来源`;
+                preview.innerHTML = '<svg class="image-reference-placeholder" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 6-6 5 5 3-3 4 4"/></svg>';
+                const image = documentRef.createElement('img'); image.alt = ''; image.loading = 'lazy'; image.decoding = 'async'; image.draggable = false;
+                const thumbnail = missing || group.running || empty ? '' : /^data:image\//i.test(original || '') ? original : (group.count === 1 ? group.thumbnail : '');
                 if (thumbnail) {
-                    preview.prepend(image);
+                    preview.append(image);
                     watchThumbnail(preview, image, thumbnail);
-                } else {
-                    const hint = documentRef.createElement('small'); hint.textContent = group.running ? '运行中' : missing ? '原图缺失' : '按需预览'; preview.append(hint);
+                } else if (!empty && !missing && !group.running && !group.remote) {
+                    preview.append(image);
+                    watchThumbnail(preview, image, () => asset?.startsWith('media:') && readAsset ? readAsset(asset)
+                        : (sourceImages ||= readSourceImages(group.source.id)).then(images => images[index]));
                 }
-                strip.append(preview);
+                if (number) {
+                    const badge = documentRef.createElement('span'); badge.className = 'image-reference-number'; badge.textContent = String(number); badge.setAttribute('aria-hidden', 'true'); preview.append(badge);
+                }
+                if (missing || group.running || empty) {
+                    const hint = documentRef.createElement('small'); hint.textContent = group.running ? '运行中' : missing ? '缺图' : '待输出'; preview.append(hint);
+                }
+                const remove = connectionButton('', disconnect, disconnectLocked, 'image-reference-disconnect');
+                remove.setAttribute('aria-label', `断开参考来源：${group.name}${group.count > 1 ? `（整组 ${group.count} 张）` : ''}`); remove.title = remove.getAttribute('aria-label');
+                remove.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>';
+                tile.append(preview, remove); strip.append(tile);
             }
             row.append(strip);
-            const tools = documentRef.createElement('div'); tools.className = 'image-reference-tools';
-            tools.append(up, down); row.append(tools);
             gallery.append(row);
-        }
-        if (projection.count > 4 || groups.length > 4) {
-            const expand = button(view.expanded ? '收起参考图' : `展开查看 · ${projection.count} 张 / ${groups.length} 个来源`, () => {
-                view.expanded = !view.expanded; view.disabled = undefined; render(nodeId);
-                container.querySelector('.image-reference-expand')?.focus(); onLayout(nodeId);
-            }, disabled);
-            expand.className = 'image-reference-expand'; expand.setAttribute('aria-expanded', String(view.expanded));
-            container.append(expand);
         }
         gallery.scrollTop = scrollTop;
         onLayout(nodeId);

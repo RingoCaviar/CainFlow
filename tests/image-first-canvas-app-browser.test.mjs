@@ -120,11 +120,13 @@ test('footer entries toggle their menus and size entry reports current settings'
         await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
         await nativeClick(app, '#image-parameter-panel .image-parameter-settings-entry');
         assert.ok(await app.evaluate("document.querySelector('#editor-first-parameter-settings [data-parameter-group=size]').checkVisibility()"), 'size summary opens size settings directly');
-        await nativeClick(app, '#editor-first-parameter-settings [data-parameter-group-toggle=reference]');
+        await nativeClick(app, modelEntry);
+        assert.ok(await app.evaluate("document.querySelector('#editor-first-parameter-settings [data-parameter-group=model]').checkVisibility()&&!document.querySelector('#editor-first-parameter-settings [data-parameter-group=size]').checkVisibility()"), 'one pointer click switches directly from size to model');
+        await nativeClick(app, '#image-parameter-panel .image-parameter-more-entry');
+        assert.ok(await app.evaluate("document.getElementById('editor-first-quality').closest('.node-field').checkVisibility()&&!document.querySelector('#editor-first-parameter-settings [data-parameter-group=model]').checkVisibility()"), 'More owns quality and excludes model settings');
         await nativeClick(app, '#image-parameter-panel .image-parameter-settings-entry');
-        await nativeClick(app, '#image-parameter-panel .image-parameter-settings-entry');
-        assert.ok(await app.evaluate("document.querySelector('#editor-first-parameter-settings [data-parameter-group=size]').checkVisibility()"), 'reopening returns to size settings even after browsing references');
-        await nativeClick(app, '#editor-first-parameter-settings [data-parameter-group-toggle=size]');
+        assert.ok(await app.evaluate("document.querySelector('#editor-first-parameter-settings [data-parameter-group=size]').checkVisibility()"), 'size entry switches directly from More without an extra close click');
+        assert.equal(await app.evaluate("document.querySelector('#editor-first-parameter-settings [data-parameter-group-toggle]')"), null, 'dedicated popup contains no category switches');
         await changeField(app, 'editor-first-aspect', '3:4');
         await changeField(app, 'editor-first-resolution', '1K');
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-settings-entry').textContent"), '3:4 · 1K');
@@ -151,10 +153,9 @@ test('generation keeps prompt above one footer row and reuses settings through a
         assert.ok(await app.evaluate("!document.querySelector('#editor-first-prompt-field>label')&&!document.getElementById('editor-first-assistant')"));
         assert.equal(await app.evaluate("document.getElementById('editor-first-prompt').getAttribute('aria-label')"), '提示词');
         const controls = await app.evaluate("(()=>{const f=document.querySelector('.image-parameter-footer'),m=f.querySelector('.image-parameter-model-entry').getBoundingClientRect(),g=f.querySelector('[data-parameter-action=generate]').getBoundingClientRect(),s=f.querySelector('.image-parameter-settings-entry').getBoundingClientRect();return {aligned:Math.abs(m.top-g.top)<2&&Math.abs(s.top-g.top)<2,width:m.width,ordered:s.right<m.left&&m.right<g.left}})()");
-        assert.ok(controls.aligned&&controls.ordered&&controls.width<=190);
+        assert.ok(controls.aligned&&controls.ordered, 'footer controls stay aligned and ordered');
         await nativeClick(app, '#image-parameter-panel .image-parameter-settings-entry');
-        assert.ok(await app.evaluate("document.getElementById('editor-first-parameter-settings').matches(':popover-open')&&document.getElementById('editor-first-parameter-settings').contains(document.getElementById('editor-first-generation-count'))"));
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=size]').click()");
+        assert.ok(await app.evaluate("document.getElementById('editor-first-parameter-settings').matches(':popover-open')&&document.querySelector('.image-parameter-footer').contains(document.getElementById('editor-first-generation-count'))"));
         await changeField(app, 'editor-first-resolution', 'custom');
         await changeField(app, 'editor-first-custom-resolution-width', '1536');
         await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
@@ -248,7 +249,7 @@ test('one screen-space image editor follows selection and preserves edits, width
             await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowRight', code: 'ArrowRight' });
         }
         const beforeZoom = await editorMeasurements(app, 'editor-first');
-        assert.equal(beforeZoom.width, 510);
+        assert.equal(beforeZoom.width, 590);
         assert.ok(Number.parseFloat(beforeZoom.font) >= 13, 'editor text retains the readable application font size');
 
         await openNode(app, 'editor-second');

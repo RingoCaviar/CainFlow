@@ -28,6 +28,51 @@ async function open(app, id) {
 
 const settle = app => app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
 
+test('parameter popup supports keyboard entry, named controls and visible batch count', { timeout: 30000 }, async () => {
+    await withAppBrowser({ ...session, nodes: [session.nodes[0]], connections: [] }, async app => {
+        await open(app, 'image-0');
+        await settle(app);
+        const key = async (key, code, windowsVirtualKeyCode) => {
+            await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode, ...(key === 'Enter' ? { text: '\r' } : {}) });
+            await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode });
+        };
+        const axName = async selector => {
+            const { root } = await app.send('DOM.getDocument', {});
+            const { nodeId } = await app.send('DOM.querySelector', { nodeId: root.nodeId, selector });
+            const { nodes } = await app.send('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false });
+            return nodes[0]?.name?.value;
+        };
+        await app.evaluate("document.querySelector('.image-parameter-settings-entry').focus()");
+        await key('Enter', 'Enter', 13);
+        await app.waitFor("document.querySelector('.image-parameter-settings-popup').matches(':popover-open')");
+        assert.ok(await app.evaluate("document.activeElement.closest('.image-parameter-settings-popup') !== null"), 'keyboard entry moves focus into the popup');
+        assert.ok(await app.evaluate("document.activeElement.checkVisibility({checkOpacity:true}) && document.activeElement.getBoundingClientRect().width > 0"), 'keyboard entry focuses a visible control');
+        await key('Tab', 'Tab', 9);
+        assert.ok(await app.evaluate("document.activeElement.checkVisibility({checkOpacity:true})"), 'Tab leaves the short form through a visible control');
+        assert.ok(await app.evaluate("!document.activeElement.matches('.node-select-native')"), 'Tab skips hidden native selects');
+        assert.match(await axName('#image-0-resolution + .node-select .node-select-trigger'), /分辨率.*自动/);
+        assert.equal(await axName('#image-0-generation-count'), '生成次数');
+        await app.evaluate("document.querySelector('[data-parameter-group-toggle=more]').click()");
+        assert.match(await axName('#image-0-quality + .node-select .node-select-trigger'), /质量/);
+        assert.match(await axName('#image-0-moderation + .node-select .node-select-trigger'), /内容审核/);
+        assert.match(await axName('#image-0-background + .node-select .node-select-trigger'), /背景/);
+        assert.equal(await axName('#image-0-param-systemPrompt'), '系统提示词');
+        await app.evaluate("document.querySelector('.generation-count-btn[data-delta=\"1\"]').click()");
+        await key('Escape', 'Escape', 27);
+        assert.ok(await app.evaluate("document.activeElement.matches('.image-parameter-more-entry')"), 'Escape restores the independent More opener');
+        const action = '#image-parameter-panel [data-parameter-action=generate]';
+        assert.equal(await app.evaluate(`document.querySelector('${action}').textContent`), '生成 ×2');
+        await app.evaluate("document.querySelector('.image-parameter-settings-entry').click();document.querySelector('.generation-count-btn[data-delta=\"-1\"]').click()");
+        assert.equal(await app.evaluate(`document.querySelector('${action}').textContent`), '生成');
+        await key('Escape', 'Escape', 27);
+        await app.evaluate("document.querySelector('.image-parameter-model-entry').focus()");
+        await key('Enter', 'Enter', 13);
+        assert.ok(await app.evaluate("document.activeElement.matches('.node-select-trigger') && document.activeElement.getBoundingClientRect().width > 0 && getComputedStyle(document.activeElement).outlineStyle !== 'none'"), 'model menu enters its visible trigger with a focus indicator');
+        await key('Tab', 'Tab', 9);
+        assert.ok(await app.evaluate("document.activeElement.matches('.node-select-trigger')"), 'model menu Tab reaches the next visible selector');
+    });
+});
+
 test('text cards select and drag before explicit editing, then Escape restores canvas interaction', { timeout: 30000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes: [{ id: 'text-card', type: 'Text', x: 80, y: 80, width: 260, height: 190, text: 'original draft' }], connections: [] }, async app => {
         const point = await app.evaluate("(()=>{const r=document.getElementById('text-card-text').getBoundingClientRect();return {x:r.left+40,y:r.top+40}})()");
@@ -89,7 +134,7 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         await open(app, 'image-0');
         assert.equal(await app.evaluate("document.querySelector('#image-0 .image-first-summary')===null"), true);
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-first-summary')===null"), true);
-        assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=reference]').textContent.includes('1')"));
+        assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=more]').title.includes('1')"));
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-image-generation-dirty]')"), null);
         assert.equal(await app.evaluate("document.querySelector('#image-0-prompt-source details').open"), true);
         assert.equal(await app.evaluate("document.querySelector('#image-0-prompt-field .image-local-prompt-draft').open"), false);
@@ -103,7 +148,7 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         assert.ok(await app.evaluate("document.getElementById('image-0-prompt-source').textContent.includes('effective upstream prompt')"));
         await app.evaluate("window.originalCompactPrompt=document.getElementById('image-0-prompt');document.querySelector('#image-parameter-panel .generation-count-btn[data-delta=\"1\"]').click()");
         await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value?.nodes.find(n=>n.id==='image-0')?.generationCount===2)");
-        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-settings-popup').contains(document.getElementById('image-0-generation-count'))"), true, 'the original count stays in the settings submenu');
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-footer').contains(document.getElementById('image-0-generation-count'))"), true, 'the original count stays directly accessible in the footer');
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=model]').textContent"), '模型 · 受控图片');
         await app.evaluate('getSelection().removeAllRanges()');
         const modelButton = await app.evaluate("(()=>{const r=document.querySelector('#image-parameter-panel [data-parameter-group-toggle=model]').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()");
@@ -117,10 +162,9 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
 
         assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-footer').contains(document.querySelector('#image-parameter-panel .image-parameter-model-entry'))"), 'model and generate share the footer');
 
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=reference]').click()");
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=more]').click()");
         assert.equal(await app.evaluate("document.querySelectorAll('#image-0-reference-sources .image-reference-more, #image-0-reference-sources .image-reference-source-actions, #image-0-reference-sources .image-reference-source-status').length"), 0);
 
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=advanced]').click()");
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-input-detail')===null"), true);
         assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .node-advanced-parameters').checkVisibility()"));
         assert.deepEqual((await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.connections)")).map(edge=>edge.id), [reference.id,'prompt-edge']);
@@ -130,7 +174,7 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value?.connections.length===1)");
         assert.deepEqual(await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.connections)"), [reference], 'deleting the prompt source never disconnects its image reference');
 
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=advanced]').click();originalCompactPrompt.value=Array(14).fill('long prompt line').join('\\n');originalCompactPrompt.dispatchEvent(new Event('input',{bubbles:true}))");
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=more]').click();originalCompactPrompt.value=Array(14).fill('long prompt line').join('\\n');originalCompactPrompt.dispatchEvent(new Event('input',{bubbles:true}))");
         await settle(app);
         const automatic = await app.evaluate("(()=>{const e=originalCompactPrompt,s=getComputedStyle(e);return {height:e.offsetHeight,line:parseFloat(s.lineHeight),padding:parseFloat(s.paddingTop)+parseFloat(s.paddingBottom),font:parseFloat(s.fontSize)}})()");
         const textBounds = await app.evaluate("(()=>{const e=originalCompactPrompt,s=getComputedStyle(e),r=e.getBoundingClientRect(),b=document.querySelector('#image-parameter-panel .image-parameter-tools').getBoundingClientRect();return {right:parseFloat(s.paddingRight),left:parseFloat(s.paddingLeft),textBottom:r.bottom,toolsTop:b.top,topPadding:parseFloat(s.paddingTop)}})()");
@@ -194,7 +238,7 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         assert.equal(await app.evaluate("document.getElementById('image-0-generation-count').value"), '2');
         assert.equal(await app.evaluate('document.getElementById("image-0-prompt")===originalCompactPrompt'), true);
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#nodes-layer>.image-first-card')].map(n=>[n.id,n.style.left,n.style.top,n.offsetWidth])"), geometry);
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=advanced]').click()");
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=more]').click()");
         await settle(app);
         assert.ok(await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel').getBoundingClientRect(),b=document.querySelector('#image-parameter-panel [data-parameter-action=generate]').getBoundingClientRect();return b.top>=p.top&&b.bottom<=p.bottom+1})()"), 'expanded long settings keep the primary action reachable');
         await open(app, 'image-8');

@@ -60,7 +60,7 @@ async function action(app, id, menuId) {
 }
 
 async function referenceOrder(app, id) {
-    return app.evaluate(`[...document.querySelectorAll('#${id}-reference-sources .image-reference-locate')].map(el=>el.textContent.split(' · ')[0])`);
+    return app.evaluate(`[...document.querySelectorAll('#${id}-reference-sources .image-reference-group')].map(el=>el.getAttribute('aria-label').split(' · ')[0])`);
 }
 
 async function key(app, key, { shiftKey = false } = {}) {
