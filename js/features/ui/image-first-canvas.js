@@ -891,6 +891,11 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     windowRef.addEventListener('pointercancel', event => { if (gesture?.id === event.pointerId) finishGesture(true); });
     windowRef.addEventListener('blur', () => finishGesture(true));
     documentRef.addEventListener('cainflow:canvas-transform', schedulePosition);
+    documentRef.addEventListener('cainflow:canvas-pan-frame', () => {
+        // The canvas transform has already been applied in its animation frame.
+        // Do not queue another frame or move the independently placed expanded view.
+        if (!expanded && !panel.hidden) position();
+    });
     windowRef.addEventListener('resize', () => { schedulePosition(); updateSwitcher(); });
     return { install, selectionChanged, close, refreshNode,
         refreshSource: sourceId => {
