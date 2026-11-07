@@ -175,9 +175,13 @@ function createHarness(connectionCount, {
             return element;
         }
     };
+    const canvasEvents = new Map();
     const api = createConnectionsApi({
         state,
-        canvasContainer: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }) },
+        canvasContainer: {
+            getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+            addEventListener(name, listener) { canvasEvents.set(name, listener); }
+        },
         connectionsGroup,
         tempConnection: { setAttribute() {} },
         originAxes,
@@ -199,12 +203,43 @@ function createHarness(connectionCount, {
         paths,
         connectionsGroup,
         originAxes,
+        hoverNode(id) { canvasEvents.get('pointerover')({ target: { closest: () => id ? { id } : null } }); },
+        leaveCanvas() { canvasEvents.get('pointerleave')(); },
         getPortRectReadCount() { return portRectReads; },
         getConnectionForEachReadCount() { return connectionForEachReads; },
         setPortsVisible(visible) { portsVisible = visible; },
         setOutputPortLeft(left) { outputPortLeft = left; }
     };
 }
+
+test('node hover clears newly created and reconnected paths without geometry work on pointer transitions', () => {
+    const { api, state, paths, hoverNode, leaveCanvas, getPortRectReadCount } = createHarness(1);
+    api.updateAllConnections();
+    let reads = getPortRectReadCount();
+    hoverNode('from');
+    assert.equal(paths[0].classList.contains('is-hovered'), true);
+    hoverNode('from');
+    assert.equal(getPortRectReadCount(), reads, 'moving inside a node performs no geometry reads');
+
+    state.connections.push({ id: 'new-hovered', from: { nodeId: 'from', port: 'text' }, to: { nodeId: 'to', port: 'text' }, type: 'text' });
+    api.updateAllConnections();
+    assert.equal(paths[1].classList.contains('is-hovered'), true, 'a path created below the pointer is highlighted immediately');
+    reads = getPortRectReadCount();
+    leaveCanvas();
+    assert.ok(paths.every(path => !path.classList.contains('is-hovered')), 'leaving the canvas clears both existing and newly created paths');
+    assert.equal(getPortRectReadCount(), reads, 'leaving performs no geometry reads');
+
+    hoverNode('from');
+    const other = createNode('other', 400, createPort('text', 'output', 520), createPort('text', 'input', 400));
+    state.nodes.set('other', other);
+    state.connections[1].from.nodeId = 'other';
+    api.updateAllConnections();
+    assert.equal(paths[1].classList.contains('is-hovered'), false, 'reconnecting away from the hovered node removes emphasis');
+    hoverNode('other');
+    assert.equal(paths[1].classList.contains('is-hovered'), true);
+    leaveCanvas();
+    assert.equal(paths[1].classList.contains('is-hovered'), false);
+});
 
 function createRestorationProjection(connections, overrides = {}) {
     return createConnectionProjection({

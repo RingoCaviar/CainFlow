@@ -35,7 +35,7 @@ async function nativeClick(app, expression) {
 
 async function propose(app, plan, request, mentions = []) {
     const count = await app.evaluate("document.querySelectorAll('.prompt-agent-canvas-plan').length");
-    await app.evaluate(`typedMediaReply=${JSON.stringify({ intent: 'generate', message: '请检查媒体用途与原输入', canvasPlan: plan })};document.querySelector('[data-parameter-action=front-agent]').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.getElementById('prompt-agent-input').value='';`);
+    await app.evaluate(`typedMediaReply=${JSON.stringify({ intent: 'generate', message: '请检查媒体用途与原输入', canvasPlan: plan })};if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click();document.getElementById('prompt-agent-panel').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.getElementById('prompt-agent-input').value='';`);
     for (const [id, name] of mentions) {
         await app.evaluate(`(()=>{const input=document.getElementById('prompt-agent-input');input.value+=${JSON.stringify('@' + name)};input.setSelectionRange(input.value.length,input.value.length);input.dispatchEvent(new Event('input',{bubbles:true}))})()`);
         await app.waitFor(`Boolean([...document.querySelectorAll('.prompt-agent-node-mentions [role=option]')].find(option=>option.textContent.endsWith(${JSON.stringify(' · ' + id)})))`);
@@ -142,7 +142,7 @@ test('generated video is automatically saved and Agent cannot recreate retired S
         const reply = { intent: 'generate', message: '保存视频', canvasPlan: { version: 1,
             steps: [{ id: 'save-video', type: 'ImageSave', title: '仅保存视频', parameters: { filename: 'agent-video-only' } }],
             connections: [{ from: { ref: 'video', port: 'video' }, to: { ref: 'save-video', port: 'video' }, type: 'video' }] } };
-        await app.evaluate(`typedMediaReply=${JSON.stringify(reply)};document.querySelector('[data-parameter-action=front-agent]').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.getElementById('prompt-agent-input').value='@原始视频来源[video] 保存视频';document.getElementById('prompt-agent-input').dispatchEvent(new Event('input',{bubbles:true}));`);
+        await app.evaluate(`typedMediaReply=${JSON.stringify(reply)};document.getElementById('btn-prompt-agent').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.getElementById('prompt-agent-input').value='@原始视频来源[video] 保存视频';document.getElementById('prompt-agent-input').dispatchEvent(new Event('input',{bubbles:true}));`);
         await nativeClick(app, "document.getElementById('prompt-agent-send')");
         await app.waitFor("document.getElementById('prompt-agent-cancel').hidden&&document.getElementById('prompt-agent-messages').textContent.includes('不支持操作 ImageSave')");
         assert.equal(await app.evaluate("document.querySelectorAll('.prompt-agent-canvas-plan').length"), 0);

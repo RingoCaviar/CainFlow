@@ -188,7 +188,7 @@ try {
     panel.style.width = '320px';
     const narrowPanelRect = panel.getBoundingClientRect();
     const narrowLabelRect = modelSelect.parentElement.getBoundingClientRect();
-    const narrowCloseRect = document.getElementById('btn-close-prompt-agent').getBoundingClientRect();
+    const narrowCloseRect = document.getElementById('prompt-agent-image-model').parentElement.getBoundingClientRect();
     const narrowHeaderFits = narrowLabelRect.right <= narrowPanelRect.right - 6
         && narrowCloseRect.right <= narrowPanelRect.right - 6
         && narrowLabelRect.width >= 100;

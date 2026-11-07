@@ -273,6 +273,10 @@
     letter-spacing: 0.5px;
 }
 
+#settings-tab-proxy .card-field label {
+    font-size: 12px;
+}
+
 .api-config-card .card-field input,
 .api-config-card .card-field select {
     padding: 6px 8px;

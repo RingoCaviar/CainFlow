@@ -47,6 +47,13 @@ async function click(app, selector) {
     await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...position, button: 'left', clickCount: 1 });
 }
 
+async function clickToolbarAgent(app) {
+    const x = await app.evaluate("(()=>{const r=document.getElementById('btn-prompt-agent').getBoundingClientRect();return r.left+r.width/2})()");
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y: 2 });
+    await app.waitFor("document.getElementById('btn-prompt-agent').getBoundingClientRect().top>=0");
+    await click(app, '#btn-prompt-agent');
+}
+
 async function gesture(app, selector, dx, dy) {
     await app.evaluate("document.querySelectorAll('.notice-close').forEach(button=>button.click())");
     await app.waitFor("!document.querySelector('.toast')", 15000);
@@ -80,6 +87,43 @@ async function controlledAgent(app) {
     await app.send('Page.addScriptToEvaluateOnNewDocument', { source: "window.expandedAgentRequests=[];window.expandedAgentPending=false;window.expandedAgentAborted=false;const nativeFetch=window.fetch;window.fetch=async(url,options={})=>{if(String(url)==='/proxy'&&options.body){const body=JSON.parse(options.body);if(body.messages){expandedAgentRequests.push(body);expandedAgentPending=true;options.signal?.addEventListener('abort',()=>window.expandedAgentAborted=true);await new Promise(resolve=>window.releaseExpandedAgent=resolve);return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({intent:'chat',message:'受控回复已完成，原草稿保持'})}}]}),{headers:{'Content-Type':'application/json'}});}}return nativeFetch(url,options)};" });
     await reloadAppBrowser(app);
 }
+
+test('overlapping editors raise and accept the first direct click without recovery buttons', { timeout: 40000 }, async () => {
+    await withAppBrowser(session, async app => {
+        await open(app);
+        await app.evaluate("document.getElementById('btn-prompt-agent').click()");
+        await app.waitFor("document.getElementById('prompt-agent-panel').classList.contains('active')");
+        assert.equal(await app.evaluate("document.querySelector('.image-panel-switcher')"), null);
+        const original = await canvasView(app);
+        for (const [width, height] of [[640, 720], [640, 400], [360, 420]]) {
+            await app.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+            await app.evaluate("document.getElementById('prompt-agent-resize').dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true,cancelable:true}))");
+            await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+            await clickVisibleSurface(app, 'prompt-agent-panel');
+            await app.evaluate("document.querySelectorAll('.toast').forEach(toast=>toast.remove())");
+            // Use the exposed left part of Size, rather than clicking a hidden
+            // control through the Agent. This same click must open the menu.
+            const size = await app.evaluate("(()=>{const r=document.querySelector('#image-parameter-panel .image-parameter-settings-entry').getBoundingClientRect();return {x:r.left+8,y:r.top+r.height/2}})()");
+            assert.equal(await app.evaluate(`document.elementFromPoint(${size.x},${size.y})?.closest('button')?.classList.contains('image-parameter-settings-entry')`), true,
+                JSON.stringify(await app.evaluate(`({viewport:[innerWidth,innerHeight],point:${JSON.stringify(size)},hit:document.elementFromPoint(${size.x},${size.y})?.outerHTML.slice(0,200),parameter:document.getElementById('image-parameter-panel').getBoundingClientRect().toJSON(),agent:document.getElementById('prompt-agent-panel').getBoundingClientRect().toJSON()})`)));
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...size });
+            await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...size, button: 'left', clickCount: 1 });
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...size, button: 'left', clickCount: 1 });
+            await app.waitFor("document.querySelector('#image-parameter-panel .image-parameter-settings-popup').matches(':popover-open')");
+            assert.equal(await overlapOwner(app), 'image-parameter-panel');
+            // The Agent composer stays exposed below the compact parameter
+            // editor. Clicking it also dismisses the other editor's popup.
+            await click(app, '#prompt-agent-input');
+            assert.equal(await app.evaluate('document.activeElement.id'), 'prompt-agent-input', `${width}x${height}: first click places the caret`);
+            assert.equal(await app.evaluate("document.querySelector('.image-parameter-settings-popup:popover-open')"), null);
+            assert.equal(await overlapOwner(app), 'prompt-agent-panel');
+            await clickVisibleSurface(app, 'image-parameter-panel');
+            assert.equal(await overlapOwner(app), 'image-parameter-panel');
+            assert.equal(await app.evaluate("document.getElementById('first-prompt').value"), 'first original draft');
+        }
+        assert.deepEqual(await canvasView(app), original, 'raising editors does not move the canvas or edit the graph');
+    });
+});
 
 async function attach(app, name) {
     await app.evaluate(`(async()=>{const transfer=new DataTransfer();transfer.items.add(new File([await(await fetch(${JSON.stringify(reference)})).blob()],${JSON.stringify(name)},{type:'image/png'}));document.getElementById('prompt-agent-form').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));})()`);
@@ -133,7 +177,7 @@ test('native text undo and panel buttons never undo or delete graph nodes, and E
         await key(app, 'Escape');
         await app.waitFor("document.getElementById('clone-node-count-dialog').classList.contains('hidden')");
         assert.equal(await app.evaluate("!document.getElementById('image-parameter-panel').hidden&&document.getElementById('prompt-agent-panel').classList.contains('active')"), true);
-        await click(app, '[data-parameter-action=front-agent]');
+        await clickVisibleSurface(app, 'prompt-agent-panel');
         await click(app, '#prompt-agent-model + button');
         await app.waitFor("Boolean(document.getElementById('prompt-agent-model-menu'))");
         await key(app, 'Escape');
@@ -183,12 +227,12 @@ test('separated parameter and Agent windows remain accessible without losing dra
         await separated();
         await clickVisibleSurface(app,'prompt-agent-panel'); await separated();
         await clickVisibleSurface(app,'image-parameter-panel'); await separated();
-        await click(app,'[data-parameter-action=front-agent]'); await separated();
-        await click(app,'[data-parameter-action=front-parameters]'); await separated();
-        await click(app,'[data-parameter-action=front-agent]');
-        await click(app, '#btn-close-prompt-agent');
+        await clickVisibleSurface(app, 'prompt-agent-panel'); await separated();
+        await clickVisibleSurface(app, 'image-parameter-panel'); await separated();
+        await clickVisibleSurface(app, 'prompt-agent-panel');
+        await clickToolbarAgent(app);
         assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').hidden"), false);
-        await click(app, '[data-parameter-action=front-agent]');
+        await clickToolbarAgent(app);
         assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), 'keep this next draft while the previous request runs');
         assert.deepEqual(await app.evaluate("['prompt-agent-model','prompt-agent-image-model'].map(id=>document.getElementById(id).value)"), ['chat', 'image-other']);
         assert.equal(await app.evaluate("document.querySelector('#prompt-agent-references img').src"), referenceSource);

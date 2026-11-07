@@ -34,8 +34,7 @@ async function openInputs(app) {
     await app.evaluate("document.querySelector('#target .image-first-placeholder').click()");
     await app.waitFor("document.getElementById('image-parameter-panel')?.dataset.nodeId==='target' && !document.getElementById('image-parameter-panel').hidden");
     await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
-    await app.evaluate("(()=>{const toggle=document.querySelector('#image-parameter-panel [data-parameter-group-toggle=more]');if(!document.querySelector('#image-parameter-panel .image-parameter-settings-popup').matches(':popover-open')||toggle.getAttribute('aria-expanded')!=='true')toggle.click()})()");
-    await app.waitFor("document.querySelector('#image-parameter-panel [data-parameter-group=reference]')?.checkVisibility()===true");
+    await app.waitFor("document.querySelector('#image-parameter-panel .image-parameter-references')?.checkVisibility()===true");
     await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
 }
 
@@ -75,7 +74,7 @@ test('generation has one visible input and compact reference controls preserve a
         assert.equal(await app.evaluate("document.querySelectorAll('#image-parameter-panel [data-input-connection-id]').length"), 0, 'the retired input list is not recreated');
         const references = await app.evaluate("[...document.querySelectorAll('#image-parameter-panel [data-reference-connection]')].map(row=>({id:row.dataset.referenceConnection,text:row.textContent}))");
         assert.deepEqual(references.map(row=>row.id), ['reference-batch', 'missing-reference']);
-        assert.match(references.find(row=>row.id==='missing-reference').text, /缺失/);
+        assert.match(references.find(row=>row.id==='missing-reference').text, /待输出/, 'a connected source without an imported original remains visible while awaiting its output');
         assert.match(await app.evaluate("document.getElementById('target-prompt-source').textContent"), /主提示词来源/);
 
         // A layout-only save must retain every canonical role and connection order.

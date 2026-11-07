@@ -68,7 +68,9 @@ export function createHelpPanelApi({
     <div class="help-tip">
         <strong>小提示</strong>
         <div>只运行选中节点时，会优先读取未选中上游的已有缓存；运行中的节点不能直接移动，按住 <span class="help-key">Ctrl</span> 可克隆。</div>
-        <div>主题、自动重试、运行通知在顶部“设置 → 常规设置”中管理。Mac 使用 Command 代替 Ctrl。</div>
+        <div>主题通过顶栏当前主题按钮切换；自动重试与运行通知在“设置 → 常规设置”中管理。Mac 使用 Command 代替 Ctrl。</div>
+        <div>生图参考图显示在提示词上方，可拖动排序；悬停缩略图后可断开来源。同一来源的多张图按整组调整。</div>
+        <div>点击参数浮层或 Agent 即可将它置前；重新点击节点打开参数，顶栏 Agent 按钮可找回助手。</div>
         <div>界面异常或资源没更新时，按 <span class="help-key">Ctrl + F5</span> 强制刷新。</div>
     </div>
 `;

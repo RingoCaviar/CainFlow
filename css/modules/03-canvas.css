@@ -92,7 +92,7 @@
 }
 
 .connection-path {
-    stroke: rgba(var(--conn-color), var(--conn-opacity));
+    stroke: var(--canvas-connection-normal);
     stroke-width: 2;
     transition: all 0.2s ease;
     pointer-events: visibleStroke;
@@ -101,9 +101,14 @@
     cursor: pointer;
 }
 
-.connection-path.selected {
+#connections-group .connection-path:is(:hover, .is-hovered) {
+    stroke: var(--canvas-connection-hover);
+    stroke-width: 3;
+    filter: none;
+}
+
+#connections-group .connection-path.selected {
     stroke: var(--canvas-connection-selected) !important;
-    /* Force solid purple for selection as requested */
     stroke-width: 3.5;
     stroke-opacity: 1;
     filter: none !important;
@@ -165,7 +170,7 @@
 
 #connections-group path:hover {
     stroke-width: 4;
-    filter: url(#glow);
+    filter: none;
 }
 
 #connections-group.is-dragging {

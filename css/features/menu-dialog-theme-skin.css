@@ -74,6 +74,24 @@ html:root .theme-menu-item {
     color: var(--menu-text);
 }
 
+/* Theme choices read as one compact list, rather than seven framed buttons. */
+html:root .theme-menu-panel .theme-menu-item {
+    background: transparent;
+    border-color: transparent;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.4;
+}
+
+html:root .theme-menu-panel .theme-menu-item:is(:hover, :focus-visible, .is-focused) {
+    background: var(--menu-hover-bg);
+}
+
+html:root .theme-menu-panel .theme-menu-item.is-active {
+    background: var(--menu-active-bg);
+}
+
 html:root .context-menu-divider {
     background: var(--menu-divider);
 }

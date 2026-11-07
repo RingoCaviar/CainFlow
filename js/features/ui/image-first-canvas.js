@@ -21,7 +21,7 @@ const emptyPreviewMessages = new Set(['无输入图片', '无输入视频', '运
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
     runToNode, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
-    panelManager = null, openAgent = () => {}, openModelSettings = () => {}, focusNode = () => {} }) {
+    panelManager = null, openModelSettings = () => {}, focusNode = () => {} }) {
     const views = new Map();
     const dragClasses = new Set(['selected', 'is-interacting', 'connection-insert-candidate', 'connection-shake-armed']);
     const presentationClasses = value => (value || '').split(/\s+/).filter(name => name && !dragClasses.has(name)).sort().join(' ');
@@ -40,10 +40,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     const store = documentRef.createElement('div');
     store.hidden = true;
     store.className = 'image-parameter-store';
-    const switcher = documentRef.createElement('nav'); switcher.className = 'image-panel-switcher';
-    switcher.setAttribute('aria-label', '面板置顶');
-    switcher.innerHTML = '<button type="button" data-parameter-action="front-parameters" aria-controls="image-parameter-panel" aria-expanded="false">打开参数</button><button type="button" data-parameter-action="front-agent" aria-controls="prompt-agent-panel" aria-expanded="false">打开助手</button>';
-    documentRef.body.append(store, panel, switcher);
+    documentRef.body.append(store, panel);
     const header = panel.querySelector('.image-parameter-header');
     const scroll = panel.querySelector('.image-parameter-scroll');
     const targetContext = documentRef.createElement('div');
@@ -84,8 +81,6 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     const widthHandle = panel.querySelector('[data-parameter-resize="width"]');
     const heightHandle = panel.querySelector('[data-parameter-resize="height"]');
     const cornerHandle = panel.querySelector('[data-parameter-resize="both"]');
-    const parametersFront = switcher.querySelector('[data-parameter-action="front-parameters"]');
-    const agentFront = switcher.querySelector('[data-parameter-action="front-agent"]');
     const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
     const available = () => {
         const toolbar = documentRef.getElementById('toolbar');
@@ -94,7 +89,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const toolbarActive = toolbar && (documentRef.body.matches('.toolbar-pinned, .toolbar-peek-active')
             || toolbar.matches(':hover, :focus-within')
             || toolbar.querySelector('details[open], .btn.active:not(#btn-prompt-agent), [aria-expanded="true"]:not(#btn-prompt-agent)'));
-        const top = expanded && toolbarActive
+        const top = toolbarActive
             ? Math.min(toolbar.offsetHeight + 12, Math.max(12, windowRef.innerHeight - 12)) : 12;
         const canvas = documentRef.getElementById('canvas-container')?.getBoundingClientRect();
         let left = Math.max(12, (canvas?.left || 0) + 12);
@@ -106,15 +101,15 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const agentPanel = documentRef.getElementById('prompt-agent-panel');
         if (agentPanel?.classList.contains('active') && !agentPanel.hidden) {
             const besideAgent = Math.min(right, agentPanel.getBoundingClientRect().left - 12);
-            // At phone-sized widths use the existing window switcher instead
-            // of squeezing the editor to an unusably narrow strip.
+            // Narrow windows overlap; a visible edge lets either editor be clicked
+            // to the front without squeezing its controls into a strip.
             right = besideAgent - left >= 280 ? besideAgent : windowRef.innerWidth - 12;
         }
         right = Math.max(left + 1, right);
-        // Canvas navigation and panel recovery controls must not cover the
+        // Canvas navigation must not cover the
         // parameter footer, especially in short/narrow viewports.
         let bottom = windowRef.innerHeight - 12;
-        for (const control of [switcher, documentRef.getElementById('canvas-navigation')]) {
+        for (const control of [documentRef.getElementById('canvas-navigation')]) {
             if (!control?.getClientRects().length) continue;
             const area = control.getBoundingClientRect();
             if (area.right > left && area.left < right) bottom = Math.min(bottom, area.top - 8);
@@ -122,26 +117,6 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         bottom = Math.max(top + 1, bottom);
         return { left, right, bottom, width: right - left, height: Math.max(1, bottom - top), top };
     };
-    const selectedNode = () => state.selectedNodes.size === 1 ? state.nodes.get([...state.selectedNodes][0]) : null;
-    function updateSwitcher() {
-        const node = selectedNode(), agent = documentRef.getElementById('prompt-agent-panel'), agentOpen = agent?.classList.contains('active');
-        parametersFront.disabled = !node || !views.has(node);
-        parametersFront.textContent = panel.hidden ? '打开参数' : '参数置顶';
-        parametersFront.setAttribute('aria-expanded', String(!panel.hidden));
-        agentFront.textContent = agentOpen ? '助手置顶' : '打开助手';
-        agentFront.setAttribute('aria-expanded', String(!!agentOpen));
-        // Keep this canvas control outside the Agent, including its resize handle.
-        const right = agentOpen ? agent.getBoundingClientRect().left - 8 : windowRef.innerWidth;
-        switcher.classList.remove('is-stacked');
-        switcher.classList.toggle('is-stacked', switcher.offsetWidth > right - 24);
-        const width = switcher.offsetWidth;
-        const center = clamp(right / 2, 12 + width / 2, Math.max(12 + width / 2, right - 12 - width / 2));
-        switcher.style.left = `${center}px`;
-        const navigation = documentRef.getElementById('canvas-navigation')?.getBoundingClientRect();
-        const overlapsNavigation = navigation && navigation.width > 0 && navigation.left < center + width / 2
-            && navigation.right > center - width / 2;
-        switcher.style.bottom = `${overlapsNavigation ? Math.max(12, windowRef.innerHeight - navigation.top + 8) : 12}px`;
-    }
     function updateMode() {
         const canExpand = !['ImageImport', 'ImageSave', 'CameraControl'].includes(current?.type);
         if (!canExpand) { expanded = false; expandedRect = null; }
@@ -155,7 +130,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     }
     function setReturnFocus(node, candidate = documentRef.activeElement) {
         if (candidate?.isConnected && !panel.contains(candidate) && !candidate.closest?.('.image-parameter-store')
-            && (node.el.contains(candidate) || switcher.contains(candidate))
+            && (node.el.contains(candidate))
             && candidate.matches?.('button,input,textarea,select,a[href],[tabindex]')) returnFocusElement = candidate;
         else { node.el.setAttribute('tabindex', '-1'); returnFocusElement = node.el; }
     }
@@ -302,7 +277,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         finishGesture(true); expanded = false; expandedRect = null; updateMode();
         park();
         panel.hidden = true;
-        panel.setAttribute('aria-hidden', 'true'); panel.inert = true; updateSwitcher();
+        panel.setAttribute('aria-hidden', 'true'); panel.inert = true;
     }
     function remove(node) {
         const view = views.get(node);
@@ -328,13 +303,14 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     function setGroup(node, group, { focus = false } = {}) {
         const view = views.get(node);
         if (!view) return;
-        if (view.settingsPopup && ['reference', 'advanced'].includes(group)) group = 'more';
+        if (view.settingsPopup && group === 'reference') return;
+        if (view.settingsPopup && group === 'advanced') group = 'more';
         if (view.settingsPopup?.matches(':popover-open')) surfaces?.closePopovers?.(panel);
         // A submenu entry selects a page; closing the popup must not turn the
         // next activation of that same page into an empty menu.
         view.group = view.settingsPopup ? group : view.group === group ? null : group;
         for (const section of view.sections) {
-            section.hidden = section.dataset.parameterGroup !== view.group && !(view.settingsPopup && view.group === 'more' && ['reference', 'advanced'].includes(section.dataset.parameterGroup));
+            section.hidden = section.dataset.parameterGroup !== view.group && !(view.settingsPopup && view.group === 'more' && section.dataset.parameterGroup === 'advanced');
             if (section.tagName === 'DETAILS') section.open = !section.hidden;
         }
         view.form.querySelectorAll('[data-parameter-group-toggle]').forEach(button => {
@@ -374,7 +350,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             setText(view.emptyText, name);
             const settings = readImageGenerationSettings(node, documentRef);
             const model = state.models.find(item => item.id === settings.apiConfigId);
-            const { count } = projectImageReferences({ state, targetId: node.id });
+            const references = projectImageReferences({ state, targetId: node.id });
+            if (view.referenceOverview) view.referenceOverview.hidden = references.groups.length === 0;
             const automaticLabel = value => !value || value === 'auto' ? '自动' : value;
             const resolutionLabel = settings.resolution === 'custom'
                 ? `${settings.customWidth || '自动'} × ${settings.customHeight || '自动'}`
@@ -388,7 +365,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             for (const [group, button] of view.groupButtons || []) {
                 if (group === 'size') continue;
                 if (group === 'more') {
-                    button.title = `更多设置：参考图 ${count} 张、质量与高级参数`;
+                    button.title = '更多设置：质量、背景、内容审核与高级参数';
                     continue;
                 }
                 const text = group === 'model' ? `模型 · ${model?.name || model?.modelId || '选择模型'}`
@@ -499,29 +476,41 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (group) { const view = views.get(node); if (view.group !== group || view.settingsPopup && !view.settingsPopup.matches(':popover-open')) setGroup(node, group); }
         refreshNode(node.id);
         position();
-        surfaces?.bringToFront?.(panel); updateSwitcher();
+        surfaces?.bringToFront?.(panel);
     }
     function select(node, group) {
         if (!state.selectedNodes.has(node.id) || state.selectedNodes.size !== 1) selectionApi.setSelection([node.id]);
         open(node, group);
     }
     let selectionFrame = null;
+    let selectionAllowsOpen = true;
     function selectionChanged() {
+        // Capture the selection's intent before coalescing: a marquee may
+        // already have ended by the time this frame runs.
+        selectionAllowsOpen = !state.marquee;
         if (selectionFrame !== null) return;
         selectionFrame = windowRef.requestAnimationFrame(() => {
             selectionFrame = null;
-            // Pointer down establishes the drag after updating selection. Let
-            // movement paint first; open the final selection's editor on release.
+            // Pointer down establishes the drag after updating selection.
+            // Completed movement cancels this pending automatic opening below.
             if (state.dragging) { selectionChanged(); return; }
-            refreshSelection();
+            refreshSelection({ allowOpen: selectionAllowsOpen && !state.marquee });
         });
     }
-    function refreshSelection() {
+    documentRef.addEventListener('cainflow:node-drag-ended', () => {
+        if (selectionFrame !== null) windowRef.cancelAnimationFrame(selectionFrame);
+        selectionFrame = null;
+        refreshSelection({ allowOpen: false });
+    });
+    function refreshSelection({ allowOpen = true } = {}) {
         sweep();
-        updateSwitcher();
         const ids = Array.from(state.selectedNodes);
         const node = ids.length === 1 ? state.nodes.get(ids[0]) : null;
         if (!node || !views.has(node)) { close({ remember: false }); closed = null; return; }
+        if (!allowOpen) {
+            if (current !== node) close({ remember: false });
+            return;
+        }
         if (closed !== node) open(node);
     }
     function installUniversalInput(node) {
@@ -718,7 +707,12 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             if (!element) return;
             element.dataset.parameterGroup = name; element.hidden = true; sections.push(element);
         }
-        group(form.querySelector('.image-reference-overview'), 'reference');
+        const referenceOverview = form.querySelector('.image-reference-overview');
+        referenceOverview?.querySelector('.node-section-label')?.remove();
+        if (referenceOverview) {
+            referenceOverview.classList.add('image-parameter-references');
+            form.prepend(referenceOverview);
+        }
         const grids = Array.from(form.querySelectorAll(':scope > .node-parameter-grid'));
         group(grids[0], 'model');
         const countField = form.querySelector(`[id="${nodeId}-generation-count"]`)?.closest('.node-field');
@@ -812,9 +806,9 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (fullError) { fullError.tabIndex = 0; fullError.setAttribute('aria-label', '完整运行错误'); form.append(fullError); }
         body.append(placeholder, result);
         form.append(runFeedback);
-        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, emptyText, result, countField, groupButtons, settingsPopup, settingsEntry, footerTools, group: null }, [result, progress]);
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, referenceOverview, placeholder, emptyText, result, countField, groupButtons, settingsPopup, settingsEntry, footerTools, group: null }, [result, progress]);
     }
-    updateMode(); updateSwitcher();
+    updateMode();
     for (const type of ['input', 'change']) countSlot.addEventListener(type, () => {
         if (current) { refreshNode(current.id); onSettingsChanged(current.id); }
     });
@@ -827,17 +821,6 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (['ImageImport', 'ImageSave', 'CameraControl'].includes(current?.type)) return;
         finishGesture(true); expanded = !expanded; expandedRect = null; updateMode(); position(); surfaces?.bringToFront?.(panel);
     });
-    parametersFront.addEventListener('click', () => {
-        const node = selectedNode();
-        if (!node || !views.has(node)) return;
-        setReturnFocus(node, parametersFront); open(node);
-    });
-    agentFront.addEventListener('click', async () => {
-        if (!documentRef.getElementById('prompt-agent-panel')?.classList.contains('active')) await openAgent();
-        const agent = documentRef.getElementById('prompt-agent-panel');
-        if (agent?.classList.contains('active')) surfaces?.bringToFront?.(agent);
-        updateSwitcher();
-    });
     const toolbar = documentRef.getElementById('toolbar');
     if (toolbar) {
         for (const event of ['focusin', 'focusout', 'pointerenter', 'pointerleave', 'transitionend']) toolbar.addEventListener(event, schedulePosition);
@@ -845,7 +828,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         new windowRef.MutationObserver(schedulePosition).observe(documentRef.body, { attributes: true, attributeFilter: ['class'] });
     }
     const agent = documentRef.getElementById('prompt-agent-panel');
-    if (agent) new windowRef.MutationObserver(() => { updateSwitcher(); schedulePosition(); }).observe(agent, { attributes: true, attributeFilter: ['class', 'hidden', 'style'] });
+    if (agent) new windowRef.MutationObserver(schedulePosition).observe(agent, { attributes: true, attributeFilter: ['class', 'hidden', 'style'] });
     if (agent && windowRef.ResizeObserver) new windowRef.ResizeObserver(schedulePosition).observe(agent);
     agent?.addEventListener('transitionend', schedulePosition);
     const workflowPanel = documentRef.getElementById('workflow-sidebar');
@@ -933,7 +916,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         // Do not queue another frame or move the independently placed expanded view.
         if (!expanded && !panel.hidden) position();
     });
-    windowRef.addEventListener('resize', () => { schedulePosition(); updateSwitcher(); });
+    windowRef.addEventListener('resize', () => { schedulePosition(); });
     return { install, selectionChanged, close, refreshNode,
         refreshSource: sourceId => {
             const targets = new Set(state.connections.filter(edge => edge.from.nodeId === sourceId).map(edge => edge.to.nodeId));

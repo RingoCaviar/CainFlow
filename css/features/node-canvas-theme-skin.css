@@ -423,7 +423,13 @@ html:root #canvas-container {
     --node-running-glow-wide: color-mix(in srgb, var(--node-border-running) 22%, transparent);
     --node-running-glow-filter: color-mix(in srgb, var(--node-border-running) 70%, transparent);
     --node-section-divider: color-mix(in srgb, var(--node-border) 78%, transparent);
+    /* Equal luminance contrast against each theme's canvas, without opacity
+       making light and dark relationships disappear at different strengths. */
+    --canvas-connection-normal: light-dark(
+        color(from var(--canvas-bg-color, var(--bg-canvas)) srgb-linear calc(r / 2 - 0.025) calc(g / 2 - 0.025) calc(b / 2 - 0.025)),
+        color(from var(--canvas-bg-color, var(--bg-canvas)) srgb-linear calc(r * 2 + 0.05) calc(g * 2 + 0.05) calc(b * 2 + 0.05)));
     --canvas-connection-selected: var(--accent-primary);
+    --canvas-connection-hover: color-mix(in srgb, var(--canvas-connection-selected) 65%, var(--text-primary));
     --canvas-connection-insert-target: color-mix(in srgb, var(--accent-orange) 62%, transparent);
     --canvas-connection-preview: color-mix(in srgb, var(--accent-green) 92%, transparent);
     --canvas-connection-preview-glow: color-mix(in srgb, var(--accent-green) 48%, transparent);

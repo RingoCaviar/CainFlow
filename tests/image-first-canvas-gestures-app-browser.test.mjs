@@ -25,6 +25,180 @@ async function clickPreview(app, clickCount = 1) {
     await pointer(app, 'mouseReleased', point, clickCount);
 }
 
+test('node drag release does not open parameters and the next genuine click still works', { timeout: 30000 }, async () => {
+    await withAppBrowser(session, async app => {
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]')?.click()");
+        const start = await app.evaluate(`(()=>{const r=document.querySelector('#gesture-image .image-first-placeholder').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+        await pointer(app, 'mousePressed', start);
+        await pointer(app, 'mouseMoved', { x: start.x + 80, y: start.y + 50 });
+        await pointer(app, 'mouseReleased', { x: start.x + 80, y: start.y + 50 });
+        await delay(100);
+        assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').hidden"), true,
+            'releasing a moved node must not be treated as a click opening its parameters');
+        const moved = await app.evaluate(`(()=>{const r=document.querySelector('#gesture-image .image-first-placeholder').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+        assert.ok(moved.x > start.x + 40, 'the gesture really moved the node');
+        await pointer(app, 'mousePressed', moved);
+        await pointer(app, 'mouseReleased', moved);
+        await app.waitFor("!document.getElementById('image-parameter-panel').hidden");
+    });
+});
+
+test('a node drag returning to its origin is not a double click and an immediate fresh click opens parameters', { timeout: 30000 }, async () => {
+    await withAppBrowser(session, async app => {
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]')?.click()");
+        const start = await app.evaluate("(()=>{const r=document.querySelector('#gesture-image .image-first-placeholder').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()");
+        await pointer(app, 'mousePressed', start, 2);
+        await pointer(app, 'mouseMoved', { x: start.x + 55, y: start.y + 30 });
+        await pointer(app, 'mouseMoved', start);
+        await pointer(app, 'mouseReleased', start, 2);
+        assert.deepEqual(await app.evaluate("({hidden:document.getElementById('image-parameter-panel').hidden,fullscreen:!!document.querySelector('.fullscreen-overlay')})"),
+            { hidden: true, fullscreen: false }, 'crossing the drag threshold remains a drag even after returning to the initial position');
+        // Do not sleep through the former 100ms suppression window: the next
+        // independent pointer gesture must be usable immediately.
+        await pointer(app, 'mousePressed', start);
+        await pointer(app, 'mouseReleased', start);
+        await app.waitFor("!document.getElementById('image-parameter-panel').hidden");
+        assert.equal(await app.evaluate("!!document.querySelector('.fullscreen-overlay')"), false);
+    });
+});
+
+test('a held marquee keeps parameters closed through single and multiple selection, release, and a fresh click', { timeout: 30000 }, async () => {
+    await withAppBrowser({ ...session, nodes: [
+        { ...session.nodes[0], x: 200, y: 180, width: 240, height: 220, userResized: true },
+        { ...session.nodes[0], id: 'gesture-second', x: 550, y: 180, width: 240, height: 220, userResized: true }
+    ] }, async app => {
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]')?.click()");
+        const [first, second] = await app.evaluate("['gesture-image','gesture-second'].map(id=>document.getElementById(id).getBoundingClientRect().toJSON())");
+        const from = { x: first.left - 20, y: first.top - 25 };
+        const overFirst = { x: first.right + 10, y: first.bottom + 10 };
+        const overBoth = { x: second.right + 10, y: second.bottom + 10 };
+        const frame = () => app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        const selection = () => app.evaluate("['gesture-image','gesture-second'].map(id=>document.getElementById(id).classList.contains('selected'))");
+        const hidden = () => app.evaluate("document.getElementById('image-parameter-panel').hidden");
+        let release = overFirst;
+        await pointer(app, 'mousePressed', from);
+        try {
+            await pointer(app, 'mouseMoved', overFirst);
+            await frame();
+            assert.deepEqual(await selection(), [true, false], 'the still-held marquee has selected only the first node');
+            assert.equal(await hidden(), true,
+                'the first node becoming selected during a held marquee must not open its parameters');
+            for (const [point, expected] of [[overBoth, [true, true]], [overFirst, [true, false]], [overBoth, [true, true]]]) {
+                release = point;
+                await pointer(app, 'mouseMoved', point);
+                await frame();
+                assert.deepEqual(await selection(), expected);
+                assert.equal(await hidden(), true, 'growing or shrinking the held selection must not open parameters');
+            }
+        } finally {
+            await pointer(app, 'mouseReleased', release);
+        }
+        await frame();
+        assert.deepEqual(await selection(), [true, true]);
+        assert.equal(await hidden(), true, 'releasing the multiple selection leaves parameters closed');
+
+        await pointer(app, 'mousePressed', from);
+        await pointer(app, 'mouseMoved', overFirst);
+        await frame();
+        assert.deepEqual(await selection(), [true, false]);
+        assert.equal(await hidden(), true, 'a separate single-node marquee also stays closed while held');
+        await pointer(app, 'mouseReleased', overFirst);
+        await frame();
+        assert.equal(await hidden(), true, 'releasing a single-node marquee must not queue an opening');
+        const center = await app.evaluate("(()=>{const r=document.querySelector('#gesture-image .image-first-placeholder').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()");
+        await pointer(app, 'mousePressed', center);
+        await pointer(app, 'mouseReleased', center);
+        await app.waitFor("!document.getElementById('image-parameter-panel').hidden && document.getElementById('image-parameter-panel').dataset.nodeId==='gesture-image'");
+    });
+});
+
+test('a quick marquee released before the next frame does not open parameters later', { timeout: 30000 }, async () => {
+    await withAppBrowser(session, async app => {
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]')?.click()");
+        const rect = await app.evaluate("document.getElementById('gesture-image').getBoundingClientRect().toJSON()");
+        const from = { x: rect.left - 20, y: rect.top - 25 };
+        const to = { x: rect.right + 10, y: rect.bottom + 10 };
+        await app.evaluate(`window.quickMarqueeReleased=false;window.quickMarqueeFramedWhileHeld=false;
+            document.addEventListener('mousedown',()=>requestAnimationFrame(()=>{
+                if(!window.quickMarqueeReleased)window.quickMarqueeFramedWhileHeld=true;
+            }),{once:true});
+            document.addEventListener('mouseup',()=>{window.quickMarqueeReleased=true},{once:true});`);
+        await app.send('Emulation.setVirtualTimePolicy', { policy: 'pause' });
+        // Queue the entire native gesture before resuming the frame clock: a
+        // paused renderer can hold the CDP input acknowledgement until resumed.
+        const gesture = Promise.all([
+            pointer(app, 'mousePressed', from),
+            pointer(app, 'mouseMoved', to),
+            pointer(app, 'mouseReleased', to)
+        ]);
+        const frames = app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        await app.send('Emulation.setVirtualTimePolicy', { policy: 'advance', budget: 100 });
+        await gesture;
+        await frames;
+        assert.equal(await app.evaluate("document.getElementById('gesture-image').classList.contains('selected')"), true,
+            'the native quick marquee selected the node before the pending frame can run');
+        assert.equal(await app.evaluate('window.quickMarqueeFramedWhileHeld'), false,
+            'this gesture releases before its first scheduled animation frame');
+        assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').hidden"), true,
+            'a queued selection refresh after release must not reopen parameters');
+    });
+});
+
+test('marquee-selected nodes stay selected after dragging and an already open editor retains its controls', { timeout: 30000 }, async () => {
+    await withAppBrowser({ ...session, nodes: [
+        { ...session.nodes[0], x: 200, y: 180, width: 240, height: 220, userResized: true },
+        { ...session.nodes[0], id: 'gesture-second', x: 550, y: 180, width: 240, height: 220, userResized: true }
+    ] }, async app => {
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]')?.click()");
+        const nodes = () => app.evaluate("['gesture-image','gesture-second'].map(id=>{const el=document.getElementById(id),r=el.getBoundingClientRect();return {id,x:r.x,y:r.y,right:r.right,bottom:r.bottom,selected:el.classList.contains('selected')}})");
+        const before = await nodes();
+        const from = { x: Math.min(...before.map(node => node.x)) - 20, y: Math.min(...before.map(node => node.y)) - 25 };
+        const to = { x: Math.max(...before.map(node => node.right)) + 20, y: Math.max(...before.map(node => node.bottom)) + 20 };
+        await pointer(app, 'mousePressed', from);
+        await pointer(app, 'mouseMoved', to);
+        await pointer(app, 'mouseReleased', to);
+        assert.deepEqual((await nodes()).map(node => node.selected), [true, true], 'the native marquee selected both nodes');
+        const center = () => app.evaluate("(()=>{const r=document.querySelector('#gesture-image .image-first-placeholder').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()");
+        const start = await center();
+        await pointer(app, 'mousePressed', start);
+        await pointer(app, 'mouseMoved', { x: start.x + 60, y: start.y + 25 });
+        await pointer(app, 'mouseReleased', { x: start.x + 60, y: start.y + 25 });
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        const after = await nodes();
+        assert.deepEqual(after.map(node => node.selected), [true, true], 'release does not narrow the selection to the pressed node');
+        for (let index = 0; index < after.length; index++) {
+            assert.ok(Math.abs(after[index].x - before[index].x - 60) < 2);
+            assert.ok(Math.abs(after[index].y - before[index].y - 25) < 2);
+        }
+        assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').hidden"), true);
+
+        const selected = await center();
+        await pointer(app, 'mousePressed', selected);
+        await pointer(app, 'mouseReleased', selected);
+        await app.waitFor("!document.getElementById('image-parameter-panel').hidden");
+        await app.evaluate("window.retainedDragPrompt=document.getElementById('gesture-image-prompt');retainedDragPrompt.value='preserve the open editor draft'");
+        const dragStart = await center();
+        await pointer(app, 'mousePressed', dragStart);
+        await pointer(app, 'mouseMoved', { x: dragStart.x + 35, y: dragStart.y + 20 });
+        await pointer(app, 'mouseReleased', { x: dragStart.x + 35, y: dragStart.y + 20 });
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        assert.deepEqual(await app.evaluate("({hidden:document.getElementById('image-parameter-panel').hidden,same:document.getElementById('gesture-image-prompt')===retainedDragPrompt,value:retainedDragPrompt.value})"),
+            { hidden: false, same: true, value: 'preserve the open editor draft' }, 'dragging the current node preserves its already open editor');
+        const other = await app.evaluate("(()=>{const r=document.querySelector('#gesture-second .image-first-placeholder').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()");
+        await pointer(app, 'mousePressed', other);
+        await pointer(app, 'mouseMoved', { x: other.x + 25, y: other.y + 20 });
+        await pointer(app, 'mouseReleased', { x: other.x + 25, y: other.y + 20 });
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').hidden"), true,
+            'dragging another node closes the stale editor without opening a replacement');
+        assert.deepEqual((await nodes()).map(node => node.selected), [false, true]);
+        await app.evaluate("document.getElementById('gesture-second').click()");
+        await app.waitFor("!document.getElementById('image-parameter-panel').hidden && document.getElementById('image-parameter-panel').dataset.nodeId==='gesture-second'");
+    });
+});
+
 test('parameter overlay follows a held canvas pan and clamps before release without replacing controls', { timeout: 45000 }, async () => {
     await withAppBrowser(session, async app => {
         await app.evaluate("document.getElementById('gesture-image').click()");

@@ -4,13 +4,25 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 import { configuration, imageTypes, originals, graphEdge, integratedWorkflow, saved, recordPlayableVideo,
-    controlProviders, upload, openParameters, runNode, nativeClick, key, persist } from './helpers/image-first-integrated-fixture.mjs';
+    controlProviders, upload, openParameters as openBaseParameters, runNode, nativeClick, key, persist } from './helpers/image-first-integrated-fixture.mjs';
 
 const themes = ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink'];
 const screenshotDirectory = process.env.CAINFLOW_QA_SCREENSHOT_DIR || 'D:/mygithub/CainFlow/.scratch/image-first-canvas/verification/themes';
 const panel = '#image-parameter-panel';
 const geometry = app => app.evaluate("({canvas:document.getElementById('nodes-layer').style.transform,nodes:[...document.querySelectorAll('#nodes-layer>.image-first-card')].map(node=>({id:node.id,x:node.style.left,y:node.style.top,width:node.offsetWidth,height:node.offsetHeight})),ports:[...document.querySelectorAll('#nodes-layer .image-first-card .node-port')].filter(port=>port.checkVisibility()).map(port=>({nodeId:port.closest('.node').id,port:port.dataset.port,direction:port.dataset.direction,rect:port.querySelector('.port-dot').getBoundingClientRect().toJSON()}))})");
 const getKeys = (graph, id) => graph.nodes.find(node => node.id === id)?.mediaAssetKeys || [];
+
+async function openParameters(app, id, group = null) {
+    await openBaseParameters(app, id, group === 'reference' ? null : group);
+}
+
+async function clickVisibleSurface(app, id) {
+    const position = await app.evaluate(`(()=>{const root=document.getElementById(${JSON.stringify(id)}),r=root.getBoundingClientRect();for(const y of [r.top+20,r.top+r.height/2,r.bottom-10])for(const x of [r.left+4,r.right-4,r.left+r.width/2]){const hit=document.elementFromPoint(x,y);if(root.contains(hit)&&!hit.closest('button,input,textarea,select,[role=separator]'))return {x,y}}return null})()`);
+    assert.ok(position, `a visible part of ${id} is reachable`);
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...position });
+    await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...position, button: 'left', clickCount: 1 });
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...position, button: 'left', clickCount: 1 });
+}
 
 async function capture(app, name, manifest = null) {
     await mkdir(screenshotDirectory, { recursive: true });
@@ -187,7 +199,7 @@ test('seven live themes preserve real run states, compact references, native foc
             await app.waitFor(`document.documentElement.dataset.appTheme===${JSON.stringify(theme)}`);
             if (await app.evaluate("document.getElementById('zoom-level').textContent!=='100%'")) await zoom(app, '1');
             await openParameters(app, 'generate', 'reference'); await panPanelTo(app, 380, 24);
-            await app.evaluate("(()=>{const body=document.querySelector('#image-parameter-panel .image-parameter-settings-popup'),gallery=document.querySelector('#generate-reference-sources .image-reference-grid');body.scrollTop=0;gallery.scrollTop=0})()");
+            await app.evaluate("(()=>{const body=document.querySelector('#image-parameter-panel .image-parameter-scroll'),gallery=document.querySelector('#generate-reference-sources .image-reference-grid');body.scrollTop=0;gallery.scrollLeft=0})()");
             await checkPanel(app); await focusTool(app);
             assert.equal(await app.evaluate("document.getElementById('generate-prompt').disabled&&document.getElementById('disabled').classList.contains('disabled')&&document.getElementById('failure-run-status').textContent==='失败'"), true);
             await openParameters(app, 'failure');
@@ -201,34 +213,35 @@ test('seven live themes preserve real run states, compact references, native foc
             await app.waitFor("!document.getElementById('modal-error').classList.contains('active')");
             assert.ok(await app.evaluate("!!document.activeElement.closest('[data-node-id=failure]')"), 'Escape restores focus to the actual error opener');
             await openParameters(app, 'generate', 'reference');
-            await app.waitFor("document.querySelector('#image-parameter-panel .image-parameter-settings-popup').matches(':popover-open')");
+            assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-references').checkVisibility()"));
             await focusTool(app); await checkPanel(app);
             assert.equal(await app.evaluate("document.getElementById('nodes-layer').style.transform"), canvas);
             await capture(app, `${theme}-expanded`, manifest);
             await app.evaluate("(()=>{document.getElementById('btn-prompt-agent').click();const input=document.getElementById('prompt-agent-input');input.value='明确保留的助手草稿与当前节点互不覆盖';input.dispatchEvent(new Event('input',{bubbles:true}))})()");
-            await nativeClick(app, '[data-parameter-action=front-agent]');
+            await clickVisibleSurface(app, 'prompt-agent-panel');
             await checkOverlap(app, 'prompt-agent-panel');
-            await nativeClick(app, '[data-parameter-action=front-parameters]');
+            await clickVisibleSurface(app, 'image-parameter-panel');
             await checkOverlap(app, 'image-parameter-panel');
-            await nativeClick(app, '[data-parameter-action=front-agent]');
+            await clickVisibleSurface(app, 'prompt-agent-panel');
             await capture(app, `${theme}-agent-overlap`, manifest);
             assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), '明确保留的助手草稿与当前节点互不覆盖');
-            await app.evaluate("document.getElementById('btn-close-prompt-agent').click()");
+            await app.evaluate("document.getElementById('btn-prompt-agent').click()");
             await nativeClick(app, '#image-parameter-panel .image-parameter-settings-entry');
             const beforeNarrow = await app.evaluate("document.getElementById('nodes-layer').style.transform");
             await resizeViewport(app, 360, 420);
             assert.equal(await app.evaluate("document.getElementById('nodes-layer').style.transform"), beforeNarrow, 'viewport constraints cannot pan the canvas');
-            await zoom(app, '0.5'); await panPanelTo(app, 80, 12);
+            await zoom(app, '0.5');
+            await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
             await checkPanel(app); await focusTool(app);
             await openParameters(app, 'generate', 'reference');
-            await app.evaluate("(()=>{const body=document.querySelector('#image-parameter-panel .image-parameter-settings-popup'),gallery=document.querySelector('#generate-reference-sources .image-reference-grid');body.scrollTop+=gallery.getBoundingClientRect().top-body.getBoundingClientRect().top;gallery.scrollTop=0})()");
+            await app.evaluate("(()=>{const body=document.querySelector('#image-parameter-panel .image-parameter-scroll'),gallery=document.querySelector('#generate-reference-sources .image-reference-grid');body.scrollTop+=gallery.getBoundingClientRect().top-body.getBoundingClientRect().top;gallery.scrollLeft=0})()");
             await capture(app, `${theme}-narrow-normal-50`, manifest);
-            const scroll = await app.evaluate("(()=>{const gallery=document.querySelector('#generate-reference-sources .image-reference-grid'),body=document.querySelector('#image-parameter-panel .image-parameter-settings-popup');const rect=gallery.getBoundingClientRect(),clip=body.getBoundingClientRect(),x=Math.max(15,Math.min(innerWidth-15,rect.x+rect.width/2));for(let y=Math.max(document.getElementById('toolbar').offsetHeight+16,rect.top+4,clip.top+4);y<Math.min(innerHeight-15,rect.bottom-4,clip.bottom-4);y+=8)if(gallery.contains(document.elementFromPoint(x,y)))return {x,y,overflow:gallery.scrollHeight>gallery.clientHeight};return {overflow:gallery.scrollHeight>gallery.clientHeight,rect:rect.toJSON(),clip:clip.toJSON()}})()");
+            const scroll = await app.evaluate("(()=>{const gallery=document.querySelector('#generate-reference-sources .image-reference-grid'),body=document.querySelector('#image-parameter-panel .image-parameter-scroll');const rect=gallery.getBoundingClientRect(),clip=body.getBoundingClientRect(),x=Math.max(15,Math.min(innerWidth-15,rect.x+rect.width/2));for(let y=Math.max(12,rect.top+4,clip.top+4);y<Math.min(innerHeight-15,rect.bottom-4,clip.bottom-4);y+=8)if(gallery.contains(document.elementFromPoint(x,y)))return {x,y,overflow:gallery.scrollWidth>gallery.clientWidth};return {overflow:gallery.scrollWidth>gallery.clientWidth,rect:rect.toJSON(),clip:clip.toJSON()}})()");
             assert.ok(scroll.overflow, 'the full batch is bounded by a real scrollable reference surface');
             assert.ok(Number.isFinite(scroll.x)&&Number.isFinite(scroll.y), 'the native wheel reaches visible reference content: '+JSON.stringify(scroll));
             await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: scroll.x, y: scroll.y });
-            await app.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: scroll.x, y: scroll.y, deltaX: 0, deltaY: 500 });
-            try { await app.waitFor("document.querySelector('#generate-reference-sources .image-reference-grid').scrollTop>0"); }
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: scroll.x, y: scroll.y, deltaX: 500, deltaY: 0 });
+            try { await app.waitFor("document.querySelector('#generate-reference-sources .image-reference-grid').scrollLeft>0"); }
             catch (error) { throw new Error('Native reference scrolling: '+JSON.stringify({ point: scroll, facts: await app.evaluate(`(()=>{const gallery=document.querySelector('#generate-reference-sources .image-reference-grid'),body=document.querySelector('#image-parameter-panel .image-parameter-scroll');return {rect:gallery.getBoundingClientRect().toJSON(),overflow:getComputedStyle(gallery).overflowY,top:gallery.scrollTop,height:gallery.clientHeight,total:gallery.scrollHeight,bodyTop:body.scrollTop,hit:document.elementFromPoint(${scroll.x},${scroll.y})?.outerHTML.slice(0,300),zoom:document.getElementById('zoom-level').textContent}})()`) }), { cause: error }); }
             await focusTool(app);
             assert.equal(await app.evaluate("document.activeElement.classList.contains('image-parameter-settings-entry')"), true);
@@ -237,7 +250,7 @@ test('seven live themes preserve real run states, compact references, native foc
             await app.waitFor("document.querySelector('#image-parameter-panel .image-parameter-settings-popup').matches(':popover-open')");
             const enlarged = await app.evaluate("document.getElementById('image-parameter-panel').getBoundingClientRect().toJSON()");
             assert.ok(enlarged.left>=8&&enlarged.right<=352&&enlarged.bottom<=412&&enlarged.top>=12);
-            await nativeClick(app, '[data-parameter-action=front-parameters]');
+            await clickVisibleSurface(app, 'image-parameter-panel');
             await focusTool(app); await checkPanel(app);
             await capture(app, `${theme}-narrow-expanded-50`, manifest);
             assert.equal(await app.evaluate('integrationPending&&integrationRequests.length===' + requests), true, 'theme, focus, scrolling and layering cannot restart or cancel the real request');

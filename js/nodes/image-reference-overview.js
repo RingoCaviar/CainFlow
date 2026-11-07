@@ -63,7 +63,9 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
         view.drag = null;
         view.groups = groups; view.disabled = disabled; view.revision += 1;
         const revision = view.revision;
-        const scrollTop = container.querySelector('.image-reference-grid')?.scrollTop || 0;
+        const previousGallery = container.querySelector('.image-reference-grid');
+        const scrollTop = previousGallery?.scrollTop || 0;
+        const scrollLeft = previousGallery?.scrollLeft || 0;
         container.replaceChildren();
         if (!groups.length) { container.textContent = '连接参考图来源后，在此核对图片与输入顺序。'; onLayout(nodeId); return; }
         const gallery = documentRef.createElement('div'); gallery.className = 'image-reference-grid';
@@ -117,6 +119,8 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
                 const grid = control?.closest('.image-reference-grid');
                 if (grid) {
                     const bounds = grid.getBoundingClientRect(), rect = control.getBoundingClientRect();
+                    if (rect.left < bounds.left) grid.scrollLeft -= bounds.left - rect.left + 2;
+                    else if (rect.right > bounds.right) grid.scrollLeft += rect.right - bounds.right + 2;
                     if (rect.top < bounds.top) grid.scrollTop -= bounds.top - rect.top + 2;
                     else if (rect.bottom > bounds.bottom) grid.scrollTop += rect.bottom - bounds.bottom + 2;
                 }
@@ -135,7 +139,7 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
             row.addEventListener('dragstart', event => {
                 if (moveLocked || groups.length < 2 || event.target.closest('.image-reference-disconnect')) { event.preventDefault(); return; }
                 event.stopPropagation();
-                view.drag = { workflowId: getWorkflowId(), target, connectionId: group.connection.id };
+                view.drag = { workflowId: getWorkflowId(), target, connectionId: group.connection.id, groupIndex };
                 event.dataTransfer?.setData('application/x-cainflow-reference', group.connection.id);
                 if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
                 row.classList.add('is-dragging');
@@ -146,7 +150,10 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
                 event.preventDefault(); event.stopPropagation();
                 if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
                 gallery.querySelectorAll('.is-drop-target').forEach(other => other.classList.remove('is-drop-target'));
-                if (view.drag.connectionId !== group.connection.id) row.classList.add('is-drop-target');
+                if (view.drag.connectionId !== group.connection.id) {
+                    row.dataset.dropSide = view.drag.groupIndex < groupIndex ? 'after' : 'before';
+                    row.classList.add('is-drop-target');
+                }
             });
             row.addEventListener('dragleave', event => { if (!row.contains(event.relatedTarget)) row.classList.remove('is-drop-target'); });
             row.addEventListener('drop', event => {
@@ -247,6 +254,7 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
             gallery.append(row);
         }
         gallery.scrollTop = scrollTop;
+        gallery.scrollLeft = scrollLeft;
         onLayout(nodeId);
     }
 

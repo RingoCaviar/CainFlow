@@ -25,7 +25,8 @@ async function controlled(app) {
 }
 
 async function open(app, id, group) {
-    if (group === 'reference' || group === 'advanced') group = 'more';
+    if (group === 'reference') group = null;
+    if (group === 'advanced') group = 'more';
     await app.evaluate(`document.querySelectorAll('.notice-close').forEach(button=>button.click());document.getElementById(${JSON.stringify(id)}).click()`);
     await app.waitFor(`!document.getElementById('image-parameter-panel').hidden&&document.getElementById('image-parameter-panel').dataset.nodeId===${JSON.stringify(id)}`);
     if (group) await app.evaluate(`(()=>{const button=document.querySelector('#image-parameter-panel [data-parameter-group-toggle=${group}]');if(button.getAttribute('aria-expanded')!=='true')button.click()})()`);
@@ -146,12 +147,11 @@ test('waiting and running clear this attempt output and failure while preserving
         await app.evaluate("document.querySelector('#modal-error .modal-close')?.click()");
         await expectSavedOutputCleared(app, 'target', oldKeys);
         assert.ok(await app.evaluate("(()=>{const summary=document.querySelector('[data-node-id=target] .node-failure-summary');return summary.scrollWidth<=summary.clientWidth+1})()"), 'unbroken provider words wrap within the short card summary');
-        await open(app, 'target', 'reference');
+        await open(app, 'target', 'more');
         await click(app, '[data-node-id=target] [data-image-run-action=details]');
         await app.waitFor("!document.querySelector('.image-parameter-settings-popup:popover-open')");
-        assert.equal(await app.evaluate("document.getElementById('modal-error').classList.contains('active')"), false, 'the first outside click dismisses More settings');
-        await click(app, '[data-node-id=target] [data-image-run-action=details]');
         await app.waitFor("document.getElementById('modal-error').classList.contains('active')");
+        assert.equal(await app.evaluate("document.getElementById('modal-error').classList.contains('active')"), true, 'the first direct click dismisses More settings and opens error details');
         await app.evaluate("(()=>{const full=document.getElementById('btn-show-full-log');if(!full.classList.contains('hidden'))full.click()})()");
         const errorDetail = await app.evaluate("document.getElementById('error-modal-msg').textContent+'\\n'+document.getElementById('error-modal-detail').textContent");
         assert.ok(errorDetail.includes(fullFailure), `the public error details retain the complete provider cause: ${JSON.stringify({ length: errorDetail.length, start: errorDetail.slice(0, 180), end: errorDetail.slice(-140) })}`);
@@ -181,7 +181,7 @@ test('effective settings mark generation pending while browsing, layout, selecti
         const baseline = (await saved(app)).nodes.find(node => node.id === 'dirty-node');
         assert.ok(typeof baseline.generationRevision.successFingerprint === 'string');
         await open(app, 'dirty-node');
-        await app.evaluate("document.querySelector('#dirty-node-image-results [data-result-step=\"-1\"]').click();document.querySelector('#image-parameter-panel .image-parameter-settings-entry').click();document.getElementById('btn-prompt-agent').click();document.querySelector('[data-parameter-action=front-parameters]').click();document.querySelector('[data-parameter-action=front-agent]').click();document.getElementById('btn-close-prompt-agent').click();document.querySelector('#image-parameter-panel [data-parameter-action=close]').click();document.getElementById('note').click()");
+        await app.evaluate("document.querySelector('#dirty-node-image-results [data-result-step=\"-1\"]').click();document.querySelector('#image-parameter-panel .image-parameter-settings-entry').click();document.getElementById('btn-prompt-agent').click();document.getElementById('image-parameter-panel').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));document.getElementById('btn-prompt-agent').click();document.getElementById('btn-prompt-agent').click();document.querySelector('#image-parameter-panel [data-parameter-action=close]').click();document.getElementById('note').click()");
         await expectDirty(app, 'dirty-node', false);
         const startPoint = await app.evaluate("(()=>{const rect=document.querySelector('#dirty-node-image-results .image-node-result-preview').getBoundingClientRect();return {x:rect.x+rect.width/2,y:rect.y+rect.height/2}})()");
         await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...startPoint, button: 'left', buttons: 1, clickCount: 1 });

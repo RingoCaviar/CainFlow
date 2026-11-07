@@ -49,6 +49,28 @@ export function createConnectionsApi({
     let portGeometryRevision = 0;
     const connectionById = new Map();
     const connectionsByNodeId = new Map();
+    let hoveredNodeId = null;
+    const hoveredConnectionIds = new Set();
+    function highlightNodeConnections(nodeId) {
+        if (hoveredNodeId === nodeId) return;
+        for (const id of hoveredConnectionIds) pathById.get(id)?.classList.remove('is-hovered');
+        hoveredConnectionIds.clear();
+        hoveredNodeId = nodeId;
+        if (!nodeId) return;
+        ensureConnectionIndex();
+        for (const id of connectionsByNodeId.get(nodeId) || []) {
+            pathById.get(id)?.classList.add('is-hovered');
+            hoveredConnectionIds.add(id);
+        }
+    }
+    // Only node boundary changes touch their incident paths, never pointermove
+    // or curve geometry. Internal controls keep the same hover relationship.
+    const onCanvasPointerOver = event => {
+        highlightNodeConnections(event.target.closest?.('.node')?.id || null);
+    };
+    const onCanvasPointerLeave = () => highlightNodeConnections(null);
+    canvasContainer.addEventListener?.('pointerover', onCanvasPointerOver);
+    canvasContainer.addEventListener?.('pointerleave', onCanvasPointerLeave);
     const connectionsByPortKey = new Map();
     const dirtyConnectionIds = new Set();
     const dirtyNodeIds = new Set();
@@ -166,6 +188,7 @@ export function createConnectionsApi({
         translatedPaths.clear();
         pathById.forEach((path) => path.remove?.());
         pathById.clear();
+        hoveredConnectionIds.clear();
         flowDecorationById.forEach((decoration) => decoration.group?.remove?.());
         flowDecorationById.clear();
         curveGeometryById.clear();
@@ -181,6 +204,7 @@ export function createConnectionsApi({
             const path = ensureConnectionPath(connection);
             path.setAttribute('d', projected.d || '');
             path.classList.toggle('selected', projected.selected === true);
+            updateConnectionHover(path, connection);
             const useCanvas = canvasConnectionRenderer.enabled && projected.canvasRendered === true && !!projected.curveGeometry;
             path.classList.toggle('canvas-rendered', useCanvas);
             if (useCanvas) {
@@ -632,6 +656,10 @@ export function createConnectionsApi({
         flowDecorationById.clear();
         pathById.forEach((path) => path.remove?.());
         pathById.clear();
+        hoveredConnectionIds.clear();
+        hoveredNodeId = null;
+        canvasContainer.removeEventListener?.('pointerover', onCanvasPointerOver);
+        canvasContainer.removeEventListener?.('pointerleave', onCanvasPointerLeave);
         curveGeometryById.clear();
         connectionById.clear();
         connectionsByNodeId.clear();
@@ -1083,6 +1111,7 @@ export function createConnectionsApi({
         state.connections = state.connections.filter((candidate) => candidate.id !== connectionId);
         pathById.get(connectionId)?.remove();
         pathById.delete(connectionId);
+        hoveredConnectionIds.delete(connectionId);
         curveGeometryById.delete(connectionId);
         canvasConnectionRenderer.remove?.(connectionId);
         removeFlowDecoration(connectionId);
@@ -1143,6 +1172,7 @@ export function createConnectionsApi({
             state.connections = state.connections.filter((candidate) => candidate.id !== conn.id);
             pathById.get(conn.id)?.remove();
             pathById.delete(conn.id);
+            hoveredConnectionIds.delete(conn.id);
             removeFlowDecoration(conn.id);
             rebuildConnectionIndex();
             updateAllConnections();
@@ -1158,6 +1188,13 @@ export function createConnectionsApi({
 
     function setSvgAttribute(element, name, value) {
         if (element && element.getAttribute?.(name) !== value) element.setAttribute(name, value);
+    }
+
+    function updateConnectionHover(path, connection) {
+        const hovered = hoveredNodeId === connection.from.nodeId || hoveredNodeId === connection.to.nodeId;
+        path.classList.toggle('is-hovered', hovered);
+        if (hovered) hoveredConnectionIds.add(connection.id);
+        else hoveredConnectionIds.delete(connection.id);
     }
 
     function renderConnectionPath(conn, context = {}) {
@@ -1225,6 +1262,7 @@ export function createConnectionsApi({
             path.setAttribute('d', pathStr);
         }
         path.classList.toggle('selected', isSelected);
+        updateConnectionHover(path, conn);
         path.removeAttribute('stroke');
         updateFlowDecoration(path, conn.id, hasRunningEndpoint(conn));
         renderedPathGeometry.set(path, {
@@ -1287,6 +1325,7 @@ export function createConnectionsApi({
             if (!currentConnIds.has(connId)) {
                 path.remove();
                 pathById.delete(connId);
+                hoveredConnectionIds.delete(connId);
                 removeFlowDecoration(connId);
             }
         });
@@ -1400,6 +1439,7 @@ export function createConnectionsApi({
                 translatedPaths.delete(pathById.get(connId));
                 pathById.get(connId)?.remove();
                 pathById.delete(connId);
+                hoveredConnectionIds.delete(connId);
                 removeFlowDecoration(connId);
                 return;
             }

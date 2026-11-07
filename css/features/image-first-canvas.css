@@ -61,15 +61,6 @@
 .image-parameter-drag-handle:focus-visible, .image-parameter-panel [data-parameter-resize]:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
 .image-parameter-resize-height { position: absolute; left: 0; right: 0; bottom: 0; height: 5px; cursor: ns-resize; touch-action: none; }
 .image-parameter-resize-corner { position: absolute; right: 0; bottom: 0; width: 12px; height: 12px; cursor: nwse-resize; touch-action: none; border-right: 2px solid var(--text-secondary); border-bottom: 2px solid var(--text-secondary); }
-/* Recovery controls stay above modeless drawers and below toolbar/menu controls. */
-.image-panel-switcher { position: fixed; z-index: calc(var(--layer-toolbar) - 1); left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; gap: 5px; padding: 4px; border: 1px solid var(--border-color); border-radius: 8px; background: linear-gradient(var(--surface-panel-strong, var(--panel-bg)), var(--surface-panel-strong, var(--panel-bg))), var(--bg-canvas); box-shadow: var(--panel-shadow-strong); }
-.image-panel-switcher { width: max-content; }
-.image-panel-switcher.is-stacked { flex-direction: column; }
-.image-panel-switcher button { min-height: 28px; padding: 3px 8px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
-.image-panel-switcher button:hover:not(:disabled) { border-color: var(--border-color); background: var(--panel-hover-bg); color: var(--text-primary); }
-.image-panel-switcher button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
-.image-panel-switcher button:disabled { opacity: .5; cursor: default; }
-
 .image-parameter-header {
     display: flex;
     flex: 0 0 auto;
@@ -1094,4 +1085,36 @@ html:root #canvas-container .node.node-text .text-multi-nav:not(.hidden) { paddi
     .image-parameter-panel .image-parameter-count-control .generation-count-control { grid-template-columns: 24px 24px 24px; }
     .image-parameter-panel .image-parameter-count-control .generation-count-input { flex-basis: 24px; width: 24px; min-width: 24px; }
     .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer > .save-btn[data-parameter-action="generate"] { min-width: 58px; padding-inline: 4px; font-size: 12px; }
+}
+
+/* References are the visible input context, above the prompt rather than in More. */
+.image-parameter-references[hidden] { display: none; }
+.image-parameter-references .image-reference-grid {
+    display: flex;
+    gap: 6px;
+    max-height: none;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 3px 2px;
+    scroll-padding-inline: 4px;
+}
+.image-parameter-references .image-reference-item { flex: 0 0 56px; width: 56px; height: 56px; }
+.image-parameter-references .image-reference-thumbnail img { object-fit: contain; }
+.image-parameter-references .image-reference-group.is-drop-target .image-reference-item {
+    outline: none;
+}
+.image-parameter-references .image-reference-group.is-drop-target[data-drop-side="before"] .image-reference-item:first-child {
+    box-shadow: -3px 0 0 var(--accent-primary);
+}
+.image-parameter-references .image-reference-group.is-drop-target[data-drop-side="after"] .image-reference-item:last-child {
+    box-shadow: 3px 0 0 var(--accent-primary);
+}
+
+@media (max-height: 540px) {
+    /* Keep the actual references/prompt scrollable when a wrapping toolbar and
+       canvas navigation leave little height; a duplicate target preview must
+       not consume the editor's entire content area. */
+    body .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-context { display: none; }
+    .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-scroll { padding-block: 6px; }
 }

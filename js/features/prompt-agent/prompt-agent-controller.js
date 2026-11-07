@@ -175,7 +175,6 @@ export function createPromptAgentController({
         return {
             button: documentRef.getElementById('btn-prompt-agent'),
             panel: documentRef.getElementById('prompt-agent-panel'),
-            closeButton: documentRef.getElementById('btn-close-prompt-agent'),
             form: documentRef.getElementById('prompt-agent-form'),
             input: documentRef.getElementById('prompt-agent-input'),
             sendButton: documentRef.getElementById('prompt-agent-send'),
@@ -1927,7 +1926,7 @@ export function createPromptAgentController({
         if (messages && MutationObserverClass) {
             new MutationObserverClass(updateScrollBottomButton).observe(messages, { childList: true, subtree: true, characterData: true });
         }
-        const { button, closeButton, form, input, modelSelect, addModelButton, cancelButton, addReferenceButton, referencePickerClose } = getElements();
+        const { button, form, input, modelSelect, addModelButton, cancelButton, addReferenceButton, referencePickerClose } = getElements();
         const resizeHandle = documentRef.getElementById('prompt-agent-input-resize');
         if (input && resizeHandle) {
             const setHeight = height => { input.style.height = `${Math.max(42, Math.min(150, height))}px`; };
@@ -1959,7 +1958,6 @@ export function createPromptAgentController({
             input.dispatchEvent(new Event('input', { bubbles: true })); input.focus();
         });
         button?.addEventListener('click', toggle);
-        closeButton?.addEventListener('click', () => surfaces ? surfaces.closeModeless(getElements().panel) : close());
         form?.addEventListener('submit', async (event) => {
             event.preventDefault();
             await submit();
