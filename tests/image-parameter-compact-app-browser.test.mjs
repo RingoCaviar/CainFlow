@@ -149,7 +149,7 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         await app.evaluate("window.originalCompactPrompt=document.getElementById('image-0-prompt');document.querySelector('#image-parameter-panel .generation-count-btn[data-delta=\"1\"]').click()");
         await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value?.nodes.find(n=>n.id==='image-0')?.generationCount===2)");
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-footer').contains(document.getElementById('image-0-generation-count'))"), true, 'the original count stays directly accessible in the footer');
-        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=model]').textContent"), '模型 · 受控图片');
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=model]').textContent"), '受控图片 · 导入供应商 1');
         await app.evaluate('getSelection().removeAllRanges()');
         const modelButton = await app.evaluate("(()=>{const r=document.querySelector('#image-parameter-panel [data-parameter-group-toggle=model]').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()");
         for (const clickCount of [1, 2]) {

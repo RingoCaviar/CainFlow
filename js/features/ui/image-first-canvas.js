@@ -9,6 +9,7 @@ import { normalizeCameraState } from '../camera/camera-prompt-utils.js';
 import { getSurfaceCoordinator } from './surface-coordinator.js';
 import { renderImageNodeRunState } from '../../nodes/image-node-run-state.js';
 import { getNodeModelConfigurationIssue } from '../execution/model-configuration-readiness.js';
+import { getResolvedProviderForModel } from '../execution/provider-request-utils.js';
 
 const nodeLabels = { ImageGenerate: '图片生成', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比', ImageMerge: '多图合一', ImageSave: '保存节点', CameraControl: '视角控制' };
 const cameraFields = [['pitch', '俯仰角 Pitch'], ['yaw', '偏航角 Yaw'], ['distance', '距离 Distance'], ['fov', '视野角 FOV'], ['roll', '翻滚角 Roll']];
@@ -356,6 +357,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             setText(view.emptyText, name);
             const settings = readImageGenerationSettings(node, documentRef);
             const model = state.models.find(item => item.id === settings.apiConfigId);
+            const provider = getResolvedProviderForModel(model, state.providers, settings.providerId);
             const references = projectImageReferences({ state, targetId: node.id });
             if (view.referenceOverview) view.referenceOverview.hidden = references.groups.length === 0;
             const automaticLabel = value => !value || value === 'auto' ? '自动' : value;
@@ -374,11 +376,11 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                     button.title = '更多设置：质量、背景、内容审核与高级参数';
                     continue;
                 }
-                const text = group === 'model' ? `模型 · ${model?.name || model?.modelId || '选择模型'}`
+                const text = group === 'model' ? [model?.name || model?.modelId || '选择模型', provider?.name].filter(Boolean).join(' · ')
                     : group === 'size' ? sizeSummary
                         : '更多设置';
                 setText(button.querySelector('.image-parameter-entry-label') || button, text);
-                button.setAttribute('aria-label', text);
+                button.setAttribute('aria-label', group === 'model' ? `模型与供应商：${text}` : text);
                 if (button.title !== text) button.title = text;
             }
             view.placeholder.hidden = !view.result.hidden;
@@ -761,7 +763,6 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         moreEntry.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>';
         const modelEntry = groupButtons.get('model');
         modelEntry.classList.add('image-parameter-model-entry');
-        modelEntry.dataset.compactLabel = '模型';
         const modelLabel = documentRef.createElement('span');
         modelLabel.className = 'image-parameter-entry-label';
         modelLabel.textContent = modelEntry.textContent;
