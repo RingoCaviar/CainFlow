@@ -1114,12 +1114,12 @@ export function createWorkflowRunnerApi({
         };
     }
 
-    function assertConnectedReferenceImagesLoaded(plan, node, inputs = {}) {
+    function assertConnectedReferenceImagesLoaded(plan, node, outputsByConnection) {
         if (!node || (node.type !== 'ImageGenerate' && node.type !== 'VideoGenerate' && node.type !== 'TextChat')) return;
 
         const missingConnections = (plan.inputConnectionsByNode[node.id] || [])
             .filter((connection) => isReferenceImageInputPort(node, connection.to.port) && state.nodes.get(connection.from.nodeId)?.enabled !== false)
-            .filter((connection) => normalizeImageList(inputs[connection.to.port]).length === 0);
+            .filter((connection) => normalizeImageList(outputsByConnection.get(connection)).length === 0);
 
         if (missingConnections.length === 0) return;
 
@@ -1238,12 +1238,14 @@ export function createWorkflowRunnerApi({
 
     async function collectInputsForNode(plan, nodeId) {
         const inputs = {};
+        const outputsByConnection = new Map();
         const identities = new Map();
         const node = state.nodes.get(nodeId);
         const connections = orderInputConnections(node?.type, plan.inputConnectionsByNode[nodeId]);
 
         for (const connection of connections) {
             const outputValue = await getInputValueForConnection(plan, nodeId, connection);
+            outputsByConnection.set(connection, outputValue);
             if (generationRevisionApi && node?.type === 'ImageGenerate') {
                 const captured = plan.externalInputRecipesByNode?.[nodeId];
                 const key = connection.id || connection.to.port;
@@ -1284,7 +1286,7 @@ export function createWorkflowRunnerApi({
             // receives its own immutable video execution input record below.
             return inputs;
         }
-        assertConnectedReferenceImagesLoaded(plan, node, inputs);
+        assertConnectedReferenceImagesLoaded(plan, node, outputsByConnection);
         return inputs;
     }
 

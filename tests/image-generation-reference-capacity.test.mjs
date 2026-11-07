@@ -60,6 +60,18 @@ test('the public workflow runner sends the complete ordered 65-image input to th
  assert.deepEqual([...first.data.imageList,...second.data.imageList],images);
 });
 
+test('current-only generation rejects an empty cached reference source even when another source has images',async()=>{
+ const {runner,state,target,first,second,images,requests}=fixture(),connections=structuredClone(state.connections);
+ second.data={};
+ await runner.runWorkflow({mode:'selected-only',selectedNodeIds:[target.id]});
+ assert.equal(requests.length,0,'a populated shared reference port must not hide a missing connected source');
+ assert.equal(target.isFailed,true);
+ assert.match(target.executionFailure?.message||'',/参考图输入.*未读取到图片数据/);
+ assert.deepEqual(first.data.imageList,images.slice(0,33));
+ assert.deepEqual(second.data,{});
+ assert.deepEqual(state.connections,connections);
+});
+
 for(const type of ['VideoGenerate','TextChat']) test(`${type} retains its existing aggregation limit in cached preview and public workflow execution`,async()=>{
  const {core,runner,target,requests,state}=fixture(),connections=structuredClone(state.connections);target.type=type;
  state.models[0].taskType=type==='VideoGenerate'?'video':'chat';state.models[0].protocol=type==='VideoGenerate'?'async-video-api':'openai';

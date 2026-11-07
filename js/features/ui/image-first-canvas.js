@@ -20,7 +20,7 @@ const emptyPreviewMessages = new Set(['无输入图片', '无输入视频', '运
 
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
-    runToNode, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
+    runCurrentNode, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
     panelManager = null, openModelSettings = () => {}, focusNode = () => {} }) {
     const views = new Map();
     const dragClasses = new Set(['selected', 'is-interacting', 'connection-insert-candidate', 'connection-shake-armed']);
@@ -104,6 +104,12 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             // Narrow windows overlap; a visible edge lets either editor be clicked
             // to the front without squeezing its controls into a strip.
             right = besideAgent - left >= 280 ? besideAgent : windowRef.innerWidth - 12;
+        }
+        // Keep the screen-space editor usable when sidebars or a scrolled
+        // layout leave less canvas visible than its minimum control width.
+        if (right - left < Math.min(280, windowRef.innerWidth - 24)) {
+            left = 12;
+            right = windowRef.innerWidth - 12;
         }
         right = Math.max(left + 1, right);
         // Canvas navigation must not cover the
@@ -841,7 +847,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (!current) return;
         if (generate.disabled) return;
         if (current.type === 'CameraControl') { views.get(current)?.cameraOpen?.click(); return; }
-        runToNode(current.id);
+        runCurrentNode(current.id);
     });
     panel.addEventListener('mousedown', event => event.stopPropagation());
     for (const type of ['pointerdown', 'click', 'keydown', 'input']) {
