@@ -1025,7 +1025,7 @@ html:root #canvas-container .node.node-text .text-multi-nav:not(.hidden) { paddi
 }
 .image-parameter-settings-entry[aria-expanded="true"]::after { transform: rotate(225deg); }
 @container parameter-entries (max-width: 240px) {
-    .image-parameter-entry-label { display: none; }
+    .image-parameter-settings-entry .image-parameter-entry-label { display: none; }
     .image-parameter-panel[data-node-type="ImageGenerate"] :is(.image-parameter-settings-entry, .image-parameter-model-entry) {
         justify-content: center; padding-inline: 4px; gap: 4px;
     }
