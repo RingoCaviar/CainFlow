@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <!-- CainFlow 的主页面骨架，定义整体界面结构和静态挂载点。 -->
 <html lang="zh-CN">
 
@@ -165,16 +165,11 @@
             <path
                 d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1-2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
         </symbol>
-        <symbol id="icon-theme-toggle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 3v2" />
-            <path d="M12 19v2" />
-            <path d="M4.93 4.93l1.41 1.41" />
-            <path d="M17.66 17.66l1.41 1.41" />
-            <path d="M3 12h2" />
-            <path d="M19 12h2" />
-            <path d="M4.93 19.07l1.41-1.41" />
-            <path d="M17.66 6.34l1.41-1.41" />
-            <circle cx="12" cy="12" r="4" />
+        <symbol id="icon-theme-toggle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3a9 9 0 1 0 0 18h1.5a2.5 2.5 0 0 0 1.8-4.2 1 1 0 0 1 .7-1.8h1a4 4 0 0 0 4-4c0-4.4-4-8-9-8Z" />
+            <circle cx="7.5" cy="10" r=".5" />
+            <circle cx="11" cy="7" r=".5" />
+            <circle cx="15.5" cy="8" r=".5" />
         </symbol>
         <symbol id="icon-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
@@ -270,7 +265,16 @@
                         <button id="btn-clear" class="btn btn-ghost toolbar-menu-danger" type="button" title="清除画布"><svg class="icon-sm"><use href="#icon-trash" /></svg>清除画布</button>
                     </div>
                 </details>
-                <button id="btn-settings" class="btn btn-ghost" type="button" title="设置：模型、外观与运行偏好"><svg class="icon-sm"><use href="#icon-settings" /></svg>设置</button>
+                <div class="theme-menu-shell">
+                    <button id="btn-theme-toggle" class="btn btn-ghost" type="button"
+                        aria-haspopup="menu" aria-expanded="false" aria-controls="theme-menu" title="选择主题">
+                        <span data-role="theme-toggle-label">深色</span>
+                        <svg class="icon-xs theme-menu-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+                    </button>
+                    <div id="theme-menu" class="theme-menu-panel hidden" role="menu" aria-labelledby="btn-theme-toggle"></div>
+                </div>
+                <button id="btn-settings" class="btn btn-ghost" type="button" title="设置：模型与运行偏好"><svg class="icon-sm"><use href="#icon-settings" /></svg>设置</button>
             </div>
             <div class="toolbar-conversation-only conversation-toolbar-actions" role="group" aria-label="对话操作">
                 <span id="conversation-toolbar-title" class="conversation-toolbar-title" aria-live="polite">新对话</span>
@@ -303,7 +307,6 @@
                     <label class="prompt-agent-model-label"><span>生图</span>
                         <select id="prompt-agent-image-model" aria-label="Prompt Agent 生图模型"><option value="">请选择生图模型</option></select>
                     </label>
-                    <button id="btn-close-prompt-agent" class="btn btn-icon" type="button" aria-label="关闭 Prompt Agent">&times;</button>
                 </div>
                 <p id="prompt-agent-image-model-hint" class="prompt-agent-model-hint" aria-live="polite"><span id="prompt-agent-image-model-status">请选择生图模型后再应用或生成。</span><button id="prompt-agent-add-image-model" type="button" hidden>点击添加生图模型</button></p>
                 <p id="prompt-agent-model-hint" class="prompt-agent-model-hint" aria-live="polite" hidden><span id="prompt-agent-model-status">暂无可用模型，</span><button id="prompt-agent-add-model" type="button">点击添加模型</button></p>
@@ -323,10 +326,6 @@
                     <p id="prompt-agent-command-status" class="prompt-agent-command-status" role="status" aria-live="polite" hidden></p>
                     <div id="prompt-agent-command-menu" class="prompt-agent-command-menu" role="listbox" aria-label="Agent 命令" hidden></div>
                     <section id="prompt-agent-reference-picker" class="prompt-agent-reference-picker" aria-label="选择场景参考图" hidden>
-                        <div class="prompt-agent-reference-picker-header">
-                            <span>添加参考图</span>
-                            <button id="prompt-agent-reference-picker-close" class="btn btn-ghost" type="button" aria-label="关闭参考图选择">完成</button>
-                        </div>
                         <div class="prompt-agent-reference-tools prompt-agent-reference-sources">
                             <div role="tablist" aria-label="参考图来源">
                             <button id="prompt-agent-tab-scene" type="button" role="tab" aria-selected="true">画布</button>
@@ -335,6 +334,7 @@
                             <button id="prompt-agent-reference-upload-button" type="button">上传图片</button>
                             <input id="prompt-agent-reference-upload" type="file" accept="image/*" multiple hidden>
                             <button id="prompt-agent-reference-clear" type="button" hidden>清空</button>
+                            <button id="prompt-agent-reference-picker-close" class="btn btn-ghost" type="button" aria-label="关闭参考图选择">完成</button>
                         </div>
                         <p id="prompt-agent-reference-picker-status" class="prompt-agent-reference-picker-status" aria-live="polite"></p>
                         <div id="prompt-agent-reference-picker-list" class="prompt-agent-reference-picker-list" role="group" aria-label="可选参考图"></div>
@@ -1333,23 +1333,6 @@
                     </div>
                 </div>
                 <div id="settings-tab-general" class="settings-tab-pane">
-                    <div class="settings-section settings-appearance">
-                        <div class="settings-toolbar"><h3>外观主题</h3></div>
-                <div class="theme-menu-shell">
-                    <button id="btn-theme-toggle" class="btn btn-ghost" type="button" aria-pressed="false"
-                        aria-haspopup="menu" aria-expanded="false" title="选择主题">
-                        <svg class="icon-sm">
-                            <use href="#icon-theme-toggle" />
-                        </svg>
-                        <span data-role="theme-toggle-label">深色</span>
-                        <svg class="icon-xs theme-menu-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2" aria-hidden="true">
-                            <path d="M6 9l6 6 6-6" />
-                        </svg>
-                    </button>
-                    <div id="theme-menu" class="theme-menu-panel hidden" role="menu" aria-labelledby="btn-theme-toggle"></div>
-                </div>
-                    </div>
                     <div class="settings-section">
                         <div id="general-settings" class="api-configs-list">
                             <!-- Filled by JS -->

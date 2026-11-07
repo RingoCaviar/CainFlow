@@ -71,8 +71,7 @@ async function openImageParameters(app, id) {
 
 async function openImageReferences(app, id = 'reference-target') {
     await openImageParameters(app, id);
-    if (await app.evaluate("!document.querySelector('#image-parameter-panel [data-parameter-group=reference]').checkVisibility()"))
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=more]').click()");
+    await app.waitFor("document.querySelector('#image-parameter-panel .image-parameter-references')?.checkVisibility()");
 }
 
 async function createImage({ evaluate, waitFor }) {
@@ -756,7 +755,7 @@ test('assistant optimization sends the mentioned generation target reference ori
 });
 
 
-test('many reference sources stay in a bounded thumbnail grid with every original accessible', { timeout: 30000 }, async () => {
+test('many reference sources stay in one scrolling thumbnail row with every original accessible', { timeout: 30000 }, async () => {
     const sources = Array.from({length:16}, (_,index)=>({id:'compact-'+index,type:'ImageImport',customTitle:'参考素材 '+(index+1),x:-800,y:index*200}));
     await withAppBrowser({...session,nodes:[...sources,{id:'compact-target',type:'ImageGenerate',x:100,y:100,apiConfigId:'image',providerId:'p',prompt:'保留参考图'}],connections:sources.map((source,order)=>({id:'compact-edge-'+order,from:{nodeId:source.id,port:'image'},to:{nodeId:'compact-target',port:'referenceImages'},type:'image',order}))}, async app => {
         const {evaluate,waitFor,send}=app;
@@ -766,10 +765,11 @@ test('many reference sources stay in a bounded thumbnail grid with every origina
         await waitFor("document.querySelectorAll('#compact-target-reference-sources [data-reference-number]').length===16");
         await delay(1000); // Let the real import/media-save queue settle before opening an original.
 
-        const layout = await evaluate("(()=>{const root=document.getElementById('compact-target-reference-sources'),tiles=[...root.querySelectorAll('.image-reference-item')];return {height:root.offsetHeight,tops:tiles.slice(0,2).map(el=>el.offsetTop),overflow:root.scrollWidth>root.clientWidth+1,images:root.querySelectorAll('[data-reference-number]').length}})()");
-        assert.ok(layout.height<=270, 'sixteen references must not make the node grow sixteen rows: '+layout.height);
-        assert.equal(layout.tops[1],layout.tops[0], 'square thumbnails share rows within the bounded gallery');
-        assert.equal(layout.overflow,false);
+        const layout = await evaluate("(()=>{const root=document.getElementById('compact-target-reference-sources'),grid=root.querySelector('.image-reference-grid'),tiles=[...root.querySelectorAll('.image-reference-item')];return {height:root.offsetHeight,tops:tiles.map(el=>el.offsetTop),overflow:grid.scrollWidth>grid.clientWidth+1,outerOverflow:root.scrollWidth>root.clientWidth+1,images:root.querySelectorAll('[data-reference-number]').length}})()");
+        assert.ok(layout.height<=80, 'sixteen references retain one compact thumbnail row: '+layout.height);
+        assert.ok(layout.tops.every(top=>top===layout.tops[0]), 'square thumbnails remain in one row');
+        assert.equal(layout.overflow,true, 'additional sources scroll horizontally inside the gallery');
+        assert.equal(layout.outerOverflow,false, 'the gallery does not widen the parameter editor');
         assert.equal(layout.images,16,'all reference slots remain available inside the bounded gallery');
         if (process.env.CAINFLOW_UI_CAPTURE) {
             await mkdir(process.env.CAINFLOW_UI_CAPTURE,{recursive:true});
@@ -779,24 +779,25 @@ test('many reference sources stay in a bounded thumbnail grid with every origina
             await writeFile(join(process.env.CAINFLOW_UI_CAPTURE,'reference-gallery-layout.json'),JSON.stringify(layout,null,2));
         }
 
-        assert.ok(await evaluate("document.getElementById('compact-target-reference-sources').offsetHeight<=380"));
-        await evaluate("document.querySelector('#compact-target-reference-sources [data-reference-number=\"16\"]').scrollIntoView({block:'nearest'});document.querySelector('#compact-target-reference-sources [data-reference-number=\"16\"]').click()");
+        assert.ok(await evaluate("document.getElementById('compact-target-reference-sources').offsetHeight<=80"));
+        await evaluate("document.querySelector('#compact-target-reference-sources [data-reference-number=\"16\"]').scrollIntoView({block:'nearest',inline:'nearest'});document.querySelector('#compact-target-reference-sources [data-reference-number=\"16\"]').click()");
         await waitFor("Boolean(document.querySelector('.fullscreen-overlay img'))");
         assert.equal(await evaluate("document.querySelector('.fullscreen-overlay img').src"),referenceImages[0]);
         await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});
         await waitFor("!document.querySelector('.fullscreen-overlay')");
         await waitFor("document.activeElement.dataset.referenceNumber==='16'");
         await evaluate("document.querySelector('[data-reference-connection=\"compact-edge-15\"] .image-reference-thumbnail').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',altKey:true,bubbles:true,cancelable:true}))");
-        assert.equal(await evaluate("(()=>{const grid=document.querySelector('#compact-target-reference-sources .image-reference-grid'),focus=document.activeElement,r=focus.getBoundingClientRect(),bounds=grid.getBoundingClientRect();return grid.scrollTop>0&&r.top>=bounds.top&&r.bottom<=bounds.bottom})()"),true,'reordering a late source preserves scrolling and leaves the focused source visible');
+        assert.equal(await evaluate("(()=>{const grid=document.querySelector('#compact-target-reference-sources .image-reference-grid'),focus=document.activeElement,r=focus.getBoundingClientRect(),bounds=grid.getBoundingClientRect();return grid.scrollLeft>0&&r.left>=bounds.left&&r.right<=bounds.right&&r.top>=bounds.top&&r.bottom<=bounds.bottom})()"),true,'reordering a late source preserves horizontal scrolling and leaves the focused source visible');
 
         await send('Emulation.setDeviceMetricsOverride',{width:320,height:820,deviceScaleFactor:1,mobile:false});
-        assert.equal(await evaluate("(()=>{const root=document.getElementById('compact-target-reference-sources');return root.scrollWidth<=root.clientWidth+1&&root.offsetHeight<=380})()"),true,'narrow cards wrap without horizontal overflow or unbounded height');
+        await evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
+        assert.equal(await evaluate("(()=>{const root=document.getElementById('compact-target-reference-sources'),grid=root.querySelector('.image-reference-grid');return root.scrollWidth<=root.clientWidth+1&&root.offsetHeight<=80&&grid.scrollWidth>grid.clientWidth})()"),true,'narrow cards retain one internally scrolling row without widening the editor');
 
     });
 });
 
 
-test('reordering a legacy reference batch taller than the gallery keeps its focused source visible', {timeout:30000}, async()=>{
+test('reordering a legacy reference batch wider than the gallery keeps its focused source visible', {timeout:30000}, async()=>{
     const nodes=[{id:'many',type:'ImageGenerate',x:-800,y:0,apiConfigId:'image',providerId:'p',imageCount:64,imageAssetKey:'legacy-many',imageAssetReady:true},
         {id:'empty',type:'ImageImport',x:-800,y:300}, {id:'target',type:'ImageGenerate',x:100,y:100,apiConfigId:'image',providerId:'p'}];
     const connections=['many','empty'].map((id,order)=>({id:'edge-'+id,from:{nodeId:id,port:'image'},to:{nodeId:'target',port:'referenceImages'},order,type:'image'}));
@@ -804,9 +805,9 @@ test('reordering a legacy reference batch taller than the gallery keeps its focu
         const {evaluate,waitFor}=app;
         await openImageReferences(app, 'target');
         await waitFor("document.querySelectorAll('#target-reference-sources [data-reference-number]').length===64");
-        assert.equal(await evaluate("(()=>{const tiles=[...document.querySelectorAll('[data-reference-connection=edge-many] .image-reference-item')];return tiles.at(-1).getBoundingClientRect().bottom-tiles[0].getBoundingClientRect().top>document.querySelector('#target-reference-sources .image-reference-grid').clientHeight})()"),true,'legacy batch thumbnails actually exceed the viewport');
+        assert.equal(await evaluate("(()=>{const tiles=[...document.querySelectorAll('[data-reference-connection=edge-many] .image-reference-item')];return tiles.at(-1).getBoundingClientRect().right-tiles[0].getBoundingClientRect().left>document.querySelector('#target-reference-sources .image-reference-grid').clientWidth})()"),true,'legacy batch thumbnails actually exceed the horizontal viewport');
         await evaluate("document.querySelector('[data-reference-connection=\"edge-many\"] .image-reference-thumbnail').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',altKey:true,bubbles:true,cancelable:true}))");
-        assert.equal(await evaluate("(()=>{const bounds=document.querySelector('#target-reference-sources .image-reference-grid').getBoundingClientRect(),r=document.activeElement.getBoundingClientRect();return document.activeElement.matches('.image-reference-thumbnail, .image-reference-disconnect')&&r.top>=bounds.top&&r.bottom<=bounds.bottom})()"),true,'a tall source must restore focus to a visible control');
+        assert.equal(await evaluate("(()=>{const bounds=document.querySelector('#target-reference-sources .image-reference-grid').getBoundingClientRect(),r=document.activeElement.getBoundingClientRect();return document.activeElement.matches('.image-reference-thumbnail, .image-reference-disconnect')&&r.left>=bounds.left&&r.right<=bounds.right&&r.top>=bounds.top&&r.bottom<=bounds.bottom})()"),true,'a wide source must restore focus to a visible control');
     });
 });
 

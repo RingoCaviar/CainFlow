@@ -269,7 +269,7 @@ test('toolbar toggles the Prompt Agent panel without touching canvas state', () 
     assert.equal(elements['prompt-agent-panel'].attributes.get('aria-hidden'), 'false');
     assert.equal(elements['btn-prompt-agent'].attributes.get('aria-expanded'), 'true');
 
-    elements['btn-close-prompt-agent'].dispatch('click');
+    elements['btn-prompt-agent'].dispatch('click');
     assert.equal(elements['prompt-agent-panel'].classList.contains('active'), false);
     assert.equal(elements['prompt-agent-panel'].attributes.get('aria-hidden'), 'true');
 });

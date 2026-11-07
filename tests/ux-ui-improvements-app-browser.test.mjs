@@ -69,7 +69,7 @@ test('small windows retain an identifiable editing target beside the assistant w
         for (const width of [900, 480]) {
             await app.send('Emulation.setDeviceMetricsOverride', { width, height: 720, deviceScaleFactor: 1, mobile: false });
             await app.waitFor("document.getElementById('image-parameter-panel').getBoundingClientRect().width>=280");
-            await app.evaluate("document.querySelector('[data-parameter-action=front-parameters]').click()");
+            await app.evaluate("document.getElementById('image-parameter-panel').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}))");
             assert.equal(await app.evaluate("document.getElementById('target-prompt').value"), '保留提示词');
         }
     });

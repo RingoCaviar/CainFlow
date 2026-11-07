@@ -75,7 +75,7 @@
 }
 
 /* Reserve canvas space on smaller desktops; very narrow windows retain the
-   existing front/back window controls without moving the user's canvas. */
+   overlapping editors, raised by a click, without moving the user's canvas. */
 @media (min-width: 801px) and (max-width: 1200px) {
     #main-layout:has(.prompt-agent-panel.active) #canvas-container {
         margin-right: calc(var(--prompt-agent-width, 34vw) + 24px);
@@ -94,7 +94,6 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     padding: 6px;
     border-top: 1px solid var(--border-color);
 }
-.prompt-agent-settings > .btn { flex: none; width: 28px; height: 28px; min-height: 28px; padding: 0; }
 .prompt-agent-model-label {
     position: relative;
     display: flex;
@@ -460,8 +459,6 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
     max-height: min(360px, 45vh);
     padding: 12px;
 }
-.prompt-agent-reference-picker-header { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 4px; font-size: 13px; font-weight: 600; }
-.prompt-agent-reference-picker-header .btn { padding: 4px 8px; font-size: 12px; }
 .prompt-agent-reference-picker-status { flex: none; margin: 6px 0 10px; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
 .prompt-agent-reference-picker-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 4px; min-height: 0; overflow: auto; padding: 2px; }
 .prompt-agent-reference-option {
@@ -816,7 +813,8 @@ body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-pr
 
 /* Reference picker: source, search, then a compact selectable gallery. */
 #prompt-agent-reference-picker { padding: 12px; gap: 8px; border-radius: 12px; }
-.prompt-agent-reference-sources { justify-content: space-between; }
+.prompt-agent-reference-sources { flex-wrap: wrap; }
+.prompt-agent-reference-sources [role=tablist] { margin-right: auto; }
 .prompt-agent-reference-sources [role=tablist] { display: flex; gap: 4px; padding: 3px; border-radius: 8px; background: var(--surface-muted, rgba(128,128,128,.1)); }
 .prompt-agent-reference-sources [role=tab] { padding: 5px 12px; border: 0; border-radius: 5px; background: transparent; color: var(--text-secondary); cursor: pointer; }
 .prompt-agent-reference-sources [role=tab][aria-selected=true] { background: var(--panel-bg); color: var(--text-main); font-weight: 600; }

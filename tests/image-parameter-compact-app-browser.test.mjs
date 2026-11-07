@@ -134,7 +134,7 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         await open(app, 'image-0');
         assert.equal(await app.evaluate("document.querySelector('#image-0 .image-first-summary')===null"), true);
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-first-summary')===null"), true);
-        assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=more]').title.includes('1')"));
+        assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-references').checkVisibility()&&!document.querySelector('.image-parameter-settings-popup:popover-open')"));
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-image-generation-dirty]')"), null);
         assert.equal(await app.evaluate("document.querySelector('#image-0-prompt-source details').open"), true);
         assert.equal(await app.evaluate("document.querySelector('#image-0-prompt-field .image-local-prompt-draft').open"), false);
@@ -255,13 +255,12 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
             await app.evaluate("document.getElementById('prompt-agent-resize').dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true,cancelable:true}))");
             await settle(app);
             await app.evaluate("document.querySelectorAll('.toast').forEach(toast=>toast.remove())");
-            const bounds = await app.evaluate(`(()=>{const s=document.querySelector('.image-panel-switcher').getBoundingClientRect(),a=document.getElementById('prompt-agent-panel').getBoundingClientRect(),n=document.getElementById('canvas-navigation').getBoundingClientRect();return {left:s.left,right:s.right,agent:a.left,bottom:s.bottom,top:s.top,navigation:!(s.left<n.right&&s.right>n.left&&s.top<n.bottom&&s.bottom>n.top),buttons:[...document.querySelectorAll('.image-panel-switcher button')].every(b=>{const r=b.getBoundingClientRect();return document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest('button')===b})}})()`);
-            assert.ok(bounds.left >= 0 && bounds.right <= bounds.agent, `${width}: switcher clears the Agent: ${JSON.stringify(bounds)}`);
-            assert.ok(bounds.top >= 0 && bounds.bottom <= 820 && bounds.navigation && bounds.buttons, `${width}: both entries remain reachable outside canvas navigation: ${JSON.stringify(bounds)}`);
+            assert.equal(await app.evaluate("document.querySelector('.image-panel-switcher')===null"), true, 'no redundant front/back switcher remains');
+            assert.ok(await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel').getBoundingClientRect(),a=document.getElementById('prompt-agent-panel').getBoundingClientRect();return p.width>=280&&p.left>=0&&p.right<=innerWidth+1&&a.left>=0&&a.right<=innerWidth+1})()"), `${width}: editors remain within the window`);
         }
-        await app.evaluate("document.getElementById('btn-close-prompt-agent').click()");
+        await app.evaluate("document.getElementById('btn-prompt-agent').click()");
         await settle(app);
-        assert.equal(await app.evaluate("document.querySelector('.image-panel-switcher').classList.contains('is-stacked')"), false);
+        assert.equal(await app.evaluate("document.querySelector('.image-panel-switcher')"), null);
     });
 });
 

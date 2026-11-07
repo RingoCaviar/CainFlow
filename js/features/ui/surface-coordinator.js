@@ -163,7 +163,11 @@ export function getSurfaceCoordinator(documentRef) {
         } else if (popovers.size && ![...popovers.values()].some(entry => entry.element.contains(event.target)
             || [entry.trigger, ...entry.relatedTriggers].some(trigger => trigger?.matches('button, [aria-expanded], [data-submenu-target]') && trigger.contains(event.target)))) {
             closePopovers();
-            event.preventDefault(); event.stopImmediatePropagation(); suppressClick = true;
+            const owner = modelessStack().findLast(([element]) => element.contains(event.target))?.[0];
+            // A direct action in another modeless editor should both raise it
+            // and work on the first click. Blank canvas still only dismisses.
+            if (owner) api.bringToFront(owner);
+            else if (!event.target.closest('#btn-prompt-agent')) { event.preventDefault(); event.stopImmediatePropagation(); suppressClick = true; }
         } else if (!top) {
             const owner = modelessStack().findLast(([element]) => element.contains(event.target))?.[0]
                 || [...popovers.values()].find(entry => entry.element.contains(event.target))?.owner;

@@ -22,9 +22,17 @@
 }
 
 #btn-theme-toggle {
-    width: 160px;
-    min-width: 160px;
-    max-width: 160px;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    gap: 6px;
+}
+
+html:root #toolbar #btn-theme-toggle {
+    position: relative;
+    padding-inline: 24px;
+    color: var(--text-primary);
+    box-shadow: none;
 }
 
 .theme-menu-shell {
@@ -33,18 +41,21 @@
 }
 
 #btn-theme-toggle .icon-sm {
-    transition: color var(--transition), transform var(--transition);
+    flex-shrink: 0;
 }
 
 #btn-theme-toggle .theme-menu-caret {
+    position: absolute;
+    right: 8px;
     flex-shrink: 0;
-    margin-left: 2px;
     opacity: 0.72;
     transition: transform var(--transition), opacity var(--transition);
 }
 
 #btn-theme-toggle [data-role="theme-toggle-label"] {
     flex: 0 0 auto;
+    width: 4em;
+    text-align: center;
     white-space: nowrap;
 }
 
@@ -53,40 +64,18 @@
     opacity: 1;
 }
 
-#btn-theme-toggle[data-theme-id="dark"] .icon-sm {
-    color: var(--accent-cyan);
-}
-
-#btn-theme-toggle[data-theme-id="paper"] .icon-sm {
-    color: #4e7669;
-}
-
-#btn-theme-toggle[data-theme-id="light"] .icon-sm {
-    color: var(--accent-orange);
-    transform: rotate(12deg);
-}
-
-#btn-theme-toggle[data-theme-id="glass-light"] .icon-sm {
-    color: var(--accent-cyan);
-    transform: rotate(8deg) scale(1.04);
-}
-
-#btn-theme-toggle[data-theme-id="glass-dark"] .icon-sm {
-    color: var(--accent-cyan);
-    transform: rotate(-8deg) scale(1.04);
-}
-
-#btn-theme-toggle[data-theme-id="pink"] .icon-sm {
-    color: var(--accent-pink);
-    transform: rotate(-8deg) scale(1.05);
-}
-
 .theme-menu-panel {
+    --theme-divider: color(from var(--menu-surface) srgb-linear calc(r / 1.4 - 0.0142857) calc(g / 1.4 - 0.0142857) calc(b / 1.4 - 0.0142857) / 1);
     position: fixed;
     top: 0;
     left: 0;
-    min-width: 180px;
-    padding: 8px;
+    width: 192px;
+    max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    box-sizing: border-box;
+    padding: 6px;
     border: 1px solid transparent;
     border-radius: 10px;
     backdrop-filter: none;
@@ -99,31 +88,48 @@
 }
 
 .theme-menu-item {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
     width: 100%;
-    padding: 10px 12px;
+    padding: 8px 10px;
+    min-height: 36px;
     border: 1px solid transparent;
-    border-radius: 10px;
+    border-radius: 6px;
     cursor: pointer;
     transition: background var(--transition), border-color var(--transition), color var(--transition);
 }
 
 .theme-menu-item + .theme-menu-item {
-    margin-top: 4px;
+    margin-top: 5px;
+}
+
+.theme-menu-item + .theme-menu-item::before {
+    content: "";
+    position: absolute;
+    top: -4px;
+    left: 10px;
+    right: 10px;
+    height: 1px;
+    background: var(--theme-divider);
+    pointer-events: none;
 }
 
 .theme-menu-item-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
+    display: block;
+    width: 100%;
+    padding-inline: 18px;
+    text-align: center;
 }
 
 .theme-menu-item-check {
+    position: absolute;
+    right: 10px;
     width: 16px;
     height: 16px;
+    flex-shrink: 0;
     opacity: 0;
     transition: opacity var(--transition);
 }
@@ -132,19 +138,11 @@
     opacity: 1;
 }
 
-@media (max-width: 768px) {
-    #btn-theme-toggle {
-        width: 144px;
-        min-width: 144px;
-        max-width: 144px;
-        padding-inline: 10px;
-    }
+:root:is([data-app-theme="dark"], [data-app-theme="pro"], [data-app-theme="glass-dark"]) .theme-menu-panel {
+    --theme-divider: color(from var(--menu-surface) srgb-linear calc(r * 1.4 + 0.02) calc(g * 1.4 + 0.02) calc(b * 1.4 + 0.02) / 1);
+}
 
-    #btn-theme-toggle [data-role="theme-toggle-label"] {
-        font-size: 12px;
-    }
-
-    .theme-menu-panel {
-        min-width: 164px;
-    }
+html:root #theme-menu.theme-menu-panel {
+    /* Opaque backing keeps divider contrast independent of the canvas beneath it. */
+    background: rgb(from var(--menu-surface) r g b / 1);
 }

@@ -104,10 +104,10 @@ export function createThemeControllerApi({
             Math.max(12, rect.right - menuWidth),
             Math.max(12, viewportWidth - menuWidth - 12)
         );
-        const top = Math.min(
+        const top = Math.max(12, Math.min(
             rect.bottom + 10,
             Math.max(12, viewportHeight - menuHeight - 12)
-        );
+        ));
 
         menu.style.left = `${left}px`;
         menu.style.top = `${top}px`;
@@ -122,7 +122,9 @@ export function createThemeControllerApi({
         button.setAttribute('aria-expanded', String(isOpen));
         if (isOpen) {
             surfaces?.openPopover('theme', { element: menu, trigger: button, close: closeThemeMenu });
+            if (!isMenuOpen()) return;
             positionThemeMenu();
+            (menu.querySelector('[aria-checked="true"]') || menu.querySelector('.theme-menu-item'))?.focus();
         } else surfaces?.forgetPopover('theme');
     }
 
@@ -144,6 +146,7 @@ export function createThemeControllerApi({
                 type="button"
                 class="theme-menu-item"
                 role="menuitemradio"
+                tabindex="-1"
                 data-theme-id="${theme.id}"
                 aria-checked="false"
             >
@@ -183,6 +186,28 @@ export function createThemeControllerApi({
             toggleThemeMenu();
         });
 
+        button.addEventListener('keydown', (event) => {
+            if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+            event.preventDefault();
+            openThemeMenu();
+        });
+
+        menu.addEventListener('keydown', (event) => {
+            if (event.key === 'Tab') {
+                event.preventDefault();
+                closeThemeMenu();
+                (event.shiftKey ? button : documentRef.getElementById('btn-settings') || button).focus({ preventScroll: true });
+                return;
+            }
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            const items = [...menu.querySelectorAll('.theme-menu-item')];
+            const current = items.indexOf(documentRef.activeElement);
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+                : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+            items[next]?.focus();
+        });
+
         menu.addEventListener('click', (event) => {
             const item = event.target.closest('.theme-menu-item');
             if (!item) return;
@@ -193,6 +218,7 @@ export function createThemeControllerApi({
             applyTheme(selectedThemeId);
             saveState();
             closeThemeMenu();
+            button.focus({ preventScroll: true });
         });
 
         documentRef.addEventListener('click', (event) => {
@@ -201,13 +227,18 @@ export function createThemeControllerApi({
         });
 
         documentRef.addEventListener('keydown', (event) => {
-            if (event.key === 'Escape') {
+            if (event.key === 'Escape' && isMenuOpen()) {
                 closeThemeMenu();
+                button.focus({ preventScroll: true });
             }
         });
 
         window.addEventListener('resize', () => {
             if (isMenuOpen()) positionThemeMenu();
+        });
+
+        button.closest('#toolbar')?.addEventListener('transitionend', (event) => {
+            if (event.propertyName === 'transform' && isMenuOpen()) positionThemeMenu();
         });
 
         window.addEventListener('scroll', () => {
@@ -225,7 +256,6 @@ export function createThemeControllerApi({
         const buttonLabel = button.querySelector('[data-role="theme-toggle-label"]');
 
         button.dataset.themeId = currentTheme.id;
-        button.setAttribute('aria-pressed', 'false');
         button.setAttribute('aria-label', `\u5f53\u524d\u4e3b\u9898\uff1a${currentTheme.label}\uff0c\u70b9\u51fb\u6253\u5f00\u4e3b\u9898\u83dc\u5355`);
         button.title = `\u5f53\u524d\u4e3b\u9898\uff1a${currentTheme.label}`;
 

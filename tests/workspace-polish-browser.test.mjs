@@ -68,7 +68,7 @@ test('workflow title stays visible during automatic saving while zoom presets st
             await mkdir(process.env.CAINFLOW_QA_SCREENSHOT_DIR, { recursive: true });
             await send('Emulation.setDeviceMetricsOverride', { width: 1424, height: 900, deviceScaleFactor: 1, mobile: false });
             for (const theme of ['dark', 'paper']) {
-                await evaluate(`document.querySelector('.canvas-zoom-menu summary').click(); document.querySelector('[data-zoom="1"]').click(); document.getElementById('btn-settings').click(); document.querySelector('.modal-tab-btn[data-tab=general]').click(); document.getElementById('btn-theme-toggle').click(); document.querySelector('#theme-menu [data-theme-id="${theme}"]').click(); document.getElementById('settings-close').click()`);
+                await evaluate(`document.querySelector('.canvas-zoom-menu summary').click(); document.querySelector('[data-zoom="1"]').click(); document.getElementById('btn-theme-toggle').click(); document.querySelector('#theme-menu [data-theme-id="${theme}"]').click()`);
                 await new Promise(resolve => setTimeout(resolve, 350));
                 const shot = await send('Page.captureScreenshot', { format: 'png' });
                 await writeFile(join(process.env.CAINFLOW_QA_SCREENSHOT_DIR, `workspace-${theme}.png`), Buffer.from(shot.data, 'base64'));

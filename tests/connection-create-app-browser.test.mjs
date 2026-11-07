@@ -83,6 +83,23 @@ test('dragging an image output onto blank canvas creates a node with an immediat
 });
 
 const allTypes = ['ImageImport', 'ImageCompare', 'ImageMerge', 'ImageResize', 'ColorReset', 'ImageGenerate', 'VideoGenerate', 'CameraControl', 'CustomParams', 'TextChat', 'Text', 'TextMerge', 'TextSplit', 'ImagePreview'];
+
+test('a connection created under a hovered node loses emphasis when the pointer leaves', { timeout: 30000 }, async () => {
+    await withAppBrowser({ ...session, nodes: [...session.nodes, { id: 'hover-target', type: 'ImageGenerate', x: 620, y: 240 }] }, async app => {
+        const destination = await point(app, '#hover-target .universal-input .port-dot');
+        await dragFromPort(app, '#source .node-port[data-direction="output"] .port-dot', destination, false);
+        await app.waitFor("document.querySelectorAll('#connections-svg path[data-conn-id]').length===1");
+        await assertConnected(app, 'source', 'hover-target', 'referenceImages');
+        assert.equal(await app.evaluate("document.querySelector('#connections-svg path[data-conn-id]').classList.contains('is-hovered')"), true, 'the new connection reflects the node currently under the pointer');
+        await app.waitFor("Number.parseFloat(getComputedStyle(document.querySelector('#connections-svg path[data-conn-id]')).strokeWidth)===3");
+        assert.equal(await app.evaluate("getComputedStyle(document.querySelector('#connections-svg path[data-conn-id]')).filter"), 'none', 'hover emphasis uses line weight and color without a glow');
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1150, y: 700 });
+        await app.waitFor("!document.querySelector('#connections-svg path[data-conn-id]').classList.contains('is-hovered')");
+        assert.equal(await app.evaluate("document.querySelector('#connections-svg path[data-conn-id]').classList.contains('is-hovered')"), false, 'leaving removes the new path highlight without another graph edit');
+        await app.waitFor("Number.parseFloat(getComputedStyle(document.querySelector('#connections-svg path[data-conn-id]')).strokeWidth)===2.5");
+    });
+});
+
 const inputCandidates = {
     image: ['ImageCompare', 'ImageMerge', 'ImageResize', 'ColorReset', 'ImageGenerate', 'VideoGenerate', 'CameraControl', 'TextChat', 'ImagePreview'],
     text: ['ImageGenerate', 'VideoGenerate', 'TextChat', 'Text', 'TextMerge', 'TextSplit'],

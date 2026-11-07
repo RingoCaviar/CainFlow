@@ -58,6 +58,7 @@ export function createCanvasInteractionsApi({
     let sampleDrag = null;
     let sampleConnection = null;
     let cuttingHistoryRecorded = false;
+    let suppressNodeDragClick = false;
     const ZOOM_SETTLE_DELAY_MS = 120;
     const SHAKE_DETACH_DURATION_MS = 300;
     const SHAKE_SAMPLE_DISTANCE = 8;
@@ -188,12 +189,14 @@ export function createCanvasInteractionsApi({
     function settleNodeDrag({ endPosition = null, abort = false } = {}) {
         if (!state.dragging) return;
 
-        if (endPosition && (
+        const moved = state.dragging.hasMoved || (endPosition && (
             Math.abs(endPosition.x - state.dragging.startX) > 2 ||
             Math.abs(endPosition.y - state.dragging.startY) > 2
-        )) {
+        ));
+        if (moved && !abort) {
             state.justDragged = true;
             setTimeout(() => { state.justDragged = false; }, 100);
+            suppressNodeDragClick = true;
         }
 
         for (const nodeId of state.dragging.nodes) {
@@ -217,6 +220,7 @@ export function createCanvasInteractionsApi({
         }
 
         state.dragging = null;
+        if (moved) documentRef.dispatchEvent?.(new CustomEvent('cainflow:node-drag-ended'));
         closeProjectionInteraction(CANVAS_INTERACTION_KIND.NODE_DRAG, abort ? 'abort' : 'finish');
         scheduleSave();
     }
@@ -836,7 +840,17 @@ export function createCanvasInteractionsApi({
     }
 
     function initCanvasInteractions() {
+        // Only suppress the click/dblclick belonging to the completed drag.
+        // A fresh press starts a new gesture, even within the old 100ms window.
+        const stopDragClick = event => {
+            if (!suppressNodeDragClick || event.detail === 0) return false;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            return true;
+        };
+        canvasContainer.addEventListener('dblclick', stopDragClick, true);
         windowRef.addEventListener('blur', () => {
+            suppressNodeDragClick = false;
             documentRef.body.classList.remove('is-interacting');
             documentRef.getElementById('connections-group').classList.remove('is-interacting');
             settleCanvasPan({ abort: true });
@@ -851,6 +865,8 @@ export function createCanvasInteractionsApi({
         });
 
         canvasContainer.addEventListener('mousedown', (e) => {
+            if (suppressNodeDragClick) state.justDragged = false;
+            suppressNodeDragClick = false;
             if (e.target?.closest?.('#canvas-navigation')) return;
             if (e.button !== 0 || !state.isSpacePressed) return;
 
@@ -860,6 +876,7 @@ export function createCanvasInteractionsApi({
         }, true);
 
         canvasContainer.addEventListener('click', (e) => {
+            if (stopDragClick(e)) return;
             if (e.target?.closest?.('#canvas-navigation')) return;
             if (!state.isSpacePressed) return;
 
@@ -1062,6 +1079,7 @@ export function createCanvasInteractionsApi({
                 const dx = pos.x - state.dragging.startX;
                 const dy = pos.y - state.dragging.startY;
                 const hasDragMovement = Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5;
+                if (Math.abs(dx) > 2 || Math.abs(dy) > 2) state.dragging.hasMoved = true;
 
                 if (hasDragMovement && !getProjectionInteraction(CANVAS_INTERACTION_KIND.NODE_DRAG)) {
                     beginProjectionInteraction(CANVAS_INTERACTION_KIND.NODE_DRAG, state.dragging.nodes);

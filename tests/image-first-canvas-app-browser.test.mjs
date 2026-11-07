@@ -200,6 +200,7 @@ test('titleless parameter editor keeps execution reachable while long content sc
         await changeField(app, 'editor-first-prompt', '需要保留和反复编辑的长提示词。\n'.repeat(80));
         await app.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 420, deviceScaleFactor: 1, mobile: false });
         await app.evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
+        await app.waitFor("(()=>{const button=document.querySelector('#image-parameter-panel [data-parameter-action=generate]'),r=button.getBoundingClientRect();return button.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()");
         const measure = () => app.evaluate(`(()=>{
             const panel=document.getElementById('image-parameter-panel');
             const box=element=>{const r=element.getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right}};
@@ -211,7 +212,7 @@ test('titleless parameter editor keeps execution reachable while long content sc
         const before = await measure();
         assert.equal(before.title, '图片生成');
         assert.equal(before.close, false, 'corner close control is absent');
-        assert.equal(before.run, true, 'generate stays directly clickable in a short window');
+        assert.equal(before.run, true, 'generate stays directly clickable in a short window: '+JSON.stringify(await app.evaluate("(()=>{const panel=document.getElementById('image-parameter-panel'),button=panel.querySelector('[data-parameter-action=generate]'),r=button.getBoundingClientRect();return {panel:panel.getBoundingClientRect().toJSON(),button:r.toJSON(),hit:document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.outerHTML.slice(0,400),toolbar:document.getElementById('toolbar')?.getBoundingClientRect().toJSON()}})()")));
         assert.equal(before.overflow, false);
         assert.ok(await app.evaluate("document.querySelector('.image-parameter-scroll').clientHeight >= 140"),
             'a collapsed toolbar leaves enough space for useful editing');

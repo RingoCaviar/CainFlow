@@ -21,6 +21,24 @@
         ],
         "createdAt": "2026-11-06T08:39:19.307Z",
         "reason": "Agent review: the only side-tab match is the pre-existing .image-prompt-source quotation marker (also present in HEAD), distinguishing inherited upstream text from the inactive local prompt draft; it is not a decorative reference-image card border."
+      },
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "index.html"
+        ],
+        "createdAt": "2026-11-06T10:11:26.093Z",
+        "reason": "Codex verified: the sole match is history-preview-img in the initially hidden history preview. history-preview.js assigns the real media URL at runtime and clears src on close; it is not a shipped placeholder or a change from theme-ui#002."
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "index.html"
+        ],
+        "createdAt": "2026-11-06T10:28:36.408Z",
+        "reason": "Codex verified: detect index.html reports only the legacy .workflow-item::before width 5px rule from panels.css. The later themes.css rules hide this marker except on the active workflow and override its width to 2px; it identifies the current workflow. Both rules predate theme-ui#002. This is not a rendered thick decorative card border."
       }
     ]
   }
