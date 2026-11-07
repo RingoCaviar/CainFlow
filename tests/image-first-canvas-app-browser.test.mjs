@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 
 const session = {
@@ -37,6 +38,118 @@ async function nativeClick(app, selector) {
     await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
     await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
 }
+
+async function clickParameterRun(app) {
+    await app.waitFor("(()=>{const button=document.querySelector('#image-parameter-panel [data-parameter-action=generate]'),r=button.getBoundingClientRect();return !button.disabled&&button.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()");
+    await nativeClick(app, '#image-parameter-panel [data-parameter-action=generate]');
+}
+
+const cachedReferenceImages = await Promise.all(['red', 'blue'].map(async color =>
+    (await readFile(new URL(`./fixtures/reference-${color}.png`, import.meta.url))).toString('base64')));
+const cachedReferenceConnection = { id: 'cached-reference', from: { nodeId: 'editor-first', port: 'image' }, to: { nodeId: 'editor-second', port: 'referenceImages' }, type: 'image', order: 0 };
+
+async function controlCurrentNodeRequests(app) {
+    await app.send('Page.addScriptToEvaluateOnNewDocument', { source: `
+        window.currentNodeRequests=[];
+        const currentNodeFetch=window.fetch;
+        const outputs=${JSON.stringify(cachedReferenceImages)};
+        window.fetch=async(url,options={})=>{
+            if(String(url)==='/proxy'&&options.body){
+                const form=options.body instanceof FormData;
+                const body=form?Object.fromEntries(options.body.entries()):JSON.parse(options.body);
+                if(typeof body.prompt==='string'){
+                    const images=body.images||body.image||[];
+                    const references=form
+                        ? await Promise.all(options.body.getAll('image[]').concat(options.body.getAll('image')).map(async file=>btoa(String.fromCharCode(...new Uint8Array(await file.arrayBuffer())))))
+                        : (Array.isArray(images)?images:[images]).map(image=>String(image).split(',').at(-1));
+                    currentNodeRequests.push({prompt:body.prompt,references});
+                    return new Response(JSON.stringify({data:[{b64_json:outputs[(currentNodeRequests.length-1)%outputs.length]}]}),{headers:{'Content-Type':'application/json'}});
+                }
+            }
+            return currentNodeFetch(url,options);
+        };` });
+    await reloadAppBrowser(app);
+}
+
+test('parameter run executes only its current node and reuses cached upstream images', { timeout: 45000 }, async () => {
+    await withAppBrowser({ ...session, nodes: session.nodes.map((node,index)=>index===0?{...node,generationCount:2}:node), connections: [cachedReferenceConnection] }, async app => {
+        await controlCurrentNodeRequests(app);
+        await app.evaluate("document.getElementById('editor-first').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:300,clientY:200}));document.getElementById('context-menu-run-to-here').click()");
+        await app.waitFor("document.getElementById('editor-first-run-status').textContent==='完成'&&document.getElementById('btn-stop').disabled");
+        await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(record=>record.value.nodes.find(node=>node.id==='editor-first').mediaAssetKeys?.length===2)");
+        const sourceKeys = await app.evaluate("fetch('/api/storage/documents/session').then(response=>response.json()).then(record=>record.value.nodes.find(node=>node.id==='editor-first').mediaAssetKeys)");
+        assert.equal(sourceKeys.length, 2, 'the complete upstream batch is genuinely generated and durably cached before clicking the parameter action');
+        await reloadAppBrowser(app);
+
+        await openNode(app, 'editor-second');
+        await app.evaluate('window.currentNodeRequests=[]');
+        await clickParameterRun(app);
+        await app.waitFor('currentNodeRequests.length===1');
+        await app.waitFor("document.getElementById('editor-second-run-status').textContent==='完成'&&document.getElementById('btn-stop').disabled");
+        assert.deepEqual(await app.evaluate('currentNodeRequests.map(request=>request.prompt)'), ['second local draft'], 'the parameter action must not send another provider request for its cached upstream node');
+        assert.deepEqual(await app.evaluate('currentNodeRequests[0].references'), cachedReferenceImages, 'the request reopens every cached upstream original in order');
+
+        await changeField(app, 'editor-second-generation-count', '2');
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        await app.evaluate('window.currentNodeRequests=[]');
+        await clickParameterRun(app);
+        await app.waitFor('currentNodeRequests.length===2');
+        await app.waitFor("document.getElementById('editor-second-run-status').textContent==='完成'&&document.getElementById('btn-stop').disabled");
+        assert.deepEqual(await app.evaluate('currentNodeRequests.map(request=>request.prompt)'), ['second local draft', 'second local draft'], 'batch count repeats only the current node');
+        assert.deepEqual(await app.evaluate('currentNodeRequests.map(request=>request.references)'), [cachedReferenceImages,cachedReferenceImages]);
+        assert.deepEqual(await app.evaluate("fetch('/api/storage/documents/session').then(response=>response.json()).then(record=>record.value.nodes.find(node=>node.id==='editor-first').mediaAssetKeys)"), sourceKeys, 'running the current node preserves ownership of the cached upstream original');
+    });
+});
+
+test('parameter run with missing upstream cache fails without generation while explicit run-to-here still includes upstream', { timeout: 45000 }, async () => {
+    await withAppBrowser({ ...session, connections: [cachedReferenceConnection] }, async app => {
+        await controlCurrentNodeRequests(app);
+        await openNode(app, 'editor-second');
+        await clickParameterRun(app);
+        await app.waitFor("document.getElementById('editor-second-run-status').textContent==='失败'&&document.getElementById('btn-stop').disabled");
+        assert.deepEqual(await app.evaluate('currentNodeRequests'), [], 'missing cached inputs must never cause an upstream request or a reference-free current request');
+        assert.equal(await app.evaluate("document.getElementById('editor-first-run-status').textContent"), '待运行');
+        assert.match(await app.evaluate("document.getElementById('editor-second-error').textContent"), /参考图输入.*未读取到图片数据/);
+
+        await app.evaluate("document.getElementById('editor-second').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:300,clientY:200}));document.getElementById('context-menu-run-to-here').click()");
+        await app.waitFor('currentNodeRequests.length===2');
+        await app.waitFor("document.getElementById('editor-second-run-status').textContent==='完成'&&document.getElementById('btn-stop').disabled");
+        assert.deepEqual(await app.evaluate('currentNodeRequests.map(request=>request.prompt)'), ['first local draft','second local draft']);
+    });
+});
+
+test('parameter run rejects a missing source alongside a cached source on the shared reference input', { timeout: 45000 }, async () => {
+    const missingSource = { ...session.nodes[0], id: 'uncached-source', x: 80, y: 500, prompt: 'must not run' };
+    const missingConnection = { ...cachedReferenceConnection, id: 'uncached-reference', from: { nodeId: missingSource.id, port: 'image' }, order: 1 };
+    await withAppBrowser({ ...session, nodes: [...session.nodes,missingSource], connections: [cachedReferenceConnection,missingConnection] }, async app => {
+        await controlCurrentNodeRequests(app);
+        await app.evaluate("document.getElementById('editor-first').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:300,clientY:200}));document.getElementById('context-menu-run-to-here').click()");
+        await app.waitFor("document.getElementById('editor-first-run-status').textContent==='完成'&&document.getElementById('btn-stop').disabled");
+        await openNode(app, 'editor-second');
+        await app.evaluate('window.currentNodeRequests=[]');
+        await clickParameterRun(app);
+        await app.waitFor("document.getElementById('editor-second-run-status').textContent==='失败'&&document.getElementById('btn-stop').disabled");
+        assert.deepEqual(await app.evaluate('currentNodeRequests'), [], 'one cached connection cannot hide the missing source or trigger automatic upstream generation');
+        assert.match(await app.evaluate("document.getElementById('editor-second-error').textContent"), /已连接 1 个参考图输入.*未读取到图片数据/);
+        assert.equal(await app.evaluate("document.getElementById('uncached-source-run-status').textContent"), '待运行');
+    });
+});
+
+test('parameter run reuses an unfixed upstream text reply as its effective prompt', { timeout: 30000 }, async () => {
+    const cachedPrompt = 'cached upstream prompt';
+    const textSource = { ...session.nodes[0], type: 'TextChat', apiConfigId: 'chat', fixed: false,
+        isSucceeded: true, lastText: cachedPrompt, lastResponse: cachedPrompt };
+    const connection = { id: 'cached-prompt', from: { nodeId: 'editor-first', port: 'text' }, to: { nodeId: 'editor-second', port: 'prompt' }, type: 'text' };
+    await withAppBrowser({ ...session, nodes: [textSource,session.nodes[1]], connections: [connection] }, async app => {
+        await controlCurrentNodeRequests(app);
+        await openNode(app, 'editor-second');
+        await clickParameterRun(app);
+        await app.waitFor('currentNodeRequests.length===1');
+        await app.waitFor("document.getElementById('editor-second-run-status').textContent==='完成'&&document.getElementById('btn-stop').disabled");
+        assert.deepEqual(await app.evaluate('currentNodeRequests.map(request=>request.prompt)'), [cachedPrompt]);
+        assert.equal(await app.evaluate("document.getElementById('editor-first-response').textContent.trim()"), cachedPrompt);
+    });
+});
 
 test('prompt grows from two to six lines, then scrolls and shrinks again without a dirty status row', { timeout: 30000 }, async () => {
     await withAppBrowser({ ...session, nodes: [{...session.nodes[0], textareaHeights: {prompt: 400}}] }, async app => {
@@ -144,6 +257,14 @@ test('an already open submenu follows viewport constraints when the window shrin
         await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
         const bounds = await app.evaluate("document.getElementById('editor-first-parameter-settings').getBoundingClientRect().toJSON()");
         assert.ok(bounds.left>=12&&bounds.right<=348&&bounds.top>=12&&bounds.bottom<=288, JSON.stringify(bounds));
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 420, deviceScaleFactor: 1, mobile: false });
+        // Focusing a transformed canvas item can scroll its containing layout;
+        // the editor still belongs to the screen rather than that clipped area.
+        await app.evaluate("document.getElementById('main-layout').scrollLeft=100;window.dispatchEvent(new Event('resize'));new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
+        assert.ok(await app.evaluate("document.getElementById('canvas-container').getBoundingClientRect().right<innerWidth-60"), 'the fixture reproduces a canvas partly outside the window');
+        const clippedLayout = await app.evaluate("(()=>{const panel=document.getElementById('image-parameter-panel'),r=panel.getBoundingClientRect(),buttons=[...panel.querySelectorAll('.image-parameter-settings-entry,.image-parameter-model-entry,.image-parameter-more-entry,[data-parameter-action=generate]')].map(el=>el.getBoundingClientRect());return {panel:r.toJSON(),fits:panel.scrollWidth<=panel.clientWidth+1,readable:buttons.every(box=>box.width>=32),aligned:buttons.every(box=>Math.abs(box.top-buttons[0].top)<1)}})()");
+        assert.ok(clippedLayout.panel.width>=280&&clippedLayout.panel.left>=12&&clippedLayout.panel.right<=348, JSON.stringify(clippedLayout));
+        assert.ok(clippedLayout.fits&&clippedLayout.readable&&clippedLayout.aligned, 'a shifted canvas cannot squeeze the single-row controls into unreadable slivers');
     });
 });
 

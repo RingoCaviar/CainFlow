@@ -73,7 +73,7 @@ async function key(app, key, code = key, modifiers = 0, windowsVirtualKeyCode) {
 }
 
 async function clickVisibleSurface(app, id) {
-    const position = await app.evaluate(`(()=>{const root=document.getElementById(${JSON.stringify(id)}),rect=root.getBoundingClientRect();for(const y of [rect.top+60,rect.top+rect.height/2,rect.bottom-30])for(const x of [rect.left+8,rect.right-8,rect.left+rect.width/2]){const hit=document.elementFromPoint(x,y);if(root.contains(hit)&&!hit.closest('button,input,textarea,select,[role=separator]'))return {x,y}}return null})()`);
+    const position = await app.evaluate(`(()=>{const root=document.getElementById(${JSON.stringify(id)}),rect=root.getBoundingClientRect();for(const y of [rect.top+60,rect.top+rect.height/2,rect.bottom-30])for(const x of [rect.left+4,rect.right-4,rect.left+8,rect.right-8,rect.left+rect.width/2]){const hit=document.elementFromPoint(x,y);if(root.contains(hit)&&!hit.closest('button,input,textarea,select,[role=separator]'))return {x,y}}return null})()`);
     assert.ok(position, `a visible part of ${id} can be clicked`);
     await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...position, button: 'left', clickCount: 1 });
     await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...position, button: 'left', clickCount: 1 });

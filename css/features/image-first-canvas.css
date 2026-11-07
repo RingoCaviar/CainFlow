@@ -154,7 +154,7 @@
 
 .image-parameter-panel .node-field > label {
     color: var(--text-secondary);
-    font-size: 13px;
+    font-size: var(--parameter-control-font-size, 13px);
     line-height: 1.5;
 }
 
@@ -166,7 +166,7 @@
     background: var(--node-control-surface);
     border-color: var(--node-control-border);
     color: var(--text-primary);
-    font-size: 13px;
+    font-size: var(--parameter-control-font-size, 13px);
     line-height: 1.6;
 }
 
@@ -988,25 +988,33 @@ html:root #canvas-container .node.node-text .text-multi-nav:not(.hidden) { paddi
     border: 1px solid var(--node-control-border); border-radius: 10px; box-shadow: none;
     background: var(--node-control-surface); padding: 6px 8px;
 }
-.image-parameter-panel[data-node-type="ImageGenerate"] { container: image-parameter / inline-size; }
+.image-parameter-panel[data-node-type="ImageGenerate"] {
+    --parameter-control-height: 38px;
+    --parameter-control-font-size: 14px;
+    --parameter-spacing: 6px;
+    container: image-parameter / inline-size;
+}
+.image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-scroll { padding: var(--parameter-spacing); }
+.image-parameter-panel[data-node-type="ImageGenerate"] .image-first-parameter-content.node-body { gap: var(--parameter-spacing); }
+.image-parameter-panel[data-node-type="ImageGenerate"] .image-node-prompt-field textarea { font-size: 15px; line-height: 1.55; }
 .image-parameter-panel .image-parameter-more-entry {
     display: flex; align-items: center; justify-content: center; box-sizing: border-box;
-    width: 34px; height: 34px; min-height: 34px; padding: 0; border: 1px solid var(--node-control-border);
+    width: var(--parameter-control-height); height: var(--parameter-control-height); min-height: var(--parameter-control-height); padding: 0; border: 1px solid var(--node-control-border);
     border-radius: 8px; background: var(--node-control-surface); color: var(--text-primary);
-    font-size: 13px; white-space: nowrap; cursor: pointer;
+    font-size: var(--parameter-control-font-size, 13px); white-space: nowrap; cursor: pointer;
 }
 .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer {
-    padding: 0 12px 12px; border-top: 0; gap: 8px; background: transparent; flex-wrap: nowrap;
+    padding: 0 var(--parameter-spacing) var(--parameter-spacing); border-top: 0; gap: var(--parameter-spacing); background: transparent; flex-wrap: nowrap;
 }
 .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer-tools {
-    display: grid; grid-template-columns: fit-content(124px) minmax(0, 1fr) 34px; gap: 8px;
+    display: grid; grid-template-columns: fit-content(124px) minmax(0, 1fr) var(--parameter-control-height); gap: var(--parameter-spacing);
     flex: 1 1 0; container: parameter-entries / inline-size;
 }
 .image-parameter-panel[data-node-type="ImageGenerate"] :is(.image-parameter-settings-entry, .image-parameter-model-entry) {
     display: flex; align-items: center; justify-content: space-between;
     box-sizing: border-box; width: 100%; min-width: 0; height: var(--parameter-control-height);
     min-height: var(--parameter-control-height); padding: 0 10px; border-radius: 8px;
-    border: 1px solid var(--node-control-border); font-size: 13px; line-height: 1.25;
+    border: 1px solid var(--node-control-border); font-size: var(--parameter-control-font-size, 13px); line-height: 1.25;
     overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
 .image-parameter-entry-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1024,22 +1032,24 @@ html:root #canvas-container .node.node-text .text-multi-nav:not(.hidden) { paddi
     .image-parameter-footer-tools button[data-compact-label]::before { content: attr(data-compact-label); }
     .image-parameter-footer-tools button::after { margin-left: 0; }
 }
-@container parameter-entries (max-width: 120px) {
+@container parameter-entries (max-width: 140px) {
     .image-parameter-footer-tools button::after { display: none; }
 }
 .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer > .save-btn[data-parameter-action="generate"] {
     box-sizing: border-box; height: var(--parameter-control-height); min-height: var(--parameter-control-height);
-    min-width: 82px; padding: 0 10px; border-radius: 8px;
+    min-width: 82px; padding: 0 10px; border-radius: 8px; font-size: var(--parameter-control-font-size, 13px);
 }
 .image-parameter-panel .image-parameter-count-control[data-parameter-group] { padding-top: 0; }
 .image-parameter-panel .image-parameter-count-control .generation-count-control {
     box-sizing: border-box; height: var(--parameter-control-height); border-radius: 8px;
+    font-size: var(--parameter-control-font-size, 13px);
 }
 .image-parameter-panel .image-parameter-count-control :is(.generation-count-btn, .generation-count-input) {
-    box-sizing: border-box; height: 32px; min-height: 32px;
+    box-sizing: border-box; height: calc(var(--parameter-control-height) - 2px); min-height: calc(var(--parameter-control-height) - 2px);
+    font-size: var(--parameter-control-font-size, 13px);
 }
 .image-parameter-settings-popup {
-    border: 0; border-radius: 16px; padding: 12px;
+    border: 0; border-radius: 16px; padding: 8px;
     background: linear-gradient(var(--surface-panel-strong, var(--panel-bg)), var(--surface-panel-strong, var(--panel-bg))), var(--bg-canvas);
 }
 .image-parameter-settings-popup:popover-open { gap: 8px; }
@@ -1048,7 +1058,7 @@ html:root #canvas-container .node.node-text .text-multi-nav:not(.hidden) { paddi
     box-sizing: border-box; height: var(--parameter-control-height); min-height: var(--parameter-control-height);
     padding: 0 10px; border-radius: 8px;
 }
-/* More settings: references, three short choices, then full-width text. */
+/* More settings: three short choices, then full-width text. */
 .image-parameter-panel .image-parameter-settings-popup .node-advanced-parameters > :is(.node-protocol-params, .thinking-control, .node-field) { margin: 12px 0 0; }
 .image-parameter-panel .image-parameter-settings-popup .image-parameter-output-options { display: flex; gap: 8px; }
 .image-parameter-panel .image-parameter-output-options > .node-field { flex: 1 1 0; min-width: 0; }
@@ -1067,7 +1077,7 @@ html:root #canvas-container .node.node-text .text-multi-nav:not(.hidden) { paddi
 .image-parameter-panel .image-parameter-output-options input:checked + .toggle-slider::before { transform: translate(16px, -50%); background: var(--panel-primary-action-text, var(--bg-node)); }
 .image-parameter-panel .image-parameter-output-options input:focus-visible + .toggle-slider { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 .image-parameter-panel .image-parameter-output-options input:disabled + .toggle-slider { opacity: .5; cursor: not-allowed; }
-.image-parameter-panel .image-parameter-settings-popup .thinking-control { color: var(--text-primary); font-size: 13px; }
+.image-parameter-panel .image-parameter-settings-popup .thinking-control { color: var(--text-primary); font-size: var(--parameter-control-font-size, 13px); }
 .image-parameter-panel .image-parameter-settings-popup .thinking-control > summary { box-sizing: border-box; min-height: 28px; padding: 4px 0; }
 .image-parameter-panel .image-parameter-settings-popup .thinking-control-content { padding: 0; gap: 6px; border: 0; background: transparent; }
 .image-parameter-panel .image-parameter-settings-popup .thinking-control-content :is(select, input) {
@@ -1078,43 +1088,49 @@ html:root #canvas-container .node.node-text .text-multi-nav:not(.hidden) { paddi
 .image-parameter-panel .image-parameter-settings-popup .thinking-control-content small { font-size: 12px; line-height: 1.5; }
 .image-parameter-panel .image-parameter-settings-popup .thinking-control-content :is(select, input):focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 @container image-parameter (max-width: 360px) {
-    .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer { padding-inline: 8px; gap: 4px; }
-    .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer-tools { grid-template-columns: repeat(2, minmax(0, 1fr)) 28px; gap: 4px; }
-    .image-parameter-panel .image-parameter-more-entry { width: 28px; }
-    .image-parameter-panel[data-node-type="ImageGenerate"] :is(.image-parameter-settings-entry, .image-parameter-model-entry) { padding-inline: 2px; font-size: 12px; }
+    .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer-tools { grid-template-columns: repeat(2, minmax(0, 1fr)) var(--parameter-control-height); }
+    .image-parameter-panel[data-node-type="ImageGenerate"] :is(.image-parameter-settings-entry, .image-parameter-model-entry) { padding-inline: 2px; }
     .image-parameter-panel .image-parameter-count-control .generation-count-control { grid-template-columns: 24px 24px 24px; }
     .image-parameter-panel .image-parameter-count-control .generation-count-input { flex-basis: 24px; width: 24px; min-width: 24px; }
-    .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer > .save-btn[data-parameter-action="generate"] { min-width: 58px; padding-inline: 4px; font-size: 12px; }
+    .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer > .save-btn[data-parameter-action="generate"] { min-width: 58px; padding-inline: 4px; }
 }
 
 /* References are the visible input context, above the prompt rather than in More. */
 .image-parameter-references[hidden] { display: none; }
 .image-parameter-references .image-reference-grid {
     display: flex;
-    gap: 6px;
+    gap: var(--parameter-spacing, 6px);
     max-height: none;
     min-width: 0;
     overflow-x: auto;
     overflow-y: hidden;
-    padding: 3px 2px;
+    padding: 0;
     scroll-padding-inline: 4px;
 }
-.image-parameter-references .image-reference-item { flex: 0 0 56px; width: 56px; height: 56px; }
+.image-parameter-references .image-reference-item { flex: 0 0 60px; width: 60px; height: 60px; }
 .image-parameter-references .image-reference-thumbnail img { object-fit: contain; }
+.image-parameter-references .image-reference-grid:focus-visible,
+.image-parameter-panel .image-parameter-references button:focus-visible { outline-offset: -2px; }
 .image-parameter-references .image-reference-group.is-drop-target .image-reference-item {
     outline: none;
 }
-.image-parameter-references .image-reference-group.is-drop-target[data-drop-side="before"] .image-reference-item:first-child {
-    box-shadow: -3px 0 0 var(--accent-primary);
+.image-parameter-references .image-reference-group.is-drop-target[data-drop-side="before"] .image-reference-item:first-child::after,
+.image-parameter-references .image-reference-group.is-drop-target[data-drop-side="after"] .image-reference-item:last-child::after {
+    content: '';
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--accent-primary);
+    pointer-events: none;
 }
-.image-parameter-references .image-reference-group.is-drop-target[data-drop-side="after"] .image-reference-item:last-child {
-    box-shadow: 3px 0 0 var(--accent-primary);
-}
+.image-parameter-references .image-reference-group.is-drop-target[data-drop-side="before"] .image-reference-item:first-child::after { left: 0; }
+.image-parameter-references .image-reference-group.is-drop-target[data-drop-side="after"] .image-reference-item:last-child::after { right: 0; }
 
 @media (max-height: 540px) {
     /* Keep the actual references/prompt scrollable when a wrapping toolbar and
        canvas navigation leave little height; a duplicate target preview must
        not consume the editor's entire content area. */
     body .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-context { display: none; }
-    .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-scroll { padding-block: 6px; }
 }

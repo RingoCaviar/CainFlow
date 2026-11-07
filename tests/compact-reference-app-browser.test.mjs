@@ -53,11 +53,13 @@ test('reference gallery uses square thumbnails with overlay numbers and preserve
         const layout = await app.evaluate("(()=>{const gallery=document.querySelector('#target-reference-sources .image-reference-grid'),rows=[...gallery.querySelectorAll('.image-reference-group')],tiles=[...gallery.querySelectorAll('.image-reference-thumbnail')];return {tops:tiles.map(tile=>tile.getBoundingClientRect().top),height:gallery.clientHeight,overflow:gallery.scrollWidth>gallery.clientWidth+1,slots:rows.map(row=>row.querySelectorAll('[data-source-image-index]').length),nodeHeight:document.getElementById('target').offsetHeight}})()");
         assert.ok(layout.tops.every(top => top === layout.tops[0]), 'all thumbnails stay on a single compact row');
         assert.ok(await app.evaluate("(()=>{const refs=document.querySelector('#image-parameter-panel .image-parameter-references'),prompt=document.getElementById('target-prompt');return refs.getBoundingClientRect().bottom<=prompt.getBoundingClientRect().top&&!refs.querySelector('.node-section-label')&&!refs.closest('.image-parameter-settings-popup')&&!document.querySelector('.image-parameter-settings-popup:popover-open')})()"), 'references are visible above the prompt without opening More or adding a heading');
-        assert.equal(await app.evaluate("[...document.querySelectorAll('#target-reference-sources .image-reference-thumbnail')].every(tile=>{const r=tile.getBoundingClientRect(),n=tile.querySelector('.image-reference-number').getBoundingClientRect();return r.width===56&&r.height===56&&n.right<r.right&&n.bottom<r.bottom&&n.top>r.top+r.height/2})"), true, 'every thumbnail is square and its number floats inside the lower-right corner');
+        assert.equal(await app.evaluate("[...document.querySelectorAll('#target-reference-sources .image-reference-thumbnail')].every(tile=>{const r=tile.getBoundingClientRect(),n=tile.querySelector('.image-reference-number').getBoundingClientRect();return r.width===60&&r.height===60&&n.right<r.right&&n.bottom<r.bottom&&n.top>r.top+r.height/2})"), true, 'every thumbnail is square and its number floats inside the lower-right corner');
         assert.equal(await app.evaluate("document.querySelectorAll('#target-reference-sources .image-reference-heading, #target-reference-sources .image-reference-tools, #target-reference-sources .image-reference-source-name').length"), 0, 'source names and toolbars do not take visible space');
-        assert.ok(layout.height <= 64);
+        assert.ok(layout.height <= 68);
         assert.equal(layout.overflow, false);
         assert.deepEqual(layout.slots, [1, 1, 6]);
+        const spacing = await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel'),r=p.getBoundingClientRect(),thumb=p.querySelector('.image-reference-thumbnail').getBoundingClientRect(),prompt=p.querySelector('.image-node-prompt-field textarea').getBoundingClientRect(),controls=[...p.querySelectorAll('.image-parameter-settings-entry,.image-parameter-model-entry,.image-parameter-more-entry,.generation-count-control,[data-parameter-action=generate]')].map(el=>el.getBoundingClientRect());return [thumb.top-r.top,thumb.left-r.left,prompt.top-thumb.bottom,controls[0].top-prompt.bottom,prompt.left-r.left,r.right-prompt.right,r.bottom-controls.at(-1).bottom,...controls.slice(1).map((box,index)=>box.left-controls[index].right)]})()");
+        assert.ok(spacing.every(gap=>Math.abs(gap-6)<0.5), 'visible edges share one spacing, including reference wrappers and nested footer groups: '+JSON.stringify(spacing));
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#target-reference-sources [data-reference-number]')].map(item=>item.dataset.referenceNumber)"), ['1', '2', '3', '4', '5', '6', '7', '8']);
 
         assert.equal(await app.evaluate("document.querySelectorAll('#target-reference-sources .image-reference-details').length"), 0);
@@ -65,7 +67,7 @@ test('reference gallery uses square thumbnails with overlay numbers and preserve
         await app.evaluate("document.querySelector('#image-parameter-panel [role=separator]').focus({preventScroll:true})");
         await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Home', code: 'Home' });
         await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Home', code: 'Home' });
-        assert.equal(await app.evaluate("(()=>{const gallery=document.querySelector('#target-reference-sources .image-reference-grid');return gallery.scrollWidth>gallery.clientWidth+1&&gallery.clientHeight<=64})()"), true,
+        assert.equal(await app.evaluate("(()=>{const gallery=document.querySelector('#target-reference-sources .image-reference-grid');return gallery.scrollWidth>gallery.clientWidth+1&&gallery.clientHeight<=68})()"), true,
             'reducing the editor width keeps one horizontal strip without losing batch slots');
         assert.equal(await app.evaluate("document.getElementById('target').offsetHeight"), layout.nodeHeight, 'gallery edits never change the image card height');
         await app.evaluate("(()=>{for(let index=0;index<3;index++)document.querySelector('#target-reference-sources .image-reference-group .image-reference-disconnect').click()})()");
@@ -128,7 +130,7 @@ test('thumbnail hover actions and native drag reorder or disconnect a whole sour
                 await app.waitFor(() => Boolean(dragData));
                 for (const type of ['dragEnter', 'dragOver']) await app.send('Input.dispatchDragEvent', { type, ...end, data: dragData });
                 assert.equal(await app.evaluate("document.querySelector('#target-reference-sources .is-drop-target')?.dataset.dropSide"), side, 'the insertion marker matches the actual whole-source destination');
-                assert.equal(await app.evaluate("[...document.querySelectorAll('#target-reference-sources .is-drop-target .image-reference-item')].filter(item=>getComputedStyle(item).boxShadow!=='none').length"), 1, 'only the destination boundary is marked');
+            assert.equal(await app.evaluate("[...document.querySelectorAll('#target-reference-sources .is-drop-target .image-reference-item')].filter(item=>getComputedStyle(item,'::after').content!=='none').length"), 1, 'only the destination boundary is marked');
                 await app.send('Input.dispatchDragEvent', { type: 'drop', ...end, data: dragData });
                 await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...end, button: 'left', clickCount: 1 });
             } finally { unsubscribe(); await app.send('Input.setInterceptDrags', { enabled: false }); }

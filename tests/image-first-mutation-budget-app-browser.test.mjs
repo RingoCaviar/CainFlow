@@ -93,7 +93,7 @@ test('the public image-first view ignores identical classes and positions its ed
             let graphReads=0,settingsChanges=0;
             const node={id:'budget-save',type:'ImageSave',el:doc.getElementById('budget-save'),data:{},enabled:true};
             const state={nodes:new Map([[node.id,node]]),models:[],selectedNodes:new Set([node.id]),runningNodeIds:new Set(),get connections(){graphReads++;return []}};
-            const api=createImageFirstCanvas({state,documentRef:doc,windowRef:win,storage:null,selectionApi:{setSelection(ids){state.selectedNodes=new Set(ids)}},runToNode(){},fitNode(){},onSettingsChanged(){settingsChanges++}});
+            const api=createImageFirstCanvas({state,documentRef:doc,windowRef:win,storage:null,selectionApi:{setSelection(ids){state.selectedNodes=new Set(ids)}},runCurrentNode(){},fitNode(){},onSettingsChanged(){settingsChanges++}});
             api.install(node.id);
             const settle=()=>new Promise(resolve=>win.requestAnimationFrame(()=>win.requestAnimationFrame(()=>win.requestAnimationFrame(resolve))));
             await settle();
