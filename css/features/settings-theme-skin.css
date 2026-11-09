@@ -46,6 +46,13 @@ html:root #settings-modal {
     --settings-slider-thumb-bg: var(--settings-dialog-panel-bg);
     --settings-slider-thumb-border: var(--panel-active-border);
     --settings-slider-focus-ring: var(--settings-action-focus-ring);
+    --settings-navigation-bg: Canvas;
+}
+
+@supports (color: rgb(from currentColor r g b / 1)) {
+    html:root #settings-modal {
+        --settings-navigation-bg: rgb(from var(--settings-dialog-panel-bg) r g b / 1);
+    }
 }
 
 html:root #settings-modal {
@@ -162,15 +169,15 @@ html:root #settings-modal.modal-overlay .settings-inline-help:hover {
 }
 
 html:root #settings-modal.modal-overlay .general-settings-help-trigger {
-    background: var(--settings-action-primary-bg);
-    border-color: var(--settings-action-primary-border);
-    color: var(--settings-action-primary-text);
+    background: transparent;
+    border-color: transparent;
+    color: var(--text-secondary);
 }
 
 html:root #settings-modal.modal-overlay :is(.general-settings-help-trigger:hover, .general-settings-help-trigger:focus-visible, .general-settings-help.is-open .general-settings-help-trigger) {
-    background: var(--settings-action-primary-hover-bg);
-    border-color: var(--settings-action-primary-hover-border);
-    color: var(--settings-action-primary-hover-text);
+    background: var(--settings-action-secondary-hover-bg);
+    border-color: var(--settings-action-secondary-hover-border);
+    color: var(--text-primary);
 }
 
 html:root #settings-modal.modal-overlay :is(.general-settings-help-trigger:focus-visible, .settings-inline-help:focus-visible) {
@@ -279,35 +286,58 @@ html:root :is(#settings-modal.modal-overlay .provider-multiselect-option, .provi
     box-shadow: 0 0 0 3px var(--settings-primary-action-bg);
 }
 
-html:root #settings-modal.modal-overlay #providers-list .card-name {
-    width: 150px;
+html:root #settings-modal.modal-overlay #providers-list .card-name-editor {
+    max-width: clamp(150px, 22vw, 240px);
 }
 
-html:root #settings-modal.modal-overlay #models-list .card-name {
-    width: 200px;
+html:root #settings-modal.modal-overlay #models-list .card-name-editor {
+    max-width: clamp(200px, 38vw, 420px);
+}
+
+html:root #settings-modal.modal-overlay :is(#providers-list, #models-list) .card-name-editor {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    cursor: text;
+}
+
+html:root #settings-modal.modal-overlay :is(#providers-list, #models-list) .card-name-edit-icon {
+    flex: 0 0 14px;
+    width: 14px;
+    height: 14px;
+    color: color-mix(in srgb, var(--text-primary) 65%, var(--settings-dialog-section-bg));
+    pointer-events: none;
 }
 
 html:root #settings-modal.modal-overlay :is(#providers-list, #models-list) .card-name {
     min-height: 30px;
-    padding: 4px 8px;
+    min-width: 3ch;
+    width: auto;
+    field-sizing: content;
+    padding: 4px 6px;
     background: transparent;
-    border-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
     box-shadow: none;
     color: var(--text-primary);
+    caret-color: var(--text-primary);
     font-size: 14px;
-    font-weight: 650;
+    font-weight: 600;
     line-height: 1.4;
+    text-overflow: ellipsis;
 }
 
-html:root #settings-modal.modal-overlay :is(#providers-list, #models-list) .card-name:not([readonly]):is(:focus, .is-focused) {
-    background: transparent;
-    border-color: transparent;
-    border-bottom-color: var(--settings-input-focus-border);
-    border-radius: 0;
+html:root #settings-modal.modal-overlay :is(#providers-list, #models-list) .card-name-editor:hover .card-name {
+    background: var(--settings-input-bg);
 }
 
 html:root #settings-modal.modal-overlay :is(#providers-list, #models-list) .card-name:is(:focus, .is-focused) {
-    outline: none;
+    background: var(--settings-input-bg);
+    border-color: var(--settings-input-focus-border);
+    border-radius: 6px;
+    outline: 1px solid var(--settings-input-focus-border);
+    outline-offset: 1px;
     box-shadow: none;
 }
 
@@ -332,6 +362,73 @@ html:root #settings-modal.modal-overlay .card-drag-handle:hover {
 
 html:root #settings-modal.modal-overlay :is(.provider-config-card, .model-config-card).is-collapsed .card-header {
     gap: 10px;
+    padding-block: 12px;
+}
+
+html:root #settings-modal.modal-overlay :is(.provider-config-card, .model-config-card) {
+    border-radius: 12px;
+}
+
+html:root #settings-modal.modal-overlay .card-btn-disclosure {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 28px;
+    width: 28px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--text-secondary);
+    background: transparent;
+    cursor: pointer;
+}
+
+html:root #settings-modal.modal-overlay .card-btn-disclosure:hover {
+    background: var(--settings-action-secondary-hover-bg);
+    color: var(--text-primary);
+}
+
+html:root #settings-modal.modal-overlay .card-btn-disclosure:focus-visible {
+    outline: 2px solid var(--settings-action-focus-ring);
+    outline-offset: 1px;
+}
+
+html:root #settings-modal.modal-overlay .card-disclosure-icon {
+    width: 14px;
+    height: 14px;
+}
+
+html:root #settings-modal.modal-overlay .card-btn-disclosure[aria-expanded="true"] .card-disclosure-icon {
+    transform: rotate(180deg);
+}
+
+html:root #settings-modal.modal-overlay .card-fetch-icon {
+    display: none;
+    width: 14px;
+    height: 14px;
+}
+
+html:root #settings-modal.modal-overlay :is(#providers-list, #models-list) .card-field {
+    min-width: 0;
+}
+
+html:root #settings-modal.modal-overlay :is(#providers-list, #models-list) .card-row {
+    align-items: flex-end;
+}
+
+html:root #settings-modal.modal-overlay :is(#providers-list, #models-list) .card-field > label {
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--text-secondary);
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+html:root #settings-modal.modal-overlay :is(#providers-list, #models-list) .card-field :is(input, select) {
+    min-width: 0;
+    max-width: 100%;
+    min-height: 36px;
 }
 
 html:root #settings-modal.modal-overlay :is(.btn-secondary, .btn-ghost, .card-btn-collapse, .eye-toggle-btn) {
@@ -366,6 +463,12 @@ html:root #settings-modal.modal-overlay :is(.btn-danger, .card-btn-delete, .btn-
     border-color: var(--settings-action-danger-border);
     color: var(--settings-action-danger-text);
     box-shadow: none;
+}
+
+html:root #settings-modal.modal-overlay .card-delete-icon {
+    width: 14px;
+    height: 14px;
+    pointer-events: none;
 }
 
 html:root #settings-modal.modal-overlay :is(.btn-danger, .card-btn-delete, .btn-delete-protocol):is(:hover, .is-hovered) {
@@ -531,11 +634,15 @@ html:root #settings-modal #general-settings .general-settings-save-note {
 }
 
 html:root #settings-modal #general-settings .general-settings-navigation {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--settings-navigation-bg);
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    margin-bottom: 18px;
-    padding-bottom: 12px;
+    margin-bottom: 14px;
+    padding-block: 6px 10px;
     border-bottom: 1px solid var(--settings-dialog-divider);
 }
 
@@ -552,7 +659,7 @@ html:root #settings-modal #general-settings .general-settings-category-btn {
 html:root #settings-modal #general-settings .general-settings-category-btn[aria-selected="true"] {
     background: var(--panel-hover-bg);
     border-color: var(--panel-active-border);
-    color: var(--panel-accent-text);
+    color: var(--text-primary);
     font-weight: 600;
 }
 
@@ -603,6 +710,9 @@ html:root #settings-modal #general-settings .general-settings-card .card-header 
 
 html:root #settings-modal #general-settings .general-settings-card .card-field label {
     font-size: 14px;
+    color: var(--text-primary);
+    text-transform: none;
+    letter-spacing: normal;
 }
 
 html:root #settings-modal #general-settings .general-settings-card .general-settings-field-divider {
@@ -626,6 +736,56 @@ html:root #settings-modal #general-settings .general-settings-field-hint {
     line-height: 1.5;
 }
 
+html:root #settings-modal #general-settings .general-settings-number-field {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px 12px;
+}
+
+html:root #settings-modal #general-settings .general-settings-number-field > :is(.general-settings-label-row, .general-settings-control-row) {
+    margin: 0;
+    min-width: 0;
+}
+
+html:root #settings-modal #general-settings .general-settings-number-control {
+    width: 180px;
+    max-width: 100%;
+    justify-content: flex-end;
+}
+
+html:root #settings-modal #general-settings input.general-settings-number-control {
+    width: 140px;
+}
+
+html:root #settings-modal #general-settings .general-settings-number-field > small {
+    grid-column: 1 / -1;
+}
+
+html:root #settings-modal #settings-tab-proxy .proxy-enable-control {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 12px;
+}
+
+html:root #settings-modal #settings-tab-proxy .proxy-enable-title {
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+html:root #settings-modal #settings-tab-proxy .proxy-description {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+
+html:root #settings-modal #settings-tab-proxy :is(.card-field, .card-field input, #proxy-test-row > button) {
+    min-width: 0;
+}
+
 html:root #settings-modal #general-settings #global-dir-badge {
     flex: 1 1 100%;
     min-height: 0;
@@ -641,6 +801,24 @@ html:root #settings-modal #general-settings .retry-input-group .btn-retry-step:d
 }
 
 @media (max-width: 640px) {
+    html:root #settings-modal.modal-overlay :is(#providers-list, #models-list) .card-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    html:root #settings-modal #settings-tab-proxy .proxy-enable-row {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    html:root #settings-modal #settings-tab-proxy #proxy-test-row {
+        flex-direction: column;
+    }
+
+    html:root #settings-modal #settings-tab-proxy #proxy-test-row > button {
+        flex: 0 0 auto;
+        width: 100%;
+    }
     html:root #settings-modal #general-settings .general-settings-navigation {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -676,10 +854,28 @@ html:root #settings-modal #general-settings .retry-input-group .btn-retry-step:d
         flex-basis: 100%;
     }
 }
-/* Setup guidance uses the same semantic roles as the settings controls. */
-.settings-api-guide { padding: 16px; margin-bottom: 20px; border: 1px solid var(--panel-border); border-radius: 10px; background: var(--surface-panel, var(--bg-panel)); color: var(--text-primary); }
-.settings-api-guide h3 { margin: 0 0 8px; font-size: 16px; }
-.settings-api-guide ol { padding-left: 22px; line-height: 1.7; font-size: 14px; }
-.settings-api-guide p, .model-configuration-status, .model-protocol-details { font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
+
+@media (max-width: 480px) {
+    html:root #settings-modal #general-settings .general-settings-number-field {
+        display: flex;
+        align-items: stretch;
+    }
+
+    html:root #settings-modal #general-settings .general-settings-number-control {
+        align-self: flex-start;
+    }
+}
+
+@media (max-width: 380px) {
+    html:root #settings-modal.modal-overlay .card-fetch-label {
+        display: none;
+    }
+
+    html:root #settings-modal.modal-overlay .card-fetch-icon {
+        display: block;
+    }
+}
+/* Model readiness and protocol details share the settings text roles. */
+.model-configuration-status, .model-protocol-details { font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
 .model-configuration-status { margin: 0; }
 .model-protocol-details summary { cursor: pointer; padding: 6px 0; }

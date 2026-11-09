@@ -14,7 +14,7 @@ function createElement() {
     };
 }
 
-test('provider cards expose header folding without a dedicated collapse icon', () => {
+test('provider cards expose a named native disclosure tied to the card content and labelled API fields', () => {
     const cards = [];
     const providersList = {
         innerHTML: '',
@@ -29,6 +29,7 @@ test('provider cards expose header folding without a dedicated collapse icon', (
         endpoint: 'https://example.com',
         autoComplete: true
     };
+    const store = { providerCollapseState: new Map() };
     const api = createProviderSettings({
         ctx: {
             state: { providers: [provider], models: [] },
@@ -43,8 +44,8 @@ test('provider cards expose header folding without a dedicated collapse icon', (
             showToast() {},
             saveState() {}
         },
-        store: { providerCollapseState: new Map() },
-        dialogs: {},
+        store,
+        dialogs: { escapeHtml: (value) => String(value) },
         getDeps: () => ({
             renderModels() {},
             updateAllNodeModelDropdowns() {}
@@ -54,5 +55,17 @@ test('provider cards expose header folding without a dedicated collapse icon', (
     api.renderProviders();
 
     assert.equal(cards.length, 1);
-    assert.doesNotMatch(cards[0].innerHTML, /card-btn-collapse/);
+    const markup = cards[0].innerHTML;
+    assert.match(markup, /<button type="button" class="card-btn-disclosure"[^>]+aria-expanded="false"[^>]+aria-controls="provider-provider-test-details"[^>]+aria-label="展开供应商配置：Test provider"/);
+    assert.match(markup, /class="card-collapsible" id="provider-provider-test-details" style="display:none;/);
+    assert.match(markup, /class="card-disclosure-icon"[^>]+viewBox="0 0 24 24"/);
+    for (const field of ['apikey', 'endpoint', 'responses-endpoint']) {
+        assert.ok(markup.includes(`for="provider-provider-test-${field}"`));
+        assert.ok(markup.includes(`<input id="provider-provider-test-${field}"`));
+    }
+    assert.match(markup, /<input id="provider-provider-test-apikey" type="password"/);
+
+    store.providerCollapseState.set(provider.id, false);
+    api.renderProviders();
+    assert.match(cards[1].innerHTML, /aria-expanded="true"[^>]+aria-controls="provider-provider-test-details"[^>]+aria-label="收起供应商配置：Test provider"/);
 });

@@ -170,9 +170,12 @@ export function createSettingsDialogs({ ctx, store, getDeps }) {
         const labelClass = options.emphasis ? 'general-settings-toggle-title' : 'general-settings-label-text';
         const safeTitle = escapeHtml(title);
         const safeDescriptionAttr = escapeHtml(description).replace(/\n/g, '&#10;');
+        const titleMarkup = options.controlId
+            ? `<label class="${labelClass}" for="${escapeHtml(options.controlId)}">${safeTitle}</label>`
+            : `<span class="${labelClass}">${safeTitle}</span>`;
         return `
             <div class="general-settings-label-main">
-                <span class="${labelClass}">${safeTitle}</span>
+                ${titleMarkup}
                 <div class="general-settings-help">
                     <button
                         type="button"
@@ -464,7 +467,7 @@ export function createSettingsDialogs({ ctx, store, getDeps }) {
                 <div class="api-settings-help-header">
                     <div>
                         <h3 id="api-settings-help-title">API 设置帮助</h3>
-                        <div class="api-settings-help-subtitle">从密钥到模型，按这几步填就能跑起来。</div>
+                        <div class="api-settings-help-subtitle">从密钥到模型，完成配置后仍需验证 API 连接。</div>
                     </div>
                     <button type="button" class="api-settings-help-close" data-close-api-help="true" title="关闭">×</button>
                 </div>
@@ -497,7 +500,7 @@ export function createSettingsDialogs({ ctx, store, getDeps }) {
                         <h4>4. 常见问题</h4>
                         <ul>
                             <li>请求失败或超时：检查 API 地址、密钥、代理设置，以及供应商后台余额或权限。</li>
-                            <li>本地或局域网接口无法访问：到“常规设置 > 安全”开启“允许内网 / 本地 API 地址”。</li>
+                            <li>本地或局域网接口无法访问：确认服务已启动，检查 http/https 地址、端口和防火墙；需要直连时，在“代理设置”关闭“启用代理”。</li>
                             <li>节点找不到模型：确认模型已经添加，并且绑定了当前存在的供应商。</li>
                         </ul>
                     </section>

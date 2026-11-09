@@ -207,32 +207,40 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
 
         visibleProviders.forEach((prov) => {
             const isCollapsed = store.providerCollapseState.get(prov.id) !== false;
+            const controlId = `provider-${encodeURIComponent(prov.id)}`;
+            const toggleLabel = `${isCollapsed ? '展开' : '收起'}供应商配置：${getSafeProviderName(prov)}`;
             const el = documentRef.createElement('div');
             el.className = `api-config-card provider-config-card${isCollapsed ? ' is-collapsed' : ''}`;
             el.dataset.providerId = prov.id;
             el.innerHTML = `
                 <div class="card-header">
                     <span class="card-drag-handle" draggable="true" role="img" aria-label="拖动以调整供应商顺序" title="拖动排序">⠿</span>
-                    <input type="text" class="card-name" value="${prov.name}" placeholder="供应商名称" data-id="${prov.id}" data-field="name" ${isCollapsed ? 'readonly tabindex="-1" aria-label="点击展开供应商配置"' : ''} />
+                    <label class="card-name-editor">
+                        <input type="text" class="card-name" value="${dialogs.escapeHtml(prov.name || '')}" placeholder="供应商名称" aria-label="供应商名称" data-id="${prov.id}" data-field="name" />
+                        <svg class="card-name-edit-icon" aria-hidden="true" focusable="false"><use href="#icon-pencil" /></svg>
+                    </label>
                     <div class="card-header-actions">
-                        <button class="card-btn-fetch-models" data-id="${prov.id}" title="获取此供应商的模型列表">获取模型列表</button>
-                        ${prov.id !== 'prov_default' ? `<button class="card-btn-delete" data-id="${prov.id}" data-target="provider" title="删除此供应商">×</button>` : ''}
+                        <button type="button" class="card-btn-disclosure" id="${controlId}-toggle" data-id="${prov.id}" aria-expanded="${!isCollapsed}" aria-controls="${controlId}-details" aria-label="${dialogs.escapeHtml(toggleLabel)}" title="${isCollapsed ? '展开' : '收起'}供应商配置">
+                            <svg class="card-disclosure-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6" /></svg>
+                        </button>
+                        <button class="card-btn-fetch-models" data-id="${prov.id}" title="获取此供应商的模型列表" aria-label="获取此供应商的模型列表"><svg class="card-fetch-icon" aria-hidden="true" focusable="false"><use href="#icon-download" /></svg><span class="card-fetch-label">获取模型列表</span></button>
+                        ${prov.id !== 'prov_default' ? `<button type="button" class="card-btn-delete" data-id="${prov.id}" data-target="provider" title="删除此供应商" aria-label="删除此供应商"><svg class="card-delete-icon" aria-hidden="true" focusable="false"><use href="#icon-trash" /></svg></button>` : ''}
                     </div>
                 </div>
-                <div class="card-collapsible" style="display:${isCollapsed ? 'none' : 'flex'};">
+                <div class="card-collapsible" id="${controlId}-details" style="display:${isCollapsed ? 'none' : 'flex'};">
                     <div class="card-row">
                         <div class="card-field">
-                            <label>API 密钥</label>
+                            <label for="${controlId}-apikey">API 密钥</label>
                             <form class="password-wrapper" onsubmit="return false;">
-                                <input type="text" value="${prov.name}" autocomplete="username" tabindex="-1" aria-hidden="true" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;" />
-                                <input type="password" value="${prov.apikey}" placeholder="API Key" data-id="${prov.id}" data-field="apikey" spellcheck="false" autocomplete="new-password" />
+                                <input type="text" value="${dialogs.escapeHtml(prov.name || '')}" autocomplete="username" tabindex="-1" aria-hidden="true" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;" />
+                                <input id="${controlId}-apikey" type="password" value="${prov.apikey}" placeholder="API Key" data-id="${prov.id}" data-field="apikey" spellcheck="false" autocomplete="new-password" />
                                 <button type="button" class="eye-toggle-btn" data-id="${prov.id}" title="显示/隐藏密钥">
                                     <svg class="icon-xs"><use href="#icon-eye"/></svg>
                                 </button>
                             </form>
                         </div>
-                        <div class="card-field"><label>API 地址</label><input type="text" value="${prov.endpoint}" placeholder="Endpoint URL" data-id="${prov.id}" data-field="endpoint" /></div>
-                        <div class="card-field"><label>独立 Responses 地址（关闭自动补全时用于 Agent 搜索）</label><input type="text" value="${String(prov.responsesEndpoint || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')}" placeholder="https://…/v1/responses" data-id="${prov.id}" data-field="responsesEndpoint" /></div>
+                        <div class="card-field"><label for="${controlId}-endpoint">API 地址</label><input id="${controlId}-endpoint" type="text" value="${prov.endpoint}" placeholder="Endpoint URL" data-id="${prov.id}" data-field="endpoint" /></div>
+                        <div class="card-field"><label for="${controlId}-responses-endpoint">独立 Responses 地址（关闭自动补全时用于 Agent 搜索）</label><input id="${controlId}-responses-endpoint" type="text" value="${String(prov.responsesEndpoint || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')}" placeholder="https://…/v1/responses" data-id="${prov.id}" data-field="responsesEndpoint" /></div>
                     </div>
                     <div class="provider-toggle-row">
                         <div class="endpoint-preview" id="ep-preview-${prov.id}" style="font-size:12px;word-break:break-all;line-height:1.4;flex:1;">连接说明：${getProviderEndpointPreview(prov.endpoint, prov.autoComplete, normalizeProviderType(prov.type, prov))}</div>
@@ -298,6 +306,12 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
                     prov[field] = event.target.value;
                 }
 
+                if (field === 'name') {
+                    const toggle = event.target.closest('.provider-config-card')?.querySelector('.card-btn-disclosure');
+                    const action = store.providerCollapseState.get(id) !== false ? '展开' : '收起';
+                    toggle?.setAttribute('aria-label', `${action}供应商配置：${getSafeProviderName(prov)}`);
+                }
+
                 saveState();
                 deps.renderModels();
                 deps.updateAllNodeModelDropdowns();
@@ -319,10 +333,10 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
         });
 
         providersList.querySelectorAll('.card-btn-delete').forEach((btn) => {
-            btn.addEventListener('click', async (event) => {
+            btn.addEventListener('click', async () => {
+                const providerId = btn.dataset.id;
                 if (!await confirmAction({ documentRef, title: '删除供应商', message: '确定删除此供应商吗？绑定的模型可能会失效。', confirmLabel: '删除供应商', danger: true })) return;
                 const deps = getDeps();
-                const providerId = event.target.dataset.id;
                 state.providers = state.providers.filter((candidate) => candidate.id !== providerId);
                 state.models.forEach((model) => {
                     model.providerIds = getModelProviderIds(model).filter((id) => id !== providerId);
@@ -343,6 +357,16 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
             });
         });
 
+        providersList.querySelectorAll('.card-btn-disclosure').forEach((button) => {
+            button.addEventListener('click', (event) => {
+                event.stopPropagation();
+                const { id } = event.currentTarget.dataset;
+                const toggleId = event.currentTarget.id;
+                toggleProviderConfigCard(id);
+                documentRef.getElementById(toggleId)?.focus({ preventScroll: true });
+            });
+        });
+
         providersList.querySelectorAll('.provider-config-card').forEach((card) => {
             const toggleGestureGuard = bindCardToggleGestureGuard({ card, documentRef, windowRef });
             card.addEventListener('click', (event) => {
@@ -351,7 +375,7 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
                 const clickedHeader = event.target.closest('.card-header');
                 if (!isCollapsedCard && !clickedHeader) return;
                 if (event.target.closest('.card-btn-fetch-models, .card-btn-delete, button, select, textarea, label, a, .card-drag-handle')) return;
-                if (!isCollapsedCard && isCardHeaderControlClick(event)) return;
+                if (isCardHeaderControlClick(event)) return;
 
                 const id = card.dataset.providerId;
                 if (!id) return;

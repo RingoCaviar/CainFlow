@@ -7,7 +7,7 @@ test('general settings retain automation state and notification permission behav
     assert.equal(result.error, undefined);
     assert.deepEqual(result.controls, {
         retryCard: '自动化与重试', notificationCard: '通知设置', retryLoaded: true,
-        notificationsLoaded: false, sidebarControl: false, toolbarLabel: '统一顶部工具栏固定显示'
+        notificationsLoaded: false, sidebarControl: false, toolbarLabel: '顶部工具栏始终显示'
     });
     assert.deepEqual(result.grouping.labels, ['外观与画布', '生成与运行', '通知', '高级']);
     assert.equal(result.grouping.selected, 'canvas');

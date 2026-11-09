@@ -11,7 +11,6 @@ import { createGeneralSettings } from './general-settings.js';
 import { createBackdropDismissalGuard } from './backdrop-dismissal.js';
 import { isKnownModelProtocol } from '../execution/model-protocol-registry.js';
 import { createSettingsCloseCoordinator } from './settings-close-coordinator.js';
-import { getModelConfigurationIssue } from '../execution/model-configuration-readiness.js';
 
 export function createSettingsControllerApi(options) {
     const { ctx, store } = createSettingsContext(options);
@@ -55,15 +54,22 @@ export function createSettingsControllerApi(options) {
             panel: settingsModal.querySelector('.modal-panel')
         });
 
-        function activateSettingsTab(targetTab) {
-            documentRef.querySelectorAll('.modal-tab-btn').forEach((button) => {
-                button.classList.toggle('active', button.dataset.tab === targetTab);
+        const settingsTabs = [...settingsModal.querySelectorAll('.modal-tab-btn')];
+        const settingsBody = documentRef.getElementById('settings-body');
+        function activateSettingsTab(targetTab, focus = false) {
+            settingsTabs.forEach((button) => {
+                const selected = button.dataset.tab === targetTab;
+                button.classList.toggle('active', selected);
+                button.setAttribute('aria-selected', String(selected));
+                button.tabIndex = selected ? 0 : -1;
+                if (selected && focus) button.focus();
             });
             documentRef.querySelectorAll('.settings-tab-pane').forEach((pane) => {
                 const isTargetPane = pane.id === `settings-tab-${targetTab}`;
                 pane.classList.toggle('active', isTargetPane);
                 pane.hidden = !isTargetPane;
             });
+            if (settingsBody) settingsBody.scrollTop = 0;
         }
 
         const closeCoordinator = createSettingsCloseCoordinator({
@@ -160,26 +166,22 @@ export function createSettingsControllerApi(options) {
         });
 
         documentRef.getElementById('btn-api-settings-help')?.addEventListener('click', dialogs.renderApiSettingsHelpDialog);
-        documentRef.getElementById('btn-check-model-config')?.addEventListener('click', () => {
-            const status = documentRef.getElementById('settings-api-status');
-            if (!state.providers.length || !state.models.length) {
-                status.textContent = !state.providers.length ? '请先添加供应商。' : '供应商已添加，请获取或添加模型。';
-                documentRef.getElementById(!state.providers.length ? 'btn-add-provider' : 'btn-add-model')?.focus();
-                return;
-            }
-            const incomplete = state.models.map(model => ({ model, issue: getModelConfigurationIssue({ model, providers: state.providers, taskType: model.taskType }) })).filter(item => item.issue);
-            status.textContent = incomplete.length
-                ? `${incomplete.length} 个模型配置待完善：${incomplete[0].model.name}，${incomplete[0].issue.message}。`
-                : `${state.models.length} 个模型本地配置完整。尚未验证接口连接，可返回画布尝试生成。`;
-            if (incomplete.length) focusConfigurationTarget(incomplete[0].issue.target);
-        });
         documentRef.getElementById('settings-body')?.addEventListener('scroll', dialogs.refreshGeneralSettingsHelpPopoverPosition, { passive: true });
 
-        documentRef.querySelectorAll('.modal-tab-btn').forEach((btn) => {
+        settingsTabs.forEach((btn) => {
             btn.addEventListener('click', () => {
                 if (btn.classList.contains('active')) return;
                 dialogs.closeAllSettingsOverlays();
                 activateSettingsTab(btn.dataset.tab);
+            });
+            btn.addEventListener('keydown', (event) => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                const current = settingsTabs.indexOf(btn);
+                event.preventDefault();
+                const index = event.key === 'Home' ? 0 : event.key === 'End' ? settingsTabs.length - 1
+                    : (current + (event.key === 'ArrowRight' ? 1 : -1) + settingsTabs.length) % settingsTabs.length;
+                dialogs.closeAllSettingsOverlays();
+                activateSettingsTab(settingsTabs[index].dataset.tab, true);
             });
         });
 

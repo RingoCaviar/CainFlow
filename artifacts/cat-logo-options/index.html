@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CainFlow 猫头 Logo 方案</title>
+  <style>
+    :root{color-scheme:light;--ink:#293c34;--muted:#5f6c64;--line:#dedfd8;--paper:#f8f8f3}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--paper);color:var(--ink);font-family:"Segoe UI",sans-serif}
+    main{max-width:1380px;margin:auto;padding:38px 40px 28px}
+    header{display:flex;justify-content:space-between;align-items:center;gap:24px;padding-bottom:26px;border-bottom:1px solid var(--line)}
+    h1{font-size:27px;line-height:1.35;letter-spacing:-.025em;margin:0 0 8px;font-weight:650}
+    .intro{font-size:13px;line-height:1.6;color:var(--muted);margin:0}
+    .reference{display:flex;align-items:center;gap:12px;flex-shrink:0;font-size:12px;color:var(--muted)}
+    .reference img{width:48px;height:48px;object-fit:contain}
+    .options{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin-top:28px}
+    article{padding:0 23px;border-right:1px solid var(--line)}
+    article:first-child{padding-left:0}article:last-child{border:0;padding-right:0}
+    h2{margin:0;font-size:17px;line-height:1.5;font-weight:650}
+    .number{display:inline-block;font-size:13px;min-width:25px;color:var(--muted);font-variant-numeric:tabular-nums}
+    .hero{display:flex;justify-content:center;align-items:center;height:222px}
+    .hero svg{width:164px;height:164px;overflow:visible}
+    .description{font-size:13px;line-height:1.65;color:var(--muted);margin:0 0 24px;min-height:43px}
+    .sample-label{font-size:12px;margin:0 0 9px;color:var(--muted)}
+    .sample{display:flex;align-items:center;gap:8px;height:50px;padding:0 14px;background:#fff;border-radius:6px;color:#30483e;margin:0 0 8px}
+    .sample.dark{background:#24352f;color:#f6f6f0}
+    .sample svg{width:22px;height:22px;flex:0 0 22px;overflow:visible}
+    .wordmark{font-size:15px;font-weight:700;line-height:1.2}
+    .wordmark small{display:block;margin-top:1px;font-size:11px;font-weight:400;line-height:1.25;color:#58695e}
+    .dark .wordmark small{color:#c2cec6}
+    .download{display:inline-block;margin-top:12px;font-size:12px;color:#345b4c;text-underline-offset:4px}
+    .download:hover{color:#173e2e}
+    .download:focus-visible{outline:2px solid #345b4c;outline-offset:5px}
+    footer{margin-top:30px;padding-top:20px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:20px;font-size:12px;line-height:1.6;color:var(--muted)}
+    @media(max-width:920px){.options{grid-template-columns:repeat(2,minmax(0,1fr));gap:32px 0}article:nth-child(2){border:0;padding-right:0}article:nth-child(3){padding-left:0}main{padding:28px}.reference span{max-width:7em}.hero{height:190px}}
+    @media(max-width:500px){main{padding:22px}header{align-items:flex-start}.reference{gap:6px}.reference img{width:36px;height:36px}.reference span{display:none}.options{grid-template-columns:1fr;gap:28px}article{padding:0 0 26px!important;border:0;border-bottom:1px solid var(--line)}.hero{height:190px}footer{display:block}}
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div><h1>猫头 Logo · 四版方案</h1><p class="intro">参考 EXE 猫头绘制 · 独立 SVG 矢量 · 第 3 版已选用</p></div>
+    <div class="reference"><img src="../../cainflow.ico" alt="EXE现用猫头图标"><span>EXE 现用图标<br>造型参考</span></div>
+  </header>
+  <section class="options" aria-label="四版猫头标志">
+    <article>
+      <h2><span class="number">01</span>原型精简</h2>
+      <div class="hero"><svg viewBox="0 0 128 128" role="img" aria-label="方案一原型精简猫头"><use href="cat-01-familiar.svg#mark"/></svg></div>
+      <p class="description">延续奶油圆脸与粉色耳鼻，保留 EXE 图标的亲和感。</p>
+      <p class="sample-label">22px 顶栏尺寸 · 浅色 / 深色</p>
+      <div class="sample"><svg viewBox="0 0 128 128" aria-hidden="true"><use href="cat-01-familiar.svg#mark"/></svg><div class="wordmark">CainFlow<small>版本号</small></div></div>
+      <div class="sample dark"><svg viewBox="0 0 128 128" aria-hidden="true"><use href="cat-01-familiar.svg#mark"/></svg><div class="wordmark">CainFlow<small>版本号</small></div></div>
+      <a class="download" href="cat-01-familiar.svg" download>下载 SVG · 方案 1</a>
+    </article>
+    <article>
+      <h2><span class="number">02</span>实心剪影</h2>
+      <div class="hero"><svg viewBox="0 0 128 128" role="img" aria-label="方案二实心剪影猫头"><use href="cat-02-solid.svg#mark"/></svg></div>
+      <p class="description">以透明负形刻出五官和胡须，轮廓厚实、识别直接。</p>
+      <p class="sample-label">22px 顶栏尺寸 · 浅色 / 深色</p>
+      <div class="sample"><svg viewBox="0 0 128 128" aria-hidden="true"><use href="cat-02-solid.svg#mark"/></svg><div class="wordmark">CainFlow<small>版本号</small></div></div>
+      <div class="sample dark"><svg viewBox="0 0 128 128" aria-hidden="true"><use href="cat-02-solid.svg#mark"/></svg><div class="wordmark">CainFlow<small>版本号</small></div></div>
+      <a class="download" href="cat-02-solid.svg" download>下载 SVG · 方案 2</a>
+    </article>
+    <article>
+      <h2><span class="number">03</span>几何线稿</h2>
+      <div class="hero"><svg viewBox="0 0 128 128" role="img" aria-label="方案三几何线稿猫头"><use href="cat-03-outline.svg#mark"/></svg></div>
+      <p class="description">用圆角线条和几何猫耳，与现有工具栏图标呼应。</p>
+      <p class="sample-label">22px 顶栏尺寸 · 浅色 / 深色</p>
+      <div class="sample"><svg viewBox="0 0 128 128" aria-hidden="true"><use href="cat-03-outline.svg#mark"/></svg><div class="wordmark">CainFlow<small>版本号</small></div></div>
+      <div class="sample dark"><svg viewBox="0 0 128 128" aria-hidden="true"><use href="cat-03-outline.svg#mark"/></svg><div class="wordmark">CainFlow<small>版本号</small></div></div>
+      <a class="download" href="cat-03-outline.svg" download>下载 SVG · 方案 3</a>
+    </article>
+    <article>
+      <h2><span class="number">04</span>流线微笑</h2>
+      <div class="hero"><svg viewBox="0 0 128 128" role="img" aria-label="方案四流线微笑猫头"><use href="cat-04-flow.svg#mark"/></svg></div>
+      <p class="description">开放的流动轮廓与弯眼微笑，更轻盈，也更活泼。</p>
+      <p class="sample-label">22px 顶栏尺寸 · 浅色 / 深色</p>
+      <div class="sample"><svg viewBox="0 0 128 128" aria-hidden="true"><use href="cat-04-flow.svg#mark"/></svg><div class="wordmark">CainFlow<small>版本号</small></div></div>
+      <div class="sample dark"><svg viewBox="0 0 128 128" aria-hidden="true"><use href="cat-04-flow.svg#mark"/></svg><div class="wordmark">CainFlow<small>版本号</small></div></div>
+      <a class="download" href="cat-04-flow.svg" download>下载 SVG · 方案 4</a>
+    </article>
+  </section>
+  <footer><span>四版均为透明背景 SVG 路径，可继续调整轮廓、线宽与颜色。</span><span>已选用方案 3 · 应用于 APP 顶栏，EXE 图标保留</span></footer>
+</main>
+</body>
+</html>

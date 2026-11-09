@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">方案四：流线微笑</title>
+  <desc id="desc">轻盈的开放轮廓、弯眼微笑与粉色鼻尖，保留猫头的亲和力。</desc>
+  <g id="mark" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M18 72C16 60 20 49 28 41L25 16C25 12 27 11 31 14L49 29C59 26 69 26 79 29L97 14C101 11 103 12 103 16L100 41C111 53 115 69 110 84C104 105 87 115 64 115C41 115 24 105 18 87" stroke-width="6.5"/>
+    <path d="M33 25L41 32M95 25L87 32" stroke="#E7A2A2" stroke-width="4.8"/>
+    <path d="M41 66Q47 58 53 66M75 66Q81 58 87 66" stroke-width="5.4"/>
+    <path d="M59 78Q64 76 69 78L64 84Z" fill="#E7A2A2" stroke-width="2.8"/>
+    <path d="M64 84V88Q59 96 54 89M64 88Q69 96 74 89" stroke-width="4.6"/>
+    <path d="M7 79H30M98 79H121" stroke-width="5.2"/>
+  </g>
+</svg>

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">方案一：原型精简</title>
+  <desc id="desc">奶油色圆脸、粉色耳鼻和胡须，延续CainFlow EXE猫头。</desc>
+  <g id="mark" fill="none" stroke="#2D3539" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M22 45C17 32 15 13 21 10C28 6 42 18 49 25C59 22 69 22 79 25C86 18 100 6 107 10C113 13 111 32 106 45C114 57 118 69 117 82C115 105 94 118 64 118C34 118 13 105 11 82C10 69 14 57 22 45Z" fill="#FFE8C8"/>
+    <path d="M25 20C24 24 25 32 27 38L39 28C34 23 29 20 25 20ZM103 20C104 24 103 32 101 38L89 28C94 23 99 20 103 20Z" fill="#F4AAA9" stroke-width="2.8"/>
+    <g fill="#2D3539" stroke="none">
+      <ellipse cx="44" cy="66" rx="4.9" ry="6.8"/>
+      <ellipse cx="84" cy="66" rx="4.9" ry="6.8"/>
+      <circle cx="45.5" cy="63.6" r="1.6" fill="#FFF9EE"/>
+      <circle cx="85.5" cy="63.6" r="1.6" fill="#FFF9EE"/>
+      <ellipse cx="35" cy="82" rx="5.8" ry="2.7" fill="#F2AAA6"/>
+      <ellipse cx="93" cy="82" rx="5.8" ry="2.7" fill="#F2AAA6"/>
+    </g>
+    <path d="M58 77C61 75 67 75 70 77C69 81 67 83 64 85C61 83 59 81 58 77Z" fill="#F4AAA9" stroke-width="2.8"/>
+    <path d="M64 85V89C64 95 53 96 52 89M64 89C64 95 75 96 76 89" stroke-width="3.2"/>
+    <path d="M5 73L25 77M5 85L24 84M9 97L26 91M123 73L103 77M123 85L104 84M119 97L102 91" stroke-width="3"/>
+  </g>
+</svg>

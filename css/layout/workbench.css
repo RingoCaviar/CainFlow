@@ -251,12 +251,21 @@ body.toolbar-pinned {
 }
 
 #toast-container {
+    pointer-events: none;
     right: var(--toast-right-offset);
     bottom: max(var(--toast-bottom-offset), var(--toast-canvas-bottom-offset, 0px));
     transition:
         top var(--motion-standard),
         right var(--motion-standard),
         left var(--motion-standard);
+}
+
+#toast-container .toast {
+    pointer-events: auto;
+}
+
+#toast-container .toast-status {
+    pointer-events: none;
 }
 
 /* Keep transient overlays clear of active feature chrome before they can obscure controls. */

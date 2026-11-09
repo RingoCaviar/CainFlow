@@ -30,6 +30,8 @@ export async function runUiFixture(fixturePath, { screenshotPath = null, blocked
             const browser = spawn(chromePath, ['--headless=new', '--no-proxy-server', '--disable-gpu', '--no-sandbox', '--disable-extensions', `--user-data-dir=${profile}`, `--window-size=${windowSize}`, '--virtual-time-budget=3000', '--dump-dom',
                 ...(screenshotPath ? [`--screenshot=${screenshotPath}`] : []), url]);
             let stdout = '', stderr = '';
+            browser.stdout.setEncoding('utf8');
+            browser.stderr.setEncoding('utf8');
             const timeout = setTimeout(() => { browser.kill(); reject(new Error('UI fixture timed out')); }, 20000);
             browser.stdout.on('data', (data) => { stdout += data; });
             browser.stderr.on('data', (data) => { stderr += data; });

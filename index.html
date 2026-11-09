@@ -94,6 +94,10 @@
             <line x1="18" y1="6" x2="6" y2="18"></line>
             <line x1="6" y1="6" x2="18" y2="18"></line>
         </symbol>
+        <symbol id="icon-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="m16 3 5 5M3 21l5-1L21 7a2.12 2.12 0 0 0-4-4L4 16l-1 5Z"></path>
+        </symbol>
         <symbol id="icon-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">
             <polyline points="3 6 5 6 21 6"></polyline>
@@ -209,10 +213,18 @@
         <div id="toolbar" role="toolbar" aria-label="画布工具栏">
             <div class="toolbar-left toolbar-brand" aria-label="CainFlow">
                 <div class="logo">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="3" />
-                        <path
-                            d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
+                    <svg class="toolbar-brand-mark" width="22" height="22" viewBox="0 0 128 128" fill="none" aria-hidden="true" focusable="false">
+                        <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 48V19C20 13 23 12 28 16L48 30C58 27 70 27 80 30L100 16C105 12 108 13 108 19V48C115 58 118 70 115 84C110 106 91 117 64 117C37 117 18 106 13 84C10 70 13 58 20 48Z" stroke-width="7.5"/>
+                            <path d="M29 28L38 35M99 28L90 35" stroke-width="5"/>
+                            <g fill="currentColor" stroke="none">
+                                <ellipse cx="44" cy="66" rx="4.2" ry="5.4"/>
+                                <ellipse cx="84" cy="66" rx="4.2" ry="5.4"/>
+                                <path d="M58 79Q64 76 70 79L64 85Z"/>
+                            </g>
+                            <path d="M64 85V90C61 96 53 95 51 90M64 90C67 96 75 95 77 90" stroke-width="4.6"/>
+                            <path d="M27 79L36 81M27 91L36 87M101 79L92 81M101 91L92 87" stroke-width="4.5"/>
+                        </g>
                     </svg>
                     <span>CainFlow <small class="logo-version" data-app-version-text></small></span>
                 </div>
@@ -1290,32 +1302,26 @@
     </div>
 
     <!-- Settings Modal -->
-    <div id="settings-modal" class="modal-overlay hidden">
+    <div id="settings-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div class="modal-panel">
             <div class="modal-header">
                 <div style="display: flex; align-items: center; gap: 10px;">
-                    <h2>设置</h2>
+                    <h2 id="settings-title">设置</h2>
                     <a href="https://github.com/RingoCaviar/CainFlow" target="_blank" class="github-link" title="前往 GitHub 项目主页">
                         <svg class="icon-sm">
                             <use href="#icon-github" />
                         </svg>
                     </a>
                 </div>
-                <button id="settings-close" class="modal-close-btn">&times;</button>
+                <button id="settings-close" class="modal-close-btn" aria-label="关闭设置">&times;</button>
             </div>
-            <div class="modal-tabs">
-                <button class="modal-tab-btn active" data-tab="api">API 相关</button>
-                <button class="modal-tab-btn" data-tab="general">常规设置</button>
-                <button class="modal-tab-btn" data-tab="proxy">代理设置</button>
+            <div class="modal-tabs" role="tablist" aria-label="设置分类">
+                <button id="settings-tab-button-api" class="modal-tab-btn active" data-tab="api" role="tab" aria-selected="true" aria-controls="settings-tab-api">API 相关</button>
+                <button id="settings-tab-button-general" class="modal-tab-btn" data-tab="general" role="tab" aria-selected="false" aria-controls="settings-tab-general" tabindex="-1">常规设置</button>
+                <button id="settings-tab-button-proxy" class="modal-tab-btn" data-tab="proxy" role="tab" aria-selected="false" aria-controls="settings-tab-proxy" tabindex="-1">代理设置</button>
             </div>
             <div class="modal-body" id="settings-body">
-                <div id="settings-tab-api" class="settings-tab-pane active">
-                    <section id="settings-api-guide" class="settings-api-guide" aria-label="模型配置步骤">
-                        <h3>配置你的第一个模型</h3>
-                        <ol><li>添加供应商，填写接口地址与所需密钥。</li><li>获取模型列表，或手动添加模型并选择用途与兼容格式。</li><li>检查配置后，返回画布创作。</li></ol>
-                        <button id="btn-check-model-config" class="btn btn-secondary" type="button">检查配置</button>
-                        <p id="settings-api-status" role="status">检查仅核对本地配置，不会发送生成请求或产生模型费用。</p>
-                    </section>
+                <div id="settings-tab-api" class="settings-tab-pane active" role="tabpanel" aria-labelledby="settings-tab-button-api">
                     <div class="settings-section">
                         <div class="settings-toolbar">
                             <div class="settings-toolbar-title">
@@ -1335,38 +1341,38 @@
                         <div id="models-list" class="api-configs-list"></div>
                     </div>
                 </div>
-                <div id="settings-tab-general" class="settings-tab-pane">
+                <div id="settings-tab-general" class="settings-tab-pane" role="tabpanel" aria-labelledby="settings-tab-button-general" hidden>
                     <div class="settings-section">
                         <div id="general-settings" class="api-configs-list">
                             <!-- Filled by JS -->
                         </div>
                     </div>
                 </div>
-                <div id="settings-tab-proxy" class="settings-tab-pane">
+                <div id="settings-tab-proxy" class="settings-tab-pane" role="tabpanel" aria-labelledby="settings-tab-button-proxy" hidden>
                     <div class="settings-section">
                         <div class="settings-toolbar">
                             <h3>全局请求代理 (Proxy)</h3>
                         </div>
                         <div class="api-configs-list">
                             <div class="api-config-card" style="padding-bottom: 12px;">
-                                <div class="card-row" style="align-items: center; justify-content: space-between;">
-                                    <div style="display:flex;align-items:center;gap:12px;">
+                                <div class="card-row proxy-enable-row" style="align-items: center; justify-content: space-between;">
+                                    <div class="proxy-enable-control">
                                         <label class="toggle-switch">
                                             <input type="checkbox" id="proxy-enabled" />
                                             <span class="toggle-slider"></span>
                                         </label>
-                                        <span style="font-size:13px;color:var(--text-main);font-weight:500;">启用代理</span>
+                                        <label for="proxy-enabled" class="proxy-enable-title">启用代理</label>
                                     </div>
-                                    <div style="font-size:11px;color:var(--text-dim);">通过本地或远程代理服务器发送所有 API 请求</div>
+                                    <div class="proxy-description">通过本地或远程代理服务器发送所有 API 请求</div>
                                 </div>
                                 <div class="card-row" style="margin-top: 12px; opacity: 0.5; transition: opacity 0.2s;"
                                     id="proxy-settings-fields">
                                     <div class="card-field" style="flex: 2;">
-                                        <label>代理 IP</label>
+                                        <label for="proxy-ip">代理 IP</label>
                                         <input type="text" id="proxy-ip" placeholder="例如: 127.0.0.1" disabled />
                                     </div>
                                     <div class="card-field" style="flex: 1;">
-                                        <label>代理端口</label>
+                                        <label for="proxy-port">代理端口</label>
                                         <input type="text" id="proxy-port" placeholder="例如: 7890" disabled />
                                     </div>
                                 </div>

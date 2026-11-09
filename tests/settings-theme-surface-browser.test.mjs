@@ -48,9 +48,15 @@ test('settings surfaces render from the semantic palette in every supported them
             tabIndicatorTransform: _tabIndicatorTransform,
             tabTransition: _tabTransition,
             cardNameBackground: _cardNameBackground,
+            cardNameBorder: _cardNameBorder,
+            cardNameBottomBorder: _cardNameBottomBorder,
+            cardNameIconColor: _cardNameIconColor,
+            cardNameBorderWidth: _cardNameBorderWidth,
             cardNameShadow: _cardNameShadow,
             cardNameFocusShadow: _cardNameFocusShadow,
             cardNameFocusBottomBorder: _cardNameFocusBottomBorder,
+            cardNameFocusTopBorder: _cardNameFocusTopBorder,
+            cardNameFocusOutline: _cardNameFocusOutline,
             colorScheme: _colorScheme,
             nativeOptionBackground: _nativeOptionBackground,
             nativeOptionColor: _nativeOptionColor,
@@ -193,16 +199,28 @@ test('native select popup options use an opaque readable theme surface', () => {
     }
 });
 
-test('settings tabs and editable card names keep their flat interaction language', () => {
+test('settings tabs stay flat while names expose an edit cue without resting borders', () => {
     for (const measurement of renderFixture()) {
         assert.equal(measurement.actual.tabIndicatorHeight, '2px', 'active tabs must use a precise two-pixel underline');
         assert.equal(measurement.actual.tabIndicatorRadius, '0px', 'active tabs must not use a pill indicator');
         assert.equal(measurement.actual.tabIndicatorTransform, 'none', 'active tab indicator must not move or scale');
         assert.doesNotMatch(measurement.actual.tabTransition, /\btransform\b|\ball\b/, 'tabs must only animate visual color changes');
-        assert.equal(measurement.actual.cardNameBackground, 'rgba(0, 0, 0, 0)', 'editable card names must not appear as filled fields');
+        assert.equal(parseColor(measurement.actual.cardNameBackground)[3], 0, 'resting names share the card surface');
+        assert.equal(parseColor(measurement.actual.cardNameBorder)[3], 0, 'resting names must not expose a complete input box');
+        assert.equal(parseColor(measurement.actual.cardNameBottomBorder)[3], 0, 'resting names must not expose an underline');
+        // Surface measurements contain the background shorthand; parse only its leading color.
+        const surfaceColor = value => parseColor(value.match(/^(?:rgba?|color)\([^)]*\)/)?.[0] ?? value);
+        const page = opaquePageBackground(measurement);
+        const overlay = composite(parseColor(measurement.actual.overlayBackground), page);
+        const panel = composite(surfaceColor(measurement.actual.panelBackground), overlay);
+        const card = composite(surfaceColor(measurement.actual.cardBackground), panel);
+        const editCue = composite(parseColor(measurement.actual.cardNameIconColor), card);
+        assert.ok(contrastRatio(editCue, card) >= 3, `${measurement.themeId} permanent edit cue stays discernible`);
         assert.equal(measurement.actual.cardNameShadow, 'none', 'editable card names must not use elevation');
         assert.equal(measurement.actual.cardNameFocusShadow, 'none', 'focused card names must not use a focus box');
-        assert.notEqual(measurement.actual.cardNameFocusBottomBorder, 'rgba(0, 0, 0, 0)', 'focused card names must expose a fine underline');
+        assert.notEqual(measurement.actual.cardNameFocusBottomBorder, 'rgba(0, 0, 0, 0)', 'focused names need a visible boundary');
+        assert.equal(measurement.actual.cardNameFocusTopBorder, measurement.actual.cardNameFocusBottomBorder, 'focus covers the complete input boundary');
+        assert.equal(measurement.actual.cardNameFocusOutline, 'solid', 'focused names expose a clear outline');
     }
 });
 

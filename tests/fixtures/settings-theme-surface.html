@@ -51,7 +51,7 @@
                 <div id="general-settings" style="position:absolute;left:-9999px"><span class="version-badge">v3.8.6</span></div>
                 <section id="providers-list" style="position:absolute;left:-9999px">
                     <article class="api-config-card provider-config-card">
-                        <div class="card-header"><span class="card-drag-handle">⠿</span><input id="card-name-probe" class="card-name" value="新供应商"></div>
+                        <div class="card-header"><span class="card-drag-handle">⠿</span><label class="card-name-editor"><input id="card-name-probe" class="card-name" value="新供应商" aria-label="供应商名称"><svg class="card-name-edit-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m16 3 5 5M3 21l5-1L21 7a2.12 2.12 0 0 0-4-4L4 16l-1 5Z" /></svg></label></div>
                     </article>
                 </section>
             </main>
@@ -102,6 +102,8 @@
                 const focusedCardNameStyle = getComputedStyle(cardName);
                 const focusedCardNameShadow = focusedCardNameStyle.boxShadow;
                 const focusedCardNameBottomBorder = focusedCardNameStyle.borderBottomColor;
+                const focusedCardNameTopBorder = focusedCardNameStyle.borderTopColor;
+                const focusedCardNameOutline = focusedCardNameStyle.outlineStyle;
                 cardName.classList.remove('is-focused');
                 const styleTuple = (element) => {
                     const style = getComputedStyle(element);
@@ -200,9 +202,15 @@
                         tabIndicatorTransform: tabAfterStyle.transform,
                         tabTransition: getComputedStyle(tab).transition,
                         cardNameBackground: cardNameStyle.backgroundColor,
+                        cardNameBorder: cardNameStyle.borderTopColor,
+                        cardNameBottomBorder: cardNameStyle.borderBottomColor,
+                        cardNameIconColor: getComputedStyle(cardName.nextElementSibling).color,
+                        cardNameBorderWidth: cardNameStyle.borderTopWidth,
                         cardNameShadow: cardNameStyle.boxShadow,
                         cardNameFocusShadow: focusedCardNameShadow,
                         cardNameFocusBottomBorder: focusedCardNameBottomBorder,
+                        cardNameFocusTopBorder: focusedCardNameTopBorder,
+                        cardNameFocusOutline: focusedCardNameOutline,
                     },
                     semantic: {
                         panelBackground: panelProbeStyle.background,
