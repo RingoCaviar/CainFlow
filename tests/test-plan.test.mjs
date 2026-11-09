@@ -7,6 +7,15 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { changedFiles, loadManifest, selectTests, validateManifest, discoverTests } from '../scripts/test-plan.mjs';
 import { commandsFor, executeCommands, parseOptions } from '../scripts/run-tests.mjs';
+import { chromiumNetworkArgs } from './helpers/browser-theme-fixture.mjs';
+
+test('isolated Chromium launches use the upstream Windows loopback workaround only on Windows', () => {
+    assert.deepEqual(chromiumNetworkArgs('win32'), ['--disable-features=TcpPortRandomizationWin']);
+    assert.deepEqual(chromiumNetworkArgs('linux'), []);
+    assert.deepEqual(chromiumNetworkArgs('darwin'), []);
+    const expected = process.platform === 'win32' ? ['--disable-features=TcpPortRandomizationWin'] : [];
+    assert.deepEqual(chromiumNetworkArgs(), expected);
+});
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const fixture = () => ({ groups: ['ui', 'update'], rules: [
@@ -70,6 +79,9 @@ test('repository inventory is exhaustive and full commands schedule each test ex
     assert.deepEqual(jsArgs.sort(), scheduled.filter(path => path.endsWith('.mjs')).sort());
     assert.ok(commands.find(command => command.label.startsWith('fast')).args.includes('--test-concurrency=4'));
     assert.ok(commands.find(command => command.label.startsWith('browser')).args.includes('--test-concurrency=2'));
+    const browserCommands = commands.filter(command => command.label.startsWith('browser'));
+    assert.equal(browserCommands.length, Math.ceil(plan.phases.browser.length / 20));
+    assert.ok(browserCommands.every(command => command.args.filter(arg=>arg.endsWith('.test.mjs')).length<=20));
 });
 
 test('real impact rules include update desktop safety and force shared persistence to full', () => {
@@ -132,7 +144,34 @@ test('runner reports failed phases without masking them with later success', () 
     assert.ok(messages.includes('not found'));
 });
 
+test('runner publishes original exit details and marks interrupted runs incomplete', () => {
+    const commands=[{label:'first',command:'test',args:[]},{label:'second',command:'test',args:[]}];
+    const report={log(){},error(){}};
+    let summary;
+    assert.equal(executeCommands(commands,()=>({status:null,signal:'SIGINT'}),report,{onComplete:value=>summary=value}),1);
+    assert.equal(summary.complete,false);
+    assert.deepEqual(summary.notRun,['second']);
+    assert.equal(summary.results[0].signal,'SIGINT');
+    assert.equal(summary.results[0].exitCode,null);
+    let calls=0;
+    assert.equal(executeCommands(commands,()=>({status:calls++===0?7:0}),report,{onComplete:value=>summary=value}),1);
+    assert.equal(summary.complete,true);
+    assert.equal(summary.results[0].exitCode,7);
+    assert.equal(summary.results[0].passed,false);
+    assert.equal(calls,2,'failure does not skip or retry another phase');
+    assert.equal(executeCommands(commands.slice(0,1),()=>({status:null,signal:'SIGTERM'}),report,{onComplete:value=>summary=value}),1);
+    assert.equal(summary.complete,false,'interruption of the last phase is still incomplete');
+    const progress=[];
+    executeCommands(commands,()=>({status:0}),report,{onProgress:value=>progress.push(value)});
+    assert.equal(progress[0].complete,false);
+    assert.equal(progress[0].active,'first');
+    assert.deepEqual(progress[0].notRun,['second']);
+    assert.equal(progress[1].results.length,1);
+    assert.equal(progress[1].results[0].passed,true);
+});
+
 test('CLI validates arguments and dry-run only reports the selected plan', () => {
+    assert.equal(parseOptions(['--report','results/full.json']).reportPath,'results/full.json');
     assert.throws(() => parseOptions(['--base', 'HEAD~1', '--changed', 'a.js']), /not both/);
     assert.throws(() => parseOptions(['--fast-concurrency', '0']), /positive integer/);
     assert.throws(() => parseOptions(['--group']), /Missing value/);

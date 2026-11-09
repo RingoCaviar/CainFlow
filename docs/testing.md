@@ -31,6 +31,9 @@
 ```text
 node scripts/run-tests.mjs --mode daily --base main --group update --dry-run
 node scripts/run-tests.mjs --mode full
+
+# 同时保留机器可读的范围、阶段耗时、原始退出码和未执行阶段
+node scripts/run-tests.mjs --mode full --report .scratch/full-regression/results.json
 ```
 
 ## 分层与选择规则
@@ -53,6 +56,8 @@ node scripts/run-tests.mjs --mode full
 默认 fast 并发 4，integration/browser 并发 2，各层顺序执行，避免快速测试与浏览器争抢资源。使用 `-FastConcurrency` / `-BrowserConcurrency`（Node 对应 `--fast-concurrency` / `--browser-concurrency`）调节。先测量耗时与失败率再提高并发。`-Python` / `--python` 同时用于 Python 测试与浏览器助手的后端进程。
 
 每阶段记录通过/失败与耗时；某阶段失败仍执行后续阶段，最终退出码非零。不会自动重跑失败用例或将重跑成功替换首次失败。
+
+浏览器层每20个文件一批，默认并发仍为2；快速层每100个文件一批。小批次使失败详情和报告检查点更早落盘，完整运行仍覆盖全部登记文件各一次，不裁剪测试内容。
 
 ## 全量触发与发布
 
@@ -83,9 +88,15 @@ node scripts/run-tests.mjs --mode full
 
 ## 既有数据与不稳定测试
 
-测试保留原样。`default-workflow-neutral.test.mjs` 目前读取本地 `workflows/Default.json`，全量仍会运行；本地文件含模型绑定时会失败。此次分层不重写用户模板，不跳过失败，也不把失败改成成功。该测试登记在 workflow 集成层，而非快速逻辑层。
+测试使用隔离数据，不重写用户模板或配置；以测试清单与磁盘核对为准。全量执行所有已登记文件，不跳过既有失败，不把失败改成成功。可选 JSON 报告每阶段保存进度，不包含环境变量或请求数据；主进程中断后保留最近检查点及执行中、未执行阶段，不作为全量通过。再次运行会覆盖同一路径，请为需要保留的首次失败与复测使用不同路径。
 
 浏览器失败后可单独复测以诊断资源或时序问题，但原始失败必须保留并报告。后续应独立处理不稳定用例与用户数据隔离，不能通过删测试或静默重试提高通过率。
+
+定向浏览器复测与全量串行执行，避免叠加 Chromium 与本地连接资源占用。遇到 `ERR_NO_BUFFER_SPACE` 等系统资源错误时保留原始记录、检查资源占用，不添加请求重试或忽略。持久化状态的轮询可降低读取频率，但保留原来的截止时间和完成条件。
+
+Windows 隔离测试浏览器统一使用 `--disable-features=TcpPortRandomizationWin`，沿用 [Playwright上游兼容修复](https://github.com/microsoft/playwright/pull/43605)。该特性在回环连接中可能产生端口仍可用但报WSAENOBUFS的情况；参数仅作用于测试创建的Chrome进程，其他平台、产品浏览器与系统配置不变，不重试或忽略任何请求失败。
+
+资源受限机器可用 `node scripts/run-tests.mjs --mode full --browser-concurrency 1 --report .scratch/full-regression/serial.json` 降低浏览器并发，覆盖范围不变；交付记录注明实际并发参数，不将默认并发的失败覆盖成成功。
 
 浏览器助手的 `app.step(label, task, { failOnRequests, failure })` 为关键操作标注边界：只将本步骤启动、且匹配指定本地接口的 HTTP/网络失败视作前置失败；`failure` 可检测方案保存失败或批次部分失败等终态。已有负向用例不会因全局收集错误而自动失败。诊断包含请求方法、去掉查询参数的地址、HTTP 状态、请求标识与时间，以及经过清洗的本地 API 错误字段；不记录提交内容、请求头或图片字节。
 

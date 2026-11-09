@@ -40,6 +40,8 @@ test('failure feedback appears once in parameters and preserves complete modal d
         await controlled(app); await open(app, 'failed');
         await app.evaluate("document.querySelector('[data-parameter-action=generate]').click()");
         await app.waitFor("document.getElementById('failed-run-status')?.dataset.status==='error'&&document.getElementById('btn-stop').disabled");
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        await app.waitFor("document.querySelector('.image-parameter-run-feedback').getAnimations({subtree:true}).every(animation=>animation.playState!=='running')");
         assert.equal(await app.evaluate("!!document.querySelector('#failed > .image-first-run-feedback')"), false);
         const compact = await app.evaluate("(()=>{const panel=document.getElementById('image-parameter-panel'),row=panel.querySelector('.image-parameter-run-feedback'),summary=row.querySelector('.node-failure-summary');return {inPanel:panel.contains(row),summary:summary.textContent,width:summary.clientWidth,scrollWidth:summary.scrollWidth,height:summary.getBoundingClientRect().height}})()");
         assert.ok(compact.inPanel);
@@ -128,7 +130,8 @@ test('waiting has no fabricated progress and the original reachable two-second c
         { id: 'reference-edge', from: { nodeId: 'upstream', port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, type: 'image', order: 0 }
     ] }, async app => {
         await controlled(app, true); await open(app, 'target');
-        await app.evaluate("document.querySelector('[data-parameter-group-toggle=more]').click();document.querySelector('[data-parameter-action=generate]').click()");
+        // Running upstream is explicit; the parameter button only reuses its cache.
+        await app.evaluate("document.querySelector('[data-parameter-group-toggle=more]').click();document.getElementById('target').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:300,clientY:200}));document.getElementById('context-menu-run-to-here').click()");
         await app.waitFor("feedbackRequests.length===1&&document.getElementById('target-run-status')?.dataset.status==='waiting'");
         assert.equal(await app.evaluate("document.getElementById('target-generation-progress').checkVisibility()"), false);
         assert.equal(await app.evaluate("document.querySelector('[data-parameter-action=generate]').disabled"), true);

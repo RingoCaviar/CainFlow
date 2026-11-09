@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { changedFiles, loadManifest, selectTests } from './test-plan.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -12,12 +12,12 @@ export function parseOptions(args) {
         const option = args[i];
         if (option === '--dry-run') { options.dryRun = true; continue; }
         if (option === '--help') { options.help = true; continue; }
-        if (!['--mode', '--base', '--group', '--changed', '--python', '--fast-concurrency', '--browser-concurrency'].includes(option)) throw new Error(`Unknown option: ${option}`);
+        if (!['--mode', '--base', '--group', '--changed', '--python', '--fast-concurrency', '--browser-concurrency', '--report'].includes(option)) throw new Error(`Unknown option: ${option}`);
         const value = args[++i];
         if (!value || value.startsWith('--')) throw new Error(`Missing value for ${option}`);
         if (option === '--group') options.groups.push(value);
         else if (option === '--changed') options.changed.push(value);
-        else options[{ '--mode': 'mode', '--base': 'base', '--python': 'python', '--fast-concurrency': 'fastConcurrency', '--browser-concurrency': 'browserConcurrency' }[option]] = value;
+        else options[{ '--mode': 'mode', '--base': 'base', '--python': 'python', '--fast-concurrency': 'fastConcurrency', '--browser-concurrency': 'browserConcurrency', '--report':'reportPath' }[option]] = value;
     }
     for (const key of ['fastConcurrency', 'browserConcurrency']) {
         if (!/^[1-9]\d*$/.test(String(options[key]))) throw new Error(`${key} must be a positive integer`);
@@ -36,11 +36,13 @@ export function commandsFor(plan, options, repoRoot = root) {
     if (plan.effectiveMode === 'full' || plan.phases.python.length) commands.push({ label: 'Python compile', command: options.python, args: ['-m', 'compileall', '-q', 'server.py', 'backend'] });
     for (const tier of ['fast', 'integration', 'browser']) {
         const files = plan.phases[tier];
-        // Bound Windows argument lengths without shell quoting or glob expansion.
-        for (let start = 0; start < files.length; start += 100) commands.push({
-            label: `${tier} ${start + 1}-${Math.min(start + 100, files.length)}/${files.length}`,
+        // Smaller browser batches publish failure details and checkpoints sooner.
+        // Keep every file exactly once and bound Windows argument lengths.
+        const batchSize = tier === 'browser' ? 20 : 100;
+        for (let start = 0; start < files.length; start += batchSize) commands.push({
+            label: `${tier} ${start + 1}-${Math.min(start + batchSize, files.length)}/${files.length}`,
             command: process.execPath,
-            args: ['--test', '--test-reporter=spec', `--test-concurrency=${tier === 'fast' ? options.fastConcurrency : options.browserConcurrency}`, ...files.slice(start, start + 100)],
+            args: ['--test', '--test-reporter=spec', `--test-concurrency=${tier === 'fast' ? options.fastConcurrency : options.browserConcurrency}`, ...files.slice(start, start + batchSize)],
         });
     }
     if (plan.phases.python.length) commands.push({ label: 'Python tests', command: options.python,
@@ -48,27 +50,31 @@ export function commandsFor(plan, options, repoRoot = root) {
     return commands;
 }
 
-export function executeCommands(commands, execute = spawnSync, report = console) {
+export function executeCommands(commands, execute = spawnSync, report = console, { onComplete = () => {}, onProgress = () => {} } = {}) {
     const results = [];
     for (const { label, command, args } of commands) {
+        onProgress({ complete: false, active: label, results: [...results], notRun: commands.slice(results.length + 1).map(command => command.label) });
         report.log(`\n==> ${label}`);
         const start = Date.now();
         const result = execute(command, args, { cwd: root, stdio: 'inherit', env: process.env });
         const passed = !result.error && result.status === 0;
         if (result.error) report.error(result.error.message);
-        results.push({ label, passed, seconds: ((Date.now() - start) / 1000).toFixed(1) });
+        results.push({ label, passed, exitCode: result.status ?? null, signal: result.signal ?? null,
+            error: result.error?.message ?? null, seconds: ((Date.now() - start) / 1000).toFixed(1) });
         // Continue failed phases for a complete report; never silently retry.
         if (result.signal === 'SIGINT' || result.signal === 'SIGTERM') break;
     }
     report.log('\nPhase results:');
     for (const result of results) report.log(`${result.passed ? 'PASS' : 'FAIL'} ${result.label} (${result.seconds}s)`);
+    onComplete({ complete: results.length === commands.length && !results.some(result => result.signal), active: null,
+        results, notRun: commands.slice(results.length).map(command => command.label) });
     return results.every(result => result.passed) ? 0 : 1;
 }
 
 function main() {
     const options = parseOptions(process.argv.slice(2));
     if (options.help) {
-        console.log('Usage: node scripts/run-tests.mjs --mode daily|full [--base REF] [--group NAME] [--changed PATH] [--dry-run]\nRepeat --group to add coverage. --changed explicitly replaces Git detection; list every task change.\nDefaults: --fast-concurrency 4 --browser-concurrency 2. --python selects the backend interpreter.\nSee docs/testing.md and scripts/test-groups.json.');
+        console.log('Usage: node scripts/run-tests.mjs --mode daily|full [--base REF] [--group NAME] [--changed PATH] [--report PATH] [--dry-run]\nRepeat --group to add coverage. --changed explicitly replaces Git detection; list every task change.\nDefaults: --fast-concurrency 4 --browser-concurrency 2. --python selects the backend interpreter.\nSee docs/testing.md and scripts/test-groups.json.');
         return;
     }
     const manifest = loadManifest(root);
@@ -80,7 +86,14 @@ function main() {
     console.log(`Changed paths (${options.changed.length ? 'explicit scope' : 'Git detected'}):\n${changed.join('\n') || '(none; use --base for committed branch changes)'}`);
     for (const reason of plan.reasons) console.log(`Full regression: ${reason}`);
     process.env.CAINFLOW_PYTHON = options.python;
-    process.exitCode = executeCommands(commands);
+    const saveReport = summary => {
+        if (!options.reportPath) return;
+        const path = resolve(options.reportPath);
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, JSON.stringify({ requestedMode: plan.requestedMode, effectiveMode: plan.effectiveMode,
+            changed: plan.changed, phases: plan.phases, ...summary }, null, 2) + '\n');
+    };
+    process.exitCode = executeCommands(commands, spawnSync, console, { onProgress: saveReport, onComplete: saveReport });
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

@@ -1,4 +1,4 @@
-import { startCainflowServer, chromePath } from './browser-theme-fixture.mjs';
+import { startCainflowServer, chromePath, chromiumNetworkArgs } from './browser-theme-fixture.mjs';
 import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -46,7 +46,7 @@ export async function reloadAppBrowser({ evaluate, send, waitFor }) {
 export async function withAppBrowser(session, task, { repoDirectory, initScript, preserveRetiredSaveNodes = true } = {}) {
     const server = await startCainflowServer({ session, repoDirectory });
     const profile = await mkdtemp(join(tmpdir(), 'cainflow-canvas-browser-'));
-    const browser = spawn(chromePath, ['--headless=new', '--no-proxy-server', '--disable-gpu', '--no-sandbox', '--disable-extensions', `--user-data-dir=${profile}`, '--remote-debugging-port=0', 'about:blank'], { stdio: 'ignore' });
+    const browser = spawn(chromePath, ['--headless=new', ...chromiumNetworkArgs(), '--no-proxy-server', '--disable-gpu', '--no-sandbox', '--disable-extensions', `--user-data-dir=${profile}`, '--remote-debugging-port=0', 'about:blank'], { stdio: 'ignore' });
     let socket, getDiagnostics = () => ({ backend: server.getDiagnostics() });
     try {
         let port;

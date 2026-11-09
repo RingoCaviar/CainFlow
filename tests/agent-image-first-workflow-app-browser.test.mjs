@@ -15,6 +15,8 @@ const configuration = {
     providers: [{ id: 'p', name: '受控供应商', endpoint: 'https://controlled.test/v1', apikey: 'test' }]
 };
 const saved = app => app.evaluate("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value)");
+// Durable autosave can take seconds; poll disk at 5Hz without changing its deadline.
+const waitForSaved = (app, expression) => app.waitFor(expression, 7500, { interval: 200 });
 const generateNode = (id, x, y, extra = {}) => ({ id, type: 'ImageGenerate', x, y, width: 330, height: 300, userResized: true, apiConfigId: 'google', providerId: 'p', prompt: `${id} local draft`, ...extra });
 
 async function controlled(app, reply = { intent: 'chat', message: '已读明确目标' }) {
@@ -64,8 +66,9 @@ async function change(app, id, value) {
 }
 
 async function runTo(app, id) {
+    const requests = await app.evaluate('agentWorkflowRequests.length');
     await app.evaluate(`document.getElementById(${JSON.stringify(id)}).dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:200,clientY:180}));document.getElementById('context-menu-run-to-here').click()`);
-    await app.waitFor("document.getElementById('btn-stop').disabled");
+    await app.waitFor(`agentWorkflowRequests.length>${requests}&&document.getElementById(${JSON.stringify(id+'-run-status')})?.dataset.status==='completed'&&document.getElementById('btn-stop').disabled`);
 }
 
 async function chooseModel(app, purpose, model) {
@@ -99,7 +102,7 @@ test('two result slots with identical original bytes stage separately while repe
         { id: 'sink', type: 'ImagePreview', x: 600, y: 100 }
     ], connections: [{ id: 'whole-batch', from: { nodeId: 'duplicate-source', port: 'image' }, to: { nodeId: 'sink', port: 'image' }, type: 'image' }] }, async app => {
         await controlled(app); await runTo(app, 'duplicate-source');
-        await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='duplicate-source')?.mediaAssetKeys?.length===2)");
+        await waitForSaved(app, "fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='duplicate-source')?.mediaAssetKeys?.length===2)");
         const original = await saved(app), keys = original.nodes.find(node => node.id === 'duplicate-source').mediaAssetKeys;
         assert.equal(keys[0], keys[1], 'the distinct batch slots really share one durable original');
         await open(app, 'duplicate-source');
@@ -147,7 +150,7 @@ test('mixed legacy and canonical full-batch references preserve slot identities 
     ], connections }, async app => {
         await controlled(app, reply);
         await runTo(app, 'legacy-source'); await runTo(app, 'canonical-source');
-        await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='legacy-source')?.mediaAssetKeys?.length===3&&document.value?.nodes.find(node=>node.id==='canonical-source')?.mediaAssetKeys?.length===2)");
+        await waitForSaved(app, "fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='legacy-source')?.mediaAssetKeys?.length===3&&document.value?.nodes.find(node=>node.id==='canonical-source')?.mediaAssetKeys?.length===2)");
         const original = await saved(app), keys = id => original.nodes.find(node => node.id === id).mediaAssetKeys;
         assert.deepEqual(original.connections, canonicalConnections);
         assert.equal(keys('legacy-source')[0], keys('legacy-source')[2]);
@@ -175,17 +178,17 @@ test('mixed legacy and canonical full-batch references preserve slot identities 
         assert.equal(await app.evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(button=>button.textContent==='仅应用').disabled"), true, 'the hand-selected target model is still required');
         await chooseModel(app, 'image', 'google'); await planAction(app, '仅应用');
         await app.waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已应用并保存')");
-        await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='target')?.prompt==='mixed references revised prompt')");
+        await waitForSaved(app, "fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='target')?.prompt==='mixed references revised prompt')");
         const applied = await saved(app);
         assert.deepEqual(applied.connections.filter(edge => connections.some(old => old.id === edge.id)), canonicalConnections, 'repeating retained sources in a plan must not rebuild edge IDs, migrated logical ports, explicit order, or JSON extensions');
         assert.equal(applied.nodes.find(node => node.id === 'target').prompt, 'mixed references revised prompt');
         assert.equal(await app.evaluate('agentWorkflowRequests.filter(request=>request.contents).length'), 0);
         await planAction(app, '仅应用');
         await history(app, 'z', '已撤回');
-        await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='target')?.prompt==='target local draft')");
+        await waitForSaved(app, "fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='target')?.prompt==='target local draft')");
         assert.deepEqual((await saved(app)).connections, canonicalConnections, 'one undo reverses the complete application despite its repeated application');
         await history(app, 'y', '已重做');
-        await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='target')?.prompt==='mixed references revised prompt')");
+        await waitForSaved(app, "fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='target')?.prompt==='mixed references revised prompt')");
         assert.deepEqual((await saved(app)).connections, applied.connections);
         assert.equal(await app.evaluate('agentWorkflowRequests.filter(request=>request.contents).length'), 0, 'redo restores the graph without execution');
         const expected = [originals.red, originals.blue, originals.red, originals.orange, originals.red].map(image => image.split(',')[1]);
@@ -204,7 +207,7 @@ test('mixed legacy and canonical full-batch references preserve slot identities 
         assert.equal(await app.evaluate("agentWorkflowRequests.filter(request=>typeof request.prompt==='string').length"), 5, 'fixed source batches are never regenerated by target retries or regeneration');
         for (const id of ['legacy-source', 'canonical-source']) assert.deepEqual((await saved(app)).nodes.find(node => node.id === id).mediaAssetKeys, keys(id));
 
-        await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.workflowTabs?.every(tab=>!tab.dirty))");
+        await waitForSaved(app, "fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.workflowTabs?.every(tab=>!tab.dirty))");
         const owners = await app.evaluate("(async()=>{const graph=(await fetch('/api/storage/documents/session').then(response=>response.json())).value;return (await fetch('/api/storage/media-owners?workflowId='+encodeURIComponent(graph.activeWorkflowId)).then(response=>response.json())).owners})()");
         for (const id of ['legacy-source', 'canonical-source']) {
             const owner = owners.find(owner => owner.ownerType === 'workflow-node' && owner.ownerId === id);
@@ -221,7 +224,7 @@ test('mixed legacy and canonical full-batch references preserve slot identities 
         assert.deepEqual(await app.evaluate("agentWorkflowRequests.find(request=>request.contents).contents.flatMap(content=>content.parts).filter(part=>part.inlineData).map(part=>part.inlineData.data)"), expected);
         await open(app, 'target');
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=more]').click();document.querySelector('[data-reference-connection=legacy-edge] .image-reference-thumbnail').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',altKey:true,bubbles:true,cancelable:true}))");
-        await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value.connections.find(edge=>edge.id==='legacy-edge').order>document.value.connections.find(edge=>edge.id==='canonical-edge').order)");
+        await waitForSaved(app, "fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value.connections.find(edge=>edge.id==='legacy-edge').order>document.value.connections.find(edge=>edge.id==='canonical-edge').order)");
         const reordered = await saved(app);
         await planAction(app, '生成图片');
         await app.waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已变化')");
@@ -271,7 +274,7 @@ test('optimization previews and changes the real Text prompt source while derive
             await app.waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
             assert.match(await app.evaluate("document.querySelector('.prompt-agent-canvas-plan').textContent"), /真实文字来源/);
             await chooseModel(app, 'image', 'google'); await planAction(app, '仅应用');
-            await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='prompt-source')?.text==='optimized real upstream text')");
+            await waitForSaved(app, "fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='prompt-source')?.text==='optimized real upstream text')");
             const applied = await saved(app);
             assert.equal(applied.nodes.find(node => node.id === 'target').prompt, 'ineffective local draft');
             assert.deepEqual(applied.connections.filter(edge => edge.id === connection.id), before.connections);
@@ -285,14 +288,14 @@ test('optimization previews and changes the real Text prompt source while derive
             assert.ok(results > 0);
             await planAction(app, '撤销本次画布操作');
             await app.waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent==='已按撤销栈处理；历史图片仍保留'");
-            await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='prompt-source')?.text==='original effective upstream text')");
+            await waitForSaved(app, "fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='prompt-source')?.text==='original effective upstream text')");
             assert.deepEqual((await saved(app)).connections, before.connections);
             assert.equal(await app.evaluate("document.querySelectorAll('.prompt-agent-result-image').length"), results, 'Agent media survives undo of its graph application');
             await history(app, 'y', '已重做');
-            await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='prompt-source')?.text==='optimized real upstream text')");
+            await waitForSaved(app, "fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='prompt-source')?.text==='optimized real upstream text')");
             assert.equal(await app.evaluate('agentWorkflowRequests.filter(request=>request.contents).length'), 1);
 
-            await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.workflowTabs?.every(tab=>!tab.dirty))");
+            await waitForSaved(app, "fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.workflowTabs?.every(tab=>!tab.dirty))");
             await reloadAppBrowser(app);
             const restored = await saved(app);
             assert.equal(restored.nodes.find(node => node.id === 'prompt-source').text, 'optimized real upstream text');
@@ -325,18 +328,18 @@ test('an explicit request can atomically disconnect the prompt source and use a 
         await chooseModel(app, 'image', 'google');
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]').click()");
         await planAction(app, '仅应用');
-        await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='switch-target')?.prompt==='new explicitly authorized local prompt'&&!document.value.connections.some(edge=>edge.to.nodeId==='switch-target'&&edge.to.port==='prompt'))");
+        await waitForSaved(app, "fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='switch-target')?.prompt==='new explicitly authorized local prompt'&&!document.value.connections.some(edge=>edge.to.nodeId==='switch-target'&&edge.to.port==='prompt'))");
         const applied = await saved(app);
         assert.equal(applied.nodes.find(node => node.id === 'switch-source').text, 'the original upstream text remains untouched');
         assert.equal(await app.evaluate('agentWorkflowRequests.filter(request=>request.contents).length'), 0, 'applying the input change does not execute');
         await history(app, 'z', '已撤回');
-        await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='switch-target')?.prompt==='old local draft retained behind input'&&document.value.connections.some(edge=>edge.id==='explicit-prompt-input'))");
+        await waitForSaved(app, "fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='switch-target')?.prompt==='old local draft retained behind input'&&document.value.connections.some(edge=>edge.id==='explicit-prompt-input'))");
         const undone = await saved(app);
         assert.deepEqual(undone.connections, before.connections, 'one undo restores the complete original edge including endpoint metadata');
         assert.equal(undone.nodes.length, before.nodes.length);
         assert.equal(undone.nodes.find(node => node.id === 'switch-source').text, 'the original upstream text remains untouched');
         await history(app, 'y', '已重做');
-        await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='switch-target')?.prompt==='new explicitly authorized local prompt'&&!document.value.connections.some(edge=>edge.id==='explicit-prompt-input'))");
+        await waitForSaved(app, "fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='switch-target')?.prompt==='new explicitly authorized local prompt'&&!document.value.connections.some(edge=>edge.id==='explicit-prompt-input'))");
         assert.deepEqual((await saved(app)).connections, applied.connections);
         assert.equal(await app.evaluate('agentWorkflowRequests.filter(request=>request.contents).length'), 0, 'redo restores only the graph');
         await planAction(app, '生成图片');

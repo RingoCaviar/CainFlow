@@ -32,7 +32,7 @@ async function assertRealEditors(app) {
         await app.waitFor(`!document.getElementById('image-parameter-panel').hidden&&document.getElementById('image-parameter-panel').dataset.nodeId===${JSON.stringify(node.id)}`);
         await settle(app);
         const editor = await app.evaluate(`(()=>{const id=${JSON.stringify(node.id)},prompt=document.getElementById(id+'-prompt'),panel=document.getElementById('image-parameter-panel'),scroll=panel.querySelector('.image-parameter-scroll');return {height:prompt.offsetHeight,value:prompt.value,original:prompt===restoredHeightPrompts[id],inPanel:panel.contains(prompt),inCard:document.getElementById(id).contains(prompt),count:document.querySelectorAll('#'+id+'-prompt').length,scrollHeight:scroll.scrollHeight,clientHeight:scroll.clientHeight}})()`);
-        assert.ok(editor.height>=65&&editor.height<=164, node.id+' follows two-to-six-line prompt bounds');
+        assert.ok(editor.height>=60&&editor.height<=154, node.id+' follows two-to-six-line prompt bounds (15px / 1.55, 14px padding and border): '+editor.height);
         assert.equal(editor.value, node.prompt); assert.equal(editor.original, true); assert.equal(editor.inPanel, true);
         assert.equal(editor.inCard, false); assert.equal(editor.count, 1);
         assert.ok(editor.scrollHeight >= editor.height, 'the original editor remains reachable in the panel scroll area');
@@ -44,14 +44,14 @@ async function assertRealEditors(app) {
 
 async function saveFile(app) {
     await waitForAutosave(app);
-    await app.waitFor("fetch('/api/workflows/'+encodeURIComponent(document.getElementById('toolbar-workflow-name').textContent.trim())).then(response=>response.json()).then(graph=>graph.nodes?.find(node=>node.id==='manual')?.height===1200&&graph.nodes.find(node=>node.id==='legacy')?.textareaHeights?.prompt<=164)");
+    await app.waitFor("fetch('/api/workflows/'+encodeURIComponent(document.getElementById('toolbar-workflow-name').textContent.trim())).then(response=>response.json()).then(graph=>graph.nodes?.find(node=>node.id==='manual')?.height===1200&&graph.nodes.find(node=>node.id==='legacy')?.textareaHeights?.prompt<=154)");
     return app.evaluate("fetch('/api/workflows/'+encodeURIComponent(document.getElementById('toolbar-workflow-name').textContent.trim())).then(response=>response.json())");
 }
 function assertSavedHeights(graph) {
     assert.equal(graph.nodes.length, 3); assert.deepEqual(graph.connections, []);
     for (const original of restored) {
         const node = graph.nodes.find(node => node.id === original.id);
-        assert.ok(node.textareaHeights.prompt<=164, 'saved prompt respects automatic height bounds');
+        assert.ok(node.textareaHeights.prompt<=154, 'saved prompt respects automatic height bounds');
         assert.equal(node.prompt, original.prompt); assert.equal(node.userResized, original.userResized);
         assert.equal(node.height, original.userResized ? 1200 : null);
         assert.equal(Object.hasOwn(node, 'collapsedExpandedHeight'), false, 'automatic expanded height never persists the old long form');
