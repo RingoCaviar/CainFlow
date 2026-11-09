@@ -59,7 +59,15 @@ test('the original native async-image resume control restores the saved task, po
         assert.ok(!pending.nodes[0].mediaAssetKeys?.length);
         await reloadAppBrowser(app);
         assert.deepEqual(await app.evaluate('asyncImageRequests'), [], 'loading the saved task never starts creation or polling');
-        await app.evaluate("holdAsyncImage=false;document.getElementById('async-image').click()");
+        await app.evaluate("document.getElementById('async-image').click()");
+        await app.waitFor("document.getElementById('image-parameter-panel').dataset.nodeId==='async-image'&&!document.getElementById('image-parameter-panel').hidden");
+        await nativeClick(app, '#async-image-resume-image');
+        await app.waitFor("asyncImageHeld&&document.getElementById('toolbar-workflow-run-status').textContent==='运行中'");
+        assert.equal(await app.evaluate("document.getElementById('btn-stop').disabled"), false, 'restored task polling belongs to the current workflow cancellation scope');
+        await nativeClick(app, '#btn-stop');
+        await app.waitFor("!asyncImageHeld&&!document.getElementById('async-image').classList.contains('running')&&document.getElementById('toolbar-workflow-run-status').hidden");
+        assert.equal(await app.evaluate("asyncImageRequests.filter(request=>request.kind==='create').length"), 0, 'stopping restored polling never creates a new remote task');
+        await app.evaluate("asyncImageRequests=[];holdAsyncImage=false;document.getElementById('async-image').click()");
         await app.waitFor("document.getElementById('image-parameter-panel').dataset.nodeId==='async-image'&&!document.getElementById('image-parameter-panel').hidden");
 
         assert.equal(await app.evaluate("document.getElementById('async-image-resume-image-id').value"), taskId);

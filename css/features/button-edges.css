@@ -146,3 +146,27 @@ html:root #settings-modal {
     --settings-action-danger-border: var(--button-danger-edge);
     --settings-action-danger-hover-border: var(--button-danger-edge);
 }
+
+/* Execution state lives by the workflow name; actions stay steady and theme-aware. */
+html:root #toolbar .toolbar-run-group .btn {
+    animation: none;
+    box-shadow: none;
+    transform: none;
+    border-width: 1px;
+}
+html:root #toolbar .toolbar-run-group .btn-run {
+    background: var(--panel-primary-action-bg);
+    color: var(--panel-primary-action-text);
+}
+html:root #toolbar .toolbar-run-group .btn-run:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--panel-primary-action-bg) 90%, var(--text-primary));
+}
+html:root #toolbar .toolbar-run-group .btn-stop:not(:disabled) {
+    color: var(--text-danger);
+    background: color-mix(in srgb, var(--accent-red) 10%, var(--panel-bg));
+}
+html:root #toolbar .toolbar-run-group .btn-stop:disabled {
+    color: var(--text-secondary);
+    background: var(--panel-bg);
+    border-color: var(--button-edge);
+}

@@ -223,16 +223,19 @@
                     工作流
                 </button>
                 <div class="toolbar-workflow-current" aria-label="当前工作流">
-                    <span id="toolbar-workflow-name" class="toolbar-workflow-name">未打开工作流</span>
+                    <div class="toolbar-workflow-heading">
+                        <span id="toolbar-workflow-name" class="toolbar-workflow-name">未打开工作流</span>
+                        <span id="toolbar-workflow-run-status" class="toolbar-workflow-run-status" role="status" aria-live="polite" aria-atomic="true" hidden></span>
+                    </div>
                     <span id="toolbar-workflow-status" class="toolbar-workflow-status" data-state="empty" aria-live="polite">新建或打开工作流</span>
                 </div>
             </div>
             <div class="toolbar-canvas-only toolbar-action-group toolbar-run-group" role="group" aria-label="运行控制">
-                <button id="btn-run" class="btn btn-run" title="运行工作流 (Ctrl+Enter)">
+                <button id="btn-run" class="btn btn-run" title="运行当前工作流 (Ctrl+Enter)">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                     运行
                 </button>
-                <button id="btn-stop" class="btn btn-stop" title="强制停止运行" disabled>
+                <button id="btn-stop" class="btn btn-stop" title="停止当前工作流的运行" disabled>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="6" y="6" width="12" height="12" /></svg>
                     停止
                 </button>

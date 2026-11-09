@@ -152,6 +152,23 @@ body.workspace-mode-conversation #toolbar .toolbar-action-group {
     color: var(--text-link, var(--text-primary));
 }
 
+.toolbar-workflow-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 53px;
+    align-items: center;
+    column-gap: 4px;
+    min-width: 0;
+}
+.toolbar-workflow-run-status {
+    font-size: 12px;
+    line-height: 1.2;
+    font-weight: 500;
+    color: var(--text-success);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.toolbar-workflow-run-status:is([data-state="starting"], [data-state="stopping"]) { color: var(--panel-accent-text); }
 .toolbar-workflow-status { font-size: 11px; line-height: 1.2; color: var(--text-secondary); }
 .toolbar-workflow-status:is([data-state="modified"], [data-state="pending"]) { color: var(--panel-accent-text); }
 

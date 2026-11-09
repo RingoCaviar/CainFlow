@@ -12,6 +12,7 @@ export function createToolbarControllerApi({
     documentRef = document,
     confirmRef = confirm,
     runWorkflow,
+    stopCurrentWorkflow = () => {},
     saveState,
     undo,
     redo,
@@ -142,18 +143,7 @@ export function createToolbarControllerApi({
         initCanvasNavigation({ state, canvasContainer, viewportApi, zoomToFit, focusNode,
             scheduleSave: () => saveViewportState ? saveViewportState() : scheduleSave({ dirty: false }), documentRef });
         documentRef.getElementById('btn-run')?.addEventListener('click', () => runWorkflow());
-        documentRef.getElementById('btn-stop')?.addEventListener('click', () => {
-            if (state.isRunning) {
-                state.abortReason = 'manual';
-                if (typeof state.abortAllWorkflowRuns === 'function') {
-                    state.abortAllWorkflowRuns('manual');
-                } else if (state.runAbortControllers instanceof Set && state.runAbortControllers.size > 0) {
-                    state.runAbortControllers.forEach((controller) => controller.abort());
-                } else {
-                    state.abortController?.abort();
-                }
-            }
-        });
+        documentRef.getElementById('btn-stop')?.addEventListener('click', () => stopCurrentWorkflow());
         documentRef.getElementById('btn-undo')?.addEventListener('click', undo);
         documentRef.getElementById('btn-redo')?.addEventListener('click', redo);
         documentRef.getElementById('import-file')?.addEventListener('change', (e) => {
