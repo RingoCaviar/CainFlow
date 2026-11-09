@@ -1,4 +1,5 @@
 import { cleanupElementResources } from '../../core/common-utils.js';
+import { renderWorkflowRunControls } from '../ui/workflow-toolbar-status.js';
 import { createInitialState } from '../../core/state.js';
 import { createProxyHeadersGetter } from '../../services/api-client.js';
 import { createConnectionsApi } from '../../canvas/connections.js';
@@ -616,24 +617,27 @@ export function createWorkflowRuntimeManager({
     function syncGlobalRunToolbarState() {
         let activeRunCount = workflowRunContexts.size;
         workflowRunContexts.forEach((context) => {
+            if ((context.state?.activeRunCount || 0) > 0) context.executionStarted = true;
             if ((context.state?.activeRunCount || 0) > 1) {
                 activeRunCount += (context.state.activeRunCount - 1);
             }
         });
         state.activeRunCount = activeRunCount;
         state.isRunning = activeRunCount > 0;
-        const runBtn = documentRef.getElementById('btn-run');
-        const stopBtn = documentRef.getElementById('btn-stop');
-        const hasActiveRuns = (state.activeRunCount || 0) > 0;
-        const isRunStarting = state.isRunStarting === true;
-        if (runBtn) {
-            runBtn.classList.toggle('running', hasActiveRuns || isRunStarting);
-            runBtn.disabled = isRunStarting;
-        }
-        if (stopBtn) {
-            stopBtn.classList.toggle('running', hasActiveRuns || isRunStarting);
-            stopBtn.disabled = !hasActiveRuns && !isRunStarting;
-        }
+        const activeId = getWorkflowManagerApi()?.getActiveWorkflow?.()?.workflowId || '';
+        const contexts = [...workflowRunContexts.values()].filter(context => context.workflowId === activeId);
+        const starting = state.isRunStarting === true && (!state.runStartingWorkflowId || state.runStartingWorkflowId === activeId);
+        const pendingStart = starting ? state.runStartController : null;
+        const stopping = (contexts.length > 0 || !!pendingStart)
+            && contexts.every(context => context.stopController?.signal.aborted)
+            && (!pendingStart || pendingStart.signal.aborted);
+        renderWorkflowRunControls({ documentRef,
+            starting: (starting && !pendingStart?.signal.aborted) || contexts.some(context => !context.executionStarted && !context.stopController?.signal.aborted),
+            runCount: contexts.reduce((count, context) => count + Math.max(1, context.state?.activeRunCount || 0), 0),
+            stopping,
+            canStopStarting: !!activeId && !!pendingStart && !pendingStart.signal.aborted,
+            launchPending: state.isRunStarting === true
+        });
     }
 
     function isActiveWorkflow(workflow) {
@@ -1299,6 +1303,7 @@ export function createWorkflowRuntimeManager({
             workflowId: activeWorkflow?.workflowId || ''
         };
     })()) {
+        syncGlobalRunToolbarState();
         const contexts = getWorkflowRunContexts(workflowReference);
         clearWorkflowRunView({ keepLock: contexts.length > 0 });
         if (contexts.length === 0) {
@@ -1894,6 +1899,7 @@ export function createWorkflowRuntimeManager({
             getAbortMessage,
             playNotificationSound: () => getSettingsControllerApi()?.playNotificationSound?.(),
             systemNotificationApi: getSystemNotificationApi(),
+            onRunStateChanged: () => syncGlobalRunToolbarState(),
             onNodeRunStateChange: (payload) => {
                 recordRuntimeNodeRunState(context, payload);
                 applyVisibleNodeRunState({ workflowId, workflowName }, payload);
@@ -1948,11 +1954,13 @@ export function createWorkflowRuntimeManager({
         }
     }
 
-    async function runWorkflowInContext(workflow, workflowData, runInput = null, { waitForCompletion = false, retainResults, configurationSnapshot } = {}) {
+    async function runWorkflowInContext(workflow, workflowData, runInput = null, { waitForCompletion = false, retainResults, configurationSnapshot, resumeNodeId = null } = {}) {
         const { workflowName, workflowId } = requireStableWorkflowReference(workflow);
         const context = typeof createRunContext === 'function'
             ? createRunContext({ workflowName, workflowId }, workflowData)
             : createWorkflowRuntimeContext({ workflowName, workflowId }, workflowData, { configurationSnapshot });
+        context.stopController = new AbortController();
+        context.executionStarted = false;
         context.workflowHandle = getWorkflowDesk?.().workflow(context.workflowId);
         context.state.requestSource = runInput?.requestSource === 'agent' || runInput?.agentSequential ? 'agent' : 'canvas';
         if (runInput?.agentSequential) context.state.autoRetry = false;
@@ -2010,7 +2018,20 @@ export function createWorkflowRuntimeManager({
             let completionResult;
             try {
                 await context.waitForImageRestores(getPlanImageRestoreNodeIds(plan));
-                executionResult = await context.runner.runWorkflow(runInput);
+                if (context.stopController.signal.aborted) {
+                    executionResult = { started: false, executed: false, reason: 'stopped-before-start', outcome: 'stopped' };
+                } else {
+                    let execution;
+                    const options = { signal: context.stopController.signal };
+                    if (resumeNodeId) {
+                        const node = context.state.nodes.get(resumeNodeId);
+                        if (node?.type === 'ImageGenerate') execution = context.runner.resumeImageNodeBranch(resumeNodeId, options);
+                        else if (node?.type === 'VideoGenerate') execution = context.runner.resumeVideoNodeBranch(resumeNodeId, options);
+                        else throw new Error('当前节点没有可恢复的生成任务');
+                    } else execution = context.runner.runWorkflow(runInput, options);
+                    syncGlobalRunToolbarState();
+                    executionResult = await execution;
+                }
             } catch (error) {
                 runError = error;
                 const currentWorkflowName = getWorkflowManagerApi()?.getWorkflowNameById?.(workflowId) || workflowName;
@@ -2134,18 +2155,33 @@ export function createWorkflowRuntimeManager({
         return detachedWorkflowViewBuilder.release(workflow);
     }
 
+    function requestContextStop(context, reason) {
+        context.runResult = 'error';
+        context.abortReason = reason;
+        context.state.abortReason = reason;
+        context.stopController?.abort(reason);
+        if (context.state.runAbortControllers instanceof Set && context.state.runAbortControllers.size > 0) {
+            context.state.runAbortControllers.forEach((controller) => controller.abort());
+        } else {
+            context.state.abortController?.abort();
+        }
+    }
+
+    function abortWorkflowRuns(workflow, reason = 'manual') {
+        const reference = requireStableWorkflowReference(workflow);
+        const contexts = getWorkflowRunContexts(reference);
+        const preparing = state.isRunStarting && (!state.runStartingWorkflowId || state.runStartingWorkflowId === reference.workflowId) && state.runStartController;
+        if (preparing) state.runStartController.abort(reason);
+        contexts.forEach(context => requestContextStop(context, reason));
+        syncGlobalRunToolbarState();
+        return contexts.length + (preparing ? 1 : 0);
+    }
+
     function abortAllWorkflowRuns(reason = 'manual') {
         state.abortReason = reason;
-        workflowRunContexts.forEach((context) => {
-            context.runResult = 'error';
-            context.abortReason = reason;
-            context.state.abortReason = reason;
-            if (context.state.runAbortControllers instanceof Set && context.state.runAbortControllers.size > 0) {
-                context.state.runAbortControllers.forEach((controller) => controller.abort());
-            } else {
-                context.state.abortController?.abort();
-            }
-        });
+        state.runStartController?.abort(reason);
+        workflowRunContexts.forEach(context => requestContextStop(context, reason));
+        syncGlobalRunToolbarState();
     }
 
     function cancelRunningNode(workflow, nodeId) {
@@ -2165,6 +2201,7 @@ export function createWorkflowRuntimeManager({
 
     return {
         abortAllWorkflowRuns,
+        abortWorkflowRuns,
         async settleForExit() {
             const pending = [...workflowRunContexts.values()].map(context => context.promise).filter(Boolean);
             abortAllWorkflowRuns('软件正在退出');

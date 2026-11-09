@@ -12,6 +12,30 @@ function createNodeElement() {
     };
 }
 
+test('a workflow cancellation during the start frame prevents execution without poisoning later runs', async () => {
+    const node = { id: 'save', type: 'ImageSave', enabled: true, data: {}, el: createNodeElement() };
+    const state = { nodes: new Map([[node.id,node]]), connections: [], selectedNodes: new Set(), requestTimeoutEnabled: false };
+    let frame, calls = 0;
+    const phases = [];
+    const api = createWorkflowRunnerApi({ state, nodeConfigs: { ImageSave: { outputs: [] } }, confirmRef: () => true,
+        documentRef: { defaultView: { requestAnimationFrame(callback) { frame = callback; } }, getElementById: () => null },
+        normalizeRunOptions: () => ({ mode: 'all' }),
+        resolveExecutionPlan: () => ({ mode: 'all', nodeIds: [node.id], executionOrder: [node.id], scopeNodeSet: new Set([node.id]), inputConnectionsByNode: {}, incomingConnectionsByNode: {} }),
+        executeNode: async () => { calls++; }, getCachedOutputValue() {}, showToast() {}, addLog() {}, scheduleSave() {}, updatePortStyles() {}, getAbortMessage: () => '已停止', playNotificationSound() {},
+        onRunStateChanged: () => phases.push({ starting: state.isRunStarting, count: state.activeRunCount || 0 }) });
+    const controller = new AbortController();
+    const stopped = api.runWorkflow(null, { signal: controller.signal });
+    assert.deepEqual(phases.at(-1), { starting: true, count: 0 }, 'the start frame remains a preparation phase');
+    controller.abort('manual'); frame();
+    assert.equal((await stopped).outcome, 'stopped');
+    assert.equal(calls, 0);
+    assert.equal(phases.some(phase=>phase.count>0), false);
+    const next = api.runWorkflow(); frame();
+    assert.equal((await next).outcome, 'completed');
+    assert.equal(calls, 1);
+    assert.ok(phases.some(phase=>!phase.starting&&phase.count===1), 'running is reported only once a real session starts');
+});
+
 test('runner aborts an individual node at its own timeout and reports a node timeout', async () => {
     const node = { id: 'image-1', type: 'ImageSave', enabled: true, data: {}, el: createNodeElement() };
     const state = {

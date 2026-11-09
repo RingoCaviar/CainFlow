@@ -192,6 +192,7 @@ export function createWorkflowRunnerApi({
     getAbortMessage,
     playNotificationSound,
     onNodeRunStateChange = () => {},
+    onRunStateChanged = () => {},
     generationRevisionApi = null,
     waitForPendingImageAssetSaves = async () => {},
     focusCanvasNode = () => {},
@@ -486,6 +487,7 @@ export function createWorkflowRunnerApi({
             stopBtn.classList.toggle('running', hasActiveRuns || isRunStarting);
             stopBtn.disabled = !hasActiveRuns && !isRunStarting;
         }
+        onRunStateChanged();
     }
 
     function setControlRunningLock(control, locked) {
@@ -1976,7 +1978,9 @@ export function createWorkflowRunnerApi({
         return true;
     }
 
-    async function resumeMediaNodeBranch(nodeId, expectedType, resumeTaskFn, taskKind) {
+    async function resumeMediaNodeBranch(nodeId, expectedType, resumeTaskFn, taskKind, { signal } = {}) {
+        const stoppedBeforeStart = { started: false, executed: false, reason: 'stopped-before-start', outcome: 'stopped' };
+        if (signal?.aborted) return stoppedBeforeStart;
         const node = state.nodes.get(nodeId);
         if (!node || node.type !== expectedType) {
             throw new Error(`未找到可恢复的${taskKind}生成节点`);
@@ -1998,6 +2002,7 @@ export function createWorkflowRunnerApi({
         }
 
         plan.externalInputsByNode = await captureSelectedOnlyExternalInputs(plan);
+        if (signal?.aborted) return stoppedBeforeStart;
         const order = (plan.executionOrder || []).filter((nid) => plan.scopeNodeSet.has(nid));
         if (!order.includes(nodeId)) {
             throw new Error('当前恢复节点不在执行计划内');
@@ -2012,6 +2017,12 @@ export function createWorkflowRunnerApi({
             finalized: false,
             abortReason: null
         };
+        const abort = () => {
+            session.abortReason = typeof signal?.reason === 'string' ? signal.reason : 'manual';
+            state.abortReason = session.abortReason;
+            session.controller.abort();
+        };
+        signal?.addEventListener('abort', abort, { once: true });
         const controllers = getRunAbortControllers();
         controllers.add(session.controller);
         state.activeRunCount = (state.activeRunCount || 0) + 1;
@@ -2022,6 +2033,7 @@ export function createWorkflowRunnerApi({
         function finalizeResumeRun() {
             if (session.finalized) return;
             session.finalized = true;
+            signal?.removeEventListener('abort', abort);
             if (session.timeoutId) {
                 clearTimeout(session.timeoutId);
                 session.timeoutId = null;
@@ -2217,11 +2229,12 @@ export function createWorkflowRunnerApi({
                 notificationTitle: 'CainFlow 恢复完成',
                 notificationBody: `${taskKind}节点及其下游已继续执行完成`
             });
+            return { started: true, executed: true, reason: 'finished', outcome: 'completed' };
         } catch (error) {
             if (isAbortLikeError(error)) {
                 if (session.abortReason) state.abortReason = session.abortReason;
                 addLog('info', '恢复执行已停止', getAbortMessage(state));
-                throw error;
+                return { started: true, executed: true, reason: 'finished', outcome: 'stopped' };
             }
             throw error;
         } finally {
@@ -2229,16 +2242,18 @@ export function createWorkflowRunnerApi({
         }
     }
 
-    async function resumeVideoNodeBranch(nodeId) {
-        return resumeMediaNodeBranch(nodeId, 'VideoGenerate', resumeVideoGeneration, '视频');
+    async function resumeVideoNodeBranch(nodeId, options) {
+        return resumeMediaNodeBranch(nodeId, 'VideoGenerate', resumeVideoGeneration, '视频', options);
     }
 
-    async function resumeImageNodeBranch(nodeId) {
-        return resumeMediaNodeBranch(nodeId, 'ImageGenerate', resumeAsyncImageGeneration, '图片');
+    async function resumeImageNodeBranch(nodeId, options) {
+        return resumeMediaNodeBranch(nodeId, 'ImageGenerate', resumeAsyncImageGeneration, '图片', options);
     }
 
-    async function runWorkflow(runInput = null) {
+    async function runWorkflow(runInput = null, { signal } = {}) {
         void globalThis.__cainflowDesktop?.clearTaskbarStatus();
+        const stoppedBeforeStart = { started: false, executed: false, reason: 'stopped-before-start', outcome: 'stopped' };
+        if (signal?.aborted) return stoppedBeforeStart;
         if (state.isRunStarting) {
             return { started: false, executed: false, reason: 'starting' };
         }
@@ -2247,6 +2262,7 @@ export function createWorkflowRunnerApi({
         let startSucceeded = false;
         let started = false;
         let executed = false;
+        let removeExternalAbortListener = null;
         try {
             await new Promise((resolve) => {
                 const requestFrame = documentRef.defaultView?.requestAnimationFrame;
@@ -2257,6 +2273,7 @@ export function createWorkflowRunnerApi({
                 }
             });
 
+            if (signal?.aborted) return stoppedBeforeStart;
             if (state.nodes.size === 0) {
                 showToast('当前画布没有任何节点，请先添加节点或加载工作流', 'warning');
                 return { started: false, executed: false, reason: 'empty-canvas' };
@@ -2283,6 +2300,7 @@ export function createWorkflowRunnerApi({
                 }
             }
             plan.externalInputsByNode = await captureSelectedOnlyExternalInputs(plan);
+            if (signal?.aborted) return stoppedBeforeStart;
 
             const alreadyRunningNodeIds = hasRunningNodeInPlan(plan);
             if (alreadyRunningNodeIds.length > 0) {
@@ -2317,6 +2335,7 @@ export function createWorkflowRunnerApi({
                 }
             }
 
+            if (signal?.aborted) return stoppedBeforeStart;
             const session = {
                 controller: new AbortController(),
                 timeoutId: null,
@@ -2332,6 +2351,15 @@ export function createWorkflowRunnerApi({
             state.isRunStarting = false;
             state.abortReason = null;
             state.abortController = session.controller;
+            if (signal) {
+                const abort = () => {
+                    state.abortReason = typeof signal.reason === 'string' ? signal.reason : 'manual';
+                    session.abortReason = state.abortReason;
+                    session.controller.abort();
+                };
+                signal.addEventListener('abort', abort, { once: true });
+                removeExternalAbortListener = () => signal.removeEventListener('abort', abort);
+            }
             syncRunToolbarState();
             startSucceeded = true;
             started = true;
@@ -2778,6 +2806,7 @@ export function createWorkflowRunnerApi({
             };
         }
         } finally {
+            removeExternalAbortListener?.();
             if (!startSucceeded) {
                 state.isRunStarting = false;
                 syncRunToolbarState();

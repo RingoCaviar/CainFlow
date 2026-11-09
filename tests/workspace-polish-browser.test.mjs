@@ -2,7 +2,115 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { withAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
+import { withAppBrowser, waitForAutosave, reloadAppBrowser } from './helpers/app-browser.mjs';
+
+test('toolbar execution state follows the current workflow and Stop leaves background requests alive', { timeout: 60000 }, async () => {
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=';
+    const fixture = { autoCheckUpdatesOnLoad: false,
+        models: [{ id: 'chat', modelId: 'chat', name: '对话', taskType: 'chat', protocol: 'openai', providerIds: ['p'] },
+            { id: 'image', modelId: 'gpt-image-1', name: '图片', taskType: 'image', protocol: 'openai', providerIds: ['p'] }],
+        providers: [{ id: 'p', name: '受控供应商', endpoint: 'https://controlled.test/v1', apikey: 'fixture' }], nodes: [], connections: [] };
+    await withAppBrowser(fixture, async app => {
+        await app.send('Page.addScriptToEvaluateOnNewDocument', { source: `
+            window.toolbarRequests=[];const originalToolbarFetch=window.fetch;
+            const toolbarFrame=window.requestAnimationFrame.bind(window);
+            window.requestAnimationFrame=callback=>{
+                if(window.holdNextToolbarFrame){window.holdNextToolbarFrame=false;window.releaseToolbarFrame=()=>toolbarFrame(callback);return -1;}
+                return toolbarFrame(callback);
+            };
+            window.fetch=async(url,options={})=>{
+                if(String(url)==='/proxy'&&options.body){
+                    const body=options.body instanceof FormData?Object.fromEntries(options.body.entries()):JSON.parse(options.body);
+                    if(body.prompt)return new Promise((resolve,reject)=>{
+                        const request={prompt:body.prompt,aborted:false,release:()=>resolve(new Response(JSON.stringify({data:[{b64_json:${JSON.stringify(png)}}]}),{headers:{'Content-Type':'application/json'}}))};
+                        toolbarRequests.push(request);
+                        options.signal?.addEventListener('abort',()=>{request.aborted=true;request.finishAbort=()=>reject(new DOMException('Stopped','AbortError'));},{once:true});
+                    });
+                }
+                return originalToolbarFetch(url,options);
+            };` });
+        await reloadAppBrowser(app);
+        await app.evaluate("document.body.classList.add('toolbar-pinned');document.getElementById('btn-theme-toggle').click();document.querySelector('#theme-menu [data-theme-id=paper]').click()");
+        for (const suffix of ['a','b']) {
+            const graph = { workflowId: `toolbar-workflow-${suffix}`, nodes: [{ id: `node-${suffix}`, type: 'ImageGenerate', x: 60, y: 160, width: 320, apiConfigId: 'image', providerId: 'p', prompt: suffix }], connections: [] };
+            assert.equal(await app.evaluate(`fetch('/api/workflows/Toolbar-${suffix}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(${JSON.stringify(graph)})}).then(response=>response.ok)`), true);
+        }
+        const activate = async suffix => {
+            await app.evaluate("document.getElementById('btn-toggle-workflow').click()");
+            await app.waitFor(`Boolean(document.querySelector('.workflow-item[data-name="Toolbar-${suffix}"]'))`);
+            await app.evaluate(`document.querySelector('.workflow-item[data-name="Toolbar-${suffix}"]').click()`);
+            await app.waitFor(`document.getElementById('toolbar-workflow-name').textContent==='Toolbar-${suffix}'&&Boolean(document.getElementById('node-${suffix}'))`);
+            await app.evaluate("document.getElementById('btn-close-workflow').click()");
+        };
+        const snapshot = async name => {
+            if (!process.env.CAINFLOW_TOOLBAR_VISUALS) return;
+            await mkdir(process.env.CAINFLOW_TOOLBAR_VISUALS, { recursive: true });
+            await app.evaluate("document.querySelectorAll('.toast,.notice').forEach(element=>element.remove())");
+            const shot = await app.send('Page.captureScreenshot', { format: 'png' });
+            await writeFile(join(process.env.CAINFLOW_TOOLBAR_VISUALS, name+'.png'), Buffer.from(shot.data,'base64'));
+            const clip = await app.evaluate("({x:0,y:0,width:innerWidth,height:Math.min(innerHeight,document.getElementById('toolbar').getBoundingClientRect().bottom+6),scale:1})");
+            const chrome = await app.send('Page.captureScreenshot', { format: 'png', clip });
+            await writeFile(join(process.env.CAINFLOW_TOOLBAR_VISUALS, name+'-toolbar.png'), Buffer.from(chrome.data,'base64'));
+        };
+        await activate('a');
+        await snapshot('idle-paper');
+        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.waitFor("toolbarRequests.some(request=>request.prompt==='a')&&document.getElementById('toolbar-workflow-run-status').textContent==='运行中'");
+        await snapshot('running-paper');
+        await activate('b');
+        assert.equal(await app.evaluate("document.getElementById('btn-stop').disabled"), true);
+        assert.equal(await app.evaluate("document.getElementById('toolbar-workflow-run-status').hidden"), true, 'background work cannot impersonate current workflow activity');
+        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.waitFor("toolbarRequests.some(request=>request.prompt==='b')&&document.getElementById('toolbar-workflow-run-status').textContent==='运行中'");
+        const facts = [];
+        for (const theme of ['dark','pro','paper','light','glass-light','glass-dark','pink']) {
+            await app.evaluate(`document.getElementById('btn-theme-toggle').click();document.querySelector('#theme-menu [data-theme-id="${theme}"]').click()`);
+            await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+            await app.waitFor("['btn-run','btn-stop'].every(id=>document.getElementById(id).getAnimations().every(animation=>animation.playState!=='running'))");
+            facts.push(await app.evaluate(`(()=>{
+                const status=document.getElementById('toolbar-workflow-run-status'),run=document.getElementById('btn-run'),stop=document.getElementById('btn-stop');
+                const r=run.getBoundingClientRect(),s=stop.getBoundingClientRect();
+                return {theme:document.documentElement.dataset.appTheme,status:status.textContent,statusColor:getComputedStyle(status).color,
+                    statusRect:status.getBoundingClientRect().toJSON(),runRect:r.toJSON(),stopRect:s.toJSON(),
+                    toolbarBackground:getComputedStyle(document.getElementById('toolbar')).backgroundColor,
+                    runColor:getComputedStyle(run).color,runBackground:getComputedStyle(run).backgroundColor,
+                    stopColor:getComputedStyle(stop).color,stopBackground:getComputedStyle(stop).backgroundColor,
+                    runAnimation:getComputedStyle(run).animationName,stopAnimation:getComputedStyle(stop).animationName,heights:[r.height,s.height]};
+            })()`));
+            assert.deepEqual(facts.at(-1).heights, [38,38]);
+            assert.equal(facts.at(-1).runAnimation, 'none'); assert.equal(facts.at(-1).stopAnimation, 'none');
+            await snapshot('running-'+theme);
+        }
+        for (const width of [420,320]) {
+            await app.send('Emulation.setDeviceMetricsOverride', { width, height: 600, deviceScaleFactor: 1, mobile: false });
+            await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+            const narrow = await app.evaluate("(()=>{const status=document.getElementById('toolbar-workflow-run-status'),run=document.getElementById('btn-run'),stop=document.getElementById('btn-stop');return {fits:document.getElementById('toolbar').scrollWidth<=innerWidth,statusFits:status.scrollWidth<=status.clientWidth,buttons:[run,stop].map(button=>{const r=button.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth})}})()");
+            assert.ok(narrow.fits&&narrow.statusFits&&narrow.buttons.every(Boolean), JSON.stringify(narrow));
+            await snapshot('running-'+width);
+        }
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 1424, height: 900, deviceScaleFactor: 1, mobile: false });
+        const stopping = await app.evaluate("(()=>{document.getElementById('btn-stop').click();return {message:document.getElementById('toolbar-workflow-run-status').textContent,disabled:document.getElementById('btn-stop').disabled}})()");
+        assert.deepEqual(stopping, { message: '停止中', disabled: true });
+        await app.waitFor("toolbarRequests.find(request=>request.prompt==='b').aborted");
+        assert.equal(await app.evaluate("toolbarRequests.find(request=>request.prompt==='a').aborted"), false);
+        assert.equal(await app.evaluate("document.getElementById('btn-stop').disabled"), true);
+        assert.match(await app.evaluate("document.getElementById('btn-stop').textContent.trim()"), /^停止$/);
+        await snapshot('after-stop');
+        await app.evaluate("toolbarRequests.find(request=>request.prompt==='b').finishAbort()");
+        await app.waitFor("document.getElementById('toolbar-workflow-run-status').hidden&&document.getElementById('btn-stop').disabled");
+        await activate('a');
+        assert.equal(await app.evaluate("document.getElementById('toolbar-workflow-run-status').textContent"), '运行中');
+        await app.evaluate("toolbarRequests.find(request=>request.prompt==='a').release()");
+        await app.waitFor("document.getElementById('toolbar-workflow-run-status').hidden&&document.getElementById('node-a-run-status').textContent==='完成'");
+        assert.equal(await app.evaluate('toolbarRequests.length'), 2);
+        const preparing = await app.evaluate("(()=>{holdNextToolbarFrame=true;document.getElementById('btn-run').click();return {message:document.getElementById('toolbar-workflow-run-status').textContent,canStop:!document.getElementById('btn-stop').disabled}})()");
+        assert.deepEqual(preparing, { message: '启动中', canStop: true });
+        await app.evaluate("document.getElementById('btn-stop').click();releaseToolbarFrame()");
+        await app.waitFor("document.getElementById('toolbar-workflow-run-status').hidden&&!document.getElementById('btn-run').disabled");
+        assert.equal(await app.evaluate('toolbarRequests.length'), 2, 'stopping a held launch frame never sends a third provider request');
+        if (process.env.CAINFLOW_TOOLBAR_VISUALS) await writeFile(join(process.env.CAINFLOW_TOOLBAR_VISUALS,'theme-facts.json'), JSON.stringify(facts,null,2));
+    });
+});
 
 test('zoom percentage label opens its preset menu with a real pointer', { timeout: 20000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false,

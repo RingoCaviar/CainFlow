@@ -767,8 +767,8 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     finishConnection: (src, tgt) => finishConnection(src, tgt),
     updateConnectionTargetFeedback: (src) => updateConnectionTargetFeedback(src),
     clearConnectionTargetFeedback: () => clearConnectionTargetFeedback(),
-    resumeVideoGeneration: (nodeId) => getWorkflowRunnerApi().resumeVideoNodeBranch(nodeId),
-    resumeImageGeneration: (nodeId) => getWorkflowRunnerApi().resumeImageNodeBranch(nodeId),
+    resumeVideoGeneration: resumeWorkflowNode,
+    resumeImageGeneration: resumeWorkflowNode,
     setupImageImport,
     setupImageResize,
     setupColorReset: (id, el) => mediaControllerApi.setupColorReset(id, el),
@@ -929,17 +929,28 @@ function waitForRunStartFrame() {
     });
 }
 
-async function runWorkflow(runInput = null, { waitForCompletion = false, retainResults, configurationSnapshot, validateBeforeRun } = {}) {
+function resumeWorkflowNode(nodeId) {
+    return runWorkflow({ mode: 'target-node', targetNodeId: nodeId }, { waitForCompletion: true, resumeNodeId: nodeId });
+}
+
+async function runWorkflow(runInput = null, { waitForCompletion = false, retainResults, configurationSnapshot, validateBeforeRun, resumeNodeId = null } = {}) {
     if (state.canvasPlanApplying) throw new Error('画布方案正在应用，请稍后运行');
     if (state.isRunStarting) return false;
     const requestedWorkflowId = workflowManagerApi.getActiveWorkflowId();
+    const runStartController = new AbortController();
     state.isRunStarting = true;
+    state.runStartController = runStartController;
+    state.runStartingWorkflowId = requestedWorkflowId;
     getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();
     try {
         await waitForRunStartFrame();
+        if (runStartController.signal.aborted) return false;
         if (!(await workflowManagerApi.ensureOpenWorkflow())) return false;
+        if (runStartController.signal.aborted) return false;
         const effectiveRequestedWorkflowId = requestedWorkflowId || workflowManagerApi.getActiveWorkflowId();
+        state.runStartingWorkflowId = effectiveRequestedWorkflowId;
         await waitForPendingImageImports();
+        if (runStartController.signal.aborted) return false;
         if (workflowManagerApi.getActiveWorkflowId() !== effectiveRequestedWorkflowId) {
             showToast('工作流已切换，请在目标工作流重新运行', 'warning');
             return false;
@@ -962,13 +973,15 @@ async function runWorkflow(runInput = null, { waitForCompletion = false, retainR
         const workflowId = workflowManagerApi.getActiveWorkflowId?.() || workflowData?.workflowId || '';
         // Forward the completion promise without holding the launch guard for
         // the full generation; other workflow branches can still be started.
-        return getWorkflowRuntimeManagerApi().runWorkflowInContext({ workflowName, workflowId }, workflowData, runInput, { waitForCompletion, retainResults, configurationSnapshot });
+        return getWorkflowRuntimeManagerApi().runWorkflowInContext({ workflowName, workflowId }, workflowData, runInput, { waitForCompletion, retainResults, configurationSnapshot, resumeNodeId });
     } catch (error) {
         showToast(error?.message || '无法启动工作流', 'warning');
         if (waitForCompletion) throw error;
         return false;
     } finally {
         state.isRunStarting = false;
+        state.runStartController = null;
+        state.runStartingWorkflowId = null;
         getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();
     }
 }
@@ -1312,6 +1325,11 @@ function getToolbarControllerApi() {
             canvasContainer,
             viewportApi,
             runWorkflow,
+            stopCurrentWorkflow: () => {
+                const workflowId = workflowManagerApi.getActiveWorkflowId();
+                if (!workflowId) return false;
+                return getWorkflowRuntimeManagerApi().abortWorkflowRuns({ workflowId, workflowName: workflowManagerApi.getActiveWorkflowName() });
+            },
             saveState,
             undo,
             redo,
