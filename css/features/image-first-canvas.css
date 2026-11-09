@@ -978,7 +978,7 @@ html:root #canvas-container .node.node-text .text-multi-nav:not(.hidden) { paddi
 @media (max-width: 480px) { .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-model-entry { flex-basis: 140px; } }
 .image-parameter-panel .image-node-prompt-field textarea { resize: none; }
 
-/* One rhythm for the editing surface, settings and execution controls. */
+/* Editing surface and popup controls; compact footer sizes are scoped below. */
 .image-parameter-panel {
     --parameter-control-height: 34px;
     --node-control-border: color-mix(in srgb, var(--border-input) 65%, transparent);
@@ -1000,10 +1000,12 @@ html:root #canvas-container .node.node-text .text-multi-nav:not(.hidden) { paddi
 .image-parameter-panel .image-parameter-more-entry {
     display: flex; align-items: center; justify-content: center; box-sizing: border-box;
     width: var(--parameter-control-height); height: var(--parameter-control-height); min-height: var(--parameter-control-height); padding: 0; border: 1px solid var(--node-control-border);
-    border-radius: 8px; background: var(--node-control-surface); color: var(--text-primary);
+    border-radius: 6px; background: var(--node-control-surface); color: var(--text-primary);
     font-size: var(--parameter-control-font-size, 13px); white-space: nowrap; cursor: pointer;
 }
 .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer {
+    --parameter-control-height: 32px;
+    --parameter-control-font-size: 13px;
     padding: 0 var(--parameter-spacing) var(--parameter-spacing); border-top: 0; gap: var(--parameter-spacing); background: transparent; flex-wrap: nowrap;
 }
 .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer-tools {
@@ -1013,7 +1015,7 @@ html:root #canvas-container .node.node-text .text-multi-nav:not(.hidden) { paddi
 .image-parameter-panel[data-node-type="ImageGenerate"] :is(.image-parameter-settings-entry, .image-parameter-model-entry) {
     display: flex; align-items: center; justify-content: space-between;
     box-sizing: border-box; width: 100%; min-width: 0; height: var(--parameter-control-height);
-    min-height: var(--parameter-control-height); padding: 0 10px; border-radius: 8px;
+    min-height: var(--parameter-control-height); padding: 0 8px; border-radius: 6px;
     border: 1px solid var(--node-control-border); font-size: var(--parameter-control-font-size, 13px); line-height: 1.25;
     overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
@@ -1037,11 +1039,11 @@ html:root #canvas-container .node.node-text .text-multi-nav:not(.hidden) { paddi
 }
 .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer > .save-btn[data-parameter-action="generate"] {
     box-sizing: border-box; height: var(--parameter-control-height); min-height: var(--parameter-control-height);
-    min-width: 82px; padding: 0 10px; border-radius: 8px; font-size: var(--parameter-control-font-size, 13px);
+    min-width: 72px; padding: 0 8px; border-radius: 6px; font-size: var(--parameter-control-font-size, 13px); font-weight: 600;
 }
 .image-parameter-panel .image-parameter-count-control[data-parameter-group] { padding-top: 0; }
 .image-parameter-panel .image-parameter-count-control .generation-count-control {
-    box-sizing: border-box; height: var(--parameter-control-height); border-radius: 8px;
+    box-sizing: border-box; height: var(--parameter-control-height); border-radius: 6px;
     font-size: var(--parameter-control-font-size, 13px);
 }
 .image-parameter-panel .image-parameter-count-control :is(.generation-count-btn, .generation-count-input) {
@@ -1090,8 +1092,8 @@ html:root #canvas-container .node.node-text .text-multi-nav:not(.hidden) { paddi
 @container image-parameter (max-width: 360px) {
     .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer-tools { grid-template-columns: repeat(2, minmax(0, 1fr)) var(--parameter-control-height); }
     .image-parameter-panel[data-node-type="ImageGenerate"] :is(.image-parameter-settings-entry, .image-parameter-model-entry) { padding-inline: 2px; }
-    .image-parameter-panel .image-parameter-count-control .generation-count-control { grid-template-columns: 24px 24px 24px; }
-    .image-parameter-panel .image-parameter-count-control .generation-count-input { flex-basis: 24px; width: 24px; min-width: 24px; }
+}
+@container image-parameter (max-width: 280px) {
     .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer > .save-btn[data-parameter-action="generate"] { min-width: 58px; padding-inline: 4px; }
 }
 

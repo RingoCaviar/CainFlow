@@ -22,8 +22,9 @@ test('menu and dialog semantic states render in all supported themes', () => {
         assert.notEqual(result.states.find(({ state }) => state === 'focus').outline, 'none');
         assert.equal(result.themeMenuStates.length, 3);
         const normalThemeItem = result.themeMenuStates.find(({ state }) => state === 'normal');
-        assert.ok(parseColor(normalThemeItem.background)[3] > 0, `${result.themeId} normal theme item needs a visible surface`);
-        assert.ok(parseColor(normalThemeItem.border)[3] > 0, `${result.themeId} normal theme item needs a visible border`);
+        // Normal rows share the menu surface; the existing divider separates items.
+        assert.equal(parseColor(normalThemeItem.background)[3], 0, `${result.themeId} normal theme item uses the shared menu surface`);
+        assert.equal(parseColor(normalThemeItem.border)[3], 0, `${result.themeId} normal theme item avoids an independent outline`);
         assert.deepEqual(parseColor(normalThemeItem.color), parseColor(result.semantic['--menu-text']), `${result.themeId} normal theme item must use semantic menu text`);
         assert.deepEqual(parseColor(result.themeMenuStates.find(({ state }) => state === 'focus').background), parseColor(result.semantic['--menu-hover-bg']));
         assert.deepEqual(parseColor(result.themeMenuStates.find(({ state }) => state === 'active').background), parseColor(result.semantic['--menu-active-bg']));

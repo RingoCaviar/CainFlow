@@ -49,7 +49,7 @@ html:root .btn:disabled {
 
 /* Toolbar buttons sit directly on chrome; a two-pixel edge stays legible there. */
 html:root #toolbar {
-    gap: 8px;
+    gap: 4px 8px;
 }
 
 html:root #toolbar .toolbar-divider {

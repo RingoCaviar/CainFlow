@@ -51,7 +51,7 @@ test('short parameter fields share rows while custom dimensions and long text ke
         await app.evaluate("document.querySelector('#image-parameter-panel .thinking-control > summary').click()");
         await settle();
         const supported = await app.evaluate(`(()=>{const t=document.querySelector('#image-parameter-panel .thinking-control'),search=document.getElementById('paired-search'),track=search.nextElementSibling,options=document.querySelector('.image-parameter-output-options');return {thinkingHeight:t.querySelector('select').offsetHeight,noteFont:parseFloat(getComputedStyle(t.querySelector('small')).fontSize),switchHeight:search.parentElement.offsetHeight,trackBorder:parseFloat(getComputedStyle(track).borderTopWidth),searchWidth:search.closest('.node-field').offsetWidth,optionsWidth:options.clientWidth}})()`);
-        assert.equal(supported.thinkingHeight, 34, 'expanded thinking uses the same control height');
+        assert.equal(supported.thinkingHeight, 38, 'expanded thinking retains the full popup control height');
         assert.ok(supported.noteFont>=12 && supported.switchHeight>=24 && supported.trackBorder>=1, 'thinking notes and the search off state stay readable and reachable');
         assert.equal(supported.searchWidth, supported.optionsWidth, 'a model with search only does not leave empty option columns');
         assert.ok(await app.evaluate("[...document.querySelector('#image-parameter-panel .thinking-control select').options].some(option=>option.value==='level:high')"), 'switching models refreshes the detached thinking control options');
@@ -110,14 +110,22 @@ test('parameter editor uses viewport space and preserves scrolling without overl
                 const footer = panel.querySelector('.image-parameter-footer');
                 const controls = ['.image-parameter-settings-entry', '.image-parameter-model-entry', '.image-parameter-more-entry', '.generation-count-control', '[data-parameter-action=generate]'].map(selector => {
                     const element = footer.querySelector(selector), r = element.getBoundingClientRect();
-                    return { top:r.top, bottom:r.bottom, left:r.left, right:r.right, width:r.width, height:r.height };
+                    return { top:r.top, bottom:r.bottom, left:r.left, right:r.right, width:r.width, height:r.height, font:parseFloat(getComputedStyle(element).fontSize) };
                 });
                 const prompt = panel.querySelector('.image-node-prompt-field textarea');
                 const border = getComputedStyle(prompt);
                 return { controls, promptWidth:prompt.getBoundingClientRect().width, fieldWidth:prompt.closest('.image-node-prompt-field').getBoundingClientRect().width, overflow:footer.scrollWidth-footer.clientWidth, borderWidth:parseFloat(border.borderTopWidth), borderStyle:border.borderTopStyle, borderColor:border.borderTopColor };
             })()`);
             assert.ok(layout.overflow <= 1, `${width}px footer must not overflow`);
-            assert.ok(layout.controls.every(r => Math.abs(r.top-layout.controls[0].top)<1 && Math.abs(r.height-34)<1), `${width}px controls stay aligned on one row: ${JSON.stringify(layout.controls)}`);
+            assert.ok(layout.controls.every(r => Math.abs(r.top-layout.controls[0].top)<1 && Math.abs(r.height-32)<1 && r.font===13), `${width}px controls stay compact and aligned on one row: ${JSON.stringify(layout.controls)}`);
+            assert.ok(layout.controls.every((r,index)=>!index || Math.abs(r.left-layout.controls[index-1].right-6)<1), `${width}px footer gaps keep the shared 6px rhythm`);
+            assert.equal(layout.controls[2].width, 32, 'More remains square');
+            assert.equal(layout.controls[3].width, 82, 'count retains its three-digit input space even in a narrow window');
+            if (width>=320) assert.ok(layout.controls[4].width>=72 && layout.controls[4].width<=82, 'generate keeps its compact minimum while fitting a three-digit batch label');
+            for (const count of [1, 10, 100]) {
+                await app.evaluate(`(()=>{const input=document.getElementById('image-generation-count');input.value='${count}';input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}))})()`);
+                assert.deepEqual(await app.evaluate("(()=>{const i=document.getElementById('image-generation-count');return {value:i.value,width:i.offsetWidth,max:i.getAttribute('max')}})()"), {value:String(count),width:32,max:null});
+            }
             if (width===1280) assert.ok(layout.controls[0].width<=124 && layout.controls[0].width<layout.controls[1].width, 'short size summary uses compact width rather than an equal share');
             assert.ok(layout.controls.every((r, index) => r.left>=0 && r.right<=width && (!index || r.left>=layout.controls[index-1].right)), 'all five controls remain on screen without overlap');
             assert.ok(Math.abs(layout.promptWidth-layout.fieldWidth)<1, 'More no longer takes width from the prompt');

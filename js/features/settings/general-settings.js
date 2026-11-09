@@ -108,7 +108,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
             { id: 'canvas', label: '外观与画布', columns: [['canvas']] },
             { id: 'generation', label: '生成与运行', columns: [['storage', 'image'], ['automation']] },
             { id: 'notifications', label: '通知', columns: [['notifications']] },
-            { id: 'advanced', label: '高级', columns: [['agent'], ['migration', 'diagnostics', 'update']] }
+            { id: 'advanced', label: '高级', columns: [['agent', 'migration'], ['diagnostics', 'update']] }
         ];
         const note = documentRef.createElement('p');
         note.className = 'general-settings-save-note';
@@ -157,6 +157,8 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                 if (selected && focus) button.focus();
             });
             panels.forEach(panel => { panel.hidden = panel.dataset.settingsPane !== id; });
+            const body = documentRef.getElementById('settings-body');
+            if (body) body.scrollTop = 0;
         };
         navigation.addEventListener('click', event => {
             const button = event.target.closest('[data-settings-category]');
@@ -381,7 +383,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                             <div class="general-settings-field-divider" aria-hidden="true"></div>
                             <div class="card-field">
                                 <div class="general-settings-control-row">
-                                    ${dialogs.renderGeneralSettingsHelpLabel('加载页面时自动检查更新', generalHelpText.autoCheckUpdatesOnLoad, { emphasis: true })}
+                                    ${dialogs.renderGeneralSettingsHelpLabel('加载页面时自动检查更新', generalHelpText.autoCheckUpdatesOnLoad, { emphasis: true, controlId: 'setting-auto-check-updates-on-load' })}
                                     <label class="toggle-switch">
                                         <input type="checkbox" id="setting-auto-check-updates-on-load" ${autoCheckUpdatesOnLoad ? 'checked' : ''}>
                                         <span class="toggle-slider"></span>
@@ -404,7 +406,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                 <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
                     <div class="card-field">
                         <div class="general-settings-control-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('导入时自动缩放', generalHelpText.autoResize, { emphasis: true })}
+                            ${dialogs.renderGeneralSettingsHelpLabel('导入时自动缩放', generalHelpText.autoResize, { emphasis: true, controlId: 'setting-auto-resize-enabled' })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-auto-resize-enabled" ${autoResizeEnabled ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
@@ -425,7 +427,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <div class="general-settings-label-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('图片导入自适应缩放阈值 (边长)', generalHelpText.maxSide)}
+                            ${dialogs.renderGeneralSettingsHelpLabel('导入图片最大边长', generalHelpText.maxSide, { controlId: 'setting-max-side' })}
                         </div>
                         <div class="general-settings-inline-input" style="display:flex; align-items:center; gap:8px; opacity:${autoResizeEnabled ? '1' : '0.55'};">
                             <input type="number" id="setting-max-side" value="${currentSide}" placeholder="如: 2048" style="flex:1" ${autoResizeEnabled ? '' : 'disabled'} />
@@ -442,7 +444,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                 <div class="card-row">
                     <div class="card-field">
                         <div class="general-settings-label-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('图片和视频保存目录', generalHelpText.globalSaveDir)}
+                            ${dialogs.renderGeneralSettingsHelpLabel('图片和视频保存目录', generalHelpText.globalSaveDir, { controlId: 'setting-global-export-dir' })}
                         </div>
                         <div class="general-settings-dir-row">
                             <span id="global-dir-badge" class="${state.globalSaveDirHandle ? 'is-set' : 'is-missing'}">
@@ -457,7 +459,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <div class="general-settings-control-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('使用提示词命名生成结果', generalHelpText.promptFilename, { emphasis: true })}
+                            ${dialogs.renderGeneralSettingsHelpLabel('使用提示词命名生成结果', generalHelpText.promptFilename, { emphasis: true, controlId: 'setting-image-save-use-prompt-filename' })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-image-save-use-prompt-filename" ${imageSaveUsePromptFilename ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
@@ -485,7 +487,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                 <div class="card-row">
                     <div class="card-field">
                         <div class="general-settings-control-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('失败时自动重试', generalHelpText.autoRetry, { emphasis: true })}
+                            ${dialogs.renderGeneralSettingsHelpLabel('失败时自动重试', generalHelpText.autoRetry, { emphasis: true, controlId: 'toggle-retry' })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="toggle-retry" role="switch" aria-label="失败时自动重试" ${state.autoRetry === true ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
@@ -495,7 +497,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <div class="general-settings-label-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('最大自动重试次数', generalHelpText.maxRetries)}
+                            ${dialogs.renderGeneralSettingsHelpLabel('最大自动重试次数', generalHelpText.maxRetries, { controlId: 'setting-max-retries' })}
                         </div>
                         <div class="general-settings-inline-input">
                             <div class="retry-input-group">
@@ -510,14 +512,14 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <div class="general-settings-label-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('Agent 自动压缩阈值（Token）', generalHelpText.autoCompactTokens)}
+                            ${dialogs.renderGeneralSettingsHelpLabel('Agent 自动压缩阈值（Token）', generalHelpText.autoCompactTokens, { controlId: 'setting-agent-auto-compact-tokens' })}
                         </div>
                         <input type="number" id="setting-agent-auto-compact-tokens" min="1" step="1" value="${readAutoCompactTokens(localStorageRef)}" aria-label="Agent 自动压缩阈值 Token" />
                     </div>
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <div class="general-settings-label-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('Agent 上下文压缩模型', generalHelpText.compactionModel)}
+                            ${dialogs.renderGeneralSettingsHelpLabel('Agent 上下文压缩模型', generalHelpText.compactionModel, { controlId: 'setting-agent-compaction-model' })}
                         </div>
                         <div class="general-settings-compaction-control">
                             <select id="setting-agent-compaction-model" aria-label="Agent 上下文压缩模型与供应商">
@@ -532,7 +534,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <div class="general-settings-control-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('并发请求模式', generalHelpText.concurrentRequestMode, { emphasis: true })}
+                            ${dialogs.renderGeneralSettingsHelpLabel('并发请求模式', generalHelpText.concurrentRequestMode, { emphasis: true, controlId: 'setting-concurrent-request-mode' })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-concurrent-request-mode" ${concurrentRequestMode ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
@@ -542,28 +544,28 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <div class="general-settings-control-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('图片与普通请求超时', generalHelpText.timeout, { emphasis: true })}
+                            ${dialogs.renderGeneralSettingsHelpLabel('图片与普通请求超时', generalHelpText.timeout, { emphasis: true, controlId: 'setting-timeout-enabled' })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-timeout-enabled" ${state.requestTimeoutEnabled ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
                         <div class="general-settings-inline-input" style="display:flex; align-items:center; gap:8px; opacity:${state.requestTimeoutEnabled ? '1' : '0.55'};">
-                            <input type="number" id="setting-timeout-seconds" value="${state.requestTimeoutSeconds || 60}" min="1" step="1" ${state.requestTimeoutEnabled ? '' : 'disabled'} style="flex:1" />
+                            <input type="number" id="setting-timeout-seconds" aria-label="图片与普通请求超时秒数" value="${state.requestTimeoutSeconds || 60}" min="1" step="1" ${state.requestTimeoutEnabled ? '' : 'disabled'} style="flex:1" />
                             <span style="font-size:11px; color:var(--text-dim); min-width:20px;">秒</span>
                         </div>
                     </div>
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <div class="general-settings-control-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('视频生成超时', '视频创建与轮询使用此独立阈值。视频工作流不会使用图片请求超时。', { emphasis: true })}
+                            ${dialogs.renderGeneralSettingsHelpLabel('视频生成超时', '视频创建与轮询使用此独立阈值。视频工作流不会使用图片请求超时。', { emphasis: true, controlId: 'setting-video-timeout-enabled' })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-video-timeout-enabled" ${state.videoRequestTimeoutEnabled ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
                         <div class="general-settings-inline-input" style="display:flex; align-items:center; gap:8px; opacity:${state.videoRequestTimeoutEnabled ? '1' : '0.55'};">
-                            <input type="number" id="setting-video-timeout-minutes" value="${Math.max(1, Math.ceil((state.videoRequestTimeoutSeconds || 1800) / 60))}" min="1" step="1" ${state.videoRequestTimeoutEnabled ? '' : 'disabled'} style="flex:1" />
+                            <input type="number" id="setting-video-timeout-minutes" aria-label="视频生成超时分钟数" value="${Math.max(1, Math.ceil((state.videoRequestTimeoutSeconds || 1800) / 60))}" min="1" step="1" ${state.videoRequestTimeoutEnabled ? '' : 'disabled'} style="flex:1" />
                             <span style="font-size:11px; color:var(--text-dim); min-width:20px;">分钟</span>
                         </div>
                     </div>
@@ -576,7 +578,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                 <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
                     <div class="card-field">
                         <div class="general-settings-label-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('连线类型', generalHelpText.connectionLineType)}
+                            ${dialogs.renderGeneralSettingsHelpLabel('连线类型', generalHelpText.connectionLineType, { controlId: 'setting-connection-line-type' })}
                         </div>
                         <select id="setting-connection-line-type" style="width:100%;">
                             <option value="bezier" ${connectionLineType === 'bezier' ? 'selected' : ''}>贝塞尔曲线</option>
@@ -586,7 +588,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <div class="general-settings-control-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('统一顶部工具栏固定显示', generalHelpText.toolbarPinned, { emphasis: true })}
+                            ${dialogs.renderGeneralSettingsHelpLabel('顶部工具栏始终显示', generalHelpText.toolbarPinned, { emphasis: true, controlId: 'setting-toolbar-pinned' })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-toolbar-pinned" ${toolbarPinned ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
@@ -596,7 +598,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <div class="general-settings-control-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('装饰动画', generalHelpText.globalAnimation, { emphasis: true })}
+                            ${dialogs.renderGeneralSettingsHelpLabel('装饰动画', generalHelpText.globalAnimation, { emphasis: true, controlId: 'setting-global-animation-enabled' })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-global-animation-enabled" ${globalAnimationEnabled ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
@@ -612,7 +614,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                 <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
                     <div class="card-field">
                         <div class="general-settings-control-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('运行完成通知', generalHelpText.notifications, { emphasis: true })}
+                            ${dialogs.renderGeneralSettingsHelpLabel('运行完成通知', generalHelpText.notifications, { emphasis: true, controlId: 'toggle-notifications' })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="toggle-notifications" role="switch" aria-label="运行完成通知" ${state.notificationsEnabled === true ? 'checked' : ''}>
                                 <span class="toggle-slider"></span>
@@ -622,7 +624,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <div class="general-settings-label-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('完成音效音量', generalHelpText.notificationVolume)}
+                            ${dialogs.renderGeneralSettingsHelpLabel('完成音效音量', generalHelpText.notificationVolume, { controlId: 'setting-notify-volume' })}
                         </div>
                         <div class="general-settings-volume-row" style="display:flex; align-items:center; gap:12px;">
                             <input type="range" id="setting-notify-volume" class="notification-volume-slider" min="0" max="1" step="0.05" value="${state.notificationVolume}" style="flex:1" />
@@ -654,6 +656,15 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
         </div>
     `;
         organizeGeneralSettings(list);
+        for (const id of ['setting-max-side', 'setting-max-retries', 'setting-agent-auto-compact-tokens', 'setting-timeout-seconds', 'setting-video-timeout-minutes']) {
+            const input = documentRef.getElementById(id);
+            const field = input?.closest('.card-field');
+            if (!field) continue;
+            field.classList.add('general-settings-number-field');
+            const control = input.closest('.general-settings-inline-input')
+                || (input.parentElement === field ? input : input.parentElement);
+            control.classList.add('general-settings-number-control');
+        }
         dialogs.initGeneralSettingsHelpInteractions(list);
         dialogs.closeGeneralSettingsHelpPopovers(list);
 
@@ -955,6 +966,12 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                         || legacyProviderIds[modelId] || '',
                     setProviderId: (modelId, providerId) => writeCompactionProviderId(localStorageRef, modelId, providerId)
                 } }] });
+            const trigger = compactionSelect.nextElementSibling;
+            if (trigger?.classList.contains('prompt-agent-model-trigger')) {
+                trigger.id = 'setting-agent-compaction-model-trigger';
+                const label = list.querySelector('label[for="setting-agent-compaction-model"]');
+                if (label) label.htmlFor = trigger.id;
+            }
         }
 
         documentRef.querySelectorAll('.btn-retry-step').forEach((btn) => {

@@ -143,6 +143,8 @@
 }
 
 .api-settings-help-section {
+    min-width: 0;
+    overflow-wrap: anywhere;
     padding: 14px;
     border: 1px solid;
     border-radius: 8px;
@@ -355,12 +357,6 @@
 #providers-list .provider-config-card.is-collapsed .card-header,
 #models-list .model-config-card.is-collapsed .card-header {
     min-height: 28px;
-}
-
-#providers-list .provider-config-card.is-collapsed .card-header .card-name,
-#models-list .model-config-card.is-collapsed .card-header .card-name {
-    pointer-events: none;
-    cursor: pointer;
 }
 
 #models-list .api-config-card:has(.provider-multiselect-trigger[aria-expanded="true"]) {

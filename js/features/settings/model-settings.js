@@ -506,6 +506,8 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
         state.models.forEach((mod) => {
             providerSettings.syncModelProviderBindings(mod);
             const isCollapsed = store.modelCollapseState.get(mod.id) !== false;
+            const controlId = `model-${encodeURIComponent(mod.id)}`;
+            const toggleLabel = `${isCollapsed ? '展开' : '收起'}模型配置：${String(mod.name || '').trim() || '未命名模型'}`;
             const el = documentRef.createElement('div');
             el.className = `api-config-card model-config-card${isCollapsed ? ' is-collapsed' : ''}`;
             el.dataset.modelId = mod.id;
@@ -526,9 +528,9 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
             const providerDropdown = visibleProviders.length > 0
                 ? `
                     <div class="provider-multiselect" data-id="${mod.id}">
-                        <button type="button" class="provider-multiselect-trigger" data-id="${mod.id}" aria-expanded="${isProviderPanelOpen ? 'true' : 'false'}">
-                            <span class="provider-multiselect-summary">${dialogs.escapeHtml(providerSettings.getModelProviderSummary(mod))}</span>
-                            <span class="provider-multiselect-caret">▾</span>
+                        <button type="button" class="provider-multiselect-trigger" id="${controlId}-providers" data-id="${mod.id}" aria-labelledby="${controlId}-providers-label ${controlId}-providers-summary" aria-expanded="${isProviderPanelOpen ? 'true' : 'false'}">
+                            <span class="provider-multiselect-summary" id="${controlId}-providers-summary">${dialogs.escapeHtml(providerSettings.getModelProviderSummary(mod))}</span>
+                            <span class="provider-multiselect-caret" aria-hidden="true">▾</span>
                         </button>
                     </div>
                 `
@@ -536,31 +538,37 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
             el.innerHTML = `
                 <div class="card-header">
                     <span class="card-drag-handle" draggable="true" role="img" aria-label="拖动以调整模型顺序" title="拖动排序">⠿</span>
-                    <input type="text" class="card-name" value="${mod.name}" placeholder="自定义名称，显示在节点中" data-id="${mod.id}" data-field="name" ${isCollapsed ? 'readonly tabindex="-1" aria-label="点击展开模型配置"' : ''} />
+                    <label class="card-name-editor">
+                        <input type="text" class="card-name" value="${dialogs.escapeHtml(mod.name || '')}" placeholder="自定义名称，显示在节点中" aria-label="模型名称" data-id="${mod.id}" data-field="name" />
+                        <svg class="card-name-edit-icon" aria-hidden="true" focusable="false"><use href="#icon-pencil" /></svg>
+                    </label>
                     <div class="card-header-actions">
-                        ${mod.id !== 'default' ? `<button class="card-btn-delete" data-id="${mod.id}" data-target="model" title="删除此模型">×</button>` : ''}
+                        <button type="button" class="card-btn-disclosure" id="${controlId}-toggle" data-id="${mod.id}" aria-expanded="${!isCollapsed}" aria-controls="${controlId}-details" aria-label="${dialogs.escapeHtml(toggleLabel)}" title="${isCollapsed ? '展开' : '收起'}模型配置">
+                            <svg class="card-disclosure-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6" /></svg>
+                        </button>
+                        ${mod.id !== 'default' ? `<button type="button" class="card-btn-delete" data-id="${mod.id}" data-target="model" title="删除此模型" aria-label="删除此模型"><svg class="card-delete-icon" aria-hidden="true" focusable="false"><use href="#icon-trash" /></svg></button>` : ''}
                     </div>
                 </div>
-                <div class="card-collapsible" style="display:${isCollapsed ? 'none' : 'flex'};">
+                <div class="card-collapsible" id="${controlId}-details" style="display:${isCollapsed ? 'none' : 'flex'};">
                     <p class="model-configuration-status" role="status">${dialogs.escapeHtml(configurationIssue?.message || '本地配置完整 · 尚未验证接口连接')}</p>
                     <div class="card-row">
-                        <div class="card-field"><label>模型代码 (Model ID)</label><input type="text" value="${mod.modelId}" placeholder="如: gemini-2.5-flash" data-id="${mod.id}" data-field="modelId" /></div>
-                        <div class="card-field"><label>绑定供应商</label>
+                        <div class="card-field"><label for="${controlId}-code">模型代码 (Model ID)</label><input id="${controlId}-code" type="text" value="${mod.modelId}" placeholder="如: gemini-2.5-flash" data-id="${mod.id}" data-field="modelId" /></div>
+                        <div class="card-field"><label id="${controlId}-providers-label" ${visibleProviders.length > 0 ? `for="${controlId}-providers"` : ''}>绑定供应商</label>
                             <div style="display:flex;flex-direction:column;gap:2px;padding-top:4px;">${providerDropdown}</div>
                         </div>
                     </div>
                     <div class="card-row">
                         <div class="card-field">
-                            <label>模型用途</label>
-                            <select data-id="${mod.id}" data-field="taskType">
+                            <label for="${controlId}-task">模型用途</label>
+                            <select id="${controlId}-task" data-id="${mod.id}" data-field="taskType">
                                 <option value="chat" ${taskType === 'chat' ? 'selected' : ''}>对话</option>
                                 <option value="image" ${taskType === 'image' ? 'selected' : ''}>生图</option>
                                 <option value="video" ${taskType === 'video' ? 'selected' : ''}>视频</option>
                             </select>
                         </div>
                         <div class="card-field">
-                            <label>兼容格式</label>
-                            <select class="${protocol ? '' : 'invalid model-protocol-required'}" aria-invalid="${protocol ? 'false' : 'true'}" data-id="${mod.id}" data-field="protocol">${protocolOptions}</select>
+                            <label for="${controlId}-protocol">兼容格式</label>
+                            <select id="${controlId}-protocol" class="${protocol ? '' : 'invalid model-protocol-required'}" aria-invalid="${protocol ? 'false' : 'true'}" data-id="${mod.id}" data-field="protocol">${protocolOptions}</select>
                         </div>
                     </div>
                     <details class="model-protocol-details"><summary>请求示例与格式说明（高级）</summary><div class="card-row">
@@ -590,8 +598,13 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                     : field === 'protocol'
                         ? normalizeModelProtocol(event.target.value, mod, provider)
                         : event.target.value;
+                if (field === 'name') {
+                    const toggle = event.target.closest('.model-config-card')?.querySelector('.card-btn-disclosure');
+                    const action = store.modelCollapseState.get(id) !== false ? '展开' : '收起';
+                    toggle?.setAttribute('aria-label', `${action}模型配置：${String(mod.name || '').trim() || '未命名模型'}`);
+                }
                 saveState();
-                renderModels();
+                if (field !== 'name') renderModels();
                 updateAllNodeModelDropdowns();
             });
         });
@@ -607,15 +620,27 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
         });
 
         modelsList.querySelectorAll('.card-btn-delete').forEach((btn) => {
-            btn.addEventListener('click', async (event) => {
+            btn.addEventListener('click', async () => {
+                const modelId = btn.dataset.id;
                 if (!await confirmAction({ documentRef, title: '删除模型', message: '确定删除此模型配置吗？', confirmLabel: '删除模型', danger: true })) return;
-                if (store.openModelProviderPanelId === event.target.dataset.id) {
+                if (store.openModelProviderPanelId === modelId) {
                     store.openModelProviderPanelId = '';
                 }
-                state.models = state.models.filter((candidate) => candidate.id !== event.target.dataset.id);
+                state.models = state.models.filter((candidate) => candidate.id !== modelId);
                 renderModels();
                 updateAllNodeModelDropdowns();
                 saveState();
+            });
+        });
+
+        modelsList.querySelectorAll('.card-btn-disclosure').forEach((button) => {
+            button.addEventListener('click', (event) => {
+                event.stopPropagation();
+                const { id } = event.currentTarget.dataset;
+                const toggleId = event.currentTarget.id;
+                store.modelCollapseState.set(id, !(store.modelCollapseState.get(id) !== false));
+                renderModels();
+                documentRef.getElementById(toggleId)?.focus({ preventScroll: true });
             });
         });
 
@@ -627,7 +652,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                 const clickedHeader = event.target.closest('.card-header');
                 if (!isCollapsedCard && !clickedHeader) return;
                 if (event.target.closest('.card-btn-delete, button, select, textarea, label, a, .card-drag-handle')) return;
-                if (!!event.target.closest('input, select, textarea, button, label, a') && !isCollapsedCard) return;
+                if (event.target.closest('input, select, textarea, button, label, a')) return;
 
                 const id = card.dataset.modelId || card.querySelector('.card-name')?.dataset.id;
                 if (!id) return;

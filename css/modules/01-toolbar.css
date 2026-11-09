@@ -7,9 +7,9 @@
     display: flex;
     align-items: center;
     justify-content: flex-start;
-    padding: 8px 16px;
-    gap: 8px 12px;
-    min-height: 48px;
+    padding: 4px 16px;
+    gap: 4px 12px;
+    min-height: 50px;
     height: auto;
     flex-wrap: wrap;
     z-index: var(--layer-toolbar);
@@ -115,8 +115,8 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     flex: 0 0 auto;
     box-sizing: border-box;
     max-width: 100%;
-    min-height: 46px;
-    padding: 4px;
+    min-height: 40px;
+    padding: 0 4px;
     border: 1px solid transparent;
     border-radius: 10px;
     background: transparent;
@@ -154,10 +154,13 @@ body.workspace-mode-conversation #toolbar .toolbar-action-group {
 
 .toolbar-workflow-heading {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 53px;
+    grid-template-columns: minmax(0, 1fr);
     align-items: center;
-    column-gap: 4px;
     min-width: 0;
+}
+.toolbar-workflow-heading:has(> .toolbar-workflow-run-status:not([hidden])) {
+    grid-template-columns: minmax(0, 1fr) 53px;
+    column-gap: 4px;
 }
 .toolbar-workflow-run-status {
     font-size: 12px;
@@ -240,6 +243,10 @@ body.workspace-mode-conversation #toolbar .toolbar-action-group {
     #toolbar .toolbar-action-group {
         flex-wrap: wrap;
     }
+    .toolbar-more-menu {
+        left: 0;
+        right: auto;
+    }
 }
 
 /* A short window cannot fit a dropdown below a wrapped toolbar. */
@@ -247,6 +254,7 @@ body.workspace-mode-conversation #toolbar .toolbar-action-group {
     .toolbar-more-menu {
         position: fixed;
         top: 8px;
+        left: auto;
         right: 8px;
         max-height: calc(100dvh - 16px);
     }
@@ -296,6 +304,14 @@ body.workspace-mode-conversation #toolbar .toolbar-action-group {
     letter-spacing: -0.3px;
 }
 
+.logo > span {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    line-height: 1.2;
+}
+
 .logo svg {
     color: var(--accent-purple);
 }
@@ -307,7 +323,7 @@ body.workspace-mode-conversation #toolbar .toolbar-action-group {
     background: rgba(255, 255, 255, 0.05);
     padding: 1px 6px;
     border-radius: 4px;
-    margin-left: 4px;
+    margin-left: 0;
     vertical-align: baseline;
     font-family: var(--font-mono);
     opacity: 0.9;
