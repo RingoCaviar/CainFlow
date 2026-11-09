@@ -21,6 +21,7 @@ test('menu and dialog semantic states render in all supported themes', () => {
         assert.deepEqual(parseColor(result.states.find(({ state }) => state === 'danger').color), parseColor(result.semantic['--menu-danger-text']));
         assert.notEqual(result.states.find(({ state }) => state === 'focus').outline, 'none');
         assert.equal(result.themeMenuStates.length, 3);
+        assert.ok(result.themeMenuLabelOffsets.every(offset=>Math.abs(offset)<=1), `${result.themeId} theme names stay centered including the selected item check`);
         const normalThemeItem = result.themeMenuStates.find(({ state }) => state === 'normal');
         // Normal rows share the menu surface; the existing divider separates items.
         assert.equal(parseColor(normalThemeItem.background)[3], 0, `${result.themeId} normal theme item uses the shared menu surface`);

@@ -28,9 +28,9 @@
         </section>
         <section class="context-menu context-menu-submenu"><div class="context-menu-item">子菜单</div></section>
         <section class="theme-menu-panel">
-            <button class="theme-menu-item">普通主题</button>
-            <button class="theme-menu-item is-focused">焦点主题</button>
-            <button class="theme-menu-item is-active">当前主题</button>
+            <button class="theme-menu-item"><span class="theme-menu-item-label">普通主题</span><svg class="theme-menu-item-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg></button>
+            <button class="theme-menu-item is-focused"><span class="theme-menu-item-label">焦点主题</span><svg class="theme-menu-item-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg></button>
+            <button class="theme-menu-item is-active"><span class="theme-menu-item-label">当前主题</span><svg class="theme-menu-item-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg></button>
         </section>
         <section class="modal-overlay">
             <article class="modal-panel">
@@ -93,6 +93,12 @@
                     themeId,
                     menu: tuple(menu),
                     themeMenu: tuple(themeMenu),
+                    themeMenuLabelOffsets: themeMenuItems.map(item => {
+                        const range = document.createRange();
+                        range.selectNodeContents(item.querySelector('.theme-menu-item-label'));
+                        const label = range.getBoundingClientRect(), button = item.getBoundingClientRect();
+                        return (label.left + label.right - button.left - button.right) / 2;
+                    }),
                     themeMenuStates: themeMenuItems.map((item, index) => ({ state: ['normal', 'focus', 'active'][index], ...tuple(item) })),
                     states: [...document.querySelectorAll('[data-kind="menu"]')].map((item) => ({ state: item.dataset.state, ...tuple(item) })),
                     dialog: { overlay: tuple(overlay), panel: tuple(panel), header: tuple(header), body: tuple(body), closeStates: modalCloseElements.map((item, index) => ({ state: ['normal', 'hover', 'focus'][index], ...tuple(item) })) },

@@ -6,6 +6,13 @@ import { spawn, spawnSync } from 'node:child_process';
 import { inflateSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 
+// Test-only Windows workaround used upstream by Playwright:
+// https://github.com/microsoft/playwright/pull/43605
+// Chromium's random port binding can fail on loopback despite available ports.
+export function chromiumNetworkArgs(platform = process.platform) {
+    return platform === 'win32' ? ['--disable-features=TcpPortRandomizationWin'] : [];
+}
+
 export const chromePath = [
     process.env.CHROME_PATH,
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
@@ -200,7 +207,7 @@ export function verifyScreenshotMatrix({ fixtureUrl, baselineDirectoryUrl, profi
             const url = new URL(fixtureUrl);
             url.searchParams.set('theme', themeId);
             const result = spawnSync(chromePath, [
-                '--headless=new', '--no-proxy-server', '--disable-gpu', '--no-sandbox', '--disable-extensions',
+                '--headless=new', ...chromiumNetworkArgs(), '--no-proxy-server', '--disable-gpu', '--no-sandbox', '--disable-extensions',
                 `--user-data-dir=${join(outputDir, `profile-${themeId}`)}`,
                 `--window-size=${windowSize}`, '--virtual-time-budget=1000',
                 `--screenshot=${screenshotPath}`, url.href,
@@ -224,7 +231,7 @@ export function renderComputedFixture(fixtureUrl, profilePrefix, windowSize = ''
     const profile = mkdtempSync(join(tmpdir(), profilePrefix));
     try {
         const sizeArg = windowSize ? [`--window-size=${windowSize}`] : [];
-        const result = spawnSync(chromePath, ['--headless=new', '--no-proxy-server', '--disable-gpu', '--no-sandbox', '--disable-extensions', ...sizeArg, `--user-data-dir=${profile}`, '--virtual-time-budget=1000', '--dump-dom', fixtureUrl.href], { encoding: 'utf8', timeout: 15000 });
+        const result = spawnSync(chromePath, ['--headless=new', ...chromiumNetworkArgs(), '--no-proxy-server', '--disable-gpu', '--no-sandbox', '--disable-extensions', ...sizeArg, `--user-data-dir=${profile}`, '--virtual-time-budget=1000', '--dump-dom', fixtureUrl.href], { encoding: 'utf8', timeout: 15000 });
         assert.equal(result.status, 0, result.stderr);
         const match = result.stdout.match(/<pre id="surface-result">([^<]+)<\/pre>/);
         assert.ok(match, 'fixture must publish computed styles');
@@ -301,7 +308,7 @@ export async function renderComputedFixtureAtViewport(fixtureUrl, profilePrefix,
     const profile = mkdtempSync(join(tmpdir(), profilePrefix));
     const port = 20000 + Math.floor(Math.random() * 20000);
     const browser = spawn(chromePath, [
-        '--headless=new', '--no-proxy-server', '--disable-gpu', '--no-sandbox', '--disable-extensions',
+        '--headless=new', ...chromiumNetworkArgs(), '--no-proxy-server', '--disable-gpu', '--no-sandbox', '--disable-extensions',
         `--user-data-dir=${profile}`, `--remote-debugging-port=${port}`, fixtureUrl.href,
     ], { stdio: 'ignore' });
     let client;
@@ -337,7 +344,7 @@ export async function renderHoveredFixture(fixtureUrl, profilePrefix) {
     const profile = mkdtempSync(join(tmpdir(), profilePrefix));
     const port = 20000 + Math.floor(Math.random() * 20000);
     const browser = spawn(chromePath, [
-        '--headless=new', '--no-proxy-server', '--disable-gpu', '--no-sandbox', '--disable-extensions',
+        '--headless=new', ...chromiumNetworkArgs(), '--no-proxy-server', '--disable-gpu', '--no-sandbox', '--disable-extensions',
         `--user-data-dir=${profile}`, `--remote-debugging-port=${port}`, '--window-size=1280,960', fixtureUrl.href,
     ], { stdio: 'ignore' });
     let client;

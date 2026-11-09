@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { chromiumNetworkArgs } from './helpers/browser-theme-fixture.mjs';
 
 const chromeCandidates = [
     process.env.CHROME_PATH,
@@ -24,7 +25,7 @@ function renderFixture() {
     const profileDir = mkdtempSync(join(tmpdir(), 'cainflow-media-layout-'));
     try {
         const result = spawnSync(chromePath, [
-            '--headless=new',
+            '--headless=new', ...chromiumNetworkArgs(),
             '--disable-gpu',
             '--no-sandbox',
             '--disable-extensions',

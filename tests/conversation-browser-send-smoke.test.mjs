@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { chromePath, startCainflowServer } from './helpers/browser-theme-fixture.mjs';
+import { chromePath, startCainflowServer, chromiumNetworkArgs } from './helpers/browser-theme-fixture.mjs';
 
 const enabled = process.env.CAINFLOW_BROWSER_SMOKE === '1';
 const liveSendEnabled = process.env.CAINFLOW_BROWSER_LIVE_SEND === '1';
@@ -38,7 +38,7 @@ test('browser: sending without configuration gives a visible setup next step', {
     const port = 34000 + Math.floor(Math.random() * 1000);
     const profile = mkdtempSync(join(tmpdir(), 'cainflow-send-smoke-'));
     const browser = spawn(chromePath, [
-        '--headless=new', '--disable-gpu', '--no-sandbox', '--disable-extensions',
+        '--headless=new', ...chromiumNetworkArgs(), '--disable-gpu', '--no-sandbox', '--disable-extensions',
         `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, targetUrl
     ], { stdio: 'ignore' });
     let socket;
@@ -118,7 +118,7 @@ test('browser: configured chat model completes a real conversation request', { s
     const port = 38000 + Math.floor(Math.random() * 1000);
     const profile = mkdtempSync(join(tmpdir(), 'cainflow-live-send-'));
     const browser = spawn(chromePath, [
-        '--headless=new', '--disable-gpu', '--no-sandbox', '--disable-extensions',
+        '--headless=new', ...chromiumNetworkArgs(), '--disable-gpu', '--no-sandbox', '--disable-extensions',
         `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, targetUrl
     ], { stdio: 'ignore' });
     let socket;
