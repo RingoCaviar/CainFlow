@@ -575,6 +575,11 @@ export function createPromptAgentController({
             preparedNodeContext = null;
             preparedImageRequest = null;
             const clearing = results.clear(clearedWorkflowId);
+            // Persistence may have no workflow document yet. Clear the visible
+            // store independently, after result cleanup captures its old runs.
+            conversationStore.clear();
+            conversationRevision += 1;
+            onStateChange();
             tokenObservation = null;
             pendingReferenceImages = [];
             referencePickerError = '';
