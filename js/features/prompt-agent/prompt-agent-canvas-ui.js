@@ -112,8 +112,8 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     const secondaryActions = element('div', '', moreActions); secondaryActions.className = 'prompt-agent-actions-secondary';
     const apply = element('button', '仅应用', secondaryActions), execute = element('button', generatesImages ? '生成图片' : '应用并执行', primaryActions);
     execute.className = 'btn btn-primary';
-    const retry = element('button', '重试未完成步骤', primaryActions), undo = element('button', '撤销本次画布操作', secondaryActions), stop = element('button', '停止', primaryActions);
-    const buttons = [apply, execute, retry, undo, stop]; buttons.forEach(button => { button.type = 'button'; });
+    const retry = element('button', '重试未完成步骤', primaryActions), undo = element('button', '撤销本次画布操作', secondaryActions);
+    const buttons = [apply, execute, retry, undo]; buttons.forEach(button => { button.type = 'button'; });
     function sync() {
         if (!busy && !plan.runs?.length) plan.agentSizes = Object.fromEntries(getModels().map(model => [model.id, getSize(model.id)]));
         if (!busy) plan.agentProviders = Object.fromEntries(getModels().map(model => [model.id, getProviderId(model.id)]));
@@ -157,7 +157,6 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         undo.hidden = !Object.keys(plan.bindings || {}).length && !plan.appliedSignature;
         execute.hidden = plan.steps.length === 0 || completed || busy || failed;
         undo.disabled = busy || Boolean(adapter.canUndo(plan)); undo.title = adapter.canUndo(plan);
-        stop.hidden = !busy;
         refresh.disabled = busy || !isCurrent();
         for (const select of list.querySelectorAll('select, .thinking-control input, .thinking-control button')) select.disabled = busy;
         if (unavailable) status.textContent = unavailable;
@@ -190,7 +189,6 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         finally { clearInterval(timer); busy = false; if (isCurrent()) { changed(plan); sync(); } }
     }
     apply.addEventListener('click', () => act(false)); execute.addEventListener('click', () => act(true)); retry.addEventListener('click', () => act(true, true));
-    stop.addEventListener('click', () => adapter.stop(plan));
     refresh.addEventListener('click', () => { try {
         adapter.refresh(plan); changes.replaceChildren(); adapter.describe(plan, getModelId()).forEach(line => element('li', line, changes));
         changed(plan); status.textContent = '已按当前画布更新清单，请重新检查后应用';
