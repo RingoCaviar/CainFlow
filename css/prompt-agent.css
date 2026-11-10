@@ -268,6 +268,22 @@ body:has(#toolbar:hover, #toolbar :focus-visible, #toolbar .btn.active:not(#btn-
     line-height: 1.4;
 }
 
+/* Keep cancellation keyboard accessible while presenting it as inline text. */
+.prompt-agent-run-stop {
+    appearance: none;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-danger, #dc2626);
+    font: inherit;
+    cursor: pointer;
+}
+
+.prompt-agent-run-stop:hover { text-decoration: underline; }
+.prompt-agent-run-stop:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+
 .prompt-agent-result-image {
     cursor: zoom-in;
     display: block;

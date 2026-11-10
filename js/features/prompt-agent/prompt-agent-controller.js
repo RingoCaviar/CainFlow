@@ -1559,7 +1559,7 @@ export function createPromptAgentController({
             if (run.status === 'running') {
                 const stop = documentRef.createElement('button');
                 stop.type = 'button';
-                stop.className = 'btn btn-ghost';
+                stop.className = 'prompt-agent-run-stop';
                 stop.textContent = '停止';
                 stop.addEventListener('click', () => {
                     if (getWorkflowId() === workflowId) executionAdapter?.stop?.(run.targetNodeId);
@@ -1613,7 +1613,7 @@ export function createPromptAgentController({
         runState.textContent = '正在生成…';
         const stopButton = documentRef.createElement('button');
         stopButton.type = 'button';
-        stopButton.className = 'btn btn-ghost';
+        stopButton.className = 'prompt-agent-run-stop';
         stopButton.textContent = '停止';
         stopButton.addEventListener('click', () => {
             if (actionState.isCurrent() && plan.targetNodeId) executionAdapter.stop?.(plan.targetNodeId);
