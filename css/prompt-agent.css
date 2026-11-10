@@ -83,7 +83,7 @@
 }
 
 body:is(.toolbar-pinned, .toolbar-peek-active) .prompt-agent-panel.active,
-body:has(#toolbar:hover, #toolbar:focus-within, #toolbar .btn.active:not(#btn-prompt-agent), #toolbar [aria-expanded="true"]:not(#btn-prompt-agent)) .prompt-agent-panel.active {
+body:has(#toolbar:hover, #toolbar :focus-visible, #toolbar .btn.active:not(#btn-prompt-agent), #toolbar [aria-expanded="true"]:not(#btn-prompt-agent)) .prompt-agent-panel.active {
     top: calc(var(--toolbar-height, 48px) + 8px);
 }
 

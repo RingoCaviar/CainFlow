@@ -60,8 +60,7 @@
 }
 
 #toolbar:hover,
-body:not(.preview-active):has(#canvas-empty-state:not([hidden])) #toolbar,
-#toolbar:focus-within,
+#toolbar:has(:focus-visible),
 #toolbar:has(.btn.active:not(#btn-prompt-agent)),
 #toolbar:has([aria-expanded="true"]:not(#btn-prompt-agent)),
 body.toolbar-peek-active #toolbar,
@@ -81,7 +80,7 @@ body.preview-active #toolbar {
 
 
 #toolbar:hover::after,
-#toolbar:focus-within::after,
+#toolbar:has(:focus-visible)::after,
 #toolbar:has(.btn.active:not(#btn-prompt-agent))::after,
 #toolbar:has([aria-expanded="true"]:not(#btn-prompt-agent))::after,
 body.toolbar-peek-active #toolbar::after,
@@ -90,7 +89,7 @@ body.toolbar-pinned #toolbar::after {
     transform: translateX(-50%) scaleX(0.72);
 }
 
-html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolbar:not(:hover):not(:focus-within):not(:has(.btn.active:not(#btn-prompt-agent))):not(:has([aria-expanded="true"]:not(#btn-prompt-agent))) {
+html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolbar:not(:hover):not(:has(:focus-visible)):not(:has(.btn.active:not(#btn-prompt-agent))):not(:has([aria-expanded="true"]:not(#btn-prompt-agent))) {
     box-shadow: none;
 }
 

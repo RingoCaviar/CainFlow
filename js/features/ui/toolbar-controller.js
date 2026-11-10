@@ -36,7 +36,7 @@ export function createToolbarControllerApi({
         return body.classList.contains('toolbar-pinned')
             || body.classList.contains(activeClass)
             || element.matches(':hover')
-            || element.matches(':focus-within')
+            || element.matches(':has(:focus-visible)')
             || element.querySelector('details[open]')
             || element.querySelector('.btn.active:not(#btn-prompt-agent), [aria-expanded="true"]:not(#btn-prompt-agent)');
     }
