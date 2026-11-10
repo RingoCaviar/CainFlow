@@ -50,7 +50,16 @@ try {
     let rejectCompaction;
     const imageUrl = `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#415d75"/><circle cx="40" cy="35" r="18" fill="#f0d4a3"/></svg>')}`;
     const image = { referenceId: 'import-1', name: '人物参考', dataUrl: imageUrl, previewUrl: imageUrl };
+    let documentUnavailable = true;
     const controller = createPromptAgentController({
+        // A fresh unsaved scene has no workflow document to mutate yet.
+        mutateWorkflowConversation: (_workflowId, reducer) => {
+            if (documentUnavailable) return false;
+            const next = reducer(controller.snapshotWorkflow());
+            if (!next) return false;
+            controller.syncWorkflowState(next);
+            return true;
+        },
         getChatModels: () => models,
         getImageModels: () => imageModels,
         createReply: async (request) => {
@@ -107,6 +116,7 @@ try {
     controller.refreshModels();
     type('/clear');
     key('Enter');
+    check(controller.snapshotWorkflow().messages.length === 0 && !messages.querySelector('.prompt-agent-message'), 'clear must remove local messages immediately even without a workflow document');
     await tick();
     const cleared = controller.snapshotWorkflow();
     check(cleared.messages.length === 0 && !cleared.archivedMessages?.length && !cleared.contextSummary && cleared.memory === '' && !cleared.referenceImages?.length, 'clear must erase conversation context');
@@ -116,6 +126,7 @@ try {
     check(cleared.imageModelId === 'image-second' && imageModelSelect.value === 'image-second', 'clear must preserve the chosen image model');
     check(!status.hidden && status.textContent.includes('清空'), 'clear must give visible feedback');
 
+    documentUnavailable = false;
     models = [model];
     controller.refreshModels();
     type('固定主角是蓝色小猫，不要添加文字。');
