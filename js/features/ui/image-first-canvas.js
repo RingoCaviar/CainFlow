@@ -88,7 +88,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         // Reserve the toolbar only while it is exposed; a collapsed, wrapping
         // toolbar must not consume the editor's usable height in small windows.
         const toolbarActive = toolbar && (documentRef.body.matches('.toolbar-pinned, .toolbar-peek-active')
-            || toolbar.matches(':hover, :focus-within')
+            || toolbar.matches(':hover, :has(:focus-visible)')
             || toolbar.querySelector('details[open], .btn.active:not(#btn-prompt-agent), [aria-expanded="true"]:not(#btn-prompt-agent)'));
         const top = toolbarActive
             ? Math.min(toolbar.offsetHeight + 12, Math.max(12, windowRef.innerHeight - 12)) : 12;

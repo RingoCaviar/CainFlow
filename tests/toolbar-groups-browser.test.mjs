@@ -2,6 +2,56 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 
+test('an empty canvas does not pin the toolbar after the pointer leaves', { timeout: 15000 }, async () => {
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes: [], connections: [] }, async app => {
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 500, y: 1 });
+        await app.waitFor("document.getElementById('toolbar').getBoundingClientRect().top >= -1");
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 200, y: 500 });
+        await app.evaluate('new Promise(resolve => setTimeout(resolve, 350))');
+        assert.ok(await app.evaluate("document.getElementById('toolbar').getBoundingClientRect().bottom <= 1"),
+            'empty-canvas onboarding must not override automatic toolbar dismissal');
+    });
+});
+
+test('mouse-closed toolbar menus collapse while an empty-canvas Agent stays below the exposed toolbar', {timeout:30000}, async()=>{
+    const click=async(app,selector)=>{
+        const p=await app.evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+        await app.send('Input.dispatchMouseEvent',{type:'mouseMoved',...p});
+        await app.send('Input.dispatchMouseEvent',{type:'mousePressed',...p,button:'left',clickCount:1});
+        await app.send('Input.dispatchMouseEvent',{type:'mouseReleased',...p,button:'left',clickCount:1});
+    };
+    await withAppBrowser({autoCheckUpdatesOnLoad:false,nodes:[],connections:[]},async app=>{
+        await app.send('Input.dispatchMouseEvent',{type:'mouseMoved',x:500,y:1});
+        await app.waitFor("document.getElementById('toolbar').getBoundingClientRect().top>=-1");
+        await click(app,'#btn-prompt-agent');
+        await app.waitFor("document.getElementById('prompt-agent-panel').classList.contains('active')");
+        await app.send('Input.dispatchMouseEvent',{type:'mouseMoved',x:500,y:1});
+        await app.waitFor("document.getElementById('toolbar').getBoundingClientRect().top>=-1");
+        assert.ok(await app.evaluate("(()=>{const t=document.getElementById('toolbar').getBoundingClientRect(),a=document.getElementById('prompt-agent-panel').getBoundingClientRect();return a.top>=t.bottom+7})()"),'Agent must reserve the exposed toolbar on an empty canvas');
+        await app.send('Input.dispatchMouseEvent',{type:'mouseMoved',x:200,y:500});
+        await app.waitFor("document.getElementById('toolbar').getBoundingClientRect().bottom<=1");
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-panel').getBoundingClientRect().top"),12);
+    });
+    await withAppBrowser({autoCheckUpdatesOnLoad:false,nodes:[{id:'text',type:'Text',x:100,y:180,text:'fixture'}],connections:[]},async app=>{
+        await app.send('Input.dispatchMouseEvent',{type:'mouseMoved',x:500,y:1});
+        await app.waitFor("document.getElementById('toolbar').getBoundingClientRect().top>=-1");
+        await click(app,'#toolbar-workflow-more summary');
+        assert.equal(await app.evaluate("document.getElementById('toolbar-workflow-more').open"),true);
+        await click(app,'#toolbar-workflow-more summary');
+        assert.equal(await app.evaluate("document.getElementById('toolbar-workflow-more').open"),false);
+        await app.send('Input.dispatchMouseEvent',{type:'mouseMoved',x:200,y:500});
+        await app.waitFor("document.getElementById('toolbar').getBoundingClientRect().bottom<=1");
+        await app.send('Input.dispatchMouseEvent',{type:'mouseMoved',x:500,y:1});
+        await app.waitFor("document.getElementById('toolbar').getBoundingClientRect().top>=-1");
+        await app.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
+        await app.send('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
+        await app.send('Input.dispatchMouseEvent',{type:'mouseMoved',x:200,y:500});
+        // Allow a full hide transition to expose accidental keyboard dismissal.
+        await app.evaluate('new Promise(r=>setTimeout(r,300))');
+        assert.ok(await app.evaluate("document.getElementById('toolbar').getBoundingClientRect().bottom>1"),'keyboard focus keeps toolbar controls reachable');
+    });
+});
+
 test('canvas toolbar keeps action groups together across themes and wrapped widths', { timeout: 60000 }, async () => {
     await withAppBrowser({ models: [
         { id: 'chat', modelId: 'chat', name: '布局测试', protocol: 'openai', taskType: 'chat', providerIds: ['p'] }

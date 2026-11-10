@@ -58,10 +58,13 @@ test('an automatically saved new workflow has a Chinese untitled name instead of
     });
 });
 
-test('empty canvas exposes creation actions and an expanded toolbar, then hides guidance after adding a node', { timeout: 45000 }, async () => {
+test('empty canvas exposes creation actions with a dismissible toolbar, then hides guidance after adding a node', { timeout: 45000 }, async () => {
     await withAppBrowser(emptySession, async app => {
         assert.equal(await app.evaluate("document.getElementById('canvas-empty-state')?.hidden"), false);
-        assert.ok(await app.evaluate("document.getElementById('toolbar').getBoundingClientRect().top>=0"));
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 200, y: 1 });
+        await app.waitFor("document.getElementById('toolbar').getBoundingClientRect().top >= -1");
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 200, y: 500 });
+        await app.waitFor("document.getElementById('toolbar').getBoundingClientRect().bottom <= 1");
         await app.evaluate("document.getElementById('canvas-add-first-node').click()");
         await app.waitFor("Boolean(document.querySelector('.node-picker-panel'))");
         await app.evaluate("document.querySelector('.node-picker-result[data-type=Text]').click()");
