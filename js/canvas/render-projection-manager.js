@@ -13,12 +13,9 @@ export function createRenderProjectionManager({
     performanceMonitor = null
 } = {}) {
     const VIEWPORT_BUFFER_SCREENS = 0.5;
-    const COMPACT_ENTER_ZOOM = 0.2;
-    const COMPACT_EXIT_ZOOM = 0.27;
     const DENSE_ENTER_NODE_COUNT = 80;
     const DENSE_EXIT_NODE_COUNT = 64;
     let frame = null;
-    let compact = false;
     let dense = false;
     let observer = null;
     const focusedNodeIds = new Set();
@@ -53,9 +50,7 @@ export function createRenderProjectionManager({
         return left + width < viewport.left || left > viewport.right || top + height < viewport.top || top > viewport.bottom;
     }
 
-    function updateModes() {
-        const zoom = Number(state?.canvas?.zoom) || 1;
-        compact = compact ? zoom < COMPACT_EXIT_ZOOM : zoom <= COMPACT_ENTER_ZOOM;
+    function updateDenseMode() {
         const override = state?.canvasRender?.denseModeOverride || 'auto';
         const nodeCount = state?.nodes?.size || 0;
         dense = override === 'on' || (override !== 'off' && (dense ? nodeCount > DENSE_EXIT_NODE_COUNT : nodeCount >= DENSE_ENTER_NODE_COUNT));
@@ -63,23 +58,26 @@ export function createRenderProjectionManager({
     }
 
     function refreshNow() {
-        return performanceMonitor?.measure?.('render-projection', refreshNowImpl) ?? refreshNowImpl();
+        if (performanceMonitor?.measure) {
+            return performanceMonitor.measure('render-projection', refreshNowImpl);
+        }
+        return refreshNowImpl();
     }
 
     function refreshNowImpl() {
         frame = null;
         if (!state?.nodes) return;
-        updateModes();
+        updateDenseMode();
         const viewport = getViewport();
+        const activeElement = documentRef.activeElement;
         state.nodes.forEach((node, nodeId) => {
             const el = node?.el;
             if (!el) return;
-            const hasFocusedControl = el.contains?.(documentRef.activeElement) === true;
+            const hasFocusedControl = el.contains?.(activeElement) === true;
             const forceFull = focusedNodeIds.has(nodeId) || hasFocusedControl || state.runningNodeIds?.has(nodeId);
             const virtualized = !forceFull && isOutsideViewport(node, viewport);
             setClass(el, 'is-virtualized', virtualized);
-            setClass(el, 'is-compact-lod', !virtualized && compact && !forceFull);
-            const projection = virtualized ? 'shell' : (compact && !forceFull ? 'compact' : 'full');
+            const projection = virtualized ? 'shell' : 'full';
             if (projectionByElement.get(el) !== projection) {
                 el.setAttribute('data-render-projection', projection);
                 projectionByElement.set(el, projection);
@@ -106,10 +104,6 @@ export function createRenderProjectionManager({
 
     function init() {
         documentRef.addEventListener('cainflow:canvas-transform', scheduleRefresh);
-        nodesLayer?.addEventListener('dblclick', (event) => {
-            const nodeEl = event.target.closest?.('.node.is-compact-lod');
-            if (nodeEl) focusNode(nodeEl.id);
-        });
         canvasContainer?.addEventListener('click', (event) => {
             if (event.target === canvasContainer && focusedNodeIds.size > 0) {
                 focusedNodeIds.clear();

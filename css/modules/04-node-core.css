@@ -54,19 +54,6 @@
     visibility: hidden;
 }
 
-.node.is-compact-lod .node-body {
-    content-visibility: hidden;
-    contain-intrinsic-size: auto 240px;
-    visibility: hidden;
-    pointer-events: none;
-}
-
-.node.is-compact-lod .port-label,
-.node.is-compact-lod .node-header .header-right,
-.node.is-compact-lod .node-resize-handle {
-    visibility: hidden;
-}
-
 #canvas-container.canvas-dense-mode .node,
 #canvas-container.canvas-dense-mode .port-dot,
 #canvas-container.canvas-dense-mode .node-time-badge {
