@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><title>Agent workflow DOM regression</title>
+<div id="fixture"></div><pre id="surface-result" hidden></pre>
+<script type="module">
+import { createPromptAgentController } from '../../js/features/prompt-agent/prompt-agent-controller.js';
+const check = (value, message) => { if (!value) throw Error(message); };
+try {
+    const page = new DOMParser().parseFromString(await (await fetch('../../index.html')).text(), 'text/html');
+    document.getElementById('fixture').appendChild(document.importNode(page.getElementById('prompt-agent-panel'), true));
+    let workflowId = 'A', request, finish, controller;
+    const documents = new Map([['A', { messages: [] }], ['B', { messages: [] }]]);
+    controller = createPromptAgentController({
+        getWorkflowId: () => workflowId,
+        getChatModels: () => [{ id: 'chat', modelId: 'chat' }],
+        createReply: value => { request = value; return new Promise(resolve => { finish = resolve; }); },
+        mutateWorkflowConversation: (id, reducer) => {
+            const next = reducer(id === workflowId ? controller.snapshotWorkflow() : documents.get(id));
+            if (!next) return false;
+            documents.set(id, next);
+            if (id === workflowId) controller.syncWorkflowState(next);
+            return true;
+        }
+    });
+    controller.init();controller.restoreWorkflow(documents.get('A'));controller.open();
+    document.getElementById('prompt-agent-input').value = 'A读取图片';
+    const sending = controller.submit();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const original = document.querySelector('.prompt-agent-message-user');
+    documents.set('A', controller.snapshotWorkflow()); workflowId = 'B';controller.restoreWorkflow(documents.get('B'));
+    documents.set('B', controller.snapshotWorkflow()); workflowId = 'A';controller.restoreWorkflow(documents.get('A'));controller.open();
+    const restored = document.querySelector('.prompt-agent-message-user');
+    check(original !== restored && !original.isConnected, '回切应重建A的消息视图');
+    request.onContextImages([{sourceNodeId:'A-image',name:'A上下文',dataUrl:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg=='}]);
+    check(controller.snapshotWorkflow().messages[0].contextImages.length === 1, '迟到图片必须保存在A');
+    check(restored.querySelectorAll('.prompt-agent-message-context-images img').length === 1, '迟到图片必须更新当前可见的A气泡');
+    finish({message:'A回复'});await sending;
+    document.getElementById('surface-result').textContent = JSON.stringify({passed:true});
+} catch(error) { document.getElementById('surface-result').textContent = JSON.stringify({error:error.stack}); }
+</script></html>

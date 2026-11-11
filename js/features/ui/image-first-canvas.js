@@ -121,6 +121,12 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             const area = control.getBoundingClientRect();
             if (area.right > left && area.left < right) bottom = Math.min(bottom, area.top - 8);
         }
+        // In narrow windows the horizontal navigation docks below Agent.
+        // Keep its raised composer reachable when parameters are in front.
+        if (agentPanel?.classList.contains('active') && agentPanel.classList.contains('needs-navigation-space') && !agentPanel.hidden) {
+            const composer = documentRef.getElementById('prompt-agent-form')?.getBoundingClientRect();
+            if (composer && composer.right > left && composer.left < right) bottom = Math.min(bottom, composer.top - 8);
+        }
         bottom = Math.max(top + 1, bottom);
         return { left, right, bottom, width: right - left, height: Math.max(1, bottom - top), top };
     };

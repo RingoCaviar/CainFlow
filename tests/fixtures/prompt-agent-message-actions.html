@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN" data-app-theme="paper">
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../css/modules/00-foundation.css">
+<link rel="stylesheet" href="../../css/modules/02-buttons.css">
+<link rel="stylesheet" href="../../css/themes.css">
+<link rel="stylesheet" href="../../css/prompt-agent.css">
+<style>body{padding:20px;background:var(--bg-canvas)}#prompt-agent-panel{position:relative;inset:auto;width:360px;height:720px}#surface-result{display:none}</style>
+<div id="fixture"></div><pre id="surface-result"></pre>
+<script type="module">
+import { createPromptAgentController } from '../../js/features/prompt-agent/prompt-agent-controller.js';
+const check = (value, text) => { if (!value) throw Error(text); };
+const wait = async predicate => { for(let i=0;i<50;i++){if(predicate())return;await new Promise(r=>setTimeout(r,0));}throw Error('等待状态超时'); };
+try {
+    const page = new DOMParser().parseFromString(await (await fetch('../../index.html')).text(),'text/html');
+    document.getElementById('fixture').appendChild(document.importNode(page.getElementById('prompt-agent-panel'),true));
+    const requests = [], copied = [];
+    Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>copied.push(text)}});
+    let resolveReply, nativeCopies=0;
+    const controller = createPromptAgentController({
+        getChatModels:()=>[{id:'chat',modelId:'test',name:'测试模型'}],
+        readReferenceFile:async()=>({referenceId:'draft',name:'草稿参考图',dataUrl:original.referenceImages[0].dataUrl}),
+        onNativeClipboardWrite:()=>nativeCopies++,
+        createReply:request=>{requests.push(request);return new Promise(resolve=>{resolveReply=resolve;});}
+    });
+    const original = {role:'user',text:'保留换行\n把光线调暖一点',referenceImages:[{referenceId:'original',sourceNodeId:'source-a',name:'原参考图',dataUrl:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg=='}]};
+    controller.init(); controller.restoreWorkflow({messages:[original,{role:'agent',text:'原来的回复'}]}); controller.open();
+    const bubble=document.querySelector('.prompt-agent-message-user');
+    const copy=bubble.querySelector('[data-message-action=copy]');
+    const resend=bubble.querySelector('[data-message-action=resend]');
+    check(copy && resend,'用户气泡必须提供复制和重发按钮');
+    check(!document.querySelector('.prompt-agent-message-agent [data-message-action]'),'不能给助手回复添加重发用户消息操作');
+    copy.click();await wait(()=>copied.length===1);
+    check(copied[0]===original.text,'复制必须保留完整文本和换行');
+    await wait(()=>copy.title==='已复制');
+    check(nativeCopies===1,'文本复制必须通知画布剪贴板状态');
+    navigator.clipboard.writeText=async()=>{throw Error('拒绝剪贴板');};
+    copy.click();await wait(()=>copy.title.includes('失败'));
+    navigator.clipboard.writeText=async text=>copied.push(text);
+    const input=document.getElementById('prompt-agent-input'); input.value='尚未发送的草稿';
+    const transfer=new DataTransfer();transfer.items.add(new File(['draft'],'draft.png',{type:'image/png'}));
+    input.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,clipboardData:transfer}));
+    await wait(()=>Boolean(document.querySelector('#prompt-agent-references img')));
+    resend.click();await wait(()=>requests.length===1);
+    check(resend.disabled,'请求进行中重发按钮必须禁用');
+    check(!copy.disabled,'请求进行中仍然可以复制文本');
+    resend.click();check(requests.length===1,'重发不能重复请求');
+    check(requests[0].message===original.text,'重发必须发送原消息');
+    check(requests[0].referenceImages[0].dataUrl===original.referenceImages[0].dataUrl,'重发必须带回原参考图');
+    check(input.value==='尚未发送的草稿','重发不能覆盖当前草稿');
+    check(Boolean(document.querySelector('#prompt-agent-references img')),'重发不能消耗草稿参考图');
+    check(controller.snapshotWorkflow().messages.length===3,'重发必须追加并保留原对话');
+    resolveReply({intent:'chat',message:'新的回复'});await wait(()=>!resend.disabled);
+    check(controller.snapshotWorkflow().messages.length===4,'新回复应追加到对话末尾');
+    const draftRequest=controller.submit();await wait(()=>requests.length===2);
+    check(requests[1].message==='尚未发送的草稿' && requests[1].referenceImages[0].referenceId==='draft','后续正常发送仍使用原草稿及其附件');
+    resolveReply({intent:'chat',message:'草稿回复'});await draftRequest;
+    controller.removeNodeReferences(['source-a']);
+    resend.click();await wait(()=>requests.length===3);
+    check(requests[2].referenceImages.length===0,'重发不能复活已删除节点的参考图');
+    resolveReply({intent:'chat',message:'移除参考图后的回复'});await wait(()=>!resend.disabled);
+    controller.restoreWorkflow({archivedMessages:[{role:'user',text:'只有文字的历史消息'}],messages:[]});controller.open();
+    const archivedResend=document.querySelector('[data-message-action=resend]');
+    archivedResend.click();await wait(()=>requests.length===4);
+    check(requests[3].message==='只有文字的历史消息' && requests[3].referenceImages.length===0,'纯文本归档消息也能重发');
+    resolveReply({intent:'chat',message:'历史消息的新回复'});await wait(()=>!archivedResend.disabled);
+    controller.restoreWorkflow({messages:[original,{role:'agent',text:'继续调整画面的光线和构图。'}]});
+    controller.open();
+    document.getElementById('prompt-agent-messages').appendChild(bubble);
+    resend.click();check(requests.length===4,'旧工作流按钮不能发送到新工作流');bubble.remove();
+    const samples=[];
+    for(const theme of ['dark','pro','paper','light','glass-light','glass-dark','pink']){
+        document.documentElement.dataset.appTheme=theme;
+        for(const width of [300,480]){
+            document.getElementById('prompt-agent-panel').style.width=width+'px';
+            for(const text of ['短消息','好','这是一条较长的用户消息，用来检查多行文字与参考图不会挤占气泡外的复制和重发操作。'.repeat(3)]){
+                controller.restoreWorkflow({messages:[{...original,text},{role:'agent',text:'下一条回复'}]});controller.open();
+                const message=document.querySelector('.prompt-agent-message-user');
+                const b=message.getBoundingClientRect(),a=message.querySelector('.prompt-agent-message-actions').getBoundingClientRect();
+                const next=document.querySelector('.prompt-agent-message-agent').getBoundingClientRect();
+                check(b.width>0 && a.width>0 && a.right<=b.right+1 && a.top>=b.bottom+3,'操作按钮必须位于气泡外的右下方');
+                check(next.top>=a.bottom+8,'气泡外操作不能遮挡下一条回复');
+                check(message.scrollWidth<=message.clientWidth+1,'小尺寸气泡不得溢出');samples.push({theme,width});
+            }
+        }
+    }
+    controller.restoreWorkflow({messages:[original,{role:'agent',text:'原来的回复'}]});controller.open();
+    const params=new URLSearchParams(location.search);
+    document.documentElement.dataset.appTheme=params.get('theme')||'paper';
+    document.getElementById('prompt-agent-panel').style.width=(params.get('width')||'360')+'px';
+    document.getElementById('surface-result').textContent=JSON.stringify({passed:true,samples});
+} catch(error) { document.getElementById('surface-result').textContent=JSON.stringify({error:error.stack}); }
+</script>

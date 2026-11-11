@@ -2,6 +2,38 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 
+test('canvas navigation remains one horizontal row beside an open and resized Agent', { timeout: 30000 }, async () => {
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes: [], connections: [] }, async app => {
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 1085, height: 878, deviceScaleFactor: 1, mobile: false });
+        await app.evaluate(`document.getElementById('btn-prompt-agent').click();
+            for (let i = 0; i < 12; i++) document.getElementById('prompt-agent-resize').dispatchEvent(
+                new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));`);
+        const layout = await app.evaluate(`(() => {
+            const navigation = document.getElementById('canvas-navigation');
+            const controls = [...navigation.children].filter(element => element.matches('button, details')).map(element => element.getBoundingClientRect());
+            return { rows: new Set(controls.map(rect => Math.round(rect.top))).size,
+                width: navigation.getBoundingClientRect().width, height: navigation.getBoundingClientRect().height };
+        })()`);
+        assert.equal(layout.rows, 1, JSON.stringify(layout));
+        for (const width of [1440, 1280, 1201, 1200, 1085, 801, 800, 760, 480, 360]) {
+            await app.send('Emulation.setDeviceMetricsOverride', { width, height: 878, deviceScaleFactor: 1, mobile: false });
+            await app.evaluate("document.getElementById('prompt-agent-resize').dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))");
+            for (const theme of ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink']) {
+                await app.evaluate(`document.documentElement.dataset.appTheme = ${JSON.stringify(theme)}`);
+                const result = await app.evaluate(`(() => {
+                    const nav = document.getElementById('canvas-navigation'), n = nav.getBoundingClientRect();
+                    const agent = document.getElementById('prompt-agent-panel').getBoundingClientRect();
+                    const controls = [...nav.children].filter(element => element.matches('button, details')).map(element => element.getBoundingClientRect());
+                    return { rows: new Set(controls.map(rect => Math.round(rect.top))).size,
+                        inside: n.left >= 0 && n.right <= innerWidth && n.bottom <= innerHeight,
+                        clear: n.right <= agent.left || n.top >= agent.bottom + 7 };
+                })()`);
+                assert.deepEqual(result, { rows: 1, inside: true, clear: true }, `${theme} at ${width}px`);
+            }
+        }
+    });
+});
+
 test('an empty canvas does not pin the toolbar after the pointer leaves', { timeout: 15000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes: [], connections: [] }, async app => {
         await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 500, y: 1 });

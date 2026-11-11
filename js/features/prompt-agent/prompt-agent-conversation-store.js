@@ -133,6 +133,8 @@ export function createPromptAgentConversationStore() {
     let providerSettings = { chat: {}, image: {}, search: {} };
     let searchSettings = { mode: 'auto', modelId: '' };
     let referenceImages = [];
+    let draft = { text: '', referenceImages: [] };
+    let chatModelId = '';
     let previousPromptPlan = null;
 
     function append(message) {
@@ -140,6 +142,26 @@ export function createPromptAgentConversationStore() {
         if (!normalized.text && !normalized.promptPlan && !normalized.canvasPlan && !normalized.referenceImages?.length && !normalized.runs?.length) return;
         messages.push(normalized);
         return archivedMessages.length + messages.length - 1;
+    }
+
+    function setDraft(value) {
+        const next = { text: typeof value?.text === 'string' ? value.text : '',
+            referenceImages: normalizeReferenceImages(Array.isArray(value?.referenceImages) ? value.referenceImages : []) };
+        if (draft.text === next.text && draft.referenceImages.length === next.referenceImages.length
+            && draft.referenceImages.every((image, index) => {
+                const other = next.referenceImages[index];
+                return Object.keys(image).length === Object.keys(other).length
+                    && Object.entries(image).every(([key, item]) => other[key] === item);
+            })) return false;
+        draft = next;
+        return true;
+    }
+
+    function getDraft() { return copySnapshot(draft); }
+
+    function getMessage(index) {
+        if (!Number.isInteger(index) || index < 0) return undefined;
+        return clone(index < archivedMessages.length ? archivedMessages[index] : messages[index - archivedMessages.length]);
     }
 
     function bindPromptPlanTarget(messageIndex, targetNodeId) {
@@ -229,10 +251,14 @@ export function createPromptAgentConversationStore() {
         providerSettings = Object.fromEntries(['chat', 'image', 'search'].map(purpose => [purpose,
             Object.fromEntries(Object.entries(value?.providerSettings?.[purpose] || {}).filter(([id, provider]) => id && typeof provider === 'string'))]));
         setSearchSettings(value?.searchSettings);
+        setDraft(value?.draft);
+        chatModelId = typeof value?.chatModelId === 'string' ? value.chatModelId.trim() : '';
     }
 
     function snapshot() {
         const snapshot = { version: 1, memory, messages: copySnapshot(messages) };
+        if (draft.text || draft.referenceImages.length) snapshot.draft = getDraft();
+        if (chatModelId) snapshot.chatModelId = chatModelId;
         if (creativeTask) snapshot.creativeTask = copySnapshot(creativeTask);
         if (Object.values(providerSettings).some(settings => Object.keys(settings).length)) snapshot.providerSettings = copySnapshot(providerSettings);
         if (Object.keys(thinkingSettings.chat).length || Object.keys(thinkingSettings.image).length) snapshot.thinkingSettings = copySnapshot(thinkingSettings);
@@ -305,6 +331,7 @@ export function createPromptAgentConversationStore() {
 
     function getCompactionContext() {
         const context = snapshot();
+        delete context.draft;
         const archive = context.archivedMessages || [];
         // Automatic trimming retains original turns for a future semantic
         // compaction. Only the prefix covered by a checkpoint stays excluded.
@@ -351,6 +378,7 @@ export function createPromptAgentConversationStore() {
             if (Array.isArray(plan?.referenceImages)) plan.referenceImages = prune(plan.referenceImages);
         };
         referenceImages = prune(referenceImages);
+        draft.referenceImages = prune(draft.referenceImages);
         for (const message of [...messages, ...archivedMessages]) {
             if (Array.isArray(message.referenceImages)) message.referenceImages = prune(message.referenceImages);
             if (Array.isArray(message.contextImages)) message.contextImages = prune(message.contextImages);
@@ -361,6 +389,7 @@ export function createPromptAgentConversationStore() {
     }
 
     function clear() {
+        setDraft(null);
         creativeTask = null;
         memory = '';
         contextSummary = '';
@@ -384,7 +413,7 @@ export function createPromptAgentConversationStore() {
     const setThinking = (purpose, modelId, value) => { if (!modelId || !thinkingSettings[purpose]) return; if (value) thinkingSettings[purpose][modelId] = clone(value); else delete thinkingSettings[purpose][modelId]; };
     const getSize = modelId => clone(sizeSettings[modelId] || {});
     const setSize = (modelId, value) => { if (!modelId) return; const next = sizeFields(value); if (Object.keys(next).length) sizeSettings[modelId] = next; else delete sizeSettings[modelId]; };
-    return { getCreativeTask: () => clone(creativeTask), setCreativeTask: value => { creativeTask = restoreCreativeTask(value); }, getSize, setSize, getProvider, setProvider, getThinking, setThinking, append, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, updateContextImages, updateReferenceDescription, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences,
+    return { getCreativeTask: () => clone(creativeTask), setCreativeTask: value => { creativeTask = restoreCreativeTask(value); }, getSize, setSize, getProvider, setProvider, getThinking, setThinking, setDraft, getDraft, getChatModelId: () => chatModelId, setChatModelId: value => { chatModelId = typeof value === 'string' ? value.trim() : ''; }, append, getMessage, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, updateContextImages, updateReferenceDescription, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences,
         upgradePromptPlan: (index, plan) => {
             const message = [...archivedMessages, ...messages][index];
             if (!message?.promptPlan || message.runs?.some(run => run.status === 'running')) return false;

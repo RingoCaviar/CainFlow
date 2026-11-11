@@ -46,7 +46,7 @@
             const navRect = nav.getBoundingClientRect();
             const buttonsVisible = [...nav.querySelectorAll('button')].every(button => {
                 const rect = button.getBoundingClientRect();
-                return rect.left >= 0 && rect.right <= panelRect.left;
+                return rect.left >= 0 && (rect.right <= panelRect.left || rect.top >= panelRect.bottom + 8);
             });
             panel.classList.remove('active');
             const closedRight = nav.getBoundingClientRect().right;
@@ -59,6 +59,7 @@
                 panelWidth: panelRect.width,
                 navigationLeft: navRect.left,
                 navigationRight: navRect.right,
+                navigationTop: navRect.top,
                 panelLeft: panelRect.left,
                 buttonsVisible,
                 closedRight,

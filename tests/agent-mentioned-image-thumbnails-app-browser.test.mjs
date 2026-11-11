@@ -46,9 +46,13 @@ test('mentioned node thumbnails retain the actual reference order, preview origi
         await app.evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(button=>button.textContent==='仅应用').click()");
         await app.waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已应用并保存')");
         assert.equal(await app.evaluate("thumbnailRequests.length"), 1, 'only applying does not generate or resend the model request');
-        await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.nodes.find(n=>n.id==='target').prompt.endsWith('optimized prompt'))");
+        await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.nodes.some(n=>n.id!=='target'&&n.prompt?.endsWith('optimized prompt')))");
         await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.workflowTabs?.find(tab=>tab.name==='Snapshot')?.data?.promptAgent?.messages?.[0]?.contextImages?.length===2)");
-        assert.deepEqual(await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.connections)"), edges);
+        const applied = await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value)");
+        assert.deepEqual(applied.connections.filter(edge=>edges.some(original=>original.id===edge.id)), edges);
+        const copy = applied.nodes.find(node=>node.id!=='target'&&node.prompt?.endsWith('optimized prompt'));
+        assert.equal(applied.nodes.find(node=>node.id==='target').prompt,'original prompt');
+        assert.deepEqual(applied.connections.filter(edge=>edge.to.nodeId===copy.id).map(edge=>edge.from.nodeId), edges.filter(edge=>edge.to.nodeId==='target').map(edge=>edge.from.nodeId));
         await reloadAppBrowser(app);
         await app.evaluate("document.getElementById('btn-prompt-agent').click()");
         await app.waitFor("document.querySelectorAll('.prompt-agent-message-context-images img').length===2");

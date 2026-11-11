@@ -54,7 +54,7 @@ test('four combined menus preserve model/provider identities; real requests and 
         const stepId=await evaluate("document.querySelector('select[id^=agent-step-model]').id");
         await evaluate("document.querySelector('.prompt-agent-step-settings').open=true");
         await choose(stepId,'image','a');
-        await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='生成图片').click()");
+        await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='运行').click()");
         await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
         assert.equal(await evaluate('calls.length'),2);
         assert.ok(await evaluate("JSON.stringify(calls[1].headers).includes('first-key')"));
@@ -63,13 +63,15 @@ test('four combined menus preserve model/provider identities; real requests and 
         assert.equal(await evaluate(providerValue),'a');
         const appliedNodes = await evaluate("[...document.querySelectorAll('#nodes-layer .node')].map(node=>node.id)");
         await choose(stepId,'image','b');
-        assert.match(await evaluate("document.querySelector('.prompt-agent-change-list').textContent"), /供应商甲 → 供应商乙/);
+        assert.match(await evaluate("document.querySelector('.prompt-agent-change-list').textContent"), /未设置 → 供应商乙/);
         await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='仅应用').click()");
-        await waitFor(`${providerValue}==='b' && document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已应用并保存')`);
-        assert.deepEqual(await evaluate("[...document.querySelectorAll('#nodes-layer .node')].map(node=>node.id)"), appliedNodes);
+        await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已应用并保存') && document.querySelectorAll('#nodes-layer .node').length===2");
+        assert.equal(await evaluate(providerValue),'a','new applications retain the previous batch provider');
+        assert.equal(await evaluate("document.getElementById([...document.querySelectorAll('#nodes-layer .node-generate')].at(-1).id+'-provider').value"),'b');
         assert.equal(await evaluate('calls.length'),2);
         await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='撤销本次画布操作').click()");
-        await waitFor(`${providerValue}==='a'`);
+        await waitFor("document.querySelectorAll('#nodes-layer .node').length===1");
+        assert.deepEqual(await evaluate("[...document.querySelectorAll('#nodes-layer .node')].map(node=>node.id)"), appliedNodes);
         assert.ok(await evaluate("Boolean(document.querySelector('.prompt-agent-result-image'))"));
         await evaluate("document.getElementById('btn-toggle-statistics').click()");
         assert.equal(await evaluate("document.getElementById('statistics-total-requests').textContent"),'2');

@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- CainFlow 的主页面骨架，定义整体界面结构和静态挂载点。 -->
-<html lang="zh-CN">
+<html lang="zh-CN" data-canvas-load-state="loading">
 
 <head>
     <meta charset="UTF-8">
@@ -504,7 +504,13 @@
             </section>
 
             <!-- Canvas Container -->
-            <div id="canvas-container" tabindex="0">
+            <div id="canvas-container" tabindex="0" aria-busy="true">
+                <section id="canvas-loading-state" class="canvas-empty-state" role="status" aria-live="polite">
+                    <p data-canvas-load-label>正在加载工作流…</p>
+                    <div class="canvas-loading-track functional-animation" data-canvas-load-progress role="progressbar" aria-label="正在加载工作流">
+                        <span class="canvas-loading-indicator" aria-hidden="true"></span>
+                    </div>
+                </section>
                 <div class="canvas-grid" aria-hidden="true"></div>
                 <section id="canvas-empty-state" class="canvas-empty-state" aria-labelledby="canvas-empty-title" hidden>
                     <h2 id="canvas-empty-title">从这里开始创作</h2>

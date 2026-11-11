@@ -5,7 +5,7 @@ import { createPromptAgentResultPersistence } from '../js/features/prompt-agent/
 
 class Element {
     constructor() {
-        this.children = []; this.listeners = new Map(); this.attributes = new Map(); this.value = ''; this.style = {}; this.textContent = '';
+        this.children = []; this.listeners = new Map(); this.attributes = new Map(); this.value = ''; this.style = {}; this.textContent = ''; this.dataset = {};
         const classes = new Set();
         this.classList = { add: (...names) => names.forEach((name) => classes.add(name)), remove: (...names) => names.forEach((name) => classes.delete(name)),
             contains: (name) => classes.has(name), toggle: (name, force) => { const enabled = force ?? !classes.has(name); if (enabled) classes.add(name); else classes.delete(name); return enabled; } };
@@ -16,6 +16,17 @@ class Element {
     replaceChildren() { this.children = []; }
     remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter((child) => child !== this); }
     querySelector(selector) { return this.children.find((child) => child.className === selector.slice(1)) || null; }
+    querySelectorAll(selector) {
+        const matches = child => selector === '[data-message-action="resend"]'
+            ? child.dataset.messageAction === 'resend' : child.className === selector.slice(1);
+        return this.children.flatMap(child => [...(matches(child) ? [child] : []), ...child.querySelectorAll(selector)]);
+    }
+    insertBefore(child, reference) {
+        if (!reference) return this.appendChild(child);
+        child.parentElement = this;
+        this.children.splice(this.children.indexOf(reference), 0, child);
+        return child;
+    }
     setAttribute(name, value) { this.attributes.set(name, value); }
     removeAttribute(name) { this.attributes.delete(name); }
     getBoundingClientRect() { return { width: 480 }; }
@@ -61,7 +72,7 @@ function harness(options = {}) {
         onChange: id => { if (id === workflowId) controller.refreshResults(); }
     });
     const controller = createPromptAgentController({
-        documentRef: { getElementById: element, createElement: () => new Element() },
+        documentRef: { getElementById: element, createElementNS: () => new Element(), createElement: () => new Element() },
         getChatModels: () => [{ id: 'chat', modelId: 'chat' }], getImageModels: () => [{ id: 'model', modelId: 'image' }],
         getWorkflowId: () => workflowId, createRunId: () => `run-${++nextRunId}`,
         nodeAdapter: { ensureTarget: (plan) => plan, applyPromptPlan: () => true },

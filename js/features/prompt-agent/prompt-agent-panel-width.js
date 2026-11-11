@@ -10,15 +10,19 @@ export function createPromptAgentPanelWidth({ panel, handle, windowRef, read = (
         // presentation never replaces a saved preference from a wider window.
         const reserve = available > 800 && available <= 1200 ? 360 : 124;
         const max = Math.max(1, Math.min(960, available - reserve));
-        return { min: Math.min(300, max), max };
+        return { min: Math.min(300, max), max, available };
     };
-    const clamp = value => Math.max(bounds().min, Math.min(bounds().max, value));
+    const clamp = (value, limits = bounds()) => Math.max(limits.min, Math.min(limits.max, value));
     const apply = () => {
         if (!panel) return;
-        const width = Math.round(clamp(preferred ?? Math.max(320, (windowRef?.innerWidth || 1200) * 0.34)));
+        const limits = bounds();
+        const width = Math.round(clamp(preferred ?? Math.max(320, (windowRef?.innerWidth || 1200) * 0.34), limits));
+        const navigationWidth = panel.ownerDocument?.getElementById?.('canvas-navigation')?.offsetWidth || 0;
         panel.style.width = `${width}px`;
         panel.parentElement?.style.setProperty('--prompt-agent-width', `${width}px`);
         panel.ownerDocument?.body?.style.setProperty('--prompt-agent-width', `${width}px`);
+        // Reserve the navigation row only when it cannot fit beside Agent.
+        panel.classList.toggle('needs-navigation-space', limits.available - width < navigationWidth + 36);
         handle?.setAttribute('aria-valuemin', String(bounds().min));
         handle?.setAttribute('aria-valuemax', String(bounds().max));
         handle?.setAttribute('aria-valuenow', String(Math.round(width)));

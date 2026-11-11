@@ -1,3 +1,4 @@
+import { layoutIndependentCanvasNodes } from '../js/features/prompt-agent/prompt-agent-canvas-batches.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { prepareCanvasPlanRecreation } from '../js/features/prompt-agent/prompt-agent-canvas-recreation.js';
@@ -415,4 +416,50 @@ test('recreation retains unrelated connection edits made during original asset l
     await adapter.apply(plan, '');
     assert.deepEqual(state.connections, [edge], 'the removed edge stays removed and the new edge survives');
     assert.ok(state.nodes.has(plan.bindings.input));
+});
+
+test('Agent can propose 100 empty image import nodes without importing assets or executing', () => {
+    const context = graph({ nodes: [] });
+    const raw = { version: 1, steps: Array.from({ length: 100 }, (_, i) => ({
+        id: `empty${i}`, type: 'ImageImport', title: `图片 ${i + 1}`, execute: false
+    })), connections: [] };
+    const plan = normalizeCanvasPlan(raw, context, { message: '只创建节点 不导入图',
+        referencePolicy: { intent: 'generate', selection: { mode: 'none' } } });
+    assert.equal(plan.steps.length, 100);
+    assert.ok(plan.steps.every(step => step.execute === false && !step.assetKey));
+    assert.throws(() => normalizeCanvasPlan({ ...raw, steps: [...raw.steps, { id: 'extra', type: 'Text' }] }, context), /100/);
+});
+
+test('empty image imports cannot execute or supply nonexistent reference images', () => {
+    const context = graph({ nodes: [] });
+    assert.throws(() => normalizeCanvasPlan({ version: 1, steps: [{ id: 'empty', type: 'ImageImport' }] }, context), /原图资产/);
+    assert.throws(() => normalizeCanvasPlan({ version: 1, steps: [
+        { id: 'empty', type: 'ImageImport', execute: false },
+        { id: 'generate', type: 'ImageGenerate', parameters: { prompt: 'test' } }
+    ], connections: [{ from: { ref: 'empty', port: 'image' }, to: { ref: 'generate', port: 'referenceImages' } }] }, context), /空图片节点/);
+});
+
+test('independent Agent batches use measured grid cells and avoid occupied content as one block at every zoom', () => {
+    for (const zoom of [0.12, 0.5, 1, 2]) {
+        const nodes = Array.from({ length: 7 }, (_, i) => ({ id: `new-${i}`, width: 999, height: 999,
+            el: { style: {}, offsetWidth: i === 1 ? 320 : 260, offsetHeight: i === 2 ? 420 : 280 } }));
+        const occupied = [{ x: 100, y: 200, width: 500, height: 600 }];
+        const before = structuredClone(occupied);
+        layoutIndependentCanvasNodes(nodes, { x: 100, y: 200, occupied, zoom });
+        assert.deepEqual(occupied, before);
+        assert.equal(new Set(nodes.map(node => node.x)).size, 3);
+        assert.equal(new Set(nodes.map(node => node.y)).size, 3);
+        for (const [index, node] of nodes.entries()) {
+            assert.equal(node.x, nodes[0].x + index % 3 * 360);
+            assert.equal(node.y, nodes[0].y + Math.floor(index / 3) * 460);
+            assert.equal(node.el.style.left, `${node.x}px`);
+            assert.equal(node.el.style.top, `${node.y}px`);
+            assert.ok(node.x >= 640 || node.y >= 840 || node.y + 420 + 40 <= 200);
+        }
+        const block = { x: nodes[0].x, y: nodes[0].y, width: 1040, height: 1340 };
+        const second = nodes.map(node => ({ id: node.id, width: 320, height: 420 }));
+        layoutIndependentCanvasNodes(second, { x: 100, y: 200, occupied: [...occupied, block], zoom });
+        assert.ok(second[0].x >= block.x + block.width + 40 || second[0].y >= block.y + block.height + 40
+            || second.at(-1).y + 420 + 40 <= block.y);
+    }
 });

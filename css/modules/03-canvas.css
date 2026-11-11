@@ -15,6 +15,40 @@
     z-index: 2;
     cursor: default;
 }
+#canvas-loading-state .canvas-loading-track {
+    width: min(280px, 100%);
+    height: 4px;
+    margin: 16px auto 4px;
+    overflow: hidden;
+    border-radius: 2px;
+    background: var(--panel-border);
+    contain: paint;
+}
+#canvas-loading-state .canvas-loading-track[hidden] { display: none; }
+.canvas-loading-indicator {
+    display: block;
+    width: 35%;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--text-primary);
+}
+#canvas-loading-state:not([hidden]) .canvas-loading-track:not([hidden]) .canvas-loading-indicator {
+    will-change: transform;
+    animation: canvas-loading-sweep 1.4s linear infinite;
+}
+@keyframes canvas-loading-sweep {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(286%); }
+}
+@keyframes canvas-loading-gentle {
+    from { transform: translateX(60%); }
+    to { transform: translateX(126%); }
+}
+@media (prefers-reduced-motion: reduce) {
+    #canvas-loading-state:not([hidden]) .canvas-loading-track:not([hidden]) .canvas-loading-indicator {
+        animation: canvas-loading-gentle 2.4s ease-in-out infinite alternate;
+    }
+}
 .canvas-empty-state[hidden] { display: none; }
 .canvas-empty-state h2 { margin: 0 0 12px; font-size: 22px; }
 .canvas-empty-state p { font-size: 14px; line-height: 1.6; color: var(--text-secondary); }

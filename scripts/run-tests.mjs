@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { changedFiles, loadManifest, selectTests } from './test-plan.mjs';
@@ -36,9 +36,15 @@ export function commandsFor(plan, options, repoRoot = root) {
     if (plan.effectiveMode === 'full' || plan.phases.python.length) commands.push({ label: 'Python compile', command: options.python, args: ['-m', 'compileall', '-q', 'server.py', 'backend'] });
     for (const tier of ['fast', 'integration', 'browser']) {
         const files = plan.phases[tier];
-        // Smaller browser batches publish failure details and checkpoints sooner.
-        // Keep every file exactly once and bound Windows argument lengths.
-        const batchSize = tier === 'browser' ? 20 : 100;
+        if (tier === 'browser') {
+            if (files.length) commands.push({ label: `browser 1-${files.length}/${files.length}`, command: process.execPath,
+                args: [resolve(repoRoot, 'scripts/run-browser-tests.mjs'), '--concurrency', String(options.browserConcurrency),
+                    '--timings', resolve(repoRoot, '.scratch/test-runner/browser-durations.json'),
+                    ...(options.reportPath ? ['--progress-report', resolve(options.reportPath)] : [])],
+                input: JSON.stringify(files) });
+            continue;
+        }
+        const batchSize = 100;
         for (let start = 0; start < files.length; start += batchSize) commands.push({
             label: `${tier} ${start + 1}-${Math.min(start + batchSize, files.length)}/${files.length}`,
             command: process.execPath,
@@ -52,11 +58,12 @@ export function commandsFor(plan, options, repoRoot = root) {
 
 export function executeCommands(commands, execute = spawnSync, report = console, { onComplete = () => {}, onProgress = () => {} } = {}) {
     const results = [];
-    for (const { label, command, args } of commands) {
+    for (const { label, command, args, input } of commands) {
         onProgress({ complete: false, active: label, results: [...results], notRun: commands.slice(results.length + 1).map(command => command.label) });
         report.log(`\n==> ${label}`);
         const start = Date.now();
-        const result = execute(command, args, { cwd: root, stdio: 'inherit', env: process.env });
+        const result = execute(command, args, { cwd: root, stdio: input === undefined ? 'inherit' : ['pipe', 'inherit', 'inherit'],
+            ...(input === undefined ? {} : { input }), env: process.env });
         const passed = !result.error && result.status === 0;
         if (result.error) report.error(result.error.message);
         results.push({ label, passed, exitCode: result.status ?? null, signal: result.signal ?? null,
@@ -69,6 +76,21 @@ export function executeCommands(commands, execute = spawnSync, report = console,
     onComplete({ complete: results.length === commands.length && !results.some(result => result.signal), active: null,
         results, notRun: commands.slice(results.length).map(command => command.label) });
     return results.every(result => result.passed) ? 0 : 1;
+}
+
+export function createReportWriter(reportPath, metadata) {
+    let initialized = false;
+    let fileProgress = {};
+    return summary => {
+        if (!reportPath) return;
+        const path = resolve(reportPath);
+        if (initialized && existsSync(path)) {
+            try { fileProgress = JSON.parse(readFileSync(path, 'utf8')).fileProgress || fileProgress; } catch {}
+        }
+        initialized = true;
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, JSON.stringify({ ...metadata, fileProgress, ...summary }, null, 2) + '\n');
+    };
 }
 
 function main() {
@@ -86,13 +108,8 @@ function main() {
     console.log(`Changed paths (${options.changed.length ? 'explicit scope' : 'Git detected'}):\n${changed.join('\n') || '(none; use --base for committed branch changes)'}`);
     for (const reason of plan.reasons) console.log(`Full regression: ${reason}`);
     process.env.CAINFLOW_PYTHON = options.python;
-    const saveReport = summary => {
-        if (!options.reportPath) return;
-        const path = resolve(options.reportPath);
-        mkdirSync(dirname(path), { recursive: true });
-        writeFileSync(path, JSON.stringify({ requestedMode: plan.requestedMode, effectiveMode: plan.effectiveMode,
-            changed: plan.changed, phases: plan.phases, ...summary }, null, 2) + '\n');
-    };
+    const saveReport = createReportWriter(options.reportPath, { requestedMode: plan.requestedMode, effectiveMode: plan.effectiveMode,
+        changed: plan.changed, phases: plan.phases });
     process.exitCode = executeCommands(commands, spawnSync, console, { onProgress: saveReport, onComplete: saveReport });
 }
 

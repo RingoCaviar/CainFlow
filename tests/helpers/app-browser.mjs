@@ -1,21 +1,40 @@
 import { startCainflowServer, chromePath, chromiumNetworkArgs } from './browser-theme-fixture.mjs';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve, sep } from 'node:path';
+import { join, resolve, sep, basename } from 'node:path';
 import assert from 'node:assert/strict';
 import { sanitizeDetails } from '../../js/services/api-client.js';
 
 export const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+const testMetrics = { file: basename(process.argv[1] || 'browser'), browserStarts: 0,
+    serverStartMs: 0, browserBootMs: 0, cleanupMs: 0, autosaveWaitCount: 0, autosaveWaitMs: 0 };
+async function saveTestMetrics() {
+    if (!process.env.CAINFLOW_TEST_METRICS_DIR) return;
+    try {
+        const directory = resolve(process.env.CAINFLOW_TEST_METRICS_DIR);
+        await mkdir(directory, { recursive: true });
+        await writeFile(join(directory, `${testMetrics.file}.${process.pid}.json`), JSON.stringify(testMetrics, null, 2));
+    } catch (error) { console.warn('Browser test metrics unavailable:', error.message); }
+}
 // Startup can intentionally wait for a user decision (for example retiring Save
 // nodes). Such a dialog is already an interactive boundary for its test.
 const appInteractive = "window.__cainflowAppReady===true || Boolean(document.querySelector('#app-action-dialog:not(.hidden)'))";
 export async function waitForAutosave({ waitFor }) {
-    // The session cache itself is debounced; don't read its previous clean
-    // snapshot before the new edit has reached it.
-    await delay(3100);
-    await waitFor("import('/js/app/bootstrap.js').then(module=>module.bootstrapCainFlowApp()).then(app=>!app.workflowManagerApi.hasPendingAutosave())");
-    await waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>!document.value?.workflowTabs?.some(tab=>tab.dirty || tab.identityPendingSave))");
+    const started = performance.now();
+    testMetrics.autosaveWaitCount++;
+    try {
+        // Observe natural completion: do not force a save or shorten the product debounce.
+        await waitFor(`Promise.all([import('/js/app/bootstrap.js'),import('/js/services/storage-documents.js')])
+            .then(async ([module,{diskStorage}])=>{
+                const app=await module.bootstrapCainFlowApp();
+                const pending=()=>app.registry.sessionManagerApi.hasPendingSave()||app.workflowManagerApi.hasPendingAutosave();
+                if(pending())return false;
+                await diskStorage.waitForKey('nodeflow_ai_state');
+                return !pending();
+            })`);
+        await waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>!document.value?.workflowTabs?.some(tab=>tab.dirty || tab.identityPendingSave))");
+    } finally { testMetrics.autosaveWaitMs += performance.now() - started; }
 }
 export async function reloadAppBrowser({ evaluate, send, waitFor }) {
     await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0 });
@@ -44,7 +63,11 @@ export async function reloadAppBrowser({ evaluate, send, waitFor }) {
 // Legacy graph fixtures intentionally retain their Save nodes. Cancel only the
 // retirement prompt; migration tests can opt out and exercise either response.
 export async function withAppBrowser(session, task, { repoDirectory, initScript, preserveRetiredSaveNodes = true } = {}) {
+    const serverStart = performance.now();
     const server = await startCainflowServer({ session, repoDirectory });
+    testMetrics.serverStartMs += performance.now() - serverStart;
+    testMetrics.browserStarts++;
+    const browserStart = performance.now();
     const profile = await mkdtemp(join(tmpdir(), 'cainflow-canvas-browser-'));
     const browser = spawn(chromePath, ['--headless=new', ...chromiumNetworkArgs(), '--no-proxy-server', '--disable-gpu', '--no-sandbox', '--disable-extensions', `--user-data-dir=${profile}`, '--remote-debugging-port=0', 'about:blank'], { stdio: 'ignore' });
     let socket, getDiagnostics = () => ({ backend: server.getDiagnostics() });
@@ -197,15 +220,22 @@ export async function withAppBrowser(session, task, { repoDirectory, initScript,
             await waitFor(appInteractive);
         }
         await delay(500);
+        testMetrics.browserBootMs += performance.now() - browserStart;
         return await task({ evaluate, send, waitFor, step, server, onProtocolEvent: listener => { protocolListeners.add(listener); return () => protocolListeners.delete(listener); } });
     } catch (error) {
         const failure = error instanceof Error ? error : new Error(String(error));
         failure.message += `\nBrowser/server diagnostics: ${JSON.stringify(getDiagnostics())}`;
         throw failure;
     } finally {
+        const cleanupStart = performance.now();
         socket?.close(); browser.kill();
         await new Promise(resolve => browser.exitCode !== null ? resolve() : browser.once('exit', resolve));
         assert.ok(resolve(profile).startsWith(resolve(tmpdir()) + sep));
-        try { await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } finally { await server.stop(); }
+        try { await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
+        finally {
+            await server.stop();
+            testMetrics.cleanupMs += performance.now() - cleanupStart;
+            await saveTestMetrics();
+        }
     }
 }

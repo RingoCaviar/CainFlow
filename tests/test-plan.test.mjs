@@ -1,13 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { changedFiles, loadManifest, selectTests, validateManifest, discoverTests } from '../scripts/test-plan.mjs';
-import { commandsFor, executeCommands, parseOptions } from '../scripts/run-tests.mjs';
+import { commandsFor, executeCommands, parseOptions, createReportWriter } from '../scripts/run-tests.mjs';
 import { chromiumNetworkArgs } from './helpers/browser-theme-fixture.mjs';
+
+function removeTestDirectory(directory) {
+    const target = resolve(directory);
+    assert.ok(target.startsWith(resolve(tmpdir()) + sep));
+    rmSync(target, { recursive: true, force: true });
+}
 
 test('isolated Chromium launches use the upstream Windows loopback workaround only on Windows', () => {
     assert.deepEqual(chromiumNetworkArgs('win32'), ['--disable-features=TcpPortRandomizationWin']);
@@ -75,13 +81,15 @@ test('repository inventory is exhaustive and full commands schedule each test ex
     assert.equal(new Set(scheduled).size, scheduled.length);
     const commands = commandsFor(plan, parseOptions([]));
     assert.equal(commands.filter(command => command.label === 'Python tests').length, 1);
-    const jsArgs = commands.filter(command => command.args.includes('--test')).flatMap(command => command.args.filter(arg => arg.endsWith('.test.mjs')));
+    const jsArgs = commands.flatMap(command => command.input ? JSON.parse(command.input) : command.args.filter(arg => arg.endsWith('.test.mjs')));
     assert.deepEqual(jsArgs.sort(), scheduled.filter(path => path.endsWith('.mjs')).sort());
     assert.ok(commands.find(command => command.label.startsWith('fast')).args.includes('--test-concurrency=4'));
-    assert.ok(commands.find(command => command.label.startsWith('browser')).args.includes('--test-concurrency=2'));
+    assert.ok(commands.find(command => command.label.startsWith('browser')).args.includes('--concurrency'));
+    assert.equal(commands.find(command => command.label.startsWith('browser')).args.at(2), '2');
     const browserCommands = commands.filter(command => command.label.startsWith('browser'));
-    assert.equal(browserCommands.length, Math.ceil(plan.phases.browser.length / 20));
-    assert.ok(browserCommands.every(command => command.args.filter(arg=>arg.endsWith('.test.mjs')).length<=20));
+    assert.equal(browserCommands.length, 1, 'browser files share one continuous queue');
+    assert.deepEqual(JSON.parse(browserCommands[0].input), plan.phases.browser);
+    assert.ok(browserCommands[0].args.join(' ').length < 2000, 'file lists travel through stdin rather than the Windows command line');
 });
 
 test('real impact rules include update desktop safety and force shared persistence to full', () => {
@@ -130,7 +138,7 @@ test('Git scope combines branch commits, staged changes, unstaged changes and un
         writeFileSync(join(directory, 'staged.js'), 'initial\n');
         assert.ok(changedFiles(directory).includes('staged.js'));
         assert.throws(() => changedFiles(directory, 'missing-ref'));
-    } finally { rmSync(directory, { recursive: true, force: true }); }
+    } finally { removeTestDirectory(directory); }
 });
 
 test('runner reports failed phases without masking them with later success', () => {
@@ -181,4 +189,152 @@ test('CLI validates arguments and dry-run only reports the selected plan', () =>
     assert.equal(plan.effectiveMode, 'daily');
     assert.deepEqual(plan.phases.browser, []);
     assert.ok(plan.commands.length > 0);
+});
+
+
+test('browser queue fills a free slot before a slow file ends and preserves file isolation', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'cainflow-test-queue-'));
+    try {
+        const events = join(directory, 'events.jsonl');
+        const files = [500, 20, 20].map((duration, index) => {
+            const file = join(directory, `case-${index}.test.mjs`);
+            writeFileSync(file, `import test from 'node:test';import assert from 'node:assert/strict';import{appendFileSync}from'node:fs';
+                assert.equal(globalThis.queueIsolation,undefined);globalThis.queueIsolation=true;
+                const event=kind=>appendFileSync(${JSON.stringify(events)},JSON.stringify({kind,index:${index}})+'\\n');
+                test('case ${index}',async()=>{event('start');await new Promise(r=>setTimeout(r,${duration}));event('end');});`);
+            return file;
+        });
+        const progress = join(directory, 'progress.json');
+        writeFileSync(progress, JSON.stringify({ complete: false, active: 'browser', results: [{ label: 'fast', passed: true }], notRun: ['Python tests'] }));
+        execFileSync(process.execPath, ['scripts/run-browser-tests.mjs', '--concurrency', '2', '--progress-report', progress],
+            { cwd: root, env: { ...process.env, NODE_TEST_CONTEXT: undefined }, input: JSON.stringify(files), encoding: 'utf8' });
+        const records = readFileSync(events, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+        assert.ok(records.findIndex(event => event.kind === 'start' && event.index === 2)
+            < records.findIndex(event => event.kind === 'end' && event.index === 0));
+        let active = 0, maximum = 0;
+        for (const event of records) { active += event.kind === 'start' ? 1 : -1; maximum = Math.max(maximum, active); }
+        assert.equal(maximum, 2);
+        const report = JSON.parse(readFileSync(progress, 'utf8'));
+        assert.equal(report.complete, false, 'a finished browser queue cannot complete the entire regression');
+        assert.deepEqual(report.notRun, ['Python tests']);
+        assert.equal(report.fileProgress.browser.complete, true);
+        assert.equal(report.fileProgress.browser.results.length, 3);
+        assert.ok(report.fileProgress.browser.results.every(item => item.passed));
+    } finally { removeTestDirectory(directory); }
+});
+
+test('browser queue records original file exits and runs remaining files once after failure', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'cainflow-test-queue-errors-'));
+    try {
+        const progress = join(directory, 'progress.json'), marker = join(directory, 'marker.txt');
+        const cache = join(directory, 'timings.json');
+        const files = ['fail', 'exit', 'pass'].map(name => join(directory, `${name}.test.mjs`));
+        writeFileSync(files[0], "import test from 'node:test';test('fails',()=>{throw new Error('original failure')});");
+        writeFileSync(files[1], 'process.exit(7);');
+        writeFileSync(cache, JSON.stringify({ version: 1, durations: { [files[1]]: 9999 } }));
+        writeFileSync(files[2], `import{appendFileSync}from'node:fs';appendFileSync(${JSON.stringify(marker)},'once');`);
+        let failure;
+        try { execFileSync(process.execPath, ['scripts/run-browser-tests.mjs', '--concurrency', '2', '--progress-report', progress, '--timings', cache],
+            { cwd: root, env: { ...process.env, NODE_TEST_CONTEXT: undefined }, input: JSON.stringify(files), encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }); }
+        catch (error) { failure = error; }
+        assert.equal(failure?.status, 1);
+        assert.equal(readFileSync(marker, 'utf8'), 'once');
+        const results = JSON.parse(readFileSync(progress, 'utf8')).fileProgress.browser.results;
+        assert.equal(new Set(results.map(item => item.file)).size, 3);
+        assert.equal(results.filter(item => !item.passed).length, 2);
+        assert.equal(results.find(item => item.file === files[1]).exitCode, 7);
+        assert.equal(JSON.parse(readFileSync(cache, 'utf8')).durations[files[1]], 9999, 'early exits do not replace successful timing history');
+    } finally { removeTestDirectory(directory); }
+});
+
+
+test('duration cache changes ordering only and corrupt cache cannot remove coverage', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'cainflow-test-queue-cache-'));
+    try {
+        const events = join(directory, 'order.txt'), cache = join(directory, 'timings.json');
+        const files = [0, 1, 2].map(index => {
+            const file = join(directory, `case ${index}.test.mjs`);
+            writeFileSync(file, `import{appendFileSync}from'node:fs';appendFileSync(${JSON.stringify(events)},'${index}');`);
+            return file;
+        });
+        writeFileSync(cache, JSON.stringify({ version: 1, durations: { [files[2]]: 900, [files[1]]: 100 } }));
+        const run = () => execFileSync(process.execPath, ['scripts/run-browser-tests.mjs', '--concurrency', '1', '--timings', cache],
+            { cwd: root, env: { ...process.env, NODE_TEST_CONTEXT: undefined }, input: JSON.stringify(files), stdio: ['pipe', 'pipe', 'pipe'] });
+        run();
+        assert.equal(readFileSync(events, 'utf8'), '210');
+        assert.equal(Object.keys(JSON.parse(readFileSync(cache, 'utf8')).durations).length, 3);
+        for (const invalid of ['{broken', 'null']) {
+            writeFileSync(events, ''); writeFileSync(cache, invalid);
+            run();
+            assert.equal(readFileSync(events, 'utf8'), '012');
+        }
+        writeFileSync(events, '');
+        execFileSync(process.execPath, ['scripts/run-browser-tests.mjs', '--concurrency', '1', '--timings', join(events, 'cache.json')],
+            { cwd: root, env: { ...process.env, NODE_TEST_CONTEXT: undefined }, input: JSON.stringify(files), stdio: ['pipe', 'pipe', 'pipe'] });
+        assert.equal(readFileSync(events, 'utf8'), '012', 'an unwritable optional timing cache cannot stop tests');
+    } finally { removeTestDirectory(directory); }
+});
+
+test('runner sends browser file lists through stdin and forwards checkpoint paths', () => {
+    const commands = commandsFor({ effectiveMode: 'full', changed: [], phases: { fast: [], integration: [], browser: ['tests/one.test.mjs'], python: [] } },
+        parseOptions(['--report', 'report.json']));
+    const browser = commands.find(command => command.input);
+    assert.ok(browser.args.includes('--progress-report'));
+    let observed;
+    assert.equal(executeCommands([browser], (command, args, options) => { observed = options; return { status: 0 }; }, { log() {}, error() {} }), 0);
+    assert.deepEqual(JSON.parse(observed.input), ['tests/one.test.mjs']);
+    assert.deepEqual(observed.stdio, ['pipe', 'inherit', 'inherit']);
+});
+
+
+test('main report resets stale runs and retains browser checkpoints across later phases', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'cainflow-test-checkpoint-'));
+    try {
+        const path = join(directory, 'report.json');
+        writeFileSync(path, JSON.stringify({ fileProgress: { stale: true } }));
+        const save = createReportWriter(path, { effectiveMode: 'full' });
+        save({ complete: false, active: 'browser', results: [], notRun: ['Python tests'] });
+        assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')).fileProgress, {});
+        const browser = { complete: true, results: [{ file: 'failed.test.mjs', passed: false, exitCode: 7 }] };
+        writeFileSync(path, JSON.stringify({ ...JSON.parse(readFileSync(path, 'utf8')), fileProgress: { browser } }));
+        save({ complete: false, active: 'Python tests', results: [{ label: 'browser', passed: false }], notRun: [] });
+        assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')).fileProgress.browser, browser);
+        save({ complete: true, active: null, results: [{ label: 'browser', passed: false }, { label: 'Python tests', passed: true }], notRun: [] });
+        const final = JSON.parse(readFileSync(path, 'utf8'));
+        assert.equal(final.results[0].passed, false);
+        assert.equal(final.fileProgress.browser.results[0].exitCode, 7);
+    } finally { removeTestDirectory(directory); }
+});
+
+
+test('interrupting the browser queue retains completed files and pending work', async () => {
+    const { spawn } = await import('node:child_process');
+    const directory = mkdtempSync(join(tmpdir(), 'cainflow-test-queue-interrupt-'));
+    let child;
+    try {
+        const progress = join(directory, 'progress.json');
+        const files = [0, 1000, 0].map((duration, index) => {
+            const file = join(directory, `case-${index}.test.mjs`);
+            writeFileSync(file, `import test from 'node:test';test('case',async()=>new Promise(r=>setTimeout(r,${duration})));`);
+            return file;
+        });
+        child = spawn(process.execPath, ['scripts/run-browser-tests.mjs', '--concurrency', '1', '--progress-report', progress],
+            { cwd: root, env: { ...process.env, NODE_TEST_CONTEXT: undefined }, stdio: ['pipe', 'ignore', 'ignore'] });
+        child.stdin.end(JSON.stringify(files));
+        let checkpoint;
+        for (const deadline = Date.now() + 5000; Date.now() < deadline;) {
+            try { checkpoint = JSON.parse(readFileSync(progress, 'utf8')); } catch {}
+            if (checkpoint?.fileProgress?.browser.results.length === 1 && checkpoint.fileProgress.browser.activeFiles.length === 1) break;
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        assert.equal(checkpoint.fileProgress.browser.results.length, 1);
+        assert.deepEqual(checkpoint.fileProgress.browser.notRun, [files[2]]);
+        const exited = new Promise(resolve => child.once('exit', resolve));
+        child.kill('SIGTERM'); await exited;
+        const report = JSON.parse(readFileSync(progress, 'utf8'));
+        assert.equal(report.complete, false);
+        assert.equal(report.fileProgress.browser.complete, false);
+        assert.equal(report.fileProgress.browser.results[0].passed, true);
+        assert.deepEqual(report.fileProgress.browser.notRun, [files[2]]);
+    } finally { child?.kill(); removeTestDirectory(directory); }
 });

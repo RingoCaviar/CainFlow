@@ -1,7 +1,7 @@
 /* Workbench foundation: shared UI tokens and low-cost polish for the main app shell. */
 #canvas-navigation {
     position: absolute; right: 16px; bottom: 16px; z-index: calc(var(--layer-toolbar) - 1);
-    display: flex; align-items: center; gap: 4px; padding: 6px; max-width: calc(100% - 32px);
+    display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; padding: 6px; width: max-content; max-width: calc(100% - 32px);
     border: 1px solid var(--panel-border); border-radius: 10px;
     background: var(--panel-bg-strong); color: var(--text-primary); box-shadow: var(--panel-shadow-soft);
 }
@@ -17,6 +17,7 @@
     min-width: 34px;
     height: 34px;
 }
+#canvas-navigation > :is(button, details) { flex: 0 0 auto; }
 #canvas-navigation :is(.canvas-node-search-toggle, .canvas-fit-view-toggle) {
     width: 34px;
     min-width: 34px;
@@ -28,10 +29,9 @@
     flex-shrink: 0;
 }
 #main-layout:has(.prompt-agent-panel.active) #canvas-navigation {
-    right: calc(var(--prompt-agent-width, clamp(320px, 34vw, 720px)) + 24px);
-    max-width: calc(100% - var(--prompt-agent-width, clamp(320px, 34vw, 720px)) - 40px);
-    flex-wrap: wrap;
-    justify-content: center;
+    /* The canvas already reserves Agent's width on smaller desktops. */
+    left: 16px;
+    right: auto;
 }
 #main-layout:has(.prompt-agent-panel.active) .canvas-node-search {
     right: auto;
@@ -56,8 +56,9 @@
     border: 1px solid var(--panel-border); border-radius: 9px; background: var(--panel-bg-strong); box-shadow: var(--panel-shadow-soft);
 }
 #canvas-navigation .canvas-zoom-options button { display: block; width: 100%; margin-block: 2px; text-align: left; }
-@media (max-width: 440px) {
-    #canvas-navigation { flex-wrap: wrap; justify-content: center; }
+/* A 48px navigation row, 16px bottom inset and 8px gap keep the composer clear. */
+#main-layout .prompt-agent-panel.active.needs-navigation-space {
+    bottom: 72px;
 }
 .canvas-node-search {
     display: none; position: absolute; bottom: calc(100% + 8px); right: 0;

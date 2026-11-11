@@ -39,6 +39,24 @@
         ],
         "createdAt": "2026-11-06T10:28:36.408Z",
         "reason": "Codex verified: detect index.html reports only the legacy .workflow-item::before width 5px rule from panels.css. The later themes.css rules hide this marker except on the active workflow and override its width to 2px; it identifies the current workflow. Both rules predate theme-ui#002. This is not a rendered thick decorative card border."
+      },
+      {
+        "rule": "dark-glow",
+        "value": "*",
+        "files": [
+          "tests/fixtures/prompt-agent-message-actions.html"
+        ],
+        "createdAt": "2026-11-10T02:54:50.441Z",
+        "reason": "Agent verified: this browser fixture imports unchanged production button CSS; the sole glow is the inherited #btn-logs.has-new-error::after indicator in css/modules/02-buttons.css, absent from the mounted Agent panel. No glow is authored by this fixture or the new user-message controls."
+      },
+      {
+        "rule": "dark-glow",
+        "value": "*",
+        "files": [
+          "tests/fixtures/prompt-agent-layout.html"
+        ],
+        "createdAt": "2026-11-10T03:41:05.837Z",
+        "reason": "Agent verified: this pre-existing layout fixture intentionally imports the production Agent/toolbar styles and mounts the active Agent button to test geometry. This change only updates visibility measurements, adds no shadow, and must retain production rendering. Narrow fixture exception only; production glow rules remain enabled."
       }
     ]
   }

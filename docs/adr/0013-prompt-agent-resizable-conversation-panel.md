@@ -64,6 +64,49 @@ resizing these surfaces pans the canvas, changes node coordinates, discards draf
 or changes the persisted panel-width preference. Locating a node is an explicit
 user action. Larger windows retain the existing overlap policy.
 
+## Independent workflow conversations (2026-11-10, workflow-agent-isolation#001)
+
+Each workflow owns its Agent transcript, creative context and summaries, unsent
+draft and loaded draft attachments, chat and image model selections, and the
+conversation's provider, thinking, search and size preferences. Draft content is
+persisted with that workflow but excluded from model and compaction context until
+sent. The configured model/Provider catalog and panel width remain application
+preferences.
+
+Switching workflows does not cancel an accepted Agent reply or compaction request.
+Each request captures its workflow identity, model configuration and canvas inputs
+before waiting. Background replies and summaries update only their original
+workflow through the workflow-identity mutation interface, merging against its
+latest document rather than replacing newer graph or generation-result changes.
+Only the visible workflow projects processing controls and progress into the
+shared panel. Legacy callers without a stable workflow identity retain cancellation
+on restoration because a background result cannot be routed safely.
+
+Stop and `/clear` affect only the visible workflow's Agent request. Closing a
+workflow cancels its outstanding Agent request; application exit stops all Agent
+requests. Late replies after cancellation or closure cannot recreate conversation
+content or change another workflow's busy state. Closing only the Agent panel
+continues to dismiss its presentation without cancelling its request.
+
+## Repeatable proposal batches (2026-11-10, agent-plan-batches#001)
+
+Canvas proposals expose Run and Apply only directly. Each activation creates an
+independent batch with its own node bindings, connections, model configuration,
+execution attempts and results. Proposals that target existing nodes create
+editable copies; the original nodes remain unchanged. Nonexecuting generated-image
+sources retain their complete cached output batch on a separate generated-image
+node; their old inputs are not copied or executed.
+
+Run executes only its newly created batch; Apply only creates and saves that batch.
+An earlier batch may continue running while a new batch is created. Retry retains
+the failed batch identity rather than creating another batch. Conversation writes
+merge one instance by identity so late completions cannot replace newer batches.
+
+Only verified additions may use the history transaction's additive rollback path
+while other nodes run. Failure removes those additions instead of restoring the
+whole graph and overwriting another run's updates. Transactions that mutate existing
+nodes retain the original running-state exclusion and complete rollback policy.
+
 ## Original consequences (historical)
 
 - The canvas remains visible while the assistant is used, and users can tune the panel width to their workspace.

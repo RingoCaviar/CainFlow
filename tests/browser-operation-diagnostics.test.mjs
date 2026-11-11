@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { withAppBrowser, delay } from './helpers/app-browser.mjs';
+import { withAppBrowser, delay, waitForAutosave } from './helpers/app-browser.mjs';
 import { uploadImageOriginal } from './helpers/image-upload.mjs';
 
 const images = await Promise.all(['red', 'blue'].map(async color =>
@@ -76,5 +76,33 @@ test('operation failures report HTTP, network and terminal business causes witho
                 return true;
             });
         } finally { await app.send('Network.setBlockedURLs', { urls: [] }); }
+    });
+});
+
+
+test('save waiting returns when clean, waits for the current disk write and reports its failure', { timeout: 30000 }, async () => {
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes: [{ id: 'text', type: 'Text', x: 100, y: 100, text: 'before' }], connections: [] }, async app => {
+        await waitForAutosave(app);
+        const started = Date.now();
+        await waitForAutosave(app);
+        assert.ok(Date.now() - started < 2000, 'a clean session must not sleep through the 3-second debounce');
+        await app.evaluate(`window.saveNativeFetch=window.fetch;window.fetch=async(url,options={})=>{
+            if(String(url)==='/api/storage/documents/session'&&options.method==='PUT'){
+                window.sessionWriteHeld=true;await new Promise(resolve=>window.releaseSessionWrite=resolve);
+                if(window.failSessionWrite)return new Response(JSON.stringify({error:'controlled session write failure'}),{status:503});
+            }return saveNativeFetch(url,options);
+        };`);
+        const changeCache = () => app.evaluate("import('/js/app/bootstrap.js').then(m=>m.bootstrapCainFlowApp()).then(app=>{app.state.canvas.x+=17;app.registry.sessionManagerApi.scheduleSave({dirty:false})})");
+        await changeCache();
+        let finished = false;
+        const waiting = waitForAutosave(app).then(() => { finished = true; });
+        await app.waitFor('window.sessionWriteHeld===true');
+        assert.equal(finished, false, 'the previous clean disk version cannot satisfy a held new write');
+        await app.evaluate('window.releaseSessionWrite()'); await waiting;
+        await app.evaluate('window.sessionWriteHeld=false;window.failSessionWrite=true');
+        await changeCache();
+        const failure = assert.rejects(waitForAutosave(app), /保存 session 失败|HTTP 503/);
+        await app.waitFor('window.sessionWriteHeld===true');
+        await app.evaluate('window.releaseSessionWrite()'); await failure;
     });
 });

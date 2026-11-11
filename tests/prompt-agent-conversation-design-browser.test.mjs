@@ -2,7 +2,94 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { withAppBrowser, delay } from './helpers/app-browser.mjs';
+import { withAppBrowser, delay, reloadAppBrowser } from './helpers/app-browser.mjs';
+import { runUiFixture } from './helpers/ui-browser-fixture.mjs';
+
+test('late context images update the recreated visible workflow message after A to B to A', async () => {
+    const result = await runUiFixture('tests/fixtures/prompt-agent-workflow-isolation.html');
+    assert.equal(result.error, undefined);
+    assert.equal(result.passed, true);
+});
+
+test('real workflow switching isolates Agent drafts, attachments, model choices and background replies through reload', { timeout: 60000 }, async () => {
+    const configuration = { autoCheckUpdatesOnLoad: false, autoRetry: false,
+        models: ['a','b'].map(id => ({ id: `chat-${id}`, modelId: `chat-model-${id}`, name: `对话${id}`, protocol: 'openai', taskType: 'chat', providerIds: ['p'] })),
+        providers: [{ id: 'p', name: '测试供应商', endpoint: 'https://controlled.test/v1', apikey: 'test' }] };
+    await withAppBrowser(configuration, async app => {
+        await app.evaluate(`(async () => { window.isolationApp = await import('/js/app/bootstrap.js').then(module => module.bootstrapCainFlowApp());
+            window.isolationRequests = []; window.isolationReplies = {};
+            const original = window.fetch;
+            window.fetch = async (url, options = {}) => {
+                if (String(url) === '/proxy' && options.body) {
+                    const body = JSON.parse(options.body);
+                    if (body.messages) return new Promise((resolve, reject) => {
+                        isolationRequests.push(body);
+                        isolationReplies[body.model] = { signal: options.signal, resolve: text => resolve(new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ intent: 'chat', message: text }) } }] }))) };
+                        options.signal?.addEventListener('abort', () => reject(new DOMException('cancelled','AbortError')), { once: true });
+                    });
+                }
+                return original(url, options);
+            };
+            isolationApp.registry.promptAgentController.restoreWorkflow({messages:[{role:'user',text:'A独有历史'}],chatModelId:'chat-a'});
+            document.getElementById('btn-prompt-agent').click(); })()`);
+        const nameA = await app.evaluate('isolationApp.workflowManagerApi.getActiveWorkflowName()');
+        const write = value => app.evaluate(`document.getElementById('prompt-agent-input').value=${JSON.stringify(value)};document.getElementById('prompt-agent-input').dispatchEvent(new Event('input',{bubbles:true}))`);
+        const send = () => app.evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await write('A自己的请求'); await send();
+        await app.waitFor('isolationRequests.length === 1');
+        await write('A未发送的草稿');
+        await app.evaluate(`const data = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg=='), c => c.charCodeAt(0));
+            const transfer = new DataTransfer(); transfer.items.add(new File([data],'A参考图.png',{type:'image/png'}));
+            document.getElementById('prompt-agent-input').dispatchEvent(new ClipboardEvent('paste',{bubbles:true,clipboardData:transfer}));`);
+        await app.waitFor("isolationApp.registry.promptAgentController.snapshotWorkflow().draft?.referenceImages?.length === 1");
+        await writeFile(join(app.server.workflowsDir, 'Isolated B.json'), JSON.stringify({ workflowId: 'isolation-B', nodes: [], connections: [],
+            promptAgent: { version: 1, chatModelId: 'chat-b', messages: [{ role: 'user', text: 'B独有历史' }], draft: { text: 'B预存草稿', referenceImages: [] } } }));
+        await app.evaluate("(async()=>{await isolationApp.workflowManagerApi.openWorkflow('Isolated B');document.getElementById('btn-prompt-agent').click()})()");
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), 'B预存草稿');
+        assert.equal(await app.evaluate("document.querySelectorAll('#prompt-agent-references img').length"), 0);
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-model').value"), 'chat-b');
+        assert.equal(await app.evaluate("isolationReplies['chat-model-a'].signal.aborted"), false);
+        await write('B自己的请求'); await send();
+        await app.waitFor('isolationRequests.length === 2');
+        assert.doesNotMatch(await app.evaluate('JSON.stringify(isolationRequests[1])'), /A独有历史|A自己的请求|A未发送的草稿/);
+        await write('B未发送的草稿');
+        await app.evaluate("isolationReplies['chat-model-a'].resolve('A专属后台回复')");
+        await app.waitFor(`JSON.stringify(isolationApp.workflowManagerApi.getWorkflowTabSnapshot(${JSON.stringify(nameA)}).promptAgent).includes('A专属后台回复')`);
+        assert.doesNotMatch(await app.evaluate("document.getElementById('prompt-agent-messages').textContent"), /A专属后台回复/);
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-send').disabled"), true);
+        await app.evaluate("isolationReplies['chat-model-b'].resolve('B专属回复')");
+        await app.waitFor("document.getElementById('prompt-agent-messages').textContent.includes('B专属回复')");
+        await app.evaluate(`(async()=>{await isolationApp.workflowManagerApi.openWorkflow(${JSON.stringify(nameA)});document.getElementById('btn-prompt-agent').click()})()`);
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), 'A未发送的草稿');
+        assert.equal(await app.evaluate("document.querySelectorAll('#prompt-agent-references img').length"), 1);
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-model').value"), 'chat-a');
+        assert.doesNotMatch(await app.evaluate("document.getElementById('prompt-agent-messages').textContent"), /B专属回复|B独有历史/);
+        if (process.env.CAINFLOW_QA_SCREENSHOT_DIR) {
+            await mkdir(process.env.CAINFLOW_QA_SCREENSHOT_DIR, { recursive: true });
+            const screenshot = await app.send('Page.captureScreenshot', { format: 'png' });
+            await writeFile(join(process.env.CAINFLOW_QA_SCREENSHOT_DIR, 'workflow-isolation-A.png'), Buffer.from(screenshot.data, 'base64'));
+        }
+        await reloadAppBrowser(app);
+        await app.evaluate("(async()=>{window.isolationApp = await import('/js/app/bootstrap.js').then(module=>module.bootstrapCainFlowApp());document.getElementById('btn-prompt-agent').click()})()");
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), 'A未发送的草稿');
+        assert.equal(await app.evaluate("document.querySelectorAll('#prompt-agent-references img').length"), 1);
+        await app.evaluate("(async()=>{await isolationApp.workflowManagerApi.openWorkflow('Isolated B');document.getElementById('btn-prompt-agent').click()})()");
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), 'B未发送的草稿');
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-model').value"), 'chat-b');
+        assert.doesNotMatch(await app.evaluate("document.getElementById('prompt-agent-messages').textContent"), /A专属后台回复/);
+        if (process.env.CAINFLOW_QA_SCREENSHOT_DIR) {
+            const screenshot = await app.send('Page.captureScreenshot', { format: 'png' });
+            await writeFile(join(process.env.CAINFLOW_QA_SCREENSHOT_DIR, 'workflow-isolation-B.png'), Buffer.from(screenshot.data, 'base64'));
+        }
+    });
+});
+
+test('user message buttons copy exact text and append a reference-preserving resend without consuming the draft', async () => {
+    const result = await runUiFixture('tests/fixtures/prompt-agent-message-actions.html');
+    assert.equal(result.error, undefined);
+    assert.equal(result.passed, true);
+    assert.equal(result.samples.length, 42);
+});
 
 test('conversation prose and compact plan remain usable in seven themes at 300px', { timeout: 60000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false,

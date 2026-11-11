@@ -10,6 +10,193 @@ const TEST_CHAT_MODEL = { id: 'chat-1', modelId: 'chat-test', name: 'Chat test',
 const TEST_COMPACTION_MODEL = { id: 'compact-1', modelId: 'compact-test', name: 'Compact test', providerIds: ['fixture'] };
 const TEST_IMAGE_MODEL = { id: 'image-model-1', modelId: 'image-test', name: 'Image test' };
 
+test('a background compaction error stays with its workflow and is visible when returning', async () => {
+    let fail;
+    const app = createWorkflowHarness(async () => { throw new Error('must not send'); }, {
+        getAutoCompactTokenLimit: () => 4000,
+        createCompaction: () => new Promise((_resolve, reject) => { fail = reject; })
+    });
+    app.controller.restoreWorkflow({ messages: [{ role: 'user', text: 'A上下文'.repeat(5000) }] });
+    enterText(app.elements, 'A待发送'); const pending = app.controller.submit();
+    app.switchTo('B');
+    fail(new Error('A独有压缩错误')); await pending;
+    assert.doesNotMatch(app.elements['prompt-agent-command-status'].textContent, /A独有/);
+    app.switchTo('A');
+    assert.match(app.elements['prompt-agent-command-status'].textContent, /A独有压缩错误/);
+    assert.equal(app.elements['prompt-agent-input'].value, 'A待发送');
+});
+
+for (const action of ['cancel', 'clear']) test(`${action} affects only the visible workflow Agent request`, async () => {
+    const pending = new Map();
+    const app = createWorkflowHarness(request => new Promise(resolve => pending.set(request.message, { request, resolve })));
+    enterText(app.elements, 'A请求'); const a = app.controller.submit();
+    await new Promise(resolve => setImmediate(resolve));
+    app.switchTo('B');
+    enterText(app.elements, 'B请求'); const b = app.controller.submit();
+    await new Promise(resolve => setImmediate(resolve));
+    if (action === 'cancel') app.controller.cancelRequest();
+    else { enterText(app.elements, '/clear'); await app.controller.submit(); }
+    assert.equal(pending.get('A请求').request.signal.aborted, false);
+    assert.equal(pending.get('B请求').request.signal.aborted, true);
+    pending.get('A请求').resolve({ message: 'A正常完成' }); await a;
+    pending.get('B请求').resolve({ message: 'B已取消的晚到回复' }); await b;
+    assert.doesNotMatch(JSON.stringify(app.controller.snapshotWorkflow()), /A正常完成|B已取消的晚到回复/);
+    app.switchTo('A');
+    assert.match(JSON.stringify(app.controller.snapshotWorkflow()), /A正常完成/);
+});
+
+test('closing one workflow aborts only its Agent, and exit cleanup aborts all remaining requests', async () => {
+    const pending = new Map();
+    const app = createWorkflowHarness(request => new Promise(resolve => pending.set(request.message, { request, resolve })));
+    enterText(app.elements, 'A请求'); const a = app.controller.submit();
+    await new Promise(resolve => setImmediate(resolve));
+    app.switchTo('B'); enterText(app.elements, 'B请求'); const b = app.controller.submit();
+    await new Promise(resolve => setImmediate(resolve));
+    app.documents.delete('A'); app.controller.cancelWorkflowRequest('A');
+    assert.equal(pending.get('A请求').request.signal.aborted, true);
+    assert.equal(pending.get('B请求').request.signal.aborted, false);
+    app.controller.cancelAllRequests();
+    assert.equal(pending.get('B请求').request.signal.aborted, true);
+    pending.get('A请求').resolve({ message: '关闭后A晚到' });
+    pending.get('B请求').resolve({ message: '退出后B晚到' });
+    await Promise.all([a,b]);
+    assert.equal(app.controller.hasRunningTasks(), false);
+    assert.doesNotMatch(JSON.stringify(app.controller.snapshotWorkflow()), /晚到/);
+});
+
+test('manual compaction writes only its original workflow after switching', async () => {
+    let finish;
+    const app = createWorkflowHarness(async () => ({ message: 'unused' }), {
+        createCompaction: () => new Promise(resolve => { finish = resolve; })
+    });
+    app.controller.restoreWorkflow({ messages: [{ role: 'user', text: 'A要压缩的对话' }] });
+    enterText(app.elements, '/compact'); const compacting = app.controller.submit();
+    app.switchTo('B', { messages: [{ role: 'user', text: 'B的对话' }] });
+    finish({ summary: 'A独有摘要' }); await compacting;
+    assert.doesNotMatch(JSON.stringify(app.controller.snapshotWorkflow()), /A独有摘要/);
+    app.switchTo('A'); assert.equal(app.controller.snapshotWorkflow().contextSummary, 'A独有摘要');
+});
+
+test('automatic compaction continues in the original workflow without reading the newly active conversation', async () => {
+    let finishCompact;
+    const requests = [];
+    const app = createWorkflowHarness(async request => { requests.push(request); return { message: 'A压缩后的回复' }; }, {
+        getAutoCompactTokenLimit: () => 4000,
+        createCompaction: () => new Promise(resolve => { finishCompact = resolve; })
+    });
+    app.controller.restoreWorkflow({ messages: [{ role: 'user', text: 'A旧上下文'.repeat(4000) }] });
+    enterText(app.elements, 'A的新请求'); const sending = app.controller.submit();
+    assert.equal(typeof finishCompact, 'function');
+    app.switchTo('B', { messages: [{ role: 'user', text: 'B独立上下文' }] });
+    enterText(app.elements, 'B的草稿');
+    finishCompact({ summary: '只属于A的摘要' }); await sending;
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].message, 'A的新请求');
+    assert.match(JSON.stringify(requests[0].conversation), /只属于A的摘要/);
+    assert.doesNotMatch(JSON.stringify(requests[0]), /B独立上下文|B的草稿/);
+    assert.equal(app.elements['prompt-agent-input'].value, 'B的草稿');
+    assert.doesNotMatch(JSON.stringify(app.controller.snapshotWorkflow()), /只属于A的摘要|A压缩后的回复/);
+    app.switchTo('A');
+    assert.match(JSON.stringify(app.controller.snapshotWorkflow()), /A压缩后的回复/);
+    assert.equal(app.elements['prompt-agent-input'].value, '', 'sent A draft is consumed in A, not B');
+});
+
+function createWorkflowHarness(createReply, options = {}) {
+    let id = 'A', controller;
+    const documents = new Map([['A', null]]);
+    const harness = createHarness(createReply, undefined, null, {
+        ...options, getWorkflowId: () => id,
+        mutateWorkflowConversation: (owner, reducer) => {
+            if (!documents.has(owner)) return false;
+            const next = reducer(owner === id ? controller.snapshotWorkflow() : documents.get(owner));
+            if (!next) return false;
+            documents.set(owner, next);
+            if (owner === id) controller.syncWorkflowState(next);
+            return true;
+        }
+    });
+    controller = harness.controller;
+    return { ...harness, documents,
+        switchTo(next, initial = null) {
+            documents.set(id, controller.snapshotWorkflow());
+            if (!documents.has(next)) documents.set(next, initial);
+            id = next; controller.restoreWorkflow(documents.get(next));
+        }
+    };
+}
+
+test('each workflow remembers its own chat model even after another workflow changes models', () => {
+    let selected = 'chat-1';
+    const { controller, elements } = createHarness(undefined, undefined, null, {
+        getChatModels: () => [TEST_CHAT_MODEL, { ...TEST_CHAT_MODEL, id: 'chat-2' }],
+        getSelectedModelId: () => selected, setSelectedModelId: id => { selected = id; }
+    });
+    controller.restoreWorkflow(null); controller.open();
+    const first = controller.snapshotWorkflow();
+    controller.restoreWorkflow(null); controller.open();
+    elements['prompt-agent-model'].value = 'chat-2';
+    elements['prompt-agent-model'].dispatch('change');
+    const second = controller.snapshotWorkflow();
+    controller.restoreWorkflow(first); controller.open();
+    assert.equal(elements['prompt-agent-model'].value, 'chat-1');
+    controller.restoreWorkflow(second); controller.open();
+    assert.equal(elements['prompt-agent-model'].value, 'chat-2');
+});
+
+test('workflow Agent replies continue independently and complete only into their owning conversation', async () => {
+    let workflowId = 'A';
+    const workflows = new Map(), requests = new Map();
+    let controller;
+    const harness = createHarness(request => new Promise(resolve => requests.set(request.message, { request, resolve })), undefined, null, {
+        getWorkflowId: () => workflowId,
+        mutateWorkflowConversation: (id, reducer) => {
+            const next = reducer(id === workflowId ? controller.snapshotWorkflow() : workflows.get(id));
+            if (!next) return false;
+            workflows.set(id, next);
+            if (id === workflowId) controller.syncWorkflowState(next);
+            return true;
+        }
+    });
+    controller = harness.controller;
+    const { elements } = harness;
+    controller.restoreWorkflow({ messages: [{ role: 'user', text: 'A的上下文' }] });
+    enterText(elements, 'A的请求'); const requestA = controller.submit();
+    await new Promise(resolve => setImmediate(resolve));
+    enterText(elements, 'A的未发送草稿'); workflows.set('A', controller.snapshotWorkflow());
+    workflowId = 'B'; controller.restoreWorkflow({ messages: [{ role: 'user', text: 'B的上下文' }] });
+    assert.equal(requests.get('A的请求').request.signal.aborted, false, 'switching workflows must not cancel another conversation');
+    enterText(elements, 'B的请求'); const requestB = controller.submit();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.match(JSON.stringify(requests.get('B的请求').request.conversation), /B的上下文/);
+    assert.doesNotMatch(JSON.stringify(requests.get('B的请求').request.conversation), /A的上下文|A的请求/);
+    requests.get('A的请求').resolve({ message: '只属于A的回复' }); await requestA;
+    assert.doesNotMatch(JSON.stringify(controller.snapshotWorkflow()), /只属于A的回复/);
+    assert.match(JSON.stringify(workflows.get('A')), /只属于A的回复/);
+    requests.get('B的请求').resolve({ message: '只属于B的回复' }); await requestB;
+    assert.match(JSON.stringify(controller.snapshotWorkflow()), /只属于B的回复/);
+    workflows.set('B', controller.snapshotWorkflow());
+    workflowId = 'A'; controller.restoreWorkflow(workflows.get('A'));
+    assert.equal(elements['prompt-agent-input'].value, 'A的未发送草稿');
+    assert.doesNotMatch(JSON.stringify(controller.snapshotWorkflow()), /只属于B的回复/);
+});
+
+test('workflow conversations keep separate unsent drafts when switching and reopening', () => {
+    const { controller, elements } = createHarness();
+    controller.restoreWorkflow({ messages: [{ role: 'user', text: '工作流A的历史' }] });
+    enterText(elements, '工作流A尚未发送的草稿');
+    const workflowA = controller.snapshotWorkflow();
+    controller.restoreWorkflow({ messages: [{ role: 'user', text: '工作流B的历史' }] });
+    assert.equal(elements['prompt-agent-input'].value, '', 'new workflow must not inherit another conversation draft');
+    enterText(elements, '工作流B的草稿');
+    const workflowB = controller.snapshotWorkflow();
+    controller.restoreWorkflow(workflowA);
+    assert.equal(elements['prompt-agent-input'].value, '工作流A尚未发送的草稿');
+    assert.equal(controller.snapshotWorkflow().messages[0].text, '工作流A的历史');
+    controller.restoreWorkflow(workflowB);
+    assert.equal(elements['prompt-agent-input'].value, '工作流B的草稿');
+    assert.equal(controller.snapshotWorkflow().messages[0].text, '工作流B的历史');
+});
+
 test('cancel, clear and workflow activation discard late native search without synthesizing or restoring sources', async () => {
     for (const action of ['cancel', 'clear', 'restore']) {
         let completeSearch, requests = 0;
@@ -129,7 +316,15 @@ class FakeElement {
         return this.children.find((child) => child.className === selector.slice(1)) || null;
     }
     querySelectorAll(selector) {
-        return this.children.flatMap(child => [ ...(child.className === selector.slice(1) ? [child] : []), ...child.querySelectorAll(selector)]);
+        const matches = child => selector === '[data-message-action="resend"]'
+            ? child.dataset.messageAction === 'resend' : child.className === selector.slice(1);
+        return this.children.flatMap(child => [ ...(matches(child) ? [child] : []), ...child.querySelectorAll(selector)]);
+    }
+    insertBefore(child, reference) {
+        if (!reference) return this.appendChild(child);
+        child.parentElement = this;
+        this.children.splice(this.children.indexOf(reference), 0, child);
+        return child;
     }
     blur() {}
     getBoundingClientRect() { return { width: 480 }; }
@@ -177,7 +372,7 @@ function createHarness(createReply = async () => ({
     const documentRef = {
         activeElement: null,
         getElementById: (id) => elements[id] || null,
-        createElement: () => new FakeElement()
+        createElementNS: () => new FakeElement(), createElement: () => new FakeElement()
     };
     const controller = createPromptAgentController({
         documentRef, createReply, nodeAdapter, executionAdapter,
@@ -702,7 +897,7 @@ test('default Prompt Plan keeps the selected node prompt when applying a follow-
     const documentRef = {
         activeElement: null,
         getElementById: (id) => elements[id] || null,
-        createElement: () => new FakeElement()
+        createElementNS: () => new FakeElement(), createElement: () => new FakeElement()
     };
     let applied = null;
     const controller = createPromptAgentController({
@@ -827,7 +1022,7 @@ test('default Prompt Plan uses restored Workflow Memory when no node prompt exis
         'prompt-agent-input': new FakeElement(), 'prompt-agent-send': new FakeElement(),
         'prompt-agent-messages': new FakeElement()
     };
-    const documentRef = { getElementById: (id) => elements[id] || null, createElement: () => new FakeElement() };
+    const documentRef = { getElementById: (id) => elements[id] || null, createElementNS: () => new FakeElement(), createElement: () => new FakeElement() };
     let applied = null;
     const controller = createPromptAgentController({
         documentRef,
@@ -855,7 +1050,7 @@ test('default Prompt Plan uses restored Workflow Memory with an existing node pr
         'prompt-agent-input': new FakeElement(), 'prompt-agent-send': new FakeElement(),
         'prompt-agent-messages': new FakeElement()
     };
-    const documentRef = { getElementById: (id) => elements[id] || null, createElement: () => new FakeElement() };
+    const documentRef = { getElementById: (id) => elements[id] || null, createElementNS: () => new FakeElement(), createElement: () => new FakeElement() };
     let applied = null;
     const controller = createPromptAgentController({
         documentRef,
@@ -1232,6 +1427,7 @@ test('unknown commands and unavailable or empty compaction stay local', async ()
     assert.equal(elements['prompt-agent-input'].value, '/compact');
     models = [TEST_CHAT_MODEL];
     controller.restoreWorkflow({ contextSummary: '蓝色小猫', messages: [] });
+    enterText(elements, '/compact');
     await controller.submit();
     assert.match(elements['prompt-agent-command-status'].textContent, /还没有新增/);
     assert.equal(calls, 0);
@@ -1490,8 +1686,8 @@ test('failed automatic compaction preserves draft and history and does not send 
         createCompaction: async () => { throw new Error('网络故障'); }
     });
     controller.restoreWorkflow({ messages: [{ role: 'user', text: '旧'.repeat(12000) }] });
-    const before = controller.snapshotWorkflow();
     enterText(elements, '继续');
+    const before = controller.snapshotWorkflow();
     await controller.submit();
     assert.equal(replies, 0);
     assert.equal(elements['prompt-agent-input'].value, '继续');

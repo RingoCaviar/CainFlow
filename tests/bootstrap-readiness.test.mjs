@@ -177,3 +177,26 @@ test('startup schedules network checks quietly and still runs connectivity then 
         globalThis.window = previousWindow;
     }
 });
+
+
+test('only the latest canvas load can settle progress and failure never becomes an empty canvas', async () => {
+    const { beginCanvasLoad } = await import('../js/features/ui/canvas-load-state.js');
+    const progress = { hidden: false }, label = { textContent: '' };
+    const loading = { hidden: false, querySelector: selector => selector === '[data-canvas-load-progress]' ? progress : label };
+    const canvas = { setAttribute(name, value) { this[name] = value; } };
+    const doc = { documentElement: { dataset: {} }, getElementById: id => id === 'canvas-container' ? canvas : loading };
+    const old = beginCanvasLoad(doc), latest = beginCanvasLoad(doc);
+    old();
+    assert.equal(doc.documentElement.dataset.canvasLoadState, 'loading');
+    assert.equal(loading.hidden, false);
+    latest(true);
+    assert.equal(doc.documentElement.dataset.canvasLoadState, 'error');
+    assert.equal(progress.hidden, true);
+    assert.match(label.textContent, /加载失败/);
+    old();
+    assert.equal(doc.documentElement.dataset.canvasLoadState, 'error');
+    beginCanvasLoad(doc)();
+    assert.equal(doc.documentElement.dataset.canvasLoadState, 'ready');
+    assert.equal(loading.hidden, true);
+    assert.equal(canvas['aria-busy'], 'false');
+});
