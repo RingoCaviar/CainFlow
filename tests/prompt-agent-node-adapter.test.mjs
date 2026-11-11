@@ -628,6 +628,24 @@ test('size clarification happens before target creation; valid destination enabl
  assert.deepEqual(writes,['resolution','aspect']);assert.equal(controls['image-1-aspect'].value,'16:9');
 });
 
+test('applies a legacy pixel size to a fixed-size model and rejects unsupported sizes before writing', () => {
+    const { adapter, controls, node, state } = harness();
+    node.apiConfigId = 'image';
+    state.models = [{ id: 'image', modelId: 'gpt-image-1.5', protocol: 'openai' }];
+    controls['image-1-resolution'].options = [{ value: '' }, { value: '1K' }];
+    controls['image-1-aspect'].options = [{ value: '1:1' }, { value: '2:3' }, { value: '3:2' }];
+
+    const plan = { targetNodeId: node.id, prompt: '海报', parameters: { resolution: '1536x1024' } };
+    assert.equal(adapter.applyPromptPlan(plan), true);
+    assert.equal(controls['image-1-resolution'].value, '1K');
+    assert.equal(controls['image-1-aspect'].value, '3:2');
+
+    const invalid = { ...plan, prompt: '不可应用', parameters: { resolution: '2K' } };
+    assert.equal(adapter.applyPromptPlan(invalid), false);
+    assert.equal(controls['image-1-prompt'].value, '海报');
+    assert.equal(controls['image-1-resolution'].value, '1K');
+});
+
 
 test('selected node context preserves ordered active reference slots even with identical pixels',()=>{
     const pixels='data:image/png;base64,AAAA';

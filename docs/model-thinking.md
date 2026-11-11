@@ -6,7 +6,7 @@
 
 | 模板 | 请求字段 | 边界与官方来源 |
 | --- | --- | --- |
-| OpenAI 对话 | Chat 的 `reasoning_effort`；Responses 的 `reasoning.effort` | [Reasoning](https://developers.openai.com/api/docs/guides/reasoning)。o 系列 low/medium/high；GPT-5 增加 minimal；5.1 支持 none；登记的 5.2/5.4/5.5 支持 none/low/medium/high/xhigh。[GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra)、[GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol)使用 low/medium/high/xhigh/max。 |
+| OpenAI 对话 | Chat 的 `reasoning_effort`；Responses 的 `reasoning.effort` | 最新核验与型号档位见 [OpenAI 模型参数](openai-model-parameters.md)。官方依据：[Reasoning](https://developers.openai.com/api/docs/guides/reasoning)。 |
 | Gemini 对话等级 | `generationConfig.thinkingConfig.thinkingLevel` | [Thinking](https://ai.google.dev/gemini-api/docs/generate-content/thinking?hl=en)。按登记模型区分 low/high、minimal/low/medium/high 或 low/medium/high。 |
 | Gemini 2.5 预算 | `generationConfig.thinkingConfig.thinkingBudget` | 同上。Pro 128–32768，不能关闭；Flash 允许关闭及 1–24576；Flash-Lite 允许关闭及 512–24576。动态预算发送 -1。等级与预算不同时发送。 |
 | Gemini 生图 | 同等级字段 | [Image generation](https://ai.google.dev/gemini-api/docs/image-generation)。3.1 Flash Image / Flash-Lite Image 登记 minimal/high。固定或未确认可调整模型显示“由接口控制”。 |

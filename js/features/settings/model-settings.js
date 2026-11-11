@@ -14,6 +14,8 @@ import {
     validateOpenAiImageSize
 } from '../execution/provider-request-utils.js';
 import { getImageAspectSelectState, normalizeImageSizeControls, resolveImageRequestSize } from '../execution/image-generation-size.js';
+import { getOpenAiImageCapabilities } from '../execution/openai-image-capabilities.js';
+import { syncImageParameterControls } from '../../nodes/image-parameter-controls.js';
 import {
     getModelProtocolHelpText,
     getProtocolSelectOptions,
@@ -705,12 +707,12 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
             aspect: aspectSelect.value,
             customWidth: documentRef.getElementById(`${id}-custom-resolution-width`)?.value,
             customHeight: documentRef.getElementById(`${id}-custom-resolution-height`)?.value
-        }, protocol);
+        }, protocol, model?.modelId);
         resolutionSelect.innerHTML = getImageResolutionOptionsForModel(model, state.providers, normalizedProviderId)
             .map((option) => `<option value="${option.value}">${option.label}</option>`)
             .join('');
         resolutionSelect.value = controls.resolution;
-        const aspectControl = getImageAspectSelectState(protocol, controls.resolution, controls.aspect);
+        const aspectControl = getImageAspectSelectState(protocol, controls.resolution, controls.aspect, model?.modelId);
         aspectSelect.innerHTML = aspectControl.options
             .map((option) => `<option value="${option.value}" ${option.disabled ? 'disabled' : ''}>${option.label}</option>`)
             .join('');
@@ -721,22 +723,15 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
         const isTtapiOpenAiModel = protocol === 'ttapi-openai';
         const usesOpenAiImageControls = isOpenAiModel || isTtapiOpenAiModel;
         const isNewApiAsyncImage = protocol === 'newapi-image-async';
-        const qualityField = documentRef.getElementById(`${id}-quality-field`);
-        if (qualityField) qualityField.classList.toggle('hidden', !usesOpenAiImageControls);
-        [
-            `${id}-moderation-field`,
-            `${id}-background-field`
-        ].forEach((fieldId) => {
-            const field = documentRef.getElementById(fieldId);
-            if (field) field.classList.toggle('hidden', !usesOpenAiImageControls);
-        });
+        syncImageParameterControls(documentRef, id, protocol, model?.modelId);
         const searchField = documentRef.getElementById(`${id}-search-field`);
         if (searchField) searchField.classList.toggle('hidden', usesOpenAiImageControls || isNewApiAsyncImage);
         const maskPort = documentRef.querySelector(`.node-port[data-node-id="${id}"][data-port="mask"][data-direction="input"]`);
         if (maskPort) {
             const wasHidden = maskPort.classList.contains('hidden');
-            maskPort.classList.toggle('hidden', !usesOpenAiImageControls || isNewApiAsyncImage);
-            maskPort.setAttribute('aria-hidden', usesOpenAiImageControls && !isNewApiAsyncImage ? 'false' : 'true');
+            const supportsMask = usesOpenAiImageControls && (!isOpenAiModel || getOpenAiImageCapabilities(model?.modelId)?.maxReferences !== 0);
+            maskPort.classList.toggle('hidden', !supportsMask);
+            maskPort.setAttribute('aria-hidden', String(!supportsMask));
             if (wasHidden !== maskPort.classList.contains('hidden')) connectionProjection?.nodeGeometryChanged(id);
         }
         const customField = documentRef.getElementById(`${id}-custom-resolution-field`);
@@ -749,7 +744,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
         const requestedResolution = documentRef.getElementById(`${id}-requested-resolution`);
         if (requestedResolution) {
             try {
-                requestedResolution.textContent = resolveImageRequestSize({ protocol, ...controls }).display;
+                requestedResolution.textContent = resolveImageRequestSize({ protocol, modelId: model?.modelId, ...controls }).display;
             } catch {
                 requestedResolution.textContent = '请输入有效的宽度和高度';
             }
@@ -764,6 +759,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
             widthInput.classList.toggle('invalid', !validation.valid);
             heightInput.classList.toggle('invalid', !validation.valid);
         }
+        modelSelect.dispatchEvent(new windowRef.Event('cainflow:image-model-configuration-changed'));
     }
 
     function updateAllNodeModelDropdowns() {

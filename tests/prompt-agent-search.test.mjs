@@ -49,6 +49,17 @@ test('native search plans preserve configuration and require an explicit Respons
     assert.equal(gemini.requestBody.contents[0].parts[0].text, 'facts');
 });
 
+test('official GPT-5 Responses search requires more than minimal reasoning', () => {
+    const model = { ...chat, modelId: 'gpt-5', thinking: { default: { mode: 'level', value: 'minimal' } } };
+    const official = { ...provider, endpoint: 'https://api.openai.com/v1' };
+    const args = { model, provider: official, kind: 'web', query: 'facts' };
+    assert.throws(() => createAgentSearchRequest(args), /联网搜索需要 low、medium 或 high/);
+    model.thinking.default.value = 'low';
+    const { requestBody } = createAgentSearchRequest(args);
+    assert.deepEqual(requestBody.reasoning, { effort: 'low' });
+    assert.equal(requestBody.reasoning_effort, undefined);
+});
+
 test('parsers require real tool evidence and preserve only structured, safe sources and image results', () => {
     assert.equal(result().sources.length, 1);
     assert.equal(result().images[0].imageUrl, 'https://image.test/full.png');

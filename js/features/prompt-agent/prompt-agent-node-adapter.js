@@ -1,4 +1,4 @@
-import { resolveAgentSize, sizeFields } from './prompt-agent-size.js';
+import { replaceAgentSizeFields, resolveAgentSize, sizeFields } from './prompt-agent-size.js';
 import { resolveAgentProvider } from './prompt-agent-provider.js';
 import { getEffectiveProtocol, getGenerationInputProtocolId, getModelProviders, getModelsForTask, getResolvedProviderForModel } from '../execution/provider-request-utils.js';
 import { getModelProtocolConfig } from '../execution/model-protocol-registry.js';
@@ -255,7 +255,11 @@ export function createPromptAgentNodeAdapter({
             .find((candidate) => candidate.id === modelId);
         if (!model) throw new Error('所选生图模型已不可用，请在 Agent 面板重新选择或检查模型与 Provider 配置。');
         const provider = resolveAgentProvider(model, state?.providers || [], providerId);
-        if (Object.keys(sizeFields(plan.parameters)).length) resolveAgentSize({ protocol: getEffectiveProtocol(model, provider), current: node && readValue(controlDocument, `${node.id}-apiconfig`, node.apiConfigId || '') === model.id ? getContext(node.id)?.parameters : {}, parameters: plan.parameters });
+        if (Object.keys(sizeFields(plan.parameters)).length) {
+            const current = node && readValue(controlDocument, `${node.id}-apiconfig`, node.apiConfigId || '') === model.id
+                ? getContext(node.id)?.parameters : {};
+            resolveAgentSize({ protocol: getEffectiveProtocol(model, provider), modelId: model.modelId, current, parameters: plan.parameters });
+        }
         if (node) {
             configureTarget(node, model, provider);
             return plan;
@@ -277,17 +281,25 @@ export function createPromptAgentNodeAdapter({
         const promptSource = preflightPromptChange(node, plan);
         // Validate before any writes, including plans restored from workflows
         // or created before the user changed this node's model.
-        let parameters;
-        try {
-            parameters = normalizePromptAgentParameters(plan.parameters || {}, readPromptAgentParameterSchema(documentRef, node.id, node));
-        } catch {
-            return false;
-        }
         if (plan.negativePrompt != null && typeof plan.negativePrompt !== 'string') return false;
         const sizeContext = getContext(node.id);
-        const sizeModel = state.models?.find(model => model.id === (node.apiConfigId || node.data?.apiConfigId));
-        const sizeProtocol = getEffectiveProtocol(sizeModel, getResolvedProviderForModel(sizeModel, state.providers, node.providerId));
-        if (Object.keys(sizeFields(parameters)).length) resolveAgentSize({ protocol: sizeProtocol, current: sizeContext?.parameters, parameters });
+        const modelId = readValue(controlDocument, `${node.id}-apiconfig`, node.apiConfigId || node.data?.apiConfigId || '');
+        const sizeModel = state.models?.find(model => model.id === modelId);
+        const providerId = readValue(controlDocument, `${node.id}-provider`, node.providerId || '');
+        const provider = getResolvedProviderForModel(sizeModel, state.providers, providerId);
+        const protocol = getEffectiveProtocol(sizeModel, provider);
+        let parameters;
+        try {
+            let input = plan.parameters || {};
+            if (Object.keys(sizeFields(input)).length) {
+                const size = resolveAgentSize({ protocol, modelId: sizeModel?.modelId, current: sizeContext?.parameters, parameters: input });
+                input = replaceAgentSizeFields(input, size.patch);
+            }
+            parameters = normalizePromptAgentParameters(input, sizeContext.parameterSchema);
+        } catch (error) {
+            if (error.sizeClarification) throw error;
+            return false;
+        }
         // Resolve all references before changing any graph or prompt state.
         // An explicit reference list is authoritative; unrelated input ports survive.
         if (Array.isArray(plan.referenceImages)) {
@@ -352,11 +364,6 @@ export function createPromptAgentNodeAdapter({
         const hasSizeChange = ['aspectRatio', 'resolution', 'customWidth', 'customHeight']
             .some((key) => sizePlan[key] !== undefined && sizePlan[key] !== null);
         if (hasSizeChange) {
-            const modelId = readValue(controlDocument, `${node.id}-apiconfig`, node.apiConfigId || '');
-            const model = state.models?.find((candidate) => candidate.id === modelId);
-            const providerId = readValue(controlDocument, `${node.id}-provider`, node.providerId || '');
-            const provider = getResolvedProviderForModel(model, state.providers, providerId);
-            const protocol = getEffectiveProtocol(model, provider);
             const currentResolution = readValue(controlDocument, `${node.id}-resolution`, node.data?.resolution || '');
             const requestedResolution = sizePlan.resolution ?? currentResolution;
             const controls = normalizeImageSizeControls({
@@ -364,7 +371,7 @@ export function createPromptAgentNodeAdapter({
                 aspect: sizePlan.aspectRatio ?? readValue(controlDocument, `${node.id}-aspect`, node.data?.aspect || ''),
                 customWidth: sizePlan.customWidth ?? readValue(controlDocument, `${node.id}-custom-resolution-width`, node.data?.customWidth || ''),
                 customHeight: sizePlan.customHeight ?? readValue(controlDocument, `${node.id}-custom-resolution-height`, node.data?.customHeight || '')
-            }, protocol);
+            }, protocol, sizeModel?.modelId);
             Object.assign(node.data, controls);
             writeValue(controlDocument, `${node.id}-resolution`, controls.resolution, createEvent);
             writeValue(controlDocument, `${node.id}-aspect`, controls.aspect, createEvent);

@@ -1,4 +1,5 @@
-import { applyThinking } from './thinking-config.js';
+import { getOpenAIChatCapabilities } from './openai-chat-capabilities.js';
+import { applyThinking, THINKING_PROFILES } from './thinking-config.js';
 import { resolveProviderUrl } from './provider-request-utils.js';
 
 export class ChatRequestPlanError extends Error {
@@ -38,9 +39,9 @@ function validateMedia(media, protocol, capabilities) {
     }
 }
 
-function buildOpenAiBody({ model, messages, systemPrompt, media }) {
+function buildOpenAiBody({ model, messages, systemPrompt, media, systemRole = 'system' }) {
     const requestMessages = [];
-    if (systemPrompt) requestMessages.push({ role: 'system', content: systemPrompt });
+    if (systemPrompt) requestMessages.push({ role: systemRole, content: systemPrompt });
     messages.forEach((message, index) => {
         const attachHere = message.role === 'user' && index === messages.map((item) => item.role).lastIndexOf('user') && media.length > 0;
         requestMessages.push({
@@ -54,6 +55,42 @@ function buildOpenAiBody({ model, messages, systemPrompt, media }) {
         });
     });
     return { model: model.modelId, messages: requestMessages };
+}
+
+function migrateOpenAIChatParams(body) {
+    const tokenLimit = body.max_output_tokens ?? body.max_tokens;
+    if (body.max_completion_tokens == null && tokenLimit != null) body.max_completion_tokens = tokenLimit;
+    delete body.max_output_tokens;
+    delete body.max_tokens;
+    if (body.reasoning_effort == null && body.reasoning?.effort != null) body.reasoning_effort = body.reasoning.effort;
+    delete body.reasoning;
+}
+
+function applyOpenAIChatLimits(body, capabilities) {
+    const profile = THINKING_PROFILES[capabilities.thinkingProfile];
+    if (profile && body.reasoning_effort != null && !profile.levels.includes(body.reasoning_effort)) {
+        throw new ChatRequestPlanError('unsupported_parameter', `${body.model} 不支持 reasoning_effort=${body.reasoning_effort}。可用档位：${profile.levels.join('、')}。`, {
+            parameter: 'reasoning_effort'
+        });
+    }
+    if (!profile) delete body.reasoning_effort;
+    if (!capabilities.verbosity) delete body.verbosity;
+    if (capabilities.stop === false) delete body.stop;
+    const effort = body.reasoning_effort ?? capabilities.defaultEffort;
+    if (effort && effort !== 'none') {
+        for (const field of ['temperature', 'top_p', 'logprobs', 'top_logprobs']) delete body[field];
+    }
+    if (!body.tools?.length && !body.functions?.length) return;
+    if (capabilities.functionCalling === 'responses-only') {
+        throw new ChatRequestPlanError('unsupported_parameter', `${body.model} 的工具调用需要 Responses API，请移除工具参数或选择支持 Chat Completions 工具调用的模型。`, {
+            parameter: 'tools'
+        });
+    }
+    if (capabilities.functionCalling === 'without-reasoning' && effort !== 'none') {
+        throw new ChatRequestPlanError('unsupported_parameter', `${body.model} 在 Chat Completions 中进行工具调用时需要 reasoning_effort=none。`, {
+            parameter: 'tools'
+        });
+    }
 }
 
 function buildGoogleBody({ messages, systemPrompt, media, searchEnabled }) {
@@ -77,7 +114,7 @@ function buildGoogleBody({ messages, systemPrompt, media, searchEnabled }) {
 export function createChatRequestPlan({
     provider,
     model,
-    protocol,
+    protocol = model?.protocol,
     messages,
     systemPrompt = '',
     media = [],
@@ -88,15 +125,26 @@ export function createChatRequestPlan({
 }) {
     if (!provider || !model) throw new ChatRequestPlanError('invalid_configuration', '缺少对话模型或 Provider 配置');
     const effectiveProtocol = protocol === 'google' ? 'google' : 'openai';
+    const official = protocol === 'openai' ? getOpenAIChatCapabilities({ model, provider, protocol }) : null;
+    if (official?.chatCompletions === false) {
+        throw new ChatRequestPlanError('unsupported_model', `${model.modelId} 仅支持 Responses API，请选择支持 Chat Completions 的对话模型。`);
+    }
     const normalizedMessages = normalizeMessages(messages);
     if (normalizedMessages.length === 0) throw new ChatRequestPlanError('empty_messages', '请输入提问内容');
     const normalizedMedia = normalizeMedia(media);
-    validateMedia(normalizedMedia, effectiveProtocol, capabilities);
+    validateMedia(normalizedMedia, effectiveProtocol, {
+        imageInput: capabilities.imageInput !== false && official?.imageInput !== false
+    });
     const baseBody = effectiveProtocol === 'google'
         ? buildGoogleBody({ messages: normalizedMessages, systemPrompt, media: normalizedMedia, searchEnabled })
-        : buildOpenAiBody({ model, messages: normalizedMessages, systemPrompt, media: normalizedMedia });
+        : buildOpenAiBody({ model, messages: normalizedMessages, systemPrompt, media: normalizedMedia, systemRole: official?.systemRole });
     const requestBody = { ...baseBody, ...(customParams && typeof customParams === 'object' ? customParams : {}) };
+    if (official) {
+        requestBody.model = baseBody.model;
+        migrateOpenAIChatParams(requestBody);
+    }
     applyThinking(requestBody, { model, provider, task: 'chat', protocol }, thinking);
+    if (official) applyOpenAIChatLimits(requestBody, official);
     const url = resolveProviderUrl(provider, model, 'chat');
     const plan = {
         protocol: effectiveProtocol,

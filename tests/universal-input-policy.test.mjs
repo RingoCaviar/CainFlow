@@ -147,6 +147,20 @@ test('new mask connections require one original and persist their consumption ru
     assert.equal(edge.maskConsumption, undefined, 'saving does not mutate the loaded legacy graph');
 });
 
+test('OpenAI legacy image models enforce their reference and mask limits before generation', () => {
+    const context = setup();
+    const { state, targetNode } = context;
+    const sourceNode = { id: 'source', type: 'ImageGenerate', data: { imageList: ['first', 'second'] } };
+    state.nodes.set(sourceNode.id, sourceNode);
+    const args = { ...context, sourceNode, sourcePort: 'image' };
+    state.models[0].modelId = 'dall-e-2';
+    assert.match(resolveUniversalInput(args).error, /最多接收 1 张参考图/);
+    assert.match(validateUniversalImageInputs({ state, node: targetNode, inputs: { referenceImages: ['first', 'second'] } }), /最多接收 1 张参考图/);
+    state.models[0].modelId = 'dall-e-3';
+    assert.match(resolveUniversalInput(args).error, /不支持参考图/);
+    assert.match(resolveUniversalInput({ ...args, role: 'mask' }).error, /不支持遮罩/);
+});
+
 test('execution rechecks full batches and preserves single mask safeguards after saving and reopening', () => {
     const { state, targetNode: node } = setup();
     const source = { id: 'source', type: 'ImageGenerate', data: { imageList: ['first','second'] } };

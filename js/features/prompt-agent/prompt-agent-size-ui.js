@@ -34,6 +34,7 @@ export function createAgentSizeSettings({ documentRef, parent, popoverId, getMod
         { select: controls.aspectRatio, searchLabel: '画面比例' }
     ] });
     let destroyed = false;
+    let displayedValue = {};
     const getSummary = () => {
         const model = getModel(), value = getValue(model?.id) || {};
         const resolution = value.resolution === undefined ? '自动' : value.resolution || '自动';
@@ -44,8 +45,16 @@ export function createAgentSizeSettings({ documentRef, parent, popoverId, getMod
     };
     const render = () => {
         if (destroyed) return;
-        const model = getModel(), value = getValue(model?.id) || {};
-        const capabilities = sizeCapabilities(getEffectiveProtocol(model || {}, getProvider(model)));
+        const model = getModel();
+        let value = getValue(model?.id) || {};
+        const protocol = getEffectiveProtocol(model || {}, getProvider(model));
+        const capabilities = sizeCapabilities(protocol, model?.modelId);
+        let message = !model ? '请先选择生图模型。' : '';
+        if (model && Object.keys(value).length) {
+            try { value = resolveAgentSize({ protocol, modelId: model.modelId, parameters: value }).patch; }
+            catch (error) { message = error.message; }
+        }
+        displayedValue = value;
         for (const [key, options] of [['resolution', capabilities.resolutions], ['aspectRatio', capabilities.aspects]]) {
             const select = controls[key]; select.replaceChildren();
             const values = [{ value: '__inherit__', label: '自动' }, ...options.map(item => item.label === '自动' ? { ...item, label: '模型自动' } : item)];
@@ -57,22 +66,23 @@ export function createAgentSizeSettings({ documentRef, parent, popoverId, getMod
         controls.aspectRatio.disabled = !model || locked;
         aspectHint.textContent = !model || !locked ? '' : value.resolution === 'custom'
             ? '由宽高决定' : '自动分辨率由模型决定';
-        dimensions.hidden = value.resolution !== 'custom';
+        dimensions.hidden = value.resolution !== 'custom' || !capabilities.resolutions.some(option => option.value === 'custom');
         for (const key of ['customWidth', 'customHeight']) controls[key].value = value[key] ?? '';
-        let message = !model ? '请先选择生图模型。' : '';
-        if (model && Object.keys(value).length) {
-            try { resolveAgentSize({ protocol: getEffectiveProtocol(model, getProvider(model)), parameters: value }); }
-            catch (error) { message = error.message; }
-        }
         hint.textContent = message;
         menus.refresh();
     };
     for (const [key, control] of Object.entries(controls)) control.addEventListener('change', () => {
         const model = getModel(); if (!model) return;
-        const value = { ...getValue(model.id) };
+        const value = { ...displayedValue };
         if (control.value === '__inherit__' || (control.type === 'number' && !control.value)) delete value[key];
         else value[key] = control.type === 'number' ? Number(control.value) : control.value;
-        if (key === 'resolution' && value.resolution !== 'custom') { delete value.customWidth; delete value.customHeight; }
+        if (key === 'resolution') {
+            if (value.resolution !== 'custom') {
+                delete value.customWidth;
+                delete value.customHeight;
+            }
+            if (value.resolution === '' || value.resolution === 'custom') delete value.aspectRatio;
+        }
         onChange(model.id, value); render();
     });
     render();

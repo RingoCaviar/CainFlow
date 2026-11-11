@@ -7,12 +7,14 @@ import { getProtocol } from '../features/execution/protocols/index.js';
 import { resolveDeclarativeProtocolVariant } from '../features/execution/protocols/declarative-protocol-schema.js';
 import { getImageDescription } from '../features/execution/reference-image-description.js';
 import { resolveImageRequestSize } from '../features/execution/image-generation-size.js';
+import { getOpenAiImageCapabilities } from '../features/execution/openai-image-capabilities.js';
 import { resolveThinking, getThinkingCapability, normalizeThinkingSelection } from '../features/execution/thinking-config.js';
 
 const PROTOCOL_PRESENTATION_FIELDS = new Set(['id', 'name', 'label', 'helpText', 'description', 'note', 'videoMeta',
     'schemaVersion', 'baseSchemaVersion', 'baseRevision', 'overrideRevision', 'overrideRecord', 'executionSnapshot',
     'variants', 'variantId', 'variantIdCaseInsensitive']);
 const PARAMETER_PRESENTATION_FIELDS = new Set(['name', 'label', 'exposed', 'uiControl', 'portLabel', 'note', 'description', 'placeholder', 'rows', 'layout']);
+const OPENAI_ADVANCED_FIELDS = new Set(['output_format', 'output_compression', 'input_fidelity', 'style', 'response_format', 'complexity']);
 
 function protocolWireConfiguration(configuration) {
     if (!configuration) return null;
@@ -26,7 +28,8 @@ function protocolWireConfiguration(configuration) {
         // Parameter order can concatenate values into the same request field.
         // Strip presentation at this schema level, never inside wire values.
         .map(([key, value]) => [key, key === 'parameters' ? Object.entries(value || {})
-            .filter(([, definition]) => !definition?.taskTypes || definition.taskTypes.includes('image'))
+            .filter(([id, definition]) => (configuration.id !== 'openai' || !OPENAI_ADVANCED_FIELDS.has(id))
+                && (!definition?.taskTypes || definition.taskTypes.includes('image')))
             .map(([id, definition]) => [id, projectParameter(definition)]) : value]));
 }
 
@@ -116,13 +119,17 @@ export function createImageGenerationRevisionApi({ state, documentRef, getActive
         const protocol = getEffectiveProtocol(model || {}, provider), configuration = getProtocol(protocol);
         const effectiveConfiguration = configuration ? resolveDeclarativeProtocolVariant(configuration, model?.modelId || '').configuration : null;
         const parameters = effectiveConfiguration?.parameters || null;
+        const openAi = protocol === 'openai' ? getOpenAiImageCapabilities(model?.modelId) : null;
         const protocolParams = Object.fromEntries(Object.entries(settings.protocolParams).filter(([key]) => {
             if (key === 'prompt') return false; // Its upstream-first effective value is recorded below.
+            // These optional controls are compiled by the OpenAI image adapter;
+            // adding a control with no value doesn't change an existing recipe.
+            if (protocol === 'openai' && OPENAI_ADVANCED_FIELDS.has(key) && (!openAi || settings.protocolParams[key] == null || settings.protocolParams[key] === '')) return false;
             const definition = parameters?.[key];
             return !parameters || definition && definition.portOnly !== true && (!definition.taskTypes || definition.taskTypes.includes('image'));
         }));
         let size;
-        try { const { resolution, aspect } = resolveImageRequestSize({ protocol, ...settings }); size = { resolution, aspect }; }
+        try { const { resolution, aspect } = resolveImageRequestSize({ protocol, modelId: model?.modelId, ...settings }); size = { resolution, aspect }; }
         catch { size = { resolution: settings.resolution, aspect: settings.aspect, customWidth: settings.customWidth, customHeight: settings.customHeight }; }
         const values = { model: { id: settings.apiConfigId, modelId: model?.modelId || '', protocol }, provider: provider?.id || settings.providerId,
             prompt: (getTextInputList(fromRole('prompt')).length ? getTextInputList(fromRole('prompt')) : [settings.protocolParams.prompt || settings.prompt || '']).map(text => text.trim()),

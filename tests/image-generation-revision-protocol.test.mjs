@@ -5,6 +5,7 @@ import { createImageGenerationRevisionApi } from '../js/nodes/image-generation-r
 import { registerProtocol, setProtocolOverride, clearProtocolOverride, getProtocol, deleteProtocol } from '../js/features/execution/protocols/index.js';
 import { GoogleProtocol } from '../js/features/execution/protocols/google.js';
 import { TtapiOpenaiProtocol } from '../js/features/execution/protocols/ttapi-openai.js';
+import { OpenaiProtocol } from '../js/features/execution/protocols/openai.js';
 
 function fixture(protocol = 'google') {
     registerProtocol(protocol === 'google' ? GoogleProtocol : TtapiOpenaiProtocol);
@@ -75,4 +76,28 @@ test('restoring a confirmed recipe while its protocol module is still loading pr
     reopened.initializeNode(f.node.id); reopened.observeAll({ initialize: true });
     registerProtocol(GoogleProtocol); reopened.observeAll({ initialize: true });
     assert.equal(f.node.generationDirty, false); assert.equal(f.node.data.generationRevision.dirty, false);
+});
+
+test('adding optional OpenAI controls leaves a saved image clean until one changes the request', t => {
+    const f = fixture('openai');
+    const { output_format, output_compression, input_fidelity, style, response_format, complexity, ...legacyParameters } = OpenaiProtocol.parameters;
+    registerProtocol({ ...OpenaiProtocol, parameters: legacyParameters });
+    t.after(() => registerProtocol(OpenaiProtocol));
+    f.revision.initializeNode(f.node.id);
+    assert.equal(f.revision.completeAttempt(f.revision.beginAttempt(f.node, {}), { succeeded: true }), true);
+    const original = f.preview();
+
+    registerProtocol(OpenaiProtocol);
+    f.node.data.protocolParams = { output_format: '', output_compression: '' };
+    const reopened = createImageGenerationRevisionApi({ state: f.state, documentRef: { getElementById: () => null, querySelectorAll: () => [] } });
+    reopened.initializeNode(f.node.id);
+    reopened.observeAll({ initialize: true });
+    assert.equal(f.node.generationDirty, false);
+    assert.deepEqual(f.preview(), original);
+
+    f.node.data.protocolParams = { output_format: 'webp', output_compression: 70 };
+    reopened.observeAll();
+    assert.equal(f.node.generationDirty, true);
+    assert.equal(f.preview().output_format, 'webp');
+    assert.equal(f.preview().output_compression, 70);
 });

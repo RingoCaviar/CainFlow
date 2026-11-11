@@ -1,5 +1,5 @@
 import { bindTaskToReply, confirmTaskParameters } from './prompt-agent-task.js';
-import { sizeCapabilities, resolveAgentSize, parseSizeAnswer } from './prompt-agent-size.js';
+import { sizeCapabilities, replaceAgentSizeFields, resolveAgentSize, parseSizeAnswer } from './prompt-agent-size.js';
 import { getEffectiveProtocol, getModelProviders } from '../execution/provider-request-utils.js';
 import { createAgentSizeSettings } from './prompt-agent-size-ui.js';
 import { createThinkingControl } from '../execution/thinking-control.js';
@@ -363,7 +363,7 @@ export function createPromptAgentController({
 
     function imageSizeCapabilities() {
         const model = getSelectedImageModel();
-        return model ? sizeCapabilities(getEffectiveProtocol(model, selectedProvider(model, 'image'))) : null;
+        return model ? sizeCapabilities(getEffectiveProtocol(model, selectedProvider(model, 'image')), model.modelId) : null;
     }
     function compressionProgress(message = '', fixedModel = null, operation = null) {
         const models = getChatModels();
@@ -1383,14 +1383,20 @@ export function createPromptAgentController({
             } catch { /* Missing legacy inputs remain visible and are validated by the existing action. */ }
         }
         const revision = workflowRevision;
+        const resolvePlanSize = (model) => {
+            const context = nodeAdapter?.getContext?.(plan.targetNodeId);
+            const sameModel = !context?.model || context.model.modelId === model.modelId && context.model.protocol === model.protocol;
+            return resolveAgentSize({ protocol: getEffectiveProtocol(model, selectedProvider(model, 'image')), modelId: model.modelId,
+                current: sameModel ? context?.parameters : {}, defaults: conversationStore.getSize(model.id), parameters: plan.parameters });
+        };
         // Target creation is an explicit action, never a side effect of rendering
         // or canvas selection. Persist the binding before a potentially failed run.
         const preparePlan = () => {
             if (revision !== workflowRevision) throw new Error('工作流或上下文已变化，请使用当前方案。');
             const model = getSelectedImageModel();
             if (!model) throw new Error('请先选择一个可用的生图模型。');
-            const size = resolveAgentSize({ protocol: getEffectiveProtocol(model, selectedProvider(model, 'image')), current: nodeAdapter?.getContext?.(plan.targetNodeId)?.parameters, defaults: conversationStore.getSize(model.id), parameters: plan.parameters });
-            const sizedPlan = { ...plan, parameters: { ...plan.parameters, ...size.patch } };
+            const size = resolvePlanSize(model);
+            const sizedPlan = { ...plan, parameters: replaceAgentSizeFields(plan.parameters, size.patch) };
             const creatingTarget = !plan.targetNodeId;
             const prepared = nodeAdapter?.ensureTarget ? nodeAdapter.ensureTarget(sizedPlan, { modelId: model.id, providerId: conversationStore.getProvider('image', model.id) }) : sizedPlan;
             if (!prepared?.targetNodeId) throw new Error('无法创建生图节点，请检查生图模型配置。');
@@ -1446,7 +1452,7 @@ export function createPromptAgentController({
                 let sizeError = null;
                 this.sizeIssue = null; clearElement(sizeStatus);
                 if (model) try {
-                    const size = resolveAgentSize({ protocol: getEffectiveProtocol(model, selectedProvider(model, 'image')), current: nodeAdapter?.getContext?.(plan.targetNodeId)?.parameters, defaults: conversationStore.getSize(model.id), parameters: plan.parameters });
+                    const size = resolvePlanSize(model);
                     sizeStatus.textContent = size.summary;
                 } catch (error) {
                     sizeError = error; this.sizeIssue = error.sizeClarification ? error : null;

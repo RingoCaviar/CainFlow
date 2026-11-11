@@ -6,9 +6,13 @@ import { createPromptAgentExecutionAdapter } from '../js/features/prompt-agent/p
 import { orderInputConnections } from '../js/nodes/reference-image-ports.js';
 import { createProxyHeadersGetter } from '../js/services/api-client.js';
 import '../js/features/execution/protocols/openai.js';
+import '../js/features/execution/protocols/agnesimage.js';
 
-function createImageRequestHarness({ captureOnly = false, generationCount = 1, concurrent = false } = {}) {
-    const node = { id: 'image-generate', type: 'ImageGenerate', data: {}, enabled: true };
+function createImageRequestHarness({
+    captureOnly = false, generationCount = 1, concurrent = false, modelId = 'image-model', protocolParams = {},
+    protocol = 'openai', provider = {}
+} = {}) {
+    const node = { id: 'image-generate', type: 'ImageGenerate', apiConfigId: 'model', data: { protocolParams }, enabled: true };
     const elements = new Map(Object.entries({
         'image-generate-apiconfig': { value: 'model' },
         'image-generate-provider': { value: 'provider' },
@@ -28,8 +32,8 @@ function createImageRequestHarness({ captureOnly = false, generationCount = 1, c
             concurrentRequestMode: concurrent,
             nodes: new Map([[node.id, node]]),
             connections: [],
-            models: [{ id: 'model', name: 'Image model', modelId: 'image-model', protocol: 'openai', providerIds: ['provider'] }],
-            providers: [{ id: 'provider', name: 'OpenAI', endpoint: 'https://api.openai.com/v1', apikey: '<REDACTED>', type: 'openai' }],
+            models: [{ id: 'model', name: 'Image model', modelId, taskType: 'image', protocol, providerIds: ['provider'] }],
+            providers: [{ id: 'provider', name: 'OpenAI', endpoint: 'https://api.openai.com/v1', apikey: '<REDACTED>', type: 'openai', ...provider }],
         };
     const api = createExecutionCoreApi({
         state,
@@ -172,4 +176,138 @@ test('OpenAI generation without references keeps the JSON generations request', 
     assert.equal(body.prompt, '保留主体并改变背景');
     assert.equal('image' in body, false);
     assert.equal('images' in body, false);
+});
+
+test('GPT Image generation forwards raster output options and omits edit and DALL-E fields', async () => {
+    const { api, node, requests } = createImageRequestHarness({
+        modelId: 'gpt-image-1.5',
+        protocolParams: { output_format: 'jpeg', output_compression: '75', input_fidelity: 'high' }
+    });
+    await api.nodeHandlers.ImageGenerate(node, {
+        params: { quality: 'max', response_format: 'url', style: 'natural', stream: true, seed: 42 }
+    }, new AbortController().signal);
+
+    const body = await requests[0].json();
+    assert.equal(body.output_format, 'jpeg');
+    assert.equal(body.output_compression, 75);
+    for (const field of ['input_fidelity', 'response_format', 'style', 'stream', 'quality', 'seed']) {
+        assert.equal(Object.hasOwn(body, field), false, field);
+    }
+    assert.deepEqual(node.data.imageList, ['data:image/jpeg;base64,cmVzdWx0']);
+});
+
+test('GPT Image edit fields reflect model support in sequential and concurrent requests', async () => {
+    const referenceImages = ['data:image/png;base64,Zmlyc3Q='];
+    for (const [modelId, concurrent, expectedFidelity] of [
+        ['gpt-image-1.5', false, 'high'],
+        ['gpt-image-1-mini', true, null],
+        ['gpt-image-2-2026-04-21', true, null]
+    ]) {
+        const { api, node, requests } = createImageRequestHarness({
+            modelId, concurrent, generationCount: 2,
+            protocolParams: { input_fidelity: 'high', output_format: 'webp', output_compression: '0' }
+        });
+        await api.nodeHandlers.ImageGenerate(node, { referenceImages }, new AbortController().signal);
+        assert.equal(requests.length, 2);
+        for (const request of requests) {
+            const form = await request.formData();
+            assert.equal(form.get('input_fidelity'), expectedFidelity);
+            assert.equal(form.get('output_format'), 'webp');
+            assert.equal(form.get('output_compression'), '0');
+        }
+        assert.deepEqual(node.data.imageList, Array(2).fill('data:image/webp;base64,cmVzdWx0'));
+    }
+});
+
+test('GPT Image 2.6 accepts complexity and extended quality without compression for PNG', async () => {
+    const { api, node, requests, elements } = createImageRequestHarness({
+        modelId: 'gpt-image-2.6-flare',
+        protocolParams: { output_format: 'png', output_compression: '75', complexity: 'low' }
+    });
+    elements.get('image-generate-quality').value = 'xhigh';
+    await api.nodeHandlers.ImageGenerate(node, {}, new AbortController().signal);
+    const body = await requests[0].json();
+    assert.equal(body.quality, 'xhigh');
+    assert.equal(body.complexity, 'low');
+    assert.equal(body.output_format, 'png');
+    assert.equal(Object.hasOwn(body, 'output_compression'), false);
+});
+
+test('DALL-E 3 compatibility keeps style and URL/base64 choice but omits GPT Image fields', async () => {
+    const { api, node, requests, elements } = createImageRequestHarness({
+        modelId: 'dall-e-3',
+        protocolParams: { style: 'vivid', response_format: 'b64_json', output_format: 'jpeg' }
+    });
+    elements.get('image-generate-quality').value = 'hd';
+    await api.nodeHandlers.ImageGenerate(node, {}, new AbortController().signal);
+    const body = await requests[0].json();
+    assert.equal(body.style, 'vivid');
+    assert.equal(body.response_format, 'b64_json');
+    assert.equal(body.quality, 'hd');
+    for (const field of ['background', 'moderation', 'output_format']) {
+        assert.equal(Object.hasOwn(body, field), false, field);
+    }
+    await assert.rejects(
+        api.nodeHandlers.ImageGenerate(node, { referenceImages: ['data:image/png;base64,Zmlyc3Q='] }, new AbortController().signal),
+        /不支持参考图/
+    );
+    assert.equal(requests.length, 1);
+});
+
+test('known OpenAI model IDs preserve relay-only custom extensions on JSON requests', async () => {
+    const { api, node, requests } = createImageRequestHarness({
+        modelId: 'gpt-image-1.5', provider: { endpoint: 'https://relay.example.test/v1' }
+    });
+    const params = { seed: 42, model: 'another-model', response_format: 'url', stream: true, n: 3 };
+    await api.nodeHandlers.ImageGenerate(node, { params }, new AbortController().signal);
+    const body = await requests[0].json();
+    assert.equal(body.seed, 42);
+    assert.equal(body.model, 'gpt-image-1.5');
+    assert.equal(body.n, 1);
+    assert.equal(Object.hasOwn(body, 'response_format'), false);
+    assert.equal(Object.hasOwn(body, 'stream'), false);
+
+    await api.nodeHandlers.ImageGenerate(node, {
+        params,
+        referenceImages: ['data:image/png;base64,Zmlyc3Q=']
+    }, new AbortController().signal);
+    const form = await requests[1].formData();
+    assert.equal(form.has('seed'), false);
+    assert.equal(form.get('model'), 'gpt-image-1.5');
+});
+
+test('other image compatibility formats keep their JSON references and custom parameters', async () => {
+    const { api, node, requests } = createImageRequestHarness({
+        modelId: 'gpt-image-1.5', protocol: 'agnesimage',
+        provider: { endpoint: 'https://relay.example.test/v1/images/generations', autoComplete: false }
+    });
+    const referenceImages = ['data:image/png;base64,Zmlyc3Q='];
+    await api.nodeHandlers.ImageGenerate(node, { referenceImages, params: { seed: 42 } }, new AbortController().signal);
+    const body = await requests[0].json();
+    assert.deepEqual(body.reference_images, referenceImages);
+    assert.equal(body.seed, 42);
+});
+
+test('manual relay endpoints can still accept reference images in JSON', async () => {
+    const { api, node, requests } = createImageRequestHarness({
+        modelId: 'gpt-image-1.5', provider: { endpoint: 'https://relay.example.test/render', autoComplete: false }
+    });
+    const referenceImages = ['data:image/png;base64,Zmlyc3Q='];
+    const inputs = { referenceImages, params: { seed: 42 } };
+    await api.nodeHandlers.ImageGenerate(node, inputs, new AbortController().signal);
+    const body = await requests[0].json();
+    assert.deepEqual(body.reference_images, referenceImages);
+    assert.equal(body.seed, 42);
+});
+
+test('manual OpenAI edits endpoint with a trailing slash still uploads multipart', async () => {
+    const { api, node, requests } = createImageRequestHarness({
+        modelId: 'gpt-image-1.5',
+        provider: { endpoint: 'https://api.openai.com/v1/images/edits/', autoComplete: false }
+    });
+    await api.nodeHandlers.ImageGenerate(node, {
+        referenceImages: ['data:image/png;base64,Zmlyc3Q=']
+    }, new AbortController().signal);
+    assert.match(requests[0].headers.get('content-type'), /^multipart\/form-data; boundary=/);
+    assert.equal(await (await requests[0].formData()).get('image').text(), 'first');
 });

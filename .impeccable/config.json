@@ -75,6 +75,15 @@
         ],
         "createdAt": "2026-11-11T01:42:20.690Z",
         "reason": "Agent: repeated spacing is incidental to the minimal browser fixture for zoom and search interactions."
+      },
+      {
+        "rule": "dark-glow",
+        "value": "*",
+        "files": [
+          "tests/fixtures/image-compact-card.html"
+        ],
+        "createdAt": "2026-11-11T08:14:33.882Z",
+        "reason": "Agent verified: the browser fixture asserts controls across existing themes and defines no colored box or text shadow; this change introduces no visual effect."
       }
     ]
   }

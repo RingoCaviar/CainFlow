@@ -6,6 +6,62 @@ import { ChatRequestPlanError, createChatRequestPlan, executeChatRequestPlan, re
 const provider = { id: 'provider-a', name: 'Provider A', apikey: 'secret-token', baseUrl: 'https://api.example.test/v1' };
 const openAiModel = { id: 'model-a', modelId: 'chat-a', name: 'Chat A', protocol: 'openai' };
 
+function modelPlan(modelId, customParams, options = {}) {
+    return createChatRequestPlan({
+        provider: { ...provider, endpoint: 'https://api.openai.com/v1' },
+        model: { ...openAiModel, modelId },
+        protocol: 'openai',
+        messages: [{ role: 'user', content: 'Hello' }],
+        customParams,
+        ...options
+    });
+}
+
+test('normalizes old token limits and filters sampling against the official model default or selected effort', () => {
+    const custom = { max_tokens: 1024, temperature: 0, top_p: 0.8, logprobs: true, top_logprobs: 2, verbosity: 'low' };
+    const old = modelPlan('gpt-5-mini-2025-08-07', custom, { systemPrompt: 'Keep it brief' });
+    assert.deepEqual(old.requestBody, {
+        model: 'gpt-5-mini-2025-08-07',
+        messages: [{ role: 'developer', content: 'Keep it brief' }, { role: 'user', content: 'Hello' }],
+        max_completion_tokens: 1024,
+        verbosity: 'low'
+    });
+    assert.deepEqual(old.preview.requestBody, old.requestBody);
+    assert.equal(modelPlan('gpt-5.4-mini', custom).requestBody.temperature, 0);
+    assert.equal(modelPlan('gpt-5.5', custom).requestBody.temperature, undefined);
+    const newest = modelPlan('gpt-5.6-terra', { ...custom, model: 'gpt-6-astra', max_completion_tokens: 512, reasoning_effort: 'none' });
+    assert.equal(newest.requestBody.model, 'gpt-5.6-terra');
+    assert.equal(newest.requestBody.max_completion_tokens, 512);
+    assert.equal(newest.requestBody.temperature, 0);
+    assert.equal(modelPlan('gpt-5.4', custom, { thinking: { mode: 'level', value: 'high' } }).requestBody.top_p, undefined);
+});
+
+test('retains legacy chat sampling and excludes fields specific to reasoning models', () => {
+    const legacy = modelPlan('gpt-4.1-mini', { temperature: 0, reasoning_effort: 'high', verbosity: 'high' });
+    assert.equal(legacy.requestBody.temperature, 0);
+    assert.equal(legacy.requestBody.reasoning_effort, undefined);
+    assert.equal(legacy.requestBody.verbosity, undefined);
+    assert.equal(modelPlan('o3', { stop: ['END'] }).requestBody.stop, undefined);
+    assert.throws(() => modelPlan('o3-mini', {}, { media: [{ type: 'image', url: 'data:image/png;base64,AAA' }] }), /不支持图片输入/);
+});
+
+test('checks incompatible Chat Completions models, tools and explicitly requested reasoning', () => {
+    const tools = [{ type: 'function', function: { name: 'example' } }];
+    assert.throws(() => modelPlan('gpt-5.4-pro'), /仅支持 Responses API/);
+    assert.throws(() => modelPlan('gpt-6.1-terra', { tools, reasoning_effort: 'none' }), /工具调用.*Responses API/);
+    assert.throws(() => modelPlan('gpt-5.6-sol', { tools }), /工具调用.*none/);
+    assert.deepEqual(modelPlan('gpt-5.6-sol', { tools, reasoning_effort: 'none' }).requestBody.tools, tools);
+    assert.throws(() => modelPlan('gpt-6.1-sol', { reasoning_effort: 'none' }), /reasoning_effort/);
+    const conflict = { thinking: { mode: 'level', value: 'high' } };
+    assert.throws(() => modelPlan('gpt-5.4', { reasoning: { effort: 'low' } }, conflict), /冲突/);
+});
+
+test('leaves provider-specific parameters intact on an OpenAI-compatible relay', () => {
+    const custom = { max_tokens: 1024, temperature: 0, reasoning_effort: 'none' };
+    const { requestBody } = modelPlan('gpt-6.1-sol', custom, { provider: { ...provider, endpoint: 'https://api.openai.com.relay.test/v1' } });
+    for (const [key, value] of Object.entries(custom)) assert.equal(requestBody[key], value);
+});
+
 test('builds one OpenAI request plan for text and ordered images', () => {
     const plan = createChatRequestPlan({
         provider,
