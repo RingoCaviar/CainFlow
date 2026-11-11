@@ -37,7 +37,7 @@ try {
  input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
  click('search');
  const firstResult=root.querySelector('.canvas-node-results button');
- state.nodes.get('b').el.classList.add('is-compact-lod');
+ state.nodes.get('b').el.classList.add('is-virtualized');
  await new Promise(resolve=>setTimeout(resolve,0));
  const projectionKeptResults=firstResult===root.querySelector('.canvas-node-results button');
  state.nodes.get('b').el.querySelector('.node-title').textContent='新名称';

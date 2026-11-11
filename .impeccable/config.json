@@ -57,6 +57,24 @@
         ],
         "createdAt": "2026-11-10T03:41:05.837Z",
         "reason": "Agent verified: this pre-existing layout fixture intentionally imports the production Agent/toolbar styles and mounts the active Agent button to test geometry. This change only updates visibility measurements, adds no shadow, and must retain production rendering. Narrow fixture exception only; production glow rules remain enabled."
+      },
+      {
+        "rule": "nested-cards",
+        "value": "*",
+        "files": [
+          "tests/fixtures/canvas-navigation.html"
+        ],
+        "createdAt": "2026-11-11T01:42:20.653Z",
+        "reason": "Agent: the browser fixture nests the zoom and search controls to exercise their real event boundaries."
+      },
+      {
+        "rule": "monotonous-spacing",
+        "value": "*",
+        "files": [
+          "tests/fixtures/canvas-navigation.html"
+        ],
+        "createdAt": "2026-11-11T01:42:20.690Z",
+        "reason": "Agent: repeated spacing is incidental to the minimal browser fixture for zoom and search interactions."
       }
     ]
   }

@@ -10,7 +10,7 @@ function classList() {
     };
 }
 
-function createHarness({ zoom = 1, nodes = [] } = {}) {
+function createHarness({ zoom = 1, nodes = [], performanceMonitor } = {}) {
     const documentRef = { addEventListener() {}, removeEventListener() {} };
     const canvasContainer = { classList: classList(), getBoundingClientRect() { return { width: 800, height: 600 }; } };
     const nodesLayer = { addEventListener() {} };
@@ -19,7 +19,7 @@ function createHarness({ zoom = 1, nodes = [] } = {}) {
         canvasRender: { denseModeOverride: 'auto' }
     };
     const api = createRenderProjectionManager({
-        state, canvasContainer, nodesLayer, documentRef, windowRef: {},
+        state, canvasContainer, nodesLayer, documentRef, windowRef: {}, performanceMonitor,
         requestAnimationFrameRef: (callback) => { callback(); return 1; }
     });
     return { api, state, canvasContainer };
@@ -40,8 +40,21 @@ test('unchanged projections perform no attribute or class writes', () => {
     assert.equal(classes, 0);
     state.canvas.zoom = 0.2;
     api.refreshNow();
-    assert.equal(attributes, 1);
-    assert.equal(classes, 1);
+    assert.equal(attributes, 0);
+    assert.equal(classes, 0);
+});
+
+test('a monitored projection reads the viewport once per refresh', () => {
+    const { api, canvasContainer } = createHarness({
+        performanceMonitor: { measure(_name, callback) { return callback(); } }
+    });
+    let reads = 0;
+    canvasContainer.getBoundingClientRect = () => {
+        reads += 1;
+        return { width: 800, height: 600 };
+    };
+    api.refreshNow();
+    assert.equal(reads, 1);
 });
 
 test('offscreen projection preserves the node shell and workflow model', () => {
@@ -53,23 +66,24 @@ test('offscreen projection preserves the node shell and workflow model', () => {
     assert.equal(state.nodes.get('n1').data.prompt, 'keep me');
 });
 
-test('compact LOD is reversible and focused node state stays intact', () => {
+test('search can reveal an offscreen node while preserving its state', () => {
     const el = { classList: classList(), setAttribute() {} };
-    const node = { id: 'n1', x: 0, y: 0, width: 240, height: 180, el, data: { value: 1 } };
+    const node = { id: 'n1', x: 10000, y: 0, width: 240, height: 180, el, data: { value: 1 } };
     const { api, state } = createHarness({ zoom: 0.2, nodes: [['n1', node]] });
     api.refreshNow();
-    assert.equal(el.classList.contains('is-compact-lod'), true);
+    assert.equal(el.classList.contains('is-virtualized'), true);
     api.focusNode('n1');
-    assert.equal(el.classList.contains('is-compact-lod'), false);
+    assert.equal(el.classList.contains('is-virtualized'), false);
     assert.deepEqual(state.nodes.get('n1').data, { value: 1 });
 });
 
-test('node content remains visible above twenty percent zoom', () => {
-    const el = { classList: classList(), setAttribute() {} };
+test('node content remains fully projected at minimum zoom', () => {
+    let projection;
+    const el = { classList: classList(), setAttribute(_name, value) { projection = value; } };
     const node = { id: 'n1', x: 0, y: 0, width: 240, height: 180, el };
-    const { api } = createHarness({ zoom: 0.21, nodes: [['n1', node]] });
+    const { api } = createHarness({ zoom: 0.1, nodes: [['n1', node]] });
     api.refreshNow();
-    assert.equal(el.classList.contains('is-compact-lod'), false);
+    assert.equal(projection, 'full');
 });
 
 test('dense-mode manual override wins over density automation', () => {

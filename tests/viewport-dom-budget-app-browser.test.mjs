@@ -2,6 +2,27 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { withAppBrowser } from './helpers/app-browser.mjs';
 
+test('zooming out to ten percent keeps onscreen node content visible', { timeout: 45000 }, async () => {
+    await withAppBrowser({
+        autoCheckUpdatesOnLoad: false,
+        nodes: [{ id: 'zoom-note', type: 'Text', x: 100, y: 100, text: '画布缩小时仍显示' }],
+        connections: []
+    }, async app => {
+        await app.evaluate(`(() => {
+            const minus = document.querySelector('#canvas-navigation [data-nav="minus"]');
+            for (let step = 0; step < 20; step++) minus.click();
+        })()`);
+        await app.waitFor("document.getElementById('zoom-level').textContent === '10%'");
+        const content = await app.evaluate(`(async () => {
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            const body = document.querySelector('#zoom-note .node-body');
+            return { projection: body.closest('.node').dataset.renderProjection,
+                visibility: getComputedStyle(body).visibility, contentVisibility: getComputedStyle(body).contentVisibility };
+        })()`);
+        assert.deepEqual(content, { projection: 'full', visibility: 'visible', contentVisibility: 'visible' });
+    });
+});
+
 test('the public viewport preserves identical DOM while real transforms, theme metrics and projection intents still update', { timeout: 45000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes: [], connections: [],
         models: [{ id: 'chat', modelId: 'chat', protocol: 'openai', taskType: 'chat', providerIds: ['p'] }],
