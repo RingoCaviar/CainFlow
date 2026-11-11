@@ -697,8 +697,18 @@ export function createWorkflowManagerApi({
                 const persistedRevision = Number(persistedWorkflow?.mediaOwnershipRevision);
                 if (persistedWorkflow?.workflowId === data?.workflowId
                     && Number.isInteger(persistedRevision) && persistedRevision >= 0) {
-                    data.mediaOwnershipRevision = persistedRevision;
-                    preparedWorkflow = prepareWorkflowMediaOwnershipCommit(data);
+                    const attemptedRevision = preparedWorkflow.mediaOwnershipRevision;
+                    preparedWorkflow = prepareWorkflowMediaOwnershipCommit({
+                        ...data, mediaOwnershipRevision: persistedRevision
+                    });
+                    // Carry only restore intents that belonged to this write onto its retried revision.
+                    if (Array.isArray(preparedWorkflow.mediaOwnershipRestoreOwnerIds)) {
+                        preparedWorkflow.mediaOwnershipRestoreOwnerIds = preparedWorkflow.mediaOwnershipRestoreOwnerIds.map(marker => (
+                            Number(marker?.documentRevision) === attemptedRevision
+                                ? { ...marker, documentRevision: preparedWorkflow.mediaOwnershipRevision }
+                                : marker
+                        ));
+                    }
                     data.mediaOwnershipRevision = preparedWorkflow.mediaOwnershipRevision;
                     result = await saveWorkflowToFileService(name, stripInlineImagesFromWorkflowData(preparedWorkflow), {
                         expectedMediaOwnershipRevision: persistedRevision,
@@ -722,6 +732,9 @@ export function createWorkflowManagerApi({
                 return returnOutcome ? { ok: false, documentPersisted: false, error } : false;
             }
             documentPersisted = true;
+            if (preparedWorkflow.mediaOwnershipRestoreOwnerIds) {
+                data.mediaOwnershipRestoreOwnerIds = preparedWorkflow.mediaOwnershipRestoreOwnerIds;
+            }
             if (!await mediaOwnership.commitPersistentWorkflow(preparedWorkflow)) {
                 throw new Error('工作流已保存，但媒体引用交接尚未完成；将于下次保存或重新打开时重试');
             }

@@ -43,10 +43,7 @@ test('the original native async-image resume control restores the saved task, po
                 return new Response(JSON.stringify({id:${JSON.stringify(taskId)},status:'completed',progress:100,image_url:location.origin+'/api/storage/assets/'+encodeURIComponent(${JSON.stringify(key)})}),{headers:{'Content-Type':'application/json'}});
             }return asyncImageFetch(url,options)};` });
         await reloadAppBrowser(app);
-        await app.evaluate("document.getElementById('async-image').click()");
-        await app.waitFor("document.getElementById('image-parameter-panel').dataset.nodeId==='async-image'&&!document.getElementById('image-parameter-panel').hidden");
-        await app.evaluate("document.getElementById('async-image').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:200,clientY:230}))");
-        await nativeClick(app, '#context-menu-run-to-here');
+        await nativeClick(app, '#btn-run');
         await app.waitFor('asyncImageHeld===true');
         const created = await app.evaluate('asyncImageRequests');
         assert.equal(created.filter(request => request.kind === 'create').length, 1);

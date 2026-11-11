@@ -40,6 +40,26 @@ test('a first-use preview with no input stays empty', async () => {
     assert.deepEqual(operations, []);
 });
 
+test('disconnecting while an upstream image is loading keeps the preview stale', async () => {
+    const source = { id: 'source', type: 'ImageImport', data: { mediaAssetKeys: ['media:source'] } };
+    const preview = { id: 'preview', type: 'ImagePreview', previewZoom: 1.25,
+        data: { imageList: ['retained'], imageCount: 1 } };
+    let finishRead;
+    const imageRead = new Promise(resolve => { finishRead = resolve; });
+    const { state, api, operations } = mediaHarness([source, preview], {}, { getImageAsset: () => imageRead });
+    state.connections.push({ from: { nodeId: source.id, port: 'image' }, to: { nodeId: preview.id, port: 'image' } });
+    const refresh = api.refreshDependentImageResizePreviews(source.id);
+    state.connections.length = 0;
+    await api.refreshAllImageResizePreviews();
+    assert.equal(preview.previewInputState, 'stale');
+    finishRead('late image');
+    await refresh;
+    assert.equal(preview.previewInputState, 'stale');
+    assert.deepEqual(preview.data.imageList, ['retained']);
+    assert.equal(preview.previewZoom, 1.25);
+    assert.deepEqual(operations, []);
+});
+
 test('import mode synchronization reaches its own portalled controls without writing another workflow with the same node ID', async () => {
     const mode = { value: 'upload' }, foreignMode = { value: 'foreign' }, url = { value: '', addEventListener() {} };
     const classes = new Set(['hidden']);

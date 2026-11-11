@@ -2198,6 +2198,10 @@ export function createMediaControllerApi({
             }
 
             if (node.type === 'ImagePreview') {
+                // The source read may have finished after the preview input was disconnected or replaced.
+                if (getNodeById(sourceNodeId) !== sourceNode || !state.connections.some((connection) => (
+                    connection.from.nodeId === sourceNodeId && connection.to.nodeId === nodeId && connection.to.port === 'image'
+                ))) continue;
                 const imagePreviewSource = sourceImageList.length > 0 ? sourceImageList : sourceImage;
                 await syncImagePreviewNode(nodeId, imagePreviewSource);
                 await refreshDependentImageResizePreviews(nodeId, options, visited);
