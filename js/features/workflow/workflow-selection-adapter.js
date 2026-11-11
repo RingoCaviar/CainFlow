@@ -208,7 +208,7 @@ export function createWorkflowSelectionAdapter({
                             editorView.dispose?.();
                             return true;
                         }
-                        return rollbackWorkflowActivation({
+                        const recovery = await rollbackWorkflowActivation({
                             prepared,
                             restorePrevious: async () => {
                                 if (editorView.rollback?.() === false) return false;
@@ -234,6 +234,7 @@ export function createWorkflowSelectionAdapter({
                             render: renderWorkflowList,
                             onRestoreError: (error) => console.error('Workflow activation rollback failed:', error)
                         });
+                        return !recovery.safeEmpty;
                     },
                     async finalize() {
                         editorView.finalize?.();

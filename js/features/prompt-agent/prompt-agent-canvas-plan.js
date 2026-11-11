@@ -61,7 +61,7 @@ export function assertCanvasPlanPromptInputs(plan, context) {
 }
 export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds = [], images = [], referencePolicy } = {}) {
     if (!object(raw) || raw.version !== 1 || !Array.isArray(raw.steps) || !Array.isArray(raw.deletes || [])
-        || raw.steps.length + (raw.deletes?.length || 0) < 1 || raw.steps.length + (raw.deletes?.length || 0) > 30) fail('画布方案必须为 v1，包含 1 至 30 个操作');
+        || raw.steps.length + (raw.deletes?.length || 0) < 1 || raw.steps.length + (raw.deletes?.length || 0) > 100) fail('画布方案必须为 v1，包含 1 至 100 个操作');
     const deletedIds = new Set();
     const deletes = (raw.deletes || []).map(item => {
         const node = context.nodes.find(node => node.id === item?.nodeId);
@@ -78,6 +78,7 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         const promptOnly = referencePolicy.selection?.mode === 'prompt-only';
         const retained = key => Boolean(key && referencePolicy.previousAssetKeys?.includes(key));
         for (const step of raw.steps.filter(item => item.type === 'ImageImport' && !item.nodeId)) {
+            if (step.execute === false && !step.assetKey && !step.imageId) continue;
             const image = images.find(item => item.imageId === step.imageId || item.reference.assetKey === step.assetKey);
             const used = (raw.connections || []).some(link => link.from?.ref === step.id);
             const explicitImport = typeof step.evidence === 'string' && message.includes(step.evidence)
@@ -136,7 +137,7 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         if (parameters.inputCount !== undefined && (!Number.isInteger(parameters.inputCount) || parameters.inputCount < 1 || parameters.inputCount > 20)) fail('合并输入数量必须在 1 至 20 之间');
         if (parameters.generationCount !== undefined && (!Number.isInteger(parameters.generationCount) || parameters.generationCount < 1 || parameters.generationCount > 20)) fail('生成数量必须在 1 至 20 之间');
         if (step.type === 'ImageGenerate' && !existing && !String(parameters.prompt || '').trim()) fail('新建生图步骤缺少提示词');
-        if (step.type === 'ImageImport' && (!existing && !/^media:/.test(step.assetKey || ''))) fail('图片导入必须引用已登记的本地原图资产');
+        if (step.type === 'ImageImport' && !existing && !(step.execute === false && !step.assetKey && !step.imageId) && !/^media:/.test(step.assetKey || '')) fail('图片导入必须引用已登记的本地原图资产');
         if (step.assetKey && !context.nodes.some(node => node.assets.includes(step.assetKey))
             && !images.some(image => image.reference.assetKey === step.assetKey || image.reference.assetKeys?.includes(step.assetKey))) fail('图片资产未登记在当前画布或对话中');
         return { id: step.id, type: step.type, title: String(existing?.name || step.title || getNodeDefinition(step.type).title).slice(0, 100),
@@ -162,6 +163,7 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         if (!object(link) || !object(link.from) || !object(link.to)) fail('连线无效');
         if (deletedIds.has(link.from.ref) || deletedIds.has(link.to.ref)) fail('不能连接即将删除的节点');
         if (!ids.has(link.to.ref)) fail('只能修改方案内目标节点的输入连线');
+        if (steps.some(step => step.id === link.from.ref && step.type === 'ImageImport' && !step.nodeId && !step.assetKey)) fail('空图片节点没有原图，不能作为方案输入');
         const type = portType(link.from.ref, link.from.port, 'outputs');
         const external = context.nodes.find(node => node.id === link.from.ref);
         if (external && (!external.enabled || external.missing || external.running)) {
@@ -263,7 +265,9 @@ export function describeCanvasPlan(plan, context) {
 }
 
 export function assertCanvasPlanCurrent(plan, context) {
-    if (plan.workflowId !== context.workflowId || plan.baseline !== canvasBaseline(context, plan.dependencies, canvasPlanExecutionNodeIds(plan))) fail('相关画布内容已变化。请在下方 Agent 输入框发送“根据当前画布重新生成方案”，确认新方案后再点击“应用并执行”。');
+    const relevant = new Set(plan.dependencies);
+    const baselineContext = plan.templateId ? { ...context, connections: context.connections.filter(edge => relevant.has(edge.to.nodeId)) } : context;
+    if (plan.workflowId !== context.workflowId || plan.baseline !== canvasBaseline(baselineContext, plan.dependencies, canvasPlanExecutionNodeIds(plan))) fail('相关画布内容已变化。请在下方 Agent 输入框发送“根据当前画布重新生成方案”，确认新方案后再点击“运行”。');
 }
 
 export function restoreCanvasPlan(value) {
@@ -271,6 +275,7 @@ export function restoreCanvasPlan(value) {
     const plan = cloneCanvasValue(value);
     delete plan.historyId;
     for (const run of plan.runs || []) if (run.status === 'running') run.status = 'interrupted';
+    if (plan.instances) plan.instances = plan.instances.map(restoreCanvasPlan).filter(Boolean);
     return plan;
 }
 

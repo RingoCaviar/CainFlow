@@ -1,3 +1,4 @@
+import { beginCanvasLoad } from '../ui/canvas-load-state.js';
 /**
  * 编排应用启动流程，包括 UI 初始化、状态恢复、默认工作流加载与更新检查。
  */
@@ -45,6 +46,7 @@ export function createStartupControllerApi({
 
     async function bootstrapApp() {
         consoleRef.log('CainFlow Initializing...');
+        const finishCanvasLoad = beginCanvasLoad(documentRef);
         try {
             initUI();
             const restored = await loadState();
@@ -59,6 +61,7 @@ export function createStartupControllerApi({
             } else if (state.nodes.size === 0) {
                 updateCanvasTransform();
             }
+            finishCanvasLoad();
             consoleRef.log('CainFlow Initialized successfully.');
 
             systemNotificationApi?.ensureReady?.();
@@ -66,6 +69,7 @@ export function createStartupControllerApi({
             checkRefreshNotice();
             scheduleStartupNetworkDetection();
         } catch (error) {
+            finishCanvasLoad(true);
             consoleRef.error('CainFlow Initialization Failed:', error);
             showToast('初始化失败，请查看控制台日志', 'error');
             throw error;

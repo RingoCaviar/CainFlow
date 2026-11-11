@@ -27,7 +27,7 @@ test('Agent imported references have visible connections and reach the actual im
   assert.ok(await evaluate("document.querySelector('#nodes-layer [data-direction=input][data-port=referenceImages]')!==null"));
   await delay(200);
   assert.ok(await evaluate("[...document.querySelectorAll('#connections-svg path')].filter(p=>p.getAttribute('d')?.includes('M')).length===2"),'both reference edges must be drawn without a retired Save edge');
-  await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='生成图片').click()");
+  await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='运行').click()");
   await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
   const used=await evaluate("calls.find(c=>c.contents).contents.flatMap(c=>c.parts).filter(p=>p.inlineData).map(p=>p.inlineData.data)");
   assert.deepEqual(used,await evaluate("originals.map(u=>u.split(',')[1])"));

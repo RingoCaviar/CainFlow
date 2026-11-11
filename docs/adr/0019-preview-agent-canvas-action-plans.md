@@ -59,3 +59,7 @@ The adapter restores incident edges and their ordering, reuses surviving binding
 ## Generation without automatic save nodes
 
 Following image-first-canvas#074, running image or video generation no longer creates downstream save nodes. Agent plan preparation also stops appending save steps. Existing workflow nodes, legacy save bindings and explicitly proposed save steps remain intact; the historical recreation rule above still applies to nodes already belonging to a confirmed plan. This replaces the earlier automatic-save behavior without changing media persistence or manual save/export controls.
+
+## Empty image nodes and batch size
+
+Canvas action plans allow 1–100 operations in total across steps and deletes. A new ImageImport with execute:false and no imageId or assetKey creates an empty upload node without importing media. It cannot supply an image connection to another step. Actual imports retain registered-original validation and reference authorization. Plans containing no executable steps expose application without a run action; preview, atomic persistence and one-step undo remain unchanged.

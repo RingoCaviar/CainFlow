@@ -1,5 +1,6 @@
-import { canvasBaseline, canvasPlanExecutionNodeIds } from './prompt-agent-canvas-context.js';
+import { canvasPlanExecutionNodeIds } from './prompt-agent-canvas-context.js';
 import { assertCanvasPlanCurrent } from './prompt-agent-canvas-plan.js';
+import { batchBaseline } from './prompt-agent-canvas-batches.js';
 
 // Only deletion of nodes created by this plan may bypass the ordinary stale-plan guard.
 export function prepareCanvasPlanRecreation(plan, context) {
@@ -17,7 +18,7 @@ export function prepareCanvasPlanRecreation(plan, context) {
     const validEndpoints = saved.connections.filter(incident).every(edge =>
         [edge.from.nodeId, edge.to.nodeId].every(id => present.has(id) || missingIds.has(id)));
     if (!validEndpoints || [...missingIds].some(id => !saved.nodes.some(node => node.id === id))
-        || JSON.stringify(remaining) !== canvasBaseline(context, plan.dependencies, canvasPlanExecutionNodeIds(plan))) {
+        || JSON.stringify(remaining) !== batchBaseline(plan, context, canvasPlanExecutionNodeIds(plan))) {
         assertCanvasPlanCurrent(plan, context);
     }
     // Reinsert deleted incident edges in their original order, retaining live edge objects.

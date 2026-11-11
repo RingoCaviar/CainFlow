@@ -1,3 +1,4 @@
+import { beginCanvasLoad } from '../ui/canvas-load-state.js';
 import { createWorkflowAutosave } from './workflow-autosave.js';
 /**
  * 负责工作流文件管理，包括列表渲染、保存、加载、删除与校验提示。
@@ -104,6 +105,7 @@ export function createWorkflowManagerApi({
     updateCacheUsage = () => {},
     recordWorkflowDiagnostic = async () => {},
     onWorkflowViewApplied = () => {},
+    onWorkflowReleased = () => {},
     getPromptAgentState = () => null,
     applyPromptAgentState = () => {},
     refreshRecoverableMediaNodes = async () => {},
@@ -297,7 +299,7 @@ export function createWorkflowManagerApi({
         applyViewport: () => viewportApi.updateCanvasTransform({ updateConnections: false }),
         onViewApplied: onWorkflowViewApplied
     });
-    const workflowTargetActivator = createWorkflowSelectionAdapter({
+    const workflowTargetSelection = createWorkflowSelectionAdapter({
         state,
         getActiveWorkflow,
         workflowDesk,
@@ -326,6 +328,14 @@ export function createWorkflowManagerApi({
         enterSafeEmpty: applySafeEmptyWorkflow,
         tabColorCount: TAB_COLORS
     });
+    const workflowTargetActivator = { async activate(...args) {
+        const finish = beginCanvasLoad(documentRef);
+        try {
+            const result = await workflowTargetSelection.activate(...args);
+            finish(result === false && state.nodes.size === 0);
+            return result;
+        } catch (error) { finish(true); throw error; }
+    } };
 
     function applySafeEmptyWorkflow({ publishActiveState = true } = {}) {
         for (const [, node] of state.nodes) {
@@ -1756,8 +1766,9 @@ export function createWorkflowManagerApi({
         }
     }
 
-    function markActiveWorkflowDirty() {
-        const tab = snapshotActiveWorkflow({ markDirty: true });
+    function markActiveWorkflowDirty({ capture = true } = {}) {
+        const tab = capture ? snapshotActiveWorkflow({ markDirty: true }) : getActiveWorkflowTab();
+        if (!capture && tab) queueAutosave(tab);
         if (tab) refreshWorkflowCardState(tab.name);
     }
 
@@ -1806,6 +1817,7 @@ export function createWorkflowManagerApi({
 
     function releaseWorkflowTabMemory(tab) {
         if (!tab || typeof tab !== 'object') return;
+        onWorkflowReleased(tab.workflowId || tab.data?.workflowId || '');
         releaseDetachedEditorView({
             workflowName: tab.name || '',
             workflowId: tab.workflowId || tab.data?.workflowId || ''

@@ -864,9 +864,11 @@ export function createContextMenuControllerApi({
         const emptyState = documentRef.getElementById('canvas-empty-state');
         const nodesLayer = documentRef.getElementById('nodes-layer');
         if (emptyState && nodesLayer) {
-            const refreshEmptyState = () => { emptyState.hidden = nodesLayer.childElementCount > 0; };
+            const refreshEmptyState = () => { emptyState.hidden = nodesLayer.childElementCount > 0
+                || (documentRef.documentElement?.dataset.canvasLoadState || 'ready') !== 'ready'; };
             refreshEmptyState();
             new documentRef.defaultView.MutationObserver(refreshEmptyState).observe(nodesLayer, { childList: true });
+            new documentRef.defaultView.MutationObserver(refreshEmptyState).observe(documentRef.documentElement, { attributes: true, attributeFilter: ['data-canvas-load-state'] });
             documentRef.getElementById('canvas-add-first-node').addEventListener('click', () => nodePicker.open());
             documentRef.getElementById('canvas-open-agent').addEventListener('click', () => documentRef.getElementById('btn-prompt-agent').click());
             documentRef.getElementById('canvas-configure-models').addEventListener('click', () => documentRef.getElementById('btn-settings').click());

@@ -1081,6 +1081,8 @@ new MutationObserver(records => {
     }
 }).observe(document.getElementById('nodes-layer'), { childList: true });
 const promptAgentController = createPromptAgentController({
+    onNativeClipboardWrite: () => getClipboardControllerApi().markNativeClipboardWrite(),
+    onDraftChange: () => workflowManagerApi.markActiveWorkflowDirty({ capture: false }),
     canvasAdapter: createPromptAgentCanvasAdapter({
         state, documentRef: document, serializeNodes: () => nodeSerializer.serializeNodes(),
         getWorkflowId: () => workflowManagerApi.getActiveWorkflowId(), addNode, removeNode, onNodesRemoved: handleNodesRemoved,
@@ -1942,6 +1944,7 @@ const workflowManagerApi = createWorkflowManagerApi({
         setTimeout(() => offerRetiredSaveNodeCleanup({ reset: true }), 0);
     },
     getPromptAgentState: () => promptAgentController.snapshotWorkflow(),
+    onWorkflowReleased: workflowId => promptAgentController.cancelWorkflowRequest(workflowId),
     applyPromptAgentState: (value) => promptAgentController.syncWorkflowState(value),
     refreshRecoverableMediaNodes: () => mediaControllerApi?.refreshAllRecoverableMediaNodes?.({ cascade: true }),
     waitForImageRestores: () => getNodeLifecycleApi().waitForImageRestores(),
@@ -2188,7 +2191,7 @@ window.cainflowPrepareExit = createDesktopExit({
     setBlocked: blocked => { document.body.inert = blocked; },
     settle: async ({ restart } = {}) => {
         if (state.canvasPlanApplying || state.isRunStarting) throw new Error('画布正在提交或启动，请稍后重新关闭');
-        if (!restart) promptAgentController.cancelRequest({ silent: true });
+        if (!restart) promptAgentController.cancelAllRequests();
         await getSessionManagerApi().waitForHistoryTransitions();
         if (!restart) await getWorkflowRuntimeManagerApi().settleForExit();
         await mediaControllerApi.waitForPendingImageImports();

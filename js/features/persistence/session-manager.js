@@ -755,8 +755,8 @@ export function createSessionManagerApi({
         return transitionHistory(getRedoStack(), state.undoStack, { intent: 'redo', label: '重做' });
     }
 
-    async function applyCanvasBatch(mutate, persist) {
-        if (historyTransition || state.canvasPlanApplying || state.runningNodeIds?.size || state.isRunStarting) throw new Error('画布正在修改或运行，请稍后再应用');
+    async function applyCanvasBatch(mutate, persist, { rollbackAdditions } = {}) {
+        if (historyTransition || state.canvasPlanApplying || (!rollbackAdditions && (state.runningNodeIds?.size || state.isRunStarting))) throw new Error('画布正在修改或运行，请稍后再应用');
         clearTimeout(saveTimer);
         const before = captureHistorySnapshot();
         state.canvasPlanApplying = true;
@@ -771,7 +771,8 @@ export function createSessionManagerApi({
             updateHistoryButtons();
             return { ...result, historyId: before.historyId };
         } catch (error) {
-            await applySnapshotGraph(before);
+            if (rollbackAdditions) await rollbackAdditions();
+            else await applySnapshotGraph(before);
             onBeforeSave({ dirty: true });
             await undoMedia.release(before);
             throw error;
@@ -785,6 +786,7 @@ export function createSessionManagerApi({
         endUndoSession: () => undoMedia.end(),
         applyCanvasBatch,
         scheduleSave,
+        hasPendingSave: () => saveTimer !== null,
         saveState,
         flushSave,
         saveViewportState,

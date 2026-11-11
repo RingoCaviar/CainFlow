@@ -159,7 +159,7 @@ export function createWorkflowDesk({
     async function rollbackPreparedView(editorView, target, cause) {
         let recovered = false;
         try {
-            recovered = editorView.rollback?.() === true;
+            recovered = await editorView.rollback?.() === true;
         } catch {}
         if (!recovered) await publishSafeEmpty(target, cause);
     }

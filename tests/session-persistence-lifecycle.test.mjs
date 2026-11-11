@@ -63,3 +63,17 @@ test('pending workflow writes guard browser exit and preserve the recovery sessi
     assert.equal(prevented, 1);
     assert.equal(sessions, 2);
 });
+
+test('save readiness distinguishes a queued cache write from an already clean session', t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const manager = createSessionManagerApi({ state: { nodes: new Map(), connections: [], workflowTabs: [] },
+        storageKey: 'session', nodeSerializer: { buildStatePayload: () => ({}) },
+        documentRef: { getElementById: () => null }, localStorageRef: { getItem: () => null, setItem() {} }, showToast() {} });
+    assert.equal(manager.hasPendingSave(), false);
+    manager.scheduleSave({ dirty: false });
+    assert.equal(manager.hasPendingSave(), true);
+    t.mock.timers.tick(299);
+    assert.equal(manager.hasPendingSave(), true);
+    t.mock.timers.tick(1);
+    assert.equal(manager.hasPendingSave(), false);
+});

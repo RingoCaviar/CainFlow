@@ -352,36 +352,37 @@ export function createNodeLifecycleApi({
             sequence: imageRestoreSequence += 1,
             explicitPriority: options.explicitPriority === true
         });
-        sortPendingImageRestoreTasks();
+        // Prioritize when consuming, after the node-construction batch has finished.
+        // Sorting here forces a viewport layout read after every appended node.
         if (imageRestoreQueueRunning) return;
         imageRestoreQueueRunning = true;
         scheduleImageRestoreQueue(runNextImageRestoreTask);
     }
 
     async function runNextImageRestoreTask() {
-        sortPendingImageRestoreTasks();
-        const entry = pendingImageRestoreTasks.shift();
-        if (!entry?.task) {
-            activeImageRestoreNodeId = '';
-            imageRestoreQueueRunning = false;
-            resolveImageRestoreWaiters();
-            return;
-        }
-
-        activeImageRestoreNodeId = entry.nodeId || '';
-        try {
-            await entry.task();
-        } catch (error) {
-            console.warn('Image node restore failed:', error);
-        } finally {
-            activeImageRestoreNodeId = '';
-            resolveImageRestoreWaiters();
-        }
+        const now = () => view.performance?.now?.() ?? Date.now();
+        const deadline = now() + 8;
+        do {
+            sortPendingImageRestoreTasks();
+            const entry = pendingImageRestoreTasks.shift();
+            if (!entry?.task) break;
+            activeImageRestoreNodeId = entry.nodeId || '';
+            try {
+                await entry.task();
+            } catch (error) {
+                console.warn('Image node restore failed:', error);
+            } finally {
+                activeImageRestoreNodeId = '';
+                resolveImageRestoreWaiters();
+            }
+            // Cheap restores share a frame; expensive work still yields between tasks.
+        } while (pendingImageRestoreTasks.length > 0 && now() < deadline);
 
         if (pendingImageRestoreTasks.length > 0) {
             view.setTimeout(() => scheduleImageRestoreQueue(runNextImageRestoreTask), IMAGE_RESTORE_DELAY_MS);
             return;
         }
+        activeImageRestoreNodeId = '';
         imageRestoreQueueRunning = false;
         resolveImageRestoreWaiters();
     }

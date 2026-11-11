@@ -8,6 +8,7 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     const card = documentRef.createElement('section'); card.className = 'prompt-agent-canvas-plan';
     parent.appendChild(card);
     let busy = false;
+    let refreshTimer = null;
     const element = (tag, text, owner = card) => { const node = documentRef.createElement(tag); node.textContent = text;
         if (tag === 'button') node.className = 'btn btn-secondary'; owner.appendChild(node); return node; };
     const header = element('header', ''); header.className = 'prompt-agent-plan-header';
@@ -46,7 +47,7 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         element('strong', step.title, heading).className = 'prompt-agent-step-title';
         const badge = element('span', '', heading); badge.className = 'prompt-agent-step-status';
         stepStates.set(id, badge);
-        const focus = element('button', '定位', heading); focus.type = 'button'; focus.addEventListener('click', () => adapter.focus(step.nodeId || plan.bindings?.[id]));
+        const focus = element('button', '定位', heading); focus.type = 'button'; focus.addEventListener('click', () => adapter.focus(latest().bindings?.[id] || step.nodeId));
         focusButtons.set(id, focus);
         if (step.type === 'ImageGenerate') {
             const settings = element('details', '', row); settings.className = 'prompt-agent-step-settings';
@@ -110,21 +111,24 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     const moreActions = element('details', '', actions); moreActions.className = 'prompt-agent-actions-more';
     const moreSummary = element('summary', '⋯', moreActions); moreSummary.setAttribute('aria-label', '更多方案操作');
     const secondaryActions = element('div', '', moreActions); secondaryActions.className = 'prompt-agent-actions-secondary';
-    const apply = element('button', '仅应用', secondaryActions), execute = element('button', generatesImages ? '生成图片' : '应用并执行', primaryActions);
+    const execute = element('button', '运行', primaryActions), apply = element('button', '仅应用', primaryActions);
     execute.className = 'btn btn-primary';
-    const retry = element('button', '重试未完成步骤', primaryActions), undo = element('button', '撤销本次画布操作', secondaryActions);
+    const retry = element('button', '重试未完成步骤', secondaryActions), undo = element('button', '撤销本次画布操作', secondaryActions);
     const buttons = [apply, execute, retry, undo]; buttons.forEach(button => { button.type = 'button'; });
+    const latest = () => plan.instances?.at(-1) || plan;
+    const running = () => (plan.instances || []).filter(instance => adapter.isRunning?.(instance.id));
     function sync() {
+        if (destroyed) return;
         if (!busy && !plan.runs?.length) plan.agentSizes = Object.fromEntries(getModels().map(model => [model.id, getSize(model.id)]));
         if (!busy) plan.agentProviders = Object.fromEntries(getModels().map(model => [model.id, getProviderId(model.id)]));
         thinkingControls.forEach(control => control.refresh());
-        focusButtons.forEach((button, id) => { button.disabled = !plan.bindings?.[id] && !plan.steps.find(step => step.id === id)?.nodeId; button.hidden = button.disabled; });
+        focusButtons.forEach((button, id) => { button.disabled = !latest().bindings?.[id] && !plan.steps.find(step => step.id === id)?.nodeId; button.hidden = button.disabled; });
         refreshSelectors.forEach(refresh => refresh());
         changes.replaceChildren(); adapter.describe(plan, getModelId()).forEach(line => element('li', line, changes));
         for (const [id, label] of stepStates) {
-            const stepStatus = adapter.stepStatus(plan, id);
+            const stepStatus = adapter.stepStatus(latest(), id);
             label.dataset.status = stepStatus;
-            label.textContent = { draft: '待确认', applied: '待执行', pending: '等待执行', running: '执行中', completed: '已完成', failed: '失败', interrupted: '未完成' }[stepStatus] || '未执行';
+            label.textContent = { draft: '待确认', applied: '待执行', cached: '使用缓存', pending: '等待执行', running: '执行中', completed: '已完成', failed: '失败', interrupted: '未完成' }[stepStatus] || '未执行';
         }
         let unavailable = '';
         configurationTarget = null;
@@ -146,22 +150,25 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
             }
         }
         repair.hidden = !configurationTarget; repair.disabled = busy;
-        apply.disabled = execute.disabled = busy || !isCurrent() || Boolean(unavailable);
-        retry.disabled = execute.disabled || !plan.runs?.length;
-        const failed = [...stepStates.keys()].some(id => ['failed', 'interrupted'].includes(adapter.stepStatus(plan, id)));
-        const completed = stepStates.size > 0 && [...stepStates.keys()].every(id => adapter.stepStatus(plan, id) === 'completed');
+        apply.disabled = execute.disabled = busy || adapter.isPreparing?.() || !isCurrent() || Boolean(unavailable);
+        retry.disabled = execute.disabled || !latest().runs?.length || adapter.isRunning?.(latest().id);
+        const failed = [...stepStates.keys()].some(id => ['failed', 'interrupted'].includes(adapter.stepStatus(latest(), id)));
+        const completed = stepStates.size > 0 && [...stepStates.keys()].every(id => ['completed','cached'].includes(adapter.stepStatus(latest(), id)));
         retry.hidden = !failed || busy;
         if (completed && !card.classList.contains('is-completed')) overview.open = false;
         card.classList.toggle('is-completed', completed);
-        title.textContent = completed ? '已完成' : generatesImages ? '图片生成方案' : '画布修改方案';
-        undo.hidden = !Object.keys(plan.bindings || {}).length && !plan.appliedSignature;
-        execute.hidden = plan.steps.length === 0 || completed || busy || failed;
-        undo.disabled = busy || Boolean(adapter.canUndo(plan)); undo.title = adapter.canUndo(plan);
+        title.textContent = generatesImages ? '图片生成方案' : '画布方案';
+        undo.hidden = !Object.keys(latest().bindings || {}).length && !latest().appliedSignature;
+        execute.hidden = !plan.steps.some(step => step.execute !== false);
+        undo.disabled = busy || Boolean(adapter.canUndo(latest())); undo.title = adapter.canUndo(latest());
+        actions.classList.toggle('has-primary-actions', [execute, apply, retry].some(button => !button.hidden));
         refresh.disabled = busy || !isCurrent();
         for (const select of list.querySelectorAll('select, .thinking-control input, .thinking-control button')) select.disabled = busy;
         if (unavailable) status.textContent = unavailable;
         else if (!busy && lastUnavailable && status.textContent === lastUnavailable) status.textContent = '尺寸与模型已校验，确认后可应用。';
         lastUnavailable = unavailable;
+        if (running().length && !refreshTimer) refreshTimer = setInterval(() => { if (isCurrent()) sync(); }, 250);
+        else if (!running().length && refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
     }
     function answerSize(answer) {
         if (busy || !isCurrent() || !sizeIssue) return false;
@@ -179,23 +186,39 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     async function act(generate, retryOnly = false) {
         if (busy || !isCurrent()) return;
         busy = true; sync(); status.textContent = '正在校验与应用…';
-        const timer = setInterval(() => { if (isCurrent()) sync(); }, 250);
+        let instance;
         try {
-            await adapter.apply(plan, getModelId(), () => changed(plan), isCurrent); changed(plan);
-            if (!isCurrent()) return;
-            status.textContent = '画布方案已应用并保存';
-            if (generate) { status.textContent = '按依赖顺序执行中…'; await run(plan, retryOnly); status.textContent = '执行结束，结果见下方'; }
+            instance = retryOnly ? latest() : plan.steps.length ? adapter.instantiate(plan) : plan;
+            if (!retryOnly && instance !== plan) (plan.instances ||= []).push(instance);
+            await adapter.apply(instance, getModelId(), () => changed(instance), isCurrent); changed(instance);
+        } catch (error) {
+            if (instance?.templateId && !instance.bindings?.[instance.order[0]]) {
+                plan.instances = (plan.instances || []).filter(item => item.id !== instance.id);
+                changed({ ...instance, discarded: true });
+            }
+            if (isCurrent()) status.textContent = error.message;
+            return;
+        } finally { busy = false; if (isCurrent()) sync(); }
+        if (!isCurrent()) { adapter.discardExecutionConfig?.(instance); return; }
+        status.textContent = '画布方案已应用并保存';
+        if (!generate) { adapter.discardExecutionConfig?.(instance); return; }
+        try {
+            status.textContent = '新批次执行中，可继续运行或仅应用';
+            const completion = run(instance, retryOnly);
+            sync();
+            await completion;
+            if (isCurrent()) status.textContent = running().length ? '其他批次执行中，可继续创建' : '执行结束，结果见下方';
         } catch (error) { if (isCurrent()) status.textContent = error.message; }
-        finally { clearInterval(timer); busy = false; if (isCurrent()) { changed(plan); sync(); } }
+        finally { adapter.discardExecutionConfig?.(instance); changed(instance); if (isCurrent()) sync(); }
     }
     apply.addEventListener('click', () => act(false)); execute.addEventListener('click', () => act(true)); retry.addEventListener('click', () => act(true, true));
     refresh.addEventListener('click', () => { try {
         adapter.refresh(plan); changes.replaceChildren(); adapter.describe(plan, getModelId()).forEach(line => element('li', line, changes));
         changed(plan); status.textContent = '已按当前画布更新清单，请重新检查后应用';
     } catch (error) { status.textContent = error.message; } sync(); });
-    undo.addEventListener('click', async () => { try { await adapter.undo(plan); status.textContent = '已按撤销栈处理；历史图片仍保留'; } catch (error) { status.textContent = error.message; } sync(); });
+    undo.addEventListener('click', async () => { try { await adapter.undo(latest()); status.textContent = '已按撤销栈处理；历史图片仍保留'; } catch (error) { status.textContent = error.message; } sync(); });
     sync();
-    return { answerSize, sync, close: () => { modelMenus.close(); thinkingControls.forEach(control => control.close()); }, destroy: () => { destroyed = true; thinkingControls.forEach(control => control.destroy()); modelMenus.destroy(); } };
+    return { planId: plan.id, setInstances: instances => { plan.instances = instances; sync(); }, answerSize, sync, close: () => { modelMenus.close(); thinkingControls.forEach(control => control.close()); }, destroy: () => { destroyed = true; clearInterval(refreshTimer); thinkingControls.forEach(control => control.destroy()); modelMenus.destroy(); } };
 }
 
 export function attachCanvasMentions({ documentRef, input, adapter }) {
