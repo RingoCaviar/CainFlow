@@ -649,10 +649,6 @@ html[data-app-theme="pink"] .preview-nav-btn {
     border-color: var(--border-color);
 }
 
-html[data-app-theme="pink"] .update-changelog-container {
-    background: rgba(255, 255, 255, 0.78);
-}
-
 html[data-app-theme="pink"] .drawer-subheader {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(255, 241, 246, 0.94));
 }
