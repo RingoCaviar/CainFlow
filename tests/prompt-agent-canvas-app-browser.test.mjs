@@ -141,9 +141,29 @@ test('sequential graph stops on failure and retries only unfinished steps withou
         await waitFor("document.querySelectorAll('#nodes-layer .node').length===2");
         assert.equal(await evaluate("document.querySelectorAll('.prompt-agent-result-image').length"), 6, 'historical results survive recreation undo');
         await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已按撤销栈处理')");
+        await evaluate(`(() => {
+            const fetchBeforeRedo = window.fetch;
+            window.injectedRedoConflict = false;
+            window.fetch = async (url, options = {}) => {
+                if (String(url).startsWith('/api/workflows/') && options.method === 'POST'
+                    && JSON.parse(options.body).mediaOwnershipRestoreOwnerIds?.some(marker => marker.intent === 'redo')) {
+                    window.fetch = fetchBeforeRedo;
+                    const previous = await fetchBeforeRedo(url).then(response => response.json());
+                    const headers = new Headers(options.headers);
+                    headers.set('X-CainFlow-Expected-Media-Ownership-Revision', previous.mediaOwnershipRevision);
+                    const advanced = await fetchBeforeRedo(url, { ...options, headers,
+                        body: JSON.stringify({ ...previous, mediaOwnershipRevision: previous.mediaOwnershipRevision + 1 })
+                    });
+                    if (!advanced.ok) throw new Error('Could not advance the unchanged workflow revision');
+                    window.injectedRedoConflict = true;
+                }
+                return fetchBeforeRedo(url, options);
+            };
+        })()`);
         await evaluate("document.getElementById('canvas-container').focus();document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'y',ctrlKey:true,bubbles:true,cancelable:true}))");
         await waitFor("document.querySelectorAll('#nodes-layer .node').length===5");
         await waitFor("[...document.querySelectorAll('.toast')].some(toast=>toast.textContent.includes('已重做上一步操作'))");
+        assert.equal(await evaluate('injectedRedoConflict'), true);
         assert.equal(await evaluate('generated.length'), 7, 'redo does not execute');
         const rebuiltId = newIds.find(id=>!oldIds.includes(id));
         await evaluate(`document.querySelector('#${rebuiltId} .node-delete').dispatchEvent(new MouseEvent('click',{bubbles:true,altKey:true}))`);

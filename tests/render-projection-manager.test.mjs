@@ -66,6 +66,33 @@ test('offscreen projection preserves the node shell and workflow model', () => {
     assert.equal(state.nodes.get('n1').data.prompt, 'keep me');
 });
 
+test('panning measures only the ambiguous edges before applying projections', () => {
+    const readsAndWrites = [];
+    const nodes = [
+        ['right', { x: 5000, y: 0 }],
+        ['bottom', { x: -5000, y: 5000 }],
+        ['left', { x: -500, y: 0 }],
+        ['above', { x: 0, y: -500 }]
+    ];
+    for (const [id, node] of nodes) {
+        node.el = {
+            classList: classList(),
+            get offsetWidth() { readsAndWrites.push(`${id}:width`); return 100; },
+            get offsetHeight() { readsAndWrites.push(`${id}:height`); return 100; },
+            setAttribute(_name, projection) { readsAndWrites.push(`${id}:${projection}`); }
+        };
+    }
+    const { api, state } = createHarness({ nodes });
+    api.refreshNow();
+    assert.deepEqual(readsAndWrites, [
+        'left:width', 'above:height', 'right:shell', 'bottom:shell', 'left:full', 'above:shell'
+    ]);
+    readsAndWrites.length = 0;
+    state.canvas.x = -4900;
+    api.refreshNow();
+    assert.deepEqual(readsAndWrites, ['left:width', 'above:width', 'right:full', 'left:shell']);
+});
+
 test('search can reveal an offscreen node while preserving its state', () => {
     const el = { classList: classList(), setAttribute() {} };
     const node = { id: 'n1', x: 10000, y: 0, width: 240, height: 180, el, data: { value: 1 } };

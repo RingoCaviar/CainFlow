@@ -1,6 +1,47 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { withAppBrowser } from './helpers/app-browser.mjs';
+import { reloadAppBrowser, withAppBrowser } from './helpers/app-browser.mjs';
+
+test('an offscreen generator can run, save its output and show it when back in view', { timeout: 45000 }, async () => {
+    const prompt = 'offscreen execution';
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=';
+    await withAppBrowser({
+        autoCheckUpdatesOnLoad: false,
+        models: [{ id: 'image', modelId: 'image', protocol: 'openai', taskType: 'image', providerIds: ['p'] }],
+        providers: [{ id: 'p', endpoint: 'https://controlled.test/v1', apikey: 'test' }],
+        nodes: [{ id: 'offscreen-generator', type: 'ImageGenerate', x: 4000, y: 100, prompt, apiConfigId: 'image', providerId: 'p' }],
+        connections: []
+    }, async app => {
+        await app.send('Page.addScriptToEvaluateOnNewDocument', { source: `
+            window.generationPrompts = [];
+            const nativeFetch = window.fetch;
+            window.fetch = async (url, options = {}) => {
+                if (String(url) === '/proxy' && options.body) {
+                    generationPrompts.push(JSON.parse(options.body).prompt);
+                    return Response.json({ data: [{ b64_json: '${png}' }] });
+                }
+                return nativeFetch(url, options);
+            };
+        ` });
+        await reloadAppBrowser(app);
+        await app.waitFor("document.getElementById('offscreen-generator')?.dataset.renderProjection === 'shell'");
+        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.waitFor("document.getElementById('offscreen-generator').classList.contains('completed') && document.getElementById('btn-stop').disabled");
+        assert.deepEqual(await app.evaluate('generationPrompts'), [prompt]);
+        await app.waitFor(`fetch('/api/storage/documents/session').then(response => response.json())
+            .then(({ value }) => value.nodes.find(node => node.id === 'offscreen-generator')?.mediaAssetKeys?.length === 1)`);
+        await reloadAppBrowser(app);
+        await app.waitFor("document.getElementById('offscreen-generator')?.dataset.renderProjection === 'shell'");
+        await app.evaluate(`(() => {
+            const minus = document.querySelector('#canvas-navigation [data-nav="minus"]');
+            for (let step = 0; step < 20; step++) minus.click();
+        })()`);
+        await app.waitFor(`document.getElementById('zoom-level').textContent === '10%' &&
+            document.getElementById('offscreen-generator').dataset.renderProjection === 'full' &&
+            document.querySelector('#offscreen-generator .image-node-result-preview img')?.naturalWidth > 0`);
+        assert.deepEqual(await app.evaluate('generationPrompts'), [], 'returning to the node does not generate again');
+    });
+});
 
 test('zooming out to ten percent keeps onscreen node content visible', { timeout: 45000 }, async () => {
     await withAppBrowser({

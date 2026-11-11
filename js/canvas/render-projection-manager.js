@@ -42,12 +42,20 @@ export function createRenderProjectionManager({
     }
 
     function isOutsideViewport(node, viewport) {
-        if (!node || !viewport) return false;
-        const width = Math.max(1, Number(node.width) || node.el?.offsetWidth || 180);
-        const height = Math.max(1, Number(node.height) || node.el?.offsetHeight || 120);
+        if (!viewport) return false;
         const left = Number(node.x) || 0;
         const top = Number(node.y) || 0;
-        return left + width < viewport.left || left > viewport.right || top + height < viewport.top || top > viewport.bottom;
+        if (left > viewport.right || top > viewport.bottom) return true;
+        // Only measure an edge if the node might overlap the viewport from that side.
+        if (left < viewport.left) {
+            const width = Math.max(1, Number(node.width) || node.el.offsetWidth || 180);
+            if (left + width < viewport.left) return true;
+        }
+        if (top < viewport.top) {
+            const height = Math.max(1, Number(node.height) || node.el.offsetHeight || 120);
+            if (top + height < viewport.top) return true;
+        }
+        return false;
     }
 
     function updateDenseMode() {
@@ -70,19 +78,24 @@ export function createRenderProjectionManager({
         updateDenseMode();
         const viewport = getViewport();
         const activeElement = documentRef.activeElement;
+        const changes = [];
         state.nodes.forEach((node, nodeId) => {
             const el = node?.el;
             if (!el) return;
             const hasFocusedControl = el.contains?.(activeElement) === true;
             const forceFull = focusedNodeIds.has(nodeId) || hasFocusedControl || state.runningNodeIds?.has(nodeId);
             const virtualized = !forceFull && isOutsideViewport(node, viewport);
-            setClass(el, 'is-virtualized', virtualized);
             const projection = virtualized ? 'shell' : 'full';
             if (projectionByElement.get(el) !== projection) {
-                el.setAttribute('data-render-projection', projection);
-                projectionByElement.set(el, projection);
+                changes.push({ el, projection });
             }
         });
+        // Projection classes can change layout. Finish all geometry reads first.
+        for (const { el, projection } of changes) {
+            setClass(el, 'is-virtualized', projection === 'shell');
+            el.setAttribute('data-render-projection', projection);
+            projectionByElement.set(el, projection);
+        }
     }
 
     function scheduleRefresh() {
