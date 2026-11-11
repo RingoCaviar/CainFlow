@@ -310,7 +310,11 @@ test('Agent creates 100 empty image nodes as one undoable canvas action without 
         assert.equal(await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='运行').hidden"), true);
         await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='仅应用').click()");
         await waitFor(`document.querySelectorAll('#nodes-layer .node').length===${before + 100}`);
-        await waitFor("!document.querySelector('.prompt-agent-canvas-plan').classList.contains('is-busy') && ![...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='撤销本次画布操作').disabled");
+        const planStatus = "document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent";
+        // A 100-node save commits each node's ownership record before enabling Undo.
+        await waitFor(`${planStatus} !== '正在校验与应用…'`, 20000);
+        assert.equal(await evaluate(planStatus), '画布方案已应用并保存');
+        assert.equal(await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='撤销本次画布操作').disabled"), false);
         assert.equal(await evaluate('window.agentRequests.length'), 1);
         const grid = await evaluate(`[...document.querySelectorAll('#nodes-layer .node')].slice(-100).map(node=>({x:parseFloat(node.style.left),y:parseFloat(node.style.top)}))`);
         assert.equal(grid.length, 100);

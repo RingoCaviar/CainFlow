@@ -1022,6 +1022,7 @@ body.workflow-sidebar-resizing * {
 }
 
 #modal-update {
+    --update-meta-text: color-mix(in srgb, var(--dialog-text) 60%, var(--dialog-muted-text));
     box-sizing: border-box;
     padding: clamp(20px, 4vw, 40px);
 }
@@ -1048,8 +1049,8 @@ body.workflow-sidebar-resizing * {
 }
 
 .update-tag-badge {
-    background: var(--accent-purple);
-    color: white;
+    background: var(--panel-primary-action-bg);
+    color: var(--panel-primary-action-text);
     padding: 4px 12px;
     border-radius: 20px;
     font-weight: 700;
@@ -1059,12 +1060,12 @@ body.workflow-sidebar-resizing * {
 
 .update-date-text {
     font-size: 13px;
-    color: var(--text-dim);
+    color: var(--update-meta-text);
 }
 
 .update-changelog-container {
-    background: rgba(0, 0, 0, 0.2);
-    border: 1px solid var(--border-input);
+    background: var(--panel-bg-soft);
+    border: 1px solid var(--dialog-divider);
     border-radius: var(--radius-sm);
     padding: 20px;
     height: clamp(300px, 42vh, 360px);
@@ -1075,13 +1076,12 @@ body.workflow-sidebar-resizing * {
 .update-changelog-body {
     font-size: 15px;
     line-height: 1.5;
-    color: var(--text-secondary);
+    color: var(--dialog-text);
 }
 
 .update-release-item {
-    border: 1px solid rgba(148, 163, 184, 0.22);
+    border: 1px solid var(--dialog-divider);
     border-radius: 14px;
-    background: rgba(255, 255, 255, 0.035);
     overflow: hidden;
 }
 
@@ -1096,7 +1096,7 @@ body.workflow-sidebar-resizing * {
     gap: 12px;
     padding: 12px 14px;
     cursor: pointer;
-    color: var(--text-primary);
+    color: var(--dialog-text);
     font-weight: 700;
     list-style: none;
 }
@@ -1108,7 +1108,7 @@ body.workflow-sidebar-resizing * {
 .update-release-summary::before {
     content: '›';
     flex: 0 0 auto;
-    color: var(--accent-purple);
+    color: var(--text-link);
     font-size: 20px;
     line-height: 1;
     transform: rotate(0deg);
@@ -1124,7 +1124,7 @@ body.workflow-sidebar-resizing * {
 }
 
 .update-release-date {
-    color: var(--text-dim);
+    color: var(--update-meta-text);
     font-size: 12px;
     font-weight: 600;
     white-space: nowrap;
@@ -1149,7 +1149,7 @@ body.workflow-sidebar-resizing * {
 .update-changelog-body h5,
 .update-changelog-body h6 {
     margin: 1.1em 0 0.55em;
-    color: var(--text-primary);
+    color: var(--dialog-text);
     line-height: 1.35;
 }
 
@@ -1171,30 +1171,30 @@ body.workflow-sidebar-resizing * {
 }
 
 .update-changelog-body a {
-    color: var(--accent-cyan);
+    color: var(--text-link);
     text-decoration: underline;
     text-underline-offset: 2px;
     word-break: break-word;
 }
 
 .update-changelog-body a:hover {
-    color: var(--text-primary);
+    color: var(--dialog-text);
 }
 
 .update-changelog-body code {
     padding: 2px 6px;
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.08);
-    color: var(--text-primary);
+    background: var(--panel-control-bg);
+    color: var(--dialog-text);
     font-size: 0.92em;
     font-family: "Consolas", "SFMono-Regular", monospace;
 }
 
 .update-changelog-body pre {
     padding: 12px 14px;
-    border: 1px solid rgba(148, 163, 184, 0.22);
+    border: 1px solid var(--dialog-divider);
     border-radius: 10px;
-    background: rgba(15, 23, 42, 0.32);
+    background: var(--panel-control-bg);
     overflow-x: auto;
 }
 
@@ -1208,15 +1208,14 @@ body.workflow-sidebar-resizing * {
 
 .update-changelog-body blockquote {
     padding: 10px 14px;
-    border-left: 3px solid var(--accent-purple);
+    border-left: 2px solid var(--panel-accent-text);
     border-radius: 0 10px 10px 0;
-    background: rgba(255, 255, 255, 0.04);
-    color: var(--text-secondary);
+    background: var(--panel-control-bg);
 }
 
 .update-changelog-body hr {
     border: 0;
-    border-top: 1px solid rgba(148, 163, 184, 0.18);
+    border-top: 1px solid var(--dialog-divider);
     margin: 1.1em 0;
 }
 

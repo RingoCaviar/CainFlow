@@ -912,10 +912,6 @@ html[data-app-theme="light"] .preview-nav-btn {
     border-color: var(--border-color);
 }
 
-html[data-app-theme="light"] .update-changelog-container {
-    background: rgba(255, 255, 255, 0.78);
-}
-
 html[data-app-theme="light"] .drawer-subheader {
     background:
         linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(243, 246, 255, 0.92));
