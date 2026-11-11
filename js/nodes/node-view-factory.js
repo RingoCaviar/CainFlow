@@ -15,6 +15,7 @@ import {
     VIDEO_ASPECT_OPTIONS
 } from '../features/execution/provider-request-utils.js';
 import { getImageAspectSelectState, normalizeImageSizeControls, resolveImageRequestSize } from '../features/execution/image-generation-size.js';
+import { getImageParameterValues, renderImageParameterOptions } from './image-parameter-controls.js';
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 import { applyReferenceImagePorts } from './reference-image-ports.js';
 import { getCustomParamsInputPorts } from './types/custom-params.js';
@@ -398,29 +399,22 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
     const isTtapiOpenAiModel = !!selectedModel && protocol === 'ttapi-openai';
     const isNewApiAsyncImage = !!selectedModel && protocol === 'newapi-image-async';
     const usesOpenAiImageControls = isOpenAiModel || isTtapiOpenAiModel;
+    const modelId = selectedModel?.modelId;
+    const imageParameters = selectedModel ? getImageParameterValues(protocol, modelId) : {};
     const customResolutionMatch = String(rd.customResolution || '').match(/^(\d{2,5})x(\d{2,5})$/i);
     const sizeControls = normalizeImageSizeControls({
         resolution: rd.resolution,
         aspect: rd.aspect,
         customWidth: rd.customWidth || customResolutionMatch?.[1],
         customHeight: rd.customHeight || customResolutionMatch?.[2]
-    }, protocol);
+    }, protocol, modelId);
     const resolutionOptions = renderImageResolutionOptions(selectedModel, providers, sizeControls.resolution, selectedProviderId);
-    const aspectControl = getImageAspectSelectState(protocol, sizeControls.resolution, sizeControls.aspect);
+    const aspectControl = getImageAspectSelectState(protocol, sizeControls.resolution, sizeControls.aspect, modelId);
     const showCustomResolution = sizeControls.resolution === 'custom';
     let requestedResolution = '请输入有效的宽度和高度';
     try {
-        requestedResolution = resolveImageRequestSize({ protocol, ...sizeControls }).display;
+        requestedResolution = resolveImageRequestSize({ protocol, modelId, ...sizeControls }).display;
     } catch { /* The editable custom fields display their own validation message. */ }
-    const imageQuality = ['low', 'medium', 'high', 'auto'].includes(String(rd.quality || '').toLowerCase())
-        ? String(rd.quality).toLowerCase()
-        : '';
-    const imageModeration = ['low', 'auto'].includes(String(rd.moderation || '').toLowerCase())
-        ? String(rd.moderation).toLowerCase()
-        : '';
-    const imageBackground = ['transparent', 'opaque', 'auto'].includes(String(rd.background || '').toLowerCase())
-        ? String(rd.background).toLowerCase()
-        : '';
     const customWidth = sizeControls.customWidth;
     const customHeight = sizeControls.customHeight;
     const generationCount = Math.max(1, parseInt(rd.generationCount || '1', 10) || 1);
@@ -478,14 +472,10 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
         })}
         ${renderNodeFormField({
             label: '质量',
-            fieldClass: usesOpenAiImageControls && !isNewApiAsyncImage ? '' : 'hidden',
+            fieldClass: imageParameters.quality?.length ? '' : 'hidden',
             fieldId: `${id}-quality-field`,
             content: `<select id="${id}-quality">
-                <option value="" ${!imageQuality ? 'selected' : ''}>默认</option>
-                <option value="auto" ${imageQuality === 'auto' ? 'selected' : ''}>自动</option>
-                <option value="low" ${imageQuality === 'low' ? 'selected' : ''}>低</option>
-                <option value="medium" ${imageQuality === 'medium' ? 'selected' : ''}>中</option>
-                <option value="high" ${imageQuality === 'high' ? 'selected' : ''}>高</option>
+                ${renderImageParameterOptions('quality', imageParameters.quality, rd.quality)}
             </select>`
         })}
         ${renderNodeFormField({
@@ -519,23 +509,18 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             <div class="node-parameter-grid">
         ${renderNodeFormField({
             label: '内容审核',
-            fieldClass: usesOpenAiImageControls && !isNewApiAsyncImage ? '' : 'hidden',
+            fieldClass: imageParameters.moderation?.length ? '' : 'hidden',
             fieldId: `${id}-moderation-field`,
             content: `<select id="${id}-moderation">
-                <option value="" ${!imageModeration ? 'selected' : ''}>默认</option>
-                <option value="auto" ${imageModeration === 'auto' ? 'selected' : ''}>自动（auto）</option>
-                <option value="low" ${imageModeration === 'low' ? 'selected' : ''}>低限制（low）</option>
+                ${renderImageParameterOptions('moderation', imageParameters.moderation, rd.moderation)}
             </select>`
         })}
         ${renderNodeFormField({
             label: '背景',
-            fieldClass: usesOpenAiImageControls && !isNewApiAsyncImage ? '' : 'hidden',
+            fieldClass: imageParameters.background?.length ? '' : 'hidden',
             fieldId: `${id}-background-field`,
             content: `<select id="${id}-background">
-                <option value="" ${!imageBackground ? 'selected' : ''}>默认</option>
-                <option value="auto" ${imageBackground === 'auto' ? 'selected' : ''}>自动（auto）</option>
-                <option value="transparent" ${imageBackground === 'transparent' ? 'selected' : ''}>透明（transparent）</option>
-                <option value="opaque" ${imageBackground === 'opaque' ? 'selected' : ''}>不透明（opaque）</option>
+                ${renderImageParameterOptions('background', imageParameters.background, rd.background)}
             </select>`
         })}
             </div>

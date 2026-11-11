@@ -9,6 +9,7 @@ import {
 } from './model-protocol-registry.js';
 import { getProtocol } from './protocols/index.js';
 import { normalizeImageList } from './execution-data-utils.js';
+import { getOpenAiImageCapabilities } from './openai-image-capabilities.js';
 import { requireModelCompatibilityFormat } from './model-compatibility-format.js';
 import {
     OPENAI_IMAGE_RESOLUTION_OPTIONS,
@@ -248,17 +249,17 @@ export function getGenerationInputProtocolId(modelCfg = {}) {
 export function getImageResolutionOptionsForModel(model = {}, providers = null, preferredProviderId = '') {
     const provider = getResolvedProviderForModel(model, providers, preferredProviderId);
     const protocol = getEffectiveProtocol(model, provider);
-    return getImageResolutionOptionsForProtocol(protocol);
+    return getImageResolutionOptionsForProtocol(protocol, model?.modelId);
 }
 
 export function getImageAspectOptionsForModel(model = {}, providers = null, preferredProviderId = '') {
     const provider = getResolvedProviderForModel(model, providers, preferredProviderId);
-    return getImageAspectOptionsForProtocol(getEffectiveProtocol(model, provider));
+    return getImageAspectOptionsForProtocol(getEffectiveProtocol(model, provider), model?.modelId);
 }
 
 export function normalizeImageResolutionForModel(resolution, model = {}, providers = null, preferredProviderId = '') {
     const provider = getResolvedProviderForModel(model, providers, preferredProviderId);
-    return normalizeImageSizeControls({ resolution }, getEffectiveProtocol(model, provider)).resolution;
+    return normalizeImageSizeControls({ resolution }, getEffectiveProtocol(model, provider), model?.modelId).resolution;
 }
 
 function isOpenAiImageResolutionOptionValid(option) {
@@ -695,26 +696,104 @@ function addDoubaoImageContent(content, url, role) {
     content.push(item);
 }
 
-export function buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, mask = null, inputs = {} }) {
+const OPENAI_IMAGE_OPTION_GROUPS = {
+    quality: 'qualities',
+    moderation: 'moderations',
+    background: 'backgrounds',
+    output_format: 'outputFormats',
+    input_fidelity: 'inputFidelities',
+    style: 'styles',
+    response_format: 'responseFormats',
+    complexity: 'complexities'
+};
+
+const OPENAI_IMAGE_RESERVED_FIELDS = new Set([
+    ...Object.keys(OPENAI_IMAGE_OPTION_GROUPS),
+    'model', 'prompt', 'n', 'size', 'output_compression', 'safety_identifier', 'user',
+    'image', 'image[]', 'images', 'reference_images', 'mask', 'markup',
+    'stream', 'partial_images', 'frame_count', 'frame_duration_ms', 'svg'
+]);
+
+function isRelayImageEndpoint(url) {
+    try {
+        return new URL(url).hostname !== 'api.openai.com';
+    } catch {
+        return false;
+    }
+}
+
+function buildKnownOpenAiImageParams(capability, options, edit) {
+    const params = {};
+    const size = normalizeOpenAiImageSize(options.size);
+    if (capability.sizeProfile === 'flexible') {
+        if (size === 'auto' || (size && validateOpenAiImageSize(...size.split('x')).valid)) params.size = size;
+    } else if (capability.sizes.includes(size) || (size === 'auto' && capability.sizeProfile === 'gpt-image-1')) {
+        params.size = size;
+    }
+
+    for (const [field, group] of Object.entries(OPENAI_IMAGE_OPTION_GROUPS)) {
+        const value = String(options[field] ?? '').trim().toLowerCase();
+        if (capability[group].includes(value)) params[field] = value;
+    }
+    if (!edit) delete params.input_fidelity;
+    if (edit && capability.sizeProfile === 'dall-e-2') delete params.quality;
+    if (params.output_format === 'jpeg' && params.background === 'transparent') {
+        throw new Error('透明背景需要 PNG 或 WebP 输出格式。');
+    }
+    const rawCompression = String(options.output_compression ?? '').trim();
+    if (['jpeg', 'webp'].includes(params.output_format) && /^\d+$/.test(rawCompression) && Number(rawCompression) <= 100) {
+        params.output_compression = Number(rawCompression);
+    }
+    if (capability.outputFormats.length && typeof options.safety_identifier === 'string' && options.safety_identifier.trim()) {
+        params.safety_identifier = options.safety_identifier;
+    }
+    if (typeof options.user === 'string' && options.user.trim()) params.user = options.user;
+    return params;
+}
+
+export function buildOpenAiImageRequest({
+    modelCfg, prompt, resolution, quality, moderation, background, mask = null, inputs = {},
+    protocolParams = {}, protocol = 'openai', url = '', edit = hasOpenAiReferenceImages(inputs)
+}) {
+    const capability = protocol === 'openai' ? getOpenAiImageCapabilities(modelCfg.modelId) : null;
+    const referenceImages = getOpenAiReferenceImages(inputs);
+    const relayJson = !edit && isRelayImageEndpoint(url);
     const requestBody = {
         model: modelCfg.modelId,
         prompt,
         n: 1
     };
 
-    const size = normalizeOpenAiImageSize(resolution);
-    if (size) requestBody.size = size;
+    if (capability) {
+        if (edit && !capability.maxReferences) throw new Error(`${modelCfg.modelId} 不支持参考图编辑。`);
+        if (edit && !referenceImages.length) throw new Error('图片编辑至少需要一张参考图。');
+        if (referenceImages.length > capability.maxReferences) {
+            throw new Error(`${modelCfg.modelId} 最多支持 ${capability.maxReferences} 张参考图。`);
+        }
+        const customParams = getCustomRequestParams(inputs);
+        requestBody.prompt = customParams.prompt ?? prompt;
+        Object.assign(requestBody, buildKnownOpenAiImageParams(capability, {
+            ...protocolParams,
+            size: resolution,
+            quality,
+            moderation,
+            background,
+            ...customParams
+        }, edit));
+        if (relayJson) Object.assign(requestBody, Object.fromEntries(Object.entries(customParams)
+            .filter(([key]) => !OPENAI_IMAGE_RESERVED_FIELDS.has(key))));
+    } else {
+        const size = normalizeOpenAiImageSize(resolution);
+        const normalizedQuality = normalizeOpenAiImageQuality(quality);
+        const normalizedModeration = normalizeOpenAiImageModeration(moderation);
+        const normalizedBackground = normalizeOpenAiImageBackground(background);
+        if (size) requestBody.size = size;
+        if (normalizedQuality) requestBody.quality = normalizedQuality;
+        if (normalizedModeration) requestBody.moderation = normalizedModeration;
+        if (normalizedBackground) requestBody.background = normalizedBackground;
+    }
 
-    const normalizedQuality = normalizeOpenAiImageQuality(quality);
-    if (normalizedQuality) requestBody.quality = normalizedQuality;
-
-    const normalizedModeration = normalizeOpenAiImageModeration(moderation);
-    if (normalizedModeration) requestBody.moderation = normalizedModeration;
-
-    const normalizedBackground = normalizeOpenAiImageBackground(background);
-    if (normalizedBackground) requestBody.background = normalizedBackground;
-
-    if (mask?.data) {
+    if (mask?.data && (edit || !capability)) {
         requestBody.mask = {
             name: mask.name || 'mask.png',
             type: mask.type || 'image/png',
@@ -723,10 +802,9 @@ export function buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality,
         };
     }
 
-    const referenceImages = getOpenAiReferenceImages(inputs);
-    if (referenceImages.length > 0) requestBody.reference_images = referenceImages;
+    if (referenceImages.length > 0 && (edit || !capability || relayJson)) requestBody.reference_images = referenceImages;
 
-    return applyCustomRequestParams(requestBody, inputs);
+    return capability ? requestBody : applyCustomRequestParams(requestBody, inputs);
 }
 
 function normalizeNewApiAsyncImageResolution(resolution) {
@@ -1060,7 +1138,7 @@ function extractTtapiImageResult(result) {
     return null;
 }
 
-export function extractImageResult(apiCfg, result, modelCfg = null) {
+export function extractImageResult(apiCfg, result, modelCfg = null, requestedOutputFormat = '') {
     if (result?.cainflowRecoveredImage && result?.recoveredImage?.dataUrl) {
         return {
             dataUrl: result.recoveredImage.dataUrl,
@@ -1094,8 +1172,10 @@ export function extractImageResult(apiCfg, result, modelCfg = null) {
 
     const base64Data = firstImage.b64_json || firstImage.b64Json || '';
     if (base64Data) {
+        const formats = ['png', 'jpeg', 'webp'];
+        const outputFormat = [result.output_format, requestedOutputFormat].find(format => formats.includes(format)) || 'png';
         return {
-            dataUrl: `data:image/png;base64,${base64Data}`
+            dataUrl: `data:image/${outputFormat};base64,${base64Data}`
         };
     }
 

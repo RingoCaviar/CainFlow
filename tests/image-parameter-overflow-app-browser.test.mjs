@@ -4,7 +4,7 @@ import { withAppBrowser } from './helpers/app-browser.mjs';
 
 test('short parameter fields share rows while custom dimensions and long text keep their space', { timeout: 30000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false,
-        models: [{ id: 'image', modelId: 'gpt-image-1', name: 'A deliberately long model name for compact selectors', protocol: 'openai', taskType: 'image', providerIds: ['p'] },
+        models: [{ id: 'image', modelId: 'gpt-image-2', name: 'A deliberately long model name for compact selectors', protocol: 'openai', taskType: 'image', providerIds: ['p'] },
             { id: 'google', modelId: 'gemini-3.1-flash-image-preview', name: 'Gemini Image', protocol: 'google', taskType: 'image', providerIds: ['p'], thinking: { profile: 'google-image' } }],
         providers: [{ id: 'p', name: 'A deliberately long provider name', endpoint: 'https://controlled.test/v1', apikey: 'test' }],
         nodes: [{ id: 'paired', type: 'ImageGenerate', x: 180, y: 60, apiConfigId: 'image', providerId: 'p' }], connections: []

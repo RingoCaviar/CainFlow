@@ -2,6 +2,7 @@ import { getNodeDefinitionPorts } from './registry.js';
 import { getCanonicalImageList, normalizeImageList } from '../features/execution/execution-data-utils.js';
 import { projectImageOutput } from './image-output-projection.js';
 import { getGenerationInputProtocolId } from '../features/execution/provider-request-utils.js';
+import { getOpenAiImageCapabilities } from '../features/execution/openai-image-capabilities.js';
 import { getProtocol } from '../features/execution/protocols/index.js';
 import { resolveDeclarativeProtocolVariant } from '../features/execution/protocols/declarative-protocol-schema.js';
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
@@ -79,15 +80,17 @@ function generationContract(state, node) {
     const reference = Object.entries(configuration.parameters || {}).find(([key, parameter]) => (parameter?.id || key) === 'referenceImages')?.[1];
     const supportsReferences = reference?.inputPort === true && reference.portType === 'image'
         && (!Array.isArray(reference.taskTypes) || reference.taskTypes.includes('image'));
-    const capacities = [reference?.portCount, configuration.referenceImage?.maxCount]
+    const openAi = protocolId === 'openai' ? getOpenAiImageCapabilities(model.modelId) : null;
+    const capacities = [reference?.portCount, configuration.referenceImage?.maxCount, openAi?.maxReferences]
         .filter(value => value !== undefined && value !== null && Number.isFinite(Number(value))).map(Number);
-    return { protocolId, supportsReferences, maxReferences: capacities.length ? Math.max(0, Math.min(...capacities)) : Infinity, error: '' };
+    return { protocolId, supportsReferences, supportsMask: protocolId === 'openai' && openAi?.maxReferences !== 0,
+        maxReferences: capacities.length ? Math.max(0, Math.min(...capacities)) : Infinity, error: '' };
 }
 
 function roleError(contract, port) {
     if (contract.error) return contract.error;
     if (port === 'referenceImages' && (!contract.supportsReferences || contract.maxReferences === 0)) return '当前模型协议不支持参考图输入，请保留关系并选择兼容模型。';
-    if (port === 'mask' && contract.protocolId !== 'openai') return '当前模型协议不支持遮罩输入，请选择兼容模型。';
+    if (port === 'mask' && !contract.supportsMask) return '当前模型协议不支持遮罩输入，请选择兼容模型。';
     return '';
 }
 

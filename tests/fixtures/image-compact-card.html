@@ -11,6 +11,7 @@ import { createNodeMarkup } from '../../js/nodes/node-view-factory.js';
 import { NODE_CONFIGS } from '../../js/nodes/registry.js';
 import { createNodeDomBindingsApi } from '../../js/nodes/node-dom-bindings.js';
 import { createNodeLifecycleApi } from '../../js/nodes/node-lifecycle.js';
+import '../../js/features/execution/protocols/openai.js';
 const result = [];
 try {
     for (const theme of ['light','dark','paper','pink','pro','glass-light','glass-dark']) {
@@ -144,6 +145,23 @@ try {
     const collapsedAdvancedHeight=node.getBoundingClientRect().height;
     result.push({bindings:true,compactHeight,openHeight,closedHeight,beforeModelSwitchHeight,beforeModelSwitchMinimum,afterModelSwitchHeight,afterModelSwitchMinimum,afterModelSwitchWidth,restoredModelHeight,beforeProviderSwitchHeight,afterProviderSwitchHeight,restoredProviderHeight,beforeAdvancedToggleWidth,beforeAdvancedToggleHeight,expandedAdvancedWidth,expandedAdvancedHeight,collapsedAdvancedWidth,collapsedAdvancedHeight,geometry,summary,hiddenOther,initialSize,autoAspectDropdown,aspectFirst,presetSize,noAutoAspectOption,presetDropdownOpened,squareAspectSize,restoredAspectSize,customAspectDropdown,seededCustom,customSize,otherModelSize,
         restored:!details.classList.contains('hidden'),saved:background.value,persisted:state.nodes.get('sample').data.background});
+    const format=node.querySelector('#sample-param-output_format');
+    const compressionHidden=()=>node.querySelector('#sample-output_compression-field').classList.contains('hidden');
+    const hiddenForDefault=compressionHidden();
+    format.value='webp';format.dispatchEvent(new Event('change',{bubbles:true}));
+    const shownForWebp=!compressionHidden();
+    const compression=node.querySelector('#sample-param-output_compression');
+    compression.value='75';compression.dispatchEvent(new Event('change',{bubbles:true}));
+    state.models.push({id:'fixed',modelId:'gpt-image-1.5',taskType:'image',protocol:'openai',providerIds:['provider']});
+    model.add(new Option('GPT Image 1.5','fixed'));
+    model.value='fixed';model.dispatchEvent(new Event('change',{bubbles:true}));
+    resolution.value='1K';resolution.dispatchEvent(new Event('change',{bubbles:true}));
+    aspect.value='3:2';aspect.dispatchEvent(new Event('change',{bubbles:true}));
+    const fixed={resolutions:Array.from(resolution.options, option=>option.value),aspects:Array.from(aspect.options, option=>option.value),
+        requested:requested.textContent,fidelity:!!node.querySelector('#sample-param-input_fidelity'),
+        outputFormat:node.querySelector('#sample-param-output_format').value,compression:node.querySelector('#sample-param-output_compression').value};
+    model.value='model';model.dispatchEvent(new Event('change',{bubbles:true}));
+    result.at(-1).variants={hiddenForDefault,shownForWebp,fixed,fidelityOnImage2:!!node.querySelector('#sample-param-input_fidelity')};
     document.getElementById('surface-result').textContent = JSON.stringify(result);
 } catch(error) { document.getElementById('surface-result').textContent = JSON.stringify({error:error.stack}); }
 </script></body></html>

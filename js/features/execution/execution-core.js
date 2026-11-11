@@ -23,6 +23,7 @@ import {
     resolveProviderUrl
 } from './provider-request-utils.js';
 import { resolveImageRequestSize } from './image-generation-size.js';
+import { getOpenAiImageCapabilities } from './openai-image-capabilities.js';
 import { createChatRequestPlan, executeChatRequestPlan } from './chat-request-plan.js';
 import {
     appendReferenceImages,
@@ -1313,7 +1314,7 @@ export function createExecutionCoreApi({
         const settings = readImageGenerationSettings(node, documentRef);
         const { modelCfg, apiCfg, protocol } = resolveRequestNodeConfig(node, 'image');
         assertImageInputCompatibility(node, inputs, settings);
-        const { aspect, resolution } = readImageGenerateRequestSize(node, protocol);
+        const { aspect, resolution } = readImageGenerateRequestSize(settings, protocol, modelCfg.modelId);
         const quality = settings.quality;
         const moderation = settings.moderation;
         const background = settings.background;
@@ -1329,7 +1330,7 @@ export function createExecutionCoreApi({
             action: isNewApiAsyncImage ? 'create' : undefined,
             inputs
         });
-        const isOpenAiImageEdit = protocol === 'openai' && /\/images\/edits(?:$|[?#])/i.test(url);
+        const isOpenAiImageEdit = protocol === 'openai' && /\/images\/edits\/?(?:$|[?#])/i.test(url);
         const requestBody = isNewApiAsyncImage
             ? buildNewApiAsyncImageRequest({ modelCfg, prompt, aspect, resolution, inputs })
             : (isTtapi
@@ -1346,7 +1347,11 @@ export function createExecutionCoreApi({
                     moderation,
                     background,
                     mask: isOpenAiImageEdit ? mask : null,
-                    inputs
+                    inputs,
+                    protocolParams,
+                    protocol,
+                    url,
+                    edit: isOpenAiImageEdit
                 }))));
         applyThinking(requestBody, { model: modelCfg, provider: apiCfg, task: 'image', protocol }, node.data?.thinking);
         return {
@@ -1363,9 +1368,8 @@ export function createExecutionCoreApi({
         };
     }
 
-    function readImageGenerateRequestSize(node, protocol) {
-        const settings = readImageGenerationSettings(node, documentRef);
-        return resolveImageRequestSize({ protocol, aspect: settings.aspect, resolution: settings.resolution,
+    function readImageGenerateRequestSize(settings, protocol, modelId) {
+        return resolveImageRequestSize({ protocol, modelId, aspect: settings.aspect, resolution: settings.resolution,
             customWidth: settings.customWidth, customHeight: settings.customHeight });
     }
 
@@ -1593,19 +1597,25 @@ export function createExecutionCoreApi({
         return blob;
     }
 
-    async function buildOpenAiImageEditFormData(requestBody, inputs, signal) {
+    function getOpenAiImageEditFields(requestBody, modelId) {
+        const fields = ['model', 'prompt', 'n', 'size', 'quality', 'moderation', 'background'];
+        if (getOpenAiImageCapabilities(modelId)) {
+            fields.push('output_format', 'output_compression', 'input_fidelity', 'response_format', 'complexity', 'safety_identifier', 'user');
+        }
+        return Object.fromEntries(fields
+            .filter(key => requestBody[key] !== undefined && requestBody[key] !== null && requestBody[key] !== '')
+            .map(key => [key, requestBody[key]]));
+    }
+
+    async function buildOpenAiImageEditFormData(requestBody, inputs, modelId, signal) {
         const formData = new FormData();
         const referenceImages = getReferenceImageInputs(inputs);
         // OpenAI encodes multiple files as an array; keep the scalar field for a single image.
         const imageFieldName = referenceImages.length > 1 ? 'image[]' : 'image';
 
-        formData.append('model', requestBody.model);
-        formData.append('prompt', requestBody.prompt);
-        if (requestBody.n !== undefined) formData.append('n', String(requestBody.n));
-        if (requestBody.size) formData.append('size', requestBody.size);
-        if (requestBody.quality) formData.append('quality', requestBody.quality);
-        if (requestBody.moderation) formData.append('moderation', requestBody.moderation);
-        if (requestBody.background) formData.append('background', requestBody.background);
+        for (const [field, value] of Object.entries(getOpenAiImageEditFields(requestBody, modelId))) {
+            formData.append(field, String(value));
+        }
 
         for (let index = 0; index < referenceImages.length; index += 1) {
             const blob = await getReferenceImageBlob(referenceImages[index].value, signal);
@@ -1621,17 +1631,11 @@ export function createExecutionCoreApi({
         return formData;
     }
 
-    function getOpenAiImageRequestLogBody(requestBody, inputs) {
+    function getOpenAiImageRequestLogBody(requestBody, inputs, modelId) {
         const referenceImages = getReferenceImageInputs(inputs);
         if (referenceImages.length === 0 && !requestBody.mask?.data) return requestBody;
         return {
-            model: requestBody.model,
-            prompt: requestBody.prompt,
-            n: requestBody.n,
-            ...(requestBody.size ? { size: requestBody.size } : {}),
-            ...(requestBody.quality ? { quality: requestBody.quality } : {}),
-            ...(requestBody.moderation ? { moderation: requestBody.moderation } : {}),
-            ...(requestBody.background ? { background: requestBody.background } : {}),
+            ...getOpenAiImageEditFields(requestBody, modelId),
             image: `[${referenceImages.length} reference image file(s)]`,
             ...(requestBody.mask?.data ? {
                 mask: `[mask file: ${requestBody.mask.name || 'mask.png'}, ${requestBody.mask.size || 0} bytes]`
@@ -1799,7 +1803,7 @@ export function createExecutionCoreApi({
 
                 const protocol = getEffectiveProtocol(modelCfg, apiCfg);
                 resolveThinking({ model: modelCfg, provider: apiCfg, task: 'image', protocol }, node.data?.thinking);
-                const { aspect, resolution } = readImageGenerateRequestSize(node, protocol);
+                const { aspect, resolution } = readImageGenerateRequestSize(settings, protocol, modelCfg.modelId);
                 const isGoogle = protocol === 'google';
                 const isTtapi = protocol === 'ttapi';
                 const isTtapiOpenAi = protocol === 'ttapi-openai';
@@ -1824,8 +1828,17 @@ export function createExecutionCoreApi({
                 }
 
                 const url = resolveProviderUrl(apiCfg, modelCfg, 'image', { inputs });
-                const isOpenAiImageEdit = protocol === 'openai' && /\/images\/edits(?:$|[?#])/i.test(url);
+                const isOpenAiImageEdit = protocol === 'openai' && /\/images\/edits\/?(?:$|[?#])/i.test(url);
                 const mask = isOpenAiImageEdit ? getImageGenerateMask(inputs) : null;
+                const buildRequestBody = () => {
+                    if (isTtapi) return buildTtapiImageRequest({ modelCfg, prompt, inputs, aspect, resolution, searchEnabled, protocolParams });
+                    if (isTtapiOpenAi) return buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, inputs, protocolParams });
+                    if (isGoogle) return buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled });
+                    return buildOpenAiImageRequest({
+                        modelCfg, prompt, resolution, quality, moderation, background, mask, inputs, protocolParams,
+                        protocol, url, edit: isOpenAiImageEdit
+                    });
+                };
                 const headers = isGoogle
                     ? getProxyHeaders(url, 'POST')
                     : ((isTtapi || isTtapiOpenAi)
@@ -1854,13 +1867,7 @@ export function createExecutionCoreApi({
 
                     const runSingleGeneration = async (nextGenerationIndex) => {
                         return runTrackedProviderRequest(node, apiCfg, modelCfg, url, async () => {
-                            const requestBody = isTtapi
-                                ? buildTtapiImageRequest({ modelCfg, prompt, inputs, aspect, resolution, searchEnabled, protocolParams })
-                                : (isTtapiOpenAi
-                                    ? buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, inputs, protocolParams })
-                                    : (isGoogle
-                                        ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
-                                        : buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, mask, inputs })));
+                            const requestBody = buildRequestBody();
                             applyThinking(requestBody, { model: modelCfg, provider: apiCfg, task: 'image', protocol }, node.data?.thinking);
                             showToast(
                                 generationCount > 1
@@ -1871,10 +1878,10 @@ export function createExecutionCoreApi({
                             );
 
                             const requestPayload = isOpenAiImageEdit
-                                ? await buildOpenAiImageEditFormData(requestBody, inputs, signal)
+                                ? await buildOpenAiImageEditFormData(requestBody, inputs, modelCfg.modelId, signal)
                                 : JSON.stringify(requestBody);
                             const loggedRequestBody = isOpenAiImageEdit
-                                ? getOpenAiImageRequestLogBody(requestBody, inputs)
+                                ? getOpenAiImageRequestLogBody(requestBody, inputs, modelCfg.modelId)
                                 : requestBody;
                             logRequestToPanel(
                                 generationCount > 1
@@ -1927,7 +1934,7 @@ export function createExecutionCoreApi({
                             if (!result) throw new Error('API 返回了空的 JSON 响应');
 
                             let imageData = '';
-                            const imageResult = extractImageResult(apiCfg, result, modelCfg);
+                            const imageResult = extractImageResult(apiCfg, result, modelCfg, requestBody.output_format);
                             if (imageResult?.dataUrl) {
                                 imageData = imageResult.dataUrl;
                                 if (imageResult.recovered) {
@@ -2031,13 +2038,7 @@ export function createExecutionCoreApi({
                         current: node.generationCompletedCount,
                         total: generationCount
                     });
-                    const requestBody = isTtapi
-                        ? buildTtapiImageRequest({ modelCfg, prompt, inputs, aspect, resolution, searchEnabled, protocolParams })
-                        : (isTtapiOpenAi
-                            ? buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, inputs, protocolParams })
-                            : (isGoogle
-                                ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
-                                : buildOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, mask, inputs })));
+                    const requestBody = buildRequestBody();
                     applyThinking(requestBody, { model: modelCfg, provider: apiCfg, task: 'image', protocol }, node.data?.thinking);
                     showToast(
                         generationCount > 1
@@ -2048,10 +2049,10 @@ export function createExecutionCoreApi({
                     );
 
                     const requestPayload = isOpenAiImageEdit
-                        ? await buildOpenAiImageEditFormData(requestBody, inputs, signal)
+                        ? await buildOpenAiImageEditFormData(requestBody, inputs, modelCfg.modelId, signal)
                         : JSON.stringify(requestBody);
                     const loggedRequestBody = isOpenAiImageEdit
-                        ? getOpenAiImageRequestLogBody(requestBody, inputs)
+                        ? getOpenAiImageRequestLogBody(requestBody, inputs, modelCfg.modelId)
                         : requestBody;
                     logRequestToPanel(
                         generationCount > 1
@@ -2113,7 +2114,7 @@ export function createExecutionCoreApi({
                         if (!result) throw new Error('API 返回了空的 JSON 响应');
 
                         let imageData = '';
-                        const imageResult = extractImageResult(apiCfg, result, modelCfg);
+                        const imageResult = extractImageResult(apiCfg, result, modelCfg, requestBody.output_format);
                         if (imageResult?.dataUrl) {
                             imageData = imageResult.dataUrl;
                             if (imageResult.recovered) {

@@ -22,6 +22,8 @@ import {
     validateOpenAiImageSize
 } from '../features/execution/provider-request-utils.js';
 import { getImageAspectSelectState, normalizeImageSizeControls, resolveImageRequestSize, usesOpenAiImageSize } from '../features/execution/image-generation-size.js';
+import { getOpenAiImageCapabilities } from '../features/execution/openai-image-capabilities.js';
+import { syncImageParameterControls } from './image-parameter-controls.js';
 import { collectConnectionSnapshotsForNodes } from '../canvas/connection-copy-utils.js';
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 import { getProtocol } from '../features/execution/protocols/index.js';
@@ -1548,11 +1550,25 @@ export function createNodeDomBindingsApi({
         defaults.providerId = providerSelect?.value || state.nodes.get(id)?.providerId || '';
     }
 
-    function getImageGenerateExtraProtocol(protocol) {
+    function getImageGenerateExtraProtocol(protocol, modelId) {
         if (!protocol?.parameters) return null;
+        const capabilities = protocol.id === 'openai' ? getOpenAiImageCapabilities(modelId) : null;
+        const openAiOptions = {
+            output_format: capabilities?.outputFormats,
+            input_fidelity: capabilities?.inputFidelities?.length > 1 ? capabilities.inputFidelities : [],
+            style: capabilities?.styles,
+            response_format: capabilities?.responseFormats,
+            complexity: capabilities?.complexities
+        };
         const parameters = Object.entries(protocol.parameters).reduce((acc, [paramId, param]) => {
             const effectiveId = param?.id || paramId;
-            if (!IMAGE_GENERATE_STANDARD_PROTOCOL_PARAMS.has(paramId) && !IMAGE_GENERATE_STANDARD_PROTOCOL_PARAMS.has(effectiveId)) {
+            if (param.exposed !== true || param.taskTypes && !param.taskTypes.includes('image')
+                || IMAGE_GENERATE_STANDARD_PROTOCOL_PARAMS.has(paramId) || IMAGE_GENERATE_STANDARD_PROTOCOL_PARAMS.has(effectiveId)) return acc;
+            if (protocol.id === 'openai' && Object.hasOwn(openAiOptions, effectiveId)) {
+                const values = openAiOptions[effectiveId];
+                if (!values?.length) return acc;
+                acc[paramId] = { ...param, options: (param.options || []).filter(option => !option.value || values.includes(option.value)) };
+            } else if (protocol.id !== 'openai' || effectiveId !== 'output_compression' || capabilities?.outputFormats.length) {
                 acc[paramId] = param;
             }
             return acc;
@@ -1568,13 +1584,13 @@ export function createNodeDomBindingsApi({
         const providerId = providerSelect?.value || state.nodes.get(id)?.providerId || '';
         const provider = getResolvedProviderForModel(model, state.providers, providerId);
         const protocolId = getEffectiveProtocol(model, provider);
-        return getProtocol(protocolId) || IMAGE_GENERATE_BUILTIN_PROTOCOLS.get(protocolId) || null;
+        return getImageGenerateExtraProtocol(getProtocol(protocolId) || IMAGE_GENERATE_BUILTIN_PROTOCOLS.get(protocolId), model?.modelId);
     }
 
     function syncImageGenerateProtocolParams(id) {
         const node = state.nodes.get(id);
         if (!node) return;
-        const extraProtocol = getImageGenerateExtraProtocol(getImageGenerateSelectedProtocol(id));
+        const extraProtocol = getImageGenerateSelectedProtocol(id);
         if (!extraProtocol) return;
         node.data = node.data || {};
         node.data.protocolParams = {
@@ -1605,7 +1621,7 @@ export function createNodeDomBindingsApi({
         const node = state.nodes.get(id);
         if (!container || !node) return;
         syncImageGenerateProtocolParams(id);
-        const extraProtocol = getImageGenerateExtraProtocol(getImageGenerateSelectedProtocol(id));
+        const extraProtocol = getImageGenerateSelectedProtocol(id);
         container.innerHTML = extraProtocol ? renderProtocolParameters(id, extraProtocol, 'image', node.data || {}) : '';
         bindZoomSettleGuard(container);
         bindCustomNodeSelects(container);
@@ -1855,7 +1871,7 @@ export function createNodeDomBindingsApi({
             aspect: aspectSelect.value,
             customWidth: documentRef.getElementById(`${id}-custom-resolution-width`)?.value,
             customHeight: documentRef.getElementById(`${id}-custom-resolution-height`)?.value
-        }, protocol);
+        }, protocol, model?.modelId);
         const options = getImageResolutionOptionsForModel(model, state.providers, selectedProviderId);
         resolutionSelect.innerHTML = options
             .map((option) => `<option value="${option.value}">${option.label}</option>`)
@@ -1867,10 +1883,9 @@ export function createNodeDomBindingsApi({
         const isTtapiOpenAiModel = protocol === 'ttapi-openai';
         const usesOpenAiImageControls = isOpenAiModel || isTtapiOpenAiModel;
         const isNewApiAsyncImage = protocol === 'newapi-image-async';
-        updateImageGenerateAspectAvailability(id, protocol, controls.aspect);
-        updateImageGenerateQualityVisibility(id, usesOpenAiImageControls, isNewApiAsyncImage);
-        updateImageGenerateOpenAiExtraVisibility(id, usesOpenAiImageControls, isNewApiAsyncImage);
-        updateImageGenerateMaskPortVisibility(id, usesOpenAiImageControls && !isNewApiAsyncImage);
+        updateImageGenerateAspectAvailability(id, protocol, controls.aspect, model?.modelId);
+        syncImageParameterControls(documentRef, id, protocol, model?.modelId);
+        updateImageGenerateMaskPortVisibility(id, usesOpenAiImageControls && (protocol !== 'openai' || getOpenAiImageCapabilities(model?.modelId)?.maxReferences !== 0));
         updateImageGenerateAsyncFieldsVisibility(id, isNewApiAsyncImage, usesOpenAiImageControls);
         updateImageGenerateCustomResolutionVisibility(id);
         refreshImageGenerateProtocolParams(id);
@@ -1902,9 +1917,13 @@ export function createNodeDomBindingsApi({
         const search = documentRef.getElementById(`${id}-search-field`);
         const hasSearch = search && !search.classList.contains('hidden');
         if (hasSearch && documentRef.getElementById(`${id}-search`)?.checked) configured.push('搜索：开启');
-        const extra = getImageGenerateExtraProtocol(getImageGenerateSelectedProtocol(id));
+        const extra = getImageGenerateSelectedProtocol(id);
+        const format = documentRef.getElementById(`${id}-param-output_format`)?.value;
+        const compressionField = documentRef.getElementById(`${id}-output_compression-field`);
+        if (extra?.id === 'openai') compressionField?.classList.toggle('hidden', !['jpeg', 'webp'].includes(format));
         for (const [key, parameter] of Object.entries(extra?.parameters || {})) {
             if (!documentRef.getElementById(`${id}-param-${key}`)) continue;
+            if (extra.id === 'openai' && key === 'output_compression' && compressionField?.classList.contains('hidden')) continue;
             const value = node?.data?.protocolParams?.[key];
             if (value !== undefined && value !== '' && String(value) !== String(parameter.defaultValue ?? '')) {
                 configured.push(`${parameter.label || parameter.name || key}：${String(value)}`);
@@ -1914,33 +1933,17 @@ export function createNodeDomBindingsApi({
         summary.textContent = configured.length > 0 ? configured.join(' · ') : '默认设置';
     }
 
-    function updateImageGenerateAspectAvailability(id, protocol, aspect = null) {
+    function updateImageGenerateAspectAvailability(id, protocol, aspect = null, modelId) {
         const aspectSelect = documentRef.getElementById(`${id}-aspect`);
         const resolutionSelect = documentRef.getElementById(`${id}-resolution`);
         if (!aspectSelect || !resolutionSelect) return;
-        const control = getImageAspectSelectState(protocol, resolutionSelect.value, aspect ?? aspectSelect.value);
+        const control = getImageAspectSelectState(protocol, resolutionSelect.value, aspect ?? aspectSelect.value, modelId);
         aspectSelect.innerHTML = control.options
             .map((option) => `<option value="${option.value}" ${option.disabled ? 'disabled' : ''}>${option.label}</option>`)
             .join('');
         aspectSelect.value = control.value;
         aspectSelect.disabled = control.disabled;
         aspectSelect.title = control.title;
-    }
-
-    function updateImageGenerateQualityVisibility(id, isOpenAiModel, isNewApiAsyncImage = false) {
-        const qualityField = documentRef.getElementById(`${id}-quality-field`);
-        if (!qualityField) return;
-        qualityField.classList.toggle('hidden', !isOpenAiModel || isNewApiAsyncImage);
-    }
-
-    function updateImageGenerateOpenAiExtraVisibility(id, isOpenAiModel, isNewApiAsyncImage = false) {
-        [
-            `${id}-moderation-field`,
-            `${id}-background-field`
-        ].forEach((fieldId) => {
-            const field = documentRef.getElementById(fieldId);
-            if (field) field.classList.toggle('hidden', !isOpenAiModel || isNewApiAsyncImage);
-        });
     }
 
     function updateImageGenerateMaskPortVisibility(id, shouldShow) {
@@ -1987,12 +1990,12 @@ export function createNodeDomBindingsApi({
         const protocol = getEffectiveProtocol(model, provider);
         const resolution = documentRef.getElementById(`${id}-resolution`)?.value || '';
         const output = documentRef.getElementById(`${id}-requested-resolution`);
-        updateImageGenerateAspectAvailability(id, protocol);
+        updateImageGenerateAspectAvailability(id, protocol, null, model?.modelId);
         const aspect = documentRef.getElementById(`${id}-aspect`)?.value || '';
         if (!output) return;
         try {
             output.textContent = resolveImageRequestSize({
-                protocol, resolution, aspect,
+                protocol, modelId: model?.modelId, resolution, aspect,
                 customWidth: documentRef.getElementById(`${id}-custom-resolution-width`)?.value || '',
                 customHeight: documentRef.getElementById(`${id}-custom-resolution-height`)?.value || ''
             }).display;
@@ -2733,6 +2736,10 @@ export function createNodeDomBindingsApi({
                 connectionProjection?.nodeGeometryChanged(id);
             });
             const modelSelect = queryNodeControl(el, `#${id}-apiconfig`);
+            modelSelect?.addEventListener('cainflow:image-model-configuration-changed', () => {
+                refreshImageGenerateProtocolParams(id);
+                syncImageAdvancedSummary(id);
+            });
             modelSelect?.addEventListener('change', () => {
                 syncImageGenerateResolutionOptions(id);
                 persistNodeModelSelection(id, type);
@@ -2759,7 +2766,7 @@ export function createNodeDomBindingsApi({
                     if (widthInput && !widthInput.value) widthInput.value = previousSize?.[1] || '1024';
                     if (heightInput && !heightInput.value) heightInput.value = previousSize?.[2] || '1024';
                 }
-                updateImageGenerateAspectAvailability(id, protocol);
+                updateImageGenerateAspectAvailability(id, protocol, null, model?.modelId);
                 updateImageGenerateCustomResolutionVisibility(id);
                 fitNodeToContent(id);
             });
@@ -3332,6 +3339,7 @@ export function createNodeDomBindingsApi({
     return {
         bindNodeInteractions,
         bindNodePorts,
+        syncImageGenerateResolutionOptions,
         syncVideoGenerateProtocolFields,
         syncTextSplitNodeData,
         syncImageMergeNodes,

@@ -1,5 +1,7 @@
-// Reviewed against official API documentation on 2026-10-22. Profiles describe wire
-// contracts, not promises that a relay supports the same upstream capabilities.
+import { getOpenAIChatCapabilities } from './openai-chat-capabilities.js';
+
+// Profiles describe wire contracts, not promises that a relay supports the same
+// upstream capabilities. OpenAI profiles were reviewed on 2026-11-11.
 export const THINKING_SOURCES = {
     openai: 'https://developers.openai.com/api/docs/guides/reasoning',
     google: 'https://ai.google.dev/gemini-api/docs/generate-content/thinking?hl=en',
@@ -9,6 +11,9 @@ export const THINKING_SOURCES = {
 };
 export const THINKING_PROFILES = {
     'openai-max': { label: 'OpenAI GPT-6 Astra / 6.1 Sol · low 至 max', wire: 'openai', task: 'chat', levels: ['low', 'medium', 'high', 'xhigh', 'max'] },
+    'openai-none-max': { label: 'OpenAI · none 至 max', wire: 'openai', task: 'chat', levels: ['none', 'low', 'medium', 'high', 'xhigh', 'max'] },
+    'openai-high': { label: 'OpenAI Pro · high', wire: 'openai', task: 'chat', levels: ['high'] },
+    'openai-medium-xhigh': { label: 'OpenAI Pro · medium / high / xhigh', wire: 'openai', task: 'chat', levels: ['medium', 'high', 'xhigh'] },
     'openai-basic': { label: 'OpenAI · low / medium / high', wire: 'openai', task: 'chat', levels: ['low', 'medium', 'high'] },
     'openai-gpt5': { label: 'OpenAI GPT-5 · minimal 至 high', wire: 'openai', task: 'chat', levels: ['minimal', 'low', 'medium', 'high'] },
     'openai-none-high': { label: 'OpenAI · none 至 high', wire: 'openai', task: 'chat', levels: ['none', 'low', 'medium', 'high'] },
@@ -49,13 +54,6 @@ function automaticProfile(model, provider, task, protocol) {
         return known[id] || '';
     }
     if (task !== 'chat' || !['openai', 'responses'].includes(protocol)) return '';
-    if (host === 'api.openai.com') {
-        if (['gpt-6-astra', 'gpt-6.1-sol'].includes(id)) return 'openai-max';
-        if (/^(o1|o3|o3-mini|o4-mini)(-\d{4}-\d{2}-\d{2})?$/.test(id)) return 'openai-basic';
-        if (/^gpt-5(?:-mini|-nano)?(?:-\d{4}-\d{2}-\d{2})?$/.test(id)) return 'openai-gpt5';
-        if (/^gpt-5\.1(?:-\d{4}-\d{2}-\d{2})?$/.test(id)) return 'openai-none-high';
-        if (/^gpt-5\.[245](?:-\d{4}-\d{2}-\d{2})?$/.test(id)) return 'openai-none-xhigh';
-    }
     if (host === 'api.deepseek.com' && ['deepseek-flash', 'deepseek-v4-pro'].includes(id)) return 'deepseek';
     if ((host === 'dashscope.aliyuncs.com' || host === 'dashscope-intl.aliyuncs.com') && ['qwen3.8-max', 'qwen3.8-flash', 'qwen3.7-plus', 'qwen3.6-plus', 'qwen3.5-plus'].includes(id)) return 'qwen';
     return '';
@@ -63,14 +61,23 @@ function automaticProfile(model, provider, task, protocol) {
 export function getThinkingCapability({ model = {}, provider = {}, task = model.taskType || 'chat', protocol = model.protocol } = {}) {
     const config = normalizeThinkingConfig(model.thinking);
     const configured = config?.providers?.[provider.id] || config?.profile || 'auto';
-    const id = configured === 'auto' ? automaticProfile(model, provider, task, protocol) : configured;
-    const profile = THINKING_PROFILES[id];
+    const official = task === 'chat' ? getOpenAIChatCapabilities({ model, provider, protocol }) : null;
+    const id = configured === 'auto' ? official?.thinkingProfile || automaticProfile(model, provider, task, protocol) : configured;
+    const configuredProfile = THINKING_PROFILES[id];
+    const officialProfile = THINKING_PROFILES[official?.thinkingProfile];
+    let profile = configuredProfile;
+    if (official?.thinkingProfile === null || (protocol === 'openai' && official?.chatCompletions === false)) {
+        profile = null;
+    } else if (officialProfile && configuredProfile) {
+        const levels = configuredProfile.wire === 'openai' ? configuredProfile.levels.filter(level => officialProfile.levels.includes(level)) : [];
+        profile = levels.length ? { ...configuredProfile, levels } : null;
+    }
     const compatible = profile && profile.task === task && !(profile.wire.startsWith('qwen') && protocol === 'responses') && (profile.wire.startsWith('google') ? protocol === 'google'
         : profile.wire === 'ttapi' ? protocol === 'ttapi' : ['openai', 'responses', 'ttapi-openai'].includes(protocol));
     return { ...(compatible ? profile : {}), id, supported: Boolean(compatible),
         reason: configured === 'none' ? '已设置不发送思考参数' : !compatible ? '由接口控制；当前模型或渠道未确认可调整思考参数' : '',
         source: profile?.wire.startsWith('google') ? THINKING_SOURCES[task === 'image' ? 'image' : 'google'] : THINKING_SOURCES[profile?.wire.startsWith('qwen') ? 'qwen' : profile?.wire],
-        verifiedAt: '2026-10-22' };
+        verifiedAt: official ? '2026-11-11' : '2026-10-22' };
 }
 export function resolveThinking(options, ...overrides) {
     const capability = getThinkingCapability(options);

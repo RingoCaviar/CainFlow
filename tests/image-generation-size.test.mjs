@@ -65,6 +65,37 @@ test('OpenAI migrates an empty saved ratio to an explicit square ratio', () => {
     });
 });
 
+test('fixed-size models offer only their documented dimensions and reject incompatible sizes', () => {
+    const protocol = 'openai';
+    const mini = 'gpt-image-1-mini';
+    assert.deepEqual(getImageResolutionOptionsForProtocol(protocol, mini).map(({ value }) => value), ['', '1K']);
+    assert.deepEqual(getImageAspectOptionsForProtocol(protocol, mini).map(({ value }) => value), ['1:1', '2:3', '3:2']);
+    assert.equal(resolveImageRequestSize({ protocol, modelId: mini, resolution: '1K', aspect: '2:3' }).resolution, '1024x1536');
+    assert.throws(() => resolveImageRequestSize({ protocol, modelId: mini, resolution: '2K', aspect: '16:9' }), /不支持/);
+    assert.throws(() => resolveImageRequestSize({ protocol, modelId: mini, resolution: '1K', aspect: '16:9' }), /不支持/);
+    assert.equal(resolveImageRequestSize({ protocol, modelId: 'dall-e-2', resolution: '512x512' }).resolution, '512x512');
+    assert.equal(resolveImageRequestSize({ protocol, modelId: 'dall-e-3', resolution: '1K', aspect: '7:4' }).resolution, '1792x1024');
+    assert.equal(resolveImageRequestSize({ protocol, modelId: 'gpt-image-2.5-sunburst-2026-09-08', resolution: '2K', aspect: '16:9' }).resolution, '2048x1152');
+});
+
+test('image node offers model-specific quality values and hides unsupported controls', () => {
+    function render(modelId, quality) {
+        return createNodeMarkup({
+            type: 'ImageGenerate', id: 'image', config: imageGenerateNode,
+            restoreData: { apiConfigId: 'model', quality },
+            state: { models: [{ id: 'model', modelId, protocol: 'openai', taskType: 'image' }], providers: [] }
+        });
+    }
+    const legacy = render('dall-e-3', 'hd');
+    assert.match(legacy, /id="image-quality">[^<]*<option[^]*?<option value="hd" selected>/);
+    assert.match(legacy, /class="[^\"]*\bhidden" id="image-moderation-field"/);
+    assert.match(legacy, /class="[^\"]*\bhidden" id="image-background-field"/);
+    assert.doesNotMatch(legacy, /<option value="2K"/);
+    const modern = render('gpt-image-2.5-flare', 'xhigh');
+    assert.match(modern, /<option value="xhigh" selected>/);
+    assert.match(modern, /<option value="max">/);
+});
+
 test('non-OpenAI requests keep resolution tier and aspect ratio as independent fields', () => {
     const googleSize = resolveImageRequestSize({ protocol: 'google', resolution: '4K', aspect: '3:2' });
     assert.deepEqual(buildGoogleImageRequest({ prompt: '山谷', ...googleSize }).generationConfig.imageConfig, {

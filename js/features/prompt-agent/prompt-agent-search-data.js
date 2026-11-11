@@ -1,4 +1,5 @@
 import { resolveThinking } from '../execution/thinking-config.js';
+import { getOpenAIChatCapabilities } from '../execution/openai-chat-capabilities.js';
 import { resolveAgentProvider } from './prompt-agent-provider.js';
 
 // Search configuration and durable metadata; never treat model-authored URLs as results.
@@ -9,6 +10,17 @@ export function getAgentSearchCapability(model) {
     if (configured === 'none') return 'none';
     if (model.protocol === 'google') return configured === undefined || configured === 'web' ? 'web' : 'none';
     return ['web', 'images'].includes(configured) ? configured : 'none';
+}
+
+export function resolveAgentSearchThinking(model, provider) {
+    const protocol = model.protocol === 'openai' ? 'responses' : model.protocol;
+    const options = { model, provider, task: 'chat', protocol };
+    const { patch } = resolveThinking(options);
+    const official = getOpenAIChatCapabilities(options);
+    if (official?.webSearchNeedsMoreThanMinimal && patch.reasoning?.effort === 'minimal') {
+        throw new Error(`${model.modelId} 联网搜索需要 low、medium 或 high 思考档位。`);
+    }
+    return patch;
 }
 
 // The menu and execution must agree, including the selected Provider's address.
@@ -24,7 +36,7 @@ export function getAgentSearchAvailability({ model, models = [], providers = [],
     if (selected.protocol === 'openai' && provider.autoComplete === false && !safeSearchUrl(provider.responsesEndpoint)) {
         return fail('responses-endpoint', 'Provider 缺少独立 Responses 地址', { providerId: provider.id, field: 'responsesEndpoint' });
     }
-    try { resolveThinking({ model: selected, provider, task: 'chat', protocol: selected.protocol === 'openai' ? 'responses' : selected.protocol }); }
+    try { resolveAgentSearchThinking(selected, provider); }
     catch (error) { return fail('thinking', error.message, { modelId: selected.id, field: 'thinking' }); }
     return { available: true, model: selected, provider, source: 'conversation',
         message: `${selected.name || selected.modelId} · ${provider.name || provider.id}（对话模型）`, target: { modelId: selected.id, field: 'agentSearch' } };

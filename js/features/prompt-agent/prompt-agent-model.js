@@ -2,6 +2,7 @@ import { orderImageReferenceConnections } from '../../nodes/image-reference-proj
 import { resolveAgentProvider } from './prompt-agent-provider.js';
 import { trackAgentRequest } from './prompt-agent-request.js';
 import { createChatRequestPlan, requestChatCompletion } from '../execution/chat-request-plan.js';
+import { getOpenAIChatCapabilities } from '../execution/openai-chat-capabilities.js';
 import { getModelsForTask, getModelProviders } from '../execution/provider-request-utils.js';
 import { getModelProtocolConfig } from '../execution/model-protocol-registry.js';
 import { getPromptAgentInstructions } from './prompt-agent-instructions.js';
@@ -144,6 +145,9 @@ export async function createPromptAgentModelReply({
     if (!model) throw new Error('请先配置对话模型和供应商。');
     const provider = resolveAgentProvider(model, providers, providerId);
     if (!model || !provider) throw new Error('请先在设置中配置一个可用的对话模型和 Provider');
+    if (getOpenAIChatCapabilities({ model, provider })?.imageInput === false) {
+        model.capabilities = { ...model.capabilities, imageInput: false };
+    }
     const originalReads = new Map();
     const readOriginal = async (assetKey, name) => {
         if (!originalReads.has(assetKey)) originalReads.set(assetKey, Promise.resolve(getCanvasImage(assetKey)));

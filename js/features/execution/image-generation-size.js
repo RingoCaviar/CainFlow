@@ -1,4 +1,5 @@
 /** 图片生成节点的分辨率档位、比例与请求尺寸共用同一份映射。 */
+import { getOpenAiImageCapabilities } from './openai-image-capabilities.js';
 
 export const GOOGLE_IMAGE_RESOLUTION_OPTIONS = [
     { value: '', label: '默认 (1K)' },
@@ -54,27 +55,38 @@ const OPENAI_PRESET_SIZES = {
     }
 };
 
-const LEGACY_PRESET_SIZES = new Map(
-    Object.entries(OPENAI_PRESET_SIZES).flatMap(([resolution, ratios]) =>
-        Object.entries(ratios).map(([aspect, size]) => [size, { resolution, aspect }])
-    )
-);
+const FIXED_OPENAI_SIZES = {
+    'gpt-image-1': { '1K': { '1:1': '1024x1024', '2:3': '1024x1536', '3:2': '1536x1024' } },
+    'dall-e-2': { '1K': { '1:1': '1024x1024' }, '256px': { '1:1': '256x256' }, '512px': { '1:1': '512x512' } },
+    'dall-e-3': { '1K': { '1:1': '1024x1024', '7:4': '1792x1024', '4:7': '1024x1792' } }
+};
+
+function fixedOpenAiSizes(protocol, modelId) {
+    return protocol === 'openai' ? FIXED_OPENAI_SIZES[getOpenAiImageCapabilities(modelId)?.sizeProfile] : undefined;
+}
 
 export function usesOpenAiImageSize(protocol) {
     return protocol === 'openai' || protocol === 'ttapi-openai';
 }
 
-export function getImageResolutionOptionsForProtocol(protocol) {
+export function getImageResolutionOptionsForProtocol(protocol, modelId) {
     if (protocol === 'newapi-image-async') return NEWAPI_ASYNC_IMAGE_RESOLUTION_OPTIONS;
+    const fixed = fixedOpenAiSizes(protocol, modelId);
+    if (fixed) {
+        const automatic = fixed === FIXED_OPENAI_SIZES['gpt-image-1'];
+        return [{ value: '', label: automatic ? '自动' : '默认' }, ...Object.keys(fixed).map(value => ({ value, label: value }))];
+    }
     return usesOpenAiImageSize(protocol) ? OPENAI_IMAGE_RESOLUTION_OPTIONS : GOOGLE_IMAGE_RESOLUTION_OPTIONS;
 }
 
-export function getImageAspectOptionsForProtocol(protocol) {
+export function getImageAspectOptionsForProtocol(protocol, modelId) {
+    const fixed = fixedOpenAiSizes(protocol, modelId);
+    if (fixed) return Object.keys(fixed['1K']).map(value => ({ value, label: value }));
     return usesOpenAiImageSize(protocol) ? OPENAI_IMAGE_ASPECT_OPTIONS : IMAGE_ASPECT_OPTIONS;
 }
 
-export function getImageAspectSelectState(protocol, resolution, aspect = '') {
-    const options = getImageAspectOptionsForProtocol(protocol);
+export function getImageAspectSelectState(protocol, resolution, aspect = '', modelId) {
+    const options = getImageAspectOptionsForProtocol(protocol, modelId);
     if (!usesOpenAiImageSize(protocol)) {
         return { options, value: aspect, disabled: false, title: '' };
     }
@@ -93,24 +105,30 @@ export function getImageAspectSelectState(protocol, resolution, aspect = '') {
     };
 }
 
-export function getLegacyOpenAiImageSizeSelection(size) {
+export function getLegacyOpenAiImageSizeSelection(size, protocol = 'openai', modelId) {
     const value = String(size || '').trim().toLowerCase();
     if (!/^\d{2,5}x\d{2,5}$/.test(value)) return null;
-    const preset = LEGACY_PRESET_SIZES.get(value);
-    if (preset) return { ...preset, customWidth: '', customHeight: '' };
-    const [, customWidth, customHeight] = value.match(/^(\d+)x(\d+)$/);
+    const fixed = fixedOpenAiSizes(protocol, modelId);
+    for (const [resolution, ratios] of Object.entries(fixed || OPENAI_PRESET_SIZES)) {
+        const aspect = Object.keys(ratios).find(ratio => ratios[ratio] === value);
+        if (aspect) return { resolution, aspect, customWidth: '', customHeight: '' };
+    }
+    if (fixed) return null;
+    const [customWidth, customHeight] = value.split('x');
     return { resolution: 'custom', aspect: '', customWidth, customHeight };
 }
 
-export function normalizeImageSizeControls({ resolution = '', aspect = '', customWidth = '', customHeight = '' } = {}, protocol = '') {
-    const legacy = usesOpenAiImageSize(protocol) ? getLegacyOpenAiImageSizeSelection(resolution) : null;
-    const options = getImageResolutionOptionsForProtocol(protocol);
+export function normalizeImageSizeControls({ resolution = '', aspect = '', customWidth = '', customHeight = '' } = {}, protocol = '', modelId) {
+    const fixed = fixedOpenAiSizes(protocol, modelId);
+    const storedSize = fixed && resolution === 'custom' ? `${customWidth}x${customHeight}` : resolution;
+    const legacy = usesOpenAiImageSize(protocol) ? getLegacyOpenAiImageSizeSelection(storedSize, protocol, modelId) : null;
+    const options = getImageResolutionOptionsForProtocol(protocol, modelId);
     const rawResolution = legacy?.resolution || String(resolution || '').trim();
     const caseMatched = options.find((option) => option.value && option.value.toLowerCase() === rawResolution.toLowerCase());
     const normalizedResolution = options.some((option) => option.value === rawResolution)
         ? rawResolution
         : (caseMatched?.value || '');
-    const ratioOptions = getImageAspectOptionsForProtocol(protocol);
+    const ratioOptions = getImageAspectOptionsForProtocol(protocol, modelId);
     const rawAspect = legacy?.aspect || String(aspect || '').trim();
     const normalizedAspect = usesOpenAiImageSize(protocol)
         ? (normalizedResolution && normalizedResolution !== 'custom'
@@ -142,10 +160,21 @@ export function validateOpenAiImageSize(widthValue, heightValue) {
     return { valid: errors.length === 0, errors, width, height };
 }
 
-export function resolveImageRequestSize({ protocol = '', resolution = '', aspect = '', customWidth = '', customHeight = '' } = {}) {
+export function resolveImageRequestSize({ protocol = '', modelId, resolution = '', aspect = '', customWidth = '', customHeight = '' } = {}) {
     if (usesOpenAiImageSize(protocol)) {
-        const legacy = getLegacyOpenAiImageSizeSelection(resolution);
-        const selected = legacy || normalizeImageSizeControls({ resolution, aspect, customWidth, customHeight }, protocol);
+        const fixed = fixedOpenAiSizes(protocol, modelId);
+        const storedSize = fixed && resolution === 'custom' ? `${customWidth}x${customHeight}` : resolution;
+        const legacy = getLegacyOpenAiImageSizeSelection(storedSize, protocol, modelId);
+        const selected = legacy || normalizeImageSizeControls({ resolution, aspect, customWidth, customHeight }, protocol, modelId);
+        if (fixed) {
+            const requested = String(resolution || '').trim().toLowerCase();
+            if (requested && requested !== 'auto' && (!selected.resolution || !legacy && aspect && selected.aspect !== aspect)) {
+                throw new Error(`${modelId} 不支持所选分辨率或宽高比，请重新选择。`);
+            }
+            const size = fixed[selected.resolution]?.[selected.aspect] || '';
+            const fallback = fixed === FIXED_OPENAI_SIZES['gpt-image-1'] ? '自动（由模型决定）' : '默认（由模型决定）';
+            return { resolution: size, aspect: '', display: size ? `${size.replace('x', ' × ')} px` : fallback };
+        }
         if (legacy && legacy.resolution !== 'custom') {
             return { resolution: String(resolution).toLowerCase(), aspect: '', display: `${String(resolution).replace('x', ' × ')} px` };
         }

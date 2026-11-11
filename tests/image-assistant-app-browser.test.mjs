@@ -121,7 +121,8 @@ async function generateReferenceSources(app, { samePixels = false, cleanupBefore
 }
 
 test('content-first image card keeps common parameters aligned with the real request and reload', { timeout: 60000 }, async () => {
-    await withAppBrowser(session, async app => {
+    const customSizeSession = { ...session, models: session.models.map(model => model.id === 'image' ? { ...model, modelId: 'gpt-image-2' } : model) };
+    await withAppBrowser(customSizeSession, async app => {
         const { evaluate, waitFor, send } = app;
         await controlImages(app);
         const id = await createImage(app);

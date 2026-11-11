@@ -57,4 +57,9 @@ test('image card retains editable advanced values and primary controls across se
         resolution: '', customAvailable: false, aspectDisabled: false, autoAspectAvailable: true, requested: '默认（未指定）',
         triggerDisabled: false, dropdownOpened: true
     });
+    assert.deepEqual(bound.variants, {
+        hiddenForDefault: true, shownForWebp: true, fidelityOnImage2: false,
+        fixed: { resolutions: ['', '1K'], aspects: ['1:1', '2:3', '3:2'], requested: '1536 × 1024 px',
+            fidelity: true, outputFormat: 'webp', compression: '75' }
+    });
 });

@@ -304,14 +304,19 @@ test('visible reference numbers map to media even when equal images are selected
 });
 
 test('text-only models receive explicit missing-vision metadata without image payloads', async () => {
-    const { result, request } = replyHarness({ intent: 'clarify', message: '当前模型无法看图，请描述要修改的对象。', promptPlan: null }, {
-        model: { ...model, capabilities: { imageInput: false } },
-        referenceImages: [{ name: '照片', dataUrl: 'data:image/png;base64,UNSEEN' }]
-    });
-    assert.equal((await result).intent, 'clarify');
-    assert.doesNotMatch(JSON.stringify(request()), /UNSEEN/);
-    const input = JSON.parse(request().messages.at(-1).content);
-    assert.equal(input.images[0].visionAvailable, false);
+    for (const configuration of [
+        { model: { ...model, capabilities: { imageInput: false } } },
+        { model: { ...model, modelId: 'o3-mini' }, providers: [{ ...provider, endpoint: 'https://api.openai.com/v1' }] }
+    ]) {
+        const { result, request } = replyHarness({ intent: 'clarify', message: '当前模型无法看图，请描述要修改的对象。', promptPlan: null }, {
+            ...configuration,
+            referenceImages: [{ name: '照片', dataUrl: 'data:image/png;base64,UNSEEN' }]
+        });
+        assert.equal((await result).intent, 'clarify');
+        assert.doesNotMatch(JSON.stringify(request()), /UNSEEN/);
+        const input = JSON.parse(request().messages.at(-1).content);
+        assert.equal(input.images[0].visionAvailable, false);
+    }
 });
 
 test('new plans accept only supported parameter changes and preserve null negative prompts', async () => {

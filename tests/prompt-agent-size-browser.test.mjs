@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { withAppBrowser, delay, reloadAppBrowser } from './helpers/app-browser.mjs';
 const providers=[{id:'p',name:'受控供应商',endpoint:'https://controlled.test/v1',apikey:'test-key'}];
 const models=[{id:'chat',name:'对话',modelId:'chat',taskType:'chat',protocol:'openai',providerIds:['p']},
- {id:'image',name:'生图',modelId:'gpt-image-1',taskType:'image',protocol:'openai',providerIds:['p']}];
+ {id:'image',name:'生图',modelId:'gpt-image-2',taskType:'image',protocol:'openai',providerIds:['p']}];
 test('image size options open on a real pointer click and remain selectable inside the parent settings', {timeout:30000}, async()=>{
  await withAppBrowser({autoCheckUpdatesOnLoad:false,models,providers},async({evaluate,send,waitFor})=>{
   const click=async selector=>{

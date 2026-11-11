@@ -1,7 +1,7 @@
 import { batchBaseline, instantiateCanvasPlan, layoutIndependentCanvasNodes } from './prompt-agent-canvas-batches.js';
 import { prepareCanvasPlanRecreation } from './prompt-agent-canvas-recreation.js';
 import { normalizePlanInputs, projectPlanConnections, referenceManifest, assertReferenceInputsPreserved, isReferencePort, assertPromptOnlyReferenceRecipe } from './prompt-agent-reference-inputs.js';
-import { resolveAgentSize, sizeFields } from './prompt-agent-size.js';
+import { replaceAgentSizeFields, resolveAgentSize, sizeFields } from './prompt-agent-size.js';
 import { getEffectiveProtocol } from '../execution/provider-request-utils.js';
 import { resolveThinking } from '../execution/thinking-config.js';
 import { createCanvasContext, canvasBaseline, cloneCanvasValue, canvasPlanExecutionNodeIds } from './prompt-agent-canvas-context.js';
@@ -52,7 +52,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                 for (const [key, value] of Object.entries(sizeFields(plan.agentSizes?.[config.model.id]))) {
                     if (sources[key] === '方案建议' && !Object.hasOwn(step.sizeAnswer || {}, key)) { parameters[key] = value; sources[key] = '面板默认'; }
                 }
-                const size = resolveAgentSize({ protocol: getEffectiveProtocol(config.model, config.provider), current,
+                const size = resolveAgentSize({ protocol: getEffectiveProtocol(config.model, config.provider), modelId: config.model.modelId, current,
                     defaults: plan.agentSizes?.[config.model.id],
                     parameters });
                 return [step.id, {...size, sources: Object.fromEntries(Object.keys(sizeFields(size.effective)).filter(key=>size.effective[key]!=='' ).map(key=>[key,sources[key] || (Object.hasOwn(plan.agentSizes?.[config.model.id]||{},key)?'面板默认':'节点或接口默认')]))}];
@@ -173,7 +173,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                         const prompt = inheritedInput && !String(step.parameters.prompt || '').trim() ? undefined : step.parameters.prompt ?? nodeAdapter.getContext(nodeId)?.prompt;
                         const patch = { targetNodeId: nodeId, prompt, ...(typeof step.negativePrompt === 'string' ? { negativePrompt: step.negativePrompt } : {}),
                             parameters: { ...Object.fromEntries(Object.entries(step.parameters).filter(([key]) => generationFields[key]).map(([key, value]) => [generationFields[key], value])), ...step.generationPatch } };
-                        patch.parameters = { ...patch.parameters, ...sizes[id].patch };
+                        patch.parameters = replaceAgentSizeFields(patch.parameters, sizes[id].patch);
                         nodeAdapter.ensureTarget(patch, { modelId: selected[id].model.id, providerId: selected[id].provider.id });
                         const schema = nodeAdapter.getContext(nodeId)?.parameterSchema;
                         if (schema) for (const field of step.inheritedFields || []) {

@@ -3,6 +3,14 @@
  */
 import { registerProtocol } from './index.js';
 
+function imageSelect(id, label, choices) {
+    return {
+        id, label, exposed: true, inputPort: false, portType: 'text', required: false,
+        omitIfEmpty: true, dataType: 'string', uiControl: 'select', taskTypes: ['image'],
+        options: [{ value: '', label: '默认' }, ...choices.map(([value, name]) => ({ value, label: name }))]
+    };
+}
+
 export const OpenaiProtocol = {
     id: 'openai',
     label: 'OpenAI 兼容',
@@ -243,6 +251,36 @@ export const OpenaiProtocol = {
                     }
 ],
         },
+        output_format: imageSelect('output_format', '输出格式', [
+            ['png', 'PNG'], ['jpeg', 'JPEG'], ['webp', 'WebP']
+        ]),
+        output_compression: {
+            id: 'output_compression',
+            exposed: true,
+            inputPort: false,
+            portType: 'text',
+            required: false,
+            omitIfEmpty: true,
+            dataType: 'number',
+            uiControl: 'number',
+            label: '输出压缩 (%)',
+            min: 0,
+            max: 100,
+            step: 1,
+            taskTypes: ['image']
+        },
+        input_fidelity: imageSelect('input_fidelity', '参考图保真度', [
+            ['low', '低'], ['high', '高']
+        ]),
+        style: imageSelect('style', '风格', [
+            ['vivid', '鲜明'], ['natural', '自然']
+        ]),
+        response_format: imageSelect('response_format', '返回格式', [
+            ['url', '图片链接'], ['b64_json', 'Base64 图片']
+        ]),
+        complexity: imageSelect('complexity', '构图规划', [
+            ['low', '低'], ['medium', '中'], ['high', '高']
+        ]),
         n: {
             id: 'n',
             requestField: 'n',

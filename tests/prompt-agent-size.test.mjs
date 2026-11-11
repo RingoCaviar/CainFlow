@@ -5,7 +5,7 @@ test('model aspect spelling maps to the same ratio parameter as canvas plans', (
  assert.deepEqual(normalizePromptAgentParameters({ aspect: '16:9', resolution: '2K' }), { aspectRatio: '16:9', resolution: '2K' });
 });
 
-import { resolveAgentSize, parseSizeAnswer } from '../js/features/prompt-agent/prompt-agent-size.js';
+import { resolveAgentSize, parseSizeAnswer, sizeCapabilities } from '../js/features/prompt-agent/prompt-agent-size.js';
 import { createPromptAgentConversationStore } from '../js/features/prompt-agent/prompt-agent-conversation-store.js';
 test('automatic asks, a combined change validates the destination, and defaults never overwrite explicit intent', () => {
  assert.throws(() => resolveAgentSize({protocol:'openai',parameters:{aspect:'16:9'}}), error => error.sizeClarification.kind === 'resolution');
@@ -32,7 +32,7 @@ test('size preferences keep follow distinct from automatic and persist by model 
 
 import { createPromptAgentCanvasAdapter } from '../js/features/prompt-agent/prompt-agent-canvas-adapter.js';
 test('multi-step defaults fill missing fields only and validation precedes all resource preparation', async () => {
- const model={id:'image',modelId:'gpt-image-1',protocol:'openai',taskType:'image',providerIds:['p']};
+ const model={id:'image',modelId:'gpt-image-2',protocol:'openai',taskType:'image',providerIds:['p']};
  let reads=0, creates=0;
  const adapter=createPromptAgentCanvasAdapter({state:{models:[model],providers:[{id:'p',endpoint:'https://test.test',apikey:'key'}],nodes:new Map()},
   documentRef:{getElementById:()=>null},nodeAdapter:{getContext:()=>null},getImageAsset:()=>{reads++;},addNode:()=>{creates++;}});
@@ -48,4 +48,24 @@ test('unused explicit dimensions and an unsupported automatic ratio are never si
  assert.throws(()=>resolveAgentSize({protocol:'openai',parameters:{resolution:'2K',aspectRatio:''}}),/具体比例/);
  const sized=resolveAgentSize({protocol:'openai',defaults:{resolution:'custom',customWidth:1024,customHeight:1024},parameters:{resolution:'2K',aspectRatio:'16:9'}});
  assert.equal(sized.patch.customWidth,undefined);assert.equal(sized.effective.aspectRatio,'16:9');
+});
+
+test('Agent size options and plans use the selected OpenAI image model', () => {
+    const protocol = 'openai';
+    const modelId = 'gpt-image-1.5';
+    const options = sizeCapabilities(protocol, modelId);
+    assert.deepEqual(options.resolutions.map(option => option.value), ['', '1K']);
+    assert.deepEqual(options.aspects.map(option => option.value), ['1:1', '2:3', '3:2']);
+    assert.throws(() => resolveAgentSize({ protocol, modelId, parameters: { resolution: '2K' } }), /分辨率/);
+    assert.throws(() => resolveAgentSize({ protocol, modelId, parameters: { aspectRatio: '16:9' } }), /不支持所选比例/);
+
+    const old = resolveAgentSize({ protocol, modelId, parameters: { resolution: '1536x1024', aspectRatio: '' } });
+    assert.deepEqual(old.patch, { resolution: '1K', aspectRatio: '3:2' });
+    assert.match(old.summary, /1536 × 1024/);
+
+    const dimensions = resolveAgentSize({ protocol, modelId, parameters: parseSizeAnswer('1024×1536') });
+    assert.deepEqual(dimensions.patch, { resolution: '1K', aspectRatio: '2:3' });
+    assert.match(dimensions.summary, /1024 × 1536/);
+    assert.deepEqual(parseSizeAnswer('用 512px'), { resolution: '512px' });
+    assert.match(resolveAgentSize({ protocol, modelId: 'dall-e-2', parameters: { resolution: '512x512' } }).summary, /512 × 512/);
 });
