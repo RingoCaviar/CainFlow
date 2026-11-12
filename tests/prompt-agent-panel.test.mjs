@@ -680,6 +680,76 @@ test('confirming an ambiguous creative task resumes the original request after r
     assert.equal(confirmed.messages.at(-1).runs?.length || 0, 0, 'confirming the task only prepares the plan');
 });
 
+const attachedEdit = '把这个杯子上的旧图案和文字都去掉，然后换成小海豹图案，品牌名叫 CAIN';
+const attachedOriginal = { name: '杯子.png', type: 'image/png', dataUrl: 'data:image/png;base64,AAAA' };
+const genericTaskQuestion = { intent: 'clarify', message: '是否开始新任务？', taskUpdate: { mode: 'new' } };
+
+async function submitAttachedEdit(modelReplies) {
+    const requests = [];
+    const replies = [{ intent: 'generate', message: '球场方案', promptPlan: { prompt: '夜间足球场', parameters: {} } }, ...modelReplies];
+    const { controller, elements } = createHarness(request => createPromptAgentModelReply({
+        ...request,
+        model: { ...TEST_CHAT_MODEL, protocol: 'openai', capabilities: { imageInput: true } },
+        providers: [TEST_COMPACTION_PROVIDER], providerId: TEST_COMPACTION_PROVIDER.id,
+        fetchRef: async (_url, options) => {
+            const reply = replies[requests.length];
+            requests.push(JSON.parse(options.body).messages);
+            assert.ok(reply, 'unexpected extra model request');
+            return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(reply) } }] }) };
+        }
+    }), { getSelectedContext: () => null }, null, { readReferenceFile: async () => attachedOriginal });
+    enterText(elements, '生成一张 2K、16:9 的夜间足球场照片');
+    await controller.submit();
+    await elements['prompt-agent-form'].dispatch('drop', { dataTransfer: { files: [attachedOriginal] } });
+    enterText(elements, attachedEdit);
+    await controller.submit();
+    return { requests: requests.slice(1), snapshot: controller.snapshotWorkflow() };
+}
+
+test('a specific attached image edit proceeds when the model asks to start a new task', async () => {
+    const { requests, snapshot } = await submitAttachedEdit([genericTaskQuestion, {
+        intent: 'edit', message: '杯子修改方案', taskUpdate: { mode: 'new' },
+        targetSelection: { mode: 'explicit', imageId: 'image-1', evidence: '这个杯子' },
+        promptPlan: {
+            prompt: '移除原图案和文字，换成小海豹图案和 CAIN 标志', parameters: {},
+            imageRoles: [{ imageId: 'image-1', role: 'edit-target' }]
+        }
+    }]);
+    assert.equal(snapshot.messages.at(-1).text, '杯子修改方案', 'the user sees a plan without being asked to confirm a new task');
+    const inputs = requests.map(messages => messages.at(-1).content);
+    assert.deepEqual(inputs.map(parts => JSON.parse(parts[0].text).userRequest), [attachedEdit, attachedEdit]);
+    assert.deepEqual(inputs.map(parts => parts.slice(1).map(part => part.image_url.url)), [[attachedOriginal.dataUrl], [attachedOriginal.dataUrl]]);
+    assert.deepEqual(inputs.map(parts => JSON.parse(parts[0].text).taskConfirmationRetry), [undefined, true]);
+    assert.deepEqual(inputs.map(parts => JSON.parse(parts[0].text).confirmedNewTask), [undefined, undefined],
+        'retry does not manufacture user confirmation');
+    assert.deepEqual(snapshot.messages.slice(2).map(message => [message.role, message.text]),
+        [['user', attachedEdit], ['agent', '杯子修改方案']]);
+    assert.equal(snapshot.messages.at(-2).referenceImages[0].name, attachedOriginal.name);
+    assert.match(snapshot.messages.at(-1).promptPlan.prompt, /小海豹图案和 CAIN 标志/);
+    assert.equal(snapshot.messages.at(-1).promptPlan.referenceImages[0].role, 'edit-target');
+    assert.deepEqual(snapshot.messages[1].promptPlan.parameters, { resolution: '2K', aspectRatio: '16:9' });
+    assert.deepEqual(snapshot.messages.at(-1).promptPlan.parameters, {}, 'the separate edit does not inherit unrelated task dimensions');
+    assert.equal(snapshot.messages.at(-1).runs?.length || 0, 0);
+});
+
+test('repeated new-task confirmation attempts are bounded for an attached image edit', async () => {
+    const { requests, snapshot } = await submitAttachedEdit([genericTaskQuestion, genericTaskQuestion]);
+    assert.equal(requests.length, 2);
+    const reply = snapshot.messages.at(-1);
+    assert.notEqual(reply.intent, 'confirm-new-creative-task');
+    assert.doesNotMatch(reply.text, /请确认是否开始新的创作任务|是否开始新任务/);
+    assert.equal(reply.promptPlan ?? null, null);
+});
+
+test('an attached image edit can still receive a concrete clarification with choices', async () => {
+    const question = { intent: 'clarify', message: '小海豹需要放在哪个位置？', choices: ['杯身正面', '杯身背面'] };
+    const { requests, snapshot } = await submitAttachedEdit([question]);
+    assert.equal(requests.length, 1);
+    assert.equal(snapshot.messages.at(-1).intent, 'clarify');
+    assert.equal(snapshot.messages.at(-1).text, question.message);
+    assert.deepEqual(snapshot.messages.at(-1).choices, question.choices);
+});
+
 test('refreshes chat models loaded after initialization before submitting', async () => {
     let models = [];
     let request = null;
