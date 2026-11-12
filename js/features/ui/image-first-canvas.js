@@ -10,8 +10,10 @@ import { getSurfaceCoordinator } from './surface-coordinator.js';
 import { renderImageNodeRunState } from '../../nodes/image-node-run-state.js';
 import { getNodeModelConfigurationIssue } from '../execution/model-configuration-readiness.js';
 import { getResolvedProviderForModel } from '../execution/provider-request-utils.js';
+import { createCommerceImageSetView } from '../../nodes/commerce-image-set-view.js';
+import { createImageGenerationBatchView } from './image-generation-batch.js';
 
-const nodeLabels = { ImageGenerate: '图片生成', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比', ImageMerge: '多图合一', ImageSave: '保存节点', CameraControl: '视角控制' };
+const nodeLabels = { ImageGenerate: '图片生成', ECommerceImageSet: '电商套图', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比', ImageMerge: '多图合一', ImageSave: '保存节点', CameraControl: '视角控制' };
 const cameraFields = [['pitch', '俯仰角 Pitch'], ['yaw', '偏航角 Yaw'], ['distance', '距离 Distance'], ['fov', '视野角 FOV'], ['roll', '翻滚角 Roll']];
 // Only ordinary empty states use the node name. Loading, recovery and error
 // messages still belong to the media renderer and must remain visible.
@@ -22,7 +24,7 @@ const emptyPreviewMessages = new Set(['无输入图片', '无输入视频', '运
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
     runCurrentNode, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
-    panelManager = null, openModelSettings = () => {}, focusNode = () => {} }) {
+    panelManager = null, openModelSettings = () => {}, focusNode = () => {}, openResultPreview = () => {} }) {
     const views = new Map();
     const dragClasses = new Set(['selected', 'is-interacting', 'connection-insert-candidate', 'connection-shake-armed']);
     const presentationClasses = value => (value || '').split(/\s+/).filter(name => name && !dragClasses.has(name)).sort().join(' ');
@@ -42,6 +44,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     store.hidden = true;
     store.className = 'image-parameter-store';
     documentRef.body.append(store, panel);
+    const dock = documentRef.getElementById('main-layout') || documentRef.body;
     const header = panel.querySelector('.image-parameter-header');
     const scroll = panel.querySelector('.image-parameter-scroll');
     const targetContext = documentRef.createElement('div');
@@ -78,6 +81,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     let ordinaryAnchor = null;
     let preserveOrdinaryAnchor = false;
     const expandButton = panel.querySelector('[data-parameter-action="expand"]');
+    const closeButton = panel.querySelector('[data-parameter-action="close"]');
     const dragHandle = panel.querySelector('.image-parameter-drag-handle');
     const widthHandle = panel.querySelector('[data-parameter-resize="width"]');
     const heightHandle = panel.querySelector('[data-parameter-resize="height"]');
@@ -131,10 +135,20 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         return { left, right, bottom, width: right - left, height: Math.max(1, bottom - top), top };
     };
     function updateMode() {
-        const canExpand = !['ImageImport', 'ImageSave', 'CameraControl'].includes(current?.type);
+        const docked = current?.type === 'ECommerceImageSet';
+        const canExpand = !docked && !['ImageImport', 'ImageSave', 'CameraControl'].includes(current?.type);
         if (!canExpand) { expanded = false; expandedRect = null; }
         expandButton.hidden = expandButton.disabled = !canExpand;
-        panel.classList.toggle('is-expanded', expanded); panel.dataset.mode = expanded ? 'expanded' : 'normal';
+        panel.classList.toggle('is-expanded', expanded);
+        panel.classList.toggle('is-docked', docked);
+        panel.dataset.mode = docked ? 'docked' : expanded ? 'expanded' : 'normal';
+        const parent = docked ? dock : documentRef.body;
+        if (panel.parentNode !== parent) parent.append(panel);
+        widthHandle.hidden = docked;
+        closeButton.setAttribute('aria-label', docked ? '关闭电商套图参数' : '关闭节点参数浮层');
+        if (docked) {
+            for (const property of ['left', 'top', 'width', 'height', 'min-width', 'max-height']) panel.style.removeProperty(property);
+        }
         expandButton.setAttribute('aria-label', expanded ? '还原节点参数浮层' : '放大节点参数浮层');
         expandButton.setAttribute('aria-pressed', String(expanded));
         expandButton.innerHTML = toolIcon(expanded ? 'restore' : 'expand');
@@ -197,6 +211,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const panelTitle = panel.querySelector('.image-parameter-title');
         setText(panelTitle, name);
         panelTitle.title = name;
+        if (panel.dataset.mode === 'docked') return;
         const title = targetContext.querySelector('strong');
         if (title.textContent !== `当前编辑：${name}`) title.textContent = `当前编辑：${name}`;
         const preview = targetContext.querySelector('img');
@@ -287,9 +302,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     }
     function close({ remember = true } = {}) {
         if (remember) closed = current;
-        finishGesture(true); expanded = false; expandedRect = null; updateMode();
+        finishGesture(true); expanded = false; expandedRect = null;
         park();
         panel.hidden = true;
+        updateMode();
         panel.setAttribute('aria-hidden', 'true'); panel.inert = true;
     }
     function remove(node) {
@@ -349,6 +365,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     function refreshNode(nodeId) {
         const node = state.nodes.get(nodeId), view = views.get(node);
         if (!view) return;
+        view.commerce?.refresh();
         const name = node.el.dataset.nodeTitle || node.customTitle || nodeLabels[node.type];
         for (const placeholder of node.el.querySelectorAll('.preview-placeholder, .save-preview-placeholder, .drop-text')) {
             const text = placeholder.textContent.trim();
@@ -428,10 +445,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (current === node) {
             panel.dataset.importMode = node.type === 'ImageImport'
                 ? (view.urlFields.hidden ? 'upload' : 'url') : '';
-            widthHandle.hidden = node.type === 'ImageImport' && panel.dataset.importMode === 'upload';
+            widthHandle.hidden = node.type === 'ECommerceImageSet' || node.type === 'ImageImport' && panel.dataset.importMode === 'upload';
             const running = state.runningNodeIds?.has(node.id) || ['waiting', 'running'].includes(node.runStatus) || node.el.classList.contains('running');
             const generationCount = node.type === 'ImageGenerate' ? readImageGenerationSettings(node, documentRef).generationCount : 1;
-            generate.hidden = node.type === 'ImageImport' || node.type === 'ImageSave';
+            generate.hidden = ['ImageImport', 'ImageSave', 'ECommerceImageSet'].includes(node.type);
             setText(generate, node.type === 'ImagePreview' ? (running ? '更新中' : '更新预览')
                 : node.type === 'ImageCompare' ? (running ? '更新中' : '更新对比')
                 : node.type === 'ImageMerge' ? (running ? '合并中' : '更新合并')
@@ -440,6 +457,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 : node.type === 'ImageResize' ? (running ? '处理中' : '处理图片')
                     : node.type === 'ColorReset' ? (running ? '调色中' : '应用调色') : (running ? '生成中' : generationCount > 1 ? `生成 ×${generationCount}` : '生成'));
             const issue = node.type === 'ImageGenerate' ? getNodeModelConfigurationIssue({ state, node, documentRef }) : null;
+            view.batch?.refresh({ running, blocked: !!issue || running || node.enabled === false || node.isClone === true });
             if (configuration.parentNode !== footer.parentNode) footer.before(configuration);
             configuration.hidden = !issue;
             setText(configurationMessage, issue?.message || '');
@@ -486,7 +504,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         panel.hidden = false;
         panel.setAttribute('aria-hidden', 'false'); panel.inert = false;
         panel.dataset.nodeId = node.id;
-        panel.setAttribute('aria-label', `${node.el.dataset.nodeTitle || node.customTitle || nodeLabels[node.type]} · 节点参数浮层`);
+        panel.setAttribute('aria-label', `${node.el.dataset.nodeTitle || node.customTitle || nodeLabels[node.type]} · ${node.type === 'ECommerceImageSet' ? '节点参数' : '节点参数浮层'}`);
         if (group) { const view = views.get(node); if (view.group !== group || view.settingsPopup && !view.settingsPopup.matches(':popover-open')) setGroup(node, group); }
         refreshNode(node.id);
         position();
@@ -593,7 +611,12 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         form.addEventListener('change', () => { refreshNode(node.id); onSettingsChanged(node.id); });
         form.addEventListener('toggle', () => { if (current === node) schedulePosition(); }, true);
         form.addEventListener('pointerup', () => { if (current === node) schedulePosition(); });
+        let resizePress = false;
+        node.el.addEventListener('mousedown', event => {
+            resizePress = !!event.target.closest('.node-resize-handle');
+        }, true);
         node.el.addEventListener('click', event => {
+            if (event.target.closest('.node-resize-handle') || (resizePress && event.detail > 0)) return;
             if (event.target.closest('.color-reset-preview.is-picking,.image-compare-divider')) return;
             if (!event.target.closest('button,input,textarea,select,video,.node-port,.node-select')) select(node);
         });
@@ -698,10 +721,35 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections: [controls, inputs.element],
             model, references, inputs, group: 'settings' }, surfaces);
     }
+    function installCommerce(node) {
+        const form = documentRef.createElement('div');
+        form.className = 'node-body image-first-parameter-content';
+        form.dataset.nodeId = node.id;
+        installUniversalInput(node);
+        const inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, onChange: () => refreshNode(node.id) });
+        const commerce = createCommerceImageSetView({
+            node, state, documentRef, openResultPreview,
+            run: (commerceAction, commerceShotId) => runCurrentNode(node.id, { commerceAction, commerceShotId }),
+            onChange: () => onSettingsChanged(node.id)
+        });
+        const references = documentRef.createElement('section');
+        references.className = 'commerce-image-set-references';
+        const referenceTitle = documentRef.createElement('h3');
+        referenceTitle.textContent = '商品参考图';
+        references.append(referenceTitle, inputs.element);
+        form.append(references, commerce.element, commerce.actions);
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections: [], inputs, commerce,
+            footerTools: commerce.actions }, []);
+    }
+    documentRef.addEventListener('cainflow:commerce-image-set-updated', event => {
+        const nodeId = event.detail?.nodeId || event.target?.id;
+        if (nodeId) refreshNode(nodeId);
+    });
     function install(nodeId) {
         sweep();
         const node = state.nodes.get(nodeId);
         if (!isImageFirstCardNode(node) || views.has(node)) return;
+        if (node.type === 'ECommerceImageSet') { installCommerce(node); return; }
         if (node.type === 'ImageImport' || node.type === 'ImagePreview' || node.type === 'ImageCompare' || node.type === 'ImageMerge' || node.type === 'ImageSave' || node.type === 'CameraControl') { installMedia(node); return; }
         if (node.type === 'ImageResize' || node.type === 'ColorReset') { installProcessing(node); return; }
         if (node.type !== 'ImageGenerate') return;
@@ -813,13 +861,18 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         failureDetails.dataset.imageRunAction = 'details'; failureDetails.textContent = '查看详情'; failureDetails.hidden = true;
         failureDetails.addEventListener('click', event => { event.stopPropagation(); failureSummary?.click(); });
         runFeedback.append(failureDetails);
+        const batch = createImageGenerationBatchView({
+            node, documentRef, progress, progressFallback: runState,
+            retryImage: (imageRetryIndex, imageRetryBatchId) => runCurrentNode(node.id, { imageRetryIndex, imageRetryBatchId }),
+            openPreview: openResultPreview
+        });
         const cancel = node.el.querySelector('.node-run-cancel-btn');
         if (cancel) node.el.append(cancel);
         const fullError = body.querySelector(`[id="${nodeId}-error"]`);
         if (fullError) { fullError.tabIndex = 0; fullError.setAttribute('aria-label', '完整运行错误'); form.append(fullError); }
         body.append(placeholder, result);
-        form.append(runFeedback);
-        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, referenceOverview, placeholder, emptyText, result, countField, groupButtons, settingsPopup, settingsEntry, footerTools, group: null }, [result, progress]);
+        form.append(runFeedback, batch.element);
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, referenceOverview, placeholder, emptyText, result, countField, groupButtons, settingsPopup, settingsEntry, footerTools, batch, group: null }, [result, progress]);
     }
     updateMode();
     for (const type of ['input', 'change']) countSlot.addEventListener(type, () => {
@@ -827,11 +880,11 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     });
     surfaces?.registerModeless?.(panel, { close: () => close(), isOpen: () => !panel.hidden, opener: () => returnFocusElement });
     panelManager?.registerAuxiliary?.('parameters', { close: () => close({ remember: false }) });
-    panel.querySelector('[data-parameter-action="close"]').addEventListener('click', () => {
+    closeButton.addEventListener('click', () => {
         if (surfaces?.closeModeless) surfaces.closeModeless(panel); else close();
     });
     expandButton.addEventListener('click', () => {
-        if (['ImageImport', 'ImageSave', 'CameraControl'].includes(current?.type)) return;
+        if (expandButton.disabled) return;
         finishGesture(true); expanded = !expanded; expandedRect = null; updateMode(); position(); surfaces?.bringToFront?.(panel);
     });
     const toolbar = documentRef.getElementById('toolbar');
@@ -861,7 +914,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         panel.addEventListener(type, event => {
             // Freeze only while editing. Execution/result layout must finish
             // settling before it becomes the anchor for the next edit.
-            preserveOrdinaryAnchor = !event.target.closest('[data-parameter-action], [data-parameter-resize]');
+            preserveOrdinaryAnchor = !event.target.closest('[data-parameter-action], [data-parameter-resize], [data-image-batch-retry]');
         }, true);
     }
     function finishGesture(cancelled = false) {

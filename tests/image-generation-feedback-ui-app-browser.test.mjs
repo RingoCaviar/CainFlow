@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { withAppBrowser, reloadAppBrowser, delay } from './helpers/app-browser.mjs';
 
 const configuration = {
@@ -90,8 +92,14 @@ test('successful status never covers the original result operations or the param
         await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
         await app.waitFor("document.getElementById('image-parameter-panel').getBoundingClientRect().top>=document.querySelector('#success .image-result-actions').getBoundingClientRect().bottom");
         await app.waitFor("(()=>{const el=document.querySelector('#success [data-result-action=reference]'),r=el.getBoundingClientRect();return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()");
-        const position = await point(app, '#success [data-result-action=reference]');
-        assert.equal(await app.evaluate(`document.querySelector('#success [data-result-action=reference]').contains(document.elementFromPoint(${position.x},${position.y}))`), true, 'the original result reference action remains reachable alongside the success row: ' + JSON.stringify(await app.evaluate(`({point:${JSON.stringify(position)},hit:document.elementFromPoint(${position.x},${position.y})?.outerHTML.slice(0,400),panel:document.getElementById('image-parameter-panel').getBoundingClientRect().toJSON(),button:document.querySelector('#success [data-result-action=reference]').getBoundingClientRect().toJSON()})`)));
+        const referenceAction = await app.evaluate(`(()=>{
+            const button=document.querySelector('#success [data-result-action=reference]');
+            const rect=button.getBoundingClientRect();
+            const hit=document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2);
+            return {reachable:button.contains(hit),hit:hit?.outerHTML.slice(0,400),
+                panel:document.getElementById('image-parameter-panel').getBoundingClientRect().toJSON(),button:rect.toJSON()};
+        })()`);
+        assert.ok(referenceAction.reachable, JSON.stringify(referenceAction));
         const geometry = await app.evaluate("(()=>{const node=document.getElementById('success'),actions=node.querySelector('.image-result-actions').getBoundingClientRect(),panel=document.getElementById('image-parameter-panel').getBoundingClientRect(),preview=node.querySelector('.image-node-result-preview');return {nodeWidth:node.clientWidth,previewWidth:preview.clientWidth,fit:getComputedStyle(preview.querySelector('img')).objectFit,nodeBottom:node.getBoundingClientRect().bottom,actionsTop:actions.top,actionsBottom:actions.bottom,panelTop:panel.top,font:parseFloat(getComputedStyle(document.getElementById('success-run-status')).fontSize)}})()");
         assert.ok(geometry.actionsTop >= geometry.nodeBottom + 4 && geometry.panelTop >= geometry.actionsBottom, JSON.stringify(geometry));
         assert.ok(geometry.previewWidth >= geometry.nodeWidth - 20, 'generated media uses the card width with a narrow gutter');
@@ -125,6 +133,93 @@ test('a genuinely incomplete batch says partially completed with its real progre
     });
 });
 
+test('the parameter panel tracks individual images and retries just the failed slot without replacing or reordering successful results', { timeout: 45000 }, async () => {
+    const id = 'batch-retry';
+    const originals = await Promise.all(['red', 'green', 'blue'].map(color => readFile(new URL(`./fixtures/reference-${color}.png`, import.meta.url))));
+    const hashes = originals.map(image => createHash('sha256').update(image).digest('hex'));
+    const initScript = `
+        const originalFetch = window.fetch.bind(window);
+        const images = ${JSON.stringify(originals.map(image => image.toString('base64')))};
+        window.imageBatchRequests = [];
+        window.releaseImageBatchRequest = [];
+        window.fetch = async (url, options = {}) => {
+            if (String(url) !== '/proxy' || typeof options.body !== 'string') return originalFetch(url, options);
+            const request = JSON.parse(options.body);
+            if (request.prompt !== ${JSON.stringify(id)}) return originalFetch(url, options);
+            const index = imageBatchRequests.push(request) - 1;
+            return new Promise((resolve, reject) => {
+                const onAbort = () => reject(options.signal.reason);
+                options.signal?.addEventListener('abort', onAbort, { once: true });
+                releaseImageBatchRequest[index] = imageIndex => {
+                    options.signal?.removeEventListener('abort', onAbort);
+                    resolve(imageIndex < 0
+                        ? Response.json({ error: { message: 'fixture failure for image 2' } }, { status: 400 })
+                        : Response.json({ data: [{ b64_json: images[imageIndex] }] }));
+                };
+            });
+        };`;
+    const panel = '#image-parameter-panel';
+    const section = `${panel} .image-generation-batch`;
+    const failedSlot = `${section} [data-image-batch-slot="1"]`;
+    const retry = `${failedSlot} [data-image-batch-retry]`;
+    const preview = `${failedSlot} [data-image-batch-preview]`;
+    const rows = `Array.from(document.querySelectorAll('${section} [data-image-batch-slot]'))`;
+    const statuses = `${rows}.map(row=>row.dataset.status)`;
+    const assetKeys = `fetch('/api/storage/documents/session').then(response=>response.json())
+        .then(document=>document.value?.nodes.find(node=>node.id===${JSON.stringify(id)})?.mediaAssetKeys || [])`;
+    const waitForStates = (app, expected) => app.waitFor(`JSON.stringify(${statuses})===${JSON.stringify(JSON.stringify(expected))}`);
+
+    await withAppBrowser({ ...configuration, concurrentRequestMode: true, nodes: [{ ...generate(id, 40, 80, 320), generationCount: 3 }], connections: [] }, async app => {
+        await open(app, id);
+        await app.evaluate(`document.querySelector('${panel} [data-parameter-action=generate]').click()`);
+        await app.waitFor('releaseImageBatchRequest.length===3');
+        await waitForStates(app, ['running', 'running', 'running']);
+        assert.deepEqual(await app.evaluate(`${rows}.map(row=>row.dataset.imageBatchSlot)`), ['0', '1', '2']);
+
+        await app.evaluate('releaseImageBatchRequest[2](2);releaseImageBatchRequest[1](-1)');
+        await waitForStates(app, ['running', 'failed', 'completed']);
+        assert.equal(await app.evaluate(`(()=>{const preview=document.querySelector('${section} [data-image-batch-slot="2"] [data-image-batch-preview]');return preview.checkVisibility()&&!preview.disabled})()`), true, 'completed images can be previewed while other slots run');
+        assert.equal(await app.evaluate(`document.querySelector('${retry}')?.checkVisibility() === true && document.querySelector('${retry}').disabled`), true);
+        const error = `${failedSlot} details`;
+        await app.evaluate(`document.querySelector('${error} summary').click()`);
+        assert.match(await app.evaluate(`document.querySelector('${error}[open] p')?.innerText`), /fixture failure for image 2/);
+        await app.evaluate(`document.querySelector('${error} summary').click()`);
+
+        await app.evaluate('releaseImageBatchRequest[0](0)');
+        await waitForStates(app, ['completed', 'failed', 'completed']);
+        await app.waitFor(`document.querySelector('${retry}')?.disabled===false&&(${assetKeys}).then(keys=>keys.length===2)`);
+        const successes = await app.evaluate(assetKeys);
+
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 680, deviceScaleFactor: 1, mobile: false });
+        await open(app, id);
+        await app.evaluate(`document.querySelector('${retry}').scrollIntoView({block:'nearest'})`);
+        assert.equal(await app.evaluate(`(()=>{const section=document.querySelector('${section}');return section.scrollWidth<=section.clientWidth+1})()`), true, 'individual status rows fit the narrow panel');
+        await app.waitFor(`document.getElementById('toast-container').getBoundingClientRect().bottom<=document.querySelector('${panel}').getBoundingClientRect().top`, 1000);
+        await press(app, retry);
+        await app.waitFor('releaseImageBatchRequest.length===4');
+        await waitForStates(app, ['completed', 'running', 'completed']);
+        assert.equal(await app.evaluate('imageBatchRequests.length'), 4, 'retrying the middle image sends only one more provider request');
+
+        await app.evaluate('releaseImageBatchRequest[3](1)');
+        await waitForStates(app, ['completed', 'completed', 'completed']);
+        await app.waitFor(`(${assetKeys}).then(keys=>keys.length===3)`);
+        const saved = await app.evaluate(assetKeys);
+        assert.deepEqual([saved[0], saved[2]], successes, 'retry preserves the identities of the two already-saved images');
+        const savedHashes = await app.evaluate(`Promise.all(${JSON.stringify(saved)}.map(async key=>{
+            const response=await fetch('/api/storage/assets/'+encodeURIComponent(key));
+            const hash=await crypto.subtle.digest('SHA-256',await response.arrayBuffer());
+            return Array.from(new Uint8Array(hash),byte=>byte.toString(16).padStart(2,'0')).join('');
+        }))`);
+        assert.deepEqual(savedHashes, hashes, 'all three original files remain in slot order after a partial retry');
+        assert.equal(await app.evaluate('imageBatchRequests.length'), 4);
+        await app.waitFor(`document.querySelector('${preview} img')?.naturalWidth>0`);
+        await app.evaluate(`document.querySelector('${preview}').scrollIntoView({block:'nearest'})`);
+        await press(app, preview);
+        await app.waitFor("document.querySelector('.fullscreen-img-wrapper > img')?.naturalWidth>0");
+        assert.equal(await app.evaluate(`document.querySelector('.fullscreen-img-wrapper > img').src===document.querySelector('${preview} img').src`), true);
+    }, { initScript });
+});
+
 test('waiting has no fabricated progress and the original reachable two-second cancel still protects a held upstream run outside locked parameters', { timeout: 45000 }, async () => {
     await withAppBrowser({ ...configuration, nodes: [generate('upstream', 40, 80), generate('target', 600, 80)], connections: [
         { id: 'reference-edge', from: { nodeId: 'upstream', port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, type: 'image', order: 0 }
@@ -145,6 +240,7 @@ test('waiting has no fabricated progress and the original reachable two-second c
         assert.equal(await app.evaluate(`document.querySelector('#upstream .node-run-cancel-btn').contains(document.elementFromPoint(${cancelPoint.x},${cancelPoint.y}))`), true, 'the selected running node keeps its original cancel reachable above its parameter editor');
         await press(app, '#upstream .node-run-cancel-btn', 2150);
         await app.waitFor("feedbackAborted&&document.getElementById('upstream-run-status')?.dataset.status==='aborted'&&document.getElementById('btn-stop').disabled");
+        await app.waitFor("document.querySelector('#image-parameter-panel .image-generation-batch [data-image-batch-slot=\"0\"][data-status=cancelled]')?.checkVisibility()");
         assert.equal(await app.evaluate("document.querySelector('#upstream .node-run-cancel-btn').checkVisibility()"), false);
         assert.equal(await app.evaluate("['upstream','target'].every(id=>document.getElementById(id))&&[...document.querySelectorAll('#nodes-layer>.node')].filter(node=>!['upstream','target'].includes(node.id)).every(node=>node.classList.contains('node-save'))"), true);
     });

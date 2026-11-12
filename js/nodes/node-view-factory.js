@@ -18,6 +18,7 @@ import { getImageAspectSelectState, normalizeImageSizeControls, resolveImageRequ
 import { getImageParameterValues, renderImageParameterOptions } from './image-parameter-controls.js';
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 import { applyReferenceImagePorts } from './reference-image-ports.js';
+import { renderCommerceImageSetBody } from './commerce-image-set-view.js';
 import { getCustomParamsInputPorts } from './types/custom-params.js';
 import { getProtocol } from '../features/execution/protocols/index.js';
 import { describeVideoProtocolCard } from './video-protocol-card.js';
@@ -1247,6 +1248,7 @@ function renderNodeBody(type, id, restoreData, state) {
     if (type === 'ImageResize') return renderImageResizeBody(id, restoreData);
     if (type === 'ColorReset') return renderColorResetBody(id, restoreData);
     if (type === 'ImageGenerate') return renderImageGenerateBody(id, restoreData, state.models, state.providers);
+    if (type === 'ECommerceImageSet') return renderCommerceImageSetBody();
     if (type === 'VideoGenerate') return renderVideoGenerateBody(id, restoreData, state.models, state.providers);
     if (type === 'CameraControl') return renderCameraControlBody(id, restoreData);
     if (type === 'TextChat') return renderTextChatBody(id, restoreData, state.models, state.providers);

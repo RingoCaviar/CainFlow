@@ -2,7 +2,7 @@
 // control readers and media serializers remain their sole value authorities.
 const knownFields = new Set(`
     id type x y width height userResized collapsed collapsedExpandedHeight collapsedCollapsedExpandedHeight enabled lastDuration
-    isClone cloneSourceId customTitle defaultTitle data thinking textareaHeights chatLayoutVersion
+    isClone cloneSourceId customTitle defaultTitle data thinking textareaHeights chatLayoutVersion commerceImageSet
     prompt sysprompt negativePrompt apiConfigId providerId aspect aspectRatio resolution customWidth customHeight customResolution
     quality moderation background search fixed generationCount generationCompletedCount referenceImageCount referenceImageInputCount
     advancedExpanded protocolParams protocolVariantDrafts protocolVariantKey generationRevision generationDirty generationAttemptIncomplete

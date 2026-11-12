@@ -8,7 +8,7 @@ import { resolveDeclarativeProtocolVariant } from '../features/execution/protoco
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 
 // Each node type opts in when its card and input details use this contract.
-const UNIVERSAL_INPUT_NODE_TYPES = new Set(['ImageGenerate', 'ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge', 'ImageSave', 'CameraControl']);
+const UNIVERSAL_INPUT_NODE_TYPES = new Set(['ImageGenerate', 'ECommerceImageSet', 'ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge', 'ImageSave', 'CameraControl']);
 
 function mergeRoleCount(node, connections = []) {
     const indices = connections.filter(edge => edge.to?.nodeId === node.id && /^image_\d+$/.test(edge.to.port))
@@ -18,6 +18,7 @@ function mergeRoleCount(node, connections = []) {
 }
 
 export function getUniversalInputRoles(node, state = null) {
+    if (node?.type === 'ECommerceImageSet') return [['referenceImages', '商品参考图', 'image']];
     if (node?.type === 'ImageSave') return [['image', '图片输入', 'image'], ['video', '视频输入', 'video']];
     if (node?.type === 'ImageMerge') return Array.from({ length: mergeRoleCount(node, state?.connections) }, (_, index) => [`image_${index + 1}`, `图片 ${index + 1}`, 'image']);
     if (node?.type === 'ImageCompare') return [['imageA', '对比 A（可选）', 'image'], ['imageB', '结果 B（必需）', 'image']];
@@ -125,7 +126,8 @@ export function resolveUniversalInput({ state, sourceNode, sourcePort, sourceTyp
             const indices = connections.filter(edge => edge.to?.nodeId === targetNode.id && /^image_\d+$/.test(edge.to.port))
                 .map(edge => Number(edge.to.port.slice(6))).filter(index => Number.isSafeInteger(index) && index > 0);
             port = type === 'image' ? `image_${Math.max(0, ...indices) + 1}` : null;
-        } else port = (targetNode.type !== 'ImageGenerate' ? { image: 'image' }
+        } else if (targetNode.type === 'ECommerceImageSet') port = type === 'image' ? 'referenceImages' : null;
+        else port = (targetNode.type !== 'ImageGenerate' ? { image: 'image' }
             : { image: 'referenceImages', text: sourceNode.type === 'CameraControl' ? 'camera_prompt' : 'prompt', params: 'params' })[type];
     }
     if (!getUniversalInputRoles(targetNode, state).some(([name, , acceptedType]) => name === port && acceptedType === type)) return failure('来源类型不兼容所选输入用途。');
@@ -144,7 +146,7 @@ export function resolveUniversalInput({ state, sourceNode, sourcePort, sourceTyp
     if (createsCycle(connections, sourceNode.id, targetNode.id)) return failure('此连接会形成循环，请选择其他来源。');
     if (targetNode.type !== 'ImageGenerate') {
         if (targetNode.type === 'ImageResize' && hasRemoteImageOutput(sourceNode)) return failure('URL 图片不支持连接到图片缩放节点。');
-        return { port, type, multiple: false, error: '' };
+        return { port, type, multiple: targetNode.type === 'ECommerceImageSet', error: '' };
     }
     const contract = generationContract(state, targetNode), unsupported = roleError(contract, port);
     if (unsupported) return failure(unsupported);
@@ -200,7 +202,7 @@ export function planMoveMergeInput({ state, connectionId, direction }) {
 }
 
 export function validateUniversalImageInputs({ state, node, inputs }) {
-    if (!['ImageGenerate', 'ImageMerge'].includes(node?.type)) return '';
+    if (!['ImageGenerate', 'ImageMerge', 'ECommerceImageSet'].includes(node?.type)) return '';
     const incoming = (state.connections || []).filter(edge => edge.to?.nodeId === node.id
         && state.nodes.get(edge.from?.nodeId)?.enabled !== false);
     if (node.type === 'ImageMerge') {
@@ -224,7 +226,7 @@ export function validateUniversalImageInputs({ state, node, inputs }) {
     for (const edge of checked) {
         const unsupported = roleError(contract, logicalPort(edge.to.port));
         if (unsupported) return unsupported;
-        if (contract.protocolId === 'google' && edge.type === 'image' && hasRemoteImageOutput(state.nodes.get(edge.from.nodeId))) return 'URL 图片仅支持兼容参考图，当前模型不支持。';
+        if (node.type === 'ImageGenerate' && contract.protocolId === 'google' && edge.type === 'image' && hasRemoteImageOutput(state.nodes.get(edge.from.nodeId))) return 'URL 图片仅支持兼容参考图，当前模型不支持。';
     }
     if (inputReferenceCount && !references.length) {
         const unsupported = roleError(contract, 'referenceImages');

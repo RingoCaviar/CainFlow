@@ -691,7 +691,7 @@ export function createAsyncMediaExecutionApi({
         throw new Error('图片异步生成轮询超时，请稍后使用任务 ID 恢复进度');
     }
 
-    async function finalizeAsyncImageGeneration(node, finalResult, signal) {
+    async function finalizeAsyncImageGeneration(node, finalResult, signal, { collectOnly = false } = {}) {
         const imageData = finalResult.imageData || await (async () => {
             const imageBlob = await downloadGeneratedImage(finalResult.imageUrl, signal);
             return blobToDataUrl(imageBlob);
@@ -703,6 +703,7 @@ export function createAsyncMediaExecutionApi({
                 recoverySource: finalResult.recoverySource || 'backend'
             });
         }
+        if (collectOnly) signal?.throwIfAborted();
         await saveImageGenerationHistoryEntry({
             nodeId: node.id,
             image: imageData,
@@ -710,6 +711,7 @@ export function createAsyncMediaExecutionApi({
             model: finalResult.modelName || '',
             generationDurationSeconds: getNodeGenerationDurationSeconds(node)
         });
+        if (collectOnly) return imageData;
         commitImageGenerateOutputs(node, [imageData], finalResult.prompt || node.data?.prompt || '');
         commitAsyncImageTaskState(node, {
             imageTaskId: finalResult.imageTaskId,
@@ -736,19 +738,21 @@ export function createAsyncMediaExecutionApi({
         aspect,
         resolution,
         generationCount,
-        concurrentRequestStatus = null
+        concurrentRequestStatus = null,
+        collectOnly = false
     }) {
         const id = node.id;
         const responseArea = documentRef.getElementById(`${id}-image-async-response`);
         const results = [];
-        renderNodeApiGenerationProgress(node, { current: 0, total: generationCount });
-        updateAsyncImageGenerationStatus(id, '创建中：正在提交图片异步任务...', 'progress');
-        if (responseArea) {
-            responseArea.innerHTML = '<div class="chat-response-placeholder">正在提交图片异步任务...</div>';
+        if (!collectOnly) {
+            renderNodeApiGenerationProgress(node, { current: 0, total: generationCount });
+            updateAsyncImageGenerationStatus(id, '创建中：正在提交图片异步任务...', 'progress');
+            if (responseArea) responseArea.innerHTML = '<div class="chat-response-placeholder">正在提交图片异步任务...</div>';
         }
 
         for (let index = 0; index < generationCount; index += 1) {
             try {
+                concurrentRequestStatus?.markRequestStatus?.(index, 'running');
                 const url = resolveProviderUrl(apiCfg, modelCfg, 'image', { action: 'create', inputs });
                 const requestBody = buildNewApiAsyncImageRequest({
                     modelCfg,
@@ -835,7 +839,8 @@ export function createAsyncMediaExecutionApi({
                         recovered: true,
                         recoverySource: createResultPayload.recoveredImage.source || 'backend',
                         modelName: modelCfg.name
-                    }, signal);
+                    }, signal, { collectOnly });
+                    if (collectOnly) return { image: imageData, images: [imageData], prompt };
                     results.push({
                         imageTaskId: createResultPayload.recoveredImage.id || `recovered:${Date.now()}`,
                         imageUrl: '',
@@ -846,26 +851,26 @@ export function createAsyncMediaExecutionApi({
                         current: results.length,
                         total: generationCount
                     });
-                    concurrentRequestStatus?.markRequestStatus?.(index, 'success');
+                    concurrentRequestStatus?.markRequestStatus?.(index, 'success', null, imageData);
                     continue;
                 }
                 const { createResult, imageTaskId, responseStatus } = createResultPayload;
 
-                const createStatus = extractAsyncImageStatus(createResult) || 'submitted';
-                const createProgress = createResult?.progress ?? createResult?.data?.progress ?? '';
-                commitAsyncImageTaskState(node, {
-                    imageTaskId,
-                    imageTaskStatus: createStatus,
-                    imageTaskStatusText: `创建中：任务 ${imageTaskId} 已创建，等待轮询`,
-                    imageTaskUrl: '',
-                    prompt,
-                    createHttpStatus: responseStatus,
-                    createStatus,
-                    progress: createProgress
-                });
+                if (!collectOnly) {
+                    const createStatus = extractAsyncImageStatus(createResult) || 'submitted';
+                    const createProgress = createResult?.progress ?? createResult?.data?.progress ?? '';
+                    commitAsyncImageTaskState(node, {
+                        imageTaskId,
+                        imageTaskStatus: createStatus,
+                        imageTaskStatusText: `创建中：任务 ${imageTaskId} 已创建，等待轮询`,
+                        imageTaskUrl: '',
+                        prompt,
+                        createHttpStatus: responseStatus,
+                        createStatus,
+                        progress: createProgress
+                    });
 
-                if (responseArea) {
-                    responseArea.innerHTML = `
+                    if (responseArea) responseArea.innerHTML = `
                         <div><strong>图片异步创建响应</strong></div>
                         <div>HTTP 状态：${escapeHtml(String(responseStatus))}</div>
                         <div>任务 ID：${escapeHtml(imageTaskId)}</div>
@@ -873,15 +878,15 @@ export function createAsyncMediaExecutionApi({
                         ${createProgress !== '' ? `<div>进度：${escapeHtml(String(createProgress))}</div>` : ''}
                         <div style="margin-top:6px;color:var(--text-dim);">创建完成后将继续自动轮询图片状态。</div>
                     `;
+                    scheduleSave();
+                    updateAsyncImageGenerationStatus(
+                        id,
+                        generationCount > 1
+                            ? `轮询中：第 ${index + 1}/${generationCount} 个任务已创建，正在检查状态`
+                            : `轮询中：任务 ${imageTaskId} 已创建，正在检查状态`,
+                        'progress'
+                    );
                 }
-                scheduleSave();
-                updateAsyncImageGenerationStatus(
-                    id,
-                    generationCount > 1
-                        ? `轮询中：第 ${index + 1}/${generationCount} 个任务已创建，正在检查状态`
-                        : `轮询中：任务 ${imageTaskId} 已创建，正在检查状态`,
-                    'progress'
-                );
 
                 const finalResult = await pollAsyncImageGeneration({
                     node,
@@ -894,7 +899,8 @@ export function createAsyncMediaExecutionApi({
                 const imageData = await finalizeAsyncImageGeneration(node, {
                     ...finalResult,
                     modelName: modelCfg.name
-                }, signal);
+                }, signal, { collectOnly });
+                if (collectOnly) return { image: imageData, images: [imageData], prompt };
                 results.push({
                     imageData,
                     imageUrl: finalResult.imageUrl,
@@ -902,9 +908,9 @@ export function createAsyncMediaExecutionApi({
                     status: finalResult.status
                 });
                 incrementNodeApiGenerationProgress(node, 1, { current: index + 1, total: generationCount });
-                concurrentRequestStatus?.markRequestStatus?.(index, 'success');
+                concurrentRequestStatus?.markRequestStatus?.(index, 'success', null, imageData);
             } catch (error) {
-                concurrentRequestStatus?.markRequestStatus?.(index, 'failed', error);
+                if (!collectOnly) concurrentRequestStatus?.markRequestStatus?.(index, signal?.aborted ? 'canceled' : 'failed', error);
                 throw error;
             }
         }

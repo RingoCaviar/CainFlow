@@ -1,6 +1,6 @@
 import { isImageFirstCardNode } from './image-first-presentation.js';
 
-const surfaces = '.image-node-result-preview, .file-drop-zone, .preview-container, .save-preview-container, .image-compare-container, .camera-control-node-preview';
+const surfaces = '.image-node-result-preview, .file-drop-zone, .preview-container, .save-preview-container, .image-compare-container, .camera-control-node-preview, .commerce-image-set-card';
 const mediaSelector = surfaces.split(', ').map(surface => `${surface} img, ${surface} video`).join(', ');
 const mediaEvents = ['load', 'error', 'loadedmetadata', 'resize'];
 const activeSurfaces = new WeakMap();

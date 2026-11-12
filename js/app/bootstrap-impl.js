@@ -716,16 +716,22 @@ document.addEventListener('change', observeNodeInputRevision);
 registry.imageFirstCanvasApi = createImageFirstCanvas({
     state, selectionApi, documentRef: document, windowRef: window, storage: diskStorage,
     panelManager,
+    openResultPreview: (images, index, onClose) => openFullscreenPreview(images[index], null, { images, index, onClose }),
     openAgent: () => promptAgentController.open(),
     openModelSettings: target => settingsControllerApi.openModelSettings(target),
     focusNode: nodeId => focusCanvasNode(nodeId, { avoidAgentPanel: true }),
-    runCurrentNode: nodeId => runWorkflow({ mode: 'selected-only', selectedNodeIds: [nodeId] }),
+    runCurrentNode: (nodeId, { commerceAction, commerceShotId, imageRetryIndex, imageRetryBatchId } = {}) => runWorkflow({
+        mode: 'selected-only', selectedNodeIds: [nodeId],
+        ...(commerceAction ? { commerceNodeId: nodeId, commerceAction, commerceShotId } : {}),
+        ...(Number.isInteger(imageRetryIndex) ? { imageRetryNodeId: nodeId, imageRetryIndex, imageRetryBatchId } : {})
+    }, { waitForCompletion: Boolean(commerceAction) || Number.isInteger(imageRetryIndex) }),
     fitNode: (id, options) => fitNodeToContent(id, options),
     bindPorts: container => nodeDomBindingsApi.bindNodePorts(container),
     updateInputConnection: (id, change) => connectionsApi.updateInputConnection(id, change),
     swapInputConnections: id => connectionsApi.swapInputConnections(id),
     moveMergeInputConnection: (id, direction) => connectionsApi.moveMergeInputConnection(id, direction),
     onSettingsChanged: id => {
+        if (state.nodes.get(id)?.type === 'ECommerceImageSet') scheduleSave();
         nodeDomBindingsApi.syncDependentPromptSources(id);
         registry.imageGenerationRevisionApi.onSettingsChanged(id);
         registry.imageGenerationRevisionApi.observeAll();

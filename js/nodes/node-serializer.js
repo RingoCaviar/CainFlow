@@ -13,6 +13,7 @@ import { hasNodeCapability, NODE_CAPABILITIES } from './registry.js';
 import { readImageGenerationSettings } from './image-generation-settings.js';
 import { readImageResizeSettings } from './image-resize-settings.js';
 import { applyNodePersistenceExtensions } from './node-persistence-extensions.js';
+import { normalizeCommerceImageSetState } from '../features/ecommerce-image-set/commerce-image-set-plan.js';
 import { readGenerationRevision } from './image-generation-revision.js';
 
 export function createNodeSerializer({ state, documentRef }) {
@@ -99,6 +100,9 @@ export function createNodeSerializer({ state, documentRef }) {
             const textareaHeights = getNodeTextareaHeights(id);
             if (textareaHeights) serialized.textareaHeights = textareaHeights;
             if (node.type === 'TextChat') serialized.chatLayoutVersion = 3;
+            if (node.type === 'ECommerceImageSet') {
+                serialized.commerceImageSet = normalizeCommerceImageSetState(node.data?.commerceImageSet);
+            }
 
             const usesCanonicalImages = hasNodeCapability(node.type, NODE_CAPABILITIES.CANONICAL_IMAGES);
             const images = getCanonicalImageList(node, { includeResizePreview: false });

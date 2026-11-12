@@ -1,4 +1,4 @@
-const imageFirstCardTypes = new Set(['ImageGenerate', 'ImageImport', 'ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge', 'ImageSave', 'CameraControl']);
+const imageFirstCardTypes = new Set(['ImageGenerate', 'ECommerceImageSet', 'ImageImport', 'ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge', 'ImageSave', 'CameraControl']);
 const restoredSizes = new WeakMap();
 
 /** Types whose image card owns geometry independently of its parameter editor. */

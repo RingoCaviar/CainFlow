@@ -269,6 +269,14 @@ body.toolbar-pinned {
     pointer-events: none;
 }
 
+@media (max-width: 520px) {
+    body:has(#image-parameter-panel:not([hidden]) .image-generation-batch:not([hidden])) #toast-container {
+        top: var(--floating-notices-top-offset);
+        bottom: auto;
+        flex-direction: column;
+    }
+}
+
 /* Keep transient overlays clear of active feature chrome before they can obscure controls. */
 body:has(#prompt-agent-panel.active) {
     --toast-right-offset: calc(var(--prompt-agent-width, 720px) + 24px);
@@ -357,4 +365,57 @@ body.is-interacting .connection-path,
 html.animations-disabled #toolbar,
 html.animations-disabled .btn {
     transition: none !important;
+}
+/* The commerce inspector occupies a column in the workbench beside the canvas. */
+body:has(#main-layout > .image-parameter-panel.is-docked:not([hidden])) {
+    --commerce-dock-width: clamp(300px, 34vw, 380px);
+    --commerce-dock-visible-width: min(var(--commerce-dock-width), calc(100vw - 72px));
+    --toast-right-offset: calc(var(--commerce-dock-visible-width) + 16px);
+}
+
+body:has(#main-layout > .image-parameter-panel.is-docked:not([hidden])) #toast-container {
+    max-width: max(0px, calc(100% - var(--toast-right-offset) - 16px));
+}
+
+#main-layout > .image-parameter-panel.is-docked {
+    position: relative;
+    z-index: auto;
+    flex: 0 0 var(--commerce-dock-visible-width);
+    width: var(--commerce-dock-visible-width);
+    min-width: 0;
+    max-width: none;
+    max-height: none;
+    border-inline-start: 1px solid var(--border-color);
+    border-radius: 0;
+    box-shadow: none;
+}
+
+#main-layout > .image-parameter-panel.is-docked .image-parameter-header {
+    display: flex;
+    min-height: 44px;
+    padding: 5px 12px 5px 16px;
+}
+
+#main-layout > .image-parameter-panel.is-docked .image-parameter-scroll {
+    flex: 1 1 auto;
+    padding: 12px 16px 16px;
+    overscroll-behavior: contain;
+}
+
+#main-layout > .image-parameter-panel.is-docked .image-parameter-context { display: none; }
+
+body:is(.toolbar-pinned, .toolbar-peek-active) #main-layout > .image-parameter-panel.is-docked,
+body:has(#toolbar:hover, #toolbar :focus-visible, #toolbar .btn.active:not(#btn-prompt-agent), #toolbar [aria-expanded="true"]:not(#btn-prompt-agent)) #main-layout > .image-parameter-panel.is-docked {
+    padding-block-start: var(--toolbar-height, 48px);
+}
+
+@media (min-width: 801px) {
+    #main-layout:has(> .image-parameter-panel.is-docked:not([hidden])) .prompt-agent-panel.active {
+        right: calc(var(--commerce-dock-width) + 12px);
+        max-width: min(45vw, calc(100% - var(--commerce-dock-width) - 136px));
+    }
+
+    #main-layout:has(> .image-parameter-panel.is-docked:not([hidden])) #canvas-container {
+        margin-right: 0;
+    }
 }

@@ -5,6 +5,7 @@ import { NODE_DEFAULT_TYPES } from '../core/state.js';
 import { cleanupElementResources } from '../core/common-utils.js';
 import { createSelectionApi } from '../canvas/selection.js';
 import { appendMappedConnectionSnapshots } from '../canvas/connection-copy-utils.js';
+import { normalizeCommerceImageSetState } from '../features/ecommerce-image-set/commerce-image-set-plan.js';
 import {
     normalizeConcurrentRequestStatusPayload,
     renderConcurrentRequestStatusPanel
@@ -1331,6 +1332,9 @@ export function createNodeLifecycleApi({
         }
         if (effectiveRestoreData?.protocolParams) {
             nodeData.data.protocolParams = clonePlainValue(effectiveRestoreData.protocolParams);
+        }
+        if (normalizedType === 'ECommerceImageSet') {
+            nodeData.data.commerceImageSet = normalizeCommerceImageSetState(effectiveRestoreData?.commerceImageSet);
         }
         if (normalizedType === 'ImageGenerate') {
             const revision = readGenerationRevision(effectiveRestoreData?.generationRevision);

@@ -1,7 +1,7 @@
 export const DEFAULT_REFERENCE_IMAGE_COUNT = 5;
 export const MIN_REFERENCE_IMAGE_COUNT = 0;
 export const MAX_REFERENCE_IMAGE_COUNT = 64;
-export const REFERENCE_IMAGE_NODE_TYPES = new Set(['ImageGenerate', 'VideoGenerate', 'TextChat']);
+export const REFERENCE_IMAGE_NODE_TYPES = new Set(['ImageGenerate', 'VideoGenerate', 'TextChat', 'ECommerceImageSet']);
 export const REFERENCE_IMAGES_PORT = 'referenceImages';
 
 export function normalizeReferenceImageCount(value, fallback = DEFAULT_REFERENCE_IMAGE_COUNT) {

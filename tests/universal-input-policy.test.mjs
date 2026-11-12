@@ -71,6 +71,22 @@ test('universal generation input resolves the actual source output to a durable 
     assert.match(resolveUniversalInput({ ...context, sourceNode, sourcePort: 'image', sourceType: 'text' }).error, /类型/);
 });
 
+test('the commerce image set accepts multiple product image sources on its reference port', () => {
+    const targetNode = { id: 'commerce', type: 'ECommerceImageSet' };
+    const first = { id: 'product', type: 'ImageImport' };
+    const second = { id: 'angle', type: 'ImageImport' };
+    const text = { id: 'notes', type: 'Text' };
+    const state = { nodes: new Map([targetNode, first, second, text].map(node => [node.id, node])), connections: [] };
+    const connect = (sourceNode, sourcePort = 'image') => resolveUniversalInput({ state, targetNode, sourceNode, sourcePort });
+    const reference = { port: 'referenceImages', type: 'image', multiple: true, error: '' };
+    assert.deepEqual(connect(first), reference);
+    state.connections.push({ id: 'product-edge', from: { nodeId: first.id, port: 'image' },
+        to: { nodeId: targetNode.id, port: reference.port }, type: 'image' });
+    assert.deepEqual(connect(second), reference);
+    assert.match(connect(first).error, /重复/);
+    assert.match(connect(text, 'text').error, /不兼容/);
+});
+
 test('universal input rejects occupied roles, duplicates, cycles and running endpoints without changing the graph', () => {
     const context = setup(), sourceNode = { id: 'source', type: 'Text', data: {} };
     context.state.nodes.set(sourceNode.id, sourceNode);
