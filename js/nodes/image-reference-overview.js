@@ -1,6 +1,8 @@
 import { normalizeImageList } from '../features/execution/execution-data-utils.js';
 import { getImageOutputAssets } from './image-output-projection.js';
 import { projectImageReferences } from './image-reference-projection.js';
+import { isMultiConnectionInput, REFERENCE_IMAGES_PORT, REFERENCE_IMAGE_NODE_TYPES } from './reference-image-ports.js';
+import { getGenerationNodeInputConnectionPolicy } from './generation-input-projection.js';
 import { getImageDescription } from '../features/execution/reference-image-description.js';
 
 
@@ -28,8 +30,10 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
 
     function render(nodeId) {
         const target = state.nodes.get(nodeId);
-        const container = documentRef.getElementById(`${nodeId}-reference-sources`);
-        if (target?.type !== 'ImageGenerate' || !container) return;
+        if (!REFERENCE_IMAGE_NODE_TYPES.has(target?.type)) return;
+        const container = target.parameterRoot?.querySelector('.image-reference-sources')
+            || target.el?.querySelector('.image-reference-sources');
+        if (!container) return;
         let view = views.get(container);
         if (!view) {
             view = { groups: [], revision: 0 };
@@ -40,8 +44,11 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
                 views.delete(container);
             });
         }
-        const disabled = state.runningNodeIds?.has(nodeId) === true || target.runStatus === 'waiting';
-        const projection = projectImageReferences({ state, targetId: nodeId, getOutput: getCachedOutputValue });
+        const disabled = state.runningNodeIds?.has(nodeId) === true || ['waiting', 'running'].includes(target.runStatus)
+            || target.el?.classList.contains('running') === true;
+        const supported = getGenerationNodeInputConnectionPolicy(target, REFERENCE_IMAGES_PORT)?.supported !== false;
+        const connections = state.connections.filter(edge => edge.to.nodeId === nodeId && isMultiConnectionInput(target.type, edge.to.port));
+        const projection = projectImageReferences({ state, targetId: nodeId, connections, getOutput: getCachedOutputValue });
         const groups = projection.groups.map(group => {
             const downstreamIds = [...new Set(state.connections.filter(edge => edge.from.nodeId === group.source?.id).map(edge => edge.to.nodeId))];
             return { ...group, downstreamIds,
@@ -49,7 +56,10 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
                 downstreamRunning: downstreamIds.some(id => state.runningNodeIds?.has(id) || ['waiting', 'running'].includes(state.nodes.get(id)?.runStatus))
             };
         });
-        if (view.disabled === disabled && view.groups.length === groups.length && groups.every((group, index) => {
+        const overview = container.closest('.image-reference-overview');
+        const hidden = groups.length === 0 && target.type !== 'ECommerceImageSet';
+        if (overview && overview.hidden !== hidden) overview.hidden = hidden;
+        if (view.disabled === disabled && view.supported === supported && view.groups.length === groups.length && groups.every((group, index) => {
             const old = view.groups[index];
             return old.connection.id === group.connection.id && old.source === group.source && old.name === group.name
                 && old.count === group.count && old.missing === group.missing && old.enabled === group.enabled
@@ -61,13 +71,18 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
         })) return;
         view.stopThumbnails?.();
         view.drag = null;
-        view.groups = groups; view.disabled = disabled; view.revision += 1;
+        view.groups = groups; view.disabled = disabled; view.supported = supported; view.revision += 1;
         const revision = view.revision;
         const previousGallery = container.querySelector('.image-reference-grid');
         const scrollTop = previousGallery?.scrollTop || 0;
         const scrollLeft = previousGallery?.scrollLeft || 0;
         container.replaceChildren();
         if (!groups.length) { container.textContent = '连接参考图来源后，在此核对图片与输入顺序。'; onLayout(nodeId); return; }
+        if (!supported) {
+            const notice = documentRef.createElement('div');
+            notice.textContent = '当前视频模型不支持参考图。';
+            container.append(notice);
+        }
         const gallery = documentRef.createElement('div'); gallery.className = 'image-reference-grid';
         gallery.setAttribute('role', 'group'); gallery.setAttribute('aria-label', '参考图，拖动缩略图调整来源顺序，图片较多时可滚动');
         gallery.tabIndex = 0;
@@ -113,9 +128,11 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
                 if (!operation()) { showToast('当前不能修改来源连接，请检查运行状态。', 'warning'); return; }
                 render(nodeId);
                 const row = [...container.querySelectorAll('.image-reference-group')].find(item => item.dataset.referenceConnection === connectionId);
+                const editor = target.parameterRoot || target.el;
                 const control = row?.querySelector(focusSelector) || row?.querySelector('.image-reference-disconnect:not(:disabled)')
                     || container.querySelector('.image-reference-thumbnail:not(:disabled), .image-reference-disconnect:not(:disabled)')
-                    || target.parameterRoot?.querySelector('textarea') || target.el.querySelector('textarea');
+                    || [...editor.querySelectorAll('textarea, summary, .node-select-trigger, select:not(.node-select-native)')]
+                        .find(field => !field.disabled && field.checkVisibility());
                 const grid = control?.closest('.image-reference-grid');
                 if (grid) {
                     const bounds = grid.getBoundingClientRect(), rect = control.getBoundingClientRect();
@@ -184,8 +201,8 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
             let sourceImages;
             for (let index = 0; index < Math.max(1, group.count); index += 1) {
                 const empty = group.count === 0;
-                const number = slots.get(`${group.connection.id}:${index}`)?.number;
-                const label = `${number ? `参考图 ${number}` : group.running ? '来源运行中' : empty ? '等待来源输出' : '已停用来源'}，来自${group.name}${empty ? '' : `，源批次第 ${index + 1} 张`}`;
+                const number = supported ? slots.get(`${group.connection.id}:${index}`)?.number : undefined;
+                const label = `${number ? `参考图 ${number}` : !supported ? '当前模型不使用此参考图' : group.running ? '来源运行中' : empty ? '等待来源输出' : '已停用来源'}，来自${group.name}${empty ? '' : `，源批次第 ${index + 1} 张`}`;
                 const asset = group.assets[index], original = group.images[index];
                 const missing = group.missingPositions.includes(index);
                 const tile = documentRef.createElement('div'); tile.className = 'image-reference-item image-reference-drag';
@@ -201,6 +218,7 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
                             : await readSourceImages(group.source.id);
                         if (!durable && images.length !== group.count) throw new Error('原图批次不完整，请定位来源恢复。');
                         if (getWorkflowId() !== workflowId || state.nodes.get(nodeId) !== target || state.nodes.get(group.source.id) !== group.source
+                            || !state.connections.includes(group.connection) || documentRef.querySelector('.fullscreen-overlay')
                             || state.runningNodeIds?.has(group.source.id) || group.source.runStatus === 'waiting') return;
                         const currentAsset = assetsOf(group.source)[index];
                         const currentImage = normalizeImageList(getCachedOutputValue(group.source, group.connection.from.port))[index];
@@ -259,8 +277,8 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
     }
 
     function refreshSource(sourceNodeId) {
-        const targets = new Set(state.connections.filter(c => c.from.nodeId === sourceNodeId && (c.to.port === 'referenceImages' || /^image_\d+$/.test(c.to.port))).map(c => c.to.nodeId));
-        if (state.nodes.get(sourceNodeId)?.type === 'ImageGenerate') targets.add(sourceNodeId);
+        const targets = new Set(state.connections.filter(c => c.from.nodeId === sourceNodeId && c.to.port === REFERENCE_IMAGES_PORT).map(c => c.to.nodeId));
+        if (REFERENCE_IMAGE_NODE_TYPES.has(state.nodes.get(sourceNodeId)?.type)) targets.add(sourceNodeId);
         targets.forEach(render);
     }
     return { render, refreshSource };

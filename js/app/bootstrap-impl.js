@@ -2,6 +2,7 @@ import { confirmAction } from '../features/ui/app-dialogs.js';
 import { createRetiredSaveNodeCleanup } from '../features/persistence/retired-save-nodes.js';
 import { createImageFirstCanvas } from '../features/ui/image-first-canvas.js';
 import { createImageGenerationRevisionApi } from '../nodes/image-generation-revision.js';
+import { getImageOutputAssets, readPrimaryImageOutput } from '../nodes/image-output-projection.js';
 import { createAgentChatModelPreference } from '../features/prompt-agent/prompt-agent-model-preference.js';
 /**
  * CainFlow 前端总装配入口，负责组合全局状态、核心服务、画布、节点、执行链路与各类 UI 控制器。
@@ -60,6 +61,7 @@ import { createEditedImageImport } from '../features/media/image-painter-output.
 import { createCameraControlNodeApi } from '../features/camera/camera-control-node-proxy.js';
 import { createExecutionCoreApi } from '../features/execution/execution-core.js';
 import { createWorkflowRunnerApi } from '../features/execution/workflow-runner.js';
+import { getCanonicalImageList } from '../features/execution/execution-data-utils.js';
 import { prepareGenerationSaveTargets } from '../features/execution/generation-save-targets.js';
 import { findAgentImageNodePosition } from '../features/execution/node-placement.js';
 import { createSessionManagerApi } from '../features/persistence/session-manager.js';
@@ -717,6 +719,27 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
     state, selectionApi, documentRef: document, windowRef: window, storage: diskStorage,
     panelManager,
     openResultPreview: (images, index, onClose) => openFullscreenPreview(images[index], null, { images, index, onClose }),
+    openShotError: (label, reason) => showErrorModal('', reason, null, `「${label}」生成失败`),
+    openReferencePreview: async (edge, onClose) => {
+        const source = state.nodes.get(edge.from.nodeId);
+        const isCurrent = () => source && state.nodes.get(edge.from.nodeId) === source && state.connections.includes(edge);
+        if (!isCurrent()) return;
+        const images = getCanonicalImageList(source);
+        const asset = getImageOutputAssets(source)[0];
+        try {
+            const image = await readPrimaryImageOutput(source, images, async key =>
+                key.startsWith('media:') ? getImageAsset(key) : (await getImageAssetList(key))?.[0] || '');
+            if (!isCurrent() || document.querySelector('.fullscreen-overlay') || asset !== getImageOutputAssets(source)[0]
+                || images[0] !== getCanonicalImageList(source)[0]) return;
+            if (!image || source.enabled === false || source.data?.mediaIntegrity?.missingItems?.some(item => item.position === 0)) {
+                showToast('参考图原图不可用', 'warning');
+                return;
+            }
+            return openFullscreenPreview(image, null, { images: [image], index: 0, onClose });
+        } catch {
+            if (isCurrent()) showToast('参考图原图不可用', 'warning');
+        }
+    },
     openAgent: () => promptAgentController.open(),
     openModelSettings: target => settingsControllerApi.openModelSettings(target),
     runCurrentNode: (nodeId, { commerceAction, commerceShotId, imageRetryIndex, imageRetryBatchId } = {}) => runWorkflow({

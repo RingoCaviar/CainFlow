@@ -8,7 +8,16 @@ import { getSurfaceCoordinator } from './surface-coordinator.js';
 const typeLabels = { image: '图片', text: '文本', params: '参数', video: '视频', any: '任意类型' };
 let moreSequence = 0;
 
-function describeSource(state, edge, referenceGroup) {
+function hasPreviewablePrimaryImage(source, output) {
+    if (!source || source.enabled === false || !output) return false;
+    if (output.remote) return !!output.images[0];
+    if (output.missingPositions.includes(0)) return false;
+    const raw = [source.data?.imageList, source.data?.images, source.imageDataList]
+        .find(list => Array.isArray(list) && list.length);
+    return (!raw || !!raw[0]) && !!(output.images[0] || output.assets[0]);
+}
+
+function describeSource(state, edge, referenceGroup, allowPreview) {
     const source = state.nodes.get(edge.from.nodeId);
     const output = Array.from(source?.el?.querySelectorAll('.node-port[data-direction="output"]') || [])
         .find(port => port.dataset.port === edge.from.port);
@@ -26,11 +35,12 @@ function describeSource(state, edge, referenceGroup) {
     const status = !source ? '来源缺失' : source.enabled === false ? '已停用'
         : sourceRunning ? '来源运行中' : missing ? (type === 'video' ? '本地视频缺失' : '原图缺失')
             : ['image', 'video'].includes(type) && !count ? '尚无输出' : '已连接';
-    return { source, type, count, title, status, missing };
+    const canPreview = allowPreview && hasPreviewablePrimaryImage(source, projection);
+    return { source, type, count, title, status, missing, canPreview };
 }
 
 /** Presentation of the authoritative edges; edits are delegated to the graph API. */
-export function createImageInputDetail({ state, node, documentRef, updateInputConnection, swapInputConnections, moveMergeInputConnection, onChange = () => {} }) {
+export function createImageInputDetail({ state, node, documentRef, updateInputConnection, swapInputConnections, moveMergeInputConnection, openReferencePreview = null, onChange = () => {} }) {
     const element = documentRef.createElement('section');
     element.className = 'image-input-detail';
     element.setAttribute('aria-label', '输入明细');
@@ -143,14 +153,15 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
             - (Number(right.to.port.match(/^image_(\d+)$/)?.[1]) || Infinity)
         ));
         const references = new Map(projectImageReferences({ state, targetId: node.id }).groups.map(group => [group.connection.id, group]));
-        const descriptions = edges.map(edge => describeSource(state, edge, references.get(edge.id)));
+        const cameraPreview = !!openReferencePreview && node.type === 'CameraControl';
+        const descriptions = edges.map(edge => describeSource(state, edge, references.get(edge.id), cameraPreview && edge.to.port === 'image'));
         const candidates = replacing ? outputs() : [];
         const running = state.runningNodeIds?.has(node.id) || ['waiting', 'running'].includes(node.runStatus);
         const editing = state.historyTransitionInProgress || state.canvasPlanApplying;
         const nextSignature = JSON.stringify([edges.map(({ id, from, to, type, order, maskConsumption }) => (
             [id, from, to, type, order, maskConsumption]
-        )), descriptions.map(({ type, count, title, status, source }) => (
-            [type, count, title, status, state.runningNodeIds?.has(source?.id)]
+        )), descriptions.map(({ type, count, title, status, source, canPreview }) => (
+            [type, count, title, status, canPreview, state.runningNodeIds?.has(source?.id)]
         )), candidates, running, editing, !!updateInputConnection, !!swapInputConnections, !!moveMergeInputConnection, pending, statusMessage]);
         if (!force && signature === nextSignature) return;
         signature = nextSignature;
@@ -229,6 +240,15 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
             disconnect.addEventListener('click', () => { void edit(edge.id, { disconnect: true }); });
             more.actions.append(replace, disconnect);
             controls.append(select);
+            if (description.canPreview) {
+                const preview = button('预览参考图', 'preview', edge.id);
+                preview.dataset.nodeReadAction = 'true';
+                preview.setAttribute('aria-label', `预览${description.title}的参考图`);
+                preview.addEventListener('click', () => {
+                    void openReferencePreview(edge, () => focusRowControl(edge.id, '[data-input-action="preview"]'));
+                });
+                controls.append(preview);
+            }
             if (node.type === 'ImageMerge') {
                 const ordering = documentRef.createElement('div'); ordering.className = 'image-input-order-controls';
                 const locked = running || editing || pending || !moveMergeInputConnection

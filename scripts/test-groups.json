@@ -417,7 +417,7 @@
     "tests/image-merge-memory-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"]},
     "tests/image-merge-memory-budget.test.mjs": {"tier": "fast", "groups": ["media", "nodes"]},
     "tests/image-painter-output.test.mjs": {"tier": "fast", "groups": ["media", "nodes"]},
-    "tests/image-parameter-compact-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"]},
+    "tests/image-parameter-compact-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"], "sources": ["js/features/ui/image-input-detail.js"]},
     "tests/image-parameter-overflow-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"]},
     "tests/image-paste-global-interactions.test.mjs": {"tier": "fast", "groups": ["media", "nodes"]},
     "tests/image-preview-batch-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"]},

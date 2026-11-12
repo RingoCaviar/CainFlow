@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
+import { uploadImageOriginal } from './helpers/image-upload.mjs';
+import { configuration, key, nativeClick, openParameters, originals, saved } from './helpers/image-first-integrated-fixture.mjs';
 
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=';
 const longTitle = '第一组参考来源的完整长标题，包含主体、光线与构图要求，展开之后必须完整阅读，不能只依赖鼠标悬停。';
@@ -153,7 +155,95 @@ test('thumbnail hover actions and native drag reorder or disconnect a whole sour
         await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'z', code: 'KeyZ', modifiers: 2 });
         await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'z', code: 'KeyZ' });
         await app.waitFor("document.querySelectorAll('#target-reference-sources [data-reference-number]').length===8");
+        await app.waitFor("[...document.querySelectorAll('.toast')].some(toast=>toast.textContent.includes('已撤回'))");
         assert.deepEqual(await order(), ['edge-batch', 'edge-single-b', 'edge-single-a'], 'undo restores the batch and its prior order');
+        await app.waitFor(`document.querySelector('${close}')?.disabled===false &&
+            document.querySelector('[data-reference-connection=edge-batch] .image-reference-item')?.draggable===true`);
+        await openReferences(app);
+        await app.evaluate(`document.querySelector('${batchTile}').focus({preventScroll:true})`);
+        await key(app, 'ArrowRight', 'ArrowRight', 1);
+        assert.deepEqual(await order(), ['edge-single-b', 'edge-batch', 'edge-single-a'], 'the restored sources can be reordered immediately');
         assert.equal(await app.evaluate('window.referenceGalleryRequests'), 8, 'sorting, disconnect and undo do not regenerate images');
+    });
+});
+
+test('commerce, chat and video reference galleries edit their own sources without changing fixed video frames', { timeout: 45000 }, async () => {
+    const targets = ['commerce-target', 'chat-target', 'video-target'];
+    const nodes = [
+        { id: 'red', type: 'ImageImport', x: 40, y: 100 },
+        { id: 'blue', type: 'ImageImport', x: 40, y: 320 },
+        { id: 'first', type: 'ImageImport', x: 40, y: 540 },
+        { id: 'last', type: 'ImageImport', x: 40, y: 760 },
+        { id: 'commerce-target', type: 'ECommerceImageSet', x: 360, y: 100 },
+        { id: 'chat-target', type: 'TextChat', x: 760, y: 100, apiConfigId: 'chat', providerId: 'p' },
+        { id: 'video-target', type: 'VideoGenerate', x: 760, y: 540, apiConfigId: 'video', providerId: 'p' }
+    ];
+    const edge = (source, target, port, order) => ({ id: `${target}-${source}`, type: 'image',
+        from: { nodeId: source, port: 'image' }, to: { nodeId: target, port }, order });
+    const fixedFrames = [edge('first', 'video-target', 'image_1', 0), edge('last', 'video-target', 'image_2', 1)];
+    const connections = [...fixedFrames, ...targets.flatMap(target => [
+        edge('blue', target, 'referenceImages', 7), edge('red', target, 'referenceImages', 2)
+    ])];
+    const models = [...configuration.models, { id: 'video-unsupported', modelId: 'unmatched-video-model', name: '未匹配视频模型',
+        protocol: 'async-video-api', taskType: 'video', providerIds: ['p'] }];
+    const gallery = target => `#${target}-reference-sources`;
+    const thumbnail = (target, source) => `${gallery(target)} [data-reference-connection=${target}-${source}] .image-reference-thumbnail`;
+    const waitForOrder = (app, target, sources) => app.waitFor(`(() => {
+        const groups = Array.from(document.querySelectorAll('${gallery(target)} .image-reference-group'));
+        const expected = ${JSON.stringify(sources.map(source => `${target}-${source}`))};
+        return groups.length === expected.length && groups.every((group, index) => group.dataset.referenceConnection === expected[index]);
+    })()`);
+
+    await withAppBrowser({ ...configuration, models, nodes, connections }, async app => {
+        await uploadImageOriginal(app, 'red', originals[0]);
+        await uploadImageOriginal(app, 'blue', originals[1]);
+        await openParameters(app, 'commerce-target');
+        await app.waitFor("document.querySelector('#image-parameter-panel[data-mode=docked] #commerce-target-reference-sources')?.checkVisibility()");
+
+        for (const target of targets) {
+            await waitForOrder(app, target, ['red', 'blue']);
+            assert.ok(await app.evaluate(`document.querySelector('${gallery(target)}')?.checkVisibility()`));
+            assert.deepEqual(await app.evaluate(`Array.from(document.querySelectorAll('${gallery(target)} [data-reference-number]'), item => item.dataset.referenceNumber)`), ['1', '2']);
+        }
+
+        const commerceThumbnail = thumbnail('commerce-target', 'red');
+        await nativeClick(app, commerceThumbnail);
+        const preview = '.fullscreen-overlay .fullscreen-img-wrapper img';
+        await app.waitFor(`document.querySelector('${preview}')?.src===${JSON.stringify(originals[0])}`);
+        await key(app, 'Escape');
+        await app.waitFor(`!document.querySelector('.fullscreen-overlay') && document.activeElement===document.querySelector('${commerceThumbnail}')`);
+        const connectionDetails = '#image-parameter-panel .commerce-image-set-reference-details';
+        await nativeClick(app, `${connectionDetails} > summary`);
+        assert.ok(await app.evaluate(`document.querySelector('${connectionDetails} .image-input-more > summary')?.checkVisibility()`));
+        await nativeClick(app, `${connectionDetails} > summary`);
+
+        for (const target of targets) {
+            await app.evaluate(`document.querySelector('${thumbnail(target, 'blue')}').focus({preventScroll:true})`);
+            await key(app, 'ArrowLeft', 'ArrowLeft', 1);
+            await waitForOrder(app, target, ['blue', 'red']);
+        }
+
+        await app.evaluate(`document.querySelector('${thumbnail('video-target', 'red')}').focus({preventScroll:true})`);
+        await key(app, 'Delete');
+        await waitForOrder(app, 'video-target', ['blue']);
+        await app.waitFor(async () => (await saved(app)).connections?.length === connections.length - 1, 7500, { interval: 200 });
+        const persisted = await saved(app);
+        assert.deepEqual(persisted.connections.map(item => item.id).sort(),
+            connections.filter(item => item.id !== 'video-target-red').map(item => item.id).sort());
+        assert.deepEqual(persisted.connections.filter(item => fixedFrames.some(frame => frame.id === item.id)).map(item => item.to.port).sort(), ['image_1', 'image_2']);
+        for (const target of ['commerce-target', 'chat-target']) {
+            assert.deepEqual(persisted.connections.filter(item => item.to.nodeId === target).sort((a, b) => a.order - b.order).map(item => item.from.nodeId), ['blue', 'red']);
+        }
+        const changeVideoModel = modelId => app.evaluate(`(() => {
+            const model = document.getElementById('video-target-apiconfig');
+            model.value = ${JSON.stringify(modelId)};
+            model.dispatchEvent(new Event('change', { bubbles: true }));
+        })()`);
+        await changeVideoModel('video-unsupported');
+        await app.waitFor(`document.querySelector('${gallery('video-target')}').textContent.includes('当前视频模型不支持参考图')`);
+        assert.equal(await app.evaluate(`document.querySelectorAll('${gallery('video-target')} [data-reference-number]').length`), 0);
+        assert.equal(await app.evaluate(`document.querySelector('${gallery('video-target')} .image-reference-disconnect').disabled`), false);
+        await changeVideoModel('video');
+        await app.waitFor(`document.querySelector('${thumbnail('video-target', 'blue')}').dataset.referenceNumber==='1'`);
     });
 });

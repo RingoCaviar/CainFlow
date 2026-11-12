@@ -14,7 +14,7 @@ function setHidden(element, hidden) {
     if (element.hidden !== hidden) element.hidden = hidden;
 }
 
-export function createImageGenerationBatchView({ node, documentRef, progress, progressFallback, retryImage, openPreview }) {
+export function createImageGenerationBatchView({ node, documentRef, progress, progressFallback, retryImage, openPreview, openError }) {
     const element = documentRef.createElement('section');
     element.className = 'image-generation-batch';
     element.hidden = true;
@@ -53,18 +53,20 @@ export function createImageGenerationBatchView({ node, documentRef, progress, pr
             </div>
             <div class="image-generation-batch-actions">
                 <span class="image-generation-batch-status"></span>
+                <button type="button" class="image-parameter-failure-button" data-image-batch-error data-node-read-action
+                    aria-haspopup="dialog" title="查看错误详情" hidden>生成失败</button>
                 <button type="button" class="image-generation-batch-retry" data-image-batch-retry hidden>重试</button>
             </div>
-        </div>
-        <details class="image-generation-batch-error" hidden><summary>失败原因</summary><p></p></details>`;
+        </div>`;
         const name = `第 ${index + 1} 张`;
         setText(row.querySelector('.image-generation-batch-name'), name);
         const preview = row.querySelector('[data-image-batch-preview]');
         preview.setAttribute('aria-label', `预览${name}图片`);
         const retry = row.querySelector('[data-image-batch-retry]');
         retry.setAttribute('aria-label', `重试${name}图片`);
-        const error = row.querySelector('details');
-        const slot = { row, preview, retry, error, message: error.querySelector('p'), image: preview.querySelector('img'), status: row.querySelector('.image-generation-batch-status'), source: '' };
+        const error = row.querySelector('[data-image-batch-error]');
+        error.setAttribute('aria-label', `${name}生成失败，查看错误详情`);
+        const slot = { row, preview, retry, error, image: preview.querySelector('img'), status: row.querySelector('.image-generation-batch-status'), source: '' };
         preview.addEventListener('click', () => {
             const available = rows.filter(item => item.source);
             const activeIndex = available.indexOf(slot);
@@ -72,6 +74,11 @@ export function createImageGenerationBatchView({ node, documentRef, progress, pr
             openPreview(available.map(item => item.source), activeIndex, () => {
                 if (!preview.disabled && preview.isConnected && preview.checkVisibility() && !preview.closest('[inert]')) preview.focus({ preventScroll: true });
             });
+        });
+        error.addEventListener('click', () => {
+            if (error.hidden) return;
+            const request = node.data?.concurrentRequestStatus?.requests?.[index];
+            openError(name, request?.error || '本次请求没有返回图片。');
         });
         retry.addEventListener('click', async () => {
             if (retry.disabled || blocked || retrying || !batchId || !retryableStatuses.has(row.dataset.status)) return;
@@ -107,7 +114,6 @@ export function createImageGenerationBatchView({ node, documentRef, progress, pr
         if (batchId !== batch?.batchId) {
             batchId = batch?.batchId;
             retryMessage = '';
-            for (const { error } of rows) error.open = false;
         }
         setHidden(element, !requests.length);
         const progressParent = requests.length ? totals : progressFallback;
@@ -122,6 +128,8 @@ export function createImageGenerationBatchView({ node, documentRef, progress, pr
             const status = !activeRun && (recordedStatus === 'pending' || recordedStatus === 'running') ? 'interrupted' : recordedStatus;
             if (slot.row.dataset.status !== status) slot.row.dataset.status = status;
             setText(slot.status, statusLabels[status]);
+            setHidden(slot.status, status === 'failed');
+            setHidden(slot.error, status !== 'failed');
             if (status === 'completed') completed += 1;
             if (status === 'failed') failed += 1;
             const resultIndex = Number.isInteger(request.resultIndex) ? request.resultIndex : -1;
@@ -140,9 +148,6 @@ export function createImageGenerationBatchView({ node, documentRef, progress, pr
             setHidden(slot.retry, !retryable);
             const disabled = blocked || retrying || !hasRetryRecord;
             if (slot.retry.disabled !== disabled) slot.retry.disabled = disabled;
-            setText(slot.message, request.error || '本次请求没有返回图片。');
-            setHidden(slot.error, status !== 'failed' || (requests.length === 1 && !!node.executionFailure?.message));
-            if (slot.error.hidden && slot.error.open) slot.error.open = false;
         }
         setHidden(failures, failed === 0);
         setText(failures, `${failed} 张失败`);

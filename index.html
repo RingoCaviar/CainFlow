@@ -1480,11 +1480,11 @@
     <div id="toast-container"></div>
 
     <!-- Error Detail Modal -->
-    <div id="modal-error" class="modal">
+    <div id="modal-error" class="modal" role="dialog" aria-modal="true" aria-labelledby="error-modal-title">
         <div class="modal-content modal-error-content">
             <div class="modal-header">
                 <h3 id="error-modal-title">执行错误</h3>
-                <button class="modal-close" onclick="closeModal('modal-error')">×</button>
+                <button type="button" class="modal-close" aria-label="关闭错误详情" onclick="closeModal('modal-error')">×</button>
             </div>
             <div class="modal-body">
                 <div id="error-modal-msg" class="error-msg-box"></div>

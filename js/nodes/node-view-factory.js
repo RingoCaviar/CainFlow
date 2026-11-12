@@ -385,6 +385,14 @@ function renderImageImportBody(id, restoreData) {
     `;
 }
 
+function renderImageReferenceOverview(id, label = '参考图') {
+    return `
+        <section class="image-reference-overview image-parameter-references" aria-label="${label}" hidden>
+            <div class="node-section-label">${label}</div>
+            <div class="image-reference-sources" id="${id}-reference-sources"></div>
+        </section>`;
+}
+
 function renderImageGenerateBody(id, restoreData, models, providers) {
     const rd = restoreData || {};
     const opts = renderApiConfigOptions(models, providers, rd.apiConfigId, 'image');
@@ -432,10 +440,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             <div class="image-prompt-actions"><button type="button" class="image-node-assistant" id="${id}-assistant">让助手优化</button></div>`
         })}
 
-        <section class="image-reference-overview" aria-label="参考图">
-            <div class="node-section-label">参考图</div>
-            <div class="image-reference-sources" id="${id}-reference-sources">通过参考图端口连接来源</div>
-        </section>
+        ${renderImageReferenceOverview(id)}
         <div class="node-parameter-grid">
         ${renderNodeFormField({
             label: '模型',
@@ -631,6 +636,7 @@ function renderVideoGenerateBody(id, restoreData, models, providers) {
             content: `<select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select>`
         })}
         <div class="node-protocol-summary${protocolCard.summary ? '' : ' hidden'}" id="${id}-protocol-summary">${escapeHtml(protocolCard.summary)}</div>
+        ${renderImageReferenceOverview(id)}
         <div class="node-parameter-grid">
         ${renderNodeFormField({
             label: '生成次数',
@@ -821,6 +827,7 @@ function renderTextChatBody(id, restoreData, models, providers) {
     return `
         <div class="node-field"><label>API 配置</label><select id="${id}-apiconfig">${opts}</select></div>
         <div class="node-field" id="${id}-provider-field"><label>供应商</label><select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select></div>
+        ${renderImageReferenceOverview(id)}
         <details class="node-field node-chat-system-field" id="${id}-system-settings">
             <summary><span>系统提示语</span><span class="node-chat-system-summary" id="${id}-system-summary">${escapeHtml(systemSummary)}</span></summary>
             <textarea id="${id}-sysprompt" aria-label="系统提示语（可选）" placeholder="设定 AI 的角色或背景..." rows="4"${getTextareaHeightStyle(rd, 'sysprompt')}>${escapeHtml(systemPrompt)}</textarea></details>
@@ -1248,7 +1255,7 @@ function renderNodeBody(type, id, restoreData, state) {
     if (type === 'ImageResize') return renderImageResizeBody(id, restoreData);
     if (type === 'ColorReset') return renderColorResetBody(id, restoreData);
     if (type === 'ImageGenerate') return renderImageGenerateBody(id, restoreData, state.models, state.providers);
-    if (type === 'ECommerceImageSet') return renderCommerceImageSetBody();
+    if (type === 'ECommerceImageSet') return `${renderCommerceImageSetBody()}${renderImageReferenceOverview(id, '商品参考图')}`;
     if (type === 'VideoGenerate') return renderVideoGenerateBody(id, restoreData, state.models, state.providers);
     if (type === 'CameraControl') return renderCameraControlBody(id, restoreData);
     if (type === 'TextChat') return renderTextChatBody(id, restoreData, state.models, state.providers);

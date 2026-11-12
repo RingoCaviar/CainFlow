@@ -4,11 +4,11 @@
 import { getFirstCompatibleDefinitionPort, listNodeDefinitions } from '../nodes/registry.js';
 import { createCanvasConnectionRenderer } from './canvas-connection-renderer.js';
 import { getBezierCurveGeometry } from './geometry.js';
+import { orderImageReferenceConnections } from '../nodes/image-reference-projection.js';
 import {
     applyReferenceImagePorts,
     getNextInputConnectionOrder,
     isMultiConnectionInput,
-    orderInputConnections,
     MAX_REFERENCE_IMAGE_COUNT
 } from '../nodes/reference-image-ports.js';
 import {
@@ -1124,16 +1124,22 @@ export function createConnectionsApi({
     }
 
     function getImageReferenceConnections(nodeId) {
-        if (getNodeById(nodeId)?.type !== 'ImageGenerate') return [];
-        return orderInputConnections('ImageGenerate', state.connections.filter(connection => connection.to.nodeId === nodeId
-            && (connection.to.port === 'referenceImages' || /^image_\d+$/.test(connection.to.port))));
+        const nodeType = getNodeById(nodeId)?.type;
+        return orderImageReferenceConnections(state.connections.filter(connection => connection.to.nodeId === nodeId
+            && isMultiConnectionInput(nodeType, connection.to.port)), nodeType);
+    }
+
+    function isImageReferenceConnectionLocked(connection) {
+        return hasRunningEndpoint(connection) || [connection.from.nodeId, connection.to.nodeId].some(nodeId =>
+            ['waiting', 'running'].includes(getNodeById(nodeId)?.runStatus));
     }
 
     function moveImageReferenceConnection(nodeId, connectionId, targetConnectionId) {
+        if (state.canvasPlanApplying || state.historyTransitionInProgress) return false;
         const connections = getImageReferenceConnections(nodeId);
         const from = connections.findIndex(connection => connection.id === connectionId);
         const to = connections.findIndex(connection => connection.id === targetConnectionId);
-        if (from < 0 || to < 0 || from === to || connections.some(hasRunningEndpoint)) return false;
+        if (from < 0 || to < 0 || from === to || connections.some(isImageReferenceConnectionLocked)) return false;
         pushHistory();
         connections.splice(to, 0, connections.splice(from, 1)[0]);
         const orders = new Map(connections.map((connection, index) => [connection.id, index]));
@@ -1148,8 +1154,9 @@ export function createConnectionsApi({
     }
 
     function disconnectImageReferenceConnection(nodeId, connectionId) {
+        if (state.canvasPlanApplying || state.historyTransitionInProgress) return false;
         const connection = getImageReferenceConnections(nodeId).find(item => item.id === connectionId);
-        if (!connection || hasRunningEndpoint(connection)) return false;
+        if (!connection || isImageReferenceConnectionLocked(connection)) return false;
         pushHistory();
         return deleteConnection(connectionId);
     }
