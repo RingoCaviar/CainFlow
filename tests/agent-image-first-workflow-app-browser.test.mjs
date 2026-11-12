@@ -460,6 +460,8 @@ test('optimization previews and changes the real Text prompt source while derive
             await app.waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
             assert.match(await app.evaluate("document.querySelector('.prompt-agent-canvas-plan').textContent"), /真实文字来源/);
             await chooseModel(app, 'image', 'google'); await planAction(app, '仅应用');
+            await app.waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已应用并保存')");
+            await waitForAutosave(app);
             await waitForSaved(app, "fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id!=='prompt-source'&&node.text==='optimized real upstream text')?.text==='optimized real upstream text')");
             const applied = await saved(app);
             assert.equal(applied.nodes.find(node => node.id === 'target').prompt, 'ineffective local draft');
@@ -474,6 +476,7 @@ test('optimization previews and changes the real Text prompt source while derive
             assert.ok(results > 0);
             await planAction(app, '撤销本次画布操作');
             await app.waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent==='已按撤销栈处理；历史图片仍保留'");
+            await waitForAutosave(app);
             await waitForSaved(app, "fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='prompt-source')?.text==='original effective upstream text')");
             assert.deepEqual((await saved(app)).connections, applied.connections);
             assert.equal(await app.evaluate("document.querySelectorAll('.prompt-agent-result-image').length"), results, 'Agent media survives undo of its graph application');

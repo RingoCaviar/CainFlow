@@ -259,6 +259,22 @@ test('reference overview retains ordered source batches and empty sources, with 
 test('reference source moves survive reload, reach the real request, and disconnect with undo', { timeout: 60000 }, async () => {
     await withAppBrowser(referenceSession(), async app => {
         const { evaluate, waitFor, send } = app;
+        const historyAction = async (key, feedback) => {
+            await evaluate(`(() => {
+                window.referenceHistoryFeedback = false;
+                const observer = new MutationObserver(records => {
+                    if (records.some(record => [...record.addedNodes].some(node => node.textContent?.includes(${JSON.stringify(feedback)})))) {
+                        window.referenceHistoryFeedback = true;
+                        observer.disconnect();
+                    }
+                });
+                observer.observe(document.getElementById('toast-container'), { childList: true });
+                const canvas = document.getElementById('canvas-container');
+                canvas.focus();
+                canvas.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, ctrlKey: true, bubbles: true, cancelable: true }));
+            })()`);
+            await waitFor('window.referenceHistoryFeedback');
+        };
         await generateReferenceSources(app);
         await openImageReferences(app);
         await change(evaluate, 'reference-target-apiconfig', 'google');
@@ -266,7 +282,7 @@ test('reference source moves survive reload, reach the real request, and disconn
         await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-thumbnail').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',altKey:true,bubbles:true,cancelable:true}))");
         const order = () => evaluate("[...document.querySelectorAll('#reference-target-reference-sources .image-reference-group')].map(group=>group.dataset.referenceConnection)");
         assert.deepEqual(await order(), ['edge-source-b','edge-source-a']);
-        await delay(1000); await reloadApp(app);
+        await reloadApp(app);
         await openImageReferences(app);
         await waitFor("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length===2");
         assert.deepEqual(await order(), ['edge-source-b','edge-source-a']);
@@ -279,20 +295,19 @@ test('reference source moves survive reload, reach the real request, and disconn
         await evaluate("document.querySelector('[data-conn-id=\"edge-source-b\"]').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))");
         assert.deepEqual(await order(), ['edge-source-b','edge-source-a'], 'running input connections cannot be removed');
         await evaluate('window.releaseTargetResponse();window.holdTargetResponse=false');
-        await waitFor("!document.getElementById('reference-target-prompt').disabled"); await delay(300);
+        await waitFor("document.getElementById('btn-stop').disabled && document.getElementById('reference-target-run-status').dataset.status==='completed' && !document.getElementById('reference-target-prompt').disabled");
+        await waitForAutosave(app);
         assert.match(await evaluate("document.querySelector('[data-reference-connection=\"edge-source-b\"]').getAttribute('aria-label')"), /2\s*张/);
         await evaluate("document.querySelector('[data-conn-id=\"edge-source-b\"]').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))");
         assert.deepEqual(await order(), ['edge-source-a']);
         assert.ok(await evaluate("document.getElementById('source-b')!==null"));
         await waitFor(`(async()=>{const saved=await fetch('/api/storage/documents/session').then(r=>r.json());const keys=saved.value?.nodes.find(n=>n.id==='source-b')?.mediaAssetKeys||[];return keys.length===2&&(await Promise.all(keys.map(key=>fetch('/api/storage/assets/'+encodeURIComponent(key)).then(r=>r.ok)))).every(Boolean)})()`);
-        await evaluate("const canvas=document.getElementById('canvas-container');canvas.focus();canvas.dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,bubbles:true,cancelable:true}))");
-        await waitFor("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length===2");
-        await waitFor("[...document.querySelectorAll('.toast')].some(t=>t.textContent.includes('已撤回上一步操作'))");
+        await historyAction('z', '已撤回上一步操作');
         assert.deepEqual(await order(), ['edge-source-b','edge-source-a']);
-        await evaluate("document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'y',ctrlKey:true,bubbles:true,cancelable:true}))");
-        await waitFor("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length===1 && [...document.querySelectorAll('.toast')].some(t=>t.textContent.includes('已重做上一步操作'))");
-        await evaluate("document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,bubbles:true,cancelable:true}))");
-        await waitFor("document.querySelectorAll('#reference-target-reference-sources .image-reference-group').length===2 && [...document.querySelectorAll('.toast')].some(t=>t.textContent.includes('已撤回上一步操作'))");
+        await historyAction('y', '已重做上一步操作');
+        assert.deepEqual(await order(), ['edge-source-a']);
+        await historyAction('z', '已撤回上一步操作');
+        assert.deepEqual(await order(), ['edge-source-b','edge-source-a']);
         assert.equal(await evaluate("document.querySelector('[data-reference-connection=\"edge-source-a\"] .image-reference-drag').draggable"), true, 'source drag is available after undo');
         const dragState = await evaluate(`(()=>{const transfer=new DataTransfer(),root=document.getElementById('reference-target-reference-sources'),handle=root.querySelector('[data-reference-connection="edge-source-a"] .image-reference-drag'),target=root.querySelector('[data-reference-connection="edge-source-b"]');handle.dispatchEvent(new DragEvent('dragstart',{bubbles:true,cancelable:true,dataTransfer:transfer}));const payload=transfer.getData('application/x-cainflow-reference');target.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));handle.dispatchEvent(new DragEvent('dragend',{bubbles:true,dataTransfer:transfer}));return {payload,duplicates:document.querySelectorAll('[data-reference-connection="edge-source-a"]').length,toasts:[...document.querySelectorAll('.toast')].map(t=>t.textContent)}})()`);
         assert.equal(dragState.payload, 'edge-source-a', JSON.stringify(dragState));
