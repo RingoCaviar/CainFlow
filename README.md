@@ -50,6 +50,10 @@ Windows 桌面版使用系统 WebView2 Runtime。Windows 11 已内置；少数�
 - 桌面模式使用随机回环端口并限制单实例运行，不受 `8767` 占用影响
 - Windows 数据保存在程序旁；macOS 数据保存在 `~/Library/Application Support/CainFlow/`
 
+## 画布 MCP
+
+本机 MCP 客户端可以通过 stdio 读取、编辑和运行当前画布，并读取运行结果。见 [画布 MCP 配置](docs/canvas-mcp.md)。
+
 ## 默认供应商
 
 首次使用前请在设置面板中填写自己的 API Key，并根据实际情况修改接口地址。

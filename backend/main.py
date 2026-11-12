@@ -11,6 +11,7 @@ import webbrowser
 
 from backend import config
 from backend.handler import ProxyHTTPRequestHandler
+from backend.services.canvas_mcp_settings import CanvasMcpSettings
 from backend.services.log_service import diagnostic_service
 from backend.services.storage_service import CACHE_MAINTENANCE_INTERVAL_SECONDS, storage_service
 from backend.services import workflow_service
@@ -30,6 +31,14 @@ class CainFlowHTTPServer(socketserver.ThreadingTCPServer):
     # Page reloads request the modular styles and scripts in a burst. Python
     # versions with the default backlog of five can refuse those connections.
     request_queue_size = 128
+
+    def __init__(self, address, handler, *, canvas_mcp_settings):
+        self.canvas_mcp_settings = canvas_mcp_settings
+        super().__init__(address, handler)
+
+    def server_close(self):
+        self.canvas_mcp_settings.close()
+        super().server_close()
 
 
 def run_command(command):
@@ -220,7 +229,7 @@ def print_startup_error_and_exit(exc):
     sys.exit(1)
 
 
-def print_banner():
+def print_banner(host=None):
     cyan = '\033[1;36m'
     white = '\033[1;37m'
     gray = '\033[90m'
@@ -234,7 +243,7 @@ def print_banner():
 {reset}"""
     print(banner)
     print(f' {white}> CainFlow {get_app_version_tag()} 已就绪{reset}')
-    print(f' {white}> 正在监听: {cyan}http://{config.HOST}:{config.PORT}{reset}')
+    print(f' {white}> 正在监听: {cyan}http://{host or config.HOST}:{config.PORT}{reset}')
     print(f' {white}> 本机访问: {cyan}http://{config.LOCAL_HOST}:{config.PORT}{reset}')
     print(f'\n {gray}[提示] 如果浏览器未自动启动，请按住 {white}Ctrl{gray} 并点击上方链接即可。{reset}\n')
 
@@ -339,22 +348,24 @@ def initialize_runtime():
 
 
 def create_server(host=None, port=None):
-    bind_host = config.HOST if host is None else host
+    token = os.environ.get('CAINFLOW_MCP_TOKEN')
+    canvas_mcp_settings = CanvasMcpSettings(config.DATA_DIR, token)
+    bind_host = host if host is not None else (config.LOCAL_HOST if token is not None else config.HOST)
     bind_port = config.PORT if port is None else port
-    return CainFlowHTTPServer((bind_host, bind_port), ProxyHTTPRequestHandler)
+    return CainFlowHTTPServer((bind_host, bind_port), ProxyHTTPRequestHandler, canvas_mcp_settings=canvas_mcp_settings)
 
 
 def run_browser(port=None):
     if port is not None:
         config.PORT = int(port)
     initialize_runtime()
-    if config.is_port_in_use(config.PORT):
+    if 'CAINFLOW_MCP_TOKEN' not in os.environ and config.is_port_in_use(config.PORT):
         print_port_error_and_exit()
 
     try:
         with create_server() as httpd:
             config.PORT = httpd.server_address[1]
-            print_banner()
+            print_banner(httpd.server_address[0])
             if os.environ.get('CAINFLOW_SKIP_BROWSER_AUTO_OPEN') != '1':
                 webbrowser.open(f'http://{config.LOCAL_HOST}:{config.PORT}')
             httpd.serve_forever()

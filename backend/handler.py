@@ -2,7 +2,7 @@ import http.server
 
 from backend import state
 from backend import desktop_security
-from backend.routes import conversation_routes, diagnostic_routes, media_routes, notification_routes, protocol_routes, settings_routes, storage_routes, update_routes, workflow_routes
+from backend.routes import canvas_mcp_routes, conversation_routes, diagnostic_routes, media_routes, notification_routes, protocol_routes, settings_routes, storage_routes, update_routes, workflow_routes
 from backend.services.http_helpers import write_error, write_text
 from backend.services.log_service import should_log_path, start_request_log
 from backend.services.proxy_service import handle_proxy_request
@@ -27,6 +27,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         return
 
     def do_GET(self):
+        if canvas_mcp_routes.handle(self):
+            return
         self._begin_request_log()
         try:
             if desktop_security.handle_bootstrap(self):
@@ -62,17 +64,39 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_unexpected_error(error)
 
     def end_headers(self):
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, PUT, POST, DELETE, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', '*')
-        static_path = self.path.split('?', 1)[0].lower()
-        if static_path.endswith(('.html',)):
-            self.send_header('Cache-Control', 'no-cache')
-        elif static_path.endswith(('.css', '.js', '.mjs')):
-            self.send_header('Cache-Control', 'public, max-age=0, must-revalidate')
+        path = getattr(self, 'path', '')
+        if not canvas_mcp_routes.is_canvas_mcp_path(path):
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Access-Control-Allow-Methods', 'GET, PUT, POST, DELETE, OPTIONS')
+            self.send_header('Access-Control-Allow-Headers', '*')
+            static_path = path.split('?', 1)[0].lower()
+            if static_path.endswith(('.html',)):
+                self.send_header('Cache-Control', 'no-cache')
+            elif static_path.endswith(('.css', '.js', '.mjs')):
+                self.send_header('Cache-Control', 'public, max-age=0, must-revalidate')
         super().end_headers()
 
+    def do_HEAD(self):
+        if not canvas_mcp_routes.handle(self):
+            super().do_HEAD()
+
+    def send_head(self):
+        # The source tree can also be the static root. Keep the MCP credential
+        # and its atomic-write files outside the static handler's reach.
+        settings = getattr(self.server, 'canvas_mcp_settings', None)
+        if settings is not None:
+            try:
+                if settings.is_private_static_path(self.translate_path(self.path)):
+                    self.send_error(404, 'File not found')
+                    return None
+            except (OSError, RuntimeError, ValueError):
+                self.send_error(404, 'File not found')
+                return None
+        return super().send_head()
+
     def do_OPTIONS(self):
+        if canvas_mcp_routes.handle(self):
+            return
         self._begin_request_log()
         if not self._authorize_desktop_api():
             return
@@ -84,6 +108,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
+        if canvas_mcp_routes.handle(self):
+            return
         self._begin_request_log()
         try:
             if not self._authorize_desktop_api():
@@ -117,6 +143,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_unexpected_error(error)
 
     def do_DELETE(self):
+        if canvas_mcp_routes.handle(self):
+            return
         self._begin_request_log()
         try:
             if not self._authorize_desktop_api():
@@ -139,6 +167,8 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_unexpected_error(error)
 
     def do_PUT(self):
+        if canvas_mcp_routes.handle(self):
+            return
         self._begin_request_log()
         try:
             if not self._authorize_desktop_api():

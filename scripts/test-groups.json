@@ -47,6 +47,14 @@
       ]
     },
     {
+      "pattern": "^(canvas_mcp\\.py$|js/features/canvas-mcp/)",
+      "groups": [
+        "canvas",
+        "workflow",
+        "backend"
+      ]
+    },
+    {
       "pattern": "^js/features/conversation/",
       "groups": [
         "conversation",
@@ -239,6 +247,10 @@
     "tests/camera-theme-live-app-browser.test.mjs": {"tier": "browser", "groups": ["nodes", "theme"]},
     "tests/canvas-connection-renderer.test.mjs": {"tier": "fast", "groups": ["canvas"]},
     "tests/canvas-edit-reference-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes", "canvas"]},
+    "tests/canvas-mcp-actions.test.mjs": {"tier": "fast", "groups": ["canvas", "workflow"]},
+    "tests/canvas-mcp-app-browser.test.mjs": {"tier": "browser", "groups": ["canvas", "workflow", "backend"]},
+    "tests/canvas-mcp-editor.test.mjs": {"tier": "fast", "groups": ["canvas", "backend"]},
+    "tests/canvas-mcp-settings-app-browser.test.mjs": {"tier": "browser", "groups": ["canvas", "settings", "backend"]},
     "tests/canvas-navigation-browser.test.mjs": {"tier": "browser", "groups": ["canvas"]},
     "tests/canvas-performance-harness.test.mjs": {"tier": "fast", "groups": ["canvas"]},
     "tests/canvas-space-pan.test.mjs": {"tier": "fast", "groups": ["canvas"]},
@@ -505,6 +517,7 @@
     "tests/test_conversation_service.py": {"tier": "python", "groups": ["conversation", "backend"]},
     "tests/test_database_compaction.py": {"tier": "python", "groups": ["backend"]},
     "tests/test_deleted_node_media.py": {"tier": "python", "groups": ["media", "nodes", "backend"]},
+    "tests/test_canvas_mcp_bridge.py": {"tier": "python", "groups": ["canvas", "backend"]},
     "tests/test_desktop_runtime.py": {"tier": "python", "groups": ["desktop", "backend"]},
     "tests/test_diagnostic_routes.py": {"tier": "python", "groups": ["backend"]},
     "tests/test_diagnostic_service.py": {"tier": "python", "groups": ["backend"]},
