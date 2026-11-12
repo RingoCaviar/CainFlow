@@ -249,12 +249,13 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         await settle(app);
         assert.ok(await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel').getBoundingClientRect(),b=document.querySelector('#image-parameter-panel [data-parameter-action=generate]').getBoundingClientRect();return b.top>=p.top&&b.bottom<=p.bottom+1})()"), 'expanded long settings keep the primary action reachable');
         await open(app, 'image-8');
+        await settle(app);
         assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').dataset.mode"), 'normal');
         const cameraMore = `#image-parameter-panel [data-input-connection-id="${cameraReference.id}"] .image-input-more`;
         const disconnect = `${cameraMore} [data-input-action="disconnect"]`;
         assert.ok(await app.evaluate(`document.querySelector('${cameraMore} > summary')?.checkVisibility()`));
         await app.evaluate(`document.querySelector('${cameraMore} > summary').click()`);
-        assert.ok(await app.evaluate(`document.querySelector('${disconnect}')?.checkVisibility() && !document.querySelector('${disconnect}').disabled`));
+        await app.waitFor(`document.querySelector('${disconnect}')?.checkVisibility() && !document.querySelector('${disconnect}').disabled`);
         await app.evaluate(`document.querySelector('${disconnect}').click()`);
         await app.waitFor(`!document.querySelector('${cameraMore}') && !document.querySelector('[data-conn-id="${cameraReference.id}"]')`);
         assert.ok(await app.evaluate("document.querySelector('#image-1-drop img') && document.querySelector('[data-conn-id=image-edge]')"), 'disconnecting the camera reference preserves the source and its other connection');
