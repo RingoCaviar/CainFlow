@@ -725,6 +725,10 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
         ...(commerceAction ? { commerceNodeId: nodeId, commerceAction, commerceShotId } : {}),
         ...(Number.isInteger(imageRetryIndex) ? { imageRetryNodeId: nodeId, imageRetryIndex, imageRetryBatchId } : {})
     }, { waitForCompletion: Boolean(commerceAction) || Number.isInteger(imageRetryIndex) }),
+    waitForNodeRun: nodeId => {
+        const workflowId = workflowManagerApi.getActiveWorkflowId();
+        return !workflowId || getWorkflowRuntimeManagerApi().waitForNodeRun({ workflowId }, nodeId);
+    },
     fitNode: (id, options) => fitNodeToContent(id, options),
     bindPorts: container => nodeDomBindingsApi.bindNodePorts(container),
     updateInputConnection: (id, change) => connectionsApi.updateInputConnection(id, change),

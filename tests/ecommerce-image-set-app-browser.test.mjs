@@ -5,7 +5,7 @@ import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 import { uploadImageOriginal } from './helpers/image-upload.mjs';
 import { key, nativeClick, openParameters } from './helpers/image-first-integrated-fixture.mjs';
 
-test('the commerce node plans and generates only selected shots, retries a failure and restores the set', { timeout: 45000 }, async () => {
+test('the commerce node generates selected shots, accepts a retry during generation and restores the set', { timeout: 45000 }, async () => {
     const reference = (await readFile(new URL('./fixtures/reference-red.png', import.meta.url))).toString('base64');
     const workflowId = 'commerce-fixture';
     const nodes = [
@@ -270,13 +270,24 @@ test('the commerce node plans and generates only selected shots, retries a failu
         await app.waitFor(`document.querySelector('${fullscreenImage}')?.src === document.querySelector('${thumbnail('main')} img').src`);
         await closePreview(app, liveThumbnail);
         assert.deepEqual(await app.evaluate(openedShotIds), ['detail-overview'], 'thumbnail preview does not toggle a card');
-        await app.evaluate('window.releaseCommerceDetail()');
-        await app.waitFor(`${saved}.then(node=>node.commerceImageSet?.results?.some(row=>row.shotId==='detail'&&row.status==='failed'))`);
         assert.equal(await app.evaluate("commerceCalls.filter(call=>call.kind==='image').length"), 3);
-        await app.waitFor("document.querySelector('[data-commerce-shot-id=detail] [data-commerce-action=retry]')?.checkVisibility() && !document.querySelector('[data-commerce-shot-id=detail] [data-commerce-action=retry]').disabled");
         assert.equal(await app.evaluate("document.querySelector('[data-commerce-shot-id=detail] .commerce-image-set-shot-status').textContent"), '生成失败');
         assert.equal(await app.evaluate("document.querySelector('[data-commerce-shot-id=detail] .commerce-image-set-shot-error p').textContent"), 'Fixture detail failure');
-        await app.evaluate("document.querySelector('[data-commerce-shot-id=detail] [data-commerce-action=retry]').click()");
+        const retryFailedShot = retryIcon('detail');
+        assert.equal(await app.evaluate(`document.querySelector('${retryIcon('detail-overview')}').disabled`), true);
+        assert.equal(await app.evaluate(`document.querySelector('${retryFailedShot}').disabled`), false,
+            'a failed shot can be retried while another shot is generating');
+        assert.equal(await app.evaluate(`document.querySelector('${retryIcon('feature')}').disabled`), false,
+            'a completed shot can also be regenerated while another shot is generating');
+        assert.equal(await app.evaluate(`document.querySelector('${replanIcon('detail')}').disabled`), true);
+        await app.evaluate(`document.querySelector('${retryFailedShot}').scrollIntoView({block:'nearest'})`);
+        await nativeClick(app, retryFailedShot);
+        await app.waitFor(`document.querySelector('${shotCard('detail')}').dataset.resultStatus==='queued'`);
+        assert.equal(await app.evaluate(`document.querySelector('${shotCard('detail')} .commerce-image-set-shot-status').textContent`), '排队重试');
+        assert.equal(await app.evaluate(`document.querySelector('${retryFailedShot}').disabled`), true);
+        assert.equal(await app.evaluate("commerceCalls.filter(call=>call.kind==='image').length"), 3,
+            'the queued retry waits for the active generation');
+        await app.evaluate('window.releaseCommerceDetail()');
         await app.waitFor(`${saved}.then(node=>node.commerceImageSet?.results?.filter(row=>row.status==='completed').length===4)`);
         assert.deepEqual(await app.evaluate(openedShotIds), ['detail-overview'], 'retrying a failed shot does not toggle a card');
         await app.waitFor("document.querySelector('[data-commerce-shot-id=detail] [data-commerce-action=preview]')?.getAttribute('aria-pressed')==='true'");
@@ -316,6 +327,20 @@ test('the commerce node plans and generates only selected shots, retries a failu
         const previewKeys = "fetch('/api/storage/documents/session').then(r=>r.json()).then(d=>d.value.nodes.find(node=>node.id==='set-preview')?.mediaAssetKeys)";
         await app.waitFor(`${previewKeys}.then(keys=>keys?.length===4)`);
         assert.deepEqual(await app.evaluate(previewKeys), before.mediaAssetKeys);
+
+        const beforeToolbarRun = await app.evaluate('commerceCalls.length');
+        await app.evaluate("window.releaseCommerceDetail=null;document.getElementById('btn-run').click()");
+        await app.waitFor(`typeof window.releaseCommerceDetail==='function' && !document.getElementById('btn-stop').disabled &&
+            document.querySelector('${shotCard('detail-overview')}').dataset.resultStatus==='running'`);
+        const retryFeature = retryIcon('feature');
+        await app.evaluate(`document.querySelector('${retryFeature}').scrollIntoView({block:'nearest'})`);
+        await nativeClick(app, retryFeature);
+        await app.waitFor(`document.querySelector('${shotCard('feature')}').dataset.resultStatus==='queued'`);
+        await app.evaluate("document.getElementById('btn-stop').click();window.releaseCommerceDetail()");
+        await app.waitFor(`document.getElementById('btn-stop').disabled && !document.querySelector('${retryFeature}').disabled &&
+            document.querySelector('${shotCard('feature')}').dataset.resultStatus==='completed'`);
+        assert.deepEqual(await app.evaluate(`commerceCalls.slice(${beforeToolbarRun}).map(call=>call.shotId)`),
+            ['detail', 'feature', 'detail-overview'], 'stopping a toolbar run drops its queued retry');
 
         await reloadAppBrowser(app);
         await openParameters(app, 'commerce');
