@@ -97,6 +97,72 @@ async function expectSavedOutputCleared(app, id, oldKeys) {
     assert.notEqual(record.imageAssetReady, true, 'an empty attempt cannot advertise the old output as ready');
 }
 
+test('a held generation allows its node and an idle sibling to move together without unlocking edits', { timeout: 45000 }, async () => {
+    const ids = ['moving', 'idle'];
+    await withAppBrowser({ ...configuration, nodes: [node(ids[0], 140, 170),
+        { id: ids[1], type: 'Text', x: 610, y: 170, text: 'idle group member' }], connections: [] }, async app => {
+        await controlled(app);
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+        await app.evaluate("statusHold=['moving']");
+        await start(app, 'moving', true);
+        await app.waitFor("statusPending.moving===true&&document.getElementById('moving-run-status').textContent==='运行中'");
+        await open(app, 'moving');
+        assert.equal(await app.evaluate("document.getElementById('moving-prompt').disabled"), true);
+        assert.equal(await app.evaluate("document.querySelector('#moving .node-delete').disabled"), true);
+        await app.evaluate("document.querySelector('#moving .node-delete').click();document.querySelector('#image-parameter-panel [data-parameter-action=close]').click()");
+        assert.equal(await app.evaluate("!!document.getElementById('moving')"), true);
+
+        const geometry = () => app.evaluate(`${JSON.stringify(ids)}.map(id=>{
+            const {left,top}=document.getElementById(id).style;return {x:parseFloat(left),y:parseFloat(top)};})`);
+        const pointer = (type, point) => app.send('Input.dispatchMouseEvent', {
+            type, ...point, button: type === 'mouseMoved' ? 'none' : 'left',
+            buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1
+        });
+        const [moving, idle] = await app.evaluate(`${JSON.stringify(ids)}.map(id=>document.getElementById(id).getBoundingClientRect().toJSON())`);
+        const marqueeStart = { x: moving.left - 20, y: Math.min(moving.top, idle.top) - 20 };
+        const marqueeEnd = { x: idle.right + 20, y: Math.max(moving.bottom, idle.bottom) + 20 };
+        await pointer('mousePressed', marqueeStart);
+        try {
+            await pointer('mouseMoved', marqueeEnd);
+            await app.waitFor("['moving','idle'].every(id=>document.getElementById(id).classList.contains('selected'))");
+        } finally {
+            await pointer('mouseReleased', marqueeEnd);
+        }
+        assert.equal(await app.evaluate("document.getElementById('idle').classList.contains('running')"), false);
+
+        const before = await geometry();
+        const from = { x: (moving.left + moving.right) / 2, y: (moving.top + moving.bottom) / 2 };
+        const to = { x: from.x + 84, y: from.y + 56 };
+        assert.equal(await app.evaluate(`document.elementFromPoint(${from.x},${from.y}).closest('.node').id`), 'moving');
+        await pointer('mousePressed', from);
+        try {
+            await pointer('mouseMoved', to);
+        } finally {
+            await pointer('mouseReleased', to);
+        }
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        const moved = await geometry();
+        const dx = moved[0].x - before[0].x;
+        const dy = moved[0].y - before[0].y;
+        assert.ok(dx > 40 && dy > 20, `the running node moves during the held response: ${JSON.stringify({ before, moved })}`);
+        assert.deepEqual(moved[1], { x: before[1].x + dx, y: before[1].y + dy }, 'the idle selected node moves by the same delta');
+        assert.equal(await app.evaluate("statusPending.moving===true&&document.getElementById('image-parameter-panel').hidden"), true);
+
+        await app.evaluate("statusHold=[];statusRelease.moving()");
+        await completed(app, 'moving');
+        assert.deepEqual(await geometry(), moved, 'completing the request preserves the latest editor geometry');
+        await waitForAutosave(app);
+        const state = await saved(app);
+        assert.deepEqual(ids.map(id => {
+            const { x, y } = state.nodes.find(record => record.id === id);
+            return { x, y };
+        }), moved);
+        await reloadAppBrowser(app);
+        assert.deepEqual(await geometry(), moved);
+        assert.equal(await app.evaluate('statusRequests.length'), 0, 'restoring the move does not start generation');
+    });
+});
+
 test('waiting and running clear this attempt output and failure while preserving outside failures and locking the open reference editor', { timeout: 90000 }, async () => {
     const connection = { id: 'input-source', from: { nodeId: 'source', port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, type: 'image', order: 0 };
     await withAppBrowser({ ...configuration, nodes: [node('source', 20, 120), node('target', 500, 120, { apiConfigId: 'google' }),

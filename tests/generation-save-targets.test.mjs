@@ -196,7 +196,7 @@ test('an already running node in the run scope prevents preparation from changin
     assert.equal(f.saved, 0);
 });
 
-test('preparing on the editable workflow preserves existing saves in repeated active snapshots', async () => {
+test('merging a run into the editable workflow preserves existing saves and current node positions', async () => {
     const f = fixture();
     f.connect('existing-save', { automatic: true });
     Object.assign(f.state, { workflowTabs: [], workflowOrder: [], workflowFolders: [] });
@@ -218,15 +218,22 @@ test('preparing on the editable workflow preserves existing saves in repeated ac
     const snapshot = manager.getActiveWorkflowSnapshot();
     assert.equal(snapshot.nodes.find((node) => node.id === saveId).autoAddedForGeneration, true);
     assert.equal(snapshot.connections[0].to.nodeId, saveId);
+    const runtimeNode = snapshot.nodes.find((node) => node.id === 'generate');
+    runtimeNode.lastDuration = 1200;
+    f.source.x = 180;
+    f.source.y = -90;
     manager.updateWorkflowTabDataById('workflow-a', snapshot, {
         mergeRunResults: true, mergeWithCanvas: true,
         baseNodeIds: new Set(snapshot.nodes.map((node) => node.id)),
         baseConnectionIds: new Set(snapshot.connections.map((connection) => connection.id)),
         mergeNodeIds: new Set(f.core.resolveExecutionPlan(prepared).nodeIds)
     });
-    const nextSnapshot = manager.getActiveWorkflowSnapshot();
+    const nextSnapshot = manager.getWorkflowTabSnapshot('A');
     assert.ok(nextSnapshot.nodes.some((node) => node.id === saveId));
     assert.equal(nextSnapshot.connections[0].to.nodeId, saveId);
+    const mergedNode = nextSnapshot.nodes.find((node) => node.id === 'generate');
+    assert.equal(mergedNode.lastDuration, runtimeNode.lastDuration);
+    assert.deepEqual([mergedNode.x, mergedNode.y], [180, -90]);
 });
 
 test('automatic-save identity survives real node serialization and restoration', () => {
