@@ -2525,11 +2525,6 @@ export function createNodeDomBindingsApi({
             e.stopPropagation();
 
             const isCloneDrag = e.ctrlKey || e.metaKey;
-            if (isNodeRunning(id) && !isCloneDrag) {
-                showToast('节点正在运行，暂不能移动；按住 Ctrl 可克隆运行中的节点', 'warning');
-                return;
-            }
-
             const pos = viewportApi.screenToCanvas(e.clientX, e.clientY);
             if (mediaSurface && !state.selectedNodes.has(id)) {
                 state.dragging = createNodeDraggingState([id], pos, isCloneDrag);
@@ -2548,10 +2543,6 @@ export function createNodeDomBindingsApi({
             }
 
             const nodesToDrag = Array.from(state.selectedNodes);
-            if (!isCloneDrag && nodesToDrag.some((nodeId) => isNodeRunning(nodeId))) {
-                showToast('选区中有节点正在运行，暂不能移动', 'warning');
-                return;
-            }
             const dragging = createNodeDraggingState(nodesToDrag, pos, isCloneDrag);
             if (isCloneDrag) pushHistory();
             else dragging.promoteHistory = pushNodeMoveHistory(nodesToDrag);

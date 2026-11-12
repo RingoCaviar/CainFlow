@@ -990,7 +990,12 @@ export function createWorkflowManagerApi({
             if (!node?.id) return;
             const runtimeNode = runtimeNodeById.get(node.id);
             const shouldMergeRuntimeNode = runtimeNode && (!mergeNodeIds || mergeNodeIds.has(node.id));
-            mergedNodes.push(shouldMergeRuntimeNode ? cloneWorkflowItem(runtimeNode) : node);
+            // Runtime results can arrive after the editor has moved this node.
+            mergedNodes.push(shouldMergeRuntimeNode ? {
+                ...cloneWorkflowItem(runtimeNode),
+                x: node.x ?? runtimeNode.x,
+                y: node.y ?? runtimeNode.y
+            } : node);
             mergedNodeIds.add(node.id);
             runtimeNodeById.delete(node.id);
         });

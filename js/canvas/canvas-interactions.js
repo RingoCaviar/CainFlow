@@ -773,7 +773,7 @@ export function createCanvasInteractionsApi({
 
         const nodeId = draggingState.nodes[0];
         const node = state.nodes.get(nodeId);
-        if (!node || !hasNodeConnections(nodeId)) {
+        if (!node || isNodeRunning(nodeId) || !hasNodeConnections(nodeId)) {
             clearShakeDetachVisuals(draggingState);
             return;
         }
@@ -1099,7 +1099,6 @@ export function createCanvasInteractionsApi({
 
                 for (const nodeId of state.dragging.nodes) {
                     const node = state.nodes.get(nodeId);
-                    if (state.dragging.isCloneDrag !== true && isNodeRunning(nodeId)) continue;
                     if (node) {
                         const startPos = state.dragging.startPositions.get(nodeId);
                         const visualDx = alignCanvasDeltaToDevicePixel(dx);
