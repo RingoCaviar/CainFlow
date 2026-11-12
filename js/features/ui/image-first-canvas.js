@@ -1,6 +1,6 @@
 import { cleanupElementResources } from '../../core/common-utils.js';
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
-import { projectImageReferences } from '../../nodes/image-reference-projection.js';
+import { REFERENCE_IMAGES_PORT } from '../../nodes/reference-image-ports.js';
 import { createImageInputDetail } from './image-input-detail.js';
 import { isImageFirstCardNode } from '../../nodes/image-first-presentation.js';
 import { getCanonicalImageList, getCanonicalImageIndex } from '../execution/execution-data-utils.js';
@@ -24,7 +24,8 @@ const emptyPreviewMessages = new Set(['无输入图片', '无输入视频', '运
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
     runCurrentNode, waitForNodeRun, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
-    panelManager = null, openModelSettings = () => {}, openResultPreview = () => {} }) {
+    panelManager = null, openModelSettings = () => {}, openResultPreview = () => {},
+    openShotError = () => {}, openReferencePreview = null }) {
     const views = new Map();
     const dragClasses = new Set(['selected', 'is-interacting', 'connection-insert-candidate', 'connection-shake-armed']);
     const presentationClasses = value => (value || '').split(/\s+/).filter(name => name && !dragClasses.has(name)).sort().join(' ');
@@ -358,6 +359,9 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const node = state.nodes.get(nodeId), view = views.get(node);
         if (!view) return;
         view.commerce?.refresh();
+        if (view.referenceDetails) {
+            view.referenceDetails.hidden = !state.connections.some(edge => edge.to.nodeId === nodeId && edge.to.port === REFERENCE_IMAGES_PORT);
+        }
         const name = node.el.dataset.nodeTitle || node.customTitle || nodeLabels[node.type];
         for (const placeholder of node.el.querySelectorAll('.preview-placeholder, .save-preview-placeholder, .drop-text')) {
             const text = placeholder.textContent.trim();
@@ -373,8 +377,6 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             const settings = readImageGenerationSettings(node, documentRef);
             const model = state.models.find(item => item.id === settings.apiConfigId);
             const provider = getResolvedProviderForModel(model, state.providers, settings.providerId);
-            const references = projectImageReferences({ state, targetId: node.id });
-            if (view.referenceOverview) view.referenceOverview.hidden = references.groups.length === 0;
             const automaticLabel = value => !value || value === 'auto' ? '自动' : value;
             const resolutionLabel = settings.resolution === 'custom'
                 ? `${settings.customWidth || '自动'} × ${settings.customHeight || '自动'}`
@@ -662,7 +664,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 form.append(promptDisclosure);
             }
             installUniversalInput(node);
-            inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, swapInputConnections, moveMergeInputConnection, onChange: () => refreshNode(node.id) });
+            inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, swapInputConnections, moveMergeInputConnection,
+                openReferencePreview, onChange: () => refreshNode(node.id) });
             inputs.element.dataset.parameterGroup = 'input'; sections.push(inputs.element); form.append(inputs.element);
             references = documentRef.createElement('button'); references.type = 'button';
             references.addEventListener('click', () => select(node, 'input')); summary.append(references);
@@ -720,7 +723,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         installUniversalInput(node);
         const inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, onChange: () => refreshNode(node.id) });
         const commerce = createCommerceImageSetView({
-            node, state, documentRef, openResultPreview,
+            node, state, documentRef, openResultPreview, openShotError,
             run: (commerceAction, commerceShotId) => runCurrentNode(node.id, { commerceAction, commerceShotId }),
             waitForNodeRun: () => waitForNodeRun(node.id),
             onChange: () => onSettingsChanged(node.id)
@@ -729,9 +732,20 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         references.className = 'commerce-image-set-references';
         const referenceTitle = documentRef.createElement('h3');
         referenceTitle.textContent = '商品参考图';
-        references.append(referenceTitle, inputs.element);
+        references.append(referenceTitle);
+        const overview = node.el.querySelector('.image-reference-overview');
+        if (overview) {
+            overview.querySelector('.node-section-label')?.remove();
+            references.append(overview);
+        }
+        const referenceDetails = documentRef.createElement('details');
+        referenceDetails.className = 'commerce-image-set-reference-details';
+        const referenceSummary = documentRef.createElement('summary');
+        referenceSummary.textContent = '连接明细';
+        referenceDetails.append(referenceSummary, inputs.element);
+        references.append(referenceDetails);
         form.append(references, commerce.element, commerce.actions);
-        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections: [], inputs, commerce,
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections: [], inputs, commerce, referenceDetails,
             footerTools: commerce.actions }, []);
     }
     documentRef.addEventListener('cainflow:commerce-image-set-updated', event => {
@@ -763,9 +777,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             element.dataset.parameterGroup = name; element.hidden = true; sections.push(element);
         }
         const referenceOverview = form.querySelector('.image-reference-overview');
-        referenceOverview?.querySelector('.node-section-label')?.remove();
         if (referenceOverview) {
-            referenceOverview.classList.add('image-parameter-references');
+            referenceOverview.querySelector('.node-section-label')?.remove();
             form.prepend(referenceOverview);
         }
         const grids = Array.from(form.querySelectorAll(':scope > .node-parameter-grid'));
@@ -857,7 +870,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const batch = createImageGenerationBatchView({
             node, documentRef, progress, progressFallback: runState,
             retryImage: (imageRetryIndex, imageRetryBatchId) => runCurrentNode(node.id, { imageRetryIndex, imageRetryBatchId }),
-            openPreview: openResultPreview
+            openPreview: openResultPreview,
+            openError: openShotError
         });
         const cancel = node.el.querySelector('.node-run-cancel-btn');
         if (cancel) node.el.append(cancel);
@@ -865,7 +879,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (fullError) { fullError.tabIndex = 0; fullError.setAttribute('aria-label', '完整运行错误'); form.append(fullError); }
         body.append(placeholder, result);
         form.append(runFeedback, batch.element);
-        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, referenceOverview, placeholder, emptyText, result, countField, groupButtons, settingsPopup, settingsEntry, footerTools, batch, group: null }, [result, progress]);
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, placeholder, emptyText, result, countField, groupButtons, settingsPopup, settingsEntry, footerTools, batch, group: null }, [result, progress]);
     }
     updateMode();
     for (const type of ['input', 'change']) countSlot.addEventListener(type, () => {

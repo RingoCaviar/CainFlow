@@ -15,6 +15,7 @@ function createClassList() {
 
 function createPort(name, direction, getLeft, onRectRead = null, isVisible = () => true) {
     const dot = {
+        classList: createClassList(),
         getBoundingClientRect: () => {
             onRectRead?.();
             const size = isVisible() ? 8 : 0;
@@ -48,6 +49,10 @@ function createNode(id, x, outputPort, inputPort) {
             scrollWidth: 120,
             scrollHeight: 80,
             classList: createClassList(),
+            querySelector(selector) {
+                return selector.includes('.port-dot') && selector.includes(`data-port="${outputPort.dataset.port}"`)
+                    ? outputPort.querySelector('.port-dot') : null;
+            },
             querySelectorAll(selector) {
                 if (selector.includes('data-direction="output"')) return [outputPort];
                 if (selector.includes('data-direction="input"')) return [inputPort];
@@ -82,7 +87,10 @@ function createHarness(connectionCount, {
     connectionRenderer,
     distinctTargets = false,
     portsInitiallyVisible = true,
-    running = false
+    running = false,
+    pushHistory = () => {},
+    scheduleSave = () => {},
+    onConnectionsChanged = () => {}
 } = {}) {
     const frames = [];
     const paths = [];
@@ -190,9 +198,10 @@ function createHarness(connectionCount, {
             ? createBezierPathImpl(fromX, fromY, toX, toY, options)
             : `M ${fromX} ${fromY} L ${toX} ${toY}`,
         getConnectionSamplePoints: () => [],
-        pushHistory: () => {},
+        pushHistory,
         showToast: () => {},
-        scheduleSave: () => {},
+        scheduleSave,
+        onConnectionsChanged,
         documentRef,
         connectionRenderer
     });
@@ -211,6 +220,85 @@ function createHarness(connectionCount, {
         setOutputPortLeft(left) { outputPortLeft = left; }
     };
 }
+
+const referenceTargets = [
+    ['ImageGenerate', ['mask']],
+    ['VideoGenerate', ['image_1', 'image_2']],
+    ['TextChat', []],
+    ['ECommerceImageSet', []]
+];
+
+function createReferenceHarness(type, sourceCount, callbacks) {
+    const harness = createHarness(sourceCount, callbacks);
+    const { state } = harness;
+    state.nodes.get('to').type = type;
+    state.connections = state.connections.map((connection, index) => {
+        const sourceId = `reference-source-${index + 1}`;
+        const source = createNode(sourceId, 0, createPort('image', 'output', 120), createPort('image', 'input', 0));
+        state.nodes.set(sourceId, source);
+        return { ...connection, type: 'image', from: { nodeId: sourceId, port: 'image' }, to: { nodeId: 'to', port: 'referenceImages' } };
+    });
+    return harness;
+}
+
+for (const [type, fixedPorts] of referenceTargets) {
+    test(`${type} reorders and disconnects only its reference image sources`, () => {
+        const updates = [];
+        const { api, state } = createReferenceHarness(type, 3, {
+            pushHistory: () => updates.push('history'),
+            scheduleSave: () => updates.push('save'),
+            onConnectionsChanged: () => updates.push('projection')
+        });
+        const [last, first, implicit] = state.connections;
+        last.order = 2.5;
+        first.order = 0;
+        const fixed = fixedPorts.map(port => ({ ...first, id: port, to: { ...first.to, port } }));
+        state.connections = [last, first, ...fixed, implicit];
+
+        assert.equal(api.moveImageReferenceConnection('to', first.id, last.id), true);
+        const orders = state.connections.filter(connection => connection.to.port === 'referenceImages')
+            .map(connection => [connection.id, connection.order]);
+        assert.deepEqual(orders, [[last.id, 1], [first.id, 2], [implicit.id, 0]]);
+        for (const edge of fixed) {
+            assert.equal(state.connections.find(connection => connection.id === edge.id), edge);
+            assert.equal(api.moveImageReferenceConnection('to', first.id, edge.id), false);
+            assert.equal(api.disconnectImageReferenceConnection('to', edge.id), false);
+        }
+        assert.equal(api.disconnectImageReferenceConnection('to', last.id), true);
+        assert.deepEqual(state.connections.map(connection => connection.id), [first.id, ...fixedPorts, implicit.id]);
+        assert.deepEqual(updates, ['history', 'save', 'projection', 'history', 'save', 'projection']);
+    });
+}
+
+test('reference image adjustments preserve graph and history while either endpoint or the graph is busy', () => {
+    const updates = [];
+    const { api, state } = createReferenceHarness('ECommerceImageSet', 2, { pushHistory: () => updates.push('history') });
+    const connections = state.connections;
+    const [first, second] = connections;
+    const target = state.nodes.get('to');
+    const source = state.nodes.get(first.from.nodeId);
+    const assertLocked = () => {
+        assert.equal(api.moveImageReferenceConnection('to', first.id, second.id), false);
+        assert.equal(api.disconnectImageReferenceConnection('to', first.id), false);
+        assert.equal(state.connections, connections);
+        assert.deepEqual(updates, []);
+    };
+
+    state.runningNodeIds.add(source.id);
+    assertLocked();
+    state.runningNodeIds.clear();
+    target.runStatus = 'waiting';
+    assertLocked();
+    target.runStatus = 'completed';
+    source.runStatus = 'running';
+    assertLocked();
+    source.runStatus = 'completed';
+    state.canvasPlanApplying = true;
+    assertLocked();
+    state.canvasPlanApplying = false;
+    state.historyTransitionInProgress = true;
+    assertLocked();
+});
 
 test('node hover clears newly created and reconnected paths without geometry work on pointer transitions', () => {
     const { api, state, paths, hoverNode, leaveCanvas, getPortRectReadCount } = createHarness(1);

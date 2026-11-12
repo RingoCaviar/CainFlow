@@ -27,7 +27,7 @@ function setImage(element, url) {
     element.hidden = !url;
 }
 
-export function createCommerceImageSetView({ node, state, documentRef, run, waitForNodeRun, onChange, openResultPreview }) {
+export function createCommerceImageSetView({ node, state, documentRef, run, waitForNodeRun, onChange, openResultPreview, openShotError }) {
     const card = node.el.querySelector('.commerce-image-set-card');
     const cover = card.querySelector('img');
     const cardTitle = card.querySelector('.commerce-image-set-card-title');
@@ -177,8 +177,12 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
             <div class="commerce-image-set-shot-info">
                 <button type="button" class="commerce-image-set-shot-toggle" data-node-read-action aria-expanded="false">
                     <span class="commerce-image-set-shot-heading"><span class="commerce-image-set-shot-name"><span class="commerce-image-set-shot-chevron" aria-hidden="true"></span><strong></strong></span><span class="commerce-image-set-shot-aspect"></span></span>
-                    <span class="commerce-image-set-shot-status"></span>
                 </button>
+                <div class="commerce-image-set-shot-status-slot">
+                    <span class="commerce-image-set-shot-status"></span>
+                    <button type="button" class="image-parameter-failure-button" data-commerce-action="error-detail"
+                        data-node-read-action aria-haspopup="dialog" title="查看错误详情" hidden>生成失败</button>
+                </div>
                 <div class="commerce-image-set-shot-tools" hidden>
                     <button type="button" class="commerce-image-set-shot-action" data-commerce-action="replan-shot">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v2M13 3v5h5M8 12h4M8 16h2"/><path d="m13 17 5.5-5.5a1.4 1.4 0 0 1 2 2L15 19l-3 1z"/></svg>
@@ -190,7 +194,6 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
                 <span class="commerce-image-set-copy-summary" hidden></span>
             </div>
         </div>
-        <div class="commerce-image-set-shot-error" hidden><p></p></div>
         <div class="commerce-image-set-shot-editor" hidden>
             <p class="commerce-image-set-shot-purpose" hidden></p>
             ${shot.source === 'generate' ? `<div class="commerce-image-set-copy-fields">
@@ -204,6 +207,8 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
         const editor = row.querySelector('.commerce-image-set-shot-editor');
         const toggle = row.querySelector('.commerce-image-set-shot-toggle');
         const message = row.querySelector('.commerce-image-set-shot-status');
+        const failure = row.querySelector('[data-commerce-action="error-detail"]');
+        failure.setAttribute('aria-label', `查看「${shot.label}」生成失败详情`);
         editor.id = `${editorIdPrefix}-${shot.id}`;
         message.id = `${editor.id}-status`;
         toggle.setAttribute('aria-controls', editor.id);
@@ -224,9 +229,8 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
         replan.title = `重新生成${shot.label}方案`;
         replan.setAttribute('aria-label', replan.title);
         const retry = row.querySelector('[data-commerce-action="retry"]');
-        const error = row.querySelector('.commerce-image-set-shot-error');
         row.addEventListener('click', event => {
-            if (event.target.closest('[data-commerce-action], .commerce-image-set-shot-editor, .commerce-image-set-shot-error')) return;
+            if (event.target.closest('[data-commerce-action], .commerce-image-set-shot-editor')) return;
             const expand = editor.hidden;
             for (const [id, item] of shotRows) {
                 const expanded = expand && id === shot.id;
@@ -235,7 +239,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
                 item.toggle.setAttribute('aria-expanded', String(expanded));
             }
         });
-        return { row, editor, toggle, shotFields, image, preview, replan, retry, error, reason: error.querySelector('p'),
+        return { row, editor, toggle, shotFields, image, preview, replan, retry, failure,
             message, copySummary: row.querySelector('.commerce-image-set-copy-summary') };
     }
 
@@ -298,9 +302,8 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
                 : resultStatus === 'completed' ? '已完成' : shot.source === 'reference' ? '待应用' : '待生成';
             if (row.message.textContent !== message) row.message.textContent = message;
             row.row.dataset.resultStatus = resultStatus;
-            const reason = failed && !running ? (result.error || '') : '';
-            if (row.reason.textContent !== reason) row.reason.textContent = reason;
-            row.error.hidden = !reason;
+            row.message.hidden = resultStatus === 'failed';
+            row.failure.hidden = resultStatus !== 'failed';
             row.replan.disabled = locked || !readyToReplan;
             row.retry.disabled = !canRetry || running || queued || activeRetry || liveResult?.status === 'pending';
             const label = queued ? `${shot.label}图片已排队重试`
@@ -551,6 +554,14 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
         const action = button.dataset.commerceAction;
         const shotRow = button.closest('[data-commerce-shot-id]');
         const shotId = shotRow?.dataset.commerceShotId;
+        if (action === 'error-detail') {
+            if (button.hidden) return;
+            const value = config();
+            const shot = value.plan?.shots.find(item => item.id === shotId);
+            const result = getShotPreview(shotId) || value.results?.find(item => item.shotId === shotId);
+            if (shot && result?.status === 'failed') openShotError(shot.label, result.error || '本次生成未返回图片。');
+            return;
+        }
         if (action === 'preview') {
             const available = Array.from(shotRows, ([id, { image }]) => ({ id, src: image.getAttribute('src') }))
                 .filter(({ src }) => src);

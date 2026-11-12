@@ -5,6 +5,7 @@ import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=';
 const types = ['ImageGenerate', 'ImageImport', 'ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge', 'ImageSave', 'CameraControl'];
 const reference = { id: 'image-edge', from: { nodeId: 'image-1', port: 'image' }, to: { nodeId: 'image-0', port: 'referenceImages' }, type: 'image', order: 0 };
+const cameraReference = { id: 'camera-reference', from: reference.from, to: { nodeId: 'image-8', port: 'image' }, type: 'image' };
 const session = {
     autoCheckUpdatesOnLoad: false,
     models: [
@@ -18,7 +19,7 @@ const session = {
             ...(type === 'ImageGenerate' ? { apiConfigId: 'image', providerId: 'p', prompt: 'preserved local draft', generationCount: 1 } : {}) })),
         { id: 'text-source', type: 'Text', x: 80, y: 20, text: 'effective upstream prompt', collapsed: true, height: 35, collapsedExpandedHeight: 240 }
     ],
-    connections: [reference, { id: 'prompt-edge', from: { nodeId: 'text-source', port: 'text' }, to: { nodeId: 'image-0', port: 'prompt' }, type: 'text' }]
+    connections: [reference, cameraReference, { id: 'prompt-edge', from: { nodeId: 'text-source', port: 'text' }, to: { nodeId: 'image-0', port: 'prompt' }, type: 'text' }]
 };
 
 async function open(app, id) {
@@ -167,12 +168,12 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
 
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-input-detail')===null"), true);
         assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .node-advanced-parameters').checkVisibility()"));
-        assert.deepEqual((await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.connections)")).map(edge=>edge.id), [reference.id,'prompt-edge']);
+        assert.deepEqual((await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.connections)")).map(edge=>edge.id), [reference.id, cameraReference.id, 'prompt-edge']);
         await app.evaluate("document.querySelector('#text-source .node-delete').click()");
         await app.waitFor("!document.querySelector('#image-0-prompt-field .image-local-prompt-draft')&&!document.getElementById('image-0-prompt').readOnly");
         assert.equal(await app.evaluate("document.getElementById('image-0-prompt')===originalCompactPrompt&&originalCompactPrompt.value==='preserved local draft'"), true);
-        await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value?.connections.length===1)");
-        assert.deepEqual(await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.connections)"), [reference], 'deleting the prompt source never disconnects its image reference');
+        await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value?.connections.length===2)");
+        assert.deepEqual(await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.connections)"), [reference, cameraReference], 'deleting the prompt source never disconnects image references');
 
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-group-toggle=more]').click();originalCompactPrompt.value=Array(14).fill('long prompt line').join('\\n');originalCompactPrompt.dispatchEvent(new Event('input',{bubbles:true}))");
         await settle(app);
@@ -221,6 +222,12 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
                 assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').checkVisibility()"), false);
                 assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .image-camera-prompt-details').checkVisibility()"));
                 assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=generate]').textContent"), '编辑视角');
+                const previewButton = '#image-parameter-panel [data-input-action="preview"]';
+                await app.waitFor(`document.querySelector('${previewButton}')?.checkVisibility()`);
+                await app.evaluate(`document.querySelector('${previewButton}').focus();document.querySelector('${previewButton}').click()`);
+                await app.waitFor(`document.querySelector('.fullscreen-overlay .fullscreen-img-wrapper img')?.src===${JSON.stringify(png)}`);
+                await app.evaluate("document.querySelector('.fullscreen-overlay .fullscreen-close').click()");
+                await app.waitFor(`!document.querySelector('.fullscreen-overlay') && document.activeElement===document.querySelector('${previewButton}')`);
             }
             if (type === 'ImageSave') {
                 assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').checkVisibility()"), false);
@@ -243,6 +250,14 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         assert.ok(await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel').getBoundingClientRect(),b=document.querySelector('#image-parameter-panel [data-parameter-action=generate]').getBoundingClientRect();return b.top>=p.top&&b.bottom<=p.bottom+1})()"), 'expanded long settings keep the primary action reachable');
         await open(app, 'image-8');
         assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').dataset.mode"), 'normal');
+        const cameraMore = `#image-parameter-panel [data-input-connection-id="${cameraReference.id}"] .image-input-more`;
+        const disconnect = `${cameraMore} [data-input-action="disconnect"]`;
+        assert.ok(await app.evaluate(`document.querySelector('${cameraMore} > summary')?.checkVisibility()`));
+        await app.evaluate(`document.querySelector('${cameraMore} > summary').click()`);
+        assert.ok(await app.evaluate(`document.querySelector('${disconnect}')?.checkVisibility() && !document.querySelector('${disconnect}').disabled`));
+        await app.evaluate(`document.querySelector('${disconnect}').click()`);
+        await app.waitFor(`!document.querySelector('${cameraMore}') && !document.querySelector('[data-conn-id="${cameraReference.id}"]')`);
+        assert.ok(await app.evaluate("document.querySelector('#image-1-drop img') && document.querySelector('[data-conn-id=image-edge]')"), 'disconnecting the camera reference preserves the source and its other connection');
         await open(app, 'image-1');
         assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').dataset.mode"), 'normal', 'switching from an expanded node restores the compact import mode');
         await open(app, 'image-0');

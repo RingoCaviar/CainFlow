@@ -997,11 +997,13 @@ body:has(#toolbar [aria-expanded="true"]:not(#btn-prompt-agent)) .help-panel {
     border: 1px solid rgba(239, 68, 68, 0.2);
     border-radius: var(--radius-sm);
     padding: 12px 16px;
-    color: #f87171;
+    color: var(--text-danger);
     font-size: 13px;
     font-weight: 500;
     margin-bottom: 16px;
     line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
 }
 
 .error-suggestion-box {

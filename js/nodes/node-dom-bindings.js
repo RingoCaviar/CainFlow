@@ -34,7 +34,7 @@ import { resolveProtocolVariant } from '../features/execution/protocols/protocol
 import { resolveDeclarativeProtocolVariant } from '../features/execution/protocols/declarative-protocol-schema.js';
 import { bindProtocolNumberStepControls } from './protocol-event-binder.js';
 import { bindMouseNodeRunCancelHold } from './node-run-cancel-hold.js';
-import { isMultiConnectionInput } from './reference-image-ports.js';
+import { isMultiConnectionInput, REFERENCE_IMAGE_NODE_TYPES } from './reference-image-ports.js';
 import { describeVideoProtocolCard } from './video-protocol-card.js';
 import {
     applyGenerationInputProjection,
@@ -126,7 +126,9 @@ export function createNodeDomBindingsApi({
             }
             pushHistory(); toggleNodesEnabled([sourceId], sourceId); return true;
         },
-        onLayout: scheduleConnectedInputFieldLayout });
+        onLayout: nodeId => {
+            if (state.nodes.get(nodeId)?.type !== 'ECommerceImageSet') scheduleConnectedInputFieldLayout(nodeId);
+        } });
     const nodeResults = createImageNodeResults({ state, documentRef, createActions: createImageResultActions,
         readAsset: readResultAsset, readSourceImages: readReferenceSourceImages, createThumbnail: createResultThumbnail,
         rememberThumbnail: rememberResultThumbnail, scheduleSave, onLayout: scheduleConnectedInputFieldLayout, showToast });
@@ -375,9 +377,9 @@ export function createNodeDomBindingsApi({
         const node = state.nodes.get(nodeId);
         if (!node?.el) return false;
         let changed = false;
+        if (REFERENCE_IMAGE_NODE_TYPES.has(node.type)) referenceOverview.render(nodeId);
         if (node.type === 'ImageGenerate') {
             changed = syncImagePromptSource(nodeId) || changed;
-            referenceOverview.render(nodeId);
             nodeResults.render(nodeId);
             renderImageNodeRunState(node);
         }
@@ -875,6 +877,7 @@ export function createNodeDomBindingsApi({
         const root = documentRef.getElementById(id);
         if (!root || !node) return;
         applyGenerationInputProjection(root, node.generationInputProjection);
+        referenceOverview.render(id);
     }
 
     function bindNodePorts(container) {
@@ -1233,7 +1236,7 @@ export function createNodeDomBindingsApi({
         if (!node?.isClone) return;
         queryNodeControls(el, '.node-body input, .node-body select, .node-body textarea, .node-body button, .node-select-trigger').forEach((control) => {
             if (control.hasAttribute('data-node-read-action')) return;
-            if (node.type === 'ImageGenerate' && control.hasAttribute('data-node-connection-action')) return;
+            if (REFERENCE_IMAGE_NODE_TYPES.has(node.type) && control.hasAttribute('data-node-connection-action')) return;
             control.dataset.cloneLocked = '1';
             control.classList.add('clone-locked-control');
             if (control.tagName === 'TEXTAREA' || control.tagName === 'INPUT') {

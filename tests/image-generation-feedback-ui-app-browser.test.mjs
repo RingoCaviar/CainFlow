@@ -135,6 +135,7 @@ test('a genuinely incomplete batch says partially completed with its real progre
 
 test('the parameter panel tracks individual images and retries just the failed slot without replacing or reordering successful results', { timeout: 45000 }, async () => {
     const id = 'batch-retry';
+    const slotFailure = JSON.stringify({ error: { message: `fixture failure for image 2\n${'provider-id'.repeat(60)}` } }, null, 2);
     const originals = await Promise.all(['red', 'green', 'blue'].map(color => readFile(new URL(`./fixtures/reference-${color}.png`, import.meta.url))));
     const hashes = originals.map(image => createHash('sha256').update(image).digest('hex'));
     const initScript = `
@@ -153,7 +154,7 @@ test('the parameter panel tracks individual images and retries just the failed s
                 releaseImageBatchRequest[index] = imageIndex => {
                     options.signal?.removeEventListener('abort', onAbort);
                     resolve(imageIndex < 0
-                        ? Response.json({ error: { message: 'fixture failure for image 2' } }, { status: 400 })
+                        ? new Response(${JSON.stringify(slotFailure)}, { status: 400, headers: { 'Content-Type': 'application/json' } })
                         : Response.json({ data: [{ b64_json: images[imageIndex] }] }));
                 };
             });
@@ -162,6 +163,7 @@ test('the parameter panel tracks individual images and retries just the failed s
     const section = `${panel} .image-generation-batch`;
     const failedSlot = `${section} [data-image-batch-slot="1"]`;
     const retry = `${failedSlot} [data-image-batch-retry]`;
+    const errorDetails = `${failedSlot} button[data-image-batch-error]`;
     const preview = `${failedSlot} [data-image-batch-preview]`;
     const rows = `Array.from(document.querySelectorAll('${section} [data-image-batch-slot]'))`;
     const statuses = `${rows}.map(row=>row.dataset.status)`;
@@ -180,10 +182,19 @@ test('the parameter panel tracks individual images and retries just the failed s
         await waitForStates(app, ['running', 'failed', 'completed']);
         assert.equal(await app.evaluate(`(()=>{const preview=document.querySelector('${section} [data-image-batch-slot="2"] [data-image-batch-preview]');return preview.checkVisibility()&&!preview.disabled})()`), true, 'completed images can be previewed while other slots run');
         assert.equal(await app.evaluate(`document.querySelector('${retry}')?.checkVisibility() === true && document.querySelector('${retry}').disabled`), true);
-        const error = `${failedSlot} details`;
-        await app.evaluate(`document.querySelector('${error} summary').click()`);
-        assert.match(await app.evaluate(`document.querySelector('${error}[open] p')?.innerText`), /fixture failure for image 2/);
-        await app.evaluate(`document.querySelector('${error} summary').click()`);
+        assert.equal(await app.evaluate(`document.querySelector('${failedSlot}').innerText.includes('fixture failure for image 2')`), false);
+        assert.equal(await app.evaluate(`document.querySelector('${errorDetails}')?.textContent`), '生成失败');
+        await app.evaluate(`document.querySelector('${errorDetails}').scrollIntoView({block:'nearest'})`);
+        await press(app, errorDetails);
+        await app.waitFor("document.getElementById('modal-error').classList.contains('active')");
+        assert.match(await app.evaluate("document.getElementById('error-modal-title').textContent"), /第 2 张/);
+        const errorText = await app.evaluate("document.getElementById('error-modal-msg').innerText");
+        assert.match(errorText, /fixture failure for image 2/);
+        assert.match(errorText, /\n/, 'provider error line breaks are preserved');
+        assert.equal(await app.evaluate("(()=>{const reason=document.getElementById('error-modal-msg');return reason.scrollWidth<=reason.clientWidth+1})()"), true);
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
+        await app.waitFor("!document.getElementById('modal-error').classList.contains('active')");
 
         await app.evaluate('releaseImageBatchRequest[0](0)');
         await waitForStates(app, ['completed', 'failed', 'completed']);
@@ -202,6 +213,7 @@ test('the parameter panel tracks individual images and retries just the failed s
 
         await app.evaluate('releaseImageBatchRequest[3](1)');
         await waitForStates(app, ['completed', 'completed', 'completed']);
+        assert.equal(await app.evaluate(`document.querySelector('${errorDetails}').checkVisibility()`), false);
         await app.waitFor(`(${assetKeys}).then(keys=>keys.length===3)`);
         const saved = await app.evaluate(assetKeys);
         assert.deepEqual([saved[0], saved[2]], successes, 'retry preserves the identities of the two already-saved images');

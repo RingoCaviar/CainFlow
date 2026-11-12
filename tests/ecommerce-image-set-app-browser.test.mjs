@@ -66,7 +66,7 @@ test('the commerce node generates selected shots, accepts a retry during generat
     const saved = `fetch('/api/storage/documents/session').then(r=>r.json()).then(d=>d.value.nodes.find(node=>node.id==='commerce'))`;
     const commerceLogs = `Array.from(document.querySelectorAll('#log-list .log-item'), row => ({
         title: row.querySelector('.log-summary-text').textContent,
-        status: row.querySelector('.log-type-tag').textContent,
+        status: row.querySelector('.log-type-tag').textContent.trim(),
         summary: row.querySelector('.log-item-summary')?.textContent
     })).filter(log => log.title.startsWith('电商套图 · '))`;
     const planButton = "document.querySelector('[data-commerce-action=plan]')";
@@ -276,8 +276,25 @@ test('the commerce node generates selected shots, accepts a retry during generat
         await closePreview(app, liveThumbnail);
         assert.deepEqual(await app.evaluate(openedShotIds), ['detail-overview'], 'thumbnail preview does not toggle a card');
         assert.equal(await app.evaluate("commerceCalls.filter(call=>call.kind==='image').length"), 3);
-        assert.equal(await app.evaluate("document.querySelector('[data-commerce-shot-id=detail] .commerce-image-set-shot-status').textContent"), '生成失败');
-        assert.equal(await app.evaluate("document.querySelector('[data-commerce-shot-id=detail] .commerce-image-set-shot-error p').textContent"), 'Fixture detail failure');
+        const failureButton = `${shotCard('detail')} button[data-commerce-action=error-detail]`;
+        const errorDialog = "document.getElementById('modal-error')";
+        assert.equal(await app.evaluate(`document.querySelector('${shotCard('detail')}').textContent.includes('Fixture detail failure')`), false);
+        assert.equal(await app.evaluate(`document.querySelector('${failureButton}')?.textContent.trim()`), '生成失败');
+        await app.evaluate(`document.querySelector('${failureButton}').scrollIntoView({block:'nearest'})`);
+        await nativeClick(app, failureButton);
+        await app.waitFor(`${errorDialog}.checkVisibility()`);
+        assert.equal(await app.evaluate(`${errorDialog}.getAttribute('role')`), 'dialog');
+        assert.equal(await app.evaluate(`${errorDialog}.contains(document.activeElement)`), true);
+        assert.match(await app.evaluate("document.getElementById('error-modal-title').textContent"), /商品特写/);
+        assert.equal(await app.evaluate("document.getElementById('error-modal-msg').textContent"), 'Fixture detail failure');
+        await key(app, 'Escape');
+        await app.waitFor(`!${errorDialog}.checkVisibility()`);
+        assert.equal(await app.evaluate(`document.activeElement===document.querySelector('${failureButton}')`), true);
+        await key(app, 'Enter');
+        await app.waitFor(`${errorDialog}.checkVisibility()`);
+        await key(app, 'Escape');
+        await app.waitFor(`!${errorDialog}.checkVisibility()`);
+        assert.deepEqual(await app.evaluate(openedShotIds), ['detail-overview'], 'reading a failed shot does not toggle a card');
         const liveLogs = await app.evaluate(commerceLogs);
         assert.ok(liveLogs.some(log => log.title.includes('生成方案') && log.status === '成功'));
         assert.ok(liveLogs.some(log => log.title.includes('生成图片「商品特写」') && log.status === '失败'
