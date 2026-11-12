@@ -89,6 +89,8 @@ test('successful status never covers the original result operations or the param
         await app.evaluate("feedbackSuccess=true;document.querySelector('[data-parameter-action=generate]').click()");
         await app.waitFor("document.getElementById('success-run-status')?.dataset.status==='completed'&&document.querySelector('#success [data-result-action=reference]')");
         await app.waitFor("document.querySelector('#success .image-node-result-preview img')?.naturalWidth>0");
+        assert.equal(await app.evaluate("document.querySelector('#success .image-result-actions').offsetParent === document.getElementById('success')"),
+            true, 'the toolbar is anchored to the node even when the result preview changes size');
         await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
         await app.waitFor("document.getElementById('image-parameter-panel').getBoundingClientRect().top>=document.querySelector('#success .image-result-actions').getBoundingClientRect().bottom");
         await app.waitFor("(()=>{const el=document.querySelector('#success [data-result-action=reference]'),r=el.getBoundingClientRect();return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()");
