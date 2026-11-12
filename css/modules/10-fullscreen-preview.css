@@ -1,10 +1,11 @@
 /* ===== Fullscreen Overlay ===== */
 .fullscreen-overlay {
+    --preview-scrim-color: 30 32 36;
     position: fixed;
     inset: var(--app-chrome-top-offset, 0px) 0 0 var(--app-chrome-left-offset, 0px);
-    background: #000;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
+    background: rgb(var(--preview-scrim-color) / 76%);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
     z-index: var(--layer-immersive);
     display: flex;
     align-items: center;
@@ -19,14 +20,16 @@
 }
 
 .fullscreen-stage {
+    position: relative;
     width: 100%;
     height: 100%;
-    display: flex;
-    align-items: stretch;
-    justify-content: center;
-    gap: 20px;
-    padding: 0;
-    box-sizing: border-box;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.fullscreen-stage > :is(.preview-zoom-controls, .fullscreen-download-status) {
+    grid-area: 1 / 1 / 2 / 2;
 }
 
 .fullscreen-close {
@@ -190,16 +193,14 @@
 }
 
 .fullscreen-img-wrapper {
-    flex: 1;
     min-width: 0;
-    height: 100%;
+    min-height: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: grab;
     overflow: hidden;
     border-radius: 0;
-    background: #000;
 }
 
 .fullscreen-img-wrapper img {
@@ -212,31 +213,27 @@
 }
 
 .fullscreen-thumb-rail {
-    width: 124px;
-    flex: 0 0 124px;
+    min-width: 0;
     display: flex;
-    align-items: center;
     justify-content: center;
-    pointer-events: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgb(var(--preview-scrim-color) / 28%);
 }
 
 .fullscreen-thumb-track {
-    width: 100%;
-    max-height: 100%;
-    overflow-y: auto;
-    overflow-x: hidden;
+    width: max-content;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 14px;
-    padding: 24px 10px;
+    gap: 8px;
+    padding: 8px 12px;
     box-sizing: border-box;
-    scroll-behavior: smooth;
-    pointer-events: auto;
 }
 
 .fullscreen-thumb-track::-webkit-scrollbar {
-    width: 6px;
+    height: 6px;
 }
 
 .fullscreen-thumb-track::-webkit-scrollbar-thumb {
@@ -245,19 +242,19 @@
 }
 
 .fullscreen-thumb-item {
-    width: 92px;
+    flex: none;
+    width: clamp(56px, 10vmin, 88px);
+    box-sizing: border-box;
     border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 18px;
+    border-radius: 10px;
     background: rgba(255, 255, 255, 0.05);
-    padding: 8px;
+    padding: 4px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: 4px;
     cursor: pointer;
     color: rgba(255, 255, 255, 0.82);
-    transform: scale(1);
-    transition: transform 0.22s ease, border-color 0.22s ease, background 0.22s ease, box-shadow 0.22s ease, opacity 0.22s ease;
     opacity: 0.78;
 }
 
@@ -268,18 +265,21 @@
 }
 
 .fullscreen-thumb-item.is-active {
-    transform: scale(1.1);
     opacity: 1;
     border-color: rgba(255, 255, 255, 0.9);
     background: rgba(255, 255, 255, 0.12);
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22), 0 14px 34px rgba(0, 0, 0, 0.32);
+}
+
+.fullscreen-thumb-item:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: -3px;
 }
 
 .fullscreen-thumb-item img {
     width: 100%;
     aspect-ratio: 1 / 1;
     object-fit: cover;
-    border-radius: 12px;
+    border-radius: 6px;
     display: block;
     pointer-events: none;
 }
@@ -301,31 +301,10 @@
         padding: 6px 12px;
         gap: 8px 12px;
     }
+}
 
-    .fullscreen-stage {
-        gap: 12px;
-        padding: 0;
-    }
-
-    .fullscreen-thumb-rail {
-        width: 88px;
-        flex-basis: 88px;
-    }
-
-    .fullscreen-thumb-track {
-        gap: 10px;
-        padding: 20px 4px;
-    }
-
-    .fullscreen-thumb-item {
-        width: 72px;
-        padding: 6px;
-        border-radius: 14px;
-    }
-
-    .fullscreen-thumb-item img {
-        border-radius: 10px;
-    }
+@media (max-width: 520px) {
+    .fullscreen-stage > .fullscreen-download-status:not([hidden]) { bottom: 72px; }
 }
 
 .fullscreen-overlay.fullscreen-ignore-chrome {

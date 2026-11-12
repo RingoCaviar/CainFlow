@@ -7,23 +7,10 @@
 import { createMediaControllerApi } from '../../js/features/media/media-controller.js';
 import { createPromptAgentController } from '../../js/features/prompt-agent/prompt-agent-controller.js';
 const result = {};
-try {
-    const image = (color) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="${color}"/></svg>`)}`;
-    const old = [image('red'), image('blue')];
-    const node = { id: 'generation', type: 'ImageGenerate', imagePreviewIndex: 0, data: { images: [image('green')] } };
-    let saved = 0;
-    const api = createMediaControllerApi({
-        state: { nodes: new Map([[node.id, node]]), selectedNodes: new Set() },
-        getNodeById: (id) => id === node.id ? node : null,
-        getImageResolution: async () => ({ width: 40, height: 40 }),
-        estimateDataUrlSize: () => 100,
-        showToast() {}, addLog() {}, scheduleSave() { saved++; },
-        documentRef: document, windowRef: window
-    });
+
+async function verifyAgentResultPreview(api, old, node, params, readSaveCount) {
     const page = new DOMParser().parseFromString(await (await fetch('../../index.html')).text(), 'text/html');
     document.body.appendChild(document.importNode(page.getElementById('prompt-agent-panel'), true));
-    const params = new URLSearchParams(location.search);
-    document.documentElement.dataset.appTheme = params.get('theme') || 'light';
     const controller = createPromptAgentController({
         documentRef: document,
         getChatModels: () => [{ id: 'chat', modelId: 'chat', name: '对话模型' }],
@@ -66,11 +53,82 @@ try {
     result.zoomed = displayed.style.transform !== before;
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     result.closed = !document.querySelector('.fullscreen-overlay');
-    result.nodeUnchanged = node.imagePreviewIndex === 0 && saved === 0;
+    result.nodeUnchanged = node.imagePreviewIndex === 0 && readSaveCount() === 0;
     thumbnails[0].click();
     await new Promise((resolve) => setTimeout(resolve, 0));
     result.clickOpens = document.querySelector('.fullscreen-img-wrapper > img')?.src === old[0];
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+}
+
+async function verifyThumbnailStrip(api, image) {
+    const images = Array.from({ length: 24 }, (_, index) => image(`hsl(${index * 15}, 65%, 48%)`, 1200, 1600));
+    await api.openFullscreenPreview(images[0], null, { images, index: 0 });
+    const overlay = document.querySelector('.fullscreen-overlay');
+    const main = overlay.querySelector('.fullscreen-img-wrapper');
+    const displayed = main.querySelector('img');
+    await displayed.decode();
+    const rail = overlay.querySelector('.fullscreen-thumb-rail');
+    const track = rail.querySelector('.fullscreen-thumb-track');
+    const thumbnails = [...track.querySelectorAll('.fullscreen-thumb-item')];
+    const mainRect = main.getBoundingClientRect();
+    const imageRect = displayed.getBoundingClientRect();
+    const railRect = rail.getBoundingClientRect();
+    const zoomRect = overlay.querySelector('.preview-zoom-controls').getBoundingClientRect();
+    const overlayRect = overlay.getBoundingClientRect();
+    const first = thumbnails[0].getBoundingClientRect();
+    const second = thumbnails[1].getBoundingClientRect();
+    result.viewportWidth = innerWidth;
+    result.stripBelowMain = railRect.top >= mainRect.bottom - 1 && railRect.bottom <= overlayRect.bottom + 1;
+    result.mainImageFits = mainRect.width === overlayRect.width && imageRect.height > 0
+        && imageRect.top >= mainRect.top - 1 && imageRect.bottom <= mainRect.bottom + 1;
+    result.zoomClearsStrip = zoomRect.height > 0 && zoomRect.bottom <= railRect.top + 1
+        && zoomRect.left >= overlayRect.left && zoomRect.right <= overlayRect.right;
+    result.horizontalOrder = second.left > first.left && Math.abs(second.top + second.height / 2 - first.top - first.height / 2) < 2;
+    result.horizontalOverflow = track.scrollWidth > track.clientWidth;
+
+    const initialScroll = track.scrollLeft;
+    const beforeWheel = displayed.style.transform;
+    track.dispatchEvent(new WheelEvent('wheel', { deltaY: 90, bubbles: true, cancelable: true }));
+    result.wheelScrollsStrip = track.scrollLeft > initialScroll && displayed.style.transform === beforeWheel;
+    track.scrollLeft = initialScroll;
+    const last = thumbnails.at(-1);
+    const lastIsVisible = () => {
+        const buttonRect = last.getBoundingClientRect();
+        const trackRect = track.getBoundingClientRect();
+        return track.scrollLeft > initialScroll && buttonRect.left >= trackRect.left - 1 && buttonRect.right <= trackRect.right + 1;
+    };
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+    result.keyboardSelectsLast = displayed.src === images.at(-1) && last.classList.contains('is-active');
+    if (result.horizontalOverflow) {
+        for (let attempt = 0; attempt < 25 && !lastIsVisible(); attempt++) {
+            await new Promise(resolve => setTimeout(resolve, 40));
+        }
+    }
+    result.keyboardRevealsLast = lastIsVisible();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+
+    await api.openFullscreenPreview(images[0], null, { images: [images[0]], index: 0 });
+    result.singleImageHasNoStrip = !document.querySelector('.fullscreen-overlay .fullscreen-thumb-rail');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+}
+
+try {
+    const image = (color, width = 40, height = 40) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="${color}"/></svg>`)}`;
+    const old = [image('red'), image('blue')];
+    const node = { id: 'generation', type: 'ImageGenerate', imagePreviewIndex: 0, data: { images: [image('green')] } };
+    let saved = 0;
+    const api = createMediaControllerApi({
+        state: { nodes: new Map([[node.id, node]]), selectedNodes: new Set() },
+        getNodeById: (id) => id === node.id ? node : null,
+        getImageResolution: async () => ({ width: 40, height: 40 }),
+        estimateDataUrlSize: () => 100,
+        showToast() {}, addLog() {}, scheduleSave() { saved++; },
+        documentRef: document, windowRef: window
+    });
+    const params = new URLSearchParams(location.search);
+    document.documentElement.dataset.appTheme = params.get('theme') || 'light';
+    if (params.has('strip')) await verifyThumbnailStrip(api, image);
+    else await verifyAgentResultPreview(api, old, node, params, () => saved);
 } catch (error) { result.error = error.stack || error.message; }
 document.getElementById('surface-result').textContent = JSON.stringify(result);
 </script></body></html>
