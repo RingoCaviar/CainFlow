@@ -663,6 +663,15 @@ export function createWorkflowRuntimeManager({
             .find((context) => context.state?.runningNodeIds?.has(nodeId)) || null;
     }
 
+    async function waitForNodeRun(workflow, nodeId) {
+        const context = getWorkflowRunContexts(workflow).find(entry => entry.activePlanNodeIds.has(nodeId));
+        if (!context) return true;
+        const runtimeNode = context.state.nodes.get(nodeId);
+        // The context settles after the results have been merged into the editor.
+        await context.promise;
+        return !context.stopController.signal.aborted && runtimeNode?.runStatus !== 'aborted';
+    }
+
     function getActivePlanNodeIds(workflowReference) {
         const nodeIds = new Set();
         getWorkflowRunContexts(workflowReference).forEach((context) => {
@@ -2288,7 +2297,8 @@ export function createWorkflowRuntimeManager({
         releaseEditorView,
         refreshVisibleWorkflowRunState,
         runWorkflowInContext,
-        syncGlobalRunToolbarState
+        syncGlobalRunToolbarState,
+        waitForNodeRun
     };
 }
 import { serializeConnection } from '../../canvas/connection-snapshot.js';

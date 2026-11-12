@@ -23,7 +23,7 @@ const emptyPreviewMessages = new Set(['无输入图片', '无输入视频', '运
 
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
-    runCurrentNode, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
+    runCurrentNode, waitForNodeRun, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
     panelManager = null, openModelSettings = () => {}, focusNode = () => {}, openResultPreview = () => {} }) {
     const views = new Map();
     const dragClasses = new Set(['selected', 'is-interacting', 'connection-insert-candidate', 'connection-shake-armed']);
@@ -730,6 +730,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const commerce = createCommerceImageSetView({
             node, state, documentRef, openResultPreview,
             run: (commerceAction, commerceShotId) => runCurrentNode(node.id, { commerceAction, commerceShotId }),
+            waitForNodeRun: () => waitForNodeRun(node.id),
             onChange: () => onSettingsChanged(node.id)
         });
         const references = documentRef.createElement('section');

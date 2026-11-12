@@ -27,7 +27,7 @@ function setImage(element, url) {
     element.hidden = !url;
 }
 
-export function createCommerceImageSetView({ node, state, documentRef, run, onChange, openResultPreview }) {
+export function createCommerceImageSetView({ node, state, documentRef, run, waitForNodeRun, onChange, openResultPreview }) {
     const card = node.el.querySelector('.commerce-image-set-card');
     const cover = card.querySelector('img');
     const cardTitle = card.querySelector('.commerce-image-set-card-title');
@@ -105,7 +105,9 @@ export function createCommerceImageSetView({ node, state, documentRef, run, onCh
     const config = () => (node.data.commerceImageSet ??= { platformId: defaultPlatformId, selectedShotIds: [] });
     const shotRows = new Map();
     const optionKeys = new WeakMap();
-    let pending = false;
+    const queuedRetries = new Set();
+    let pendingAction = null;
+    let drainingRetries = false;
     let runMessage = '';
     let shotStructure = '';
     let choicePlatform = '';
@@ -181,7 +183,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, onCh
                     <button type="button" class="commerce-image-set-shot-action" data-commerce-action="replan-shot">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v2M13 3v5h5M8 12h4M8 16h2"/><path d="m13 17 5.5-5.5a1.4 1.4 0 0 1 2 2L15 19l-3 1z"/></svg>
                     </button>
-                    <button type="button" class="commerce-image-set-shot-action" data-commerce-action="retry">
+                    <button type="button" class="commerce-image-set-shot-action" data-commerce-action="retry" data-node-read-action>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 20H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v5M3 16l4-4 3 3 3-3"/><circle cx="8" cy="8" r="1"/><path d="M21 14v4h-4m4 0a4 4 0 1 0-1.1 3.2"/></svg>
                     </button>
                 </div>
@@ -241,7 +243,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, onCh
         return node.commerceShotPreviews?.[shotId];
     }
 
-    function renderShots(plan, results, { locked, readyToReplan, readyToGenerate, shownShotId }) {
+    function renderShots(plan, results, { locked, readyToReplan, canRetry, shownShotId }) {
         const planShots = plan?.shots || [];
         const structure = JSON.stringify(planShots.map(({ id, label, aspect, source, group, allowCopy, purpose }) => [id, label, aspect, source, group, allowCopy, purpose]));
         if (structure !== shotStructure) {
@@ -274,7 +276,8 @@ export function createCommerceImageSetView({ node, state, documentRef, run, onCh
         for (const shot of planShots) {
             const row = shotRows.get(shot.id);
             const savedResult = savedResults.get(shot.id);
-            const result = getShotPreview(shot.id) || savedResult;
+            const liveResult = getShotPreview(shot.id);
+            const result = liveResult || savedResult;
             for (const field of row.shotFields) {
                 if (documentRef.activeElement !== field) field.value = shot[field.dataset.commerceShotField] || '';
                 field.disabled = locked;
@@ -287,16 +290,21 @@ export function createCommerceImageSetView({ node, state, documentRef, run, onCh
             row.preview.hidden = !previewUrl;
             row.preview.setAttribute('aria-pressed', String(shownShotId === shot.id));
             const failed = result?.status === 'failed';
-            const message = failed ? '生成失败'
-                : result?.status === 'completed' ? '已完成' : result?.status === 'running' ? '正在生成' : shot.source === 'reference' ? '待应用' : '待生成';
+            const activeRetry = pendingAction?.action === 'retry' && pendingAction.shotId === shot.id;
+            const running = result?.status === 'running' || (activeRetry && (!liveResult || liveResult.status === 'pending'));
+            const queued = queuedRetries.has(shot.id);
+            const resultStatus = running ? 'running' : queued ? 'queued' : result?.status || 'pending';
+            const message = running ? '正在生成' : queued ? '排队重试' : failed ? '生成失败'
+                : resultStatus === 'completed' ? '已完成' : shot.source === 'reference' ? '待应用' : '待生成';
             if (row.message.textContent !== message) row.message.textContent = message;
-            row.row.dataset.resultStatus = result?.status || 'pending';
-            const reason = failed ? (result.error || '') : '';
+            row.row.dataset.resultStatus = resultStatus;
+            const reason = failed && !running ? (result.error || '') : '';
             if (row.reason.textContent !== reason) row.reason.textContent = reason;
             row.error.hidden = !reason;
             row.replan.disabled = locked || !readyToReplan;
-            row.retry.disabled = locked || !readyToGenerate;
-            const label = `${savedResult?.status === 'completed' ? '重新生成' : failed ? '重试' : '生成'}${shot.label}图片`;
+            row.retry.disabled = !canRetry || running || queued || activeRetry || liveResult?.status === 'pending';
+            const label = queued ? `${shot.label}图片已排队重试`
+                : `${savedResult?.status === 'completed' ? '重新生成' : failed ? '重试' : '生成'}${shot.label}图片`;
             if (row.retry.title !== label) {
                 row.retry.title = label;
                 row.retry.setAttribute('aria-label', label);
@@ -316,8 +324,9 @@ export function createCommerceImageSetView({ node, state, documentRef, run, onCh
         const referenceIssue = references.count > 5 ? '套图最多使用 5 张参考图，请调整输入。'
             : references.groups.some(group => group.running) ? '请等待参考图来源运行完成。'
             : !references.count || references.slots.some(slot => slot.missing) ? '请连接 1 至 5 张可读取的商品参考图。' : '';
-        const busy = pending || state.runningNodeIds?.has(node.id) || ['waiting', 'running'].includes(node.runStatus);
-        const locked = busy || node.enabled === false || node.isClone === true;
+        const busy = pendingAction || drainingRetries || state.runningNodeIds?.has(node.id) || ['waiting', 'running'].includes(node.runStatus);
+        const unavailable = node.enabled === false || node.isClone === true;
+        const locked = busy || unavailable;
         const plan = value.plan;
         if ((plan?.sourceKey ?? null) !== planSourceKey) {
             planSourceKey = plan?.sourceKey ?? null;
@@ -338,6 +347,8 @@ export function createCommerceImageSetView({ node, state, documentRef, run, onCh
             ));
         const readyToGenerate = currentPlan && !referenceIssue && (!needsImageModel || image.ready) && !missingPrompt;
         const readyToReplan = currentPlan && !referenceIssue && planner.ready && !missingPrompt;
+        const canRetry = readyToGenerate && !unavailable
+            && (!busy || node.commerceShotPreviews || pendingAction?.action === 'retry' || drainingRetries);
         setOptions(fields.platformId, Object.values(COMMERCE_IMAGE_SET_PRESETS).map(item => [item.id, item.label]), platformId);
         for (const [group] of shotGroups) {
             const field = `${group}Aspect`;
@@ -390,7 +401,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, onCh
         cardTitle.textContent = node.el.dataset.nodeTitle || '电商套图';
         cardProgress.textContent = progress || (priorAssets.length ? `上次套图 · ${priorAssets.length} 张`
             : plan ? `${completed.length} / ${plan.shots.length} 张` : '');
-        renderShots(plan, results, { locked, readyToReplan, readyToGenerate, shownShotId: latestShot?.id || savedCover?.shotId });
+        renderShots(plan, results, { locked, readyToReplan, canRetry, shownShotId: latestShot?.id || savedCover?.shotId });
     }
 
     function setShotSelection(value, ids) {
@@ -465,28 +476,17 @@ export function createCommerceImageSetView({ node, state, documentRef, run, onCh
         } else return;
         runMessage = '';
     });
-    async function handleAction(event) {
-        const button = event.target.closest('[data-commerce-action]');
-        if (!button || button.disabled) return;
-        const action = button.dataset.commerceAction;
-        const shotId = button.closest('[data-commerce-shot-id]')?.dataset.commerceShotId;
-        if (action === 'preview') {
-            const available = Array.from(shotRows, ([id, { image }]) => ({ id, src: image.getAttribute('src') }))
-                .filter(({ src }) => src);
-            const index = available.findIndex(({ id }) => id === shotId);
-            if (index < 0) return;
-            activeShotId = shotId;
-            refresh();
-            await openResultPreview(available.map(({ src }) => src), index, () => {
-                if (button.isConnected && !button.closest('[hidden], [inert]')) button.focus({ preventScroll: true });
-            });
-            return;
+    const isCurrentNode = () => state.nodes.get(node.id) === node;
+
+    function restoreActionFocus(row, button) {
+        if (row && documentRef.activeElement === row && !button.disabled && button.checkVisibility()) {
+            button.focus({ preventScroll: true });
         }
-        if (pending) return;
+    }
+
+    async function runAction(action, shotId) {
         const actionShot = shotId ? config().plan?.shots.find(shot => shot.id === shotId) : null;
-        const actionRow = actionShot && documentRef.activeElement === button ? button.closest('[data-commerce-shot-id]') : null;
-        actionRow?.focus({ preventScroll: true });
-        pending = true;
+        pendingAction = { action, shotId };
         runMessage = action === 'plan' ? '正在规划套图…'
             : action === 'replan-shot' && actionShot ? `正在重新规划「${actionShot.label}」…`
                 : actionShot ? `正在生成「${actionShot.label}」图片…` : '正在生成图片…';
@@ -506,20 +506,79 @@ export function createCommerceImageSetView({ node, state, documentRef, run, onCh
                 setup.open = !config().plan;
             }
             if (action === 'replan-shot' && actionShot && !runMessage) runMessage = `「${actionShot.label}」方案已更新。`;
+            return result !== false && result?.executed !== false && result?.outcome !== 'stopped' && node.runStatus !== 'aborted';
         } catch (error) {
             runMessage = error?.message || '执行失败。';
+            return false;
         } finally {
-            pending = false;
-            if (state.nodes.get(node.id) === node) {
+            pendingAction = null;
+            if (isCurrentNode()) {
                 if (action === 'retry' && actionShot && runMessage && config().results?.some(row => row.shotId === shotId && row.status === 'completed')) {
                     runMessage = `「${actionShot.label}」重试未完成，已保留上一张图片。${runMessage}`;
                 }
                 refresh();
-                if (actionRow && documentRef.activeElement === actionRow && !button.disabled && button.checkVisibility()) {
-                    button.focus({ preventScroll: true });
-                }
             }
         }
+    }
+
+    async function drainRetries() {
+        if (pendingAction || drainingRetries || !queuedRetries.size) return;
+        drainingRetries = true;
+        try {
+            if (!isCurrentNode() || !(await waitForNodeRun())) return;
+            for (const shotId of queuedRetries) {
+                if (!isCurrentNode()) return;
+                queuedRetries.delete(shotId);
+                refresh();
+                const shotView = shotRows.get(shotId);
+                if (!shotView || shotView.retry.disabled) continue;
+                const canContinue = await runAction('retry', shotId);
+                restoreActionFocus(shotView.row, shotView.retry);
+                if (!canContinue) return;
+            }
+        } catch (error) {
+            runMessage = error?.message || '无法继续重试。';
+        } finally {
+            queuedRetries.clear();
+            drainingRetries = false;
+            if (isCurrentNode()) refresh();
+        }
+    }
+
+    async function handleAction(event) {
+        const button = event.target.closest('[data-commerce-action]');
+        if (!button || button.disabled) return;
+        const action = button.dataset.commerceAction;
+        const shotRow = button.closest('[data-commerce-shot-id]');
+        const shotId = shotRow?.dataset.commerceShotId;
+        if (action === 'preview') {
+            const available = Array.from(shotRows, ([id, { image }]) => ({ id, src: image.getAttribute('src') }))
+                .filter(({ src }) => src);
+            const index = available.findIndex(({ id }) => id === shotId);
+            if (index < 0) return;
+            activeShotId = shotId;
+            refresh();
+            await openResultPreview(available.map(({ src }) => src), index, () => {
+                if (button.isConnected && !button.closest('[hidden], [inert]')) button.focus({ preventScroll: true });
+            });
+            return;
+        }
+        const actionRow = documentRef.activeElement === button ? shotRow : null;
+        actionRow?.focus({ preventScroll: true });
+        if (action === 'retry') {
+            queuedRetries.add(shotId);
+            refresh();
+            await drainRetries();
+            return;
+        }
+        if (!pendingAction && !drainingRetries) {
+            if (await runAction(action, shotId)) await drainRetries();
+            else if (queuedRetries.size) {
+                queuedRetries.clear();
+                if (isCurrentNode()) refresh();
+            }
+        }
+        restoreActionFocus(actionRow, button);
     }
     element.addEventListener('click', handleAction);
     actions.addEventListener('click', handleAction);
