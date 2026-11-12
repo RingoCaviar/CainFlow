@@ -106,9 +106,15 @@ test('retrying as concurrent input batches cannot inherit an earlier serial medi
 for (const concurrent of [false, true]) {
     test(`input-batch media persistence cannot report success or reuse a partial batch key (concurrent=${concurrent})`, async () => {
         let fail = true;
-        const f = fixture({ concurrent, saveMedia: serial => fail
-            ? (concurrent || serial > 2 ? null : { asset_key: `media:partial-${serial}` })
-            : { asset_key: `media:complete-${serial}` } });
+        const prompts = [];
+        const f = fixture({ concurrent,
+            fetchRef: async (_url, { body }) => {
+                prompts.push(JSON.parse(body).prompt);
+                return Response.json({ data: [{ b64_json: png }] });
+            },
+            saveMedia: serial => fail
+                ? (concurrent || serial > 2 ? null : { asset_key: `media:partial-${serial}` })
+                : { asset_key: `media:complete-${serial}` } });
         f.state.nodes.set('prompts', { id: 'prompts', type: 'Text', enabled: true, data: { texts: ['first', 'second'] }, el: element() });
         f.state.connections.push({ id: 'batch-input', from: { nodeId: 'prompts', port: 'text' }, to: { nodeId: f.node.id, port: 'prompt' }, type: 'text' });
         await f.run();
@@ -117,10 +123,12 @@ for (const concurrent of [false, true]) {
         assert.equal(f.node.data.mediaAssetKeys, undefined);
         assert.equal(f.node.data.imageResultPersistence, 'transient');
         fail = false;
+        prompts.length = 0;
         await f.run();
         assert.equal(f.node.isSucceeded, true);
         assert.equal(f.node.data.mediaAssetKeys.length, 2);
         assert.ok(f.node.data.mediaAssetKeys.every(key => key.startsWith('media:complete-')));
+        assert.deepEqual(prompts, ['first', 'second']);
     });
 }
 
@@ -157,6 +165,24 @@ test('partial concurrent provider success keeps changed settings pending', async
     assert.equal(f.node.generationCompletedCount, 1);
     assert.equal(f.node.generationDirty, true);
     assert.equal(f.node.data.generationRevision.successFingerprint, undefined);
+});
+
+test('a failed image slot rejects retry after its generation recipe changes', async () => {
+    let requests = 0;
+    const f = fixture({ concurrent: true, count: 2, fetchRef: async () => ++requests === 2
+        ? Response.json({ error: { message: 'second image failed' } }, { status: 400 })
+        : Response.json({ data: [{ b64_json: png }] }) });
+    await f.run();
+    const originalKeys = f.node.data.mediaAssetKeys.slice();
+    const { batchId } = f.node.data.concurrentRequestStatus;
+    f.node.data.prompt = 'different prompt';
+    f.revision.onSettingsChanged(f.node.id);
+    await f.runner.runWorkflow({ mode: 'selected-only', selectedNodeIds: [f.node.id],
+        imageRetryNodeId: f.node.id, imageRetryIndex: 1, imageRetryBatchId: batchId });
+    assert.equal(requests, 2);
+    assert.match(f.node.executionFailure.message, /参数或输入已变更/);
+    assert.deepEqual(f.node.data.mediaAssetKeys, originalKeys);
+    assert.deepEqual(f.node.data.concurrentRequestStatus.requests.map(request => request.status), ['success', 'failed']);
 });
 
 test('upstream original replacement marks a consumer pending and an in-scope run confirms the newly persisted source recipe', async () => {

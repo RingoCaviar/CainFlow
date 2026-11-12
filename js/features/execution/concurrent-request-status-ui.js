@@ -1,22 +1,25 @@
 export function normalizeConcurrentRequestStatusPayload(statusPayload = {}) {
     const requests = Array.isArray(statusPayload.requests) ? statusPayload.requests : [];
     const total = Math.max(0, parseInt(statusPayload.total ?? requests.length, 10) || 0);
+    const byIndex = new Map(requests.map((request, index) => [Math.max(0, parseInt(request?.index ?? index, 10) || 0), request]));
     const normalizedRequests = Array.from({ length: total }, (_, index) => {
-        const source = requests.find((request, requestIndex) => (
-            Math.max(0, parseInt(request?.index ?? requestIndex, 10) || 0) === index
-        )) || {};
-        const status = source.status === 'success' || source.status === 'failed'
-            ? source.status
-            : 'running';
+        const source = byIndex.get(index) || {};
+        const status = ['queued', 'success', 'failed', 'canceled'].includes(source.status) ? source.status : 'running';
         return {
             index,
             status,
-            error: typeof source.error === 'string' ? source.error : ''
+            error: typeof source.error === 'string' ? source.error : '',
+            ...(status === 'success' && Number.isInteger(source.resultIndex) && source.resultIndex >= 0
+                ? { resultIndex: source.resultIndex } : {})
         };
     });
     return {
         total,
-        requests: normalizedRequests
+        requests: normalizedRequests,
+        ...(typeof statusPayload.batchId === 'string' && statusPayload.batchId
+            ? { batchId: statusPayload.batchId } : {}),
+        ...(typeof statusPayload.recipeFingerprint === 'string' && statusPayload.recipeFingerprint
+            ? { recipeFingerprint: statusPayload.recipeFingerprint } : {})
     };
 }
 
@@ -172,7 +175,7 @@ export function renderConcurrentRequestStatusPanel(node, statusPayload = {}, {
 } = {}) {
     if (!node?.el) return null;
     const normalized = normalizeConcurrentRequestStatusPayload(statusPayload);
-    if (normalized.total <= 0) {
+    if (normalized.total <= (node.type === 'ImageGenerate' ? 1 : 0)) {
         removeConcurrentRequestStatusPanel(node);
         return null;
     }

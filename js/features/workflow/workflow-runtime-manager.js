@@ -72,8 +72,8 @@ const WORKFLOW_RUNTIME_STATE_KEYS = [
     'videoRequestTimeoutSeconds'
 ];
 
-const IMAGE_RESULT_NODE_TYPES = new Set(['ImageGenerate', 'ImagePreview', 'ImageSave', 'ImageResize', 'ImageCompare', 'ImageMerge']);
-const CANONICAL_IMAGE_NODE_TYPES = new Set(['ImageGenerate', 'ImageMerge', 'ImagePreview', 'ImageSave']);
+const IMAGE_RESULT_NODE_TYPES = new Set(['ImageGenerate', 'ECommerceImageSet', 'ImagePreview', 'ImageSave', 'ImageResize', 'ImageCompare', 'ImageMerge']);
+const CANONICAL_IMAGE_NODE_TYPES = new Set(['ImageGenerate', 'ECommerceImageSet', 'ImageMerge', 'ImagePreview', 'ImageSave']);
 
 export function createRuntimeForwardedMediaReferenceApi({ runtimeState, workflowId, referenceMediaAsset, removeMediaReference }) {
     const getRuntimeNode = (nodeId) => runtimeState.nodes.get(nodeId);
@@ -399,6 +399,9 @@ export function serializeRuntimeNode(node, doc) {
     if (node.type === 'CustomParams') {
         serialized.params = Array.isArray(node.data?.params) ? clonePlainValue(node.data.params) : [];
     }
+    if (node.type === 'ECommerceImageSet' && node.data?.commerceImageSet) {
+        serialized.commerceImageSet = clonePlainValue(node.data.commerceImageSet);
+    }
     if (node.type === 'CameraControl') {
         serialized.pitch = Number(node.data?.pitch ?? 12);
         serialized.yaw = Number(node.data?.yaw ?? 28);
@@ -677,6 +680,18 @@ export function createWorkflowRuntimeManager({
 
     function syncVisibleGenerationProgress(node, runtimeNode) {
         if (!node?.id || !runtimeNode) return;
+        if (node.type === 'ECommerceImageSet') {
+            if (runtimeNode.apiGenerationProgress && state.runningNodeIds.has(node.id)) {
+                node.apiGenerationProgress = { ...runtimeNode.apiGenerationProgress };
+            } else delete node.apiGenerationProgress;
+            if (runtimeNode.commerceShotPreviews && state.runningNodeIds.has(node.id)) {
+                node.commerceShotPreviews = { ...runtimeNode.commerceShotPreviews };
+            } else delete node.commerceShotPreviews;
+            if (typeof documentRef.defaultView?.CustomEvent === 'function') {
+                documentRef.dispatchEvent(new documentRef.defaultView.CustomEvent('cainflow:commerce-image-set-updated', { detail: { nodeId: node.id } }));
+            }
+            return;
+        }
         if (node.type === 'ImageGenerate') {
             const progress = runtimeNode.apiGenerationProgress;
             if (progress && Number.isInteger(progress.completed) && Number.isInteger(progress.total)
@@ -839,10 +854,10 @@ export function createWorkflowRuntimeManager({
         syncVisibleGenerationProgress(node, runtimeNode);
     }
 
-    async function syncVisibleNodeResult(workflow, runtimeNodeId) {
+    async function syncVisibleNodeResult(workflow, runtimeNodeId, sourceContext = null) {
         const reference = requireStableWorkflowReference(workflow);
         if (!isActiveWorkflow(reference) || !runtimeNodeId) return false;
-        const context = getWorkflowRunContexts(reference)
+        const context = sourceContext || getWorkflowRunContexts(reference)
             .find((entry) => entry.state?.nodes?.has(runtimeNodeId));
         const runtimeNode = context?.state?.nodes?.get(runtimeNodeId);
         const node = state.nodes.get(runtimeNodeId);
@@ -860,6 +875,9 @@ export function createWorkflowRuntimeManager({
         } else {
             delete node.data.concurrentRequestStatus;
         }
+        if (Array.isArray(runtimeNode.imageGenerationRequestImages)) {
+            node.imageGenerationRequestImages = runtimeNode.imageGenerationRequestImages.slice();
+        } else delete node.imageGenerationRequestImages;
 
         if (runtimeNode.type === 'ImagePreview') {
             const images = getCanonicalImageList(runtimeNode, { includeResizePreview: false });
@@ -941,6 +959,9 @@ export function createWorkflowRuntimeManager({
             const images = getCanonicalImageList(runtimeNode, { includeResizePreview: false });
             const currentImages = getCanonicalImageList(node, { includeResizePreview: false });
             const runtimeAssets = runtimeNode.data?.mediaAssetKeys || [];
+            const mappedResults = runtimeNode.data?.concurrentRequestStatus?.requests.filter(request => request.status === 'success') || [];
+            const hasMappedAssets = mappedResults.length > 0 && mappedResults.length === runtimeAssets.length
+                && mappedResults.every((request, index) => request.resultIndex === index);
             const currentAssets = node.data?.mediaAssetKeys || [];
             const sameAssets = runtimeAssets.length > 0 && runtimeAssets.length === currentAssets.length && runtimeAssets.every((key, index) => key === currentAssets[index]);
             const sameImages = images.length > 0 && images.length === currentImages.length && images.every((image, index) => image === currentImages[index]);
@@ -963,7 +984,7 @@ export function createWorkflowRuntimeManager({
                 node.imagePromptList = Array.isArray(runtimeNode.imagePromptList) ? runtimeNode.imagePromptList.slice() : [];
                 node.previewZoom = 1;
                 await showResolutionBadge(runtimeNodeId, images[node.imagePreviewIndex || 0] || images[0]);
-            } else if (runtimeNode.isSucceeded === true && runtimeAssets.length > 0) {
+            } else if ((runtimeNode.isSucceeded === true || hasMappedAssets) && runtimeAssets.length > 0) {
                 // Releasing decoded pixels does not discard a successful durable batch or its viewing index.
                 clearCanonicalImageOutput(node, { preservePreviewIndex: true, preservePreviewThumbnail: true });
                 node.data.mediaAssetKeys = runtimeAssets.slice();
@@ -976,7 +997,24 @@ export function createWorkflowRuntimeManager({
                 delete node.data.mediaAssetKeys;
                 node.imagePromptList = [];
             }
+            if (hasMappedAssets && !state.runningNodeIds.has(node.id)) delete node.imageGenerationRequestImages;
             syncVisibleImageGenerateAsyncUi(runtimeNode, node);
+            syncVisibleGenerationProgress(node, runtimeNode);
+        } else if (runtimeNode.type === 'ECommerceImageSet') {
+            node.data.commerceImageSet = clonePlainValue(runtimeNode.data?.commerceImageSet || {});
+            const images = getCanonicalImageList(runtimeNode, { includeResizePreview: false });
+            const assetKeys = runtimeNode.data?.mediaAssetKeys || [];
+            if (images.length) {
+                setCanonicalImageOutput(node, images, { defaultToFirst: true, assetKey: assetKeys[0],
+                    imageCount: images.length, assetReady: runtimeNode.data?.imageAssetReady === true });
+            } else if (assetKeys.length) {
+                clearCanonicalImageOutput(node, { preservePreviewIndex: true });
+                node.data.imageAssetKey = assetKeys[0];
+                node.data.imageCount = assetKeys.length;
+                node.data.imageAssetReady = true;
+                node.data.imageMemoryReleased = true;
+            }
+            node.data.mediaAssetKeys = assetKeys.slice();
             syncVisibleGenerationProgress(node, runtimeNode);
         } else if (runtimeNode.type === 'TextChat') {
             syncVisibleTextChatNode(runtimeNode, node);
@@ -1128,7 +1166,7 @@ export function createWorkflowRuntimeManager({
     function setVisibleNodeControlsLocked(node, locked) {
         if (!node?.el) return;
         node.el.classList.toggle('running-locked', locked);
-        const selector = 'input, select, textarea, button:not(.node-run-cancel-btn):not([data-parameter-group-toggle])';
+        const selector = 'input, select, textarea, button:not(.node-run-cancel-btn, [data-parameter-group-toggle], [data-node-read-action])';
         const controls = new Set(node.el.querySelectorAll(selector));
         node.parameterRoot?.querySelectorAll(selector).forEach(control => controls.add(control));
         controls.forEach((control) => {
@@ -1156,6 +1194,7 @@ export function createWorkflowRuntimeManager({
             state.runningNodeCancelHandlers.delete(nodeId);
             const node = state.nodes.get(nodeId);
             if (!node?.el) return;
+            if (node.type === 'ECommerceImageSet') syncVisibleGenerationProgress(node, {});
             node.el.classList.remove('running', 'running-locked');
             node.el.querySelector('.node-run-cancel-btn')?.classList.remove('is-holding', 'is-canceling');
             setVisibleNodeControlsLocked(node, false);
@@ -1226,6 +1265,11 @@ export function createWorkflowRuntimeManager({
 
         if (payload.status === 'concurrent-request-status') {
             renderVisibleConcurrentRequestStatus(node, payload.concurrentRequestStatus);
+            if (Array.isArray(payload.imageGenerationRequestImages)) {
+                node.imageGenerationRequestImages = payload.imageGenerationRequestImages;
+            }
+            if (payload.imageGenerationProgress) syncVisibleGenerationProgress(node, { apiGenerationProgress: payload.imageGenerationProgress });
+            onVisibleNodeChanged(nodeId);
             return;
         }
 
@@ -1235,9 +1279,12 @@ export function createWorkflowRuntimeManager({
         }
         if (payload.status === 'waiting') {
             node.isSucceeded = false;
-            if (node.type === 'ImageGenerate') {
+            if (node.type === 'ECommerceImageSet') syncVisibleGenerationProgress(node, {});
+            if (node.type === 'ImageGenerate' && !payload.preserveImageBatch) {
                 clearCanonicalImageOutput(node);
                 delete node.data.mediaAssetKeys;
+                delete node.data.concurrentRequestStatus;
+                delete node.imageGenerationRequestImages;
                 delete node.apiGenerationProgress;
                 node.generationCompletedCount = 0;
                 node.generationAttemptIncomplete = false;
@@ -1251,8 +1298,11 @@ export function createWorkflowRuntimeManager({
 
         if (payload.running === true || payload.status === 'running') {
             const startedAt = Number(payload.startedAt) || Date.now();
-            removeConcurrentRequestStatusPanel(node);
-            if (node.data?.concurrentRequestStatus) delete node.data.concurrentRequestStatus;
+            if (!payload.preserveImageBatch) {
+                removeConcurrentRequestStatusPanel(node);
+                if (node.data?.concurrentRequestStatus) delete node.data.concurrentRequestStatus;
+                delete node.imageGenerationRequestImages;
+            }
             workflowRunViewNodeIds.add(nodeId);
             state.runningNodeIds.add(nodeId);
             state.runningNodeCancelHandlers.set(nodeId, () => {
@@ -1270,6 +1320,7 @@ export function createWorkflowRuntimeManager({
         }
 
         clearVisibleNodeRunState(nodeId);
+        if (node.type === 'ECommerceImageSet') syncVisibleGenerationProgress(node, {});
 
         const status = payload.status || 'idle';
         if (status === 'completed') {
@@ -1315,7 +1366,9 @@ export function createWorkflowRuntimeManager({
         }
         contexts.forEach((context) => {
             context.state.nodes.forEach((runtimeNode, nodeId) => {
-                if (runtimeNode.runStatus === 'waiting') applyVisibleNodeRunState(workflowReference, { nodeId, status: 'waiting' });
+                if (runtimeNode.runStatus === 'waiting') applyVisibleNodeRunState(workflowReference, {
+                    nodeId, status: 'waiting', preserveImageBatch: runtimeNode.imageGenerationRetryActive === true
+                });
             });
             context.state.runningNodeIds?.forEach((nodeId) => {
                 const runtimeNode = context.state.nodes.get(nodeId);
@@ -1324,13 +1377,17 @@ export function createWorkflowRuntimeManager({
                     nodeId,
                     status: 'running',
                     running: true,
-                    startedAt: runtimeNode?.runStartedAt || Date.now()
+                    startedAt: runtimeNode?.runStartedAt || Date.now(),
+                    preserveImageBatch: runtimeNode?.imageGenerationRetryActive === true
                 });
+                if (runtimeNode?.type === 'ECommerceImageSet') syncVisibleGenerationProgress(state.nodes.get(nodeId), runtimeNode);
                 if (runtimeNode?.data?.concurrentRequestStatus?.total > 0) {
                     applyVisibleNodeRunState(workflowReference, {
                         nodeId,
                         status: 'concurrent-request-status',
-                        concurrentRequestStatus: runtimeNode.data.concurrentRequestStatus
+                        concurrentRequestStatus: runtimeNode.data.concurrentRequestStatus,
+                        imageGenerationRequestImages: runtimeNode.imageGenerationRequestImages,
+                        imageGenerationProgress: runtimeNode.imageGenerationRetryActive ? runtimeNode.apiGenerationProgress : undefined
                     });
                 }
             });
@@ -1814,10 +1871,11 @@ export function createWorkflowRuntimeManager({
             fitNodeToContent: () => {},
             scheduleSave: () => syncRuntimeWorkflowSnapshot(context),
             getActiveWorkflowId: () => workflowId,
-            onNodeResultUpdated: (nodeId, { progressOnly = false } = {}) => {
+            onNodeResultUpdated: (nodeId, { progressOnly = false, downstreamImageResults = false } = {}) => {
                 if (progressOnly) {
                     const runtimeNode = runtimeState.nodes.get(nodeId);
                     const visibleNode = state.nodes.get(nodeId);
+                    if (runtimeNode?.type === 'ECommerceImageSet' && !context.activePlanNodeIds.has(nodeId)) return;
                     if (runtimeNode && visibleNode && isActiveWorkflow({ workflowId, workflowName })) {
                         syncVisibleGenerationProgress(visibleNode, runtimeNode);
                         onVisibleNodeChanged(nodeId);
@@ -1825,7 +1883,18 @@ export function createWorkflowRuntimeManager({
                     return;
                 }
                 syncRuntimeNodeSnapshot(context, nodeId, { applyToCanvas: false });
-                void syncVisibleNodeResult({ workflowId, workflowName }, nodeId);
+                void syncVisibleNodeResult({ workflowId, workflowName }, nodeId, context);
+                if (downstreamImageResults) {
+                    const downstreamIds = new Set(runtimeState.connections
+                        .filter(connection => connection.from.nodeId === nodeId && connection.from.port === 'image')
+                        .map(connection => connection.to.nodeId));
+                    for (const targetId of downstreamIds) {
+                        const targetNode = runtimeState.nodes.get(targetId);
+                        if (!['ImagePreview', 'ImageSave'].includes(targetNode?.type)) continue;
+                        syncRuntimeNodeSnapshot(context, targetId, { applyToCanvas: false });
+                        void syncVisibleNodeResult({ workflowId, workflowName }, targetId, context);
+                    }
+                }
             },
             getAbortMessage,
             updateAllConnections: skipHiddenConnectionRefresh,
@@ -1912,7 +1981,7 @@ export function createWorkflowRuntimeManager({
                         dirty: true,
                         applyToCanvas: false
                     });
-                    void syncVisibleNodeResult({ workflowId, workflowName }, payload.nodeId);
+                    void syncVisibleNodeResult({ workflowId, workflowName }, payload.nodeId, context);
                     // ImageGenerate 完成后，立即把图片同步到主画布的下游 ImagePreview/ImageSave 节点，
                     // 不再等待 ImagePreview 自身执行完成（解决预览空白、刷新后旧图等问题）。
                     const completedRuntimeNode = context.state.nodes.get(payload.nodeId);

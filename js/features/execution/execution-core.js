@@ -17,12 +17,13 @@ import {
     buildUnifiedVideoRequest,
     extractImageResult,
     getEffectiveProtocol,
+    getModelsForTask,
     getOpenAiImageContents,
     getResolvedProviderForModel,
     getResolvedProviderIdForModel,
     resolveProviderUrl
 } from './provider-request-utils.js';
-import { resolveImageRequestSize } from './image-generation-size.js';
+import { getImageAspectOptionsForProtocol, resolveImageRequestSize, usesOpenAiImageSize } from './image-generation-size.js';
 import { getOpenAiImageCapabilities } from './openai-image-capabilities.js';
 import { createChatRequestPlan, executeChatRequestPlan } from './chat-request-plan.js';
 import {
@@ -49,6 +50,12 @@ import { persistVideoResultForNode } from '../media/video/video-result-persisten
 import { readColorResetConfig } from '../media/color-reset-config.js';
 import { getNodeImageResultPersistence, IMAGE_RESULT_PERSISTENCE } from '../../nodes/registry.js';
 import { getIncludedAutoSaveNodeIds } from './generation-save-targets.js';
+import {
+    buildCommerceImageSetImagePrompt,
+    commerceImageSetSourceKey,
+    createCommerceImageSetPlan,
+    normalizeCommerceImageSetState
+} from '../ecommerce-image-set/commerce-image-set-plan.js';
 
 export function createExecutionCoreApi({
     state,
@@ -878,6 +885,20 @@ export function createExecutionCoreApi({
         const mode = runInput.mode === 'target-node' || runInput.mode === 'selected-only'
             ? runInput.mode
             : 'all';
+        const commerceNodeId = runInput.commerceNodeId;
+        const commerceAction = runInput.commerceAction;
+        const commerceTargeted = mode === 'selected-only' && selectedNodeIds.length === 1 && selectedNodeIds[0] === commerceNodeId
+            && state.nodes.get(commerceNodeId)?.type === 'ECommerceImageSet' && ['plan', 'replan-shot', 'generate', 'retry'].includes(commerceAction);
+        if (commerceAction === 'replan-shot' && (!commerceTargeted || typeof runInput.commerceShotId !== 'string' || !runInput.commerceShotId)) {
+            throw new Error('请选择一个需要重新规划的图位。');
+        }
+        const { imageRetryNodeId, imageRetryIndex, imageRetryBatchId } = runInput;
+        const imageRetry = imageRetryNodeId !== undefined || imageRetryIndex !== undefined || imageRetryBatchId !== undefined;
+        if (imageRetry && (mode !== 'selected-only' || selectedNodeIds.length !== 1 || selectedNodeIds[0] !== imageRetryNodeId
+            || state.nodes.get(imageRetryNodeId)?.type !== 'ImageGenerate' || !Number.isInteger(imageRetryIndex) || imageRetryIndex < 0
+            || typeof imageRetryBatchId !== 'string' || !imageRetryBatchId)) {
+            throw new Error('找不到要重试的图片，请重新打开生成结果。');
+        }
 
         return {
             mode,
@@ -885,6 +906,11 @@ export function createExecutionCoreApi({
             selectedNodeIds,
             ...(runInput.agentSequential === true ? { agentSequential: true } : {}),
             ...(runInput.requestSource === 'agent' ? { requestSource: 'agent' } : {}),
+            ...(commerceTargeted ? {
+                commerceNodeId, commerceAction,
+                ...(typeof runInput.commerceShotId === 'string' ? { commerceShotId: runInput.commerceShotId } : {})
+            } : {}),
+            ...(imageRetry ? { imageRetryNodeId, imageRetryIndex, imageRetryBatchId } : {}),
             ...(Array.isArray(runInput.includedAutoSaveNodeIds) ? {
                 includedAutoSaveNodeIds: [...new Set(runInput.includedAutoSaveNodeIds.filter((id) => (
                     typeof id === 'string' && state.nodes.has(id)
@@ -1050,8 +1076,10 @@ export function createExecutionCoreApi({
         // Automatic saves are the only downstream work added to a bounded run.
         // Recheck the saved marker and live connection instead of trusting IDs
         // supplied by a caller or retained from an older workflow snapshot.
-        getIncludedAutoSaveNodeIds(state, scopeNodeSet, runOptions.includedAutoSaveNodeIds)
-            .forEach((nodeId) => scopeNodeSet.add(nodeId));
+        if (!runOptions.imageRetryNodeId) {
+            getIncludedAutoSaveNodeIds(state, scopeNodeSet, runOptions.includedAutoSaveNodeIds)
+                .forEach((nodeId) => scopeNodeSet.add(nodeId));
+        }
 
         const nodeIds = Array.from(scopeNodeSet);
         const {
@@ -1701,7 +1729,181 @@ export function createExecutionCoreApi({
         return entries.flatMap(([, value]) => normalizeImageList(value));
     }
 
+    async function executeCommerceImageSet(node, inputs, signal, { commerceAction = 'generate', commerceShotId } = {}) {
+        signal?.throwIfAborted();
+        const settings = normalizeCommerceImageSetState(node.data?.commerceImageSet);
+        const sourceImages = normalizeImageList(inputs.referenceImages);
+        if (!sourceImages.length || sourceImages.length > 5) throw new Error('请连接 1 至 5 张商品参考图。');
+        const references = await Promise.all(sourceImages.map(async image => {
+            if (isInlineImageData(image)) return image;
+            if (isRemoteImageUrl(image)) return blobToDataUrl(await downloadGeneratedImage(image, signal));
+            throw new Error('无法读取商品参考图，请重新连接原图。');
+        }));
+        signal?.throwIfAborted();
+        if (commerceAction === 'plan' || commerceAction === 'replan-shot') {
+            const replanningShot = commerceAction === 'replan-shot';
+            if (replanningShot && !commerceShotId) throw new Error('请选择一个需要重新规划的图位。');
+            const plan = await createCommerceImageSetPlan({ settings, references, models: state.models,
+                providers: state.providers, fetchRef, getProxyHeaders, signal,
+                shotId: replanningShot ? commerceShotId : undefined });
+            signal?.throwIfAborted();
+            node.data.commerceImageSet = { ...settings, plan, results: replanningShot ? settings.results : [] };
+            onNodeResultUpdated(node.id);
+            return;
+        }
+
+        const { plan } = settings;
+        const retryingShot = commerceAction === 'retry';
+        if (!plan || (!plan.confirmed && !retryingShot)) throw new Error('请先规划电商套图并确认方案。');
+        const target = plan.shots.find(shot => shot.id === commerceShotId);
+        if (commerceShotId && !target) throw new Error('找不到所选图位。');
+        if (retryingShot && target?.source !== 'generate') throw new Error('请选择一个需要生图的图位。');
+        if (plan.sourceKey !== await commerceImageSetSourceKey({ settings, references })) {
+            throw new Error('商品资料、参考图、图位或规划模型已改变，请重新规划并确认。');
+        }
+        const workflowId = getActiveWorkflowId();
+        if (!workflowId) throw new Error('套图结果需要保存到当前工作流。');
+        const generationInputs = { referenceImages: references };
+        const generatedShots = plan.shots.filter(shot => shot.source === 'generate' && (!commerceShotId || shot.id === commerceShotId));
+        let imageSettings;
+        if (generatedShots.length) {
+            const imageModel = getModelsForTask(state.models, 'image').find(model => model.id === settings.imageModelId);
+            const providerId = settings.imageProviderId;
+            const imageProvider = imageModel && providerId && getResolvedProviderIdForModel(imageModel, state.providers, providerId) === providerId
+                ? getResolvedProviderForModel(imageModel, state.providers, providerId) : null;
+            if (!imageModel || !imageProvider?.apikey) throw new Error('请选择绑定且已配置密钥的生图模型与供应商。');
+            const protocol = getEffectiveProtocol(imageModel, imageProvider);
+            if (!['openai', 'google', 'ttapi', 'ttapi-openai'].includes(protocol)) {
+                throw new Error('电商套图需要支持商品参考图的同步生图模型。');
+            }
+            const sizeProtocol = protocol === 'ttapi-openai' ? 'openai' : protocol;
+            const aspectOptions = getImageAspectOptionsForProtocol(sizeProtocol, imageModel.modelId);
+            const unsupportedShot = generatedShots.find(shot => !aspectOptions.some(option => option.value === shot.aspect));
+            if (unsupportedShot) {
+                throw new Error(`当前生图模型不支持直接生成「${unsupportedShot.label}」的 ${unsupportedShot.aspect} 比例。请更换生图模型，或调整该组比例并重新规划。`);
+            }
+            imageSettings = { apiConfigId: imageModel.id, providerId, generationCount: 1,
+                resolution: usesOpenAiImageSize(protocol) ? '1K' : '', protocolParams: {} };
+            assertImageInputCompatibility(node, generationInputs, imageSettings);
+        }
+
+        const previous = new Map(retryingShot ? settings.results.map(row => [row.shotId, row]) : []);
+        const retainedImages = new Map();
+        if (retryingShot) {
+            for (const shot of plan.shots) {
+                const assetKey = previous.get(shot.id)?.assetKey;
+                if (!assetKey || shot === target) continue;
+                const message = `无法读取已保存的「${shot.label}」图片，请恢复该图片后重试。`;
+                let image;
+                try {
+                    image = await getImageAsset(assetKey);
+                } catch (cause) {
+                    if (isAbortLikeError(cause, signal)) throw cause;
+                    throw new Error(message, { cause });
+                }
+                if (!image) throw new Error(message);
+                retainedImages.set(shot.id, image);
+            }
+            signal?.throwIfAborted();
+        }
+        const images = [];
+        const results = [];
+        let firstError;
+        const previews = Object.fromEntries(plan.shots
+            .filter(shot => !commerceShotId || commerceShotId === shot.id)
+            .map(shot => [shot.id, { status: 'pending' }]));
+        node.commerceShotPreviews = previews;
+        const reportProgress = (shotId, preview) => {
+            if (shotId) previews[shotId] = preview;
+            node.apiGenerationProgress = retryingShot
+                ? { completed: Number(previews[commerceShotId].status === 'completed'), total: 1 }
+                : { completed: images.length, total: plan.shots.length };
+            onNodeResultUpdated(node.id, { progressOnly: true });
+        };
+        try {
+            reportProgress();
+            for (const shot of plan.shots) {
+                signal?.throwIfAborted();
+                const last = previous.get(shot.id);
+                try {
+                    let image = retainedImages.get(shot.id) || '';
+                    const reused = !!image;
+                    if (!image && (!commerceShotId || commerceShotId === shot.id)) {
+                        reportProgress(shot.id, { status: 'running' });
+                        if (shot.source === 'reference') {
+                            image = references[0];
+                            await saveImageGenerationHistoryEntry({ nodeId: node.id, image, prompt: shot.label,
+                                model: '商品原图', generationDurationSeconds: getNodeGenerationDurationSeconds(node) });
+                        } else {
+                            // Keep 4:5 exact at roughly 1K, using dimensions aligned to 16 pixels.
+                            const size = imageSettings.resolution === '1K' && shot.aspect === '4:5'
+                                ? { resolution: 'custom', customWidth: '832', customHeight: '1040' }
+                                : { aspect: shot.aspect };
+                            const { image: generated } = await nodeHandlers.ImageGenerate(node, generationInputs, signal, {
+                                commerceImageRequest: {
+                                    prompt: buildCommerceImageSetImagePrompt({ shot, plan, productNotes: settings.productNotes }),
+                                    settings: { ...imageSettings, ...size }
+                                }
+                            });
+                            if (!generated) throw new Error('供应商未返回图片，请重试。');
+                            image = generated;
+                        }
+                    }
+                    signal?.throwIfAborted();
+                    if (image) {
+                        images.push(image);
+                        results.push({ shotId: shot.id, status: 'completed' });
+                        if (reused) reportProgress();
+                        else reportProgress(shot.id, { status: 'completed', image });
+                    } else if (last) results.push(last);
+                } catch (error) {
+                    // The saved result remains usable until a replacement has been generated and stored.
+                    if (isAbortLikeError(error, signal) || (retryingShot && shot === target && last?.status === 'completed')) throw error;
+                    firstError ||= error;
+                    const preview = { status: 'failed', error: String(error?.message || '生成失败').slice(0, 300) };
+                    results.push({ shotId: shot.id, ...preview });
+                    reportProgress(shot.id, preview);
+                }
+            }
+
+            if (!images.length) {
+                if (!settings.results.some(row => row.status === 'completed')) {
+                    node.data.commerceImageSet = { ...settings, results };
+                    onNodeResultUpdated(node.id);
+                }
+                throw firstError || new Error('没有可保存的套图结果。');
+            }
+            signal?.throwIfAborted();
+            const assets = await saveWorkflowNodeMediaAssets(images, workflowId, node.id, node.activeMediaOperationId);
+            const keys = assets.map(asset => asset?.asset_key);
+            if (keys.length !== images.length || keys.some(key => !key?.startsWith('media:')) || state.nodes.get(node.id) !== node || signal?.aborted) {
+                if (assets.length) await releaseWorkflowNodeMediaAssets(assets, workflowId, node.id);
+                signal?.throwIfAborted();
+                throw new Error('套图生成完成，但工作流媒体保存失败。');
+            }
+            rememberWorkflowMediaOperation(node, assets);
+            let keyIndex = 0;
+            for (const row of results) if (row.status === 'completed') row.assetKey = keys[keyIndex++];
+            setCanonicalImageOutput(node, images, { defaultToFirst: true, assetKey: keys[0], imageCount: images.length, assetReady: true });
+            node.data.mediaAssetKeys = keys;
+            node.data.commerceImageSet = { ...settings, results };
+            node.generationAttemptIncomplete = images.length !== plan.shots.length;
+            try {
+                await propagateImagesToDownstreamPreview(node.id, images);
+            } finally {
+                onNodeResultUpdated(node.id, { downstreamImageResults: true });
+            }
+            if (getImageHistorySidebarActive()) renderHistoryList();
+            return { image: images, images };
+        } finally {
+            delete node.commerceShotPreviews;
+            delete node.apiGenerationProgress;
+            onNodeResultUpdated(node.id, { progressOnly: true });
+        }
+    }
+
     const nodeHandlers = {
+        ECommerceImageSet: executeCommerceImageSet,
         ImageImport: async (node) => {
             const imageValue = await restoreImageImportOutputValue(node);
             if (!imageValue) throw new Error('未导入图片');
@@ -1772,16 +1974,19 @@ export function createExecutionCoreApi({
         },
         ImageGenerate: async (node, inputs, signal, executionContext = {}) => {
             const { id } = node;
-            const settings = readImageGenerationSettings(node, documentRef);
-            const errorEl = documentRef.getElementById(`${id}-error`);
+            const prepared = executionContext.commerceImageRequest;
+            const singleRetry = executionContext.imageRetry === true;
+            const settings = prepared?.settings || readImageGenerationSettings(node, documentRef);
+            const errorEl = !prepared && !singleRetry && documentRef.getElementById(`${id}-error`);
             if (errorEl) {
                 errorEl.style.display = 'none';
                 requestNodeFit(id);
             }
             let targetGenerationCount = 1;
+            let sequentialRequestIndex;
 
             try {
-                assertImageInputCompatibility(node, inputs, settings);
+                if (!prepared) assertImageInputCompatibility(node, inputs, settings);
                 const configId = settings.apiConfigId;
                 const modelCfg = state.models.find((model) => model.id === configId);
                 if (!modelCfg) throw new Error('未找到选定的模型配置');
@@ -1789,14 +1994,14 @@ export function createExecutionCoreApi({
                 const resolvedProviderId = getResolvedProviderIdForModel(modelCfg, state.providers, selectedProviderId);
                 const apiCfg = getResolvedProviderForModel(modelCfg, state.providers, resolvedProviderId);
                 if (!apiCfg) throw new Error('未找到绑定的 API 提供商');
-                node.providerId = resolvedProviderId;
+                if (!prepared) node.providerId = resolvedProviderId;
 
                 const quality = settings.quality;
                 const moderation = settings.moderation;
                 const background = settings.background;
                 const searchEnabled = settings.search;
-                const prompt = buildImageGeneratePrompt(node, inputs);
-                const protocolParams = getImageGenerateProtocolParams(node);
+                const prompt = prepared?.prompt || buildImageGeneratePrompt(node, inputs);
+                const protocolParams = prepared ? settings.protocolParams : getImageGenerateProtocolParams(node);
 
                 if (!apiCfg.apikey) throw new Error('API 提供商密钥未配置');
                 if (!prompt) throw new Error('请输入提示词');
@@ -1808,10 +2013,11 @@ export function createExecutionCoreApi({
                 const isTtapi = protocol === 'ttapi';
                 const isTtapiOpenAi = protocol === 'ttapi-openai';
                 const isNewApiAsyncImage = protocol === 'newapi-image-async';
-                const generationCount = settings.generationCount;
+                const generationCount = singleRetry ? 1 : settings.generationCount;
                 targetGenerationCount = generationCount;
 
                 if (isNewApiAsyncImage) {
+                    if (prepared) throw new Error('电商套图暂不支持此异步生图协议，请切换为同步生图模型。');
                     return await asyncMediaExecution.runAsyncImageGeneration({
                         node,
                         inputs,
@@ -1823,7 +2029,8 @@ export function createExecutionCoreApi({
                         aspect,
                         resolution,
                         generationCount,
-                        concurrentRequestStatus: executionContext.concurrentRequestStatus
+                        concurrentRequestStatus: executionContext.concurrentRequestStatus,
+                        collectOnly: singleRetry
                     });
                 }
 
@@ -1850,17 +2057,19 @@ export function createExecutionCoreApi({
                             Authorization: `Bearer ${apiCfg.apikey}`,
                             'Content-Type': isOpenAiImageEdit ? null : 'application/json'
                         }));
-                if (!executionContext.concurrentExecution) {
+                if (!prepared && !singleRetry && !executionContext.concurrentExecution) {
                     resetImageGenerateRunOutputs(node);
                 }
-                renderNodeApiGenerationProgress(node, {
-                    current: executionContext.concurrentExecution ? 0 : node.generationCompletedCount,
-                    total: generationCount
-                });
+                if (!prepared && !singleRetry) {
+                    renderNodeApiGenerationProgress(node, {
+                        current: executionContext.concurrentExecution ? 0 : node.generationCompletedCount,
+                        total: generationCount
+                    });
+                }
 
                 const shouldRunConcurrentRequests = isConcurrentRequestModeEnabled() &&
                     (generationCount > 1 || executionContext.concurrentExecution);
-                if (shouldRunConcurrentRequests) {
+                if (prepared || singleRetry || shouldRunConcurrentRequests) {
                     const progressTotal = Math.max(1, parseInt(node.apiGenerationProgress?.total ?? generationCount, 10) || generationCount);
                     const generatedImages = new Array(generationCount);
                     const completedBefore = 0;
@@ -1869,7 +2078,7 @@ export function createExecutionCoreApi({
                         return runTrackedProviderRequest(node, apiCfg, modelCfg, url, async () => {
                             const requestBody = buildRequestBody();
                             applyThinking(requestBody, { model: modelCfg, provider: apiCfg, task: 'image', protocol }, node.data?.thinking);
-                            showToast(
+                            if (!prepared) showToast(
                                 generationCount > 1
                                     ? `正在调用 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})...`
                                     : `正在调用 ${modelCfg.name}...`,
@@ -1964,33 +2173,37 @@ export function createExecutionCoreApi({
                         { length: generationCount - completedBefore },
                         (_, offset) => completedBefore + offset
                     );
-                    const markConcurrentRequestStatus = (relativeIndex, status, error = null) => {
-                        executionContext.concurrentRequestStatus?.markRequestStatus?.(relativeIndex, status, error);
+                    const markConcurrentRequestStatus = (relativeIndex, status, error = null, image = '') => {
+                        executionContext.concurrentRequestStatus?.markRequestStatus?.(relativeIndex, status, error, image);
                     };
                     const requestResults = await Promise.allSettled(requestIndexes.map((index) => {
                         const nextGenerationIndex = index + 1;
+                        markConcurrentRequestStatus(index, 'running');
                         return runRequestWithRetries(() => runSingleGeneration(nextGenerationIndex), {
                             label: generationCount > 1
                                 ? `图片生成 ${modelCfg.name} (${nextGenerationIndex}/${generationCount})`
                                 : `图片生成 ${modelCfg.name}`,
                             signal
-                        }).then(async (imageData) => {
+                        }).then(async (image) => {
+                            if (prepared || singleRetry) signal?.throwIfAborted();
                             await saveImageGenerationHistoryEntry({
                                 nodeId: id,
-                                image: imageData,
+                                image,
                                 prompt,
                                 model: modelCfg.name,
                                 generationDurationSeconds: getNodeGenerationDurationSeconds(node)
                             });
-                            generatedImages[index] = imageData;
-                            incrementNodeApiGenerationProgress(node, 1, {
-                                current: nextGenerationIndex,
-                                total: progressTotal
-                            });
+                            generatedImages[index] = image;
+                            if (!prepared && !singleRetry) {
+                                incrementNodeApiGenerationProgress(node, 1, {
+                                    current: nextGenerationIndex,
+                                    total: progressTotal
+                                });
+                            }
                             if (getImageHistorySidebarActive()) renderHistoryList();
-                            markConcurrentRequestStatus(index, 'success');
+                            if (!singleRetry) markConcurrentRequestStatus(index, 'success', null, image);
                         }).catch((error) => {
-                            markConcurrentRequestStatus(index, 'failed', error);
+                            if (!singleRetry) markConcurrentRequestStatus(index, isAbortLikeError(error, signal) ? 'canceled' : 'failed', error);
                             throw error;
                         });
                     }));
@@ -2001,6 +2214,7 @@ export function createExecutionCoreApi({
                     }
                     const completedImages = normalizeImageList(generatedImages);
                     if (rejectedRequests.length > 0) {
+                        if (prepared || singleRetry) throw rejectedRequests[0].reason;
                         node.generationAttemptIncomplete = true;
                         if (!executionContext.concurrentExecution) {
                             commitImageGenerateOutputs(node, completedImages, prompt, signal);
@@ -2018,7 +2232,7 @@ export function createExecutionCoreApi({
                         throw rejectedRequests[0].reason;
                     }
 
-                    if (!executionContext.concurrentExecution) {
+                    if (!prepared && !singleRetry && !executionContext.concurrentExecution) {
                         commitImageGenerateOutputs(node, completedImages, prompt, signal);
                         node.isSucceeded = true;
                         await refreshDependentImageResizePreviews(id);
@@ -2027,13 +2241,16 @@ export function createExecutionCoreApi({
 
                     return {
                         image: completedImages[completedImages.length - 1] || '',
-                        images: completedImages.slice()
+                        images: completedImages.slice(),
+                        ...(singleRetry ? { prompt } : {})
                     };
                 }
 
                 while (node.generationCompletedCount < generationCount) {
                     const nextGenerationIndex = node.generationCompletedCount + 1;
                     const currentRequestIndex = nextGenerationIndex - 1;
+                    sequentialRequestIndex = currentRequestIndex;
+                    executionContext.concurrentRequestStatus?.markRequestStatus?.(currentRequestIndex, 'running');
                     renderNodeApiGenerationProgress(node, {
                         current: node.generationCompletedCount,
                         total: generationCount
@@ -2151,7 +2368,7 @@ export function createExecutionCoreApi({
                         const generatedImages = getCanonicalImageList(node, { includeResizePreview: false }).slice(0, nextGenerationIndex);
                         generatedImages[nextGenerationIndex - 1] = imageData;
                         commitImageGenerateOutputs(node, generatedImages.slice(0, nextGenerationIndex), prompt, signal);
-                        executionContext.concurrentRequestStatus?.markRequestStatus?.(currentRequestIndex, 'success');
+                        executionContext.concurrentRequestStatus?.markRequestStatus?.(currentRequestIndex, 'success', null, imageData);
                         incrementNodeApiGenerationProgress(node, 1, {
                             current: nextGenerationIndex,
                             total: generationCount
@@ -2165,7 +2382,7 @@ export function createExecutionCoreApi({
                     const generatedImages = getCanonicalImageList(node, { includeResizePreview: false }).slice(0, nextGenerationIndex);
                     generatedImages[nextGenerationIndex - 1] = imageData;
                     commitImageGenerateOutputs(node, generatedImages.slice(0, nextGenerationIndex), prompt, signal);
-                    executionContext.concurrentRequestStatus?.markRequestStatus?.(currentRequestIndex, 'success');
+                    executionContext.concurrentRequestStatus?.markRequestStatus?.(currentRequestIndex, 'success', null, imageData);
                     incrementNodeApiGenerationProgress(node, 1, {
                         current: nextGenerationIndex,
                         total: generationCount
@@ -2174,6 +2391,7 @@ export function createExecutionCoreApi({
                     if (getImageHistorySidebarActive()) renderHistoryList();
                 }
             } catch (err) {
+                if (prepared || singleRetry) throw err;
                 if (isAbortLikeError(err, signal)) {
                     renderNodeApiGenerationProgress(node, {
                         current: Math.max(0, parseInt(node.generationCompletedCount || '0', 10) || 0),
@@ -2185,8 +2403,9 @@ export function createExecutionCoreApi({
                     }
                     throw err;
                 }
-                const failedRequestIndex = Math.max(0, parseInt(node.generationCompletedCount || '0', 10) || 0);
-                executionContext.concurrentRequestStatus?.markRequestStatus?.(failedRequestIndex, 'failed', err);
+                if (Number.isInteger(sequentialRequestIndex)) {
+                    executionContext.concurrentRequestStatus?.markRequestStatus?.(sequentialRequestIndex, 'failed', err);
+                }
                 renderNodeApiGenerationProgress(node, {
                     current: Math.max(0, parseInt(node.generationCompletedCount || '0', 10) || 0),
                     total: targetGenerationCount

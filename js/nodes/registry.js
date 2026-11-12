@@ -2,6 +2,7 @@
  * 汇总并注册所有节点类型定义，提供统一的节点配置映射表。
  */
 import { imageGenerateNode } from './types/image-generate.js';
+import { commerceImageSetNode } from './types/commerce-image-set.js';
 import { videoGenerateNode } from './types/video-generate.js';
 import { imageImportNode } from './types/image-import.js';
 import { imageCompareNode } from './types/image-compare.js';
@@ -32,6 +33,7 @@ const nodeDefinitions = [
     imageResizeNode,
     colorResetNode,
     imageGenerateNode,
+    commerceImageSetNode,
     videoGenerateNode,
     cameraControlNode,
     customParamsNode,

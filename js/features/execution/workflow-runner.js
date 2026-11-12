@@ -3,7 +3,7 @@ import { getNodeModelConfigurationIssue } from './model-configuration-readiness.
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
 import { readImageSaveFilename } from '../../nodes/image-save-settings.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
-import { readPrimaryImageOutput } from '../../nodes/image-output-projection.js';
+import { projectImageOutput, readPrimaryImageOutput } from '../../nodes/image-output-projection.js';
 import { validateUniversalImageInputs } from '../../nodes/universal-input-policy.js';
 import { getResolvedProviderForModel } from './provider-request-utils.js';
 import { getNodeRunTimeoutSeconds } from './async-media-execution.js';
@@ -20,6 +20,7 @@ import {
 } from './execution-data-utils.js';
 import {
     bindConcurrentRequestStatusPanelInteractions,
+    normalizeConcurrentRequestStatusPayload,
     removeConcurrentRequestStatusPanel
 } from './concurrent-request-status-ui.js';
 import { escapeHtml } from '../../core/common-utils.js';
@@ -198,7 +199,7 @@ export function createWorkflowRunnerApi({
     focusCanvasNode = () => {},
     onWorkflowFailures = () => {}
 }) {
-    const mediaOperationNodeTypes = new Set(['ImageGenerate', 'VideoGenerate']);
+    const mediaOperationNodeTypes = new Set(['ImageGenerate', 'VideoGenerate', 'ECommerceImageSet']);
     const recipeSourcesByInputs = new WeakMap();
     function isAbortLikeError(err) {
         if (!err) return false;
@@ -511,7 +512,7 @@ export function createWorkflowRunnerApi({
     function setNodeRunningLock(node, locked) {
         if (!node?.el) return;
         node.el.classList.toggle('running-locked', locked);
-        const selector = 'input, select, textarea, button:not(.node-run-cancel-btn):not([data-parameter-group-toggle])';
+        const selector = 'input, select, textarea, button:not(.node-run-cancel-btn, [data-parameter-group-toggle], [data-node-read-action])';
         const controls = new Set(node.el.querySelectorAll(selector));
         node.parameterRoot?.querySelectorAll(selector).forEach(control => controls.add(control));
         controls.forEach(control => setControlRunningLock(control, locked));
@@ -527,7 +528,8 @@ export function createWorkflowRunnerApi({
             node.el.classList.remove('completed', 'error');
         }
         setNodeRunningLock(node, true);
-        emitNodeRunState({ nodeId, status: 'running', running: true, startedAt });
+        emitNodeRunState({ nodeId, status: 'running', running: true, startedAt,
+            preserveImageBatch: node?.imageGenerationRetryActive === true });
         connectionProjection?.nodeAppearanceChanged(nodeId);
     }
 
@@ -563,6 +565,7 @@ export function createWorkflowRunnerApi({
     function getPreservedNodeDataForReset(node) {
         if (node?.type === 'ImageSave') return { ...(node.data || {}), filename: readImageSaveFilename(node) };
         if (node?.type === 'ImageMerge') return { ...(node.data || {}) };
+        if (node?.type === 'ECommerceImageSet') return { ...(node.data || {}) };
         if (node?.type === 'ImageCompare') return { ...(node.data || {}), comparePosition: node.comparePosition ?? node.data?.comparePosition ?? 50 };
         if (node?.type === 'ImageResize') return { ...(node.data || {}), ...readImageResizeSettings(node) };
         if (node?.type === 'ColorReset') {
@@ -639,6 +642,13 @@ export function createWorkflowRunnerApi({
             }
 
             clearNodeExecutionFailure(node);
+            if (plan.imageRetryNodeId === nid) {
+                node.imageGenerationRetryActive = true;
+                getRunningNodeIds().add(nid);
+                setNodeRunningLock(node, true);
+                emitNodeRunState({ nodeId: nid, status: 'waiting', preserveImageBatch: true });
+                continue;
+            }
             geometryChangedNodeIds.push(nid);
             node.el.classList.remove('completed', 'error', 'running');
             removeConcurrentRequestStatusPanel(node);
@@ -652,6 +662,8 @@ export function createWorkflowRunnerApi({
             };
             node.isSucceeded = false;
             if (node.type === 'ImageGenerate') {
+                delete node.imageGenerationRequestImages;
+                delete node.imageGenerationRetryActive;
                 node.imageData = null;
                 node.imageDataList = [];
                 node.generationCompletedCount = 0;
@@ -665,7 +677,7 @@ export function createWorkflowRunnerApi({
                 delete node.data.videoStatusText;
                 delete node.data.videos;
             }
-            if (node.type === 'ImageGenerate' || node.type === 'VideoGenerate' || node.type === 'TextChat') {
+            if (node.type === 'ImageGenerate' || node.type === 'VideoGenerate' || node.type === 'TextChat' || node.type === 'ECommerceImageSet') {
                 delete node.apiGenerationProgress;
             }
             getRunningNodeIds().add(nid);
@@ -1086,7 +1098,7 @@ export function createWorkflowRunnerApi({
 
     function isReferenceImageInputPort(node, portName) {
         const normalizedPort = String(portName || '');
-        if (node?.type === 'ImageGenerate' || node?.type === 'TextChat') {
+        if (node?.type === 'ImageGenerate' || node?.type === 'TextChat' || node?.type === 'ECommerceImageSet') {
             return normalizedPort === 'image' || normalizedPort === 'referenceImages' || /^image_\d+$/.test(normalizedPort);
         }
         if (node?.type === 'VideoGenerate') {
@@ -1117,11 +1129,17 @@ export function createWorkflowRunnerApi({
     }
 
     function assertConnectedReferenceImagesLoaded(plan, node, outputsByConnection) {
-        if (!node || (node.type !== 'ImageGenerate' && node.type !== 'VideoGenerate' && node.type !== 'TextChat')) return;
+        if (!['ImageGenerate', 'VideoGenerate', 'TextChat', 'ECommerceImageSet'].includes(node?.type)) return;
 
         const missingConnections = (plan.inputConnectionsByNode[node.id] || [])
             .filter((connection) => isReferenceImageInputPort(node, connection.to.port) && state.nodes.get(connection.from.nodeId)?.enabled !== false)
-            .filter((connection) => normalizeImageList(outputsByConnection.get(connection)).length === 0);
+            .filter(connection => {
+                const images = normalizeImageList(outputsByConnection.get(connection));
+                if (!images.length) return true;
+                if (node.type !== 'ECommerceImageSet') return false;
+                const output = projectImageOutput(state.nodes.get(connection.from.nodeId), images);
+                return output.missingPositions.length > 0 || output.count > images.length;
+            });
 
         if (missingConnections.length === 0) return;
 
@@ -1321,15 +1339,15 @@ export function createWorkflowRunnerApi({
         }
     }
 
-    async function persistConcurrentImageResults(node, images) {
+    async function persistConcurrentImageResults(node, images, signal) {
         const workflowId = getActiveWorkflowId();
         if (!workflowId || !node?.id || images.length === 0
             || getNodeImageResultPersistence(node.type) !== IMAGE_RESULT_PERSISTENCE.PERSISTENT) return false;
         const assets = await saveWorkflowNodeMediaAssets(images, workflowId, node.id, node.activeMediaOperationId);
         const keys = assets.map((asset) => asset?.asset_key).filter(Boolean);
-        if (keys.length !== images.length) return false;
-        if (state.nodes.get(node.id) !== node) {
-            await releaseWorkflowNodeMediaAssets(assets, workflowId, node.id);
+        if (keys.length !== images.length || state.nodes.get(node.id) !== node || signal?.aborted) {
+            if (assets.length) await releaseWorkflowNodeMediaAssets(assets, workflowId, node.id);
+            signal?.throwIfAborted();
             return false;
         }
         node.data = node.data || {};
@@ -1449,7 +1467,7 @@ export function createWorkflowRunnerApi({
                 markRequestRange('success', { onlyRunning: true });
                 return result;
             } catch (error) {
-                markRequestRange('failed', { onlyRunning: true });
+                markRequestRange(isAbortLikeError(error) ? 'canceled' : 'failed', { onlyRunning: true, error });
                 throw error;
             }
         }
@@ -1501,58 +1519,60 @@ export function createWorkflowRunnerApi({
         return 0;
     }
 
-    function emitConcurrentRequestStatus(node, dots = []) {
+    function emitConcurrentRequestStatus(node, status, images) {
         if (!node?.id) return;
-        const concurrentRequestStatus = {
-            total: dots.length,
-            requests: dots.map((dot, index) => ({
-                index,
-                status: dot?.dataset?.status || 'running',
-                error: dot?.dataset?.error || ''
-            }))
-        };
+        const concurrentRequestStatus = { ...status, requests: status.requests.map(request => ({ ...request })) };
         node.data = node.data || {};
         node.data.concurrentRequestStatus = concurrentRequestStatus;
+        if (images) node.imageGenerationRequestImages = images.slice();
         emitNodeRunState({
             nodeId: node.id,
             status: 'concurrent-request-status',
             running: getRunningNodeIds().has(node.id),
-            concurrentRequestStatus
+            concurrentRequestStatus,
+            ...(images ? { imageGenerationRequestImages: node.imageGenerationRequestImages } : {}),
+            ...(node.imageGenerationRetryActive && node.apiGenerationProgress
+                ? { imageGenerationProgress: node.apiGenerationProgress } : {})
         });
     }
 
-    function createConcurrentRequestStatusTracker(node, total) {
+    function createConcurrentRequestStatusTracker(node, total, { recipeFingerprint, previous, retained = [] } = {}) {
         const safeTotal = Math.max(1, parseInt(total, 10) || 1);
         removeConcurrentRequestStatusPanel(node);
-
-        if (!node?.el) {
-            return {
-                total: safeTotal,
-                mark: () => {},
-                markRange: () => {}
-            };
+        const isImage = node.type === 'ImageGenerate';
+        const status = previous || {
+            total: safeTotal,
+            requests: Array.from({ length: safeTotal }, (_, index) => ({ index, status: isImage ? 'queued' : 'running', error: '' })),
+            ...(isImage && recipeFingerprint ? { recipeFingerprint, batchId: node.activeMediaOperationId } : {})
+        };
+        const images = isImage ? [] : null;
+        if (images && previous) {
+            for (const request of previous.requests) {
+                if (request.status === 'success') images[request.index] = retained[request.resultIndex];
+            }
         }
-
-        const panel = documentRef.createElement('div');
-        panel.className = 'node-concurrent-status-panel';
-        panel.dataset.total = String(safeTotal);
-        panel.setAttribute('aria-label', 'Concurrent request status');
-
-        const grid = documentRef.createElement('div');
-        grid.className = 'node-concurrent-status-grid';
-        panel.appendChild(grid);
-
-        const dots = Array.from({ length: safeTotal }, (_, index) => {
-            const dot = documentRef.createElement('span');
-            dot.className = 'node-concurrent-status-dot';
-            dot.dataset.status = 'running';
-            dot.title = `Request ${index + 1}: running`;
-            grid.appendChild(dot);
-            return dot;
-        });
-
-        node.el.appendChild(panel);
-        node.el.classList.add('has-concurrent-status');
+        const dots = [];
+        if (node.el && safeTotal > 1) {
+            const panel = documentRef.createElement('div');
+            panel.className = 'node-concurrent-status-panel';
+            panel.dataset.total = String(safeTotal);
+            panel.setAttribute('aria-label', 'Concurrent request status');
+            const grid = documentRef.createElement('div');
+            grid.className = 'node-concurrent-status-grid';
+            panel.appendChild(grid);
+            for (let index = 0; index < safeTotal; index += 1) {
+                const dot = documentRef.createElement('span');
+                dot.className = 'node-concurrent-status-dot';
+                grid.appendChild(dot);
+                dots.push(dot);
+            }
+            bindConcurrentRequestStatusPanelInteractions(panel, grid, {
+                documentRef,
+                getErrorMessage: dot => dot.dataset.error || '请求失败，但没有返回具体错误信息。'
+            });
+            node.el.appendChild(panel);
+            node.el.classList.add('has-concurrent-status');
+        }
         const formatErrorMessage = (error) => {
             if (!error) return '请求失败，但没有返回具体错误信息。';
             if (typeof error === 'string') return error;
@@ -1561,46 +1581,63 @@ export function createWorkflowRunnerApi({
             return String(error);
         };
 
-        const setDotStatus = (index, status, error = null) => {
+        const paintDot = ({ index, status: value, error }) => {
             const dot = dots[index];
             if (!dot) return;
-            const normalizedStatus = status === 'success' || status === 'failed' ? status : 'running';
-            dot.dataset.status = normalizedStatus;
-            if (normalizedStatus === 'failed') {
-                const errorMessage = formatErrorMessage(error);
-                dot.dataset.error = errorMessage;
+            dot.dataset.status = value;
+            if (value === 'failed') {
+                dot.dataset.error = error;
                 dot.title = `Request ${index + 1}: failed (click to view details)`;
                 dot.setAttribute('role', 'button');
                 dot.tabIndex = 0;
             } else {
                 delete dot.dataset.error;
-                dot.title = `Request ${index + 1}: ${normalizedStatus}`;
+                dot.title = `Request ${index + 1}: ${value}`;
                 dot.removeAttribute('role');
                 dot.removeAttribute('tabindex');
             }
-            emitConcurrentRequestStatus(node, dots);
         };
-
-        bindConcurrentRequestStatusPanelInteractions(panel, grid, {
-            documentRef,
-            getErrorMessage: (dot) => dot.dataset.error || '请求失败，但没有返回具体错误信息。'
-        });
-
-        emitConcurrentRequestStatus(node, dots);
+        const publish = () => emitConcurrentRequestStatus(node, status, images);
+        const setStatus = (index, value, error, image) => {
+            const request = status.requests[index];
+            if (!request) return;
+            request.status = value;
+            request.error = value === 'failed' ? formatErrorMessage(error) : '';
+            if (value !== 'success') delete request.resultIndex;
+            if (images && image) images[index] = image;
+            paintDot(request);
+        };
+        status.requests.forEach(paintDot);
+        publish();
 
         return {
             total: safeTotal,
-            mark(index, status, error = null) {
-                setDotStatus(index, status, error);
+            images,
+            mark(index, value, error, image) {
+                setStatus(index, value, error, image);
+                publish();
             },
-            markRange(start, count, status, { onlyRunning = false, error = null } = {}) {
+            markRange(start, count, value, { onlyRunning = false, error = null } = {}) {
                 const safeStart = Math.max(0, parseInt(start, 10) || 0);
                 const safeCount = Math.max(0, parseInt(count, 10) || 0);
                 for (let offset = 0; offset < safeCount; offset += 1) {
                     const index = safeStart + offset;
-                    if (onlyRunning && dots[index]?.dataset.status !== 'running') continue;
-                    setDotStatus(index, status, error);
+                    if (onlyRunning && status.requests[index]?.status !== 'running') continue;
+                    setStatus(index, value, error);
                 }
+                publish();
+            },
+            finish({ mapResults = true } = {}) {
+                let resultIndex = 0;
+                for (const request of status.requests) {
+                    if (request.status === 'queued' || request.status === 'running') {
+                        setStatus(request.index, 'canceled');
+                    } else if (request.status === 'success' && mapResults) {
+                        request.resultIndex = resultIndex++;
+                    }
+                }
+                if (!mapResults) delete status.recipeFingerprint;
+                publish();
             }
         };
     }
@@ -1609,9 +1646,10 @@ export function createWorkflowRunnerApi({
         return {
             requestOffset,
             requestsPerBatch,
-            markRequestStatus(relativeIndex, status, error = null) {
+            markRequestStatus(relativeIndex, status, error = null, image = '') {
                 const safeIndex = Math.max(0, parseInt(relativeIndex, 10) || 0);
-                requestStatusTracker?.mark(requestOffset + safeIndex, status, error);
+                if (safeIndex >= requestsPerBatch) return;
+                requestStatusTracker?.mark(requestOffset + safeIndex, status, error, image);
             }
         };
     }
@@ -1630,20 +1668,122 @@ export function createWorkflowRunnerApi({
             requestStatusTracker?.markRange(requestOffset, requestsPerBatch, 'success', { onlyRunning: true });
             return result;
         } catch (error) {
-            requestStatusTracker?.markRange(requestOffset, requestsPerBatch, 'failed', { onlyRunning: true, error });
+            requestStatusTracker?.markRange(requestOffset, requestsPerBatch, isAbortLikeError(error) ? 'canceled' : 'failed', { onlyRunning: true, error });
             throw error;
         }
     }
 
-    async function executeStandaloneConcurrentImageRequests(node, inputs, signal) {
-        const requestCount = getConfiguredImageGenerationCount(node);
-        const requestStatusTracker = createConcurrentRequestStatusTracker(node, requestCount);
-        return executeImageGenerateWithRequestStatus(node, inputs, signal, requestStatusTracker, 0);
+    async function executeTrackedImageBatches(node, batches, signal, recipe) {
+        const tracker = createConcurrentRequestStatusTracker(node, getApiNodeRunCount(node, batches.length), {
+            recipeFingerprint: recipe?.ready ? recipe.fingerprint : ''
+        });
+        const completed = [];
+        const concurrentBatches = isConcurrentRequestModeEnabled() && batches.length > 1;
+        let firstError;
+        let mapResults = false;
+        try {
+            if (concurrentBatches) {
+                const settled = await Promise.allSettled(batches.map((batch, index) =>
+                    executeConcurrentBatchRequest(node, batch, index, batches.length, signal, tracker)));
+                for (const result of settled) {
+                    if (result.status === 'fulfilled') completed.push(result.value);
+                    else if (isAbortLikeError(result.reason)) throw result.reason;
+                    else firstError ||= result.reason;
+                }
+            } else {
+                for (const [index, batch] of batches.entries()) {
+                    signal?.throwIfAborted();
+                    if (batches.length > 1) resetNodeImageOutputsForBatch(node);
+                    try {
+                        await executeImageGenerateWithRequestStatus(node, batch, signal, tracker, index);
+                        completed.push({ images: getCanonicalImageList(node, { includeResizePreview: false }) });
+                    } catch (error) {
+                        if (isAbortLikeError(error)) throw error;
+                        firstError = error;
+                        break;
+                    }
+                }
+            }
+            const results = tracker.images.filter(Boolean);
+            const images = results.length ? results : completed.flatMap(result => normalizeImageList(result?.images || result?.image));
+            if (images.length === 0 && firstError) throw firstError;
+            const current = getCanonicalImageList(node, { includeResizePreview: false });
+            if (images.length && (batches.length > 1 || images.length !== current.length
+                || images.some((image, index) => image !== current[index]))) {
+                await commitConcurrentBatchResults(node, [{ images }]);
+            }
+            mapResults = true;
+            node.generationAttemptIncomplete ||= !!firstError;
+            if (firstError && !concurrentBatches) throw firstError;
+            return batches[batches.length - 1];
+        } catch (error) {
+            // An all-failed batch has no prior image positions to associate.
+            // It is safe to retry a failed position after its request failed.
+            mapResults ||= !!firstError && !tracker.images.some(Boolean);
+            throw error;
+        } finally {
+            tracker.finish({ mapResults });
+        }
     }
 
-    function shouldTrackStandaloneConcurrentImageRequests(node) {
-        return node?.type === 'ImageGenerate' &&
-            getConfiguredImageGenerationCount(node) > 1;
+    async function retryImageBatchSlot(node, batches, signal, plan, recipe) {
+        const status = normalizeConcurrentRequestStatusPayload(node.data?.concurrentRequestStatus);
+        const index = plan.imageRetryIndex;
+        const requestsPerBatch = getConfiguredImageGenerationCount(node);
+        const request = status.requests[index];
+        if (status.batchId !== plan.imageRetryBatchId || !['failed', 'canceled'].includes(request?.status)
+            || status.total !== requestsPerBatch * batches.length) {
+            throw new Error('这张图片已不属于当前批次，请刷新结果后重试。');
+        }
+        if (!recipe?.ready || status.recipeFingerprint !== recipe.fingerprint) {
+            throw new Error('生图参数或输入已变更，请重新生成当前批次。');
+        }
+
+        const successful = status.requests.filter(item => item.status === 'success');
+        const current = getCanonicalImageList(node, { includeResizePreview: false });
+        const savedKeys = node.data.mediaAssetKeys || [];
+        const retained = savedKeys.length > 0 ? await Promise.all(savedKeys.map(key => getImageAsset(key))) : current;
+        if (retained.length !== successful.length || retained.some(image => !image)
+            || successful.some((item, resultIndex) => item.resultIndex !== resultIndex)) {
+            throw new Error('这批图片的已有结果无法读取，请恢复原图后重试。');
+        }
+        signal?.throwIfAborted();
+        const { status: priorStatus, error: priorError } = request;
+        node.apiGenerationProgress = { completed: successful.length, total: status.total };
+        const tracker = createConcurrentRequestStatusTracker(node, status.total, { previous: status, retained });
+        tracker.mark(index, 'running');
+        try {
+            const result = await executeNode(node, batches[Math.floor(index / requestsPerBatch)], signal, { imageRetry: true });
+            const image = normalizeImageList(result?.images || result?.image)[0];
+            if (!image) throw new Error('供应商未返回图片，请重试。');
+            const resultIndex = successful.filter(item => item.index < index).length;
+            const images = retained.slice();
+            images.splice(resultIndex, 0, image);
+            const prompts = successful.map(item => node.data.imagePromptList?.[item.resultIndex] || '');
+            prompts.splice(resultIndex, 0, result.prompt || '');
+            if (!(await persistConcurrentImageResults(node, images, signal))) {
+                throw new Error('图片已生成，但本地媒体保存失败，请重试。');
+            }
+            setCanonicalImageOutput(node, images, { currentIndex: resultIndex, assetKey: node.data.mediaAssetKeys[0],
+                imageCount: images.length, imagePromptList: prompts, assetReady: true });
+            node.imagePromptList = prompts;
+            node.generationCompletedCount = images.length;
+            node.generationAttemptIncomplete = images.length !== status.total;
+            node.apiGenerationProgress = { completed: images.length, total: status.total };
+            tracker.mark(index, 'success', null, image);
+            await propagateImagesToDownstreamPreview(node.id, images);
+            await refreshDependentImageResizePreviews(node.id);
+            connectionProjection?.nodeGeometryChanged(node.id);
+        } catch (error) {
+            if (status.requests[index].status !== 'success') {
+                if (isAbortLikeError(error)) tracker.mark(index, priorStatus, priorError);
+                else tracker.mark(index, 'failed', error);
+            }
+            throw error;
+        } finally {
+            tracker.finish();
+        }
+        return batches[Math.floor(index / requestsPerBatch)];
     }
 
     function renderApiNodeGenerationProgress(node, current, total) {
@@ -1701,7 +1841,13 @@ export function createWorkflowRunnerApi({
         }
     }
 
-    async function executeNodeWithInputBatches(node, inputs, signal, connections = []) {
+    async function executeNodeWithInputBatches(node, inputs, signal, connections = [], plan, recipe) {
+        if (node?.type === 'ECommerceImageSet') {
+            const action = plan?.commerceNodeId === node.id
+                ? { commerceAction: plan.commerceAction, commerceShotId: plan.commerceShotId } : {};
+            await executeNode(node, inputs, signal, action);
+            return inputs;
+        }
         if (node?.type === 'ImageMerge') {
             const reason = validateUniversalImageInputs({ state, node, inputs });
             if (reason) throw new Error(reason);
@@ -1713,24 +1859,21 @@ export function createWorkflowRunnerApi({
         }
         const shouldRunBatches = !isFixedTextChatWithCachedResult(node) && shouldRunNodeForEachInput(node, inputs);
         const batches = shouldRunBatches ? buildInputBatches(node, inputs) : [inputs || {}];
+        if (plan?.imageRetryNodeId === node.id) return retryImageBatchSlot(node, batches, signal, plan, recipe);
         prepareApiNodeGenerationProgress(node, batches.length);
+        if (node.type === 'ImageGenerate') return executeTrackedImageBatches(node, batches, signal, recipe);
 
         if (!shouldRunBatches) {
-            if (shouldTrackStandaloneConcurrentImageRequests(node)) {
-                await executeStandaloneConcurrentImageRequests(node, inputs, signal);
-            } else {
-                await executeNode(node, inputs, signal, {
-                    videoExecutionInput: node?.type === 'VideoGenerate' ? prepareVideoExecutionInput(node, inputs, connections) : null
-                });
-            }
+            await executeNode(node, inputs, signal, {
+                videoExecutionInput: node?.type === 'VideoGenerate' ? prepareVideoExecutionInput(node, inputs, connections) : null
+            });
             return inputs;
         }
 
         const shouldRunConcurrentBatches = isConcurrentRequestModeEnabled() &&
-            (node?.type === 'ImageGenerate' || node?.type === 'VideoGenerate' || node?.type === 'TextChat') &&
+            (node?.type === 'VideoGenerate' || node?.type === 'TextChat') &&
             batches.length > 1;
         if (shouldRunConcurrentBatches) {
-            if (node.type === 'ImageGenerate') resetNodeImageOutputsForBatch(node);
             if (node.type === 'VideoGenerate') {
                 node.data = node.data || {};
                 delete node.data.video;
@@ -1763,7 +1906,6 @@ export function createWorkflowRunnerApi({
                 .filter((result) => result.status === 'fulfilled')
                 .map((result) => result.value || {});
             if (rejected.length > 0) {
-                if (node.type === 'ImageGenerate') node.generationAttemptIncomplete = true;
                 addLog(batchResults.length > 0 ? 'warning' : 'error', `并发请求部分失败: ${getNodeDisplayTitle(node)}`, `${settled.length} 个请求中 ${rejected.length} 个失败，${batchResults.length} 个成功。${batchResults.length > 0 ? '将仅把成功结果传递到下游。' : '没有可传递的成功结果。'}`, {
                     nodeId: node.id,
                     batchCount: settled.length,
@@ -1779,20 +1921,11 @@ export function createWorkflowRunnerApi({
             return batches[batches.length - 1] || inputs;
         }
 
-        if (shouldTrackStandaloneConcurrentImageRequests(node) && batches.length === 1) {
-            await executeStandaloneConcurrentImageRequests(node, batches[0], signal);
-            return batches[0] || inputs;
-        }
-
         const aggregatedImages = [];
         const textOutputPorts = getNodeOutputPortNames(node, 'text');
         const aggregatedTextsByPort = new Map(textOutputPorts.map((portName) => [portName, []]));
         const shouldAggregateImages = getNodeOutputPortNames(node, 'image').length > 0;
         const shouldAggregateTexts = textOutputPorts.length > 0;
-        const shouldTrackSequentialImageRequests = shouldTrackStandaloneConcurrentImageRequests(node);
-        const sequentialImageRequestStatusTracker = shouldTrackSequentialImageRequests
-            ? createConcurrentRequestStatusTracker(node, getApiNodeRunCount(node, batches.length))
-            : null;
 
         for (let index = 0; index < batches.length; index += 1) {
             if (signal?.aborted) {
@@ -1803,19 +1936,9 @@ export function createWorkflowRunnerApi({
 
             if (shouldAggregateImages) resetNodeImageOutputsForBatch(node);
             if (shouldAggregateTexts) resetNodeTextOutputsForBatch(node);
-            if (shouldTrackSequentialImageRequests) {
-                await executeImageGenerateWithRequestStatus(
-                    node,
-                    batches[index],
-                    signal,
-                    sequentialImageRequestStatusTracker,
-                    index
-                );
-            } else {
-                await executeNode(node, batches[index], signal, {
-                    videoExecutionInput: node?.type === 'VideoGenerate' ? prepareVideoExecutionInput(node, batches[index], connections) : null
-                });
-            }
+            await executeNode(node, batches[index], signal, {
+                videoExecutionInput: node?.type === 'VideoGenerate' ? prepareVideoExecutionInput(node, batches[index], connections) : null
+            });
 
             if (shouldAggregateImages) {
                 const imageOutputs = getCanonicalImageList(node);
@@ -1838,15 +1961,7 @@ export function createWorkflowRunnerApi({
                 imageCount: aggregatedImages.length,
                 assetReady: false
             });
-            if (node.type === 'ImageGenerate') {
-                node.generationCompletedCount = aggregatedImages.length;
-                node.data.imageResultPersistence = 'transient';
-                delete node.data.mediaAssetKeys;
-            }
-            const persisted = await persistConcurrentImageResults(node, aggregatedImages);
-            if (node.type === 'ImageGenerate' && !persisted) {
-                throw new Error('图片已生成，但本地媒体保存失败，请重试。');
-            }
+            await persistConcurrentImageResults(node, aggregatedImages);
             await propagateImagesToDownstreamPreview(node.id, aggregatedImages);
             await refreshDependentImageResizePreviews(node.id);
             connectionProjection?.nodeGeometryChanged(node.id);
@@ -1875,13 +1990,13 @@ export function createWorkflowRunnerApi({
         return batches[batches.length - 1] || inputs;
     }
 
-    async function executeNodeAttempt(node, inputs, signal, connections) {
+    async function executeNodeAttempt(node, inputs, signal, connections, plan) {
         node.generationAttemptIncomplete = false;
         const token = generationRevisionApi?.beginAttempt(node, inputs, {
             sources: recipeSourcesByInputs.get(inputs), runToken: node.activeMediaOperationId
         });
         try {
-            const result = await executeNodeWithInputBatches(node, inputs, signal, connections);
+            const result = await executeNodeWithInputBatches(node, inputs, signal, connections, plan, token?.recipe);
             // Durable source identities must settle before a downstream recipe is captured.
             await waitForPendingImageAssetSaves({ nodeId: node.id, requireSuccess: true });
             if (signal?.aborted) {
@@ -2105,7 +2220,7 @@ export function createWorkflowRunnerApi({
 
             try {
                 const inputs = await collectInputsForNode(plan, nid);
-                const loggedInputs = await executeNodeAttempt(currentNode, inputs, linkedAbort.signal, plan.inputConnectionsByNode[nid]);
+                const loggedInputs = await executeNodeAttempt(currentNode, inputs, linkedAbort.signal, plan.inputConnectionsByNode[nid], plan);
                 if (linkedAbort.signal?.aborted) {
                     const abortError = new Error('Node run aborted');
                     abortError.name = 'AbortError';
@@ -2599,7 +2714,7 @@ export function createWorkflowRunnerApi({
 
                                 try {
                                     const inputs = await collectInputsForNode(plan, nid);
-                                    const loggedInputs = await executeNodeAttempt(node, inputs, linkedAbort.signal, plan.inputConnectionsByNode[nid]);
+                                    const loggedInputs = await executeNodeAttempt(node, inputs, linkedAbort.signal, plan.inputConnectionsByNode[nid], plan);
 
                                     if (session.canceledBranchNodeIds.has(nid) || nodeController.signal.aborted) {
                                         const abortError = new Error('Node run aborted');
@@ -2650,7 +2765,7 @@ export function createWorkflowRunnerApi({
 
                                     failedNodes.add(nid);
 
-                                    if (!state.autoRetry || runInput?.agentSequential) {
+                                    if (!state.autoRetry || runInput?.agentSequential || plan.imageRetryNodeId) {
                                         showToast(`「${nodeTitle}」出错: ${errorMsg}`, 'error', 5000);
                                         terminatedByError = true;
                                         session.stopped = true;
@@ -2663,6 +2778,7 @@ export function createWorkflowRunnerApi({
                                     unregisterNodeCancelHandler(session, nid);
                                     delete node.activeMediaOperationId;
                                     delete node.activeMediaOperationIds;
+                                    delete node.imageGenerationRetryActive;
                                     runningNodes.delete(nid);
                                 }
                             })();
@@ -2688,7 +2804,7 @@ export function createWorkflowRunnerApi({
                     break;
                 }
 
-                if (!state.autoRetry || runInput?.agentSequential) break;
+                if (!state.autoRetry || runInput?.agentSequential || plan.imageRetryNodeId) break;
 
                 retryAttempt++;
                 if (retryAttempt > maxRetries) {

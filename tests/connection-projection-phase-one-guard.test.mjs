@@ -9,7 +9,7 @@ async function read(relativePath) {
 function extractBraceBlock(source, marker) {
     const markerIndex = source.indexOf(marker);
     assert.notEqual(markerIndex, -1, `missing caller marker: ${marker}`);
-    const openIndex = source.indexOf('{', markerIndex);
+    const openIndex = source.indexOf('{', markerIndex + marker.length);
     assert.notEqual(openIndex, -1, `missing caller block: ${marker}`);
     let depth = 0;
     for (let index = openIndex; index < source.length; index += 1) {
@@ -25,8 +25,9 @@ test('phase-one status and remaining node geometry callers use projection intent
     const modelSettings = await read('../js/features/settings/model-settings.js');
     const bootstrap = await read('../js/app/bootstrap-impl.js');
 
-    assert.match(runtime, /function applyVisibleNodeRunState[\s\S]{0,2600}nodeAppearanceChanged\(nodeId\)/);
-    assert.doesNotMatch(runtime, /function applyVisibleNodeRunState[\s\S]{0,2600}updateAllConnections\(\)/);
+    const runState = extractBraceBlock(runtime, 'function applyVisibleNodeRunState(workflow, payload = {})');
+    assert.match(runState, /nodeAppearanceChanged\(nodeId\)/);
+    assert.doesNotMatch(runState, /updateAllConnections\(\)/);
     assert.match(modelSettings, /maskPort\.setAttribute[\s\S]{0,300}nodeGeometryChanged\(id\)/);
     assert.match(bootstrap, /function refreshImageGenerateNodes[\s\S]{0,800}nodeGeometryChanged\(nodeIds\)/);
 });
@@ -38,7 +39,7 @@ test('phase-one migrated callers do not retain rendering strategy vocabulary', a
         ['../js/features/ui/context-menu-controller.js', ['function ensureNodeSelected', "if (e.target.id === 'canvas-container'"]],
         ['../js/nodes/node-lifecycle.js', ['function scheduleNodeSizeConnectionRefresh', 'function selectNode', 'function renameNode']],
         ['../js/nodes/node-dom-bindings.js', ['function scheduleConnectedInputFieldLayout', 'function updateImageGenerateMaskPortVisibility']],
-        ['../js/features/workflow/workflow-runtime-manager.js', ['function applyVisibleNodeRunState']],
+        ['../js/features/workflow/workflow-runtime-manager.js', ['function applyVisibleNodeRunState(workflow, payload = {})']],
         ['../js/features/settings/model-settings.js', ['function syncImageGenerateResolutionOptions']],
         ['../js/app/bootstrap-impl.js', ['function adjustTextareaHeight', 'function refreshImageGenerateNodes']]
     ].map(async ([path, markers]) => [path, markers, await read(path)]));
