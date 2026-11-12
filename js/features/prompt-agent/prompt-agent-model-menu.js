@@ -54,7 +54,14 @@ export function createPromptAgentModelMenus({ documentRef, selects, parent = nul
             trigger.disabled = select.disabled;
             trigger.textContent = select.selectedOptions[0]?.textContent || emptyText;
             const model = route?.getModels().find(item => item.id === select.value);
-            if (model) trigger.textContent = getAgentModelLabel(model, route.getProviders(), route.getProviderId(model.id));
+            if (model) {
+                const providers = route.getProviders();
+                const providerId = route.getProviderId(model.id);
+                const missingProvider = route.onlyBoundProviders
+                    && !getModelProviders(model, providers).some(provider => provider.id === providerId);
+                trigger.textContent = missingProvider
+                    ? emptyText : getAgentModelLabel(model, providers, providerId);
+            }
             trigger.title = trigger.textContent;
             if (current?.select === select) close();
         };
@@ -95,12 +102,17 @@ export function createPromptAgentModelMenus({ documentRef, selects, parent = nul
             search.setAttribute('aria-controls', list.id);
             const options = [...select.options].flatMap(option => {
                 const model = route?.getModels().find(item => item.id === option.value);
-                if (!model) return [{ value: option.value, textContent: option.textContent, disabled: option.disabled, selected: option.selected }];
+                if (!model) {
+                    if (route?.onlyBoundProviders && option.value) return [];
+                    return [{ value: option.value, textContent: option.textContent, disabled: option.disabled, selected: option.selected }];
+                }
                 const selectedProvider = route.getProviderId(model.id);
                 const bound = getModelProviders(model, route.getProviders());
                 const ids = bound.map(provider => provider.id);
-                if (!ids.length && !selectedProvider) ids.push('');
-                if (selectedProvider && !ids.includes(selectedProvider)) ids.push(selectedProvider);
+                if (!route.onlyBoundProviders) {
+                    if (!ids.length && !selectedProvider) ids.push('');
+                    if (selectedProvider && !ids.includes(selectedProvider)) ids.push(selectedProvider);
+                }
                 return ids.map(providerId => ({ value: model.id, providerId,
                     textContent: getAgentModelLabel(model, route.getProviders(), providerId),
                     disabled: option.disabled || !providerId || !bound.some(provider => provider.id === providerId),

@@ -1,11 +1,12 @@
-import { bindTaskToReply, confirmTaskParameters } from './prompt-agent-task.js';
+import { bindTaskToReply, confirmTaskParameters, CreativeTaskConfirmationRequired, isCreativeTaskConfirmation } from './prompt-agent-task.js';
+import { normalizePromptAgentChoices } from './prompt-agent-choices.js';
 import { sizeCapabilities, replaceAgentSizeFields, resolveAgentSize, parseSizeAnswer } from './prompt-agent-size.js';
 import { getEffectiveProtocol, getModelProviders } from '../execution/provider-request-utils.js';
 import { createAgentSizeSettings } from './prompt-agent-size-ui.js';
 import { createThinkingControl } from '../execution/thinking-control.js';
 import { resolveAgentProvider } from './prompt-agent-provider.js';
 import { createPromptAgentConversationStore, getPromptAgentReferenceKey } from './prompt-agent-conversation-store.js';
-import { measurePromptAgentContext, countPromptText } from './prompt-agent-token-budget.js';
+import { measurePromptAgentContext, countPromptText, fitPromptAgentContext } from './prompt-agent-token-budget.js';
 import { stampResultCompletion } from './prompt-agent-result-order.js';
 import { createPromptAgentResultPersistence } from './prompt-agent-result-persistence.js';
 import { createPromptAgentPanelWidth } from './prompt-agent-panel-width.js';
@@ -106,6 +107,7 @@ export function createPromptAgentController({
     getPanelWidth = () => null,
     setPanelWidth = () => {},
     getAutoCompactTokenLimit = () => 12000,
+    getDiscardOverLimitContext = () => false,
     conversationStore = createPromptAgentConversationStore(),
     onStateChange = () => {},
     onDraftChange = onStateChange,
@@ -142,6 +144,7 @@ export function createPromptAgentController({
     const workflowStatuses = new Map();
     let visibleWorkflowId = '';
     let requestPending = false;
+    let choiceView = null;
     let commandMenuOpen = false;
     let commandMatches = [];
     let commandIndex = 0;
@@ -244,12 +247,16 @@ export function createPromptAgentController({
     function compactionSelection(fallbackModelId) {
         const preferredId = getSelectedCompactionModelId();
         const modelId = preferredId || fallbackModelId;
-        if (!getChatModels().some(model => model.id === modelId && model.modelId)) {
+        const model = getChatModels().find(model => model.id === modelId && model.modelId);
+        if (!model) {
             throw new Error('所选压缩模型不可用，请在常规设置重新选择');
         }
         const config = captureThinkingConfig(modelId);
-        return { modelId, config: config && preferredId
-            ? { ...config, providerId: getSelectedCompactionProviderId(modelId) || config.providerId } : config };
+        if (!preferredId) return { modelId, config };
+        const providerId = getSelectedCompactionProviderId(modelId);
+        if (!providerId) throw new Error('请在常规设置中选择压缩模型与供应商。');
+        if (config) resolveAgentProvider(config.model || model, config.providers || getProviders(), providerId);
+        return { modelId, config: config && { ...config, providerId } };
     }
     function getUsableChatModels() {
         return getChatModels().filter((model) => model?.id && model?.modelId);
@@ -272,6 +279,7 @@ export function createPromptAgentController({
         if (modelHint) modelHint.hidden = models.length > 0;
         // Local commands remain available without a model and during requests.
         updateSendButtonState(models);
+        refreshChoiceButtons(models);
         if (!modelSelect) return models;
         const selected = conversationStore.getChatModelId() || getSelectedModelId() || models[0]?.id || '';
         if (selected && !conversationStore.getChatModelId()) conversationStore.setChatModelId(selected);
@@ -372,12 +380,12 @@ export function createPromptAgentController({
         const conversation = store.getCompactionContext();
         const previous = conversation.messages.findLast(item => item.promptPlan)?.promptPlan || conversation.previousPromptPlan;
         const references = operation ? operation.referenceImages : pendingReferenceImages.filter(image => !image.loading && !image.error);
-        const measurement = measurePromptAgentContext({ model, message, conversation,
+        const measurement = measurePromptAgentContext({ model, message, conversation, confirmedNewTask: operation?.confirmedNewTask, choiceAnswer: operation?.choiceAnswer,
             autoCompactTokenLimit: operation ? operation.autoCompactTokenLimit : getAutoCompactTokenLimit(),
             sizeSettings: store.getSize(store.getImageModelId()), imageSizeCapabilities: operation ? operation.imageSizeCapabilities : imageSizeCapabilities(),
             canvasContext: operation ? operation.canvasContext : canvasAdapter?.context(canvasMentions?.read().map(item => item.id) || []) || null,
             searchAllowed: store.getSearchSettings().mode !== 'off',
-            context: operation ? operation.selectedContext || operation.nodeContexts?.get(previous?.targetNodeId)
+            context: operation ? operation.selectedContext || (!operation.confirmedNewTask ? operation.nodeContexts?.get(previous?.targetNodeId) : null)
                 : nodeAdapter?.getSelectedContext?.() || (previous?.targetNodeId ? nodeAdapter?.getContext?.(previous.targetNodeId) : null),
             referenceImages: references,
             workflowReferenceImages: uniqueReferenceImages([
@@ -426,6 +434,7 @@ export function createPromptAgentController({
     }
 
     async function autoCompact(operation, modelId, message = '') {
+        if (operation.discardOverLimitContext) return true;
         if (operation.compactionStatus) { setOperationStatus(operation, operation.compactionStatus); return true; }
         const progress = () => compressionProgress(message, operation.model, operation);
         if (!progress().reached) return true;
@@ -497,11 +506,14 @@ export function createPromptAgentController({
                 meter.className = 'prompt-agent-context-usage';
                 meter.style.setProperty('--context-usage', `${displayedPercent}%`);
                 meter.setAttribute('role', 'meter');
-                meter.setAttribute('aria-label', '自动压缩阈值进度');
+                const discard = getDiscardOverLimitContext();
+                meter.setAttribute('aria-label', discard ? '上下文阈值进度' : '自动压缩阈值进度');
                 meter.setAttribute('aria-valuemin', '0');
                 meter.setAttribute('aria-valuemax', '100');
                 meter.setAttribute('aria-valuenow', String(displayedPercent));
-                const detail = usage.emptyConversation
+                const detail = discard
+                    ? `上下文用量约 ${usage.used} / ${usage.threshold} Token。超过阈值会移除最旧的对话，聊天记录仍可查看。${usage.source}。`
+                    : usage.emptyConversation
                     ? `暂无对话上下文。下次请求的系统指令和画布候选预计占用约 ${usage.used} / ${usage.threshold} Token，并非残留聊天；发送时按完整请求检查自动压缩阈值。`
                     : `自动压缩阈值进度：约 ${usage.used} / ${usage.threshold} Token（文本约 ${usage.textTokens}，图片约 ${usage.imageTokens}，含系统指令及画布候选）；此阈值是自动压缩设置，并非模型最大容量；${usage.source}。发送前及回复后达到阈值时调用模型压缩，与圆环共用计数。`;
                 meter.setAttribute('aria-valuetext', `${displayedPercent}%，${detail}`);
@@ -591,6 +603,9 @@ export function createPromptAgentController({
 
     function appendOperationMessage(operation, role, text, workSummary = [], extra = {}) {
         const index = mutateOperationConversation(operation, store => {
+            if (role === 'user' && operation.discardedMessageCount !== undefined) {
+                store.discardContextBefore(operation.discardedMessageCount);
+            }
             if (role === 'user' && operation.consumeDraft) {
                 const draft = store.getDraft();
                 store.setDraft({ text: draft.text.trim() === operation.text ? '' : draft.text,
@@ -601,6 +616,7 @@ export function createPromptAgentController({
         if (index === false || !Number.isInteger(index)) return { index: -1, element: null };
         const element = isCurrentOperation(operation) ? appendMessage(role, text, workSummary, { ...extra, record: false }) : null;
         if (element) element.promptAgentMessageIndex = index;
+        if (isCurrentOperation(operation)) refreshChoiceButtons();
         return { index, element };
     }
 
@@ -706,6 +722,11 @@ export function createPromptAgentController({
         }
         if (requestPending) {
             setCommandStatus('请等待当前请求完成，或先停止请求后再压缩。');
+            return;
+        }
+        if (getDiscardOverLimitContext()) {
+            if (input) input.value = '';
+            setCommandStatus('已开启「不压缩上下文」，超过阈值时会移除最旧的对话。');
             return;
         }
         const conversation = conversationStore.getCompactionContext();
@@ -1251,7 +1272,50 @@ export function createPromptAgentController({
         else open();
     }
 
-    function appendMessage(role, text, workSummary = [], { record = true, promptPlan = null, canvasPlan = null, nodeMentions = [], referenceImages = [], contextImages = [], intent, search } = {}) {
+    function choiceLabels(message) {
+        if (isCreativeTaskConfirmation(message)) return ['是', '否'];
+        return message?.role === 'agent' && message.intent === 'clarify' ? normalizePromptAgentChoices(message.choices) : null;
+    }
+
+    function refreshChoiceButtons(models) {
+        if (!choiceView) return;
+        const { message, buttons, localConfirmation } = choiceView;
+        const pending = message.promptAgentMessageIndex === conversationStore.getLatestMessageIndex();
+        models ??= getUsableChatModels();
+        const selectedId = conversationStore.getChatModelId() || getSelectedModelId() || models[0]?.id;
+        const available = models.some(model => model.id === selectedId);
+        for (const button of buttons) {
+            button.disabled = requestPending || !pending || (!available && !(localConfirmation && button.textContent === '否'));
+        }
+    }
+
+    function appendChoices(message, turn) {
+        const labels = choiceLabels(turn);
+        if (!labels) return;
+        const group = documentRef.createElement('div');
+        group.className = 'prompt-agent-choices';
+        group.setAttribute('role', 'group');
+        group.setAttribute('aria-label', '回答选项');
+        const revision = workflowRevision;
+        const buttons = labels.map(label => {
+            const button = documentRef.createElement('button');
+            button.type = 'button';
+            button.className = 'prompt-agent-choice';
+            button.textContent = label;
+            button.disabled = true;
+            button.addEventListener('click', () => {
+                if (button.disabled || revision !== workflowRevision || !message.isConnected) return;
+                return submit({ choice: { questionIndex: message.promptAgentMessageIndex, label } });
+            });
+            group.appendChild(button);
+            return button;
+        });
+        choiceView?.buttons.forEach(button => { button.disabled = true; });
+        choiceView = { message, buttons, localConfirmation: isCreativeTaskConfirmation(turn) };
+        message.appendChild(group);
+    }
+
+    function appendMessage(role, text, workSummary = [], { record = true, promptPlan = null, canvasPlan = null, nodeMentions = [], referenceImages = [], contextImages = [], intent, search, choices } = {}) {
         const { messages } = getElements();
         if (!messages) return null;
         const followLatest = messages.scrollHeight - messages.clientHeight - messages.scrollTop <= 32;
@@ -1284,6 +1348,7 @@ export function createPromptAgentController({
         if (role === 'agent') renderAgentBody({ documentRef, body, text, sources: search?.sources || [] });
         else body.textContent = text;
         message.appendChild(body);
+        appendChoices(message, { role, text, intent, choices });
         if (search) {
             const revision = workflowRevision, viewRevision = searchViewRevision;
             const isCurrent = () => revision === workflowRevision && viewRevision === searchViewRevision;
@@ -1317,7 +1382,7 @@ export function createPromptAgentController({
                     if (revision !== workflowRevision || !message.isConnected || requestPending) return;
                     const current = conversationStore.getMessage(message.promptAgentMessageIndex);
                     if (current?.role !== 'user') return;
-                    void submit({ resendMessage: current });
+                    void submit({ resendMessage: current, resendMessageIndex: message.promptAgentMessageIndex });
                 }
             }));
         }
@@ -1326,7 +1391,8 @@ export function createPromptAgentController({
         if (followLatest || followLatestContent) scrollToLatest();
         updateScrollBottomButton();
         if (record) {
-            message.promptAgentMessageIndex = conversationStore.append({ role, text, workSummary, promptPlan, canvasPlan, nodeMentions, referenceImages, ...(contextImages.length ? { contextImages } : {}), intent, search });
+            message.promptAgentMessageIndex = conversationStore.append({ role, text, workSummary, promptPlan, canvasPlan, nodeMentions, referenceImages, ...(contextImages.length ? { contextImages } : {}), intent, search, choices });
+            refreshChoiceButtons();
             conversationRevision += 1;
             onStateChange();
             if (commandMenuOpen) renderCommandMenu();
@@ -1611,7 +1677,11 @@ export function createPromptAgentController({
                 event.stopPropagation?.();
             });
             image.addEventListener('dragend', () => endAgentResultDrag(dragToken));
-            const preview = () => openResultPreview(images.filter(Boolean), images.slice(0, index).filter(Boolean).length);
+            const preview = () => openResultPreview(images.filter(Boolean), images.slice(0, index).filter(Boolean).length, {
+                onClose: () => {
+                    if (revision === workflowRevision && image.isConnected && !image.closest('[inert]')) image.focus({ preventScroll: true });
+                }
+            });
             image.addEventListener('click', () => { if (!dragged) preview(); });
             image.addEventListener('keydown', (event) => {
                 if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -1625,9 +1695,8 @@ export function createPromptAgentController({
                     name: `生成结果 ${index + 1}`, assetKey: result.mediaAssetKeys?.[index],
                     runId: result.runId, sourceImageIndex: index,
                     readOriginal: async () => source,
-                    isCurrent: () => revision === workflowRevision && wrapper.isConnected,
-                    restoreFocus: () => wrapper.querySelector('[data-result-action=preview]')?.focus({ preventScroll: true })
-                });
+                    isCurrent: () => revision === workflowRevision && wrapper.isConnected
+                }, { compact: true });
                 wrapper.append(image, actions.element);
                 runState.appendChild(wrapper);
             } else runState.appendChild(image);
@@ -1875,17 +1944,33 @@ export function createPromptAgentController({
         canvasViews.add(view); runs.forEach(run => addRunView(run));
     }
 
-    async function submit({ resendMessage = null } = {}) {
+    async function submit({ resendMessage = null, resendMessageIndex, choice = null } = {}) {
         const { input } = getElements();
-        const text = resendMessage ? String(resendMessage.text || '') : input?.value?.trim();
-        if (!resendMessage && text?.startsWith('/')) {
+        const text = choice?.label ?? (resendMessage ? String(resendMessage.text || '') : input?.value?.trim());
+        if (!choice && !resendMessage && text?.startsWith('/')) {
             await executeCommand(text.toLowerCase());
             return;
         }
+        const attachments = choice ? [] : resendMessage ? resendMessage.referenceImages || [] : pendingReferenceImages;
+        const latestIndex = conversationStore.getLatestMessageIndex();
+        const questionIndex = resendMessage ? (resendMessageIndex ?? 0) - 1 : latestIndex;
+        const question = (choice || (!attachments.length && text === '否')) ? conversationStore.getMessage(questionIndex) : null;
+        if (choice && (requestPending || choice.questionIndex !== latestIndex || !choiceLabels(question)?.includes(text))) return;
+        if (!requestPending && text === '否' && isCreativeTaskConfirmation(question)) {
+            if (!choice && !resendMessage && input) input.value = '';
+            appendMessage('user', text);
+            appendMessage('agent', '已保留当前创作任务。');
+            return;
+        }
+        const choiceAnswer = choice ? { question: question.text, choice: text } : resendMessage?.choiceAnswer ?? null;
+        const confirmedRequest = !attachments.length && (!resendMessage || Number.isInteger(resendMessageIndex))
+            ? conversationStore.getConfirmedCreativeRequest(text, resendMessageIndex) : null;
+        const requestText = confirmedRequest?.text ?? text;
+        const confirmedNewTask = Boolean(confirmedRequest);
         // Do this immediately before reading the select value. This covers late
         // settings hydration and prevents an otherwise valid request from being
         // sent without a modelId.
-        if (!resendMessage && !requestPending && !pendingReferenceImages.length && text) {
+        if (!choice && !confirmedRequest && !resendMessage && !requestPending && !pendingReferenceImages.length && text) {
             const latest = [...canvasViews].at(-1) || [...promptPlanActionStates].at(-1);
             if (latest?.answerSize?.(text)) {
                 scrollToLatest();
@@ -1895,20 +1980,21 @@ export function createPromptAgentController({
             }
         }
         const models = renderModelOptions();
-        const attachments = resendMessage ? resendMessage.referenceImages || [] : pendingReferenceImages;
         if (requestPending || models.length === 0 || attachments.some((image) => image.loading || image.error)) return;
         if (!text && attachments.length === 0) return;
+        const replyModelId = getElements().modelSelect?.value || getSelectedModelId() || models[0].id;
+        if (choiceAnswer && !models.some(model => model.id === replyModelId)) return;
         scrollToLatest();
         const stagedReferences = attachments.slice();
         // Capture selection and explicit mentions at Send, before compression
         // or media reads can yield to a later canvas selection.
-        const nodeMentions = resendMessage ? [] : canvasMentions?.read() || [];
-        const canvasContext = canvasAdapter?.context(nodeMentions.map(item => item.id)) || null;
+        const nodeMentions = confirmedRequest ? confirmedRequest.nodeMentions || [] : (resendMessage || choice) ? [] : canvasMentions?.read() || [];
+        const includeSelection = !confirmedNewTask && !choiceAnswer;
+        const canvasContext = canvasAdapter?.context(nodeMentions.map(item => item.id), { includeSelection }) || null;
         const selectedIds = canvasContext?.summary.selectedIds || [];
         const selectedContext = canvasContext ? (selectedIds.length === 1 ? nodeAdapter?.getContext?.(selectedIds[0]) : null)
-            : nodeAdapter?.getSelectedContext?.();
+            : includeSelection ? nodeAdapter?.getSelectedContext?.() : null;
         const operation = beginOperation('reply');
-        const replyModelId = getElements().modelSelect?.value || getSelectedModelId() || models[0].id;
         operation.model = JSON.parse(JSON.stringify(models.find(model => model.id === replyModelId) || {}));
         operation.config = captureThinkingConfig(replyModelId);
         operation.searchSettings = conversationStore.getSearchSettings();
@@ -1917,10 +2003,13 @@ export function createPromptAgentController({
         operation.canvasContext = canvasContext;
         operation.selectedContext = selectedContext;
         operation.autoCompactTokenLimit = getAutoCompactTokenLimit();
+        operation.discardOverLimitContext = getDiscardOverLimitContext();
         operation.observation = tokenObservation;
         operation.text = text;
-        operation.consumeDraft = !resendMessage;
-        operation.referenceImages = stagedReferences.map(image => ({ ...image }));
+        operation.confirmedNewTask = confirmedNewTask;
+        operation.choiceAnswer = choiceAnswer;
+        operation.consumeDraft = !resendMessage && !choice;
+        operation.referenceImages = (confirmedRequest?.referenceImages || stagedReferences).map(image => ({ ...image }));
         operation.stagedReferenceKeys = new Set(stagedReferences.map(getPromptAgentReferenceKey));
         const initialConversation = operation.store.getCompactionContext();
         const initialPlan = initialConversation.messages.findLast(message => message.promptPlan)?.promptPlan || initialConversation.previousPromptPlan;
@@ -1931,23 +2020,42 @@ export function createPromptAgentController({
         if (selectedContext?.nodeId) operation.nodeContexts.set(selectedContext.nodeId, selectedContext);
         operation.sceneDescriptions = new Map((nodeAdapter?.getSceneReferenceImages?.() || []).map(image => [image.sourceNodeId, image.description || '']));
         operation.contextReferences = referenceSource?.getContextReferences?.(initialConversation) || [];
-        try { operation.compaction = compactionSelection(replyModelId); }
-        catch (error) { operation.compactionError = error; }
+        if (!operation.discardOverLimitContext) {
+            try { operation.compaction = compactionSelection(replyModelId); }
+            catch (error) { operation.compactionError = error; }
+        }
+        const resolveContext = conversation => {
+            const previousPlan = conversation.messages.findLast(message => message.promptPlan)?.promptPlan || conversation.previousPromptPlan;
+            const previousCanvas = [...(conversation.archivedMessages || []), ...conversation.messages].findLast(message => message.canvasPlan)?.canvasPlan;
+            const previousTargets = [...new Set((previousCanvas?.steps || []).filter(step => step.type === 'ImageGenerate')
+                .map(step => step.nodeId || previousCanvas.bindings?.[step.id]).filter(Boolean))];
+            const previousCanvasContext = previousTargets.length === 1 ? operation.nodeContexts.get(previousTargets[0]) : null;
+            return (nodeMentions.length ? nodeMentions.map(item => operation.nodeContexts.get(item.id)).find(Boolean)
+                : selectedContext || (!confirmedNewTask && !selectedIds.length ? previousCanvasContext : null))
+                || (!confirmedNewTask && !nodeMentions.length && !selectedIds.length && previousPlan?.targetNodeId ? operation.nodeContexts.get(previousPlan.targetNodeId) : null)
+                || null;
+        };
+        const fitContext = ({ conversation, message, referenceImages, workflowReferenceImages, confirmedNewTask, choiceAnswer }) =>
+            fitPromptAgentContext({ model: operation.model, message, confirmedNewTask, choiceAnswer, context: resolveContext(conversation),
+                autoCompactTokenLimit: operation.autoCompactTokenLimit, conversation, canvasContext, sizeSettings: operation.sizeSettings,
+                imageSizeCapabilities: operation.imageSizeCapabilities, searchAllowed: operation.searchSettings.mode !== 'off',
+                referenceImages, workflowReferenceImages }, resolveContext, operation.observation);
         let completedSearch = null;
         try {
-            if (compressionProgress(text, operation.model, operation).reached && !await autoCompact(operation, replyModelId, text)) return;
+            if (!operation.discardOverLimitContext && compressionProgress(requestText, operation.model, operation).reached
+                && !await autoCompact(operation, replyModelId, requestText)) return;
             if (!isLiveOperation(operation)) return;
             const remainingKeys = new Set(operation.store.getDraft().referenceImages.map(getPromptAgentReferenceKey));
-            let referenceImages = operation.referenceImages.filter(image => (resendMessage || remainingKeys.has(getPromptAgentReferenceKey(image)))
+            let referenceImages = operation.referenceImages.filter(image => (resendMessage || confirmedRequest || remainingKeys.has(getPromptAgentReferenceKey(image)))
                 && !operation.removedReferenceNodeIds?.has(image.sourceNodeId))
                 .map(image => image.sourceNodeId && operation.sceneDescriptions.has(image.sourceNodeId)
                     ? { ...image, description: operation.sceneDescriptions.get(image.sourceNodeId) } : image);
             if (!text && !referenceImages.length) return;
             const sizeDefaults = operation.sizeSettings;
-            const workflowMemory = operation.store.getContext();
+            let workflowMemory = operation.store.getContext();
             // Snapshot before appending the current turn: preserve assistant drafts
             // and role boundaries without duplicating the new user request.
-            const conversation = operation.store.getCompactionContext();
+            let conversation = operation.store.getCompactionContext();
             let workflowReferenceImages = uniqueReferenceImages([
                 ...operation.store.getReferenceImages(),
                 ...referenceImages,
@@ -1963,15 +2071,23 @@ export function createPromptAgentController({
             }
             referenceImages = referenceImages.filter(image => !operation.removedReferenceNodeIds?.has(image.sourceNodeId));
             workflowReferenceImages = workflowReferenceImages.filter(image => !operation.removedReferenceNodeIds?.has(image.sourceNodeId));
+            let context;
+            if (operation.discardOverLimitContext) {
+                const fitted = fitContext({ conversation, message: requestText, confirmedNewTask, choiceAnswer, referenceImages, workflowReferenceImages });
+                operation.discardedMessageCount = fitted.discardedMessageCount;
+                ({ conversation, context, workflowReferenceImages } = fitted.request);
+                workflowMemory = conversation.memory;
+            } else context = resolveContext(conversation);
             operation.referenceImages = referenceImages;
-            const userTurn = appendOperationMessage(operation, 'user', text || `添加了 ${referenceImages.length} 张参考图`, [], { referenceImages, nodeMentions });
+            const userTurn = appendOperationMessage(operation, 'user', text || `添加了 ${referenceImages.length} 张参考图`, [],
+                { choiceAnswer, ...(confirmedRequest ? {} : { referenceImages, nodeMentions }) });
             if (userTurn.index < 0) return;
             if (isCurrentOperation(operation)) {
                 scrollToLatest();
                 if (operation.processingElement) getElements().messages?.appendChild(operation.processingElement);
                 scrollToLatest();
             }
-            if (!resendMessage && isCurrentOperation(operation)) {
+            if (operation.consumeDraft && isCurrentOperation(operation)) {
                 if (input.value.trim() === text) input.value = '';
                 renderPreparedNodeContext();
                 pendingReferenceImages = pendingReferenceImages.filter(image => !stagedReferences.includes(image));
@@ -1981,19 +2097,11 @@ export function createPromptAgentController({
                 setCommandStatus();
                 renderPendingReferences();
             }
-            const previousPlan = conversation.messages.findLast((message) => message.promptPlan)?.promptPlan
-                || conversation.previousPromptPlan;
-            const previousCanvas = [...(conversation.archivedMessages || []), ...conversation.messages].findLast(message => message.canvasPlan)?.canvasPlan;
-            const previousTargets = [...new Set((previousCanvas?.steps || []).filter(step => step.type === 'ImageGenerate')
-                .map(step => step.nodeId || previousCanvas.bindings?.[step.id]).filter(Boolean))];
-            const previousCanvasContext = previousTargets.length === 1 ? operation.nodeContexts.get(previousTargets[0]) : null;
-            const context = (nodeMentions.length ? nodeMentions.map(item => operation.nodeContexts.get(item.id)).find(Boolean)
-                : selectedContext || (!selectedIds.length ? previousCanvasContext : null))
-                || (!nodeMentions.length && !selectedIds.length && previousPlan?.targetNodeId ? operation.nodeContexts.get(previousPlan.targetNodeId) : null)
-                || null;
             const reply = await createReply({
                 canvasContext,
-                message: text,
+                message: requestText,
+                confirmedNewTask,
+                choiceAnswer,
                 context,
                 onContextImages: images => {
                     if (!isLiveOperation(operation)) return;
@@ -2019,6 +2127,7 @@ export function createPromptAgentController({
                     if (followLatestContent) scrollToLatest();
                 },
                 workflowMemory,
+                autoCompactTokenLimit: operation.autoCompactTokenLimit,
                 sizeSettings: sizeDefaults,
                 imageSizeCapabilities: operation.imageSizeCapabilities,
                 conversation,
@@ -2032,6 +2141,10 @@ export function createPromptAgentController({
             });
             if (!isLiveOperation(operation)) return;
             completedSearch = reply?.search || null;
+            if (reply?.confirmNewTask) {
+                if (confirmedNewTask) throw new Error('已确认开始新任务，但模型尚未给出方案。请重新发送刚才的回复。');
+                throw new CreativeTaskConfirmationRequired();
+            }
             if (reply?.promptPlan?.referenceImages?.some(image => operation.removedReferenceNodeIds?.has(image.sourceNodeId))
                 || reply?.canvasPlan?.dependencies?.some(id => operation.removedReferenceNodeIds?.has(id))) {
                 throw new Error('所选参考图已删除，请重新提出方案。');
@@ -2040,11 +2153,11 @@ export function createPromptAgentController({
                 const target = canvasContext.nodes.find(node => node.id === reply.promptPlan.targetNodeId);
                 const explicitlyNamed = target && (nodeMentions.some(item => item.id === target.id)
                     || (reply.intent !== 'generate' && selectedIds.includes(target.id))
-                    || (text.includes(target.name) && canvasContext.nodes.filter(node => node.name === target.name).length === 1));
-                reply.canvasPlan = promptPlanToCanvas({ ...reply.promptPlan, targetNodeId: explicitlyNamed ? reply.promptPlan.targetNodeId : null }, canvasContext, { message: text });
+                    || (requestText.includes(target.name) && canvasContext.nodes.filter(node => node.name === target.name).length === 1));
+                reply.canvasPlan = promptPlanToCanvas({ ...reply.promptPlan, targetNodeId: explicitlyNamed ? reply.promptPlan.targetNodeId : null }, canvasContext, { message: requestText });
                 reply.promptPlan = null;
             }
-            const nextTask = bindTaskToReply(reply, operation.creativeTask, text);
+            const nextTask = bindTaskToReply(reply, operation.creativeTask, requestText, { confirmedNewTask });
             operation.processingElement?.remove();
             setOperationStatus(operation, '');
             mutateOperationConversation(operation, store => { store.setCreativeTask(nextTask); return true; });
@@ -2052,20 +2165,29 @@ export function createPromptAgentController({
             if (isCurrentOperation(operation)) tokenObservation = reply?.tokenObservation || null;
             if (reply?.canvasPlan) canvasAdapter.prepare(reply.canvasPlan);
             const agentMessage = appendOperationMessage(operation, 'agent', reply?.message || '已整理本轮回复。', reply?.workSummary || [], {
-                promptPlan: reply?.promptPlan || null, canvasPlan: reply?.canvasPlan, intent: reply?.intent, search: reply?.search
+                promptPlan: reply?.promptPlan || null, canvasPlan: reply?.canvasPlan, intent: reply?.intent, search: reply?.search, choices: reply?.choices
             }).element;
             if (agentMessage) {
                 if (reply?.canvasPlan) appendCanvasPlan(agentMessage, reply.canvasPlan);
                 appendPromptPlan(agentMessage, reply?.promptPlan);
                 setCommandStatus();
             }
-            await autoCompact(operation, replyModelId);
+            if (operation.discardOverLimitContext && isLiveOperation(operation)) {
+                const fitted = fitContext({ conversation: operation.store.getCompactionContext(),
+                    workflowReferenceImages: uniqueReferenceImages([...workflowReferenceImages, ...operation.store.getReferenceImages()]) });
+                if (fitted.discardedMessageCount !== undefined) {
+                    mutateOperationConversation(operation, store => { store.discardContextBefore(fitted.discardedMessageCount); return true; });
+                }
+            } else await autoCompact(operation, replyModelId);
 
         } catch (error) {
             if (!isLiveOperation(operation)) return;
             operation.processingElement?.remove();
             setOperationStatus(operation, '');
-            appendOperationMessage(operation, 'agent', error?.message || 'Agent 暂时无法回复，请稍后重试。', [], { search: completedSearch });
+            appendOperationMessage(operation, 'agent', error?.message || 'Agent 暂时无法回复，请稍后重试。', [], {
+                search: completedSearch,
+                intent: error instanceof CreativeTaskConfirmationRequired ? CreativeTaskConfirmationRequired.intent : undefined
+            });
         } finally {
             finishOperation(operation);
         }
@@ -2323,6 +2445,7 @@ export function createPromptAgentController({
     }
 
     function renderConversation() {
+        choiceView = null;
         canvasViews.forEach(view => view.destroy()); canvasViews.clear();
         searchViewRevision += 1;
         searchViewCleanups.forEach(cleanup => cleanup()); searchViewCleanups = [];
@@ -2356,6 +2479,8 @@ export function createPromptAgentController({
         transcript.forEach((item, index) => {
             const message = appendMessage(item.role, item.text, item.workSummary || [], {
                 record: false,
+                intent: item.intent,
+                choices: item.choices,
                 search: item.search,
                 referenceImages: item.referenceImages || [],
                 contextImages: item.contextImages || []
@@ -2374,6 +2499,7 @@ export function createPromptAgentController({
                 }
             }
         });
+        refreshChoiceButtons();
         scrollToLatest();
     }
 

@@ -8,9 +8,9 @@ function isImageSource(source, protocol) {
 
 function projectHistory(conversation, images) {
     const history = [];
-    let omitted = false;
+    const omitted = Boolean(conversation?.messageOffset);
     const messages = Array.isArray(conversation?.messages) ? conversation.messages.map((message, index) => ({
-        ...message, messageNumber: (conversation.archivedMessages?.length || 0) + index + 1
+        ...message, messageNumber: (conversation.messageOffset || 0) + (conversation.archivedMessages?.length || 0) + index + 1
     })) : [];
     if (conversation?.previousPromptPlan && !messages.some((message) => message.promptPlan)) {
         messages.unshift({ role: 'agent', text: '压缩前保留的上一版草稿，未确认已应用。', promptPlan: conversation.previousPromptPlan });
@@ -21,6 +21,8 @@ function projectHistory(conversation, images) {
             message: String(message.text || ''),
             ...(message.search ? { search: projectAgentSearch(message.search) } : {}),
             ...(message.intent ? { intent: message.intent } : {}),
+            ...(message.choices?.length ? { choices: message.choices } : {}),
+            ...(message.choiceAnswer ? { choiceAnswer: message.choiceAnswer } : {}),
             ...(message.canvasPlan ? { canvasPlan: projectCanvasPlan(message.canvasPlan) } : {}),
             ...(message.promptPlan ? { promptPlan: {
                 targetNodeId: message.promptPlan.targetNodeId || null,
@@ -49,7 +51,7 @@ function projectHistory(conversation, images) {
 }
 
 export function createPromptAgentInput({
-    message = '', context = null, conversation = null, workflowMemory = '', sizeSettings = {}, imageSizeCapabilities = null,
+    message = '', confirmedNewTask = false, choiceAnswer = null, context = null, conversation = null, workflowMemory = '', sizeSettings = {}, imageSizeCapabilities = null,
     referenceImages = [], workflowReferenceImages = [], model, searchAllowed = true, searchContext = null, canvasContext = null, canvasReads = []
 } = {}) {
     const images = [];
@@ -124,6 +126,8 @@ export function createPromptAgentInput({
     const input = {
         canvas: canvasContext?.summary || null,
         creativeTask: conversation?.creativeTask || null,
+        ...(confirmedNewTask ? { confirmedNewTask: true } : {}),
+        ...(choiceAnswer ? { choiceAnswer } : {}),
         canvasReads,
         previousCanvasPlan: conversation?.messages?.some(turn => turn.canvasPlan) ? null : projectCanvasPlan((conversation?.archivedMessages || []).findLast(turn => turn.canvasPlan)?.canvasPlan),
         searchAllowed,
@@ -145,7 +149,7 @@ export function createPromptAgentInput({
         // archived dialogue. Pixel attachments are resolved by the catalog.
         earlierReferenceTurns: (conversation?.archivedMessages || []).flatMap((turn, index) => (
             turn.referenceImages?.length ? [{
-                messageNumber: index + 1,
+                messageNumber: (conversation.messageOffset || 0) + index + 1,
                 referenceImages: turn.referenceImages.map((image, referenceIndex) => ({
                     referenceNumber: referenceIndex + 1,
                     name: image.name,

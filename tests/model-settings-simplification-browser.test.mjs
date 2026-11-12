@@ -2,18 +2,31 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { withAppBrowser, reloadAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
 
-test('model editor omits request controls and global compaction setting persists in the app', { timeout: 30000 }, async () => {
+test('Agent context settings default to no compression and retain threshold, model and switch after reload', { timeout: 30000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false,
         models: [{ id: 'chat', name: '受控对话', modelId: 'chat', protocol: 'openai', taskType: 'chat', providerIds: ['p'],
             agentSearch: 'none', autoCompactTokenLimit: 1, thinking: { profile: 'none' } },
         { id: 'cheap', name: '低成本压缩', modelId: 'cheap', protocol: 'openai', taskType: 'chat', providerIds: ['p'] }],
-        providers: [{ id: 'p', name: '受控供应商', endpoint: 'https://controlled.test/v1', apikey: 'test' }] }, async ({ evaluate, waitFor }) => {
+        providers: [{ id: 'p', name: '受控供应商', endpoint: 'https://controlled.test/v1', apikey: 'test' }] }, async app => {
+        const { evaluate, waitFor } = app;
+        const openAdvanced = () => evaluate("document.querySelector('.modal-tab-btn[data-tab=general]').click();document.getElementById('general-settings-category-advanced').click()");
         await evaluate("document.getElementById('btn-settings').click();document.querySelector('.model-config-card .card-header').click()");
         const modelUi = await evaluate("(()=>{const card=document.querySelector('.model-config-card');return {search:!!card.querySelector('[data-field=agentSearch]'),compact:!!card.querySelector('[data-field=autoCompactTokenLimit]'),thinking:!!card.querySelector('.thinking-model-settings')}})()");
         assert.deepEqual(modelUi, { search: false, compact: false, thinking: false });
-        await evaluate("document.querySelector('.modal-tab-btn[data-tab=general]').click()");
-        await evaluate("document.querySelector('[data-settings-category=advanced]').click()");
-        await waitFor("Boolean(document.getElementById('setting-agent-auto-compact-tokens'))");
+        await openAdvanced();
+        await waitFor("document.getElementById('setting-agent-auto-compact-tokens')?.checkVisibility()");
+        const agentSettings = await evaluate(`(() => {
+            const card = document.querySelector('[data-settings-card=agent]');
+            const toggle = card.querySelector('#setting-agent-discard-over-limit-context');
+            const threshold = card.querySelector('#setting-agent-auto-compact-tokens');
+            const model = card.querySelector('#setting-agent-compaction-model-trigger');
+            return { heading: card.querySelector('.card-header').textContent.trim(), checked: toggle.checked,
+                switchRole: toggle.getAttribute('role'), switchLabel: [...toggle.labels].map(label => label.textContent.trim()).filter(Boolean).join(' '),
+                thresholdLabel: threshold.labels[0].textContent.trim(), modelLabel: model.labels[0].textContent.trim(),
+                modelChoice: model.textContent.trim(), modelEnabled: !model.disabled };
+        })()`);
+        assert.deepEqual(agentSettings, { heading: 'Agent', checked: true, switchRole: 'switch', switchLabel: '不压缩上下文',
+            thresholdLabel: '上下文阈值（Token）', modelLabel: '上下文压缩模型', modelChoice: '跟随对话模型（默认）', modelEnabled: true });
         const value = await evaluate(`(async()=>{const input=document.getElementById('setting-agent-auto-compact-tokens');input.value='24000';input.dispatchEvent(new Event('change',{bubbles:true}));const {diskStorage}=await import('/js/services/storage-documents.js');return diskStorage.getItem('cainflow_prompt_agent_auto_compact_tokens')})()`);
         assert.equal(value, '24000');
         const menu = await evaluate(`(()=>{const trigger=document.querySelector('.general-settings-compaction-control .prompt-agent-model-trigger');trigger.click();const menu=document.getElementById('setting-agent-compaction-model-menu');const search=menu.querySelector('.prompt-agent-model-search');search.value='低成本';search.dispatchEvent(new Event('input',{bubbles:true}));const rect=menu.getBoundingClientRect();return {expanded:trigger.getAttribute('aria-expanded'),visible:[...menu.querySelectorAll('.prompt-agent-model-option:not([hidden])')].map(item=>item.textContent),aboveModal:Number(getComputedStyle(menu).zIndex)>Number(getComputedStyle(document.getElementById('settings-modal')).zIndex),inViewport:rect.left>=0&&rect.right<=innerWidth&&rect.top>=0&&rect.bottom<=innerHeight}})()`);
@@ -21,10 +34,20 @@ test('model editor omits request controls and global compaction setting persists
         const compactionModel = await evaluate(`(async()=>{document.querySelector('#setting-agent-compaction-model-menu [data-model-id="cheap"]').click();const {diskStorage}=await import('/js/services/storage-documents.js');return diskStorage.getItem('cainflow_prompt_agent_compaction_model_id')})()`);
         assert.equal(compactionModel, 'cheap');
         assert.match(await evaluate("document.querySelector('.general-settings-compaction-control .prompt-agent-model-trigger').textContent"), /低成本压缩 · 受控供应商/);
+        await evaluate("document.getElementById('setting-agent-discard-over-limit-context').click()");
+        await waitFor(`fetch('/api/storage/documents/notice_state',{cache:'no-store'}).then(response=>response.json()).then(document=>document.value?.cainflow_prompt_agent_discard_over_limit_context==='false')`);
         await evaluate("document.querySelector('.modal-tab-btn[data-tab=api]').click();document.querySelector('.modal-tab-btn[data-tab=general]').click()");
+        assert.equal(await evaluate("document.getElementById('setting-agent-discard-over-limit-context').checked"), false);
         assert.equal(await evaluate("document.getElementById('setting-agent-auto-compact-tokens').value"), '24000');
         assert.equal(await evaluate("document.getElementById('setting-agent-compaction-model').value"), 'cheap');
         assert.equal(await evaluate("document.querySelectorAll('.general-settings-compaction-control .prompt-agent-model-trigger').length"), 1);
+        await evaluate("document.getElementById('settings-close').click()");
+        await reloadAppBrowser(app);
+        await evaluate("document.getElementById('btn-settings').click()");
+        await openAdvanced();
+        assert.equal(await evaluate("document.getElementById('setting-agent-discard-over-limit-context').checked"), false);
+        assert.equal(await evaluate("document.getElementById('setting-agent-auto-compact-tokens').value"), '24000');
+        assert.match(await evaluate("document.getElementById('setting-agent-compaction-model-trigger').textContent"), /低成本压缩 · 受控供应商/);
     });
 });
 

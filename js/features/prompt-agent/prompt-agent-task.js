@@ -2,6 +2,56 @@
 const keys=['resolution','aspectRatio','customWidth','customHeight','count','quality','moderation','background','negativePrompt'];
 const aliases={aspect:'aspectRatio',generationCount:'count'};
 const clone=value=>JSON.parse(JSON.stringify(value));
+const newTaskConfirmationMessage = '请确认是否开始新的创作任务；当前比例和分辨率仍会保留。';
+const confirmsNewTask = text => /^(?:确认|确定|同意|是|好(?:的)?|可以|yes|confirm|ok)[。！.!]*$/i.test(text?.trim());
+function requestsContinuation(message) {
+    const request = message.replace(/^(?:(?:请|帮我|只|仅)\s*)+/, '');
+    return /^(?:(?:继续|接着)(?:$|[，。]|改|调|修|优化)|沿用|保留原|(?:把|将).{1,20}(?:改成|换成)|continue\b|revise\b|edit\b|make it\b)/i.test(request)
+        || /^(?:继续|接着).{0,20}(?:同样|一样|同款|上一|上次|刚才|原图)/.test(request)
+        || /^(?:在|基于|根据)?(?:这张|上一张|上一版|原图|刚才的|当前方案)/.test(request)
+        || /^再来(?:一张|一版)?(?:[，,\s]+换(?:个|一)?(?:方向|思路))?[。！!]*$/.test(request);
+}
+
+function hasIndependentGenerationPlan(reply) {
+    if (reply.intent !== 'generate') return false;
+    const { canvasPlan, promptPlan } = reply;
+    if (canvasPlan) {
+        return !canvasPlan.deletes?.length && !canvasPlan.disconnects?.length
+            && canvasPlan.steps.some(step => step.type === 'ImageGenerate')
+            && canvasPlan.steps.every(step => !step.nodeId)
+            && !canvasPlan.connections?.some(link => link.to.port === 'prompt'
+                && !canvasPlan.steps.some(step => step.id === link.from.ref));
+    }
+    return Boolean(promptPlan && !promptPlan.targetNodeId && !promptPlan.preserveReferenceSnapshot
+        && !promptPlan.referenceImages?.some(image => image.role === 'edit-target'));
+}
+
+export class CreativeTaskConfirmationRequired extends Error {
+    static intent = 'confirm-new-creative-task';
+
+    constructor() {
+        super(newTaskConfirmationMessage);
+    }
+}
+
+export function isCreativeTaskConfirmation(message) {
+    // Older conversations stored this local error without an intent marker.
+    return message?.role === 'agent' && (message.intent === CreativeTaskConfirmationRequired.intent
+        || (!message.intent && message.text === newTaskConfirmationMessage));
+}
+
+export function findConfirmedCreativeRequest(message, messages, archivedMessages, beforeIndex) {
+    if (!confirmsNewTask(message)) return null;
+    const history = [...archivedMessages, ...messages];
+    for (let index = (beforeIndex ?? history.length) - 1; index > 0; index -= 2) {
+        if (!isCreativeTaskConfirmation(history[index])) break;
+        const request = history[index - 1];
+        if (request.role !== 'user') break;
+        if (!confirmsNewTask(request.text)) return request;
+    }
+    return null;
+}
+
 export function taskParameters(value={}) {
  const result={};
  for(const [raw,v] of Object.entries(value||{})) {const key=aliases[raw]||raw;if(keys.includes(key)&&['string','number'].includes(typeof v))result[key]=v;}
@@ -20,11 +70,10 @@ export function explicitTaskParameters(message) {
  const count=message.match(/(?:生成|输出|数量(?:为|设为)?)\s*(\d{1,2})\s*张/);if(count)values.count=Number(count[1]);
  return values;
 }
-export function updateCreativeTask(previous,message,update={},scopeCount=1) {
- let task=restoreCreativeTask(previous)||{version:1,id:crypto.randomUUID(),parameters:{},steps:{}};
- const newTask=/(?:开始|做|生成|画).{0,5}(?:全新|新的一|另一个|另一张)|新任务|重新开始|\bnew (?:task|project)\b/i.test(message);
- if(update.mode==='new'&&!newTask)throw new Error('请确认是否开始新的创作任务；当前比例和分辨率仍会保留。');
- if(newTask)task={version:1,id:crypto.randomUUID(),parameters:{},steps:{}};
+export function updateCreativeTask(previous,message,update={},scopeCount=1,{confirmedNewTask=false,independentGeneration=false}={}) {
+ const newTask=confirmedNewTask||independentGeneration||/(?:开始|做|生成|画).{0,5}(?:全新|新的一|另一个|另一张)|新任务|重新开始|\bnew (?:task|project)\b/i.test(message);
+ if(update.mode==='new'&&!newTask)throw new CreativeTaskConfirmationRequired();
+ const task=(!newTask&&restoreCreativeTask(previous))||{version:1,id:crypto.randomUUID(),parameters:{},steps:{}};
  const read=fields=>{const result={};for(const [key,item] of Object.entries(fields||{})){
   if(!keys.includes(aliases[key]||key)||!item||typeof item.evidence!=='string'||!item.evidence.trim()||!message.includes(item.evidence))throw new Error('参数变更缺少本轮明确依据，请确认需要修改的参数。');
   const canonical=aliases[key]||key;
@@ -40,10 +89,13 @@ export function updateCreativeTask(previous,message,update={},scopeCount=1) {
  if(explicit.resolution&&explicit.resolution!=='custom'){delete task.parameters.customWidth;delete task.parameters.customHeight;}
  return {task,explicit,newTask};
 }
-export function bindTaskToReply(reply,previous,message) {
+export function bindTaskToReply(reply,previous,message,{confirmedNewTask=false}={}) {
  const count=reply.canvasPlan?.steps.filter(s=>s.type==='ImageGenerate').length||1;
  for(const id of Object.keys(reply.taskUpdate?.steps||{})) if(['__proto__','constructor','prototype'].includes(id)||!reply.canvasPlan?.steps.some(s=>s.id===id&&s.type==='ImageGenerate')) throw new Error('步骤参数无法对应当前方案，请确认修改对象。');
- const {task,explicit,newTask}=updateCreativeTask(previous,message,reply.taskUpdate,count);
+ const request = message.trim();
+ const independentGeneration = reply.taskUpdate?.mode === 'new' && Boolean(request) && !confirmsNewTask(request)
+     && !requestsContinuation(request) && hasIndependentGenerationPlan(reply);
+ const {task,explicit,newTask}=updateCreativeTask(previous,message,reply.taskUpdate,count,{confirmedNewTask,independentGeneration});
  const apply=(parameters,stepId)=>{
   const inherited={...task.parameters,...(task.steps[stepId]||{})};
   const merged={...(newTask?{}:taskParameters(parameters)),...inherited};

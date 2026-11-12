@@ -1,7 +1,16 @@
 export const AUTO_COMPACT_STORAGE_KEY = 'cainflow_prompt_agent_auto_compact_tokens';
+export const DISCARD_OVER_LIMIT_CONTEXT_STORAGE_KEY = 'cainflow_prompt_agent_discard_over_limit_context';
 export const COMPACTION_MODEL_STORAGE_KEY = 'cainflow_prompt_agent_compaction_model_id';
 export const COMPACTION_PROVIDERS_STORAGE_KEY = 'cainflow_prompt_agent_compaction_providers';
 export const DEFAULT_AUTO_COMPACT_TOKENS = 12000;
+
+export function readDiscardOverLimitContext(storage) {
+    return storage?.getItem(DISCARD_OVER_LIMIT_CONTEXT_STORAGE_KEY) !== 'false';
+}
+
+export function writeDiscardOverLimitContext(storage, enabled) {
+    storage.setItem(DISCARD_OVER_LIMIT_CONTEXT_STORAGE_KEY, String(enabled === true));
+}
 
 export function readCompactionModelId(storage) {
     return String(storage?.getItem(COMPACTION_MODEL_STORAGE_KEY) || '');
@@ -47,7 +56,7 @@ export function readAutoCompactTokens(storage) {
 
 export function writeAutoCompactTokens(storage, value) {
     const parsed = parseAutoCompactTokens(value);
-    if (!parsed) throw new RangeError('自动压缩阈值必须是正整数 Token 数');
+    if (!parsed) throw new RangeError('上下文阈值必须是正整数 Token 数');
     storage.setItem(AUTO_COMPACT_STORAGE_KEY, String(parsed));
     return parsed;
 }

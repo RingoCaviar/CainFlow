@@ -416,16 +416,54 @@ test('assistant batch result generates with the parameter editor closed, selects
             await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='运行').click()");
             await waitFor("document.querySelectorAll('.prompt-agent-image-result').length===3");
         }, generationChecks);
-        await evaluate("document.querySelectorAll('.prompt-agent-image-result')[1].querySelector('[data-result-action=preview]').click()");
+        const more = "document.querySelector('.prompt-agent-actions-more')";
+        const openMore = async () => {
+            await evaluate(`${more}.querySelector('summary').click()`);
+            await waitFor(`${more}.open`);
+            assert.equal(await evaluate(`${more}.querySelector('.prompt-agent-actions-secondary').checkVisibility()`), true);
+        };
+        await openMore();
+        const blankCanvas = await evaluate(`(() => {
+            const canvas = document.getElementById('canvas-container');
+            const rect = canvas.getBoundingClientRect();
+            const x = rect.left + 24, y = rect.top + 48;
+            const target = document.elementFromPoint(x, y);
+            return canvas.contains(target) && !target.closest('.node') ? { x, y } : null;
+        })()`);
+        assert.ok(blankCanvas, 'blank canvas is outside the plan actions');
+        await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...blankCanvas, button: 'left', buttons: 1, clickCount: 1 });
+        await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...blankCanvas, button: 'left', buttons: 0, clickCount: 1 });
+        assert.equal(await evaluate(`${more}.open`), false);
+        await openMore();
+        await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+        assert.equal(await evaluate(`${more}.open`), false);
+        assert.equal(await evaluate("document.querySelector('.prompt-agent-plan-overview').open"), false);
+
+        const selectedResult = "document.querySelectorAll('.prompt-agent-image-result')[1]";
+        assert.deepEqual(await evaluate(`[...${selectedResult}.querySelectorAll('[data-result-action]')].map(button => button.dataset.resultAction)`), ['download', 'copy']);
+        await evaluate(`${selectedResult}.querySelector('.prompt-agent-result-image').click()`);
         await waitFor("Boolean(document.querySelector('.fullscreen-overlay img'))");
         assert.equal(await evaluate("document.querySelector('.fullscreen-overlay img').src"), referenceImages[1]);
         await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
         await waitFor("!document.querySelector('.fullscreen-overlay')");
-        await evaluate("document.querySelectorAll('.prompt-agent-image-result')[1].querySelector('[data-result-action=reference]').click()");
-        await waitFor("document.querySelectorAll('#prompt-agent-references img').length===1 && !document.querySelector('#prompt-agent-references .is-loading')");
-        assert.equal(await evaluate("document.querySelector('#prompt-agent-references img').src"), referenceImages[1]);
-        assert.equal(await evaluate("document.getElementById('prompt-agent-input').value"), '');
-        assert.equal(await evaluate('imageRequests.length'), 4, 'no request after preparing an attachment');
+        await evaluate(`(() => {
+            document.addEventListener('click', event => {
+                if (!event.target.matches('a[download]')) return;
+                event.preventDefault();
+                window.downloadedAgentResult = event.target.href;
+            });
+            navigator.clipboard.write = async ([item]) => {
+                const reader = new FileReader();
+                reader.onload = () => { window.copiedAgentResult = reader.result; };
+                reader.readAsDataURL(await item.getType('image/png'));
+            };
+            ${selectedResult}.querySelector('[data-result-action=download]').click();
+            ${selectedResult}.querySelector('[data-result-action=copy]').click();
+        })()`);
+        await waitFor('Boolean(window.downloadedAgentResult && window.copiedAgentResult)');
+        assert.equal(await evaluate('window.downloadedAgentResult'), referenceImages[1]);
+        assert.equal(await evaluate('window.copiedAgentResult'), referenceImages[1]);
+        assert.equal(await evaluate('imageRequests.length'), 4, 'result actions do not trigger generation');
         await delay(1000); await reloadApp(app);
         await evaluate("document.getElementById('btn-prompt-agent').click()");
         await waitFor("document.querySelectorAll('.prompt-agent-image-result').length===3");

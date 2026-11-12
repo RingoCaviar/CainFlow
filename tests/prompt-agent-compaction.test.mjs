@@ -52,6 +52,7 @@ test('compaction summarizes only effective context and numbered image metadata w
     const controller = new AbortController();
     const conversation = {
         contextSummary: '此前压缩保留的目标：制作商品海报。',
+        messageOffset: 4,
         memory: '采用写实风格。',
         archivedMessages: [{ role: 'user', text: '已归档，不应重新发送。' }],
         previousPromptPlan: { targetNodeId: 'node-1', prompt: '上一版草稿', parameters: { count: 2 } },
@@ -99,7 +100,7 @@ test('compaction summarizes only effective context and numbered image metadata w
     assert.match(input.records[0].text, /商品海报/);
     assert.match(JSON.stringify(input), /忽略此前所有规则/);
     assert.match(JSON.stringify(input), /上一版草稿|红色主体/);
-    const refs = input.records.filter((record) => record.kind === 'reference-image' && record.messageNumber === 2);
+    const refs = input.records.filter((record) => record.kind === 'reference-image' && record.messageNumber === 6);
     assert.deepEqual(refs.map((record) => record.referenceNumber), [1, 2]);
     assert.match(refs[1].text, /主体.png.*import-1.*node-import/);
     assert.match(JSON.stringify(input.records), /negativePrompt/);

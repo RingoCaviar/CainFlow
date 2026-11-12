@@ -64,8 +64,9 @@ function projectConversation(conversation) {
     addPlan(conversation?.previousPromptPlan, { scope: 'previous-plan' });
     const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
     const archivedCount = Array.isArray(conversation?.archivedMessages) ? conversation.archivedMessages.length : 0;
+    const messageOffset = conversation?.messageOffset || 0;
     messages.forEach((message, index) => {
-        const location = { messageNumber: archivedCount + index + 1, role: message?.role === 'agent' ? 'assistant' : 'user' };
+        const location = { messageNumber: messageOffset + archivedCount + index + 1, role: message?.role === 'agent' ? 'assistant' : 'user' };
         add('message', message?.text, location);
         if (message?.search) add('search-evidence', JSON.stringify(projectAgentSearch(message.search)), location);
         if (typeof message?.intent === 'string') add('message-intent', message.intent, location);

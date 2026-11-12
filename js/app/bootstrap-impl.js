@@ -29,7 +29,7 @@ import {
 } from '../services/api-client.js';
 import { createSystemNotificationService } from '../services/system-notification-service.js';
 import { diskStorage } from '../services/storage-documents.js';
-import { migrateAutoCompactTokens, readAutoCompactTokens, readCompactionModelId, readCompactionProviderId } from '../features/prompt-agent/auto-compact-preference.js';
+import { migrateAutoCompactTokens, readAutoCompactTokens, readCompactionModelId, readCompactionProviderId, readDiscardOverLimitContext } from '../features/prompt-agent/auto-compact-preference.js';
 import {
     createBezierPath as createBezierPathService,
     checkLineIntersection as checkLineIntersectionService,
@@ -1132,6 +1132,7 @@ const promptAgentController = createPromptAgentController({
     getPanelWidth: () => diskStorage.getItem('cainflow_prompt_agent_panel_width'),
     setPanelWidth: (width) => diskStorage.setItem('cainflow_prompt_agent_panel_width', String(width)),
     getAutoCompactTokenLimit: () => readAutoCompactTokens(diskStorage),
+    getDiscardOverLimitContext: () => readDiscardOverLimitContext(diskStorage),
     nodeAdapter: promptAgentNodeAdapter,
     executionAdapter: promptAgentExecutionAdapter,
     getWorkflowId: () => workflowManagerApi.getActiveWorkflowId(),

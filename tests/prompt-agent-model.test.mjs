@@ -202,6 +202,54 @@ test('discussion and clarification replies do not require or expose an applicabl
     }
 });
 
+test('clarification choices are plain answer labels without a canvas plan or task update', async () => {
+    const canvasContext = createCanvasContext({ workflowId: 'w', nodes: [], connections: [] });
+    const { result } = replyHarness({
+        intent: 'clarify',
+        message: '要开始新任务吗？',
+        choices: [' 开始新任务 ', '继续当前任务'],
+        canvasPlan: { version: 1, steps: [{ id: 'generate', type: 'ImageGenerate', parameters: { prompt: '体育场' } }] },
+        taskUpdate: { mode: 'continue', parameters: { resolution: { value: '2K', evidence: '2K' } } }
+    }, { canvasContext });
+    assert.deepEqual(await result, {
+        intent: 'clarify', message: '要开始新任务吗？', workSummary: [], promptPlan: null,
+        choices: ['开始新任务', '继续当前任务']
+    });
+});
+
+test('a model can ask for a new-task confirmation without supplying a task change', async () => {
+    const { result } = replyHarness({
+        intent: 'clarify', message: '要开始新任务吗？',
+        taskUpdate: { mode: 'new', parameters: { resolution: { value: '2K', evidence: '2K' } } }
+    });
+    assert.deepEqual(await result, {
+        intent: 'clarify', message: '要开始新任务吗？', workSummary: [], promptPlan: null, confirmNewTask: true
+    });
+});
+
+test('malformed choice sets leave the plain clarification question intact', async () => {
+    const message = '要用哪张图片？';
+    for (const choices of [
+        '选第一张', ['第一张'], ['1', '2', '3', '4', '5'], ['第一张', ' 第一张 '],
+        ['第一张', ' '], ['第一张', { label: '第二张' }], ['第一张', '二\n图'],
+        ['第一张', '<button>第二张</button>'], ['第一张', '选'.repeat(41)]
+    ]) {
+        assert.deepEqual(await replyHarness({ intent: 'clarify', message, choices }).result,
+            { intent: 'clarify', message, workSummary: [], promptPlan: null });
+    }
+});
+
+test('choices supplied on chat and generation replies are ignored', async () => {
+    const choices = ['用第一张', '用第二张'];
+    const chat = await replyHarness({ intent: 'chat', message: '收到', choices }).result;
+    assert.equal(Object.hasOwn(chat, 'choices'), false);
+    const generated = await replyHarness({
+        intent: 'generate', message: '已整理', choices, promptPlan: { prompt: '体育场' }
+    }).result;
+    assert.equal(Object.hasOwn(generated, 'choices'), false);
+    assert.equal(generated.promptPlan.prompt, '体育场');
+});
+
 test('follow-ups send complete unapplied drafts with assistant roles and keep the current request separate', async () => {
     const { result, request } = replyHarness({ intent: 'chat', message: '收到', promptPlan: null }, {
         context: { nodeId: 'image-1', prompt: '旧城市图', parameters: {} },

@@ -14,10 +14,11 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     const header = element('header', ''); header.className = 'prompt-agent-plan-header';
     const generatesImages = plan.steps.some(step => step.type === 'ImageGenerate');
     const title = element('strong', generatesImages ? '图片生成方案' : '画布修改方案', header);
-    element('span', `${plan.steps.length + (plan.deletes?.length || 0)} 项操作`, header).className = 'prompt-agent-plan-count';
     title.title = plan.id;
     const overview = element('details', ''); overview.className = 'prompt-agent-plan-overview';
-    element('summary', '查看详情', overview);
+    const overviewSummary = element('summary', '查看详情', overview);
+    const count = `${plan.steps.length + (plan.deletes?.length || 0)} 项操作`;
+    element('span', count, overviewSummary).className = 'prompt-agent-plan-count';
     const inputs = element('div', ''); inputs.className = 'prompt-agent-plan-inputs';
     const references = adapter.inputs?.(plan) || [];
     element('span', references.length ? `本次生图参考图 · ${references.length} 项`
@@ -105,7 +106,7 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     const sizeSummaries = element('div', '', details); sizeSummaries.className = 'prompt-agent-size-summary';
     const repair = element('button', '配置模型与供应商'); repair.type = 'button'; repair.hidden = true;
     repair.addEventListener('click', () => { if (configurationTarget && isCurrent()) configure(configurationTarget); });
-    const actions = element('div', ''); actions.className = 'prompt-agent-canvas-actions';
+    const actions = element('div', '', header); actions.className = 'prompt-agent-canvas-actions';
     const refresh = element('button', '刷新变更清单', details); refresh.type = 'button';
     const primaryActions = element('div', '', actions); primaryActions.className = 'prompt-agent-actions-primary';
     const moreActions = element('details', '', actions); moreActions.className = 'prompt-agent-actions-more';
@@ -115,6 +116,16 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     execute.className = 'btn btn-primary';
     const retry = element('button', '重试未完成步骤', secondaryActions), undo = element('button', '撤销本次画布操作', secondaryActions);
     const buttons = [apply, execute, retry, undo]; buttons.forEach(button => { button.type = 'button'; });
+    const surfaces = getSurfaceCoordinator(documentRef);
+    const closeMoreActions = () => {
+        moreActions.open = false;
+        surfaces?.forgetPopover(moreActions);
+    };
+    moreActions.addEventListener('toggle', () => {
+        if (moreActions.open && !moreActions.hidden && moreActions.isConnected) {
+            surfaces?.openPopover(moreActions, { element: moreActions, trigger: moreSummary, close: closeMoreActions });
+        } else surfaces?.forgetPopover(moreActions);
+    });
     const latest = () => plan.instances?.at(-1) || plan;
     const running = () => (plan.instances || []).filter(instance => adapter.isRunning?.(instance.id));
     function sync() {
@@ -161,7 +172,8 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         undo.hidden = !Object.keys(latest().bindings || {}).length && !latest().appliedSignature;
         execute.hidden = !plan.steps.some(step => step.execute !== false);
         undo.disabled = busy || Boolean(adapter.canUndo(latest())); undo.title = adapter.canUndo(latest());
-        actions.classList.toggle('has-primary-actions', [execute, apply, retry].some(button => !button.hidden));
+        moreActions.hidden = retry.hidden && undo.hidden;
+        if (moreActions.hidden && moreActions.open) closeMoreActions();
         refresh.disabled = busy || !isCurrent();
         for (const select of list.querySelectorAll('select, .thinking-control input, .thinking-control button')) select.disabled = busy;
         if (unavailable) status.textContent = unavailable;
@@ -218,7 +230,11 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     } catch (error) { status.textContent = error.message; } sync(); });
     undo.addEventListener('click', async () => { try { await adapter.undo(latest()); status.textContent = '已按撤销栈处理；历史图片仍保留'; } catch (error) { status.textContent = error.message; } sync(); });
     sync();
-    return { planId: plan.id, setInstances: instances => { plan.instances = instances; sync(); }, answerSize, sync, close: () => { modelMenus.close(); thinkingControls.forEach(control => control.close()); }, destroy: () => { destroyed = true; clearInterval(refreshTimer); thinkingControls.forEach(control => control.destroy()); modelMenus.destroy(); } };
+    return {
+        planId: plan.id, setInstances: instances => { plan.instances = instances; sync(); }, answerSize, sync,
+        close: () => { closeMoreActions(); modelMenus.close(); thinkingControls.forEach(control => control.close()); },
+        destroy: () => { destroyed = true; closeMoreActions(); clearInterval(refreshTimer); thinkingControls.forEach(control => control.destroy()); modelMenus.destroy(); }
+    };
 }
 
 export function attachCanvasMentions({ documentRef, input, adapter }) {
