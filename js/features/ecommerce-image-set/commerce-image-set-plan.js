@@ -191,7 +191,10 @@ export function buildCommerceImageSetImagePrompt({ shot, plan, productNotes }) {
     ].filter(Boolean).join('\n');
 }
 
-export async function createCommerceImageSetPlan({ settings, references, models, providers, fetchRef, getProxyHeaders, signal, shotId }) {
+export async function createCommerceImageSetPlan({
+    settings, references, models, providers, fetchRef, getProxyHeaders, signal, shotId,
+    runRequest = (_request, execute) => execute()
+}) {
     const input = normalizeCommerceImageSetState(settings);
     if (!input.selectedShotIds.length) throw new Error('请至少选择一个图位。');
     const images = normalizeReferences(references);
@@ -230,14 +233,15 @@ export async function createCommerceImageSetPlan({ settings, references, models,
     });
     const providerHeaders = { 'Content-Type': 'application/json',
         ...(request.protocol === 'openai' ? { Authorization: `Bearer ${provider.apikey}` } : {}) };
-    const { text: reply } = await requestChatCompletion(request, {
-        fetchRef, headers: getProxyHeaders?.(request.url, request.method, providerHeaders), signal
-    });
-    signal?.throwIfAborted();
-    let raw;
-    try { raw = JSON.parse(reply.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')); }
-    catch { throw new Error('规划模型未返回有效套图方案，请重试。'); }
-    const plan = normalizeCommerceImageSetPlan(raw, platform.id, selectedShotIds, input);
+    const headers = getProxyHeaders?.(request.url, request.method, providerHeaders);
+    const { raw, plan } = await runRequest(request, async () => {
+        const { text: reply } = await requestChatCompletion(request, { fetchRef, headers, signal });
+        signal?.throwIfAborted();
+        let raw;
+        try { raw = JSON.parse(reply.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')); }
+        catch { throw new Error('规划模型未返回有效套图方案，请重试。'); }
+        return { raw, plan: normalizeCommerceImageSetPlan(raw, platform.id, selectedShotIds, input) };
+    }, currentShot);
     const missingHeadlines = new Set(raw.shots.filter(shot => !Object.hasOwn(shot, 'headline')).map(shot => shot.id));
     const usedHeadlines = new Set(plan.shots.map(shot => shot.headline));
     const sellingPoints = currentShot ? input.plan.sellingPoints : plan.sellingPoints;

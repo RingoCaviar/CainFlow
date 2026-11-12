@@ -198,7 +198,7 @@ function blobToDataUrl(blob) {
 }
 
 function logRequestToPanel(title, url, requestBody, extra = {}) {
-    getLogPanelApi().logRequestToPanel(title, url, requestBody, {
+    return getLogPanelApi().logRequestToPanel(title, url, requestBody, {
         proxy: getProxyRequestInfo(state),
         ...extra
     });

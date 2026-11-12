@@ -710,8 +710,7 @@
                 <h3>执行日志</h3>
             </div>
             <div class="header-right">
-                <span class="log-retention-control log-retention-control--inline">最多 200 条 / 7 天</span>
-                <button id="btn-clear-logs" class="icon-btn" title="清空日志">
+                <button id="btn-clear-logs" class="icon-btn" title="清空日志" aria-label="清空日志">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                         stroke-linecap="round" stroke-linejoin="round">
                         <polyline points="3 6 5 6 21 6"></polyline>
@@ -720,7 +719,7 @@
                         <line x1="14" y1="11" x2="14" y2="17"></line>
                     </svg>
                 </button>
-                <button id="btn-close-logs" class="icon-btn" title="关闭">
+                <button id="btn-close-logs" class="icon-btn" title="关闭" aria-label="关闭执行日志">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                         stroke-linecap="round" stroke-linejoin="round">
                         <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -728,6 +727,17 @@
                     </svg>
                 </button>
             </div>
+        </div>
+        <div class="log-toolbar">
+            <div id="log-filters" class="log-filters" role="group" aria-label="筛选执行日志">
+                <button type="button" data-log-filter="all" aria-pressed="true" aria-controls="log-list">
+                    全部 <span data-log-count>0</span>
+                </button>
+                <button type="button" data-log-filter="failed" aria-pressed="false" aria-controls="log-list">
+                    失败 <span data-log-count>0</span>
+                </button>
+            </div>
+            <span class="log-retention-control">最多 200 条 / 7 天</span>
         </div>
         <div id="log-list" class="log-list">
             <div class="log-empty">暂无执行记录</div>

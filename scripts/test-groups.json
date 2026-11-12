@@ -435,6 +435,7 @@
     "tests/light-theme-interaction-family.test.mjs": {"tier": "browser", "groups": ["theme"]},
     "tests/local-bootstrap-ignore.test.mjs": {"tier": "integration", "groups": ["tooling"]},
     "tests/log-panel-policy.test.mjs": {"tier": "fast", "groups": ["ui"]},
+    "tests/log-panel-app-browser.test.mjs": {"tier": "browser", "groups": ["ui"], "sources": ["index.html", "css/modules/13-drawers-history-log.css", "js/core/elements.js", "js/app/bootstrap-impl.js", "js/features/logs/log-panel.js"]},
     "tests/media-asset-domain-contract.test.mjs": {"tier": "fast", "groups": ["media"]},
     "tests/media-forwarded-asset-reference.test.mjs": {"tier": "fast", "groups": ["media", "nodes"]},
     "tests/media-integrity-drawer.test.mjs": {"tier": "fast", "groups": ["media"]},

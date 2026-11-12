@@ -50,6 +50,7 @@ import { persistVideoResultForNode } from '../media/video/video-result-persisten
 import { readColorResetConfig } from '../media/color-reset-config.js';
 import { getNodeImageResultPersistence, IMAGE_RESULT_PERSISTENCE } from '../../nodes/registry.js';
 import { getIncludedAutoSaveNodeIds } from './generation-save-targets.js';
+import { sanitizeRequestUrl } from '../../services/api-client.js';
 import {
     buildCommerceImageSetImagePrompt,
     commerceImageSetSourceKey,
@@ -1317,19 +1318,54 @@ export function createExecutionCoreApi({
         };
     }
 
-    async function runTrackedProviderRequest(node, apiCfg, modelCfg, url, requestFn, options = {}) {
+    function getProviderRequestFailureStatus(error) {
+        const status = Number(error?.serverResponse?.status ?? error?.details?.status);
+        return Number.isFinite(status) ? status : undefined;
+    }
+
+    async function runTrackedProviderRequest(node, apiCfg, modelCfg, url, requestFn, { onOutcome, ...options } = {}) {
         const recordOutcome = createProviderRequestOutcomeRecorder(node, apiCfg, modelCfg, url, options);
+        let result;
         try {
-            const result = await requestFn();
-            recordOutcome(true);
-            return result;
+            result = await requestFn();
         } catch (error) {
-            const status = Number(error?.serverResponse?.status);
-            recordOutcome(false, {
-                status: Number.isFinite(status) ? status : undefined
-            });
+            recordOutcome(false, { status: getProviderRequestFailureStatus(error) });
+            onOutcome?.(false, error);
             throw error;
         }
+        recordOutcome(true);
+        onOutcome?.(true);
+        return result;
+    }
+
+    function startCommerceRequestLog(node, request, { action, shot, signal }) {
+        signal?.throwIfAborted();
+        const { model, provider, protocol, requestBody } = request;
+        const url = sanitizeRequestUrl(request.url);
+        const label = { plan: '生成方案', 'replan-shot': '重做方案', generate: '生成图片', retry: '重试图片' }[action];
+        const title = `电商套图 · ${label}${shot ? `「${shot.label}」` : ''} · ${model.name || model.modelId}`;
+        const finish = logRequestToPanel?.(title, url, requestBody, {
+            requestStatus: 'pending',
+            operation: action,
+            nodeId: node.id,
+            nodeType: node.type,
+            shotId: shot?.id,
+            providerType: protocol
+        });
+        if (typeof finish !== 'function') return;
+        return (success, error) => {
+            if (success) {
+                finish('success');
+            } else if (isAbortLikeError(error, signal)) {
+                finish('canceled');
+            } else {
+                const message = String(error?.message || error || '请求失败');
+                finish('failed', {
+                    status: getProviderRequestFailureStatus(error),
+                    error: provider.apikey ? message.replaceAll(provider.apikey, '[REDACTED]') : message
+                });
+            }
+        };
     }
 
     function assertImageInputCompatibility(node, inputs, settings) {
@@ -1745,7 +1781,11 @@ export function createExecutionCoreApi({
             if (replanningShot && !commerceShotId) throw new Error('请选择一个需要重新规划的图位。');
             const plan = await createCommerceImageSetPlan({ settings, references, models: state.models,
                 providers: state.providers, fetchRef, getProxyHeaders, signal,
-                shotId: replanningShot ? commerceShotId : undefined });
+                shotId: replanningShot ? commerceShotId : undefined,
+                runRequest: (request, execute, shot) => {
+                    const onOutcome = startCommerceRequestLog(node, request, { action: commerceAction, shot, signal });
+                    return runTrackedProviderRequest(node, request.provider, request.model, sanitizeRequestUrl(request.url), execute, { onOutcome });
+                } });
             signal?.throwIfAborted();
             node.data.commerceImageSet = { ...settings, plan, results: replanningShot ? settings.results : [] };
             onNodeResultUpdated(node.id);
@@ -1841,6 +1881,8 @@ export function createExecutionCoreApi({
                                 : { aspect: shot.aspect };
                             const { image: generated } = await nodeHandlers.ImageGenerate(node, generationInputs, signal, {
                                 commerceImageRequest: {
+                                    action: commerceAction,
+                                    shot,
                                     prompt: buildCommerceImageSetImagePrompt({ shot, plan, productNotes: settings.productNotes }),
                                     settings: { ...imageSettings, ...size }
                                 }
@@ -2075,7 +2117,9 @@ export function createExecutionCoreApi({
                     const completedBefore = 0;
 
                     const runSingleGeneration = async (nextGenerationIndex) => {
-                        return runTrackedProviderRequest(node, apiCfg, modelCfg, url, async () => {
+                        let finishRequestLog;
+                        const requestUrl = prepared ? sanitizeRequestUrl(url) : url;
+                        return runTrackedProviderRequest(node, apiCfg, modelCfg, requestUrl, async () => {
                             const requestBody = buildRequestBody();
                             applyThinking(requestBody, { model: modelCfg, provider: apiCfg, task: 'image', protocol }, node.data?.thinking);
                             if (!prepared) showToast(
@@ -2092,18 +2136,24 @@ export function createExecutionCoreApi({
                             const loggedRequestBody = isOpenAiImageEdit
                                 ? getOpenAiImageRequestLogBody(requestBody, inputs, modelCfg.modelId)
                                 : requestBody;
-                            logRequestToPanel(
-                                generationCount > 1
-                                    ? `请求发送: ${modelCfg.name} (${nextGenerationIndex}/${generationCount})`
-                                    : `请求发送: ${modelCfg.name}`,
-                                url,
-                                loggedRequestBody,
-                                {
-                                    nodeId: id,
-                                    nodeType: 'TextToImage',
-                                    providerType: protocol
-                                }
-                            );
+                            if (prepared) {
+                                finishRequestLog = startCommerceRequestLog(node, {
+                                    model: modelCfg, provider: apiCfg, url: requestUrl, protocol, requestBody: loggedRequestBody
+                                }, { action: prepared.action, shot: prepared.shot, signal });
+                            } else {
+                                logRequestToPanel(
+                                    generationCount > 1
+                                        ? `请求发送: ${modelCfg.name} (${nextGenerationIndex}/${generationCount})`
+                                        : `请求发送: ${modelCfg.name}`,
+                                    url,
+                                    loggedRequestBody,
+                                    {
+                                        nodeId: id,
+                                        nodeType: 'TextToImage',
+                                        providerType: protocol
+                                    }
+                                );
+                            }
 
                             const response = await fetchRef('/proxy', {
                                 method: 'POST',
@@ -2166,7 +2216,10 @@ export function createExecutionCoreApi({
                             }
 
                             return imageData;
-                        }, { nodeType: 'ImageGenerate' });
+                        }, {
+                            nodeType: 'ImageGenerate',
+                            onOutcome: prepared ? (success, error) => finishRequestLog?.(success, error) : undefined
+                        });
                     };
 
                     const requestIndexes = Array.from(
