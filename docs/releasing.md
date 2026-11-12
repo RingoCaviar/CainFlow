@@ -25,7 +25,7 @@
 
 ## 发布步骤
 
-日常修改按 [测试分层](testing.md) 执行 `scripts/check-daily.ps1`。发布前使用 `scripts/validate-release-readiness.ps1 -TagName <tag> -NoPause`；该入口复用 `scripts/check-full.ps1` 执行全部回归，并保留更新说明、回归工作流与 Media asset 安全门禁。日常检查结果不能替代发布全量结果。
+日常修改按 [测试分层](testing.md) 执行 `scripts/check-daily.ps1`。发布前使用 `scripts/validate-release-readiness.ps1 -TagName <tag> -NoPause`。该入口复用 `scripts/check-full.ps1` 执行清单中的发布回归，并检查更新说明、回归工作流与 Media asset 安全门禁。涉及专项场景的发布补跑相关专项测试。
 
 1. 完成代码复核与发布门禁，更新 `js/core/constants.js` 中的版本号，并编写对应版本说明。
 2. 按 `AGENTS.md` 的要求提交中文提交信息及本地 Issue ID，然后推送提交与版本标签。手动触发发布工作流时，也要填写已有对应说明文件的标签名。

@@ -33,7 +33,12 @@ export function commandsFor(plan, options, repoRoot = root) {
     for (const path of plan.changed.filter(path => /\.(?:js|mjs)$/.test(path) && existsSync(`${repoRoot}/${path}`))) {
         commands.push({ label: `Syntax: ${path}`, command: process.execPath, args: ['--check', path] });
     }
-    if (plan.effectiveMode === 'full' || plan.phases.python.length) commands.push({ label: 'Python compile', command: options.python, args: ['-m', 'compileall', '-q', 'server.py', 'backend'] });
+    const pythonFiles = plan.changed.filter(path => path.endsWith('.py') && existsSync(`${repoRoot}/${path}`));
+    if (plan.effectiveMode === 'full') {
+        commands.push({ label: 'Python compile', command: options.python, args: ['-m', 'compileall', '-q', 'server.py', 'backend'] });
+    } else if (pythonFiles.length) {
+        commands.push({ label: 'Python compile', command: options.python, args: ['-m', 'py_compile', ...pythonFiles] });
+    }
     for (const tier of ['fast', 'integration', 'browser']) {
         const files = plan.phases[tier];
         if (tier === 'browser') {
@@ -96,7 +101,7 @@ export function createReportWriter(reportPath, metadata) {
 function main() {
     const options = parseOptions(process.argv.slice(2));
     if (options.help) {
-        console.log('Usage: node scripts/run-tests.mjs --mode daily|full [--base REF] [--group NAME] [--changed PATH] [--report PATH] [--dry-run]\nRepeat --group to add coverage. --changed explicitly replaces Git detection; list every task change.\nDefaults: --fast-concurrency 4 --browser-concurrency 2. --python selects the backend interpreter.\nSee docs/testing.md and scripts/test-groups.json.');
+        console.log('Usage: node scripts/run-tests.mjs --mode daily|full [--base REF] [--group NAME] [--changed PATH] [--report PATH] [--dry-run]\nDaily selects related tests. Full runs the default regression suite. Repeat --group to add coverage.\n--changed explicitly replaces Git detection; list every task change.\nDefaults: --fast-concurrency 4 --browser-concurrency 2. --python selects the backend interpreter.\nSee docs/testing.md and scripts/test-groups.json.');
         return;
     }
     const manifest = loadManifest(root);
@@ -104,13 +109,17 @@ function main() {
     const plan = selectTests(manifest, { ...options, changed });
     const commands = commandsFor(plan, options);
     if (options.dryRun) { console.log(JSON.stringify({ ...plan, scope: options.changed.length ? 'explicit task paths' : 'Git working tree plus optional branch base', commands }, null, 2)); return; }
-    console.log(`Requested: ${plan.requestedMode}; running: ${plan.effectiveMode}. Groups: ${plan.groups.join(', ') || '(fast baseline)'}`);
-    console.log(`Changed paths (${options.changed.length ? 'explicit scope' : 'Git detected'}):\n${changed.join('\n') || '(none; use --base for committed branch changes)'}`);
-    for (const reason of plan.reasons) console.log(`Full regression: ${reason}`);
+    console.log(`Requested: ${plan.requestedMode}; running: ${plan.effectiveMode}. Groups: ${plan.groups.join(', ') || '(none)'}`);
+    console.log(`Changed paths (${options.changed.length ? 'explicit scope' : 'Git detected'}):\n${plan.changed.join('\n') || '(none; use --base for committed branch changes)'}`);
+    if (plan.uncovered.length) {
+        console.error(`Missing test coverage for:\n${plan.uncovered.join('\n')}\nAdd or update a related test and register its source or impact rule in scripts/test-groups.json.`);
+        if (plan.suggestedGroups.length) console.error(`Groups to inspect for related tests: ${plan.suggestedGroups.join(', ')}`);
+    }
     process.env.CAINFLOW_PYTHON = options.python;
     const saveReport = createReportWriter(options.reportPath, { requestedMode: plan.requestedMode, effectiveMode: plan.effectiveMode,
-        changed: plan.changed, phases: plan.phases });
-    process.exitCode = executeCommands(commands, spawnSync, console, { onProgress: saveReport, onComplete: saveReport });
+        changed: plan.changed, uncovered: plan.uncovered, suggestedGroups: plan.suggestedGroups, phases: plan.phases });
+    const exitCode = executeCommands(commands, spawnSync, console, { onProgress: saveReport, onComplete: saveReport });
+    process.exitCode = exitCode || (plan.uncovered.length ? 1 : 0);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

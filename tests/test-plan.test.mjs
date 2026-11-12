@@ -24,46 +24,69 @@ test('isolated Chromium launches use the upstream Windows loopback workaround on
 });
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const fixture = () => ({ groups: ['ui', 'update'], rules: [
+const fixture = () => ({ groups: ['ui', 'update', 'diagnostics'], rules: [
     { pattern: '^js/ui/', groups: ['ui'] },
     { pattern: '^js/update/', groups: ['update'] },
-    { pattern: '^js/core/', full: true, reason: 'Shared state' },
+    { pattern: '^js/core/', tests: ['tests/logic.test.mjs'] },
     { pattern: '^docs/', ignore: true },
 ], tests: {
-    'tests/logic.test.mjs': { tier: 'fast', groups: ['ui'] },
+    'tests/logic.test.mjs': { tier: 'fast', groups: ['ui'], sources: ['js/ui/logic.js'] },
     'tests/dialog.test.mjs': { tier: 'browser', groups: ['ui'] },
     'tests/restart.test.mjs': { tier: 'integration', groups: ['update'] },
     'tests/test_restart.py': { tier: 'python', groups: ['update'] },
+    'tests/diagnostics.test.mjs': { tier: 'browser', groups: ['diagnostics'], sources: ['js/update/diagnostics.js'], full: false, reason: 'Specialized diagnostics' },
 } });
 
-test('daily always retains the fast baseline and adds all affected tiers', () => {
+test('daily suggests candidate groups without scheduling unrelated module peers', () => {
     const plan = selectTests(fixture(), { changed: ['js/update/controller.js'] });
     assert.equal(plan.effectiveMode, 'daily');
-    assert.deepEqual(plan.phases.fast, ['tests/logic.test.mjs']);
-    assert.deepEqual(plan.phases.integration, ['tests/restart.test.mjs']);
-    assert.deepEqual(plan.phases.python, ['tests/test_restart.py']);
-    assert.deepEqual(plan.phases.browser, []);
+    assert.deepEqual(Object.values(plan.phases).flat(), []);
+    assert.deepEqual(plan.uncovered, ['js/update/controller.js']);
+    assert.deepEqual(plan.suggestedGroups, ['update']);
+    const manual = selectTests(fixture(), { changed: ['js/update/controller.js'], groups: ['update'] });
+    assert.deepEqual(manual.phases.integration, ['tests/restart.test.mjs']);
+    assert.deepEqual(manual.phases.python, ['tests/test_restart.py']);
+    assert.deepEqual(manual.uncovered, ['js/update/controller.js']);
 });
 
-test('manual groups add coverage, and changed test files retain their module peers', () => {
+test('direct source coverage takes precedence over unrelated module peers', () => {
+    const plan = selectTests(fixture(), { changed: ['.\\js\\ui\\logic.js', 'js/update/diagnostics.js'] });
+    assert.deepEqual(plan.changed, ['js/ui/logic.js', 'js/update/diagnostics.js']);
+    assert.deepEqual(plan.phases.fast, ['tests/logic.test.mjs']);
+    assert.deepEqual(plan.phases.browser, ['tests/diagnostics.test.mjs']);
+    assert.deepEqual(plan.phases.integration, []);
+    assert.deepEqual(plan.phases.python, []);
+});
+
+test('manual groups add coverage and changed test files run without their module peers', () => {
     const plan = selectTests(fixture(), { changed: ['tests/restart.test.mjs'], groups: ['ui'] });
-    assert.equal(Object.values(plan.phases).flat().length, 4);
+    assert.deepEqual(Object.values(plan.phases).flat().sort(), ['tests/dialog.test.mjs', 'tests/logic.test.mjs', 'tests/restart.test.mjs']);
     assert.throws(() => selectTests(fixture(), { groups: ['typo'] }), /Unknown group/);
 });
 
-test('unknown or shared changes escalate even when a narrow group was supplied', () => {
-    for (const path of ['js/core/state.js', 'new-subsystem/source.js']) {
-        const plan = selectTests(fixture(), { changed: [path], groups: ['ui'] });
-        assert.equal(plan.effectiveMode, 'full');
-        assert.equal(Object.values(plan.phases).flat().length, 4);
-        assert.equal(plan.reasons.length, 1);
+test('shared changes select named tests and unknown changes identify missing coverage without escalating', () => {
+    const plan = selectTests(fixture(), { changed: ['js/core/state.js', 'new-subsystem/source.js', 'constructor'] });
+    assert.equal(plan.effectiveMode, 'daily');
+    assert.deepEqual(Object.values(plan.phases).flat(), ['tests/logic.test.mjs']);
+    assert.deepEqual(plan.uncovered, ['constructor', 'new-subsystem/source.js']);
+});
+
+test('unchanged or docs-only daily runs select no tests', () => {
+    for (const changed of [[], ['docs/help.md']]) {
+        const plan = selectTests(fixture(), { changed });
+        assert.deepEqual(Object.values(plan.phases).flat(), []);
+        assert.deepEqual(plan.uncovered, []);
     }
 });
 
-test('docs-only daily runs keep fast tests and explicit full includes every test', () => {
-    assert.deepEqual(selectTests(fixture(), { changed: ['docs/help.md'] }).phases.browser, []);
-    const plan = selectTests(fixture(), { mode: 'full' });
-    assert.deepEqual(Object.values(plan.phases).flat().sort(), Object.keys(fixture().tests).sort());
+test('explicit full excludes specialized tests unless their group is requested', () => {
+    const manifest = fixture();
+    const changed = ['js/update/diagnostics.js'];
+    const plan = selectTests(manifest, { mode: 'full', changed });
+    assert.equal(plan.effectiveMode, 'full');
+    assert.deepEqual(Object.values(plan.phases).flat().sort(), Object.keys(manifest.tests).filter(file => manifest.tests[file].full !== false).sort());
+    const extended = selectTests(manifest, { mode: 'full', changed, groups: ['diagnostics'] });
+    assert.deepEqual(Object.values(extended.phases).flat().sort(), Object.keys(manifest.tests).sort());
 });
 
 test('test inventory rejects unregistered, stale and incorrectly classified tests', () => {
@@ -72,12 +95,20 @@ test('test inventory rejects unregistered, stale and incorrectly classified test
     assert.throws(() => validateManifest(manifest, paths.slice(1)), /Missing files: tests\/logic/);
     manifest.tests['tests/test_restart.py'].tier = 'fast';
     assert.throws(() => validateManifest(manifest, paths), /Invalid test registration/);
+    const missingReason = fixture();
+    delete missingReason.tests['tests/diagnostics.test.mjs'].reason;
+    assert.throws(() => validateManifest(missingReason, paths), /Invalid test registration: tests\/diagnostics/);
+    const missingTest = fixture();
+    missingTest.rules[2].tests.push('tests/missing.test.mjs');
+    assert.throws(() => validateManifest(missingTest, paths), /Unregistered test in rule/);
 });
 
-test('repository inventory is exhaustive and full commands schedule each test exactly once', () => {
+test('repository inventory is exhaustive and full commands schedule each included test exactly once', () => {
     const manifest = loadManifest(root), plan = selectTests(manifest, { mode: 'full' });
     const scheduled = Object.values(plan.phases).flat();
-    assert.deepEqual(scheduled.sort(), discoverTests(root));
+    const specialized = Object.keys(manifest.tests).filter(file => manifest.tests[file].full === false);
+    assert.ok(specialized.length);
+    assert.deepEqual([...scheduled, ...specialized].sort(), discoverTests(root));
     assert.equal(new Set(scheduled).size, scheduled.length);
     const commands = commandsFor(plan, parseOptions([]));
     assert.equal(commands.filter(command => command.label === 'Python tests').length, 1);
@@ -92,27 +123,38 @@ test('repository inventory is exhaustive and full commands schedule each test ex
     assert.ok(browserCommands[0].args.join(' ').length < 2000, 'file lists travel through stdin rather than the Windows command line');
 });
 
-test('real impact rules include update desktop safety and force shared persistence to full', () => {
+test('real impact rules focus update safety, settings CSS and shared changes', () => {
     const manifest = loadManifest(root);
     const update = selectTests(manifest, { changed: ['js/features/update/update-manager.js'] });
     assert.equal(update.effectiveMode, 'daily');
     assert.ok(update.phases.browser.includes('tests/desktop-update-restart-app-browser.test.mjs'));
     assert.ok(update.phases.python.includes('tests/test_update_restart.py'));
     const agent = selectTests(manifest, { changed: ['js/features/prompt-agent/prompt-agent-controller.js'] });
-    for (const file of ['image-assistant-app-browser.test.mjs', 'image-first-integrated-app-browser.test.mjs', 'image-generation-status-dirty-app-browser.test.mjs']) {
+    for (const file of ['agent-selection-actions-app-browser.test.mjs', 'prompt-agent-canvas-app-browser.test.mjs']) {
         assert.ok(agent.phases.browser.includes(`tests/${file}`), `Agent's indirect app chain must include ${file}`);
     }
     for (const path of ['js/features/persistence/desktop-exit.js', 'js/features/ui/theme-controller.js', 'js/features/ui/image-first-canvas.js', 'js/features/ui/global-interactions.js', 'js/features/ui/ui-controller.js', 'tests/helpers/app-browser.mjs', 'scripts/test-groups.json']) {
-        assert.equal(selectTests(manifest, { changed: [path] }).effectiveMode, 'full');
+        const plan = selectTests(manifest, { changed: [path] });
+        assert.equal(plan.effectiveMode, 'daily');
+        assert.deepEqual(plan.uncovered, [], `${path} must have relevant coverage`);
     }
+    const preview = selectTests(manifest, { changed: ['css/features/preview-controls.css'] });
+    assert.ok(preview.phases.browser.includes('tests/preview-button-alignment-app-browser.test.mjs'));
+    assert.ok(!preview.phases.browser.includes('tests/agent-image-first-workflow-app-browser.test.mjs'));
+    assert.deepEqual(preview.phases.python, []);
+    const tooling = selectTests(manifest, { changed: ['AGENTS.md', 'docs/testing.md', 'scripts/test-groups.json', 'scripts/test-plan.mjs', 'scripts/run-tests.mjs', 'tests/test-plan.test.mjs'] });
+    assert.deepEqual(Object.values(tooling.phases).flat().sort(), ['tests/release-readiness-script.test.mjs', 'tests/test-plan.test.mjs']);
+    const camera = selectTests(manifest, { changed: ['js/features/camera/camera-control-node.js'] });
+    assert.ok(camera.phases.browser.includes('tests/camera-image-first-app-browser.test.mjs'));
 });
 
-test('literal source references supplement domain groups across module boundaries', () => {
+test('literal references select related tests across module boundaries', () => {
     const manifest = loadManifest(root);
     for (const [source, testFile] of [
         ['js/features/ui/image-first-canvas.js', 'image-first-mutation-budget-app-browser.test.mjs'],
         ['js/features/settings/general-settings.js', 'cache-usage-media-distribution.test.mjs'],
         ['js/features/prompt-agent/prompt-agent-canvas-ui.js', 'theme-color-audit-browser.test.mjs'],
+        ['backend/services/database_compaction.py', 'test_database_compaction.py'],
     ]) {
         const plan = selectTests(manifest, { changed: [source] });
         assert.ok(Object.values(plan.phases).flat().includes(`tests/${testFile}`), `${source} must select ${testFile}`);
@@ -187,8 +229,12 @@ test('CLI validates arguments and dry-run only reports the selected plan', () =>
     const output = execFileSync(process.execPath, ['scripts/run-tests.mjs', '--changed', 'docs/help.md', '--dry-run'], { cwd: root, encoding: 'utf8' });
     const plan = JSON.parse(output);
     assert.equal(plan.effectiveMode, 'daily');
-    assert.deepEqual(plan.phases.browser, []);
+    assert.deepEqual(Object.values(plan.phases).flat(), []);
     assert.ok(plan.commands.length > 0);
+    const uncovered = JSON.parse(execFileSync(process.execPath, ['scripts/run-tests.mjs', '--changed', 'unknown/subsystem.js', '--dry-run'], { cwd: root, encoding: 'utf8' }));
+    assert.deepEqual(uncovered.uncovered, ['unknown/subsystem.js']);
+    assert.throws(() => execFileSync(process.execPath, ['scripts/run-tests.mjs', '--changed', 'unknown/subsystem.js'], { cwd: root, encoding: 'utf8', stdio: 'pipe' }), error =>
+        error.status === 1 && /Missing test coverage for:\s+unknown\/subsystem\.js/.test(error.stderr));
 });
 
 

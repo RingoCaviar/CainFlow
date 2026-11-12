@@ -18,24 +18,88 @@
   ],
   "rules": [
     {
-      "pattern": "^(AGENTS\\.md|scripts/|\\.github/|requirements[^/]*|package[^/]*|tests/helpers/|tests/fixtures/|docs/testing\\.md|docs/agents/)",
-      "full": true,
-      "reason": "Test/process infrastructure"
+      "pattern": "^scripts/(test-(plan\\.mjs|groups\\.json)|run-(tests|browser-tests)\\.mjs|check-(daily|full)\\.ps1)$|^tests/(.*\\.test\\.mjs|.*test_[^/]+\\.py)$",
+      "tests": ["tests/test-plan.test.mjs"]
     },
     {
-      "pattern": "^(index\\.(js|html)|server\\.py|js/(app|core|runtime|connections)/|backend/(main|config)\\.py|css/)",
-      "full": true,
-      "reason": "Shared application infrastructure"
+      "pattern": "^(scripts/(build-release-local|run-local-regression|validate-release-[^/]+)\\.ps1|\\.github/workflows/release\\.yml)$",
+      "tests": ["tests/release-readiness-script.test.mjs", "tests/release-version-rule.test.mjs"]
     },
     {
-      "pattern": "^js/features/(execution|persistence|workflow)/|^js/services/(api-client|storage-|browser-storage|workflow-api)|^backend/.*(storage|migration|workflow|undo|http_server)",
-      "full": true,
-      "reason": "Shared execution or persistence"
+      "pattern": "^(requirements\\.txt|server\\.py|backend/(main|handler|config)\\.py)$",
+      "tests": ["tests/backend-browser-port.test.mjs", "tests/test_http_server_lifecycle.py"]
     },
     {
-      "pattern": "^js/features/ui/(theme-controller|surface-coordinator|dialog-style|app-dialogs|animation-controller|canvas-navigation|canvas-ui-controller|clipboard-controller|context-menu-controller|global-interactions|image-first-canvas|image-input-detail|node-picker|panel-manager|runtime-controller|shortcut-guard|toolbar-controller|ui-controller|ui-utils|workspace-mode-controller)|^js/nodes/(node-(lifecycle|dom-bindings|serializer|view-factory)|registry)\\.",
-      "full": true,
-      "reason": "Shared UI or node lifecycle"
+      "pattern": "^requirements-mcp\\.txt$|^backend/(routes|services)/canvas_mcp_",
+      "tests": ["tests/test_canvas_mcp_bridge.py", "tests/canvas-mcp-settings-app-browser.test.mjs"]
+    },
+    {
+      "pattern": "^(index\\.(js|html)|js/app/bootstrap(-impl)?\\.js|js/app/(create-app-[^/]+|register-global-bridges)\\.js)$",
+      "tests": ["tests/application-module-parse.test.mjs", "tests/bootstrap-readiness.test.mjs", "tests/startup-recovery-browser.test.mjs"]
+    },
+    {
+      "pattern": "^js/app/bootstrap/settings-bootstrap\\.js$|^css/features/settings(-theme-skin)?\\.css$|^css/modules/12-settings-config\\.css$",
+      "tests": ["tests/settings-automation-browser.test.mjs", "tests/settings-theme-surface-browser.test.mjs"]
+    },
+    {
+      "pattern": "^js/features/settings/(canvas-mcp-settings|general-settings|settings-context)\\.js$",
+      "tests": ["tests/canvas-mcp-settings-app-browser.test.mjs", "tests/settings-automation-browser.test.mjs"]
+    },
+    {
+      "pattern": "^css/(features/preview-controls|modules/10-fullscreen-preview)\\.css$",
+      "tests": ["tests/preview-button-alignment-app-browser.test.mjs", "tests/fullscreen-preview-actions.test.mjs"]
+    },
+    {
+      "pattern": "^css/prompt-agent\\.css$",
+      "tests": ["tests/prompt-agent-conversation-design-browser.test.mjs"]
+    },
+    {
+      "pattern": "^(js/features/media/image-result-actions\\.js|css/features/image-result-actions\\.css)$",
+      "tests": ["tests/image-assistant-app-browser.test.mjs"]
+    },
+    {
+      "pattern": "^js/features/media/utils/filename-builder\\.js$",
+      "tests": ["tests/save-image-first-app-browser.test.mjs"]
+    },
+    {
+      "pattern": "^(index\\.css|css/)",
+      "groups": ["theme"]
+    },
+    {
+      "pattern": "^js/features/(execution|persistence|workflow)/|^js/services/(storage-|browser-storage|workflow-api)|^backend/.*(storage|migration|workflow|undo|http_server)",
+      "groups": ["workflow"]
+    },
+    {
+      "pattern": "^js/(canvas|connections)/",
+      "groups": ["canvas"]
+    },
+    {
+      "pattern": "^js/features/prompt-agent/prompt-agent-controller\\.js$",
+      "tests": ["tests/agent-selection-actions-app-browser.test.mjs", "tests/prompt-agent-canvas-app-browser.test.mjs"]
+    },
+    {
+      "pattern": "^js/features/prompt-agent/prompt-agent-(choices|instructions)\\.js$",
+      "tests": ["tests/prompt-agent-model.test.mjs", "tests/agent-image-first-workflow-app-browser.test.mjs"]
+    },
+    {
+      "pattern": "^js/features/update/update-manager\\.js$",
+      "tests": ["tests/desktop-update-restart-app-browser.test.mjs", "tests/test_update_restart.py"]
+    },
+    {
+      "pattern": "^js/features/camera/|^js/nodes/types/camera-control\\.js$",
+      "tests": ["tests/camera-image-first-app-browser.test.mjs"]
+    },
+    {
+      "pattern": "^js/nodes/types/image-merge\\.js$",
+      "tests": ["tests/merge-image-first-app-browser.test.mjs"]
+    },
+    {
+      "pattern": "^js/nodes/types/image-compare\\.js$",
+      "tests": ["tests/compare-image-first-app-browser.test.mjs"]
+    },
+    {
+      "pattern": "^js/nodes/(types/(image-resize|color-reset)|image-resize-settings)\\.js$|^js/features/media/color-reset-config\\.js$",
+      "tests": ["tests/processing-image-first-app-browser.test.mjs"]
     },
     {
       "pattern": "^js/features/prompt-agent/",
@@ -48,11 +112,7 @@
     },
     {
       "pattern": "^(canvas_mcp\\.py$|js/features/canvas-mcp/)",
-      "groups": [
-        "canvas",
-        "workflow",
-        "backend"
-      ]
+      "groups": ["canvas", "workflow", "backend"]
     },
     {
       "pattern": "^js/features/conversation/",
@@ -223,7 +283,7 @@
   "tests": {
     "tests/media-history-id-browser.test.mjs": {"tier": "browser", "groups": ["media", "history"]},
     "tests/browser-operation-diagnostics.test.mjs": {"tier": "browser", "groups": ["tooling", "media"]},
-    "tests/test-plan.test.mjs": {"tier": "fast", "groups": ["tooling"]},
+    "tests/test-plan.test.mjs": {"tier": "fast", "groups": ["tooling"], "inferSources": false, "sources": ["scripts/test-plan.mjs", "scripts/run-tests.mjs", "scripts/run-browser-tests.mjs", "scripts/test-groups.json", "tests/helpers/browser-theme-fixture.mjs"]},
     "tests/agent-canvas-input-preservation.test.mjs": {"tier": "fast", "groups": ["agent", "canvas"]},
     "tests/agent-canvas-prompt-targets.test.mjs": {"tier": "fast", "groups": ["agent", "canvas"]},
     "tests/agent-image-first-preparation-app-browser.test.mjs": {"tier": "browser", "groups": ["agent", "media", "nodes"]},
@@ -242,7 +302,7 @@
     "tests/cache-usage-media-distribution.test.mjs": {"tier": "browser", "groups": ["media"]},
     "tests/camera-control-state.test.mjs": {"tier": "fast", "groups": ["nodes"]},
     "tests/camera-image-card-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"]},
-    "tests/camera-image-first-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"]},
+    "tests/camera-image-first-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"], "full": false, "reason": "相机专有手势、同名节点和异常场景矩阵，由集成工作流保留相机主链路。"},
     "tests/camera-slider-endpoints-app-browser.test.mjs": {"tier": "browser", "groups": ["nodes"]},
     "tests/camera-theme-live-app-browser.test.mjs": {"tier": "browser", "groups": ["nodes", "theme"]},
     "tests/canvas-connection-renderer.test.mjs": {"tier": "fast", "groups": ["canvas"]},
@@ -259,7 +319,7 @@
     "tests/compact-reference-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"]},
     "tests/compaction-provider-app-browser.test.mjs": {"tier": "browser", "groups": ["agent", "protocol", "settings"]},
     "tests/compare-image-card-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"]},
-    "tests/compare-image-first-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"]},
+    "tests/compare-image-first-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"], "full": false, "reason": "对比节点 A/B 输入和后台执行矩阵，由集成工作流保留对比主链路。"},
     "tests/compare-input-policy.test.mjs": {"tier": "fast", "groups": ["nodes"]},
     "tests/config-export-desktop.test.mjs": {"tier": "fast", "groups": ["settings", "desktop"]},
     "tests/connection-create-app-browser.test.mjs": {"tier": "browser", "groups": ["canvas"]},
@@ -383,7 +443,7 @@
     "tests/menu-dialog-theme-surface-browser.test.mjs": {"tier": "browser", "groups": ["ui", "theme"]},
     "tests/menu-dialog-theme-visual.test.mjs": {"tier": "browser", "groups": ["ui", "theme"]},
     "tests/merge-image-card-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"]},
-    "tests/merge-image-first-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"]},
+    "tests/merge-image-first-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"], "full": false, "reason": "合并节点稀疏端口、排序和后台隔离矩阵，由集成工作流保留合并主链路。"},
     "tests/merge-input-policy.test.mjs": {"tier": "fast", "groups": ["nodes"]},
     "tests/missing-media-action-browser.test.mjs": {"tier": "fast", "groups": ["media"]},
     "tests/missing-media-actions.test.mjs": {"tier": "fast", "groups": ["media"]},
@@ -417,7 +477,7 @@
     "tests/prepared-history-edit.test.mjs": {"tier": "fast", "groups": ["workflow", "media", "history"]},
     "tests/preview-button-alignment-app-browser.test.mjs": {"tier": "browser", "groups": ["ui"]},
     "tests/processing-image-card-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"]},
-    "tests/processing-image-first-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"]},
+    "tests/processing-image-first-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"], "full": false, "reason": "缩放和颜色校正的参数、像素和后台隔离矩阵，由集成工作流保留两类处理主链路。"},
     "tests/project-io-large-session.test.mjs": {"tier": "fast", "groups": ["workflow"]},
     "tests/prompt-agent-body.test.mjs": {"tier": "fast", "groups": ["agent"]},
     "tests/prompt-agent-browser.test.mjs": {"tier": "browser", "groups": ["agent"]},
