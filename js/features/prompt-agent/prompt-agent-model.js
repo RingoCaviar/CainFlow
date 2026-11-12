@@ -16,6 +16,8 @@ import { normalizeCanvasPlan } from './prompt-agent-canvas-plan.js';
 import { excludesReferenceImages, mayUseCandidate, referenceInputChangePermission } from './prompt-agent-reference-policy.js';
 import { canvasPlanReferenceImages, assertPromptOnlyReferenceRecipe } from './prompt-agent-reference-inputs.js';
 
+const directCreationRequest = /^(?:(?:请|帮我|给我|我要|我想|现在|这次|本轮)\s*)*(?:生成|画(?:一|个|只|幅|张|出)|创作|制作|设计|generate\b|draw\b|create\b)\s*\S/i;
+
 export function getAvailablePromptAgentModels(models = [], providers = []) {
     return getModelsForTask(models, 'chat').filter((model) => {
         if (!model?.id || !model?.modelId || !getModelProtocolConfig(model.protocol)?.defaultTaskTypes.includes('chat')) return false;
@@ -257,9 +259,13 @@ export async function createPromptAgentModelReply({
     const canvasReads = [];
     let search = null;
     let searchUsed = false;
+    const requestText = message.trim();
+    const canRetryTaskConfirmation = confirmedNewTask || Boolean(requestText
+        && (referenceImages.length || directCreationRequest.test(requestText)));
+    let taskConfirmationRetry = false;
     for (let round = 0; round < 10; round++) {
         assertActive();
-        const request = { ...base, canvasReads, searchAllowed: !searchUsed && searchSettings.mode !== 'off', searchContext: search };
+        const request = { ...base, canvasReads, taskConfirmationRetry, searchAllowed: !searchUsed && searchSettings.mode !== 'off', searchContext: search };
         if (canvasReads.length && measurePromptAgentContext(request).reached) throw new Error('画布详情达到本轮上下文预算，未读取部分无法确认；请用 @节点 缩小范围或先压缩上下文');
         const input = createPromptAgentInput(request);
         if (round === 0) onContextImages(input.images.filter(image => image.reference.dataUrl && image.origins.some(origin =>
@@ -318,7 +324,16 @@ export async function createPromptAgentModelReply({
             onSearchStatus('正在整理检索结果…');
             continue;
         }
+        if (canRetryTaskConfirmation && payload?.intent === 'clarify' && payload.taskUpdate?.mode === 'new') {
+            if (taskConfirmationRetry) {
+                return { intent: 'chat', message: '模型未能整理出本轮方案，请重新发送这条请求。', promptPlan: null, ...(search ? { search } : {}) };
+            }
+            taskConfirmationRetry = true;
+            onSearchStatus('正在整理本轮创作方案…');
+            continue;
+        }
         let reply;
+        let canvasEditTargetId;
         try {
             if (payload.canvasPlan && ['edit', 'refine'].includes(payload.intent) && payload.targetSelection?.mode !== 'prompt-only') {
                 // Reuse the established latest-result selection gate before accepting a graph.
@@ -330,6 +345,7 @@ export async function createPromptAgentModelReply({
                 if (selected && !(payload.canvasPlan.steps || []).some(step => step.imageId === selected.imageId)) {
                     throw new Error('多步骤续改未引用正确的最新结果，请指定要编辑的图片后重新整理方案');
                 }
+                canvasEditTargetId = selected?.imageId;
             }
             reply = payload.canvasPlan && canvasContext && payload.intent !== 'clarify' ? {
                 intent: ['edit', 'refine', 'chat'].includes(payload.intent) ? payload.intent
@@ -364,6 +380,14 @@ export async function createPromptAgentModelReply({
         const inputTokens = model.protocol === 'google' ? response.payload?.usageMetadata?.promptTokenCount : response.payload?.usage?.prompt_tokens;
         if (Number.isSafeInteger(inputTokens) && inputTokens > 0) reply.tokenObservation = { inputTokens, measurement: measurePromptAgentContext(request) };
         if (payload.taskUpdate && reply.intent !== 'clarify') reply.taskUpdate = payload.taskUpdate;
+        if (reply.intent === 'edit' || (reply.intent === 'refine' && payload.targetSelection?.mode === 'explicit')) {
+            const targets = reply.promptPlan?.referenceImages.filter(image => image.role === 'edit-target') || [];
+            const targetId = targets.length === 1 ? targets[0].imageId : canvasEditTargetId;
+            const target = input.images.find(image => image.imageId === targetId);
+            if (target?.origins.includes('本轮附件') && (!target.latestResult || payload.targetSelection?.mode === 'explicit')) {
+                reply.editsCurrentAttachment = true;
+            }
+        }
         return reply;
     }
 }

@@ -102,6 +102,18 @@ const enabledChoiceLabels = app => app.evaluate(`[...document.querySelectorAll('
 const latestUserText = "[...document.querySelectorAll('.prompt-agent-message-user .prompt-agent-message-body')].at(-1)?.textContent";
 const creativePlan = (title, prompt, taskUpdate) => ({ intent: 'generate', message: title, taskUpdate,
     canvasPlan: { version: 1, steps: [{ id: 'generate', type: 'ImageGenerate', title, parameters: { prompt } }], connections: [] } });
+const agentSnapshot = app => app.evaluate("import('/js/app/bootstrap.js').then(module => module.bootstrapCainFlowApp()).then(app => app.registry.promptAgentController.snapshotWorkflow())");
+
+async function answerWithConfirmationThenPlan(app, plan) {
+    const confirmation = { intent: 'clarify', message: '是否开始新任务？', taskUpdate: { mode: 'new' } };
+    await app.evaluate(`(() => {
+        const first = agentWorkflowRequests.length + 1;
+        Object.defineProperty(window, 'agentWorkflowReply', {
+            configurable: true,
+            get: () => agentWorkflowRequests.length === first ? ${JSON.stringify(confirmation)} : ${JSON.stringify(plan)}
+        });
+    })()`);
+}
 
 async function sendAgentMessage(app, text) {
     await change(app, 'prompt-agent-input', text);
@@ -154,21 +166,21 @@ test('a clear standalone creative task drafts a new canvas plan directly without
         await chooseModel(app, 'chat', 'chat');
         await sendAgentMessage(app, cupRequest);
         await app.waitFor("document.querySelector('.prompt-agent-canvas-plan') && document.getElementById('prompt-agent-cancel').hidden");
-        const snapshot = () => app.evaluate("import('/js/app/bootstrap.js').then(module => module.bootstrapCainFlowApp()).then(app => app.registry.promptAgentController.snapshotWorkflow())");
-        const cup = await snapshot();
+        const cup = await agentSnapshot(app);
         assert.deepEqual(cup.creativeTask.parameters, { resolution: '2K', aspectRatio: '16:9' });
 
         const stadiumReply = creativePlan('足球场方案', '夜里的足球场', {
             mode: 'new', parameters: { resolution: { value: '4K', evidence: '4K' } }
         });
-        await app.evaluate(`agentWorkflowReply=${JSON.stringify(stadiumReply)}`);
+        await answerWithConfirmationThenPlan(app, stadiumReply);
         await sendAgentMessage(app, stadiumRequest);
-        await app.waitFor("agentWorkflowRequests.length===2 && document.getElementById('prompt-agent-cancel').hidden");
+        await app.waitFor("agentWorkflowRequests.length>=2 && document.getElementById('prompt-agent-cancel').hidden");
         assert.equal(await app.evaluate(`document.querySelectorAll('${choiceButtons}').length`), 0);
         assert.equal(await app.evaluate("document.querySelectorAll('.prompt-agent-canvas-plan').length"), 2);
 
-        const stadium = await snapshot();
+        const stadium = await agentSnapshot(app);
         const plan = stadium.messages.at(-1).canvasPlan;
+        assert.deepEqual(stadium.messages.map(message => message.text), [cupRequest, '白杯方案', stadiumRequest, '足球场方案']);
         assert.notEqual(stadium.creativeTask.id, cup.creativeTask.id);
         assert.deepEqual(stadium.creativeTask.parameters, { resolution: '4K' });
         assert.deepEqual(stadium.messages[1].canvasPlan, cup.messages[1].canvasPlan);
@@ -179,8 +191,46 @@ test('a clear standalone creative task drafts a new canvas plan directly without
         assert.equal(plan.steps[0].parameters.resolution, '4K');
         assert.equal(plan.steps[0].parameters.aspect, undefined);
         assert.equal(stadium.messages.at(-1).runs?.length || 0, 0);
-        assert.deepEqual(await app.evaluate("agentWorkflowRequests.map(request => request.messages && JSON.parse(request.messages.at(-1).content).userRequest)"), [cupRequest, stadiumRequest]);
+        assert.deepEqual(await app.evaluate("agentWorkflowRequests.map(request => request.messages && JSON.parse(request.messages.at(-1).content).userRequest)"),
+            [cupRequest, stadiumRequest, stadiumRequest]);
         assert.equal(await app.evaluate("document.querySelectorAll('#nodes-layer > .node').length"), 0);
+    });
+});
+
+test('an attached edit skips the generic confirmation and plans against its image instead of the selected generator', async () => {
+    await withAppBrowser({ ...configuration, nodes: [generateNode('unrelated', 40, 120)], connections: [] }, async app => {
+        await controlled(app, creativePlan('球场方案', '夜间足球场'));
+        await app.evaluate("document.getElementById('btn-prompt-agent').click()");
+        await chooseModel(app, 'chat', 'chat');
+        await sendAgentMessage(app, '生成一张夜间足球场照片');
+        await app.waitFor("document.querySelector('.prompt-agent-canvas-plan') && document.getElementById('prompt-agent-cancel').hidden");
+
+        await attach(app, '杯子.png');
+        await open(app, 'unrelated');
+        const request = '把这个杯子上的旧图案和文字都去掉，然后换成小海豹图案，品牌名叫 CAIN';
+        const prompt = '移除原图案和文字，换成小海豹图案和 CAIN 标志';
+        await answerWithConfirmationThenPlan(app, {
+            intent: 'edit', message: '杯子修改方案', taskUpdate: { mode: 'new' },
+            targetSelection: { mode: 'explicit', imageId: 'image-1', evidence: '这个杯子' },
+            promptPlan: { prompt, imageRoles: [{ imageId: 'image-1', role: 'edit-target' }] }
+        });
+        await sendAgentMessage(app, request);
+        await app.waitFor("agentWorkflowRequests.length>=2 && document.getElementById('prompt-agent-cancel').hidden");
+        assert.equal(await app.evaluate(`document.querySelectorAll('${choiceButtons}').length`), 0);
+        assert.equal(await app.evaluate("document.querySelectorAll('.prompt-agent-canvas-plan').length"), 2);
+        const snapshot = await agentSnapshot(app);
+        const [userTurn, reply] = snapshot.messages.slice(2);
+        assert.deepEqual(snapshot.messages.slice(2).map(message => message.text), [request, '杯子修改方案']);
+        const [reference] = userTurn.referenceImages;
+        assert.equal(reference.name, '杯子.png');
+        const generator = reply.canvasPlan.steps.find(step => step.type === 'ImageGenerate');
+        assert.equal(generator.nodeId, undefined);
+        assert.equal(generator.parameters.prompt, prompt);
+        assert.equal(reply.canvasPlan.connections.find(link => link.to.ref === generator.id).from.ref, reference.sourceNodeId);
+        const inputs = await app.evaluate("agentWorkflowRequests.slice(1).map(request => JSON.parse(request.messages.at(-1).content[0].text))");
+        assert.deepEqual(inputs.map(input => [input.userRequest, input.canvas.selectedIds]), [[request, ['unrelated']], [request, ['unrelated']]]);
+        assert.equal(await app.evaluate("document.getElementById('unrelated-prompt').value"), 'unrelated local draft');
+        assert.equal(await app.evaluate("document.querySelectorAll('#nodes-layer > .node').length"), 2);
     });
 });
 

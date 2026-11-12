@@ -51,7 +51,7 @@ function projectHistory(conversation, images) {
 }
 
 export function createPromptAgentInput({
-    message = '', confirmedNewTask = false, choiceAnswer = null, context = null, conversation = null, workflowMemory = '', sizeSettings = {}, imageSizeCapabilities = null,
+    message = '', confirmedNewTask = false, taskConfirmationRetry = false, choiceAnswer = null, context = null, conversation = null, workflowMemory = '', sizeSettings = {}, imageSizeCapabilities = null,
     referenceImages = [], workflowReferenceImages = [], model, searchAllowed = true, searchContext = null, canvasContext = null, canvasReads = []
 } = {}) {
     const images = [];
@@ -127,6 +127,7 @@ export function createPromptAgentInput({
         canvas: canvasContext?.summary || null,
         creativeTask: conversation?.creativeTask || null,
         ...(confirmedNewTask ? { confirmedNewTask: true } : {}),
+        ...(taskConfirmationRetry ? { taskConfirmationRetry: true } : {}),
         ...(choiceAnswer ? { choiceAnswer } : {}),
         canvasReads,
         previousCanvasPlan: conversation?.messages?.some(turn => turn.canvasPlan) ? null : projectCanvasPlan((conversation?.archivedMessages || []).findLast(turn => turn.canvasPlan)?.canvasPlan),

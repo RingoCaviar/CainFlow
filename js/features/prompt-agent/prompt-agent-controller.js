@@ -2152,7 +2152,7 @@ export function createPromptAgentController({
             if (canvasAdapter && reply?.promptPlan && !reply.canvasPlan) {
                 const target = canvasContext.nodes.find(node => node.id === reply.promptPlan.targetNodeId);
                 const explicitlyNamed = target && (nodeMentions.some(item => item.id === target.id)
-                    || (reply.intent !== 'generate' && selectedIds.includes(target.id))
+                    || (reply.intent !== 'generate' && !reply.editsCurrentAttachment && selectedIds.includes(target.id))
                     || (requestText.includes(target.name) && canvasContext.nodes.filter(node => node.name === target.name).length === 1));
                 reply.canvasPlan = promptPlanToCanvas({ ...reply.promptPlan, targetNodeId: explicitlyNamed ? reply.promptPlan.targetNodeId : null }, canvasContext, { message: requestText });
                 reply.promptPlan = null;

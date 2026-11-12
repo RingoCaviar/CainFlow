@@ -4,16 +4,19 @@ const aliases={aspect:'aspectRatio',generationCount:'count'};
 const clone=value=>JSON.parse(JSON.stringify(value));
 const newTaskConfirmationMessage = '请确认是否开始新的创作任务；当前比例和分辨率仍会保留。';
 const confirmsNewTask = text => /^(?:确认|确定|同意|是|好(?:的)?|可以|yes|confirm|ok)[。！.!]*$/i.test(text?.trim());
-function requestsContinuation(message) {
+function requestsContinuation(message, editsCurrentAttachment) {
     const request = message.replace(/^(?:(?:请|帮我|只|仅)\s*)+/, '');
-    return /^(?:(?:继续|接着)(?:$|[，。]|改|调|修|优化)|沿用|保留原|(?:把|将).{1,20}(?:改成|换成)|continue\b|revise\b|edit\b|make it\b)/i.test(request)
+    return /^(?:(?:继续|接着)(?:$|[，。]|改|调|修|优化)|沿用|保留原|continue\b|revise\b|make it\b)/i.test(request)
         || /^(?:继续|接着).{0,20}(?:同样|一样|同款|上一|上次|刚才|原图)/.test(request)
-        || /^(?:在|基于|根据)?(?:这张|上一张|上一版|原图|刚才的|当前方案)/.test(request)
-        || /^再来(?:一张|一版)?(?:[，,\s]+换(?:个|一)?(?:方向|思路))?[。！!]*$/.test(request);
+        || /^(?:在|基于|根据)?(?:上一张|上一版|刚才的|当前方案)/.test(request)
+        || /^再来(?:一张|一版)?(?:[，,\s]+换(?:个|一)?(?:方向|思路))?[。！!]*$/.test(request)
+        || (editsCurrentAttachment ? /^(?:继续|接着)/.test(request)
+            : /^(?:(?:把|将).{1,20}(?:改成|换成)|edit\b|(?:在|基于|根据)?(?:这张|原图))/i.test(request));
 }
 
-function hasIndependentGenerationPlan(reply) {
-    if (reply.intent !== 'generate') return false;
+function hasIndependentImagePlan(reply) {
+    const attachedEdit = reply.editsCurrentAttachment === true;
+    if (reply.intent !== 'generate' && !attachedEdit) return false;
     const { canvasPlan, promptPlan } = reply;
     if (canvasPlan) {
         return !canvasPlan.deletes?.length && !canvasPlan.disconnects?.length
@@ -23,7 +26,7 @@ function hasIndependentGenerationPlan(reply) {
                 && !canvasPlan.steps.some(step => step.id === link.from.ref));
     }
     return Boolean(promptPlan && !promptPlan.targetNodeId && !promptPlan.preserveReferenceSnapshot
-        && !promptPlan.referenceImages?.some(image => image.role === 'edit-target'));
+        && (attachedEdit || !promptPlan.referenceImages?.some(image => image.role === 'edit-target')));
 }
 
 export class CreativeTaskConfirmationRequired extends Error {
@@ -94,8 +97,10 @@ export function bindTaskToReply(reply,previous,message,{confirmedNewTask=false}=
  for(const id of Object.keys(reply.taskUpdate?.steps||{})) if(['__proto__','constructor','prototype'].includes(id)||!reply.canvasPlan?.steps.some(s=>s.id===id&&s.type==='ImageGenerate')) throw new Error('步骤参数无法对应当前方案，请确认修改对象。');
  const request = message.trim();
  const independentGeneration = reply.taskUpdate?.mode === 'new' && Boolean(request) && !confirmsNewTask(request)
-     && !requestsContinuation(request) && hasIndependentGenerationPlan(reply);
- const {task,explicit,newTask}=updateCreativeTask(previous,message,reply.taskUpdate,count,{confirmedNewTask,independentGeneration});
+     && !requestsContinuation(request, reply.editsCurrentAttachment === true) && hasIndependentImagePlan(reply);
+ const taskUpdate = reply.editsCurrentAttachment === true && reply.taskUpdate?.mode === 'new' && !independentGeneration
+     ? { ...reply.taskUpdate, mode: 'continue' } : reply.taskUpdate;
+ const {task,explicit,newTask}=updateCreativeTask(previous,message,taskUpdate,count,{confirmedNewTask,independentGeneration});
  const apply=(parameters,stepId)=>{
   const inherited={...task.parameters,...(task.steps[stepId]||{})};
   const merged={...(newTask?{}:taskParameters(parameters)),...inherited};
