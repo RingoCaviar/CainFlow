@@ -14,6 +14,20 @@ const alignment = selector => `(()=>{const canvas=document.createElement('canvas
 const themes = ['dark', 'light', 'pink', 'pro', 'paper', 'glass-light', 'glass-dark'];
 const imageBackgrounds = ['#fff', '#000', '#00ff00', '#ff0080', '#0055ff'];
 
+async function assertPreviewBackdrop(app, theme) {
+    const { overlay, stage } = await app.evaluate(`(() => ({
+        overlay: getComputedStyle(document.querySelector('.fullscreen-overlay')).backgroundColor,
+        stage: getComputedStyle(document.querySelector('.fullscreen-img-wrapper')).backgroundColor
+    }))()`);
+    const tint = parseColor(overlay);
+    assert.ok(tint[3] > 0 && tint[3] < 1, `${theme}: the overlay dims the workspace through a translucent backdrop`);
+    assert.equal(parseColor(stage)[3], 0, `${theme}: the surrounding image stage reveals the backdrop`);
+    const lightWorkspace = parseColor('#fff');
+    const darkWorkspace = parseColor('#171922');
+    assert.ok(contrastRatio(lightWorkspace, composite(tint, lightWorkspace)) > 1, `${theme}: the backdrop darkens a light workspace`);
+    assert.ok(contrastRatio(parseColor('#000'), composite(tint, darkWorkspace)) > 1.05, `${theme}: a dark workspace remains distinct from pure black`);
+}
+
 async function assertPreviewActionContrast(app, state) {
     const controls = await app.evaluate(`(async () => {
         const elements = [...document.querySelectorAll('.fullscreen-action-dock .preview-action-list > *, .fullscreen-action-dock > button')]
@@ -64,6 +78,7 @@ test('preview zoom controls center their visible glyphs and preserve zoom/fit ac
         }
         for (const theme of themes) {
             await app.evaluate(`document.documentElement.dataset.appTheme=${JSON.stringify(theme)}`);
+            await assertPreviewBackdrop(app, theme);
             await assertPreviewActionContrast(app, theme);
         }
         await app.evaluate("document.documentElement.dataset.appTheme='dark'");

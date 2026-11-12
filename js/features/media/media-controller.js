@@ -3794,17 +3794,17 @@ export function createMediaControllerApi({
             <div class="fullscreen-image-context-menu hidden">
                 <button type="button" class="fullscreen-image-copy-menu-item">复制图片</button>
             </div>
-            <div class="fullscreen-download-status" role="status" aria-live="polite" hidden></div>
             ${renderFullscreenCropControls(canCropImageImport)}
-            <div class="preview-zoom-controls" role="toolbar" aria-label="预览缩放">
-                <button type="button" class="preview-zoom-out" title="缩小" aria-label="缩小"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>
-                <button type="button" class="preview-zoom-in" title="放大" aria-label="放大"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg></button>
-                <button type="button" class="preview-zoom-fit" title="适应屏幕" aria-label="适应屏幕">适应</button>
-            </div>
             <div class="fullscreen-stage">
                 <div class="fullscreen-img-wrapper">
                     <img src="${images[currentIndex] || src}" alt="全屏预览" draggable="false" />
                     ${renderFullscreenCropLayer(canCropImageImport)}
+                </div>
+                <div class="fullscreen-download-status" role="status" aria-live="polite" hidden></div>
+                <div class="preview-zoom-controls" role="toolbar" aria-label="预览缩放">
+                    <button type="button" class="preview-zoom-out" title="缩小" aria-label="缩小"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+                    <button type="button" class="preview-zoom-in" title="放大" aria-label="放大"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg></button>
+                    <button type="button" class="preview-zoom-fit" title="适应屏幕" aria-label="适应屏幕">适应</button>
                 </div>
                 ${images.length > 1 ? `
                 <aside class="fullscreen-thumb-rail" aria-label="图片列表">
@@ -3903,8 +3903,8 @@ export function createMediaControllerApi({
             if (!active) return;
             const trackRect = thumbTrack.getBoundingClientRect();
             const activeRect = active.getBoundingClientRect();
-            const delta = activeRect.top - trackRect.top - (trackRect.height / 2) + (activeRect.height / 2);
-            thumbTrack.scrollBy({ top: delta, behavior: 'smooth' });
+            const delta = activeRect.left - trackRect.left - (trackRect.width / 2) + (activeRect.width / 2);
+            thumbTrack.scrollLeft += delta;
         };
         const updateThumbnailRail = () => {
             if (!thumbTrack) return;
@@ -3970,10 +3970,18 @@ export function createMediaControllerApi({
         updateThumbnailRail();
 
         overlay.addEventListener('wheel', (e) => {
+            if (thumbTrack?.parentElement.contains(e.target)) {
+                if (!e.deltaX) {
+                    e.preventDefault();
+                    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? thumbTrack.clientWidth : 1;
+                    thumbTrack.scrollLeft += e.deltaY * unit;
+                }
+                return;
+            }
             e.preventDefault();
-            if (cropper?.isActive()) return;
+            if (cropper?.isActive() || !e.deltaY) return;
             const nz = Math.max(0.1, Math.min(20, fsZoom * (e.deltaY > 0 ? 0.9 : 1.1)));
-            const rect = overlay.getBoundingClientRect();
+            const rect = iw.getBoundingClientRect();
             const cx = e.clientX - rect.left - rect.width / 2;
             const cy = e.clientY - rect.top - rect.height / 2;
             fsX = cx - (cx - fsX) * (nz / fsZoom);
