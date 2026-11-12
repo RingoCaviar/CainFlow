@@ -2121,7 +2121,7 @@ export function createWorkflowRuntimeManager({
                     workflowName: currentWorkflowName,
                     workflowId,
                     error: error?.stack || error
-                });
+                }, { suppressErrorModal: error?.suppressErrorModal === true });
             } finally {
                 await context.waitForPendingImageAssetSaves?.();
                 if (isActiveWorkflow(workflowReference)) {

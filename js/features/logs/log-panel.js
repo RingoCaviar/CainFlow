@@ -212,10 +212,10 @@ export function createLogPanelApi({
         renderLogs();
         persistLogs();
 
-        if (type === 'error' && !state.autoRetry) {
+        if (type === 'error' && !state.autoRetry && !meta.suppressErrorModal) {
             renderErrorModal(title, message, log.details, log.nodeTitle ? `${log.nodeTitle}：执行错误` : '执行错误', log);
-        } else if (type === 'error' && state.autoRetry && elements.btnLogs) {
-            elements.btnLogs.classList.add('has-new-error');
+        } else if (type === 'error') {
+            elements.btnLogs?.classList.add('has-new-error');
         }
         return log;
     }

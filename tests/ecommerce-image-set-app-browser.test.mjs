@@ -497,3 +497,60 @@ test('the commerce node generates selected shots, accepts a retry during generat
         assert.deepEqual(await app.evaluate(selected), []);
     }, { initScript });
 });
+
+test('failed commerce generation and retries leave error details closed until requested', { timeout: 25000 }, async () => {
+    const reference = (await readFile(new URL('./fixtures/reference-red.png', import.meta.url))).toString('base64');
+    const nodes = [
+        { id: 'product', type: 'ImageImport', x: 40, y: 100 },
+        { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100,
+            commerceImageSet: { platformId: 'amazon', selectedShotIds: ['detail'],
+                plannerModelId: 'vision', plannerProviderId: 'p', imageModelId: 'image', imageProviderId: 'p' } }
+    ];
+    const connections = [{ id: 'photo', from: { nodeId: 'product', port: 'image' },
+        to: { nodeId: 'commerce', port: 'referenceImages' }, type: 'image', order: 0 }];
+    const failure = 'Fixture commerce generation failure';
+    const initScript = `window.commerceImageFailure=true;
+        const actualFetch=window.fetch.bind(window);
+        window.fetch=async (url, options)=>{
+            if (url!=='/proxy'||!options?.body) return actualFetch(url,options);
+            if (options.body instanceof FormData) {
+                return window.commerceImageFailure
+                    ? Response.json({error:{message:${JSON.stringify(failure)}}},{status:500})
+                    : Response.json({data:[{b64_json:${JSON.stringify(reference)}}]});
+            }
+            const plan={sellingPoints:[],shots:[{id:'detail',prompt:'近景展示杯盖，使用柔和侧光。',headline:'',body:''}]};
+            return Response.json({choices:[{message:{content:JSON.stringify(plan)}}]});
+        };`;
+    const row = "document.querySelector('#image-parameter-panel [data-commerce-shot-id=detail]')";
+    const status = "document.querySelector('.commerce-image-set-status').textContent";
+    const modal = "document.getElementById('modal-error')";
+    const retry = `${row}.querySelector('[data-commerce-action=retry]')`;
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, autoRetry: false, nodes, connections,
+        models: [{ id: 'vision', modelId: 'gpt-4o', taskType: 'chat', protocol: 'openai', providerIds: ['p'] },
+            { id: 'image', modelId: 'gpt-image-2', taskType: 'image', protocol: 'openai', providerIds: ['p'] }],
+        providers: [{ id: 'p', endpoint: 'https://fixture.test/v1', apikey: 'test' }]
+    }, async app => {
+        await uploadImageOriginal(app, 'product', `data:image/png;base64,${reference}`);
+        await openParameters(app, 'commerce');
+        await app.evaluate("document.querySelector('[data-commerce-action=plan]').click()");
+        await app.waitFor("document.querySelector('[data-commerce-action=generate]')?.checkVisibility() && !document.querySelector('[data-commerce-action=generate]').disabled");
+        await app.evaluate("document.querySelector('[data-commerce-action=generate]').click()");
+        await app.waitFor(`${row}?.dataset.resultStatus==='failed' && ${status}.includes(${JSON.stringify(failure)})`);
+        assert.equal(await app.evaluate(`${modal}.classList.contains('active')`), false, 'an entirely failed suite keeps the error dialog closed');
+
+        const failureButton = '#image-parameter-panel [data-commerce-shot-id=detail] [data-commerce-action=error-detail]';
+        await nativeClick(app, failureButton);
+        await app.waitFor(`${modal}.classList.contains('active')`);
+        assert.equal(await app.evaluate("document.getElementById('error-modal-msg').textContent"), failure);
+        await key(app, 'Escape');
+        await app.waitFor(`!${modal}.classList.contains('active')`);
+
+        await app.evaluate(`window.commerceImageFailure=false; ${retry}.click()`);
+        await app.waitFor(`${row}.dataset.resultStatus==='completed' && !${retry}.disabled && ${row}.querySelector('img').naturalWidth>0`);
+        const original = await app.evaluate(`${row}.querySelector('img').src`);
+        await app.evaluate(`window.commerceImageFailure=true; ${retry}.click()`);
+        await app.waitFor(`${status}.includes(${JSON.stringify(failure)}) && !${retry}.disabled`);
+        assert.equal(await app.evaluate(`${modal}.classList.contains('active')`), false, 'a failed regeneration also keeps the error dialog closed');
+        assert.equal(await app.evaluate(`${row}.querySelector('img').src`), original, 'a failed regeneration preserves the previous image');
+    }, { initScript });
+});
