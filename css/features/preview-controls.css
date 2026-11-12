@@ -108,6 +108,35 @@
 .preview-action-reveal { font-size: 26px; line-height: 1; }
 .preview-action-dock:is(:hover, :focus-within, .is-expanded) .preview-action-reveal { background: rgba(75, 75, 95, 0.92); }
 
+/* The fullscreen dock sits over the image even when zoomed or panned. */
+.fullscreen-overlay .fullscreen-action-dock :is(.preview-action-list > *, .preview-action-reveal) {
+    background: #1e1e2e;
+    border: 1px solid #a2a2b0;
+    color: #fff;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    transition: none;
+}
+
+.fullscreen-overlay .fullscreen-action-dock :is(.preview-action-list > *, .preview-action-reveal):hover,
+.fullscreen-overlay .fullscreen-action-dock:is(:hover, :focus-within, .is-expanded) > .preview-action-reveal {
+    background: #4b4b5f;
+    transform: none;
+}
+
+.fullscreen-overlay.is-cropping .fullscreen-action-dock .preview-action-list > .fullscreen-crop-btn {
+    background: #86efac;
+    border-color: #14532d;
+    color: #052e16;
+    transform: none;
+}
+
+.fullscreen-overlay .fullscreen-action-dock :is(.preview-action-list > *, .preview-action-reveal):focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: -4px;
+}
+
 .preview-zoom-controls {
     position: absolute;
     right: 24px;

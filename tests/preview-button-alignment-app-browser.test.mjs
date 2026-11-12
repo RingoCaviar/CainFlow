@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { withAppBrowser } from './helpers/app-browser.mjs';
+import { composite, contrastRatio, parseColor } from './helpers/browser-theme-fixture.mjs';
 
 const session = { autoCheckUpdatesOnLoad: false,
     models: [{ id: 'chat', modelId: 'chat', protocol: 'openai', taskType: 'chat', providerIds: ['p'] }],
@@ -10,6 +11,31 @@ const session = { autoCheckUpdatesOnLoad: false,
     nodes: [{ id: 'source', type: 'ImageImport', x: 30, y: 80 }, { id: 'generate', type: 'ImageGenerate', x: 430, y: 80, width: 320 }], connections: [] };
 
 const alignment = selector => `(()=>{const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');return [...document.querySelectorAll(${JSON.stringify(selector)})].filter(b=>b.checkVisibility()).map(b=>{const box=b.getBoundingClientRect(),svg=b.querySelector('svg');let x,y;if(svg){const r=svg.getBoundingClientRect();x=(r.left+r.right)/2;y=(r.top+r.bottom)/2;}else{const range=document.createRange();range.selectNodeContents(b);const r=range.getBoundingClientRect();ctx.font=getComputedStyle(b).font;const m=ctx.measureText(b.textContent.trim());x=(r.left+r.right)/2;if(b.matches(".image-parameter-settings-entry")){const arrow=getComputedStyle(b,"::after");x+=((parseFloat(arrow.width)||0)+(parseFloat(arrow.marginLeft)||0))/2;}y=r.top+m.fontBoundingBoxAscent-(m.actualBoundingBoxAscent-m.actualBoundingBoxDescent)/2;}return {label:b.getAttribute('aria-label')||b.title||b.textContent.trim(),x:x-(box.left+box.right)/2,y:y-(box.top+box.bottom)/2}})})()`;
+const themes = ['dark', 'light', 'pink', 'pro', 'paper', 'glass-light', 'glass-dark'];
+const imageBackgrounds = ['#fff', '#000', '#00ff00', '#ff0080', '#0055ff'];
+
+async function assertPreviewActionContrast(app, state) {
+    const controls = await app.evaluate(`(async () => {
+        const elements = [...document.querySelectorAll('.fullscreen-action-dock .preview-action-list > *, .fullscreen-action-dock > button')]
+            .filter(element => element.checkVisibility());
+        const read = element => {
+            const { color, backgroundColor, backgroundImage } = getComputedStyle(element);
+            return { label: element.title, color, backgroundColor, backgroundImage };
+        };
+        elements.forEach(read);
+        await Promise.allSettled(elements.flatMap(element => element.getAnimations()).map(animation => animation.finished));
+        return elements.map(read);
+    })()`);
+    assert.ok(controls.length >= 4, state);
+    for (const { label, color, backgroundColor, backgroundImage } of controls) {
+        assert.equal(backgroundImage, 'none', `${state}: ${label} uses a uniform backplate`);
+        for (const imageColor of imageBackgrounds) {
+            const surface = composite(parseColor(backgroundColor), parseColor(imageColor));
+            const ratio = contrastRatio(composite(parseColor(color), surface), surface);
+            assert.ok(ratio >= 4.5, `${state}: ${label} on ${imageColor} has ${ratio.toFixed(2)}:1 contrast`);
+        }
+    }
+}
 
 test('preview zoom controls center their visible glyphs and preserve zoom/fit actions', async () => {
     await withAppBrowser(session, async app => {
@@ -36,13 +62,18 @@ test('preview zoom controls center their visible glyphs and preserve zoom/fit ac
         for (const control of await app.evaluate(alignment('.fullscreen-overlay .preview-action-dock :is(button,.fullscreen-close,.fullscreen-paint-btn)'))) {
             assert.ok(Math.abs(control.x) <= 1 && Math.abs(control.y) <= 1, JSON.stringify(control));
         }
+        for (const theme of themes) {
+            await app.evaluate(`document.documentElement.dataset.appTheme=${JSON.stringify(theme)}`);
+            await assertPreviewActionContrast(app, theme);
+        }
+        await app.evaluate("document.documentElement.dataset.appTheme='dark'");
         await app.evaluate("document.querySelector('.fullscreen-overlay .fullscreen-close').click();document.getElementById('generate').click()");
         await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-settings-entry').click()");
         const otherControls = await app.evaluate(alignment('#canvas-navigation [data-nav=minus], #canvas-navigation [data-nav=plus], .image-parameter-settings-entry, [data-parameter-action=generate]'));
         assert.ok(otherControls.length >= 4);
         for (const control of otherControls) assert.ok(Math.abs(control.x) <= 1 && Math.abs(control.y) <= 1, JSON.stringify(control));
         await app.evaluate("document.getElementById('history-preview-modal').classList.remove('hidden');document.querySelector('#history-preview-modal .preview-action-dock').classList.add('is-expanded')");
-        for (const theme of ['light', 'dark', 'pink', 'pro', 'paper', 'glass-light', 'glass-dark']) {
+        for (const theme of themes) {
             await app.evaluate(`document.documentElement.dataset.appTheme=${JSON.stringify(theme)}`);
             const historyControls = await app.evaluate(alignment('#history-preview-modal .preview-zoom-controls button, #history-preview-modal .preview-action-dock button'));
             assert.ok(historyControls.length >= 7);
