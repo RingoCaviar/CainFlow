@@ -101,13 +101,13 @@ test('context candidates retain archived run identity and exact batch positions,
     h.state.nodes.set('disabled', { id: 'disabled', type: 'ImageImport', enabled: false });
     h.state.nodes.set('scene', { id: 'scene', type: 'ImageImport' });
     h.state.selectedNodes = new Set(['scene']);
-    const refs = h.source.getContextReferences({ archivedMessages: [{ promptPlan: { prompt: '猫海报' }, runs: [
+    const refs = h.source.getContextReferences({ messageOffset: 2, archivedMessages: [{ promptPlan: { prompt: '猫海报' }, runs: [
         { runId: 'old', mediaAssetKeys: ['asset:a', 'asset:b'] }
     ] }], messages: [{ runs: [{ runId: 'new', mediaAssetKeys: ['asset:c'] }] }] });
     assert.deepEqual(refs.map(ref => ref.sourceNodeId).filter(Boolean), ['scene']);
     assert.equal(refs[0].selectedOnCanvas, true);
     assert.deepEqual(refs.filter(ref => ref.runId).map(ref => [ref.runId, ref.messageNumber, ref.resultNumber, ref.assetKey]),
-        [['old', 1, 1, 'asset:a'], ['old', 1, 2, 'asset:b'], ['new', 2, 1, 'asset:c']]);
+        [['old', 3, 1, 'asset:a'], ['old', 3, 2, 'asset:b'], ['new', 4, 1, 'asset:c']]);
     assert.equal(h.reads, 0);
 });
 

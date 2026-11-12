@@ -24,6 +24,56 @@ test('new task resets inherited values and does not mutate old plans or infer se
  assert.throws(()=>updateCreativeTask(task,'继续改背景',{mode:'new'}),/确认/);
  assert.throws(()=>updateCreativeTask(task,'继续改背景',{parameters:{resolution:{value:'4K',evidence:'背景'}}}),/不一致/);
 });
+
+test('an independent generation request starts a new creative task without confirmation', () => {
+    const cup = reply({});
+    const previous = bindTaskToReply(cup, null, '生成2K、16:9的白色杯子');
+    const oldPlan = structuredClone(cup.promptPlan);
+    const draft = { ...reply({ aspectRatio: '16:9' }), intent: 'generate', taskUpdate: { mode: 'new' } };
+    const task = bindTaskToReply(draft, previous, '生成一张4K的黑夜里的足球场照片');
+
+    assert.notEqual(task.id, previous.id);
+    assert.deepEqual(draft.promptPlan.parameters, { resolution: '4K' });
+    assert.deepEqual(cup.promptPlan, oldPlan);
+    assert.notEqual(bindTaskToReply(structuredClone(draft), previous, '再来一张，夜间足球场照片').id, previous.id);
+});
+
+test('a model cannot reset the creative task through an edit or ambiguous continuation', () => {
+    const previous = bindTaskToReply(reply({}), null, '生成2K、16:9的白色杯子');
+    const proposal = { ...reply({}), intent: 'generate', taskUpdate: { mode: 'new' } };
+    assert.throws(() => bindTaskToReply(proposal, previous, '再来一张，换个方向'), /确认/);
+    assert.throws(() => bindTaskToReply(proposal, previous, '继续生成一张同样的杯子'), /确认/);
+    assert.throws(() => bindTaskToReply(proposal, previous, '确认'), /确认/);
+    assert.throws(() => bindTaskToReply({ ...proposal, intent: 'refine' }, previous, '把背景改成蓝色'), /确认/);
+    assert.throws(() => bindTaskToReply({ ...proposal, promptPlan: { ...proposal.promptPlan, targetNodeId: 'cup' } },
+        previous, '生成一张夜间足球场的照片'), /确认/);
+    const linked = { intent: 'generate', taskUpdate: { mode: 'new' }, canvasPlan: {
+        steps: [{ id: 'generate', type: 'ImageGenerate', parameters: { prompt: '夜里的足球场' } }],
+        connections: [{ from: { ref: 'cup-prompt', port: 'text' }, to: { ref: 'generate', port: 'prompt' } }]
+    } };
+    assert.throws(() => bindTaskToReply(linked, previous, '生成一张夜间足球场的照片'), /确认/);
+});
+
+test('legacy new-task confirmations recover the request across repeated replies and compaction', () => {
+    const prompt = '请确认是否开始新的创作任务；当前比例和分辨率仍会保留。';
+    const request = '生成一张黑夜里的足球场照片';
+    const store = createPromptAgentConversationStore();
+    store.append({ role: 'user', text: request });
+    store.append({ role: 'agent', text: prompt });
+    store.compact('保留待确认的足球场请求');
+    store.append({ role: 'user', text: '确认' });
+    store.append({ role: 'agent', text: prompt });
+    store.append({ role: 'user', text: '确认' });
+    store.append({ role: 'agent', text: prompt });
+
+    assert.equal(store.getConfirmedCreativeRequest('确认。').text, request);
+    assert.equal(store.getConfirmedCreativeRequest('不确认'), null);
+    assert.equal(createPromptAgentConversationStore().getConfirmedCreativeRequest('确认'), null);
+    store.append({ role: 'agent', intent: 'clarify', text: prompt });
+    assert.equal(store.getConfirmedCreativeRequest('确认'), null);
+    assert.equal(store.getConfirmedCreativeRequest('确认', 4).text, request, 'resending an earlier confirmation uses its original context');
+});
+
 test('current explicit changes win and manual size answers persist only for their task',()=>{
  const task=bindTaskToReply(reply({}),null,'生成2K、16:9海报');
  const next=reply({});bindTaskToReply(next,task,'改为4K');assert.equal(next.promptPlan.parameters.resolution,'4K');

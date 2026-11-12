@@ -1,4 +1,5 @@
-import { restoreCreativeTask } from './prompt-agent-task.js';
+import { findConfirmedCreativeRequest, restoreCreativeTask } from './prompt-agent-task.js';
+import { normalizePromptAgentChoices } from './prompt-agent-choices.js';
 import { sizeFields } from './prompt-agent-size.js';
 import { stampResultCompletion } from './prompt-agent-result-order.js';
 import { normalizeAgentSearch } from './prompt-agent-search-data.js';
@@ -103,11 +104,16 @@ function normalizeRun(run, { interruptRunning = false } = {}) {
 }
 
 function normalizeMessage(message = {}, options = {}) {
+    const choices = message.role === 'agent' && message.intent === 'clarify' && normalizePromptAgentChoices(message.choices);
+    const answer = message.role === 'user' && message.choiceAnswer;
     return {
         role: message.role === 'agent' ? 'agent' : 'user',
         text: String(message.text || ''),
         ...(message.search ? { search: normalizeAgentSearch(message.search) } : {}),
         ...(typeof message.intent === 'string' ? { intent: message.intent } : {}),
+        ...(choices ? { choices } : {}),
+        ...(answer && typeof answer.question === 'string' && answer.choice === message.text
+            ? { choiceAnswer: { question: answer.question, choice: answer.choice } } : {}),
         ...(Array.isArray(message.referenceImages) ? {
             referenceImages: normalizeReferenceImages(message.referenceImages)
         } : {}),
@@ -127,6 +133,7 @@ export function createPromptAgentConversationStore() {
     let messages = [];
     let archivedMessages = [];
     let compactedMessageCount = 0;
+    let discardedMessageCount = 0;
     let imageModelId = '';
     let sizeSettings = {};
     let thinkingSettings = { chat: {}, image: {} };
@@ -229,14 +236,19 @@ export function createPromptAgentConversationStore() {
             || restoredCompactedCount > restoredArchive.length || (restoredCompactedCount > 0 && !restoredSummary)) {
             throw new Error('已压缩的归档消息数量无效。');
         }
+        const totalMessages = restoredArchive.length + restoredMessages.length;
+        const discarded = value?.discardedMessageCount;
+        discardedMessageCount = Number.isSafeInteger(discarded) && discarded > 0 ? Math.min(discarded, totalMessages) : 0;
+        const retainedArchive = restoredArchive.slice(discardedMessageCount);
         const restoredReferences = normalizeReferenceImages([
             ...(Array.isArray(value?.referenceImages) ? value.referenceImages : []),
-            ...restoredArchive.flatMap((message) => message.referenceImages || []),
-            ...restoredMessages.flatMap((message) => message.referenceImages || [])
+            ...retainedArchive.flatMap((message) => message.referenceImages || []),
+            ...restoredMessages.slice(Math.max(0, discardedMessageCount - restoredArchive.length))
+                .flatMap((message) => message.referenceImages || [])
         ]);
         const restoredPlan = value?.previousPromptPlan
             ? normalizePromptPlan(value.previousPromptPlan)
-            : normalizePromptPlan(latestPromptPlan(restoredArchive));
+            : normalizePromptPlan(latestPromptPlan(retainedArchive));
         creativeTask = restoreCreativeTask(value?.creativeTask);
         memory = typeof value?.memory === 'string' ? value.memory : '';
         contextSummary = restoredSummary;
@@ -270,6 +282,7 @@ export function createPromptAgentConversationStore() {
             snapshot.compactedMessageCount = compactedMessageCount;
         }
         if (archivedMessages.length) snapshot.archivedMessages = copySnapshot(archivedMessages);
+        if (discardedMessageCount) snapshot.discardedMessageCount = discardedMessageCount;
         // Compaction may remove the last draft before a short follow-up. Keep
         // that complete draft separately only while no retained turn has one.
         if (previousPromptPlan && !messages.some((message) => message.promptPlan)) {
@@ -287,7 +300,7 @@ export function createPromptAgentConversationStore() {
     function getContext() {
         const context = [
             memory ? `工作流记忆：${memory}` : '',
-            ...messages.map((message) => {
+            ...messages.slice(Math.max(0, discardedMessageCount - archivedMessages.length)).map((message) => {
                 const references = message.referenceImages?.length
                     ? ` [参考图：${message.referenceImages.map((image) => image.name).join('、')}]`
                     : '';
@@ -301,7 +314,7 @@ export function createPromptAgentConversationStore() {
     function getReferenceImages() {
         return clone(normalizeReferenceImages([
             ...referenceImages,
-            ...messages.flatMap((message) => message.referenceImages || [])
+            ...messages.slice(Math.max(0, discardedMessageCount - archivedMessages.length)).flatMap((message) => message.referenceImages || [])
         ]));
     }
 
@@ -333,11 +346,23 @@ export function createPromptAgentConversationStore() {
         const context = snapshot();
         delete context.draft;
         const archive = context.archivedMessages || [];
-        // Automatic trimming retains original turns for a future semantic
-        // compaction. Only the prefix covered by a checkpoint stays excluded.
-        context.messages = [...archive.slice(compactedMessageCount), ...context.messages];
-        context.archivedMessages = archive.slice(0, compactedMessageCount);
+        // The saved transcript stays intact. Requests see only the retained
+        // turns, with summarized turns available as reference metadata.
+        context.messages = [...archive.slice(Math.max(compactedMessageCount, discardedMessageCount)),
+            ...context.messages.slice(Math.max(0, discardedMessageCount - archive.length))];
+        context.archivedMessages = archive.slice(discardedMessageCount, compactedMessageCount);
+        if (discardedMessageCount) context.messageOffset = discardedMessageCount;
         return context;
+    }
+
+    function discardContextBefore(messageCount) {
+        if (!Number.isSafeInteger(messageCount) || messageCount < discardedMessageCount) return;
+        discardedMessageCount = Math.max(discardedMessageCount, Math.min(messageCount, archivedMessages.length + messages.length));
+        memory = '';
+        contextSummary = '';
+        compactedMessageCount = 0;
+        previousPromptPlan = null;
+        referenceImages = [];
     }
 
     function getImageModelId() {
@@ -354,7 +379,8 @@ export function createPromptAgentConversationStore() {
     function compact(summary) {
         // Validate and prepare replacement state before touching live history.
         const normalizedSummary = normalizeContextSummary(summary);
-        const preservedPlan = normalizePromptPlan(latestPromptPlan(messages) || previousPromptPlan || latestPromptPlan(archivedMessages));
+        const retained = [...archivedMessages, ...messages].slice(discardedMessageCount);
+        const preservedPlan = normalizePromptPlan(latestPromptPlan(retained) || previousPromptPlan);
         const preservedReferences = getReferenceImages();
         const preservedArchive = [...archivedMessages, ...messages];
         contextSummary = normalizedSummary;
@@ -396,6 +422,7 @@ export function createPromptAgentConversationStore() {
         messages = [];
         archivedMessages = [];
         compactedMessageCount = 0;
+        discardedMessageCount = 0;
         referenceImages = [];
         previousPromptPlan = null;
     }
@@ -413,7 +440,11 @@ export function createPromptAgentConversationStore() {
     const setThinking = (purpose, modelId, value) => { if (!modelId || !thinkingSettings[purpose]) return; if (value) thinkingSettings[purpose][modelId] = clone(value); else delete thinkingSettings[purpose][modelId]; };
     const getSize = modelId => clone(sizeSettings[modelId] || {});
     const setSize = (modelId, value) => { if (!modelId) return; const next = sizeFields(value); if (Object.keys(next).length) sizeSettings[modelId] = next; else delete sizeSettings[modelId]; };
-    return { getCreativeTask: () => clone(creativeTask), setCreativeTask: value => { creativeTask = restoreCreativeTask(value); }, getSize, setSize, getProvider, setProvider, getThinking, setThinking, setDraft, getDraft, getChatModelId: () => chatModelId, setChatModelId: value => { chatModelId = typeof value === 'string' ? value.trim() : ''; }, append, getMessage, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, updateContextImages, updateReferenceDescription, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences,
+    return { getCreativeTask: () => clone(creativeTask), setCreativeTask: value => { creativeTask = restoreCreativeTask(value); },
+        getConfirmedCreativeRequest: (message, beforeIndex) => copySnapshot(findConfirmedCreativeRequest(message, messages, archivedMessages, beforeIndex)),
+        getLatestMessageIndex: () => archivedMessages.length + messages.length - 1,
+        discardContextBefore,
+        getSize, setSize, getProvider, setProvider, getThinking, setThinking, setDraft, getDraft, getChatModelId: () => chatModelId, setChatModelId: value => { chatModelId = typeof value === 'string' ? value.trim() : ''; }, append, getMessage, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, updateContextImages, updateReferenceDescription, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences,
         upgradePromptPlan: (index, plan) => {
             const message = [...archivedMessages, ...messages][index];
             if (!message?.promptPlan || message.runs?.some(run => run.status === 'running')) return false;

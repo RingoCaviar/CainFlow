@@ -6,6 +6,7 @@ import { getOpenAIChatCapabilities } from '../execution/openai-chat-capabilities
 import { getModelsForTask, getModelProviders } from '../execution/provider-request-utils.js';
 import { getModelProtocolConfig } from '../execution/model-protocol-registry.js';
 import { getPromptAgentInstructions } from './prompt-agent-instructions.js';
+import { normalizePromptAgentChoices } from './prompt-agent-choices.js';
 import { createPromptAgentInput } from './prompt-agent-input.js';
 import { normalizePromptAgentParameters } from './prompt-agent-parameters.js';
 import { measurePromptAgentContext } from './prompt-agent-token-budget.js';
@@ -59,6 +60,9 @@ function normalizeReply(payload, context, images = [], userMessage = '', previou
     };
     if (intent === 'chat' || intent === 'clarify') {
         if (!reply.message) throw new Error('模型没有返回可用的回复');
+        const choices = intent === 'clarify' ? normalizePromptAgentChoices(payload.choices) : undefined;
+        if (choices) reply.choices = choices;
+        if (intent === 'clarify' && payload.taskUpdate?.mode === 'new') reply.confirmNewTask = true;
         return reply;
     }
     if (!plan || typeof plan !== 'object' || Array.isArray(plan) || typeof plan.prompt !== 'string' || !plan.prompt.trim()) {
@@ -133,7 +137,8 @@ function normalizeReply(payload, context, images = [], userMessage = '', previou
 }
 
 export async function createPromptAgentModelReply({
-    message = '', context = null, conversation = null, workflowMemory = '', sizeSettings = {}, imageSizeCapabilities = null, referenceImages = [], workflowReferenceImages = [],
+    message = '', choiceAnswer = null, confirmedNewTask = false, context = null, conversation = null, workflowMemory = '', sizeSettings = {}, imageSizeCapabilities = null, referenceImages = [], workflowReferenceImages = [],
+    autoCompactTokenLimit,
     model, models = [], providers = [], providerId = '', recordRequest, workflowId, fetchRef = fetch, headers = {}, getHeaders = null, signal,
     searchSettings = { mode: 'auto', modelId: '' }, searchRef = searchPromptAgent, onSearchStatus = () => {}, canvasContext = null,
     getCanvasImage = async () => null, onContextImages = () => {}
@@ -217,7 +222,7 @@ export async function createPromptAgentModelReply({
                     : await hydrateNode(canvasContext.nodes.find(item => item.id === context.nodeId), 'image', '', false, implicitSelection(context.nodeId)) };
         }
     }
-    const base = { message, context, conversation, workflowMemory, sizeSettings, imageSizeCapabilities, referenceImages, workflowReferenceImages, model, canvasContext };
+    const base = { message, choiceAnswer, confirmedNewTask, context, conversation, workflowMemory, sizeSettings, imageSizeCapabilities, referenceImages, workflowReferenceImages, model, canvasContext, autoCompactTokenLimit };
     const previousTurn = [...(conversation?.archivedMessages || []), ...(conversation?.messages || [])].findLast(item => item.canvasPlan || item.promptPlan);
     const previousPrompt = previousTurn?.promptPlan || conversation?.previousPromptPlan;
     const differentPromptTarget = context?.nodeId && previousPrompt?.targetNodeId && previousPrompt.targetNodeId !== context.nodeId;
@@ -326,8 +331,10 @@ export async function createPromptAgentModelReply({
                     throw new Error('多步骤续改未引用正确的最新结果，请指定要编辑的图片后重新整理方案');
                 }
             }
-            reply = payload.canvasPlan && canvasContext ? {
-                intent: 'generate', message: String(payload.message || '已整理画布操作方案，请检查变更清单。'), promptPlan: null,
+            reply = payload.canvasPlan && canvasContext && payload.intent !== 'clarify' ? {
+                intent: ['edit', 'refine', 'chat'].includes(payload.intent) ? payload.intent
+                    : payload.targetSelection?.mode === 'prompt-only' ? 'refine' : 'generate',
+                message: String(payload.message || '已整理画布操作方案，请检查变更清单。'), promptPlan: null,
                 canvasPlan: normalizeCanvasPlan(payload.canvasPlan, canvasContext, { message, mentionedIds: canvasContext.summary.mentionedIds, images: input.images,
                     referencePolicy: { intent: payload.intent, selection: payload.targetSelection, previousAssetKeys } })
             } : normalizeReply(payload, context, input.images, message, previousReferences);
@@ -356,7 +363,7 @@ export async function createPromptAgentModelReply({
         else if (cited.length) reply.search = normalizeAgentSearch({ sources: sources.filter(source => cited.includes(source.id)), notice: '引用此前检索来源，本轮未重新联网。' });
         const inputTokens = model.protocol === 'google' ? response.payload?.usageMetadata?.promptTokenCount : response.payload?.usage?.prompt_tokens;
         if (Number.isSafeInteger(inputTokens) && inputTokens > 0) reply.tokenObservation = { inputTokens, measurement: measurePromptAgentContext(request) };
-        if (payload.taskUpdate) reply.taskUpdate = payload.taskUpdate;
+        if (payload.taskUpdate && reply.intent !== 'clarify') reply.taskUpdate = payload.taskUpdate;
         return reply;
     }
 }

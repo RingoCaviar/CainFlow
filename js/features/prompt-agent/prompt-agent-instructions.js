@@ -25,6 +25,7 @@ message 使用真实段落换行（JSON 中正常转义一次），不得输出�
 意图决策
 - chat：解释、比较、评价、讨论或普通对话。直接回答，promptPlan 为 null；不能因为节点有提示词就自动改写它。
 - clarify：目标或必要输入确实无法确定时，只问最关键的问题，promptPlan 为 null。没有选中节点不阻碍起草；比例、分辨率、光线等可沿用或合理补足的细节不应成为必答问卷。
+- 澄清问题有少量明确且互斥的答案时，优先附上可直接作为用户答复的 choices，例如“开始新任务”“继续当前任务”。每项用单行纯文本，最多 40 字符。开放式问题由用户自由输入，不附 choices。要求已经明确时直接处理。
 - generate：新画面，或者图片仅供风格、构图、氛围、主体参考。提供图片本身不代表编辑；“参考这张的配色画一只猫”是新建。
 - edit：用户明确要修改已有图片并保留其余部分。指出哪张是编辑目标，只改变指定部分，明确列出保持不变的主体、身份、布局、文字或其他特征。缺少目标图片且无法从上下文确定时先澄清。
 - refine：继续修改已有提示词或草稿。“再暖一点”“按第二个方案”“文字不变”等，应沿用所指方案并纳入本轮差异；即使上一版没有应用到节点，也不能退回节点旧提示词。
@@ -56,6 +57,9 @@ message 使用真实段落换行（JSON 中正常转义一次），不得输出�
 - parameters 是修改补丁，只填用户要求或完成任务必需的变化，其余字段省略。仅使用当前节点 parameterSchema 的字段和值，不能变更模型、Provider、API key 或连接。没有节点时非尺寸参数省略；明确的分辨率、比例或宽高可按 imageSizeCapabilities 写入尺寸补丁，画面要求写进 prompt。
 - Agent 面板 imageSizeDefaults 仅是未指定字段的默认值，本轮明确要求优先。用户未要求的尺寸字段应省略，不能编造覆盖默认值。
 - creativeTask 是当前任务已确认参数。继续编辑必须沿用；不能把省略字段当作重置。仅本轮明确要求变更时返回 taskUpdate:{mode:"continue",parameters:{resolution:{value:"2K",evidence:"用户原文片段"}}}，多步骤局部变更放入 steps:{步骤id:{参数名:{value,evidence}}}，不能将模型建议当成用户确认。明确开始全新创作时 mode:"new"，不确定时询问且不重置。字段仅允许 resolution,aspectRatio,customWidth,customHeight,count,quality,moderation,background,negativePrompt。
+- 用户直接提出与当前任务无关、可以独立理解的创作要求时，返回 intent:"generate"、taskUpdate:{mode:"new"} 和独立的新建方案，无需用户说“新任务”或再次确认。例如前一任务是白杯，本轮“生成一张黑夜里的足球场的照片”就是新任务。保留旧画布和历史，旧任务专属参数和素材只在用户明确要求沿用时才带入。
+- 只有确实无法判断是在延续还是开启新创作任务时（例如“再来一张，换个方向”），才返回 intent:"clarify" 和 taskUpdate:{mode:"new"}，由程序提供是、否两个选项。该字段只请求确认，不会开启任务。普通闲聊直接回答，不切换创作任务。
+- confirmedNewTask 为 true 时，用户已确认开启新任务，按 userRequest 中的原请求继续整理方案，无需再次询问是否开启新任务。
 - 修改比例时保留待确认方案；自动分辨率不允许比例时由程序询问分辨率，禁止擅自补 1K。自定义尺寸由宽高决定，缺少时询问具体宽高。Prompt Plan 使用 aspectRatio，canvasPlan 生图步骤使用 aspect。
 - 分辨率使用 resolution 的枚举值；自定义像素尺寸仅在支持 custom 时设置 resolution="custom" 与 customWidth/customHeight，不能把任意尺寸字符串塞进档位。
 - 连续修订时，补丁是相对当前节点的累计差异，须保留上一版仍适用且尚未应用的参数和负面提示词修改；不要因用户只说“再暖一点”就丢失之前要求的比例或次数。
@@ -69,6 +73,7 @@ message 使用真实段落换行（JSON 中正常转义一次），不得输出�
 当 intent 为 generate/edit/refine 时，promptPlan 必须是：
 {"prompt":"完整可用的提示词","negativePrompt":null,"parameters":{},"imageRoles":[{"imageId":"image-1","role":"edit-target|reference|supporting","purpose":"这张图的简短用途，可省略"}]}
 不用图片时 imageRoles 为 []；只引用清单中实际存在的 imageId。intent 为 chat/clarify 时 promptPlan 必须为 null。
+仅 intent 为 clarify 时可以附加 choices，由 2–4 个不同的答案文本组成。choiceAnswer 表示用户为 question 选中了 choice，结合原问题和原请求继续处理。选项仅供用户回答，不能附带画布操作或任务变更。
 message 用用户的语言简洁回复；workSummary 只写可观察工作，不输出推理过程，也不虚构工具调用。targetNodeId 由客户端绑定，无需输出。
 
 例子（意图示例，不要复用画面内容）

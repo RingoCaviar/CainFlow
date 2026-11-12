@@ -10,18 +10,15 @@ import { getAvailablePromptAgentModels } from '../prompt-agent/prompt-agent-mode
 import { getModelProviders } from '../execution/provider-request-utils.js';
 import { createPromptAgentModelMenus } from '../prompt-agent/prompt-agent-model-menu.js';
 import { canvasMcpSettingsCard, createCanvasMcpSettings } from './canvas-mcp-settings.js';
-import { readAutoCompactTokens, readCompactionModelId, readCompactionProviderId, writeAutoCompactTokens, writeCompactionModelId, writeCompactionProviderId } from '../prompt-agent/auto-compact-preference.js';
+import {
+    readAutoCompactTokens, readCompactionModelId, readCompactionProviderId, readDiscardOverLimitContext,
+    writeAutoCompactTokens, writeCompactionModelId, writeCompactionProviderId, writeDiscardOverLimitContext
+} from '../prompt-agent/auto-compact-preference.js';
 import {
     clearLegacyBrowserStorage,
     migrateLegacyBrowserStorage,
     scanLegacyBrowserStorage
 } from '../../services/browser-storage-migration.js';
-
-function compactionModelLabel(model, providers) {
-    const modelName = model.name && model.name !== model.modelId ? `${model.name} · ${model.modelId}` : model.modelId;
-    const providerNames = getModelProviders(model, providers).map(provider => provider.name || provider.id);
-    return `${modelName} · ${providerNames.join(' / ')}`;
-}
 
 export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = createSystemNotificationService() }) {
     const {
@@ -56,6 +53,24 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
     const canvasMcpSettings = createCanvasMcpSettings({ fetchImpl, windowRef, showToast, onNativeClipboardWrite });
     let compactionModelMenu = null;
     let activeCategory = 'canvas';
+    const getCompactionModels = () => getAvailablePromptAgentModels(state.models || [], state.providers || []);
+
+    function renderCompactionModelOptions(selectedId) {
+        const models = getCompactionModels();
+        return [
+            `<option value="" ${selectedId ? '' : 'selected'}>跟随对话模型（默认）</option>`,
+            ...models.map(model => `<option value="${dialogs.escapeHtml(model.id)}" ${model.id === selectedId ? 'selected' : ''}>${dialogs.escapeHtml(model.name || model.modelId)}</option>`),
+            ...(selectedId && !models.some(model => model.id === selectedId)
+                ? [`<option value="${dialogs.escapeHtml(selectedId)}" selected disabled>重新选择压缩模型</option>`] : [])
+        ].join('');
+    }
+
+    function compactionModelHint() {
+        if (readDiscardOverLimitContext(localStorageRef)) return '关闭“不压缩上下文”后使用此配置。';
+        return readCompactionModelId(localStorageRef)
+            ? '自动压缩与 /compact 共用所选模型和供应商。'
+            : '压缩时使用当前对话模型及其供应商。';
+    }
 
     function organizeGeneralSettings(list) {
         const cards = new Map([...list.querySelectorAll('[data-settings-card]')]
@@ -89,7 +104,8 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
             target.appendChild(field);
         };
         moveField('setting-canvas-dense-mode', cards.get('canvas')?.querySelector('.card-row'));
-        const agentRow = createCard('agent', 'Agent 上下文');
+        const agentRow = createCard('agent', 'Agent');
+        moveField('setting-agent-discard-over-limit-context', agentRow);
         moveField('setting-agent-auto-compact-tokens', agentRow);
         moveField('setting-agent-compaction-model', agentRow);
         const migrationRow = list.querySelector('#btn-migrate-browser-storage')?.closest('.card-row');
@@ -227,8 +243,6 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
         const autoCheckUpdatesOnLoad = state.autoCheckUpdatesOnLoad !== false;
         const concurrentRequestMode = state.concurrentRequestMode === true;
         const imageSaveUsePromptFilename = state.imageSaveUsePromptFilename === true;
-        const compactionModels = getAvailablePromptAgentModels(state.models || [], state.providers || []);
-        const compactionModelId = readCompactionModelId(localStorageRef);
         const updateStatus = localStorageRef.getItem('cainflow_update_status') || 'unknown';
         const lastCheck = localStorageRef.getItem('cainflow_last_update_check');
         const latestVer = localStorageRef.getItem('cainflow_update_version') || '';
@@ -255,8 +269,9 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
             promptFilename: '开启后，自动保存的生成结果使用提示词摘要加唯一编号命名。',
             autoRetry: '默认关闭。开启后，工作流中失败的请求会按下方最大重试次数自动补试；已成功的结果会保留。',
             maxRetries: '开启自动重试后，初始失败最多允许再尝试执行多少轮。',
-            autoCompactTokens: '所有工作流的 Agent 共用此阈值。达到估算 Token 数时尝试压缩上下文；它不是模型的最大上下文容量。',
-            compactionModel: '手动 /compact 与自动压缩共用此模型。默认跟随 Agent 对话模型；选用独立模型可控制压缩成本。所选模型不可用时会提示重新选择。',
+            discardOverLimitContext: '默认开启。超出阈值时，从最早的对话开始减少发送给模型的上下文，界面仍可查看完整记录。关闭后可自动压缩或使用 /compact 手动压缩。',
+            autoCompactTokens: '所有工作流共用的估算 Token 阈值。达到阈值时，按上方开关减少旧对话或压缩上下文。',
+            compactionModel: '默认跟随当前对话模型及其供应商。也可以选择独立的模型和供应商，用于自动压缩与 /compact。',
             concurrentRequestMode: '默认开启。开启后，节点一旦需要执行多次，会并发发起这些请求；默认不会重试失败项，只把成功结果继续传递到下游。只有手动开启自动重试时，失败项才会按最大重试次数补试。',
             timeout: '图片与普通工作流的请求超时。视频生成使用独立的超时设置，避免长时间排队的视频任务被图片阈值中断。',
             connectionLineType: '切换后会立即更新当前画布中的全部连线，直角连线会在拐点保留小圆角。',
@@ -515,25 +530,32 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                     </div>
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
-                        <div class="general-settings-label-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('Agent 自动压缩阈值（Token）', generalHelpText.autoCompactTokens, { controlId: 'setting-agent-auto-compact-tokens' })}
+                        <div class="general-settings-control-row">
+                            ${dialogs.renderGeneralSettingsHelpLabel('不压缩上下文', generalHelpText.discardOverLimitContext, { emphasis: true, controlId: 'setting-agent-discard-over-limit-context' })}
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="setting-agent-discard-over-limit-context" role="switch" aria-label="不压缩上下文" ${readDiscardOverLimitContext(localStorageRef) ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
                         </div>
-                        <input type="number" id="setting-agent-auto-compact-tokens" min="1" step="1" value="${readAutoCompactTokens(localStorageRef)}" aria-label="Agent 自动压缩阈值 Token" />
                     </div>
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <div class="general-settings-label-row">
-                            ${dialogs.renderGeneralSettingsHelpLabel('Agent 上下文压缩模型', generalHelpText.compactionModel, { controlId: 'setting-agent-compaction-model' })}
+                            ${dialogs.renderGeneralSettingsHelpLabel('上下文阈值（Token）', generalHelpText.autoCompactTokens, { controlId: 'setting-agent-auto-compact-tokens' })}
+                        </div>
+                        <input type="number" id="setting-agent-auto-compact-tokens" min="1" step="1" value="${readAutoCompactTokens(localStorageRef)}" />
+                    </div>
+                    <div class="general-settings-field-divider" aria-hidden="true"></div>
+                    <div class="card-field">
+                        <div class="general-settings-label-row">
+                            ${dialogs.renderGeneralSettingsHelpLabel('上下文压缩模型', generalHelpText.compactionModel, { controlId: 'setting-agent-compaction-model' })}
                         </div>
                         <div class="general-settings-compaction-control">
-                            <select id="setting-agent-compaction-model" aria-label="Agent 上下文压缩模型与供应商">
-                                <option value="" ${compactionModelId ? '' : 'selected'}>跟随 Agent 对话模型（默认）</option>
-                                ${compactionModels.map(model => `<option value="${dialogs.escapeHtml(model.id)}" ${model.id === compactionModelId ? 'selected' : ''}>${dialogs.escapeHtml(compactionModelLabel(model, state.providers || []))}</option>`).join('')}
-                                ${compactionModelId && !compactionModels.some(model => model.id === compactionModelId)
-                                    ? `<option value="${dialogs.escapeHtml(compactionModelId)}" selected disabled>已选压缩模型不可用，请重新选择</option>` : ''}
+                            <select id="setting-agent-compaction-model" aria-label="上下文压缩模型与供应商">
+                                ${renderCompactionModelOptions(readCompactionModelId(localStorageRef))}
                             </select>
                         </div>
-                        <small class="general-settings-compaction-hint">${compactionModelId ? '仅压缩上下文使用此模型与供应商，对话配置保持不变。' : '压缩时使用 Agent 当前对话模型及其供应商。'}</small>
+                        <small class="general-settings-compaction-hint">${compactionModelHint()}</small>
                     </div>
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
@@ -935,41 +957,37 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
             }
         });
 
+        const compactionHint = list.querySelector('.general-settings-compaction-hint');
+        const refreshCompactionHint = () => { if (compactionHint) compactionHint.textContent = compactionModelHint(); };
+        documentRef.getElementById('setting-agent-discard-over-limit-context')?.addEventListener('change', (event) => {
+            writeDiscardOverLimitContext(localStorageRef, event.target.checked);
+            refreshCompactionHint();
+        });
         documentRef.getElementById('setting-agent-compaction-model')?.addEventListener('change', (event) => {
             const modelId = event.target.value;
-            if (modelId && !getAvailablePromptAgentModels(state.models || [], state.providers || []).some(model => model.id === modelId)) {
-                showToast('压缩模型已不可用，请重新选择', 'warning');
+            const model = getCompactionModels().find(item => item.id === modelId);
+            const providerId = readCompactionProviderId(localStorageRef, modelId);
+            if (modelId && !getModelProviders(model, state.providers || []).some(provider => provider.id === providerId)) {
+                showToast('请重新选择压缩模型与供应商', 'warning');
                 event.target.value = readCompactionModelId(localStorageRef);
                 return;
             }
             writeCompactionModelId(localStorageRef, modelId);
-            const hint = list.querySelector('.general-settings-compaction-hint');
-            if (hint) hint.textContent = modelId ? '仅压缩上下文使用此模型与供应商，对话配置保持不变。' : '压缩时使用 Agent 当前对话模型及其供应商。';
+            refreshCompactionHint();
         });
         const compactionSelect = documentRef.getElementById('setting-agent-compaction-model');
         if (compactionSelect) {
-            let legacyProviderIds = getPromptAgentCacheState()?.activeConversation?.providerSettings?.chat || {};
             // The model menu sends focus immediately before it reads native options.
             // Rebuild here so edits in the API tab are visible without reopening settings.
             compactionSelect.addEventListener('focus', () => {
-                legacyProviderIds = getPromptAgentCacheState()?.activeConversation?.providerSettings?.chat || {};
-                const selectedId = readCompactionModelId(localStorageRef);
-                const available = getAvailablePromptAgentModels(state.models || [], state.providers || []);
-                compactionSelect.innerHTML = [
-                    '<option value="">跟随 Agent 对话模型（默认）</option>',
-                    ...available.map(model => `<option value="${dialogs.escapeHtml(model.id)}">${dialogs.escapeHtml(compactionModelLabel(model, state.providers || []))}</option>`),
-                    ...(selectedId && !available.some(model => model.id === selectedId)
-                        ? [`<option value="${dialogs.escapeHtml(selectedId)}" disabled>已选压缩模型不可用，请重新选择</option>`] : [])
-                ].join('');
-                compactionSelect.value = selectedId;
+                compactionSelect.innerHTML = renderCompactionModelOptions(readCompactionModelId(localStorageRef));
             });
             compactionModelMenu = createPromptAgentModelMenus({ documentRef,
-                selects: [{ select: compactionSelect, searchLabel: '压缩模型或供应商', route: {
-                    getModels: () => getAvailablePromptAgentModels(state.models || [], state.providers || []),
+                selects: [{ select: compactionSelect, searchLabel: '压缩模型或供应商', placeholder: '重新选择压缩模型', route: {
+                    onlyBoundProviders: true,
+                    getModels: getCompactionModels,
                     getProviders: () => state.providers || [],
-                    getExplicitProviderId: modelId => readCompactionProviderId(localStorageRef, modelId),
-                    getProviderId: modelId => readCompactionProviderId(localStorageRef, modelId)
-                        || legacyProviderIds[modelId] || '',
+                    getProviderId: modelId => readCompactionProviderId(localStorageRef, modelId),
                     setProviderId: (modelId, providerId) => writeCompactionProviderId(localStorageRef, modelId, providerId)
                 } }] });
             const trigger = compactionSelect.nextElementSibling;

@@ -633,7 +633,6 @@ body:has(#toolbar:hover, #toolbar :focus-visible, #toolbar .btn.active:not(#btn-
 .prompt-agent-canvas-plan > p { margin: 4px 0; }
 .prompt-agent-change-list li { white-space: pre-wrap; overflow-wrap: anywhere; }
 .prompt-agent-canvas-plan select:not(.prompt-agent-model-native) { display: block; width: 100%; min-width: 0; margin-top: 4px; color: var(--text-primary); background: var(--panel-input-bg); }
-.prompt-agent-canvas-actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .prompt-agent-canvas-plan button { min-height: 28px; font-size: 12px; }
 .prompt-agent-canvas-actions .btn { font-size: 13px; }
 .prompt-agent-canvas-plan button[hidden] { display: none; }
@@ -671,7 +670,6 @@ body:has(#toolbar:hover, #toolbar :focus-visible, #toolbar .btn.active:not(#btn-
     outline: 2px solid var(--text-link);
     outline-offset: 2px;
 }
-.prompt-agent-canvas-actions .btn { padding: 3px 7px; }
 #prompt-agent-send, #prompt-agent-cancel { font-size: 13px; }
 .prompt-agent-canvas-actions [hidden] { display: none; }
 .prompt-agent-node-mentions { position: fixed; z-index: var(--layer-menu); width: min(280px, calc(100vw - 12px)); overflow: auto; padding: 4px;     }
@@ -708,6 +706,15 @@ body:has(#toolbar:hover, #toolbar :focus-visible, #toolbar .btn.active:not(#btn-
 .thinking-model-settings select { max-width: 100%; }
 .prompt-agent-model-label { position: relative; }
 .prompt-agent-model-label > .thinking-control { margin: 0; }
+.prompt-agent-settings > .prompt-agent-model-label { line-height: 1.4; }
+.prompt-agent-settings > .prompt-agent-model-label > span { margin-inline-start: auto; }
+.prompt-agent-settings > .prompt-agent-model-label > .prompt-agent-model-trigger {
+    flex: 0 1 auto;
+    margin-inline-end: auto;
+    padding-inline-start: 0;
+    text-align: center;
+    line-height: inherit;
+}
 .thinking-control-compact { flex: 0 0 28px; }
 .thinking-control-compact > .thinking-control-content { display: none; }
 .thinking-control-compact > summary { display: flex; align-items: center; justify-content: center; width: 28px; min-height: 28px; box-sizing: border-box; padding: 4px; list-style: none; }
@@ -786,9 +793,9 @@ body:has(#toolbar:hover, #toolbar :focus-visible, #toolbar .btn.active:not(#btn-
 
 /* Canvas plans: separate steps, configuration disclosure and action hierarchy. */
 .prompt-agent-canvas-plan { padding: 12px; border-radius: 10px; font-size: 13px; background: color-mix(in srgb, var(--bg-input) 45%, transparent); }
-.prompt-agent-plan-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 24px; padding-right: 32px; }
-.prompt-agent-plan-header strong { font-size: 14px; }
-.prompt-agent-plan-count { color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
+.prompt-agent-plan-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 32px; }
+.prompt-agent-plan-header strong { min-width: 0; font-size: 14px; }
+.prompt-agent-plan-count { float: right; margin-left: 8px; color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
 .prompt-agent-canvas-plan .prompt-agent-plan-inputs { margin: 6px 0 10px; color: var(--text-secondary); }
 .prompt-agent-canvas-plan .prompt-agent-plan-steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
 .prompt-agent-canvas-plan .prompt-agent-plan-steps > li { min-width: 0; margin: 0; padding: 9px; border: 1px solid var(--border-color); border-radius: 7px; background: var(--bg-input); }
@@ -804,8 +811,7 @@ body:has(#toolbar:hover, #toolbar :focus-visible, #toolbar .btn.active:not(#btn-
 .prompt-agent-canvas-plan .prompt-agent-step-settings summary { line-height: 1.6; }
 .prompt-agent-plan-changes { margin-top: 10px; padding: 8px 0; border-top: 1px solid var(--border-color); }
 .prompt-agent-plan-changes > summary { cursor: pointer; color: var(--text-secondary); }
-.prompt-agent-canvas-plan .prompt-agent-canvas-actions { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-color); }
-.prompt-agent-actions-primary, .prompt-agent-actions-secondary { display: flex; flex-wrap: wrap; gap: 6px; }
+.prompt-agent-canvas-actions, .prompt-agent-actions-primary { display: flex; flex: none; align-items: center; gap: 6px; }
 .prompt-agent-canvas-actions .btn { min-height: 32px; padding: 5px 10px; }
 .prompt-agent-actions-secondary .btn { font-size: 12px; color: var(--text-secondary); background: transparent; }
 .prompt-agent-run-error { margin-top: 8px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--accent-red) 35%, transparent); border-radius: 7px; background: color-mix(in srgb, var(--accent-red) 7%, transparent); color: var(--accent-red); font-size: 12px; }
@@ -827,18 +833,69 @@ body:has(#toolbar:hover, #toolbar :focus-visible, #toolbar .btn.active:not(#btn-
 .prompt-agent-message-action[data-copy-state="success"] { color: var(--text-primary); }
 .prompt-agent-message-action[data-copy-state="error"] { color: var(--accent-red); }
 .prompt-agent-message-agent { margin-left: 0; padding-left: 2px; padding-right: 2px; }
-.prompt-agent-plan-overview { margin-top: 10px; }
+.prompt-agent-choices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+.prompt-agent-choice {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-height: 32px;
+    padding: 5px 10px;
+    border: 1px solid var(--panel-input-border);
+    border-radius: 6px;
+    background: var(--surface-control);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.4;
+    text-align: start;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+}
+.prompt-agent-choice:hover:not(:disabled) {
+    border-color: var(--panel-active-border);
+    background: var(--surface-control-hover);
+}
+.prompt-agent-choice:disabled { color: var(--text-secondary); cursor: default; }
+.prompt-agent-choice[aria-pressed="true"] {
+    border-color: var(--panel-active-border);
+    background: color-mix(in srgb, var(--accent-primary) 15%, var(--surface-control));
+    color: var(--text-primary);
+}
+.prompt-agent-plan-overview { margin-top: 4px; }
 .prompt-agent-plan-overview > summary { cursor: pointer; color: var(--text-secondary); font-size: 12px; padding: 4px 0; }
 .prompt-agent-plan-overview[open] > summary { margin-bottom: 8px; }
-.prompt-agent-canvas-plan .prompt-agent-canvas-actions { flex-direction: row; align-items: flex-start; justify-content: space-between; }
-.prompt-agent-canvas-plan { position: relative; }
-.prompt-agent-canvas-plan .prompt-agent-canvas-actions:not(.has-primary-actions) { display: contents; }
-.prompt-agent-actions-more { position: absolute; top: 12px; right: 12px; z-index: 1; }
-.prompt-agent-actions-more > summary { box-sizing: border-box; display: grid; place-items: center; width: 24px; height: 24px; }
-.prompt-agent-actions-more[open] .prompt-agent-actions-secondary { position: absolute; right: 0; min-width: max-content; padding: 6px; border: 1px solid var(--border-color); border-radius: 8px; background: linear-gradient(var(--panel-bg), var(--panel-bg)), var(--bg-canvas); }
-.prompt-agent-actions-more > summary { cursor: pointer; list-style: none; padding: 3px 10px; font-size: 20px; border-radius: 4px; }
+.prompt-agent-actions-more { position: relative; }
+.prompt-agent-canvas-plan .prompt-agent-actions-more > summary {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 32px;
+    border-radius: 4px;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    list-style: none;
+}
 .prompt-agent-actions-more > summary::-webkit-details-marker { display: none; }
-.prompt-agent-actions-more[open] .prompt-agent-actions-secondary { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.prompt-agent-actions-more > summary:hover, .prompt-agent-actions-more[open] > summary { background: var(--surface-control-hover); }
+.prompt-agent-actions-more > summary:focus-visible { outline: 2px solid var(--text-link); outline-offset: 2px; }
+.prompt-agent-actions-more[open] .prompt-agent-actions-secondary {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: max-content;
+    padding: 6px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: linear-gradient(var(--panel-bg), var(--panel-bg)), var(--bg-canvas);
+}
 .prompt-agent-canvas-plan.is-completed { opacity: 0.85; }
 
 /* Reference picker: source, search, then a compact selectable gallery. */

@@ -8,6 +8,7 @@ import { createPromptAgentModelReply } from '../js/features/prompt-agent/prompt-
 
 const TEST_CHAT_MODEL = { id: 'chat-1', modelId: 'chat-test', name: 'Chat test', providerIds: ['fixture'] };
 const TEST_COMPACTION_MODEL = { id: 'compact-1', modelId: 'compact-test', name: 'Compact test', providerIds: ['fixture'] };
+const TEST_COMPACTION_PROVIDER = { id: 'fixture', endpoint: 'https://controlled.test/v1', apikey: 'test' };
 const TEST_IMAGE_MODEL = { id: 'image-model-1', modelId: 'image-test', name: 'Image test' };
 
 test('a background compaction error stays with its workflow and is visible when returning', async () => {
@@ -639,6 +640,44 @@ test('discussion and clarification remain conversational, and later turns receiv
     elements['prompt-agent-input'].value = '新工作流';
     await controller.submit();
     assert.deepEqual(requests.at(-1).conversation.messages, []);
+});
+
+test('confirming an ambiguous creative task resumes the original request after restoring the conversation', async () => {
+    const requests = [];
+    const { controller, elements } = createHarness(async request => {
+        requests.push(request);
+        if (requests.length === 1) return {
+            intent: 'generate', message: '杯子方案', promptPlan: { prompt: '白色杯子', parameters: {} }
+        };
+        if (!request.confirmedNewTask) return {
+            intent: 'clarify', message: '要开始新任务吗？', confirmNewTask: true
+        };
+        return {
+            intent: 'generate', message: '夜景方案', promptPlan: { prompt: '夜间街景', parameters: {} },
+            taskUpdate: { mode: 'new', parameters: { resolution: { value: '4K', evidence: '4K' } } }
+        };
+    });
+    const send = async text => {
+        elements['prompt-agent-input'].value = text;
+        await controller.submit();
+        return controller.snapshotWorkflow();
+    };
+    const cup = await send('生成2K、16:9的白色杯子');
+    const ambiguousRequest = '再来一张4K的，换个方向';
+    const pending = await send(ambiguousRequest);
+    assert.match(pending.messages.at(-1).text, /请确认是否开始新的创作任务/);
+    assert.equal(pending.creativeTask.id, cup.creativeTask.id);
+    controller.restoreWorkflow(pending);
+
+    const confirmed = await send('确认');
+    assert.equal(requests.at(-1).message, ambiguousRequest, 'confirmation preserves the original request and evidence text');
+    assert.equal(requests.at(-1).confirmedNewTask, true);
+    assert.equal(confirmed.messages.at(-2).text, '确认');
+    assert.equal(confirmed.messages.at(-1).promptPlan.prompt, '夜间街景');
+    assert.equal(confirmed.messages.at(-1).promptPlan.parameters.resolution, '4K');
+    assert.notEqual(confirmed.creativeTask.id, cup.creativeTask.id);
+    assert.deepEqual(confirmed.messages[1].promptPlan, cup.messages[1].promptPlan);
+    assert.equal(confirmed.messages.at(-1).runs?.length || 0, 0, 'confirming the task only prepares the plan');
 });
 
 test('refreshes chat models loaded after initialization before submitting', async () => {
@@ -1486,6 +1525,8 @@ test('manual compaction uses the selected cheaper model while replies keep the c
     }, undefined, null, {
         getChatModels: () => [TEST_CHAT_MODEL, TEST_COMPACTION_MODEL],
         getSelectedCompactionModelId: () => TEST_COMPACTION_MODEL.id,
+        getSelectedCompactionProviderId: () => TEST_COMPACTION_PROVIDER.id,
+        getProviders: () => [TEST_COMPACTION_PROVIDER],
         captureRequestConfig: modelId => ({ model: modelId === TEST_COMPACTION_MODEL.id ? TEST_COMPACTION_MODEL : TEST_CHAT_MODEL }),
         createCompaction: async request => { compactions.push(request); return { summary: '保留关键要求' }; }
     });
@@ -1644,6 +1685,8 @@ test('automatic compaction runs before send, preserves original turns and suppli
         // Leaves room for the unknown-model image reserve after compaction.
         getChatModels: () => [{ ...TEST_CHAT_MODEL, autoCompactTokenLimit: 8000 }, TEST_COMPACTION_MODEL],
         getSelectedCompactionModelId: () => TEST_COMPACTION_MODEL.id,
+        getSelectedCompactionProviderId: () => TEST_COMPACTION_PROVIDER.id,
+        getProviders: () => [TEST_COMPACTION_PROVIDER],
         captureRequestConfig: modelId => ({ model: modelId === TEST_COMPACTION_MODEL.id ? TEST_COMPACTION_MODEL : TEST_CHAT_MODEL }),
         createCompaction: async request => {
             events.push('compact');
@@ -1677,6 +1720,22 @@ test('automatic compaction after reply preserves the reply and never loops when 
     assert.equal(controller.snapshotWorkflow().previousPromptPlan.prompt.length, 14000);
     assert.equal(controller.snapshotWorkflow().archivedMessages.length, 2);
     assert.match(elements['prompt-agent-command-status'].textContent, /不会继续循环/);
+});
+
+test('no-compression mode drops history after an oversized reply and leaves it in the transcript', async () => {
+    const response = '长回复'.repeat(7000);
+    let compactions = 0;
+    const { controller, elements } = createHarness(async () => ({ intent: 'chat', message: response }), undefined, null, {
+        getDiscardOverLimitContext: () => true,
+        getAutoCompactTokenLimit: () => 4000,
+        createCompaction: async () => { compactions++; return { summary: 'unexpected' }; }
+    });
+    enterText(elements, '生成解释');
+    await controller.submit();
+    const snapshot = controller.snapshotWorkflow();
+    assert.equal(compactions, 0);
+    assert.equal(snapshot.messages.at(-1).text, response);
+    assert.equal(snapshot.discardedMessageCount, snapshot.messages.length);
 });
 
 test('failed automatic compaction preserves draft and history and does not send the ordinary request', async () => {

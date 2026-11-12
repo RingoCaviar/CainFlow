@@ -3,6 +3,7 @@ import { getPromptAgentInstructions } from './prompt-agent-instructions.js';
 import { countO200k, countCl100k } from '../../vendor/tokenizer.js';
 import { measureImageTokens } from './prompt-agent-image-tokens.js';
 import { DEFAULT_AUTO_COMPACT_TOKENS, parseAutoCompactTokens } from './auto-compact-preference.js';
+import { getPromptAgentReferenceKey } from './prompt-agent-conversation-store.js';
 
 export { DEFAULT_AUTO_COMPACT_TOKENS };
 
@@ -47,4 +48,52 @@ export function measurePromptAgentContext(request, observation = null) {
     const threshold = parseAutoCompactTokens(request.autoCompactTokenLimit) || DEFAULT_AUTO_COMPACT_TOKENS;
     return { used, threshold, percent: Math.min(100, Math.floor(used / threshold * 100)), reached: used >= threshold,
         source, textTokens, imageTokens, modelKey, images };
+}
+
+export function fitPromptAgentContext(request, resolveContext, observation) {
+    const { conversation, referenceImages = [], workflowReferenceImages = [] } = request;
+    const { used, threshold } = measurePromptAgentContext(request, observation);
+    if (used <= threshold) return { request };
+
+    const { messages, archivedMessages = [], messageOffset = 0 } = conversation;
+    const hasEarlierContext = archivedMessages.length || conversation.memory || conversation.contextSummary
+        || conversation.previousPromptPlan || conversation.referenceImages?.length;
+    const question = messages.at(-1);
+    const answeringQuestion = question?.choices?.length && (!request.message
+        || request.choiceAnswer?.question === question.text || question.choices.includes(request.message));
+    const lastUser = answeringQuestion ? messages.findLastIndex(turn => turn.role === 'user') : -1;
+    const end = lastUser >= 0 ? lastUser : messages.length;
+    if (!end && !hasEarlierContext) return { request };
+
+    // A summary represents its entire archived prefix. Drop it as a unit, then
+    // cut only at user-turn boundaries so answers aren't detached from requests.
+    const boundaries = [0];
+    messages.slice(1, end).forEach((turn, index) => { if (turn.role === 'user') boundaries.push(index + 1); });
+    if (end) boundaries.push(end);
+    function project(start) {
+        const remaining = messages.slice(start);
+        const discardedMessageCount = messageOffset + archivedMessages.length + start;
+        const projected = { ...conversation, messages: remaining, archivedMessages: [], messageOffset: discardedMessageCount,
+            memory: '', contextSummary: '', previousPromptPlan: null, referenceImages: [] };
+        const referenceKeys = new Set([...referenceImages, ...remaining.flatMap(turn => turn.referenceImages || [])]
+            .map(getPromptAgentReferenceKey));
+        const references = workflowReferenceImages.filter(image => image.contextOrigin === '当前画布素材'
+            || referenceKeys.has(getPromptAgentReferenceKey(image)) || image.messageNumber > discardedMessageCount);
+        return { discardedMessageCount, request: { ...request, conversation: projected, workflowMemory: '',
+            context: resolveContext(projected), workflowReferenceImages: references } };
+    }
+
+    // Always keep the current prompt, its attachments, and explicit canvas context,
+    // even if those inputs alone exceed the history budget.
+    let lower = 0, upper = boundaries.length - 1;
+    let fitted = project(boundaries[upper]);
+    while (lower <= upper) {
+        const middle = Math.floor((lower + upper) / 2);
+        const candidate = project(boundaries[middle]);
+        if (measurePromptAgentContext(candidate.request, observation).used <= threshold) {
+            fitted = candidate;
+            upper = middle - 1;
+        } else lower = middle + 1;
+    }
+    return fitted;
 }

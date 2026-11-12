@@ -4,10 +4,12 @@ let menuSequence = 0;
 
 // Every surface supplies a fixed original and a liveness check, never a "latest result" lookup.
 export function createImageResultActions({ documentRef, source, getWorkflowId, openPreview, prepareReference,
-    downloadImage, copyImage, showToast = () => {}, disabled = false }) {
+    downloadImage, copyImage, showToast = () => {}, disabled = false, compact = false }) {
     const element = documentRef.createElement('div'); element.className = 'image-result-actions';
     element.setAttribute('role', 'toolbar'); element.setAttribute('aria-label', '图片结果操作');
-    const labels = { preview: '放大', reference: '交给助手', download: '下载' };
+    const labels = compact
+        ? { download: '下载', ...(copyImage && { copy: '复制图片' }) }
+        : { preview: '放大', reference: '交给助手', download: '下载' };
     const buttons = new Map();
     const current = workflowId => getWorkflowId() === workflowId && source.isCurrent() !== false;
     const execute = async action => {
@@ -47,7 +49,7 @@ export function createImageResultActions({ documentRef, source, getWorkflowId, o
         button.addEventListener('click', event => { event.stopPropagation(); void execute(action); });
         buttons.set(action, button); element.append(button);
     }
-    if (copyImage) {
+    if (copyImage && !compact) {
         const trigger = documentRef.createElement('button'); trigger.type = 'button'; trigger.textContent = '更多';
         trigger.dataset.resultAction = 'more'; trigger.dataset.nodeReadAction = 'true'; trigger.disabled = disabled;
         trigger.setAttribute('aria-haspopup', 'menu'); trigger.setAttribute('aria-expanded', 'false');

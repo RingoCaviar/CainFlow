@@ -19,8 +19,8 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
     nodeAdapter, session, save, graphChanged, origin, getImageAsset, runWorkflow, cancelNode, focusNode }) {
     const activePlans = new Map();
     const executionConfigs = new Map();
-    const context = (mentionedIds = []) => createCanvasContext({ workflowId: getWorkflowId(), nodes: serializeNodes(), connections: state.connections,
-        selectedIds: [...state.selectedNodes], mentionedIds, runningIds: [...(state.runningNodeIds || [])],
+    const context = (mentionedIds = [], { includeSelection = true } = {}) => createCanvasContext({ workflowId: getWorkflowId(), nodes: serializeNodes(), connections: state.connections,
+        selectedIds: includeSelection ? [...state.selectedNodes] : [], mentionedIds, runningIds: [...(state.runningNodeIds || [])],
         getGenerationContext: id => nodeAdapter?.getContext(id) });
     function prepare(plan) {
         normalizePlanInputs(plan);

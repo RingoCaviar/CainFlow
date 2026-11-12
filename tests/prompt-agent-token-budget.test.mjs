@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { measurePromptAgentContext, countPromptText } from '../js/features/prompt-agent/prompt-agent-token-budget.js';
+import { measurePromptAgentContext, countPromptText, fitPromptAgentContext } from '../js/features/prompt-agent/prompt-agent-token-budget.js';
+import { createPromptAgentInput } from '../js/features/prompt-agent/prompt-agent-input.js';
 import { readImageSize, measureImageTokens } from '../js/features/prompt-agent/prompt-agent-image-tokens.js';
 
 test('token meter and trigger share the same boundary, with a usable default', () => {
@@ -67,4 +68,37 @@ test('estimation includes full untruncated history and image count, not encoded 
     const image = length => measurePromptAgentContext({ referenceImages: [{ name: '图', dataUrl: 'data:image/png;base64,' + 'A'.repeat(length) }] });
     assert.equal(image(10).used, image(100000).used);
     assert.ok(image(10).used > measurePromptAgentContext({}).used + 1000);
+});
+
+test('discarding an oldest turn drops its images and keeps the original numbering of recent turns', () => {
+    const oldImage = { name: '旧参考图', dataUrl: png(2048, 2048) };
+    const currentImage = { name: '本轮参考图', dataUrl: png(512, 512) };
+    const recent = [{ role: 'user', text: '最近问题' }, { role: 'agent', text: '最近回答' }];
+    const base = { model: { modelId: 'gpt-4o' }, message: '本轮请求', referenceImages: [currentImage] };
+    const threshold = measurePromptAgentContext({ ...base, conversation: { messages: recent, messageOffset: 2 } }).used + 20;
+    const fitted = fitPromptAgentContext({ ...base, autoCompactTokenLimit: threshold,
+        conversation: { messages: [{ role: 'user', text: '旧问题', referenceImages: [oldImage] }, { role: 'agent', text: '旧回答' }, ...recent] },
+        workflowReferenceImages: [oldImage, { ...oldImage, runId: 'old-run', messageNumber: 2 }]
+    }, () => null);
+    const input = createPromptAgentInput(fitted.request);
+    assert.equal(fitted.discardedMessageCount, 2);
+    assert.deepEqual(input.media.map(image => image.url), [currentImage.dataUrl]);
+    assert.deepEqual(input.messages.slice(0, -1).map(turn => JSON.parse(turn.content).messageNumber), [3, 4]);
+    assert.equal(JSON.parse(input.messages.at(-1).content).historyOmitted, true);
+    assert.ok(measurePromptAgentContext(fitted.request).used <= threshold);
+});
+
+test('discarding history keeps the brief when the user answers a pending choice', () => {
+    const question = '横版还是竖版？';
+    const brief = { role: 'user', text: '给展览做海报' };
+    const pending = { role: 'agent', text: question, choices: ['横版', '竖版'] };
+    const request = { autoCompactTokenLimit: 1, conversation: { messages: [
+        { role: 'user', text: '旧任务' }, { role: 'agent', text: '旧任务回复' }, brief, pending
+    ] } };
+    const awaiting = fitPromptAgentContext(request, () => null);
+    assert.deepEqual(awaiting.request.conversation.messages, [brief, pending]);
+    const answering = fitPromptAgentContext({ ...request, message: '竖版', choiceAnswer: { question, choice: '竖版' } }, () => null);
+    assert.deepEqual(answering.request.conversation.messages, [brief, pending]);
+    const unrelated = fitPromptAgentContext({ ...request, message: '画一张足球场照片' }, () => null);
+    assert.deepEqual(unrelated.request.conversation.messages, []);
 });

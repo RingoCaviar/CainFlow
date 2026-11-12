@@ -116,6 +116,36 @@ test('conversation prose and compact plan remain usable in seven themes at 300px
                 model:size('.prompt-agent-model-trigger'), action:size('.prompt-agent-canvas-actions .btn'),
                 step:size('.prompt-agent-step-settings'), paragraphGap:getComputedStyle(document.querySelector('.prompt-agent-message-body p')).marginBottom};})()`);
         assert.deepEqual(typography, { message: '14px', input: '14px', title: '14px', model: '13px', action: '13px', step: '12px', paragraphGap: '5px' });
+        const planRows = `(() => {
+            const card = document.querySelector('.prompt-agent-canvas-plan');
+            const header = card.querySelector('.prompt-agent-plan-header');
+            const title = header.querySelector('strong').getBoundingClientRect();
+            const summary = card.querySelector('.prompt-agent-plan-overview > summary').getBoundingClientRect();
+            const count = card.querySelector('.prompt-agent-plan-count').getBoundingClientRect();
+            const buttons = [...header.querySelectorAll('.prompt-agent-actions-primary button:not([hidden])')];
+            const centerY = rect => (rect.top + rect.bottom) / 2;
+            return buttons.map(button => button.textContent).join(' ') === '运行 仅应用' && buttons.every(button => {
+                const rect = button.getBoundingClientRect();
+                return rect.height >= 28 && title.right <= rect.left && Math.abs(centerY(rect) - centerY(title)) <= 2;
+            }) && summary.top >= header.getBoundingClientRect().bottom && count.width > 0
+                && Math.abs(centerY(summary) - centerY(count)) <= 2;
+        })()`;
+        const centeredModelNames = `(() => {
+            const triggers = [...document.querySelectorAll('.prompt-agent-settings > .prompt-agent-model-label > .prompt-agent-model-trigger')];
+            return triggers.map(trigger => {
+                const text = document.createRange();
+                text.selectNodeContents(trigger);
+                const content = text.getBoundingClientRect();
+                const field = trigger.closest('.prompt-agent-model-label').getBoundingClientRect();
+                return { text: trigger.textContent, height: content.height, alignment: getComputedStyle(trigger).textAlign,
+                    offset: (content.top + content.bottom - field.top - field.bottom) / 2 };
+            });
+        })()`;
+        const assertCenteredModels = async label => {
+            const models = await evaluate(centeredModelNames);
+            assert.ok(models.length === 2 && models.every(model => model.height > 0 && model.alignment === 'center' && Math.abs(model.offset) <= 2),
+                `${label}: both composer model names are centered (${JSON.stringify(models)})`);
+        };
         for (const theme of ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink']) {
             await evaluate(`document.documentElement.dataset.appTheme='${theme}'`); await delay(100);
             const underlayAlpha = await evaluate(`(()=>{const canvas=document.createElement('canvas'), context=canvas.getContext('2d');
@@ -137,6 +167,8 @@ test('conversation prose and compact plan remain usable in seven themes at 300px
                     shortActions:[...panel.querySelectorAll('.prompt-agent-canvas-plan button, #prompt-agent-send')].filter(button=>getComputedStyle(button).display!=='none' && button.getBoundingClientRect().height<28).map(button=>button.textContent),
                     panelOverflow:panel.scrollWidth-panel.clientWidth};})()`);
             assert.ok(fit.nameOverflow && fit.ellipsis==='ellipsis' && fit.shortActions.length===0 && fit.panelOverflow<=1, `${theme}: ${JSON.stringify(fit)}`);
+            assert.ok(await evaluate(planRows), `${theme}: the plan has a title and action row above the details and count row`);
+            await assertCenteredModels(theme);
             if (process.env.CAINFLOW_QA_SCREENSHOT_DIR) {
                 await mkdir(process.env.CAINFLOW_QA_SCREENSHOT_DIR, { recursive: true });
                 const shot = await send('Page.captureScreenshot', { format: 'png' });
@@ -149,6 +181,8 @@ test('conversation prose and compact plan remain usable in seven themes at 300px
             assert.ok(await evaluate(`(()=>{const panel=document.getElementById('prompt-agent-panel'), plan=panel.querySelector('.prompt-agent-canvas-plan');
                 return panel.scrollWidth<=panel.clientWidth+1 && plan.scrollWidth<=plan.clientWidth+1
                     && document.getElementById('prompt-agent-send').getBoundingClientRect().height>=28;})()`), `${viewport}px viewport: long plan and composer fit`);
+            assert.ok(await evaluate(planRows), `${viewport}px viewport: the collapsed plan fits in two rows`);
+            await assertCenteredModels(`${viewport}px viewport`);
         }
         assert.ok(await evaluate(`(()=>{const input=document.getElementById('prompt-agent-input'),handle=document.getElementById('prompt-agent-input-resize'),a=input.getBoundingClientRect(),b=handle.getBoundingClientRect(),before=a.height;handle.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));return b.top>=a.top&&b.top<a.top+22&&b.right<=a.right&&input.getBoundingClientRect().height>before})()`), 'upper-right resize handle increases the input height');
         await evaluate("document.getElementById('prompt-agent-cancel').hidden=false;document.getElementById('prompt-agent-send').disabled=true");

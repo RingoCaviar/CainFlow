@@ -96,6 +96,137 @@ async function chatInput(app) {
     return app.evaluate("(()=>{const content=agentWorkflowRequests.find(request=>request.messages).messages.at(-1).content;return JSON.parse(Array.isArray(content)?content.find(part=>part.type==='text').text:content)})()");
 }
 
+const choiceButtons = '.prompt-agent-choices button';
+const enabledChoice = index => `${choiceButtons}:nth-of-type(${index}):not(:disabled)`;
+const enabledChoiceLabels = app => app.evaluate(`[...document.querySelectorAll('${choiceButtons}:not(:disabled)')].map(button => button.textContent.trim())`);
+const latestUserText = "[...document.querySelectorAll('.prompt-agent-message-user .prompt-agent-message-body')].at(-1)?.textContent";
+const creativePlan = (title, prompt, taskUpdate) => ({ intent: 'generate', message: title, taskUpdate,
+    canvasPlan: { version: 1, steps: [{ id: 'generate', type: 'ImageGenerate', title, parameters: { prompt } }], connections: [] } });
+
+async function sendAgentMessage(app, text) {
+    await change(app, 'prompt-agent-input', text);
+    await app.evaluate("document.getElementById('prompt-agent-form').requestSubmit()");
+}
+
+test('clarification choice survives refresh, submits as a user answer and preserves the draft', { timeout: 45000 }, async () => {
+    const question = '海报用哪种构图？';
+    const choices = ['竖向构图', '横向构图'];
+    const draft = '这段草稿稍后再发';
+    await withAppBrowser(configuration, async app => {
+        await controlled(app, { intent: 'clarify', message: question, choices });
+        await app.evaluate("document.getElementById('btn-prompt-agent').click()");
+        await chooseModel(app, 'chat', 'chat');
+        await sendAgentMessage(app, '设计一张海报');
+        await app.waitFor(`document.querySelectorAll('${choiceButtons}:not(:disabled)').length===2`);
+        assert.deepEqual(await enabledChoiceLabels(app), choices);
+
+        await change(app, 'prompt-agent-input', draft);
+        await reloadAppBrowser(app);
+        await app.evaluate("if (!document.getElementById('prompt-agent-panel').classList.contains('active')) document.getElementById('btn-prompt-agent').click()");
+        await app.waitFor(`document.querySelectorAll('${choiceButtons}:not(:disabled)').length===2`);
+        assert.deepEqual(await enabledChoiceLabels(app), choices);
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), draft);
+
+        const response = '收到横向构图。';
+        await app.evaluate(`agentWorkflowReply=${JSON.stringify({ intent: 'chat', message: response })}`);
+        await click(app, enabledChoice(2));
+        await app.waitFor(`document.querySelector('#prompt-agent-messages').textContent.includes(${JSON.stringify(response)}) && document.getElementById('prompt-agent-cancel').hidden`);
+        assert.equal(await app.evaluate(latestUserText), choices[1]);
+        const input = await chatInput(app);
+        assert.equal(input.userRequest, choices[1]);
+        assert.deepEqual(input.choiceAnswer, { question, choice: choices[1] });
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), draft);
+        assert.equal(await app.evaluate('agentWorkflowRequests.length'), 1);
+        assert.deepEqual(await enabledChoiceLabels(app), []);
+        await app.evaluate("[...document.querySelectorAll('.prompt-agent-message-user')].at(-1).querySelector('[data-message-action=resend]').click()");
+        await app.waitFor("agentWorkflowRequests.length===2 && document.getElementById('prompt-agent-cancel').hidden");
+        const resent = await app.evaluate("JSON.parse(agentWorkflowRequests.at(-1).messages.at(-1).content)");
+        assert.deepEqual(resent.choiceAnswer, input.choiceAnswer, 'resending an answer retains its question');
+    });
+});
+
+test('a clear standalone creative task drafts a new canvas plan directly without inheriting the old dimensions', async () => {
+    const cupRequest = '生成2K、16:9的白色杯子';
+    const stadiumRequest = '生成一张4K的黑夜里的足球场照片';
+    await withAppBrowser({ ...configuration, nodes: [], connections: [] }, async app => {
+        await controlled(app, creativePlan('白杯方案', '白色杯子'));
+        await app.evaluate("document.getElementById('btn-prompt-agent').click()");
+        await chooseModel(app, 'chat', 'chat');
+        await sendAgentMessage(app, cupRequest);
+        await app.waitFor("document.querySelector('.prompt-agent-canvas-plan') && document.getElementById('prompt-agent-cancel').hidden");
+        const snapshot = () => app.evaluate("import('/js/app/bootstrap.js').then(module => module.bootstrapCainFlowApp()).then(app => app.registry.promptAgentController.snapshotWorkflow())");
+        const cup = await snapshot();
+        assert.deepEqual(cup.creativeTask.parameters, { resolution: '2K', aspectRatio: '16:9' });
+
+        const stadiumReply = creativePlan('足球场方案', '夜里的足球场', {
+            mode: 'new', parameters: { resolution: { value: '4K', evidence: '4K' } }
+        });
+        await app.evaluate(`agentWorkflowReply=${JSON.stringify(stadiumReply)}`);
+        await sendAgentMessage(app, stadiumRequest);
+        await app.waitFor("agentWorkflowRequests.length===2 && document.getElementById('prompt-agent-cancel').hidden");
+        assert.equal(await app.evaluate(`document.querySelectorAll('${choiceButtons}').length`), 0);
+        assert.equal(await app.evaluate("document.querySelectorAll('.prompt-agent-canvas-plan').length"), 2);
+
+        const stadium = await snapshot();
+        const plan = stadium.messages.at(-1).canvasPlan;
+        assert.notEqual(stadium.creativeTask.id, cup.creativeTask.id);
+        assert.deepEqual(stadium.creativeTask.parameters, { resolution: '4K' });
+        assert.deepEqual(stadium.messages[1].canvasPlan, cup.messages[1].canvasPlan);
+        assert.equal(plan.taskId, stadium.creativeTask.id);
+        assert.equal(plan.newCreativeTask, true);
+        assert.equal(plan.steps[0].nodeId, undefined);
+        assert.equal(plan.steps[0].parameters.prompt, '夜里的足球场');
+        assert.equal(plan.steps[0].parameters.resolution, '4K');
+        assert.equal(plan.steps[0].parameters.aspect, undefined);
+        assert.equal(stadium.messages.at(-1).runs?.length || 0, 0);
+        assert.deepEqual(await app.evaluate("agentWorkflowRequests.map(request => request.messages && JSON.parse(request.messages.at(-1).content).userRequest)"), [cupRequest, stadiumRequest]);
+        assert.equal(await app.evaluate("document.querySelectorAll('#nodes-layer > .node').length"), 0);
+    });
+});
+
+test('confirming an ambiguous creative task produces a fresh canvas plan without running it', async () => {
+    await withAppBrowser({ ...configuration, nodes: [generateNode('unrelated', 40, 120)], connections: [] }, async app => {
+        await controlled(app, creativePlan('白杯方案', '白色杯子'));
+        await app.evaluate("document.getElementById('btn-prompt-agent').click()");
+        await chooseModel(app, 'chat', 'chat');
+        await sendAgentMessage(app, '生成白色杯子');
+        await app.waitFor("document.querySelector('.prompt-agent-canvas-plan') && document.getElementById('prompt-agent-cancel').hidden");
+
+        const request = '再来一张，换个方向';
+        const clarification = { intent: 'clarify', message: '是否开始新任务？', taskUpdate: { mode: 'new' } };
+        const askForNewTask = async () => {
+            await app.evaluate(`agentWorkflowReply=${JSON.stringify(clarification)}`);
+            await sendAgentMessage(app, request);
+            await app.waitFor(`document.querySelectorAll('${choiceButtons}:not(:disabled)').length===2 && document.getElementById('prompt-agent-cancel').hidden`);
+            assert.deepEqual(await enabledChoiceLabels(app), ['是', '否']);
+            assert.match(await app.evaluate("document.querySelector('#prompt-agent-messages').textContent"), /请确认是否开始新的创作任务/);
+        };
+        await askForNewTask();
+        await click(app, enabledChoice(2));
+        await app.waitFor("document.querySelector('#prompt-agent-messages').textContent.includes('已保留当前创作任务。')");
+        assert.equal(await app.evaluate(latestUserText), '否');
+        assert.equal(await app.evaluate('agentWorkflowRequests.length'), 2, 'declining the reset does not call a model');
+        assert.equal(await app.evaluate("document.querySelectorAll('.prompt-agent-canvas-plan').length"), 1);
+        assert.deepEqual(await enabledChoiceLabels(app), []);
+
+        await askForNewTask();
+        assert.equal(await app.evaluate(`document.querySelectorAll('${choiceButtons}:disabled').length`), 2);
+        await open(app, 'unrelated');
+        await app.evaluate(`agentWorkflowReply=${JSON.stringify(creativePlan('夜景方案', '夜间街景', { mode: 'new' }))}`);
+        await click(app, enabledChoice(1));
+        await app.waitFor("document.querySelectorAll('.prompt-agent-canvas-plan').length===2 && document.getElementById('prompt-agent-cancel').hidden");
+
+        assert.equal(await app.evaluate(latestUserText), '是');
+        assert.deepEqual(await enabledChoiceLabels(app), []);
+        assert.deepEqual(await app.evaluate("[...document.querySelectorAll('.prompt-agent-step-title')].map(title=>title.textContent)"), ['白杯方案', '夜景方案']);
+        const requests = await app.evaluate("agentWorkflowRequests.map(request => request.messages && JSON.parse(request.messages.at(-1).content))");
+        assert.deepEqual(requests.map(input => input?.userRequest), ['生成白色杯子', request, request, request]);
+        assert.deepEqual(requests.map(input => input.confirmedNewTask), [undefined, undefined, undefined, true]);
+        assert.deepEqual(requests.at(-1).canvas.selectedIds, [], 'confirmation does not target a node selected after the original request');
+        assert.equal(await app.evaluate("document.querySelectorAll('#nodes-layer > .node').length"), 1);
+    });
+});
+
 test('two result slots with identical original bytes stage separately while repeating the same slot stays idempotent', { timeout: 45000 }, async () => {
     await withAppBrowser({ ...configuration, nodes: [
         generateNode('duplicate-source', 40, 100, { apiConfigId: 'image', prompt: 'duplicate-source', generationCount: 2 }),

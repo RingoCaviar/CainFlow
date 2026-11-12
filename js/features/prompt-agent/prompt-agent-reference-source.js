@@ -80,6 +80,7 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
     }
     function getContextReferences(conversation) {
         const latest = latestResultRun(conversation);
+        const messageOffset = conversation.messageOffset || 0;
         const scene = nodeAdapter.getSceneReferenceImages().filter(item => {
             const node = state.nodes.get(item.sourceNodeId);
             return node && node.enabled !== false && !state.runningNodeIds?.has(node.id);
@@ -87,9 +88,9 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
         const results = [...(conversation.archivedMessages || []), ...(conversation.messages || [])].flatMap((message, index) =>
             (message.runs || []).flatMap(run => (run.mediaAssetKeys || []).map((key, resultIndex) => ({
                 referenceId: `agent-result:${run.runId}:${resultIndex}`, assetKey: key,
-                runId: run.runId, resultNumber: resultIndex + 1, messageNumber: index + 1,
+                runId: run.runId, resultNumber: resultIndex + 1, messageNumber: messageOffset + index + 1,
                 latestResult: run.runId === latest?.runId,
-                name: `第 ${index + 1} 条消息生成结果 ${resultIndex + 1}`,
+                name: `第 ${messageOffset + index + 1} 条消息生成结果 ${resultIndex + 1}`,
                 prompt: message.promptPlan?.prompt || '', contextOrigin: '对话生成结果'
             })))
         );
