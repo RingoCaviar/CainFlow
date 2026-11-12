@@ -613,7 +613,11 @@ test('seven themes and narrow panels keep creation actions legible and keyboard 
         await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});
         await waitFor("!document.querySelector('.fullscreen-overlay')");
         await waitFor("document.activeElement.dataset.referenceNumber==='1'");
-        await openImageParameters(app, 'source-a');
+        await enter();
+        await waitFor("Boolean(document.querySelector('.fullscreen-overlay img'))");
+        await evaluate("(async()=>{document.querySelector('.fullscreen-close').click();document.getElementById('source-a').click();await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))})()");
+        assert.equal(await evaluate("document.getElementById('image-parameter-panel').dataset.nodeId"), 'source-a',
+            'closing a reference preview does not take back a newly selected editor');
         await evaluate("(id=>{if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click();const input=document.getElementById('prompt-agent-input');if(!input.value.includes('['+id+']')){input.value+=(input.value?'\\n':'')+'@';input.setSelectionRange(input.value.length,input.value.length);input.dispatchEvent(new Event('input',{bubbles:true}));const option=[...document.querySelectorAll('.prompt-agent-node-mentions [role=option]')].find(b=>b.textContent.endsWith(' · '+id));if(!option)throw new Error('Missing node mention '+id);option.click()}})(\"source-a\")");
         const evidence = [];
         for (const theme of ['dark','pro','paper','light','glass-light','glass-dark','pink']) {
