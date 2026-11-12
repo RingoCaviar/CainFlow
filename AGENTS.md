@@ -18,7 +18,7 @@ This repository uses the single-context domain documentation layout. See `docs/a
 
 ### Test selection
 
-实现或修复后、提交前按 `docs/testing.md` 选择日常检查或全量回归。日常入口按改动追加模块测试；共享机制、测试基础设施、未知影响范围和发布必须全量。该仓库策略替代通用技能中“每次实现结束跑全套”的默认要求。
+测试按 [docs/testing.md](docs/testing.md) 选范围。小改动只跑相关测试，缺覆盖就补用例并登记。全量回归显式运行，聚焦发布和主要工作流。此规则优先于技能的默认测试范围。
 
 ### Release notes
 
