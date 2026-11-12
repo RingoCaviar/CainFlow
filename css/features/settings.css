@@ -593,6 +593,48 @@
     margin-bottom: 0;
 }
 
+#general-settings [data-settings-card="canvas-mcp"] [hidden] {
+    display: none;
+}
+
+#general-settings .general-settings-mcp-note,
+#general-settings .general-settings-mcp-guide {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+#general-settings .general-settings-mcp-note {
+    margin: 0;
+}
+
+#general-settings .general-settings-mcp-guide {
+    display: grid;
+    gap: 8px;
+}
+
+#general-settings .general-settings-mcp-guide ol {
+    margin: 0;
+    padding-inline-start: 1.35em;
+}
+
+#general-settings .general-settings-mcp-guide summary {
+    cursor: pointer;
+}
+
+#canvas-mcp-install-command {
+    display: block;
+    margin-block-start: 4px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+}
+
+#general-settings .general-settings-mcp-action {
+    align-self: flex-start;
+    justify-self: start;
+}
+
 #general-settings .general-settings-label-main {
     min-width: 0;
     display: inline-flex;

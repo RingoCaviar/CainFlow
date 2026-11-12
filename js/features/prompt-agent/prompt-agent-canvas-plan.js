@@ -59,7 +59,7 @@ export function assertCanvasPlanPromptInputs(plan, context) {
         }
     }
 }
-export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds = [], images = [], referencePolicy } = {}) {
+export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds = [], images = [], referencePolicy, explicitInputChanges = false } = {}) {
     if (!object(raw) || raw.version !== 1 || !Array.isArray(raw.steps) || !Array.isArray(raw.deletes || [])
         || raw.steps.length + (raw.deletes?.length || 0) < 1 || raw.steps.length + (raw.deletes?.length || 0) > 100) fail('画布方案必须为 v1，包含 1 至 100 个操作');
     const deletedIds = new Set();
@@ -185,8 +185,16 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         if (!ids.has(item?.ref) || !portType(item.ref, item.port, 'inputs')) fail('只能断开方案内节点的有效输入');
         return { ref: item.ref, port: item.port };
     });
-    // A new generation uses exactly its proposed inputs, never hidden old edges.
-    const referenceInputChange = referenceInputChangePermission(message, steps.filter(step => step.type === 'ImageGenerate').map(step => step.nodeId));
+    // External typed edits identify the exact input port in their operation.
+    // Agent proposals still need evidence from the user message.
+    const inputEdits = explicitInputChanges ? [...connections.map(link => link.to), ...disconnects] : [];
+    const inputTargets = matches => {
+        const refs = new Set(inputEdits.filter(item => matches(item.port)).map(item => item.ref));
+        return steps.filter(step => step.type === 'ImageGenerate' && step.nodeId && refs.has(step.id)).map(step => step.nodeId);
+    };
+    const explicitReferenceTargets = inputTargets(isReferencePort);
+    const referenceInputChange = explicitReferenceTargets.length ? { mode: 'replace', targetNodeIds: explicitReferenceTargets }
+        : referenceInputChangePermission(message, steps.filter(step => step.type === 'ImageGenerate').map(step => step.nodeId));
     if (referenceInputChange?.mode === 'clear') {
         for (const step of steps.filter(step => step.type === 'ImageGenerate' && step.nodeId)) {
             for (const link of context.connections.filter(link => link.to.nodeId === step.nodeId && isReferencePort(link.to.port))) {
@@ -194,7 +202,9 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
             }
         }
     }
-    const promptInputChange = promptInputChangePermission(message, steps, context, mentionedIds, connections);
+    const explicitPromptTargets = inputTargets(port => port === 'prompt');
+    const promptInputChange = explicitPromptTargets.length ? { authorizationVersion: 1, targetNodeIds: explicitPromptTargets }
+        : promptInputChangePermission(message, steps, context, mentionedIds, connections);
     const identity = ref => steps.find(step => step.id === ref)?.nodeId || (ids.has(ref) ? `new:${ref}` : ref);
     const projectedLinks = projectPlanConnections({ steps, connections, disconnects, deletes }, context.connections, identity);
     const order = []; const visiting = new Set(); const visited = new Set();

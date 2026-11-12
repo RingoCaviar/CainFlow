@@ -97,6 +97,8 @@ import { createWorkflowRuntimeManager } from '../features/workflow/workflow-runt
 import { createPromptLibraryApi } from '../features/prompts/prompt-library.js';
 import { createPromptAgentController } from '../features/prompt-agent/prompt-agent-controller.js';
 import { createPromptAgentCanvasAdapter } from '../features/prompt-agent/prompt-agent-canvas-adapter.js';
+import { createCanvasMcpActions } from '../features/canvas-mcp/canvas-mcp-actions.js';
+import { startCanvasMcpEditor } from '../features/canvas-mcp/canvas-mcp-editor.js';
 import { createPromptAgentReferenceSource } from '../features/prompt-agent/prompt-agent-reference-source.js';
 import { createPromptAgentNodeAdapter, getAvailablePromptAgentImageModels } from '../features/prompt-agent/prompt-agent-node-adapter.js';
 import { createPromptAgentExecutionAdapter } from '../features/prompt-agent/prompt-agent-execution-adapter.js';
@@ -105,7 +107,7 @@ import { createPromptAgentResultMediaAdapter } from '../features/prompt-agent/pr
 import { createPromptAgentModelReply, getAvailablePromptAgentModels } from '../features/prompt-agent/prompt-agent-model.js';
 import { createAgentWebImageReader } from '../features/prompt-agent/prompt-agent-web-image.js';
 import { createPromptAgentCompaction } from '../features/prompt-agent/prompt-agent-compaction.js';
-import { getResolvedProviderForModel } from '../features/execution/provider-request-utils.js';
+import { getModelProviders, getResolvedProviderForModel } from '../features/execution/provider-request-utils.js';
 import { createHistoryFeature } from './bootstrap/history-bootstrap.js';
 import { createProjectIoFeature } from './bootstrap/project-io-bootstrap.js';
 import { createSettingsFeature } from './bootstrap/settings-bootstrap.js';
@@ -933,7 +935,7 @@ function resumeWorkflowNode(nodeId) {
     return runWorkflow({ mode: 'target-node', targetNodeId: nodeId }, { waitForCompletion: true, resumeNodeId: nodeId });
 }
 
-async function runWorkflow(runInput = null, { waitForCompletion = false, retainResults, configurationSnapshot, validateBeforeRun, resumeNodeId = null } = {}) {
+async function runWorkflow(runInput = null, { waitForCompletion = false, retainResults, configurationSnapshot, validateBeforeRun, resumeNodeId = null, captureTextResults = false } = {}) {
     if (state.canvasPlanApplying) throw new Error('画布方案正在应用，请稍后运行');
     if (state.isRunStarting) return false;
     const requestedWorkflowId = workflowManagerApi.getActiveWorkflowId();
@@ -973,7 +975,7 @@ async function runWorkflow(runInput = null, { waitForCompletion = false, retainR
         const workflowId = workflowManagerApi.getActiveWorkflowId?.() || workflowData?.workflowId || '';
         // Forward the completion promise without holding the launch guard for
         // the full generation; other workflow branches can still be started.
-        return getWorkflowRuntimeManagerApi().runWorkflowInContext({ workflowName, workflowId }, workflowData, runInput, { waitForCompletion, retainResults, configurationSnapshot, resumeNodeId });
+        return getWorkflowRuntimeManagerApi().runWorkflowInContext({ workflowName, workflowId }, workflowData, runInput, { waitForCompletion, retainResults, configurationSnapshot, resumeNodeId, captureTextResults });
     } catch (error) {
         showToast(error?.message || '无法启动工作流', 'warning');
         if (waitForCompletion) throw error;
@@ -1080,26 +1082,27 @@ new MutationObserver(records => {
         setTimeout(() => offerRetiredSaveNodeCleanup(), 0);
     }
 }).observe(document.getElementById('nodes-layer'), { childList: true });
+const promptAgentCanvasAdapter = createPromptAgentCanvasAdapter({
+    state, documentRef: document, serializeNodes: () => nodeSerializer.serializeNodes(),
+    getWorkflowId: () => workflowManagerApi.getActiveWorkflowId(), addNode, removeNode, onNodesRemoved: handleNodesRemoved,
+    nodeAdapter: promptAgentNodeAdapter, session: getSessionManagerApi,
+    save: () => workflowManagerApi.saveActiveWorkflow({ silent: true }),
+    graphChanged: () => { connectionsApi.updateAllConnections(); connectionsApi.updatePortStyles(); handleNodeGraphChanged(); },
+    origin: () => {
+        const rect = canvasContainer.getBoundingClientRect();
+        const panel = document.getElementById('prompt-agent-panel');
+        const bounds = panel?.classList.contains('active') ? panel.getBoundingClientRect() : null;
+        return { ...viewportApi.screenToCanvas(rect.left + 24, rect.top + 72),
+            ...(bounds ? { blockedSpan: { ...viewportApi.screenToCanvas(bounds.left - 16, bounds.top - 16),
+                width: (bounds.width + 32) / state.canvas.zoom, height: (bounds.height + 32) / state.canvas.zoom } } : {}) };
+    },
+    getImageAsset, runWorkflow: (input, options) => runWorkflow(input, { ...options, waitForCompletion: true }),
+    cancelNode: cancelRunningNode, focusNode: (nodeId) => focusCanvasNode(nodeId, { avoidAgentPanel: true, selectOnFocus: false })
+});
 const promptAgentController = createPromptAgentController({
     onNativeClipboardWrite: () => getClipboardControllerApi().markNativeClipboardWrite(),
     onDraftChange: () => workflowManagerApi.markActiveWorkflowDirty({ capture: false }),
-    canvasAdapter: createPromptAgentCanvasAdapter({
-        state, documentRef: document, serializeNodes: () => nodeSerializer.serializeNodes(),
-        getWorkflowId: () => workflowManagerApi.getActiveWorkflowId(), addNode, removeNode, onNodesRemoved: handleNodesRemoved,
-        nodeAdapter: promptAgentNodeAdapter, session: getSessionManagerApi,
-        save: () => workflowManagerApi.saveActiveWorkflow({ silent: true }),
-        graphChanged: () => { connectionsApi.updateAllConnections(); connectionsApi.updatePortStyles(); handleNodeGraphChanged(); },
-        origin: () => {
-            const rect = canvasContainer.getBoundingClientRect();
-            const panel = document.getElementById('prompt-agent-panel');
-            const bounds = panel?.classList.contains('active') ? panel.getBoundingClientRect() : null;
-            return { ...viewportApi.screenToCanvas(rect.left + 24, rect.top + 72),
-                ...(bounds ? { blockedSpan: { ...viewportApi.screenToCanvas(bounds.left - 16, bounds.top - 16),
-                    width: (bounds.width + 32) / state.canvas.zoom, height: (bounds.height + 32) / state.canvas.zoom } } : {}) };
-        },
-        getImageAsset, runWorkflow: (input, options) => runWorkflow(input, { ...options, waitForCompletion: true }),
-        cancelNode: cancelRunningNode, focusNode: (nodeId) => focusCanvasNode(nodeId, { avoidAgentPanel: true, selectOnFocus: false })
-    }),
+    canvasAdapter: promptAgentCanvasAdapter,
     panelManager,
     getSearchModels: () => state.models.filter(model => !model.taskType || model.taskType === 'chat'),
     getProviders: () => state.providers,
@@ -2020,6 +2023,7 @@ settingsFeature = createSettingsFeature({
     getHandle,
     deleteHandle,
     showToast,
+    onNativeClipboardWrite: () => getClipboardControllerApi().markNativeClipboardWrite(),
     saveState: (...args) => {
         registry.imageGenerationRevisionApi?.observeAll();
         const saved = saveState(...args);
@@ -2267,6 +2271,22 @@ await getConversationWorkbenchControllerApi().init().catch((error) => {
     showToast(`加载对话工作台失败：${error.message}`, 'error');
 });
 getConversationToolbarControllerApi().init();
+const canvasMcpActions = createCanvasMcpActions({
+    canvasAdapter: promptAgentCanvasAdapter,
+    getImageDefaults: () => {
+        const { imageModelId, providerSettings } = promptAgentController.snapshotWorkflow();
+        const models = getAvailablePromptAgentImageModels(state.models, state.providers);
+        const preferred = models.find(model => model.id === imageModelId) || models[0];
+        const providerIds = { ...providerSettings?.image };
+        if (preferred && !providerIds[preferred.id]) {
+            const boundProviders = getModelProviders(preferred, state.providers);
+            if (boundProviders.length === 1) providerIds[preferred.id] = boundProviders[0].id;
+        }
+        return { modelId: preferred?.id, providerIds };
+    },
+    runWorkflow
+});
+startCanvasMcpEditor({ dispatch: canvasMcpActions.dispatch });
 
 return {
     state,

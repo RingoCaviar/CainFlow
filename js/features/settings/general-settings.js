@@ -9,6 +9,7 @@ import { getPromptAgentCacheUsage } from '../prompt-agent/prompt-agent-cache-usa
 import { getAvailablePromptAgentModels } from '../prompt-agent/prompt-agent-model.js';
 import { getModelProviders } from '../execution/provider-request-utils.js';
 import { createPromptAgentModelMenus } from '../prompt-agent/prompt-agent-model-menu.js';
+import { canvasMcpSettingsCard, createCanvasMcpSettings } from './canvas-mcp-settings.js';
 import { readAutoCompactTokens, readCompactionModelId, readCompactionProviderId, writeAutoCompactTokens, writeCompactionModelId, writeCompactionProviderId } from '../prompt-agent/auto-compact-preference.js';
 import {
     clearLegacyBrowserStorage,
@@ -48,8 +49,11 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
         documentRef,
         windowRef,
         localStorageRef,
-        diagnosticClient
+        diagnosticClient,
+        fetchImpl,
+        onNativeClipboardWrite
     } = ctx;
+    const canvasMcpSettings = createCanvasMcpSettings({ fetchImpl, windowRef, showToast, onNativeClipboardWrite });
     let compactionModelMenu = null;
     let activeCategory = 'canvas';
 
@@ -105,7 +109,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
         }
 
         const categories = [
-            { id: 'canvas', label: '外观与画布', columns: [['canvas']] },
+            { id: 'canvas', label: '外观与画布', columns: [['canvas'], ['canvas-mcp']] },
             { id: 'generation', label: '生成与运行', columns: [['storage', 'image'], ['automation']] },
             { id: 'notifications', label: '通知', columns: [['notifications']] },
             { id: 'advanced', label: '高级', columns: [['agent', 'migration'], ['diagnostics', 'update']] }
@@ -607,6 +611,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                     </div>
                 </div>
             </div>
+            ${canvasMcpSettingsCard}
             <div class="api-config-card general-settings-card" data-settings-card="notifications" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
                 <div class="card-header">
                     <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">通知设置</span>
@@ -656,6 +661,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
         </div>
     `;
         organizeGeneralSettings(list);
+        canvasMcpSettings.bind(list.querySelector('[data-settings-card="canvas-mcp"]'));
         for (const id of ['setting-max-side', 'setting-max-retries', 'setting-agent-auto-compact-tokens', 'setting-timeout-seconds', 'setting-video-timeout-minutes']) {
             const input = documentRef.getElementById(id);
             const field = input?.closest('.card-field');

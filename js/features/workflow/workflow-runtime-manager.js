@@ -1064,7 +1064,7 @@ export function createWorkflowRuntimeManager({
         return nodes;
     }
 
-    async function captureWorkflowNodeResult(node, includeImages) {
+    async function captureWorkflowNodeResult(node, includeImages, includeText) {
         let images = includeImages ? getCanonicalImageList(node, { includeResizePreview: false }).slice() : [];
         if (includeImages && images.length === 0 && IMAGE_RESULT_NODE_TYPES.has(node.type)) {
             const keys = (node.data?.mediaAssetKeys?.length
@@ -1083,12 +1083,16 @@ export function createWorkflowRuntimeManager({
             }));
             images = batches.flat();
         }
+        const texts = includeText && node.isSucceeded === true
+            ? getTextInputList(node.data?.texts || node.data?.text).slice(0, 5).map(value => value.slice(0, 4000))
+            : [];
         return {
             nodeId: node.id,
             succeeded: node.isSucceeded === true,
             images,
             mediaAssetKeys: includeImages && Array.isArray(node.data?.mediaAssetKeys)
                 ? node.data.mediaAssetKeys.slice() : [],
+            ...(texts.length ? { texts } : {}),
             ...(node.executionFailure?.message ? { error: node.executionFailure.message } : {})
         };
     }
@@ -1954,7 +1958,7 @@ export function createWorkflowRuntimeManager({
         }
     }
 
-    async function runWorkflowInContext(workflow, workflowData, runInput = null, { waitForCompletion = false, retainResults, configurationSnapshot, resumeNodeId = null } = {}) {
+    async function runWorkflowInContext(workflow, workflowData, runInput = null, { waitForCompletion = false, retainResults, configurationSnapshot, resumeNodeId = null, captureTextResults = false } = {}) {
         const { workflowName, workflowId } = requireStableWorkflowReference(workflow);
         const context = typeof createRunContext === 'function'
             ? createRunContext({ workflowName, workflowId }, workflowData)
@@ -2064,7 +2068,8 @@ export function createWorkflowRuntimeManager({
                         workflowId,
                         ...(runError ? { reason: 'error', outcome: 'failed', error: runError.message || String(runError) } : {}),
                         nodeResults: await Promise.all(getWorkflowRunResultNodes(context).map((node) => captureWorkflowNodeResult(
-                            node, runInput?.agentSequential ? node.isSucceeded === true : !runError && executionResult?.outcome === 'completed'
+                            node, runInput?.agentSequential ? node.isSucceeded === true : !runError && executionResult?.outcome === 'completed',
+                            captureTextResults
                         )))
                     };
                     if (typeof retainResults === 'function') {

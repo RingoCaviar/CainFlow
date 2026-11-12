@@ -263,6 +263,8 @@ $pyInstallerArgs = @(
   "--add-data", (Join-PyInstallerDataSpec "index.html" "." $dataSeparator),
   "--add-data", (Join-PyInstallerDataSpec "index.js" "." $dataSeparator),
   "--add-data", (Join-PyInstallerDataSpec "index.css" "." $dataSeparator),
+  "--add-data", (Join-PyInstallerDataSpec "canvas_mcp.py" "." $dataSeparator),
+  "--add-data", (Join-PyInstallerDataSpec "requirements-mcp.txt" "." $dataSeparator),
   "--add-data", (Join-PyInstallerDataSpec "js/services/notification-sw.js" "js/services" $dataSeparator),
   "--add-data", (Join-PyInstallerDataSpec "cainflow.ico" "." $dataSeparator),
   "--add-data", (Join-PyInstallerDataSpec "css" "css" $dataSeparator),

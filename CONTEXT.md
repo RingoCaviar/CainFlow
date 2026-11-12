@@ -80,6 +80,9 @@ _Avoid_: Hidden chat request, parallel replies in one conversation
 The complete preview of AI-proposed changes to one workflow, confirmed by the user and applied atomically as one undoable action. A rejected or failed plan leaves the workflow unchanged.
 _Avoid_: Direct AI canvas mutation, sequence of unrelated undo steps
 
+**Canvas MCP session**:
+An opt-in connection between a local MCP client and an open CainFlow editor. Commands target an editor and Workflow identity. A canvas revision guards edits and run launches. Each applied edit is one undoable action.
+
 **Staged conversation context**:
 The removable set of local files, clipboard content, history Media assets, and workflow node outputs prepared for the next user message. Only the items visible in this set become explicit inputs when that message is sent.
 _Avoid_: Implicit open-media context, automatic canvas attachment
