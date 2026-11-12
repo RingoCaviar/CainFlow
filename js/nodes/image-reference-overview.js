@@ -230,10 +230,11 @@ export function createImageReferenceOverview({ state, documentRef, getCachedOutp
                             if (getWorkflowId() !== workflowId || state.nodes.get(nodeId) !== target) return;
                             documentRef.defaultView.requestAnimationFrame(() => {
                                 if (getWorkflowId() !== workflowId || state.nodes.get(nodeId) !== target) return;
-                                target.onImageFirstSelect?.('reference');
+                                const focused = documentRef.activeElement;
+                                if (focused && focused !== documentRef.body && !container.contains(focused)) return;
                                 const row = [...container.querySelectorAll('.image-reference-group')].find(item => item.dataset.referenceConnection === group.connection.id);
                                 const current = [...(row?.querySelectorAll('[data-source-image-index]') || [])].find(item => Number(item.dataset.sourceImageIndex) === index);
-                                if (current?.isConnected && !current.disabled && !current.closest('[inert]')) current.focus({ preventScroll: true });
+                                if (current?.checkVisibility() && !current.disabled && !current.closest('[inert]')) current.focus({ preventScroll: true });
                             });
                         });
                     } catch (error) {
