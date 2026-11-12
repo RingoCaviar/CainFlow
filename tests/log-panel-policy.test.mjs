@@ -31,6 +31,25 @@ test('execution history bounds details and escapes rendered titles', () => {
     assert.equal(logList.innerHTML.includes('&lt;img'), true);
 });
 
+test('execution errors can wait for the user to open their details', () => {
+    const state = { logs: [], autoRetry: false };
+    const badges = new Set();
+    const dialogs = [];
+    const localStorageRef = storage();
+    const api = createLogPanelApi({
+        state, elements: { btnLogs: { classList: badges } }, localStorageRef,
+        renderErrorModal: (_title, message) => dialogs.push(message)
+    });
+    const log = api.addLog('error', '套图生图失败', '供应商未返回图片', null, { suppressErrorModal: true });
+    assert.deepEqual(dialogs, []);
+    assert.equal(badges.has('has-new-error'), true);
+    assert.equal(JSON.parse(localStorageRef.read()).logs[0].id, log.id);
+
+    api.showLogDetail(log.id);
+    api.addLog('error', '普通节点失败', '普通错误');
+    assert.deepEqual(dialogs, ['供应商未返回图片', '普通错误']);
+});
+
 test('execution history preserves distinct attempts and restores unfinished requests as interrupted', () => {
     const localStorageRef = storage();
     const state = { logs: [] };

@@ -79,6 +79,11 @@ export function showNodeExecutionFailure(node, error) {
     renderImageNodeRunState(node);
 }
 
+function isCommerceImageGeneration(node, plan) {
+    if (node?.type !== 'ECommerceImageSet') return false;
+    return plan?.commerceNodeId !== node.id || !['plan', 'replan-shot'].includes(plan.commerceAction);
+}
+
 function isUnbatchedImageInput(node, portName) {
     return isMultiConnectionInput(node?.type, portName) || (node?.type === 'ImageGenerate' && portName === 'mask')
         || (['ImageResize', 'ColorReset', 'CameraControl'].includes(node?.type) && portName === 'image')
@@ -2260,11 +2265,16 @@ export function createWorkflowRunnerApi({
                 const errorMsg = err.message || '未知错误';
                 if (timeBadge) timeBadge.textContent = 'Err';
                 const errorDetails = err.serverResponse || { nodeId: nid, error: err.stack || err };
+                const suppressErrorModal = isCommerceImageGeneration(currentNode, plan);
                 addLog('error', `节点失败: ${nodeTitle}`, errorMsg, errorDetails, {
                     userFacing: err.userFacing || null,
                     nodeId: nid,
-                    nodeTitle
+                    nodeTitle,
+                    suppressErrorModal
                 });
+                if (suppressErrorModal) {
+                    throw Object.assign(new Error(errorMsg, { cause: err }), { suppressErrorModal });
+                }
                 throw err;
             } finally {
                 if (timerId) clearInterval(timerId);
@@ -2610,6 +2620,8 @@ export function createWorkflowRunnerApi({
         const maxRetries = state.maxRetries || 15;
         const completedNodes = new Set();
         const failedNodes = new Set();
+        const getDialogFailureIds = () => Array.from(failedNodes)
+            .filter(nodeId => !isCommerceImageGeneration(state.nodes.get(nodeId), plan));
         const runningNodes = new Set();
         let terminatedByError = false;
         const isRunActive = () => !session.stopped && !session.controller.signal.aborted;
@@ -2760,7 +2772,8 @@ export function createWorkflowRunnerApi({
                                     addLog('error', `节点失败: ${nodeTitle}`, errorMsg, errorDetails, {
                                         userFacing: err.userFacing || null,
                                         nodeId: nid,
-                                        nodeTitle
+                                        nodeTitle,
+                                        suppressErrorModal: isCommerceImageGeneration(node, plan)
                                     });
 
                                     failedNodes.add(nid);
@@ -2809,7 +2822,8 @@ export function createWorkflowRunnerApi({
                 retryAttempt++;
                 if (retryAttempt > maxRetries) {
                     showToast(`已达到最大重试次数 (${maxRetries})，停止运行`, 'error');
-                    addLog('error', '并行工作流强制终止', `已超过设定的最大自动重试次数 (${maxRetries} 轮)，执行已停止。请检查网络稳定性或节点配置。`);
+                    addLog('error', '并行工作流强制终止', `已超过设定的最大自动重试次数 (${maxRetries} 轮)，执行已停止。请检查网络稳定性或节点配置。`,
+                        null, { suppressErrorModal: failedNodes.size > 0 && getDialogFailureIds().length === 0 });
                     terminatedByError = true;
                     break;
                 }
@@ -2856,7 +2870,7 @@ export function createWorkflowRunnerApi({
             const totalDuration = ((Date.now() - totalWorkflowStartTime) / 1000).toFixed(2);
 
             if (terminatedByError) {
-                onWorkflowFailures(Array.from(failedNodes).map((failedNodeId) => {
+                onWorkflowFailures(getDialogFailureIds().map((failedNodeId) => {
                     const failedNode = state.nodes.get(failedNodeId);
                     return {
                         nodeId: failedNodeId,
