@@ -30,3 +30,25 @@ test('execution history bounds details and escapes rendered titles', () => {
     assert.equal(logList.innerHTML.includes('<img src=x'), false);
     assert.equal(logList.innerHTML.includes('&lt;img'), true);
 });
+
+test('execution history preserves distinct attempts and restores unfinished requests as interrupted', () => {
+    const localStorageRef = storage();
+    const state = { logs: [] };
+    const renderErrorModal = () => assert.fail('request outcome must not open an error modal');
+    const api = createLogPanelApi({ state, elements: {}, renderErrorModal, localStorageRef });
+    const start = () => api.logRequestToPanel('生成图片', 'https://provider.invalid/generate?key=fixture-secret',
+        { prompt: 'fixture' }, { requestStatus: 'pending' });
+    const finish = start();
+    const finishOther = start();
+    finish('failed', { error: '请求失败' });
+    assert.deepEqual(state.logs.map(log => log.requestStatus), ['pending', 'failed']);
+    assert.doesNotMatch(localStorageRef.read(), /fixture-secret/);
+
+    const restored = { logs: [] };
+    const restoredApi = createLogPanelApi({ state: restored, elements: {}, renderErrorModal, localStorageRef });
+    restoredApi.initializeLogs();
+    assert.deepEqual(restored.logs.map(log => log.requestStatus), ['interrupted', 'failed']);
+    api.clearLogs();
+    finishOther('success');
+    assert.deepEqual(state.logs, []);
+});

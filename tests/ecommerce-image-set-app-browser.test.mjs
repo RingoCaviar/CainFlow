@@ -64,6 +64,11 @@ test('the commerce node generates selected shots, accepts a retry during generat
         };`;
 
     const saved = `fetch('/api/storage/documents/session').then(r=>r.json()).then(d=>d.value.nodes.find(node=>node.id==='commerce'))`;
+    const commerceLogs = `Array.from(document.querySelectorAll('#log-list .log-item'), row => ({
+        title: row.querySelector('.log-summary-text').textContent,
+        status: row.querySelector('.log-type-tag').textContent,
+        summary: row.querySelector('.log-item-summary')?.textContent
+    })).filter(log => log.title.startsWith('电商套图 · '))`;
     const planButton = "document.querySelector('[data-commerce-action=plan]')";
     const generateButton = "document.querySelector('[data-commerce-action=generate]')";
     const generationAvailable = `(${generateButton}?.checkVisibility() && !${generateButton}.disabled)`;
@@ -273,6 +278,11 @@ test('the commerce node generates selected shots, accepts a retry during generat
         assert.equal(await app.evaluate("commerceCalls.filter(call=>call.kind==='image').length"), 3);
         assert.equal(await app.evaluate("document.querySelector('[data-commerce-shot-id=detail] .commerce-image-set-shot-status').textContent"), '生成失败');
         assert.equal(await app.evaluate("document.querySelector('[data-commerce-shot-id=detail] .commerce-image-set-shot-error p').textContent"), 'Fixture detail failure');
+        const liveLogs = await app.evaluate(commerceLogs);
+        assert.ok(liveLogs.some(log => log.title.includes('生成方案') && log.status === '成功'));
+        assert.ok(liveLogs.some(log => log.title.includes('生成图片「商品特写」') && log.status === '失败'
+            && log.summary.includes('Fixture detail failure')));
+        assert.ok(liveLogs.some(log => log.title.includes('生成图片「详情首屏」') && log.status === '请求中'));
         const retryFailedShot = retryIcon('detail');
         assert.equal(await app.evaluate(`document.querySelector('${retryIcon('detail-overview')}').disabled`), true);
         assert.equal(await app.evaluate(`document.querySelector('${retryFailedShot}').disabled`), false,
@@ -292,6 +302,10 @@ test('the commerce node generates selected shots, accepts a retry during generat
         assert.deepEqual(await app.evaluate(openedShotIds), ['detail-overview'], 'retrying a failed shot does not toggle a card');
         await app.waitFor("document.querySelector('[data-commerce-shot-id=detail] [data-commerce-action=preview]')?.getAttribute('aria-pressed')==='true'");
         const requests = await app.evaluate("commerceCalls.filter(call=>call.kind==='image')");
+        const finishedLogs = await app.evaluate(commerceLogs);
+        assert.equal(finishedLogs.length, await app.evaluate('commerceCalls.length'), 'each provider request has one log entry');
+        assert.ok(finishedLogs.some(log => log.title.includes('生成图片「详情首屏」') && log.status === '成功'));
+        assert.ok(finishedLogs.some(log => log.title.includes('重试图片「商品特写」') && log.status === '成功'));
         assert.deepEqual(requests.map(request => request.shotId), ['detail', 'feature', 'detail-overview', 'detail']);
         assert.deepEqual(requests.map(request => request.size), ['1024x1024', '1024x1024', '864x1536', '1024x1024']);
         for (const request of requests) {

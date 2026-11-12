@@ -16,6 +16,8 @@ function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main',
         imageModelId: 'image', imageProviderId: 'provider', selectedShotIds, galleryAspect
     } } };
     const apiCalls = [];
+    const requestLogs = [];
+    const requestStatistics = [];
     const imagePrompts = new Map();
     const history = [];
     const assets = new Map();
@@ -31,7 +33,17 @@ function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main',
         },
         nodeConfigs: {}, documentRef: { getElementById: () => null }, windowRef: { requestAnimationFrame: noop },
         dataURLtoBlob: source => new Blob([Buffer.from(source.split(',')[1], 'base64')], { type: 'image/png' }),
-        getProxyHeaders: () => ({}), showToast: noop, addLog: noop, logRequestToPanel: noop, showResolutionBadge: noop,
+        getProxyHeaders: () => ({}), showToast: noop, addLog: noop, showResolutionBadge: noop,
+        logRequestToPanel: (title, url, requestBody, details) => {
+            const entry = { title, url, requestBody, ...details };
+            requestLogs.push(entry);
+            assert.equal(entry.requestStatus, 'pending');
+            return (requestStatus, result) => {
+                assert.equal(entry.requestStatus, 'pending', 'a request entry settles once');
+                Object.assign(entry, { requestStatus }, result);
+            };
+        },
+        recordNodeRequest: record => requestStatistics.push(record),
         getActiveWorkflowId: () => 'workflow', getImageAsset: async key => assets.get(key),
         saveHistoryEntry: async entry => { history.push(entry); return true; },
         saveWorkflowNodeMediaAssets: async images => images.map(image => {
@@ -53,6 +65,7 @@ function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main',
                         id, prompt: `${id}\n商品位于画面右侧，左上角留给文字，柔和侧光，温暖米色摄影风格。`, headline: '规划草稿', body: '规划正文'
                     }))
                 };
+                if (output instanceof Response) return output;
                 return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(output) }] } }] });
             }
             const prompt = multipart ? body.get('prompt') : parts[0].text;
@@ -68,9 +81,36 @@ function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main',
     });
     const execute = (action, image = reference, commerceShotId, signal = new AbortController().signal) => core.executeNode(
         node, { referenceImages: [image] }, signal, { commerceAction: action, commerceShotId });
-    return { node, execute, normalizeRunOptions: core.normalizeRunOptions, apiCalls, imagePrompts, history, assets,
+    return { node, execute, normalizeRunOptions: core.normalizeRunOptions, apiCalls, requestLogs, requestStatistics, imagePrompts, history, assets,
         setFailure: role => { failedRole = role; }, clearFailure: () => { failedRole = undefined; } };
 }
+
+test('commerce logs every planner and image request with its operation and outcome', async () => {
+    const { node, execute, apiCalls, requestLogs, requestStatistics, clearFailure } = createCommerceExecutionFixture({
+        selectedShotIds: ['main', 'detail', 'scene'], failedRole: 'detail',
+        beforePlanRequest: input => input.currentShot
+            ? Response.json({ error: 'Planner rejected the request' }, { status: 429 }) : undefined
+    });
+    await execute('plan');
+    await assert.rejects(execute('replan-shot', reference, 'scene'), /HTTP 429/);
+    node.data.commerceImageSet.plan.confirmed = true;
+    await execute('generate');
+    clearFailure();
+    await execute('retry', reference, 'detail');
+
+    assert.equal(requestLogs.length, apiCalls.length);
+    assert.deepEqual(requestLogs.map(log => [log.operation, log.shotId, log.requestStatus]), [
+        ['plan', undefined, 'success'], ['replan-shot', 'scene', 'failed'],
+        ['generate', 'detail', 'failed'], ['generate', 'scene', 'success'], ['retry', 'detail', 'success']
+    ]);
+    assert.ok(requestLogs.every(log => log.nodeType === 'ECommerceImageSet' && log.nodeId === node.id && log.requestBody));
+    assert.equal(requestLogs[1].status, 429);
+    assert.match(requestLogs[1].error, /HTTP 429/);
+    assert.ok(requestLogs[2].error, 'a response without a usable image has a failure message');
+    assert.deepEqual(requestStatistics.map(record => record.success), [true, false, false, true, true]);
+    assert.equal(requestStatistics[1].status, 429);
+    assert.ok(requestStatistics.every(record => record.nodeType === 'ECommerceImageSet' && !record.url.includes('fixture-key')));
+});
 
 test('commerce planning requires confirmation and unchanged original references before any images are generated', async () => {
     const { node, execute, apiCalls, history, assets } = createCommerceExecutionFixture();
@@ -341,7 +381,7 @@ test('stopping during progressive commerce generation retains the prior workflow
     const waiting = Promise.withResolvers();
     let interruptAttempt = false;
     const changedArtwork = 'data:image/png;base64,AwAA';
-    const { node, execute, apiCalls, history } = createCommerceExecutionFixture({
+    const { node, execute, apiCalls, history, requestLogs } = createCommerceExecutionFixture({
         selectedShotIds: ['main', 'angle', 'detail', 'scene'],
         beforeImageRequest: (role, signal) => {
             if (!interruptAttempt || role !== 'detail') return;
@@ -362,11 +402,13 @@ test('stopping during progressive commerce generation retains the prior workflow
     try {
         await Promise.race([waiting.promise, generation]);
         assert.equal(node.commerceShotPreviews.angle.image, changedArtwork);
+        assert.equal(requestLogs.at(-1).requestStatus, 'pending');
     } finally {
         controller.abort();
         await assert.rejects(generation, { name: 'AbortError' });
     }
     assert.deepEqual(apiCalls.slice(callCount).map(call => call.role), ['angle', 'detail']);
+    assert.deepEqual(requestLogs.slice(callCount).map(log => log.requestStatus), ['success', 'canceled']);
     assert.deepEqual(node.data.mediaAssetKeys, priorKeys);
     assert.deepEqual(node.data.commerceImageSet.results, priorResults);
     assert.equal(node.commerceShotPreviews, undefined);
