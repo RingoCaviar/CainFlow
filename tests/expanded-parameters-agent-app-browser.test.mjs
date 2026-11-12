@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { withAppBrowser, reloadAppBrowser, delay, waitForAutosave } from './helpers/app-browser.mjs';
+import { uploadImageOriginal } from './helpers/image-upload.mjs';
 
 const reference = 'data:image/png;base64,' + (await readFile(new URL('./fixtures/reference-red.png', import.meta.url))).toString('base64');
 const session = {
@@ -21,6 +22,21 @@ const session = {
 const saved = app => app.evaluate("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value)");
 const panelRect = app => app.evaluate("document.getElementById('image-parameter-panel').getBoundingClientRect().toJSON()");
 const canvasView = app => app.evaluate("({transform:document.getElementById('nodes-layer').style.transform,zoom:document.getElementById('zoom-level').textContent,nodes:[...document.querySelectorAll('#nodes-layer>.node')].map(node=>({id:node.id,left:node.style.left,top:node.style.top,width:node.offsetWidth,height:node.offsetHeight}))})");
+
+test('the Agent-side import parameters identify the node without duplicating its canvas image or navigation', { timeout: 20000 }, async () => {
+    const nodes = [{ id: 'original', type: 'ImageImport', x: 60, y: 60 }];
+    await withAppBrowser({ ...session, nodes }, async app => {
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 1036, height: 800, deviceScaleFactor: 1, mobile: false });
+        await uploadImageOriginal(app, 'original', reference);
+        await app.evaluate("document.getElementById('original').click();document.getElementById('btn-prompt-agent').click()");
+        const context = "document.querySelector('#image-parameter-panel .image-parameter-context')";
+        await app.waitFor(`${context}?.checkVisibility() && ${context}.textContent.includes('图片导入')`);
+        assert.equal(await app.evaluate(`${context}.querySelector('button, img') === null`), true,
+            'the target label has no duplicate thumbnail or locate control');
+        assert.ok(await app.evaluate("[...document.querySelectorAll('#original .node-body img')].some(img=>img.naturalWidth>0&&img.checkVisibility())"));
+        assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel #original-select-btn')?.checkVisibility()"));
+    });
+});
 
 async function open(app, id = 'first') {
     await app.evaluate("document.querySelectorAll('.notice-close').forEach(button=>button.click())");

@@ -64,6 +64,10 @@ resizing these surfaces pans the canvas, changes node coordinates, discards draf
 or changes the persisted panel-width preference. Locating a node is an explicit
 user action. Larger windows retain the existing overlap policy.
 
+Following image-first-canvas#082, the parameter context shows only the current
+node name. The thumbnail and locate action were removed to keep the anchored
+editor focused on parameters.
+
 ## Independent workflow conversations (2026-11-10, workflow-agent-isolation#001)
 
 Each workflow owns its Agent transcript, creative context and summaries, unsent

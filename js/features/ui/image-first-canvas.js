@@ -24,7 +24,7 @@ const emptyPreviewMessages = new Set(['无输入图片', '无输入视频', '运
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
     runCurrentNode, waitForNodeRun, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
-    panelManager = null, openModelSettings = () => {}, focusNode = () => {}, openResultPreview = () => {} }) {
+    panelManager = null, openModelSettings = () => {}, openResultPreview = () => {} }) {
     const views = new Map();
     const dragClasses = new Set(['selected', 'is-interacting', 'connection-insert-candidate', 'connection-shake-armed']);
     const presentationClasses = value => (value || '').split(/\s+/).filter(name => name && !dragClasses.has(name)).sort().join(' ');
@@ -49,9 +49,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     const scroll = panel.querySelector('.image-parameter-scroll');
     const targetContext = documentRef.createElement('div');
     targetContext.className = 'image-parameter-context';
-    targetContext.innerHTML = '<img alt="当前节点预览" hidden><strong></strong><button type="button">定位节点</button>';
     scroll.before(targetContext);
-    targetContext.querySelector('button').addEventListener('click', () => { if (current) focusNode(current.id); });
     const feedback = panel.querySelector('.image-parameter-feedback');
     const footer = panel.querySelector('.image-parameter-footer');
     const countSlot = panel.querySelector('.image-parameter-count-slot');
@@ -212,13 +210,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         setText(panelTitle, name);
         panelTitle.title = name;
         if (panel.dataset.mode === 'docked') return;
-        const title = targetContext.querySelector('strong');
-        if (title.textContent !== `当前编辑：${name}`) title.textContent = `当前编辑：${name}`;
-        const preview = targetContext.querySelector('img');
-        const source = (views.get(current)?.result?.querySelector('img') || current.el.querySelector('.node-body img'))?.getAttribute('src');
-        if (source && preview.getAttribute('src') !== source) preview.src = source;
-        preview.hidden = !source;
-        if (!source) preview.removeAttribute('src');
+        setText(targetContext, `当前编辑：${name}`);
         const scrollTop = scroll.scrollTop;
         const rect = current.el.getBoundingClientRect();
         const bounds = available();

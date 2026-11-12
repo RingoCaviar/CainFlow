@@ -719,7 +719,6 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
     openResultPreview: (images, index, onClose) => openFullscreenPreview(images[index], null, { images, index, onClose }),
     openAgent: () => promptAgentController.open(),
     openModelSettings: target => settingsControllerApi.openModelSettings(target),
-    focusNode: nodeId => focusCanvasNode(nodeId, { avoidAgentPanel: true }),
     runCurrentNode: (nodeId, { commerceAction, commerceShotId, imageRetryIndex, imageRetryBatchId } = {}) => runWorkflow({
         mode: 'selected-only', selectedNodeIds: [nodeId],
         ...(commerceAction ? { commerceNodeId: nodeId, commerceAction, commerceShotId } : {}),

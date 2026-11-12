@@ -47,11 +47,14 @@
 .image-parameter-configuration span { flex: 1 1 160px; }
 .image-parameter-configuration button { min-height: 32px; padding: 4px 10px; border: 1px solid var(--node-control-border); border-radius: 6px; background: var(--node-control-surface); color: var(--text-link); font: inherit; cursor: pointer; }
 @media (max-width: 1200px) {
-    body:has(.prompt-agent-panel.active) .image-parameter-context { display: flex; flex: none; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border-color); }
-    .image-parameter-context strong { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
-    .image-parameter-context img { width: 48px; height: 48px; object-fit: contain; border-radius: 4px; }
-    .image-parameter-context img[hidden] { display: none; }
-    .image-parameter-context button { flex: none; font: inherit; font-size: 13px; min-height: 30px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--surface-control); color: var(--text-primary); cursor: pointer; }
+    body:has(.prompt-agent-panel.active) .image-parameter-context {
+        display: block;
+        flex: none;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border-color);
+        font-weight: 600;
+        overflow-wrap: anywhere;
+    }
 }
 .image-parameter-panel.is-expanded { min-height: min(160px, var(--image-parameter-available-height, calc(100vh - 24px))); max-height: var(--image-parameter-available-height, calc(100vh - 24px)); }
 .image-parameter-panel :is(.image-parameter-drag-handle, [data-parameter-resize])[hidden] { display: none; }
@@ -1231,7 +1234,6 @@ html:root #canvas-container .node.image-first-card :is(.image-node-result-previe
 .image-parameter-panel .image-parameter-header { display: none; }
 .image-parameter-panel:not(.is-expanded)[data-node-type="ImageSave"]:not(:has(.save-no-path-warning:not(.hidden))) .image-first-parameter-content > .node-field { margin-right: 0; }
 .image-parameter-panel:not(.is-expanded)[data-node-type="CameraControl"] .image-camera-prompt-details > summary { padding-right: 0; }
-.image-parameter-panel .image-parameter-context { display: none; }
 
 /* Plain text uses the same unframed theme surface as image cards. */
 html:root #canvas-container .node.node-text {
@@ -1435,8 +1437,6 @@ html:root #canvas-container .node.node-text .text-multi-nav:not(.hidden) { paddi
 .image-parameter-references .image-reference-group.is-drop-target[data-drop-side="after"] .image-reference-item:last-child::after { right: 0; }
 
 @media (max-height: 540px) {
-    /* Keep the actual references/prompt scrollable when a wrapping toolbar and
-       canvas navigation leave little height; a duplicate target preview must
-       not consume the editor's entire content area. */
+    /* Give references and the prompt the available height in short windows. */
     body .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-context { display: none; }
 }
