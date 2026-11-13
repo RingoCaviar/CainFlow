@@ -111,6 +111,15 @@
         ],
         "createdAt": "2026-11-13T06:40:24.237Z",
         "reason": "Codex verified against d76ff6e: both matches are the loading and reduced-motion animation variants of the same indeterminate canvas progress bar. The element has progressbar semantics, appears only during actual workflow loading, and does not scroll content."
+      },
+      {
+        "rule": "dark-glow",
+        "value": "*",
+        "files": [
+          "tests/fixtures/node-edge-resize.html"
+        ],
+        "createdAt": "2026-11-13T07:53:14.184Z",
+        "reason": "Codex verified the sole #22d3ee finding is reproduced on the unmodified fixture and disappears when its production foundation stylesheet is omitted. This fixture checks resize cursors and port hit geometry and introduces no shadow. Production canvas and theme scans retain the rule."
       }
     ]
   }

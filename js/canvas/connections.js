@@ -2148,26 +2148,38 @@ export function createConnectionsApi({
             nearestTargetPort = nearest?.portEl || null;
             if (nearestTargetPort) setTargetClass(nearestTargetPort, 'connection-target-nearest', true);
         }
-        showBatchDragPreview(targetFeedback, nearest, clientX, clientY);
-        return nearest && { target: nearest.target, position: nearest.position };
+        const target = nearest && { target: nearest.target, position: nearest.position };
+        if (!batch) return target;
+
+        const previewSources = getBatchPreviewSources(targetFeedback, nearest);
+        showBatchDragPreview(layout, nearest, previewSources.length, clientX, clientY);
+        return {
+            ...target,
+            starts: previewSources.map(({ nodeId, portName }) => getPortPosition(nodeId, portName, 'output', layout.containerRect))
+        };
     }
 
     function setTargetClass(portEl, name, enabled) {
         if (portEl.classList.contains(name) !== enabled) portEl.classList.toggle(name, enabled);
     }
 
-    function showBatchDragPreview(feedback, nearest, clientX, clientY) {
-        const { batchSources, source, layout } = feedback;
-        if (!batchSources?.length || !layout.containerRect || !Number.isFinite(clientX) || !Number.isFinite(clientY)) {
+    function getBatchPreviewSources(feedback, nearest) {
+        const { batchSources, source } = feedback;
+        if (!nearest) return batchSources;
+        if (feedback.previewPort !== nearest.portEl) {
+            feedback.previewPort = nearest.portEl;
+            feedback.previewSources = planConnectionBatch(
+                batchSources.map(output => ({ outputs: [output] })), [nearest.target], source
+            ).acceptedSources;
+        }
+        return feedback.previewSources;
+    }
+
+    function showBatchDragPreview(layout, nearest, count, clientX, clientY) {
+        if (!count || !layout.containerRect || !Number.isFinite(clientX) || !Number.isFinite(clientY)) {
             batchDragPreview?.remove();
             batchDragPreview = null;
             return;
-        }
-        if (feedback.previewPort !== nearest?.portEl || feedback.previewCount === undefined) {
-            feedback.previewPort = nearest?.portEl;
-            feedback.previewCount = nearest
-                ? planConnectionBatch(batchSources.map(output => ({ outputs: [output] })), [nearest.target], source).count
-                : batchSources.length;
         }
         if (!batchDragPreview) {
             batchDragPreview = documentRef.createElement('div');
@@ -2176,7 +2188,7 @@ export function createConnectionsApi({
             canvasContainer.appendChild(batchDragPreview);
         }
         const { left, top, right, bottom } = layout.containerRect;
-        const text = `${nearest ? '连接 ' : ''}${feedback.previewCount} 个来源`;
+        const text = `${nearest ? '连接 ' : ''}${count} 个来源`;
         if (batchDragPreview.textContent !== text) batchDragPreview.textContent = text;
         batchDragPreview.classList.toggle('is-snapped', Boolean(nearest));
         batchDragPreview.style.setProperty('--preview-x', `${(clientX > right - 150 ? clientX - 14 : clientX + 14) - left}px`);
@@ -2231,12 +2243,12 @@ export function createConnectionsApi({
         const graphState = { ...state, connections: [...state.connections] };
         const connectedNodeIds = new Set();
         const connectionIds = new Set();
+        const acceptedSources = [];
         const { byId, incomingByNode, neighbors } = buildConnectionLookup(state.connections);
         // Every edge in the batch points at the same node, so its downstream reachability stays fixed.
         const targetNodeId = targets[0]?.nodeId;
         const reachable = getReachableNodes(neighbors, targetNodeId);
         const lookup = { byId, incomingByNode, createsCycle: fromId => reachable.has(fromId) };
-        let count = 0;
         for (const { outputs } of sources) {
             for (const output of outputs) {
                 if (lookup.createsCycle(output.nodeId)) continue;
@@ -2262,21 +2274,22 @@ export function createConnectionsApi({
                 connectedNodeIds.add(match.fromId);
                 connectedNodeIds.add(match.toId);
                 connectionIds.add(edge.id);
-                count += 1;
+                acceptedSources.push(output);
                 break;
             }
         }
-        return { connections: graphState.connections, count, connectedNodeIds, connectionIds };
+        return { connections: graphState.connections, acceptedSources, connectedNodeIds, connectionIds };
     }
 
     function commitConnectionBatch(plan) {
-        if (!plan.count) {
+        const count = plan.acceptedSources.length;
+        if (!count) {
             showToast('没有可连接的来源', 'info');
             return null;
         }
         try { pushHistory(); }
         catch (error) { showToast(error.message || '连接未完成，请重试', 'warning'); return null; }
-        commitConnections(plan.connections, `已连接 ${plan.count} 个来源`, {
+        commitConnections(plan.connections, `已连接 ${count} 个来源`, {
             nodeIds: [...plan.connectedNodeIds], connectionIds: [...plan.connectionIds]
         });
         return true;
@@ -2353,18 +2366,24 @@ export function createConnectionsApi({
         return applyInputConnectionPlan(planMoveMergeInput({ state, connectionId, direction }));
     }
 
-    function drawTempConnection(x1, y1, x2, y2, startsAtOutput = true) {
+    function drawTempConnection(x1, y1, x2, y2, startsAtOutput = true, starts = [{ x: x1, y: y1 }]) {
         const { x, y, zoom } = state.canvas;
-        const sx1 = x1 * zoom + x;
-        const sy1 = y1 * zoom + y;
-        const sx2 = x2 * zoom + x;
-        const sy2 = y2 * zoom + y;
-        const [fromX, fromY, toX, toY] = startsAtOutput
-            ? [sx1, sy1, sx2, sy2]
-            : [sx2, sy2, sx1, sy1];
-        tempConnection.setAttribute('d', createBezierPath(fromX, fromY, toX, toY, {
-            type: state.connectionLineType || 'bezier'
-        }));
+        const endX = x2 * zoom + x;
+        const endY = y2 * zoom + y;
+        const type = state.connectionLineType || 'bezier';
+        const path = starts.map((start, index) => {
+            const startX = start.x * zoom + x;
+            const startY = start.y * zoom + y;
+            // Aligned endpoints otherwise collapse into a single horizontal stroke.
+            const laneOffset = Math.abs(startY - endY) < 1
+                ? clampLaneOffset((index - (starts.length - 1) / 2) * 12)
+                : 0;
+            const options = { type, laneOffset };
+            return startsAtOutput
+                ? createBezierPath(startX, startY, endX, endY, options)
+                : createBezierPath(endX, endY, startX, startY, options);
+        }).join(' ');
+        setSvgAttribute(tempConnection, 'd', path);
     }
 
     function updatePortStyles() {

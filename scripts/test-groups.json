@@ -619,7 +619,7 @@
     "tests/toolbar-more-controls.test.mjs": {"tier": "fast", "groups": ["canvas", "ui"]},
     "tests/ui-layout-contract.test.mjs": {"tier": "fast", "groups": ["ui"]},
     "tests/undo-media-protection.test.mjs": {"tier": "fast", "groups": ["workflow", "media"]},
-    "tests/universal-input-batch-app-browser.test.mjs": {"tier": "browser", "groups": ["nodes", "canvas"], "sources": ["js/canvas/batch-connection-mode.js", "js/canvas/connections.js", "js/features/ui/context-menu-controller.js", "js/nodes/node-dom-bindings.js", "css/modules/03-canvas.css", "css/modules/08-context-menu.css", "css/features/menu-dialog-theme-skin.css"]},
+    "tests/universal-input-batch-app-browser.test.mjs": {"tier": "browser", "groups": ["nodes", "canvas"], "sources": ["js/canvas/batch-connection-mode.js", "js/canvas/canvas-interactions.js", "js/canvas/connections.js", "js/features/ui/context-menu-controller.js", "js/nodes/node-dom-bindings.js", "css/modules/03-canvas.css", "css/modules/04-node-core.css", "css/modules/08-context-menu.css", "css/features/menu-dialog-theme-skin.css"]},
     "tests/universal-input-connection-app-browser.test.mjs": {"tier": "browser", "groups": ["nodes", "canvas"]},
     "tests/universal-input-edit-paths.test.mjs": {"tier": "fast", "groups": ["nodes", "canvas"]},
     "tests/universal-input-execution-app-browser.test.mjs": {"tier": "browser", "groups": ["nodes", "canvas"]},

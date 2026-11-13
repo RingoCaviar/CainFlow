@@ -951,6 +951,7 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
     height: 36.4px;
     border-radius: 50%;
     border: 0;
+    --port-edge-gap: 4px;
     --port-color: var(--port-any);
     background: var(--port-color);
     transition: box-shadow var(--transition);
@@ -960,15 +961,15 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
 }
 
 .node-port.input .port-dot {
-    /* Center the half-circle seam on the 12px-inset shell edge. */
+    /* Offset the seam outward from the 12px-inset shell edge. */
     margin-left: -36.4px;
-    left: 6.2px;
+    left: calc(6.2px - var(--port-edge-gap));
     clip-path: path("M 18.2 0 A 18.2 18.2 0 0 0 18.2 36.4 Z");
 }
 
 .node-port.output .port-dot {
     margin-right: -36.4px;
-    right: 6.2px;
+    right: calc(6.2px - var(--port-edge-gap));
     clip-path: path("M 18.2 0 A 18.2 18.2 0 0 1 18.2 36.4 Z");
 }
 
