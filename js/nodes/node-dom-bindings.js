@@ -667,6 +667,7 @@ export function createNodeDomBindingsApi({
             e.stopPropagation();
             e.preventDefault();
             const nodeId = portEl.dataset.nodeId;
+            if (handleBatchConnectionNodeMouseDown?.(e, nodeId)) return;
             if (blockRunningNodeMutation(nodeId, e, '节点正在运行，暂不能修改连线')) return;
 
             const tgt = {
@@ -738,11 +739,14 @@ export function createNodeDomBindingsApi({
                 portEl.dataset.port,
                 portEl.dataset.direction
             );
+            const isOutput = portEl.dataset.direction === 'output';
+            const selectedNodeIds = isOutput ? selectionApi.getSelectedNodeIds() : [];
             state.connecting = {
                 nodeId: portEl.dataset.nodeId,
                 portName: portEl.dataset.port,
                 dataType: portEl.dataset.type,
-                isOutput: portEl.dataset.direction === 'output',
+                isOutput,
+                ...(selectedNodeIds.length > 1 && selectedNodeIds.includes(nodeId) ? { selectedNodeIds } : {}),
                 startX: startPosition.x,
                 startY: startPosition.y,
                 screenX: e.clientX,

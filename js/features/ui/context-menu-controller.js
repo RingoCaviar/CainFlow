@@ -62,6 +62,7 @@ export function createContextMenuControllerApi({
     detachCloneNode = null,
     renameNode = null,
     enterBatchConnectionMode = null,
+    getBatchConnectionSources = () => [],
     runWorkflow,
     getRunConflictInfo = () => ({ blocked: false, count: 0 }),
     buildNodeRequestPreview = null,
@@ -97,6 +98,19 @@ export function createContextMenuControllerApi({
     function ensureNodeSelected(nodeEl) {
         if (state.selectedNodes.has(nodeEl.id)) return;
         selectionApi.selectNode(nodeEl.id);
+    }
+
+    function updateBatchConnectionAction(item, hasSelection, hasMultiSelection) {
+        if (!item) return;
+        setElementVisible(item, hasSelection);
+        const sources = hasMultiSelection ? getBatchConnectionSources([...state.selectedNodes]) : [];
+        const disabled = hasMultiSelection && sources.length === 0;
+        item.setAttribute('aria-disabled', String(disabled));
+        const summary = documentRef.getElementById('context-menu-batch-connection-summary');
+        if (summary) {
+            summary.hidden = !hasMultiSelection;
+            summary.textContent = disabled ? '无可用来源' : `可用 ${sources.length} / ${state.selectedNodes.size}`;
+        }
     }
 
     function updateNodeActionVisibility({ hasNodeTarget, hasSelection }) {
@@ -142,7 +156,7 @@ export function createContextMenuControllerApi({
         applyRunActionState(runSelectedItem, showRunSelected ? selectedRunConflict : null, '只运行选中的节点');
         setElementVisible(requestBodyItem, hasNodeTarget && requestPreviewNodeTypes.has(targetNode?.type));
         setElementVisible(renameNodeItem, hasNodeTarget && !isCloneTarget);
-        setElementVisible(batchConnectionItem, state.selectedNodes.size === 1);
+        updateBatchConnectionAction(batchConnectionItem, hasSelection, hasMultiSelection);
         const hasReferenceImageConnections = hasNodeTarget && state.connections.some((connection) => (
             connection.to.nodeId === targetNode?.id && connection.to.port === 'referenceImages'
         ));
@@ -577,6 +591,7 @@ export function createContextMenuControllerApi({
             return;
         }
         if (item.classList.contains('is-disabled') || item.getAttribute('aria-disabled') === 'true') {
+            if (item.id === 'context-menu-batch-connection-mode') return;
             showToast?.(item.title || '当前运行范围内有节点正在运行，请等待完成后再运行', 'warning');
             closeContextMenu();
             return;
@@ -642,11 +657,9 @@ export function createContextMenuControllerApi({
             }
 
             if (item.id === 'context-menu-batch-connection-mode') {
-                const nodeId = state.selectedNodes.size === 1
-                    ? Array.from(state.selectedNodes)[0]
-                    : state.contextMenuNodeId;
-                if (nodeId && typeof enterBatchConnectionMode === 'function') {
-                    enterBatchConnectionMode(nodeId);
+                const selectedIds = [...state.selectedNodes];
+                if (selectedIds.length) {
+                    enterBatchConnectionMode?.(selectedIds.length === 1 ? selectedIds[0] : selectedIds);
                 }
                 return;
             }
@@ -723,8 +736,9 @@ export function createContextMenuControllerApi({
         const rect = menu.getBoundingClientRect();
         const viewportWidth = documentRef.defaultView?.innerWidth || documentRef.documentElement.clientWidth || 0;
         const viewportHeight = documentRef.defaultView?.innerHeight || documentRef.documentElement.clientHeight || 0;
-        const nextLeft = Math.max(padding, Math.min(clientX, viewportWidth - rect.width - padding));
-        const nextTop = Math.max(padding, Math.min(clientY, viewportHeight - rect.height - padding));
+        // The opening animation scales the visual bounds without changing the menu's layout size.
+        const nextLeft = Math.max(padding, Math.min(clientX, viewportWidth - (menu.offsetWidth || rect.width) - padding));
+        const nextTop = Math.max(padding, Math.min(clientY, viewportHeight - (menu.offsetHeight || rect.height) - padding));
         menu.style.left = `${nextLeft}px`;
         menu.style.top = `${nextTop}px`;
     }
@@ -817,6 +831,7 @@ export function createContextMenuControllerApi({
         event.preventDefault();
         if (state.isCutting || state.justCut) return;
 
+        ignoreNextContextMenuClick = false;
         closeConnectionCreatePopup();
         state.contextMenu = { x: event.clientX, y: event.clientY };
 

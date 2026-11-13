@@ -274,6 +274,7 @@ const connectionProjectionInteractions = {
     nodeAppearanceChanged: (nodeIds) => registry.connectionProjectionApi?.interactions.nodeAppearanceChanged(nodeIds),
     nodeGeometryChanged: (nodeIds) => registry.connectionProjectionApi?.interactions.nodeGeometryChanged(nodeIds),
     nodeResizeApplied: (nodeId) => registry.connectionProjectionApi?.interactions.nodeResizeApplied(nodeId),
+    topologyChanged: (change) => registry.connectionProjectionApi?.interactions.topologyChanged(change),
     nodeGeometrySettled: (nodeId, change) => registry.connectionProjectionApi?.interactions.nodeGeometrySettled(nodeId, change)
 };
 
@@ -631,6 +632,7 @@ const mediaControllerApi = createMediaControllerApi({
 });
 const connectionsApi = createConnectionsApi({
     onNodeGeometryChanged: nodeId => connectionProjectionInteractions.nodeGeometryChanged(nodeId),
+    onTopologyChanged: change => connectionProjectionInteractions.topologyChanged(change),
     state,
     canvasContainer,
     connectionsGroup,
@@ -894,6 +896,8 @@ function getBatchConnectionModeApi() {
             canvasContainer,
             connectPorts: (source, target) => connectionsApi.finishConnection(source, target),
             validateConnection: (source, target) => connectionsApi.getConnectionTargetError(source, target),
+            getBatchConnectionSources: connectionsApi.getBatchConnectionSources,
+            connectBatchToNode: connectionsApi.connectBatchToNode,
             pushHistory,
             updateAllConnections,
             updatePortStyles,
@@ -1598,7 +1602,8 @@ function getContextMenuControllerApi() {
                 }, workflowData, runInput);
             },
             buildNodeRequestPreview: (nodeId) => getExecutionCoreApi().buildNodeRequestPreview(nodeId),
-            enterBatchConnectionMode: (nodeId) => getBatchConnectionModeApi().enter(nodeId),
+            enterBatchConnectionMode: (selection) => getBatchConnectionModeApi().enter(selection),
+            getBatchConnectionSources: connectionsApi.getBatchConnectionSources,
             createNodeFromConnectionCandidate: (source, candidate, x, y) => createNodeFromConnectionCandidate(source, candidate, x, y),
             fitNodeToContent,
             updateAllConnections,
@@ -1990,6 +1995,8 @@ const workflowManagerApi = createWorkflowManagerApi({
             : record.error
     }),
     onWorkflowViewApplied: (workflow) => {
+        const batchMode = registry.batchConnectionModeApi;
+        if (batchMode?.isActive()) batchMode.exit();
         getWorkflowRuntimeManagerApi().refreshVisibleWorkflowRunState(workflow);
         registry.imageGenerationRevisionApi?.observeAll({ initialize: true });
         const tab = (state.workflowTabs || []).find((candidate) => candidate.workflowId === workflow?.workflowId);
