@@ -886,20 +886,28 @@ test('reordering a legacy reference batch wider than the gallery keeps its focus
 });
 
 
-test('long generation errors retain a compact wrapped summary and complete details', {timeout:30000},async()=>{
+test('long generation errors retain compact failure feedback and complete details', {timeout:30000},async()=>{
     await withAppBrowser({...session,nodes:[{id:'error-wrap',type:'ImageGenerate',x:100,y:100,width:300,apiConfigId:'image',providerId:'p',prompt:'test error'}],connections:[]},async app=>{
         const {evaluate,waitFor}=app;await controlImages(app);
         const message='参考图请求失败，请检查供应商配置与上传限制。'.repeat(8)+' request_id='+'x'.repeat(120);
         await evaluate(`window.failImage=true;window.failImageMessage=${JSON.stringify(message)};document.getElementById('error-wrap').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()`);
-        await waitFor("!document.querySelector('[data-node-id=error-wrap] .node-failure-summary').classList.contains('hidden')");
         await openImageParameters(app, 'error-wrap');
-        const result=await evaluate("(()=>{const el=document.querySelector('[data-node-id=error-wrap] .node-failure-summary');return {text:el.textContent,fits:el.scrollWidth<=el.clientWidth+1,height:el.clientHeight}})()");
-        assert.ok(result.text.startsWith(message.slice(0,30)));
-        assert.ok(result.text.length<=140,'card keeps the approved short failure reason');
-        assert.equal(result.fits,true,'summary has no horizontal overflow');
-        assert.ok(result.height>20 && result.height<=48,'summary wraps into a compact two-line area');
+        const details = '#image-parameter-panel .image-generation-batch [data-image-batch-error]:not([hidden])';
+        await waitFor(`document.querySelector('${details}')?.checkVisibility()`);
+        const result = await evaluate(`(() => {
+            const panel = document.getElementById('image-parameter-panel');
+            const batch = panel.querySelector('.image-generation-batch');
+            const row = batch.querySelector('[data-status="failed"]');
+            return { text: row.innerText, fits: row.scrollWidth <= row.clientWidth + 1,
+                height: row.clientHeight, showsLegacySummary: panel.querySelector('.node-failure-summary').checkVisibility() };
+        })()`);
+        assert.match(result.text, /生成失败/);
+        assert.ok(!result.text.includes(message.slice(0, 30)), 'the provider message stays in the details dialog');
+        assert.equal(result.showsLegacySummary, false, 'only one failure row is visible');
+        assert.equal(result.fits, true, 'failure row has no horizontal overflow');
+        assert.ok(result.height > 0 && result.height <= 48, 'failure row stays compact');
         if(await evaluate("document.getElementById('modal-error').classList.contains('active')")) await app.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
-        await evaluate("document.querySelector('[data-node-id=error-wrap] [data-image-run-action=details]').click()");
+        await evaluate(`document.querySelector('${details}').click()`);
         await waitFor("document.getElementById('modal-error').classList.contains('active')");
         await evaluate("if(!document.getElementById('btn-show-full-log').classList.contains('hidden'))document.getElementById('btn-show-full-log').click()");
         assert.ok((await evaluate("document.getElementById('error-modal-msg').textContent+' '+document.getElementById('error-modal-detail').textContent")).includes(message),'complete technical error remains readable');

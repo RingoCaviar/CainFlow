@@ -165,6 +165,7 @@ test('a held generation allows its node and an idle sibling to move together wit
 
 test('waiting and running clear this attempt output and failure while preserving outside failures and locking the open reference editor', { timeout: 90000 }, async () => {
     const connection = { id: 'input-source', from: { nodeId: 'source', port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, type: 'image', order: 0 };
+    const failureReason = '#image-parameter-panel .image-generation-batch [data-image-batch-error]:not([hidden])';
     await withAppBrowser({ ...configuration, nodes: [node('source', 20, 120), node('target', 500, 120, { apiConfigId: 'google' }),
         { id: 'replacement', type: 'ImageImport', x: 20, y: 550 }, node('outside', 1000, 120), node('disabled-old', 1450, 120)], connections: [connection] }, async app => {
         await controlled(app); await upload(app, 'replacement', 1);
@@ -208,13 +209,12 @@ test('waiting and running clear this attempt output and failure while preserving
         await expectSavedOutputCleared(app, 'target', oldKeys);
         await app.evaluate(`statusHold=[];statusFailures.target=1;statusMessages.target=${JSON.stringify(fullFailure)}`); await start(app, 'target', true);
         await app.waitFor("document.getElementById('target-run-status').textContent==='失败'&&document.getElementById('btn-stop').disabled");
-        assert.match(await app.evaluate("document.querySelector('[data-node-id=target] .node-failure-summary').textContent"), /本轮真实失败/);
-        assert.ok((await app.evaluate("document.querySelector('[data-node-id=target] .node-failure-summary').textContent")).length < fullFailure.length, 'the card presents a short cause rather than the whole provider payload');
         await app.evaluate("document.querySelector('#modal-error .modal-close')?.click()");
         await expectSavedOutputCleared(app, 'target', oldKeys);
-        assert.ok(await app.evaluate("(()=>{const summary=document.querySelector('[data-node-id=target] .node-failure-summary');return summary.scrollWidth<=summary.clientWidth+1})()"), 'unbroken provider words wrap within the short card summary');
         await open(app, 'target', 'more');
-        await click(app, '[data-node-id=target] [data-image-run-action=details]');
+        assert.match(await app.evaluate("document.querySelector('#image-parameter-panel .image-generation-batch').innerText"), /生成失败/);
+        assert.doesNotMatch(await app.evaluate("document.querySelector('#image-parameter-panel .image-generation-batch').innerText"), /ProviderUnbrokenFailureToken/);
+        await click(app, failureReason);
         await app.waitFor("!document.querySelector('.image-parameter-settings-popup:popover-open')");
         await app.waitFor("document.getElementById('modal-error').classList.contains('active')");
         assert.equal(await app.evaluate("document.getElementById('modal-error').classList.contains('active')"), true, 'the first direct click dismisses More settings and opens error details');
@@ -224,8 +224,9 @@ test('waiting and running clear this attempt output and failure while preserving
         assert.doesNotMatch(errorDetail, /key=test|Bearer test|"apikey"\s*:\s*"test"/i, 'complete diagnostics still redact provider secrets');
         await app.evaluate("document.querySelector('#modal-error .modal-close').click()");
         await open(app, 'target');
-        assert.ok(await app.evaluate(`document.getElementById('image-parameter-panel').contains(document.getElementById('target-error'))&&document.getElementById('target-error').textContent.includes(${JSON.stringify(fullFailure)})`), 'the lower parameter window also preserves the full error');
-        assert.ok(await app.evaluate("(()=>{const detail=document.getElementById('target-error');return detail.scrollWidth<=detail.clientWidth+1})()"));
+        assert.equal(await app.evaluate("document.getElementById('target-error').checkVisibility()"), false, 'the full provider error is only visible in the details dialog');
+        assert.equal(await app.evaluate("document.querySelector('[data-node-id=target] .node-failure-summary').checkVisibility()"), false, 'the batch failure row is the only visible failure feedback in parameters');
+        assert.equal(await app.evaluate(`document.querySelector(${JSON.stringify(failureReason)})?.checkVisibility()`), true);
         await app.evaluate("document.querySelector('#modal-error .modal-close')?.click();statusHold=['source']"); await start(app, 'target');
         await app.waitFor("statusPending.source===true&&document.getElementById('target-run-status').textContent==='待运行'");
         assert.equal(await app.evaluate("document.getElementById('target-error').textContent"), '');
