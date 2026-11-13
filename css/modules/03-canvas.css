@@ -240,6 +240,35 @@
     animation: dash-flow 0.5s linear infinite;
 }
 
+.connection-batch-preview {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: var(--layer-notice);
+    pointer-events: none;
+    transform: translate(var(--preview-x), var(--preview-y));
+    padding: 5px 10px;
+    border: 1px solid var(--notice-border);
+    border-radius: 8px;
+    background: var(--bg-node);
+    color: var(--text-primary);
+    box-shadow: var(--notice-shadow);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.4;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.connection-batch-preview.is-left {
+    transform: translate(calc(var(--preview-x) - 100%), var(--preview-y));
+}
+
+.connection-batch-preview.is-snapped {
+    border-color: color-mix(in srgb, var(--accent-primary) 55%, var(--notice-border));
+    background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-node));
+}
+
 @keyframes dash-flow {
     to {
         stroke-dashoffset: -12;

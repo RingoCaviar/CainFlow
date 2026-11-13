@@ -120,6 +120,21 @@ html:root .context-menu-item:is(.is-disabled, [aria-disabled="true"]) {
     opacity: 0.55;
 }
 
+html:root .context-menu-batch-connection-summary {
+    background: var(--menu-active-bg);
+    color: var(--menu-text);
+}
+
+html:root #context-menu-batch-connection-mode[aria-disabled="true"] {
+    color: var(--text-secondary);
+    opacity: 1;
+}
+
+html:root #context-menu-batch-connection-mode[aria-disabled="true"] .context-menu-batch-connection-summary {
+    background: var(--menu-item-surface);
+    color: inherit;
+}
+
 html:root .context-menu-item.delete {
     color: var(--menu-danger-text);
 }

@@ -98,9 +98,11 @@
     background: color-mix(in srgb, var(--accent-green, #10b981) 14%, var(--notice-bg));
 }
 
-.batch-connection-mode-notice .notice-icon {
-    background: color-mix(in srgb, var(--accent-green, #10b981) 18%, transparent);
-    color: var(--accent-green, #10b981);
+.batch-connection-mode-notice .update-canvas-notice-meta {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.4;
+    white-space: normal;
 }
 
 .update-canvas-notice {

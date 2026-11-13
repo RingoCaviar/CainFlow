@@ -1,5 +1,5 @@
 /**
- * 管理从单个锚点节点出发的批量连线模式。
+ * 管理通过右键菜单启动的批量连线模式。
  */
 import { isMultiConnectionInput } from '../nodes/reference-image-ports.js';
 import { isUniversalInputNode, resolveUniversalInput } from '../nodes/universal-input-policy.js';
@@ -16,6 +16,8 @@ export function createBatchConnectionModeApi({
     onConnectionsChanged = () => {},
     connectPorts = null,
     validateConnection = null,
+    getBatchConnectionSources = null,
+    connectBatchToNode = null,
     documentRef = document
 }) {
     const modeNoticeId = 'batch-connection-mode';
@@ -130,6 +132,7 @@ export function createBatchConnectionModeApi({
 
     function setModeVisual(active) {
         canvasContainer?.classList.toggle('batch-connection-mode-active', active);
+        canvasContainer?.classList.toggle('batch-connection-mode-multi', active && Boolean(state.batchConnectionMode?.sourceNodeIds));
         documentRef.body?.classList.toggle('batch-connection-mode-active', active);
         if (canvasContainer) {
             canvasContainer.dataset.batchConnectionMode = active ? 'active' : '';
@@ -142,12 +145,13 @@ export function createBatchConnectionModeApi({
     }
 
     function showModeNotice() {
+        const { sourceNodeIds } = state.batchConnectionMode;
         floatingNoticesApi?.upsertNotice?.({
             id: modeNoticeId,
             className: 'batch-connection-mode-notice',
             priority: 5,
-            icon: '↔',
-            content: '你正在处于批量连接模式',
+            title: sourceNodeIds ? `批量连线 · ${sourceNodeIds.length} 个来源` : '批量连线模式',
+            meta: '点击目标节点连线，按 Esc 退出',
             actions: [
                 {
                     label: '退出',
@@ -162,13 +166,13 @@ export function createBatchConnectionModeApi({
         floatingNoticesApi?.removeNotice?.(modeNoticeId);
     }
 
-    function collectSourceRelatedNodeIds(sourceNodeId) {
-        const relatedNodeIds = new Set([sourceNodeId]);
+    function collectSourceRelatedNodeIds(sourceNodeIds) {
+        const relatedNodeIds = new Set(sourceNodeIds);
         state.connections.forEach((connection) => {
-            if (connection.from?.nodeId === sourceNodeId) {
+            if (sourceNodeIds.has(connection.from?.nodeId)) {
                 relatedNodeIds.add(connection.to?.nodeId);
             }
-            if (connection.to?.nodeId === sourceNodeId) {
+            if (sourceNodeIds.has(connection.to?.nodeId)) {
                 relatedNodeIds.add(connection.from?.nodeId);
             }
         });
@@ -176,12 +180,13 @@ export function createBatchConnectionModeApi({
     }
 
     function refreshNodeVisuals() {
-        const sourceNodeId = state.batchConnectionMode?.sourceNodeId;
+        const { sourceNodeId, sourceNodeIds } = state.batchConnectionMode || {};
         if (!sourceNodeId) return;
-        const relatedNodeIds = collectSourceRelatedNodeIds(sourceNodeId);
+        const sources = new Set(sourceNodeIds || [sourceNodeId]);
+        const relatedNodeIds = sourceNodeIds ? sources : collectSourceRelatedNodeIds(sources);
         state.nodes.forEach((node, nodeId) => {
-            node.el?.classList.toggle('batch-connection-source', nodeId === sourceNodeId);
-            node.el?.classList.toggle('batch-connection-dimmed', !relatedNodeIds.has(nodeId));
+            node.el?.classList.toggle('batch-connection-source', sources.has(nodeId));
+            node.el?.classList.toggle('batch-connection-dimmed', !sourceNodeIds && !relatedNodeIds.has(nodeId));
         });
     }
 
@@ -191,11 +196,16 @@ export function createBatchConnectionModeApi({
         });
     }
 
-    function enter(sourceNodeId) {
+    function enter(selection) {
         if (state.canvasPlanApplying || state.historyTransitionInProgress) {
             showToast?.('画布正在修改，请稍后再连接', 'warning');
             return false;
         }
+        const sourceNodeIds = Array.isArray(selection)
+            ? getBatchConnectionSources?.(selection).map(source => source.nodeId) || []
+            : null;
+        const sourceNodeId = sourceNodeIds ? sourceNodeIds[0] : selection;
+        if (sourceNodeIds && !sourceNodeId) return false;
         const sourceNode = getNode(sourceNodeId);
         if (!sourceNode) {
             showToast?.('批量连线模式启动失败：节点不存在', 'warning');
@@ -206,14 +216,10 @@ export function createBatchConnectionModeApi({
             return false;
         }
 
-        if (state.batchConnectionMode?.sourceNodeId && state.batchConnectionMode.sourceNodeId !== sourceNodeId) {
-            getNode(state.batchConnectionMode.sourceNodeId)?.el?.classList.remove('batch-connection-source');
-        }
-        state.batchConnectionMode = { sourceNodeId };
+        state.batchConnectionMode = { sourceNodeId, sourceNodeIds };
         setModeVisual(true);
         refreshNodeVisuals();
         showModeNotice();
-        showToast?.('已进入批量连线模式，点击其他节点自动连接；按 Esc 退出', 'info', 4500);
         return true;
     }
 
@@ -232,7 +238,7 @@ export function createBatchConnectionModeApi({
     }
 
     function connectTo(targetNodeId) {
-        const sourceNodeId = state.batchConnectionMode?.sourceNodeId;
+        const { sourceNodeId, sourceNodeIds } = state.batchConnectionMode || {};
         if (!sourceNodeId) return false;
         if (state.canvasPlanApplying || state.historyTransitionInProgress) {
             showToast?.('画布正在修改，请稍后再连接', 'warning');
@@ -240,6 +246,14 @@ export function createBatchConnectionModeApi({
         }
         if (!targetNodeId || !getNode(targetNodeId)) {
             showToast?.('目标节点不存在', 'warning');
+            return true;
+        }
+        if (sourceNodeIds) {
+            if (!sourceNodeIds.some(id => getNode(id))) {
+                exit();
+                return true;
+            }
+            connectBatchToNode?.(sourceNodeIds, targetNodeId);
             return true;
         }
         if (sourceNodeId === targetNodeId) {
@@ -305,6 +319,13 @@ export function createBatchConnectionModeApi({
         return true;
     }
 
+    function isNoticeNavigation(event) {
+        return event.key === 'Tab' || (
+            (event.key === 'Enter' || event.key === ' ') && !event.ctrlKey && !event.metaKey && !event.altKey &&
+            event.target?.closest?.('.batch-connection-mode-notice button')
+        );
+    }
+
     function initBatchConnectionMode() {
         documentRef.addEventListener('keydown', (event) => {
             if (!isActive()) return;
@@ -312,13 +333,14 @@ export function createBatchConnectionModeApi({
                 exit({ showToast: true });
                 return;
             }
+            if (isNoticeNavigation(event)) return;
             event.preventDefault();
             event.stopImmediatePropagation();
         }, true);
 
         documentRef.addEventListener('keyup', (event) => {
             if (!isActive()) return;
-            if (event.key === 'Escape') return;
+            if (event.key === 'Escape' || isNoticeNavigation(event)) return;
             event.preventDefault();
             event.stopImmediatePropagation();
         }, true);

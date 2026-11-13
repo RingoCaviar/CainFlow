@@ -94,7 +94,8 @@ function createHarness(connectionCount, {
     running = false,
     pushHistory = () => {},
     scheduleSave = () => {},
-    onConnectionsChanged = () => {}
+    onConnectionsChanged = () => {},
+    onTopologyChanged
 } = {}) {
     const frames = [];
     const paths = [];
@@ -206,6 +207,7 @@ function createHarness(connectionCount, {
         showToast: () => {},
         scheduleSave,
         onConnectionsChanged,
+        onTopologyChanged,
         documentRef,
         connectionRenderer,
         performanceMonitor
@@ -245,6 +247,53 @@ function createReferenceHarness(type, sourceCount, callbacks) {
     });
     return harness;
 }
+
+test('connecting a new video reference appends it after existing references', () => {
+    const { api, state } = createReferenceHarness('VideoGenerate', 2);
+    state.connections.forEach((edge, order) => { edge.order = order; });
+    state.nodes.set('new', createNode('new', 0, createPort('image', 'output', 120), createPort('image', 'input', 0)));
+    const existing = state.connections.slice();
+    assert.equal(api.finishConnection(
+        { nodeId: 'new', portName: 'image', dataType: 'image', isOutput: true },
+        { nodeId: 'to', port: 'referenceImages', type: 'image', dir: 'input' }
+    ), true);
+    assert.deepEqual(state.connections.slice(0, 2), existing);
+    const { from, to, order } = state.connections[2];
+    assert.deepEqual({ from, to, order }, {
+        from: { nodeId: 'new', port: 'image' }, to: { nodeId: 'to', port: 'referenceImages' }, order: 2
+    });
+});
+
+test('a batch drag to a single input keeps the dragged source and removes the old path', () => {
+    let projection;
+    const { api, state, paths, frames } = createHarness(1, {
+        onTopologyChanged: change => projection.interactions.topologyChanged(change)
+    });
+    projection = createConnectionProjection({
+        requestAnimationFrameRef: callback => frames.push(callback),
+        cancelAnimationFrameRef: () => {},
+        updateDirtyConnections: api.updateDirtyConnections,
+        markConnectionDirty: api.markConnectionDirty,
+        invalidateNodePortCache: api.invalidateNodePortCache
+    });
+    for (const id of ['dragged', 'other']) {
+        const output = createPort('text', 'output', 120);
+        Object.assign(output.dataset, { nodeId: id, type: 'text' });
+        state.nodes.set(id, createNode(id, 0, output, createPort('text', 'input', 0)));
+    }
+    api.updateAllConnections();
+    const oldPath = paths.find(path => path.getAttribute('data-conn-id') === 'connection-1');
+    assert.ok(oldPath);
+
+    assert.equal(api.finishConnection({
+        nodeId: 'dragged', portName: 'text', dataType: 'text', isOutput: true,
+        dragged: true, selectedNodeIds: ['other', 'dragged']
+    }, { nodeId: 'to', port: 'text', type: 'text', dir: 'input' }), true);
+    frames.shift()();
+    assert.deepEqual(state.connections.map(edge => edge.from.nodeId), ['dragged']);
+    assert.equal(oldPath.removed, true);
+    assert.ok(paths.some(path => path.getAttribute('data-conn-id') === state.connections[0].id && !path.removed));
+});
 
 for (const [type, fixedPorts] of referenceTargets) {
     test(`${type} reorders and disconnects only its reference image sources`, () => {

@@ -58,6 +58,17 @@
     cursor: not-allowed;
 }
 
+.context-menu-batch-connection-summary {
+    margin-inline-start: auto;
+    padding: 2px 6px;
+    border-radius: var(--radius-xs);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.4;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
 .context-menu-item-submenu {
     justify-content: space-between;
 }
@@ -108,4 +119,10 @@ button.context-menu-item {
     line-height: inherit;
     text-align: left;
     box-shadow: none;
+}
+
+#context-menu-batch-connection-mode {
+    width: max-content;
+    min-width: 100%;
+    white-space: nowrap;
 }

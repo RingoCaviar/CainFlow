@@ -595,6 +595,17 @@ html:root #canvas-container .node.batch-connection-source::after {
 }
 html:root #canvas-container .node.batch-connection-dimmed .node-glass-bg { border-color: var(--node-batch-dimmed-border); }
 html:root #canvas-container .node.batch-connection-dimmed { opacity: var(--node-batch-dimmed-opacity); filter: var(--node-batch-dimmed-filter); }
+html:root #canvas-container.batch-connection-mode-multi .node.batch-connection-source::before {
+    inset: calc(-4px / var(--canvas-zoom, 1));
+    border-width: calc(2px / var(--canvas-zoom, 1));
+    border-radius: calc(var(--radius-node) + 4px);
+    box-shadow: none;
+}
+html:root #canvas-container.batch-connection-mode-multi .node.batch-connection-source::after { content: none; }
+html:root #canvas-container.batch-connection-mode-multi .node.batch-connection-source > .node-glass-bg {
+    border-width: 1px;
+    box-shadow: none;
+}
 html:root #canvas-container .node.connection-insert-candidate .node-glass-bg {
     border-color: var(--node-connection-insert-border);
     box-shadow: 0 0 0 calc(2px / var(--canvas-zoom, 1)) var(--node-connection-insert-ring), 0 0 28px var(--node-connection-insert-glow), var(--node-shell-shadow);

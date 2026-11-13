@@ -23,7 +23,6 @@ import { createReferenceImageCatalog } from '../js/features/media/reference-imag
 import { createCanvasImageSourceId } from '../js/features/media/reference-image-identity.js';
 import { registerPromptImageMention, resolvePromptImageMentions } from '../js/nodes/prompt-image-mentions.js';
 
-const connectionsSource = await readFile(new URL('../js/canvas/connections.js', import.meta.url), 'utf8');
 const runnerSource = await readFile(new URL('../js/features/execution/workflow-runner.js', import.meta.url), 'utf8');
 const requestUtilsSource = await readFile(new URL('../js/features/execution/provider-request-utils.js', import.meta.url), 'utf8');
 const contextMenuSource = await readFile(new URL('../js/features/ui/context-menu-controller.js', import.meta.url), 'utf8');
@@ -494,10 +493,7 @@ test('null and undefined orders retain legacy numbered-port ranking instead of b
     assert.deepEqual(migrated.map(edge => [edge.id, edge.order]), [['ten', 2], ['seven', 1], ['canonical', 0]]);
 });
 
-test('connection and execution contracts retain multiple reference image sources', () => {
-    assert.match(connectionsSource, /getGenerationNodeInputConnectionPolicy\(toNode, toPort\)/);
-    assert.match(connectionsSource, /projectedPolicy\?\.multiple \?\? isMultiConnectionInput\(toNode\?\.type, toPort\)/);
-    assert.match(connectionsSource, /if \(!isMultiConnection\) \{[\s\S]*?state\.connections = state\.connections\.filter/);
+test('execution retains multiple reference image sources', () => {
     assert.match(runnerSource, /isMultiConnectionInput\(node\?\.type, connection\.to\.port\)[\s\S]*?appendReferenceImages\([\s\S]*?outputValue/);
     assert.match(requestUtilsSource, /key === 'referenceImages'/);
     assert.match(requestUtilsSource, /return normalizeImageList\(inputs\.referenceImages\)/);

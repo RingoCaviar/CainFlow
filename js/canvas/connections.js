@@ -34,6 +34,7 @@ export function createConnectionsApi({
     scheduleSave,
     onConnectionsChanged = () => {},
     onNodeGeometryChanged = () => {},
+    onTopologyChanged = null,
     addNode = null,
     prepareHistoryEdit = null,
     discardCreatedNode = null,
@@ -130,6 +131,7 @@ export function createConnectionsApi({
     let targetLayout = null;
     let targetFeedback = null;
     let nearestTargetPort = null;
+    let batchDragPreview = null;
     const highlightedTargetPorts = new Set();
     let targetLayoutObserver = null;
     let targetLayoutLayer = null;
@@ -185,7 +187,6 @@ export function createConnectionsApi({
         });
 
         connectionIndexSignature = getConnectionSignature();
-        dirtyConnectionIds.clear();
         invalidateConnectionLaneCache();
     }
 
@@ -950,7 +951,7 @@ export function createConnectionsApi({
             const targetPort = getPortElement(targetNode, currentCandidate.matchPortName, currentCandidate.matchDirection);
             const target = { nodeId, port: currentCandidate.matchPortName,
                 type: targetPort?.dataset.type || source.dataType, dir: currentCandidate.matchDirection };
-            const connected = finishConnection({ ...source, historyPushed: true }, target);
+            const connected = finishConnection({ ...source, dragged: false, historyPushed: true }, target);
             if (!connected) {
                 rollback();
                 return false;
@@ -1807,7 +1808,7 @@ export function createConnectionsApi({
         return true;
     }
 
-    function resolveConnection(src, tgt, connectionLookup) {
+    function resolveConnection(src, tgt, connectionLookup, graphState) {
         const fromId = src.isOutput ? src.nodeId : tgt.nodeId;
         const fromPort = src.isOutput ? src.portName : tgt.port;
         const toId = src.isOutput ? tgt.nodeId : src.nodeId;
@@ -1819,7 +1820,7 @@ export function createConnectionsApi({
         if (isUniversalInputNode(targetNode)) {
             if (!output) return { error: '来源输出已变化，请重新连接' };
             if (src.isOutput && src.dataType !== type) return { error: '来源输出类型已变化，请重新拖线' };
-            policy = resolveUniversalInput({ state, sourceNode, sourcePort: fromPort, sourceType: type,
+            policy = resolveUniversalInput({ state: graphState, sourceNode, sourcePort: fromPort, sourceType: type,
                 targetNode, role: toPort, ignoreConnectionId: src.rewiredFromConnection?.id || null, connectionLookup });
             if (policy.error) return policy;
             toPort = policy.port;
@@ -1828,69 +1829,68 @@ export function createConnectionsApi({
     }
 
     function getConnectionTargetError(src, tgt) {
-        return validateConnectionTarget(src, tgt);
+        return checkConnectionTarget(src, tgt).error || null;
     }
 
-    function validateConnectionTarget(src, tgt, connectionLookup) {
-        if (state.canvasPlanApplying || state.historyTransitionInProgress) return '画布正在修改，请稍后再连接';
-        if (!src || !tgt || !getNodeById(src.nodeId) || !getNodeById(tgt.nodeId)) return '端口不存在';
-        if (isNodeRunning(src.nodeId) || isNodeRunning(tgt.nodeId)) return '节点正在运行，暂不能修改连线';
+    function checkConnectionTarget(src, tgt, connectionLookup, graphState = state) {
+        if (state.canvasPlanApplying || state.historyTransitionInProgress) return { error: '画布正在修改，请稍后再连接' };
+        if (!src || !tgt || !getNodeById(src.nodeId) || !getNodeById(tgt.nodeId)) return { error: '端口不存在' };
+        if (isNodeRunning(src.nodeId) || isNodeRunning(tgt.nodeId)) return { error: '节点正在运行，暂不能修改连线' };
         const rewiredId = src.rewiredFromConnection?.id;
         const rewiredConnection = rewiredId && (connectionLookup
             ? connectionLookup.byId.get(rewiredId)
-            : state.connections.find((connection) => connection.id === rewiredId));
-        if (rewiredConnection && hasRunningEndpoint(rewiredConnection)) return '节点正在运行，暂不能修改连线';
-        if (src.nodeId === tgt.nodeId) return '不能连接同一节点';
-        if (src.isOutput && tgt.dir === 'output') return '不能连接两个输出';
-        if (!src.isOutput && tgt.dir === 'input') return '不能连接两个输入';
+            : graphState.connections.find((connection) => connection.id === rewiredId));
+        if (rewiredConnection && hasRunningEndpoint(rewiredConnection)) return { error: '节点正在运行，暂不能修改连线' };
+        if (src.nodeId === tgt.nodeId) return { error: '不能连接同一节点' };
+        if (src.isOutput && tgt.dir === 'output') return { error: '不能连接两个输出' };
+        if (!src.isOutput && tgt.dir === 'input') return { error: '不能连接两个输入' };
         if (state.connecting === src) {
             const sourcePort = getPortElement(getNodeById(src.nodeId), src.portName, src.isOutput ? 'output' : 'input');
             if (!sourcePort || sourcePort.isConnected === false || sourcePort.dataset.port !== src.portName ||
                 sourcePort.dataset.type !== src.dataType || sourcePort.classList.contains('hidden')) {
-                return '来源端口已变化，请重新连接';
+                return { error: '来源端口已变化，请重新连接' };
             }
         }
 
         const targetType = src.isOutput ? (tgt.type || tgt.dataType) : src.dataType;
         const sourceType = src.isOutput ? src.dataType : (tgt.type || tgt.dataType);
-        const resolved = resolveConnection(src, tgt, connectionLookup);
-        if (resolved.error) return resolved.error;
+        const resolved = resolveConnection(src, tgt, connectionLookup, graphState);
+        if (resolved.error) return resolved;
         if (!resolved.policy && targetType !== 'any' && sourceType !== targetType) {
-            return '类型不匹配';
+            return { error: '类型不匹配' };
         }
 
         const { fromId, fromPort, toId, toPort } = resolved;
         const toNode = getNodeById(toId);
         const projectedPolicy = getGenerationNodeInputConnectionPolicy(toNode, toPort);
         if (projectedPolicy && !projectedPolicy.supported) {
-            return '当前模型不支持此输入端口';
+            return { error: '当前模型不支持此输入端口' };
         }
         const isMultiConnection = projectedPolicy?.multiple ?? isMultiConnectionInput(toNode?.type, toPort);
 
-        const incoming = connectionLookup ? (connectionLookup.incomingByNode.get(toId) || []) : state.connections;
+        const incoming = connectionLookup ? (connectionLookup.incomingByNode.get(toId) || []) : graphState.connections;
         const inputConnections = incoming.filter((conn) => conn.to.nodeId === toId && conn.to.port === toPort);
         if (inputConnections.some((conn) => (!rewiredId || conn.id !== rewiredId) && conn.from.nodeId === fromId && conn.from.port === fromPort)) {
-            return '连接已存在';
+            return { error: '连接已存在' };
         }
 
         const maximumConnections = projectedPolicy?.maxCount ?? MAX_REFERENCE_IMAGE_COUNT;
         if (!resolved.policy && isMultiConnection && inputConnections.length >= maximumConnections) {
-            return `此输入端口最多连接 ${maximumConnections} 张图片`;
+            return { error: `此输入端口最多连接 ${maximumConnections} 张图片` };
         }
 
         const replacedConnection = isMultiConnection ? null : inputConnections[0];
         if (replacedConnection && hasRunningEndpoint(replacedConnection)) {
-            return '节点正在运行，暂不能修改连线';
+            return { error: '节点正在运行，暂不能修改连线' };
         }
-        return null;
+        return { ...resolved, isMultiConnection, inputConnections, rewiredConnection };
     }
 
-    function buildTargetConnectionLookup(source) {
+    function buildConnectionLookup(connections, { reverse = false, ignoredId } = {}) {
         const byId = new Map();
         const incomingByNode = new Map();
         const neighbors = new Map();
-        const ignoredId = source?.rewiredFromConnection?.id;
-        for (const connection of state.connections) {
+        for (const connection of connections) {
             if (connection.id) byId.set(connection.id, connection);
             const fromId = connection.from?.nodeId;
             const toId = connection.to?.nodeId;
@@ -1898,18 +1898,30 @@ export function createConnectionsApi({
             if (!incomingByNode.has(toId)) incomingByNode.set(toId, []);
             incomingByNode.get(toId).push(connection);
             if (!ignoredId || connection.id !== ignoredId) {
-                // A fixed output searches ancestors. A fixed input searches descendants.
-                addToSetMap(neighbors, source?.isOutput ? toId : fromId, source?.isOutput ? fromId : toId);
+                addToSetMap(neighbors, reverse ? toId : fromId, reverse ? fromId : toId);
             }
         }
+        return { byId, incomingByNode, neighbors };
+    }
+
+    function getReachableNodes(neighbors, startId) {
         const reachable = new Set();
-        const queue = [source?.nodeId];
+        const queue = [startId];
         while (queue.length) {
             const nodeId = queue.pop();
             if (!nodeId || reachable.has(nodeId)) continue;
             reachable.add(nodeId);
             for (const neighbor of neighbors.get(nodeId) || []) queue.push(neighbor);
         }
+        return reachable;
+    }
+
+    function buildTargetConnectionLookup(source) {
+        // A fixed output searches ancestors. A fixed input searches descendants.
+        const { byId, incomingByNode, neighbors } = buildConnectionLookup(state.connections, {
+            reverse: source?.isOutput, ignoredId: source?.rewiredFromConnection?.id
+        });
+        const reachable = getReachableNodes(neighbors, source?.nodeId);
         return {
             byId,
             incomingByNode,
@@ -1958,6 +1970,41 @@ export function createConnectionsApi({
         return { nodeId, port, type, dir };
     }
 
+    function getVisibleConnectionPorts(nodeId, direction) {
+        const ports = getNodeById(nodeId)?.el?.querySelectorAll(`.node-port[data-direction="${direction}"]`) || [];
+        return Array.from(ports)
+            .filter(port => port.isConnected !== false && port.hidden !== true && port.offsetParent !== null &&
+                !port.classList.contains('hidden') && !port.classList.contains('image-first-canonical-input'))
+            .map(readConnectionTarget)
+            .filter(port => port.nodeId === nodeId && port.port && port.type);
+    }
+
+    function getBatchConnectionSources(nodeIds) {
+        return Array.from(new Set(nodeIds)).flatMap(nodeId => {
+            if (isNodeRunning(nodeId)) return [];
+            const outputs = getVisibleConnectionPorts(nodeId, 'output').map(port => ({
+                nodeId, portName: port.port, dataType: port.type, isOutput: true
+            }));
+            return outputs.length ? [{ nodeId, outputs }] : [];
+        });
+    }
+
+    function isBatchDrag(source) {
+        return Boolean(source?.isOutput && source.dragged && source.selectedNodeIds?.length > 1);
+    }
+
+    function getBatchDragSources(source) {
+        const groups = getBatchConnectionSources([source.nodeId, ...source.selectedNodeIds]);
+        const anchor = groups[0]?.nodeId === source.nodeId && groups[0].outputs.some(port =>
+            port.portName === source.portName && port.dataType === source.dataType);
+        if (!anchor) return [];
+        return [source, ...groups.slice(1).flatMap(({ outputs }) => {
+            const compatible = outputs.filter(port => port.dataType === source.dataType);
+            const preferred = compatible.find(port => port.portName === source.portName) || compatible[0];
+            return preferred ? [preferred] : [];
+        })];
+    }
+
     function measureConnectionTarget(portEl) {
         const dot = portEl.querySelector('.port-dot');
         const rect = dot?.getBoundingClientRect();
@@ -1992,7 +2039,7 @@ export function createConnectionsApi({
         return targetLayout;
     }
 
-    function findNearestConnectionTarget(src, clientX, clientY, radius, layout, connectionLookup) {
+    function findNearestConnectionTarget(clientX, clientY, radius, layout, canConnect) {
         let nearest = null;
         let bestDistanceSquared = radius * radius;
         for (const entry of nearbyTargetPorts(layout, clientX, clientY, radius)) {
@@ -2003,7 +2050,7 @@ export function createConnectionsApi({
             if (distanceSquared > bestDistanceSquared || (distanceSquared === bestDistanceSquared && order < nearest?.order)) continue;
             if (portEl.isConnected === false || portEl.classList.contains('hidden') || portEl.offsetParent === null) continue;
             const target = readConnectionTarget(portEl);
-            if (validateConnectionTarget(src, target, connectionLookup)) continue;
+            if (!canConnect(target)) continue;
             bestDistanceSquared = distanceSquared;
             nearest = { target, entry, order };
         }
@@ -2038,9 +2085,36 @@ export function createConnectionsApi({
         if (![clientX, clientY, radius].every(Number.isFinite) || radius < 0) return null;
         // The mouseup coordinates and layout can both have changed since the last feedback frame.
         invalidateTargetLayout();
-        const nearest = findNearestConnectionTarget(src, clientX, clientY, radius, getTargetLayout(), buildTargetConnectionLookup(src));
+        const { canConnect } = createConnectionTargetCheck(src);
+        const nearest = findNearestConnectionTarget(clientX, clientY, radius, getTargetLayout(), canConnect);
         if (!nearest) return null;
         return { target: nearest.target, position: nearest.position };
+    }
+
+    function createConnectionTargetCheck(source) {
+        if (!isBatchDrag(source)) {
+            const lookup = buildTargetConnectionLookup(source);
+            return { canConnect: target => !checkConnectionTarget(source, target, lookup).error };
+        }
+        const batchSources = getBatchDragSources(source);
+        const { byId, incomingByNode, neighbors } = buildConnectionLookup(state.connections);
+        const availableTargets = new Map();
+        function canConnect(target) {
+            if (target.dir !== 'input' || !batchSources.length) return false;
+            if (target.type !== 'any' && target.type !== source.dataType && !isUniversalInputNode(getNodeById(target.nodeId))) return false;
+            const key = `${target.nodeId}:${target.port}:${target.type}`;
+            if (availableTargets.has(key)) return availableTargets.get(key);
+            const reachable = getReachableNodes(neighbors, target.nodeId);
+            const lookup = { byId, incomingByNode, createsCycle: fromId => reachable.has(fromId) };
+            const available = batchSources.some(candidate => {
+                if (lookup.createsCycle(candidate.nodeId)) return false;
+                const result = checkConnectionTarget(candidate, target, lookup);
+                return !result.error && (candidate === source || result.isMultiConnection || !result.inputConnections.length);
+            });
+            availableTargets.set(key, available);
+            return available;
+        }
+        return { batchSources, canConnect };
     }
 
     function updateConnectionTargetFeedback(src, clientX = NaN, clientY = NaN) {
@@ -2051,32 +2125,63 @@ export function createConnectionsApi({
         const blocked = !!(state.canvasPlanApplying || state.historyTransitionInProgress);
         const modelSettings = state.models;
         const previousFeedback = targetFeedback;
+        const batch = isBatchDrag(src);
         const graphChanged = !previousFeedback || previousFeedback.source !== src || previousFeedback.connections !== connections ||
-            previousFeedback.connectionCount !== connections.length;
+            previousFeedback.connectionCount !== connections.length || previousFeedback.batch !== batch;
         if (graphChanged || previousFeedback.running !== running || previousFeedback.blocked !== blocked ||
             previousFeedback.modelSettings !== modelSettings || previousFeedback.layout !== layout) {
-            const lookup = graphChanged ? buildTargetConnectionLookup(src) : previousFeedback.lookup;
-            targetFeedback = { source: src, connections, connectionCount: connections.length, running, blocked, modelSettings, layout, lookup };
+            const { batchSources, canConnect } = createConnectionTargetCheck(src);
+            targetFeedback = { source: src, connections, connectionCount: connections.length,
+                running, blocked, modelSettings, layout, batch, batchSources, canConnect };
             for (const { portEl, center } of layout.entries) {
-                const available = !!center && !validateConnectionTarget(src, readConnectionTarget(portEl), lookup);
+                const available = !!center && canConnect(readConnectionTarget(portEl));
                 highlightedTargetPorts.add(portEl);
                 setTargetClass(portEl, 'connection-target-available', available);
                 setTargetClass(portEl, 'connection-target-unavailable', !available);
             }
         }
         const nearest = Number.isFinite(clientX) && Number.isFinite(clientY)
-            ? findNearestConnectionTarget(src, clientX, clientY, TARGET_SNAP_RADIUS, layout, targetFeedback.lookup)
+            ? findNearestConnectionTarget(clientX, clientY, TARGET_SNAP_RADIUS, layout, targetFeedback.canConnect)
             : null;
         if (nearestTargetPort !== nearest?.portEl) {
             if (nearestTargetPort) setTargetClass(nearestTargetPort, 'connection-target-nearest', false);
             nearestTargetPort = nearest?.portEl || null;
             if (nearestTargetPort) setTargetClass(nearestTargetPort, 'connection-target-nearest', true);
         }
+        showBatchDragPreview(targetFeedback, nearest, clientX, clientY);
         return nearest && { target: nearest.target, position: nearest.position };
     }
 
     function setTargetClass(portEl, name, enabled) {
         if (portEl.classList.contains(name) !== enabled) portEl.classList.toggle(name, enabled);
+    }
+
+    function showBatchDragPreview(feedback, nearest, clientX, clientY) {
+        const { batchSources, source, layout } = feedback;
+        if (!batchSources?.length || !layout.containerRect || !Number.isFinite(clientX) || !Number.isFinite(clientY)) {
+            batchDragPreview?.remove();
+            batchDragPreview = null;
+            return;
+        }
+        if (feedback.previewPort !== nearest?.portEl || feedback.previewCount === undefined) {
+            feedback.previewPort = nearest?.portEl;
+            feedback.previewCount = nearest
+                ? planConnectionBatch(batchSources.map(output => ({ outputs: [output] })), [nearest.target], source).count
+                : batchSources.length;
+        }
+        if (!batchDragPreview) {
+            batchDragPreview = documentRef.createElement('div');
+            batchDragPreview.className = 'connection-batch-preview';
+            batchDragPreview.setAttribute('aria-hidden', 'true');
+            canvasContainer.appendChild(batchDragPreview);
+        }
+        const { left, top, right, bottom } = layout.containerRect;
+        const text = `${nearest ? '连接 ' : ''}${feedback.previewCount} 个来源`;
+        if (batchDragPreview.textContent !== text) batchDragPreview.textContent = text;
+        batchDragPreview.classList.toggle('is-snapped', Boolean(nearest));
+        batchDragPreview.style.setProperty('--preview-x', `${(clientX > right - 150 ? clientX - 14 : clientX + 14) - left}px`);
+        batchDragPreview.style.setProperty('--preview-y', `${(clientY > bottom - 48 ? clientY - 38 : clientY + 14) - top}px`);
+        batchDragPreview.classList.toggle('is-left', clientX > right - 150);
     }
 
     function clearConnectionTargetFeedback() {
@@ -2089,45 +2194,112 @@ export function createConnectionsApi({
         nearestTargetPort = null;
         for (const portEl of highlightedTargetPorts) portEl.classList.remove(...TARGET_FEEDBACK_CLASSES);
         highlightedTargetPorts.clear();
+        batchDragPreview?.remove();
+        batchDragPreview = null;
     }
 
-    function finishConnection(src, tgt) {
-        const error = getConnectionTargetError(src, tgt);
-        if (error) { showToast(error, 'warning'); return false; }
-
-        const { fromId, fromPort, toId, toPort, type, policy } = resolveConnection(src, tgt);
-        const toNode = getNodeById(toId);
-        const projectedPolicy = getGenerationNodeInputConnectionPolicy(toNode, toPort);
-        const isMultiConnection = projectedPolicy?.multiple ?? isMultiConnectionInput(toNode?.type, toPort);
-        const inputConnections = state.connections.filter((conn) => conn.to.nodeId === toId && conn.to.port === toPort);
-
-        const rewiredConnection = src.rewiredFromConnection && state.connections.find((connection) => connection.id === src.rewiredFromConnection.id);
-        if (rewiredConnection?.to.nodeId === toId && rewiredConnection.to.port === toPort) return true;
-
-        if (!src.historyPushed) {
-            pushHistory();
+    function appendConnection(connections, checked) {
+        const { fromId, fromPort, toId, toPort, type, policy, isMultiConnection, rewiredConnection, inputConnections } = checked;
+        if (rewiredConnection) connections = connections.filter(connection => connection.id !== rewiredConnection.id);
+        if (!isMultiConnection && inputConnections.length) {
+            connections = connections.filter(connection => connection.to.nodeId !== toId || connection.to.port !== toPort);
         }
-        if (rewiredConnection) {
-            state.connections = state.connections.filter((connection) => connection.id !== rewiredConnection.id);
-        }
-        if (!isMultiConnection) {
-            state.connections = state.connections.filter((conn) => !(conn.to.nodeId === toId && conn.to.port === toPort));
-        }
-        state.connections.push({
-            id: 'c_' + Math.random().toString(36).substr(2, 9),
+        connections.push({
+            id: createConnectionId(),
             from: { nodeId: fromId, port: fromPort },
             to: { nodeId: toId, port: toPort },
             type,
             ...(policy?.maskConsumption ? { maskConsumption: policy.maskConsumption } : {}),
             ...(isMultiConnection ? {
-                order: getNextInputConnectionOrder(state.connections, { nodeId: toId, port: toPort })
+                order: getNextInputConnectionOrder(connections, { nodeId: toId, port: toPort })
             } : {})
         });
-        updateAllConnections();
+        return connections;
+    }
+
+    function commitConnections(connections, message, change) {
+        state.connections = connections;
+        if (change && onTopologyChanged) onTopologyChanged(change);
+        else updateAllConnections();
         updatePortStyles();
-        showToast('连接已创建', 'success');
+        showToast(message, 'success');
         scheduleSave();
         onConnectionsChanged();
+    }
+
+    function planConnectionBatch(sources, targets, replacementSource = null) {
+        const graphState = { ...state, connections: [...state.connections] };
+        const connectedNodeIds = new Set();
+        const connectionIds = new Set();
+        const { byId, incomingByNode, neighbors } = buildConnectionLookup(state.connections);
+        // Every edge in the batch points at the same node, so its downstream reachability stays fixed.
+        const targetNodeId = targets[0]?.nodeId;
+        const reachable = getReachableNodes(neighbors, targetNodeId);
+        const lookup = { byId, incomingByNode, createsCycle: fromId => reachable.has(fromId) };
+        let count = 0;
+        for (const { outputs } of sources) {
+            for (const output of outputs) {
+                if (lookup.createsCycle(output.nodeId)) continue;
+                let match;
+                for (const target of targets) {
+                    const result = checkConnectionTarget(output, target, lookup, graphState);
+                    if (!result.error && (result.isMultiConnection || !result.inputConnections.length || output === replacementSource)) {
+                        match = result;
+                        break;
+                    }
+                }
+                if (!match) continue;
+                const incoming = incomingByNode.get(targetNodeId) || [];
+                graphState.connections = appendConnection(graphState.connections, match);
+                const edge = graphState.connections.at(-1);
+                if (!match.isMultiConnection) {
+                    for (const replaced of match.inputConnections) {
+                        connectedNodeIds.add(replaced.from.nodeId);
+                        connectionIds.add(replaced.id);
+                    }
+                }
+                incomingByNode.set(targetNodeId, [...(match.isMultiConnection ? incoming : incoming.filter(item => item.to.port !== match.toPort)), edge]);
+                connectedNodeIds.add(match.fromId);
+                connectedNodeIds.add(match.toId);
+                connectionIds.add(edge.id);
+                count += 1;
+                break;
+            }
+        }
+        return { connections: graphState.connections, count, connectedNodeIds, connectionIds };
+    }
+
+    function commitConnectionBatch(plan) {
+        if (!plan.count) {
+            showToast('没有可连接的来源', 'info');
+            return null;
+        }
+        try { pushHistory(); }
+        catch (error) { showToast(error.message || '连接未完成，请重试', 'warning'); return null; }
+        commitConnections(plan.connections, `已连接 ${plan.count} 个来源`, {
+            nodeIds: [...plan.connectedNodeIds], connectionIds: [...plan.connectionIds]
+        });
+        return true;
+    }
+
+    function connectBatchToNode(sourceNodeIds, targetNodeId) {
+        return commitConnectionBatch(planConnectionBatch(
+            getBatchConnectionSources(sourceNodeIds), getVisibleConnectionPorts(targetNodeId, 'input')
+        ));
+    }
+
+    function finishConnection(src, tgt) {
+        if (isBatchDrag(src)) {
+            if (tgt?.dir !== 'input') return false;
+            const sources = getBatchDragSources(src).map(output => ({ outputs: [output] }));
+            return Boolean(commitConnectionBatch(planConnectionBatch(sources, [tgt], src)));
+        }
+        const checked = checkConnectionTarget(src, tgt);
+        if (checked.error) { showToast(checked.error, 'warning'); return false; }
+        const { rewiredConnection, toId, toPort } = checked;
+        if (rewiredConnection?.to.nodeId === toId && rewiredConnection.to.port === toPort) return true;
+        if (!src.historyPushed) pushHistory();
+        commitConnections(appendConnection([...state.connections], checked), '连接已创建');
         return true;
     }
 
@@ -2233,6 +2405,8 @@ export function createConnectionsApi({
             hasUnmaterializedConnections
         },
         getPortPosition,
+        getBatchConnectionSources,
+        connectBatchToNode,
         getConnectionTargetError,
         getNearestConnectionTarget,
         updateConnectionTargetFeedback,
