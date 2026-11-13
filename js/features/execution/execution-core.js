@@ -61,6 +61,7 @@ import {
     createCommerceImageSetPlan,
     normalizeCommerceImageSetState
 } from '../ecommerce-image-set/commerce-image-set-plan.js';
+import { buildProductRetouchPrompt, getProductRetouchModelOptions, normalizeProductRetouchSettings } from '../product-retouch/product-retouch-settings.js';
 
 export function createExecutionCoreApi({
     state,
@@ -1381,17 +1382,22 @@ export function createExecutionCoreApi({
     }
 
     function startCommerceRequestLog(node, request, { action, shot, signal }) {
-        signal?.throwIfAborted();
-        const { model, provider, protocol, requestBody } = request;
-        const url = sanitizeRequestUrl(request.url);
+        const { model } = request;
         const label = { plan: '生成方案', 'replan-shot': '重做方案', generate: '生成图片', retry: '重试图片' }[action];
         const title = `电商套图 · ${label}${shot ? `「${shot.label}」` : ''} · ${model.name || model.modelId}`;
+        return startWorkflowImageRequestLog(node, request, { title, operation: action, shotId: shot?.id, signal });
+    }
+
+    function startWorkflowImageRequestLog(node, request, { title, operation, shotId, signal }) {
+        signal?.throwIfAborted();
+        const { provider, protocol, requestBody } = request;
+        const url = sanitizeRequestUrl(request.url);
         const finish = logRequestToPanel?.(title, url, requestBody, {
             requestStatus: 'pending',
-            operation: action,
+            operation,
             nodeId: node.id,
             nodeType: node.type,
-            shotId: shot?.id,
+            ...(shotId ? { shotId } : {}),
             providerType: protocol
         });
         if (typeof finish !== 'function') return;
@@ -1944,11 +1950,10 @@ export function createExecutionCoreApi({
                                 ? { resolution: 'custom', customWidth: '832', customHeight: '1040' }
                                 : { aspect: shot.aspect };
                             const { image: generated } = await nodeHandlers.ImageGenerate(node, shotInputs, signal, {
-                                commerceImageRequest: {
-                                    action: commerceAction,
-                                    shot,
+                                preparedImageRequest: {
                                     prompt: resolved.prompts[0],
-                                    settings: { ...imageSettings, ...size }
+                                    settings: { ...imageSettings, ...size },
+                                    startRequestLog: request => startCommerceRequestLog(node, request, { action: commerceAction, shot, signal })
                                 }
                             });
                             if (!generated) throw new Error('供应商未返回图片，请重试。');
@@ -2008,8 +2013,78 @@ export function createExecutionCoreApi({
         }
     }
 
+    async function executeProductRetouch(node, inputs, signal) {
+        signal?.throwIfAborted();
+        const images = normalizeImageList(inputs.image);
+        if (images.length !== 1 || (Array.isArray(inputs.image) && inputs.image.some(image => !image))) {
+            throw new Error('请连接一张完整的商品参考图。');
+        }
+
+        const settings = normalizeProductRetouchSettings(node.data?.productRetouch);
+        const options = getProductRetouchModelOptions(state, settings);
+        if (!options.ready) throw new Error('请选择支持参考图编辑且已配置密钥的模型和供应商。');
+        const model = options.models.find(item => item.id === settings.modelId);
+        const workflowId = getActiveWorkflowId();
+        if (!workflowId) throw new Error('精修结果需要保存到当前工作流。');
+
+        const original = images[0].trim();
+        const reference = isRemoteImageUrl(original)
+            ? await blobToDataUrl(await downloadGeneratedImage(original, signal)) : original;
+        signal?.throwIfAborted();
+        if (!/^data:image\/[^;,]+;base64,[A-Za-z0-9+/]+=*$/i.test(reference)) {
+            throw new Error('无法读取商品参考图，请重新连接原图。');
+        }
+
+        const prompt = buildProductRetouchPrompt(settings);
+        const inputFidelity = getOpenAiImageCapabilities(model.modelId)?.inputFidelities.includes('high') ? 'high' : undefined;
+        const { image } = await nodeHandlers.ImageGenerate(node, { referenceImages: [reference] }, signal, {
+            preparedImageRequest: {
+                prompt,
+                settings: {
+                    apiConfigId: model.id, providerId: settings.providerId, generationCount: 1,
+                    protocolParams: { input_fidelity: inputFidelity }
+                },
+                validateImage: async image => {
+                    if (!/^data:image\//i.test(image)) throw new Error('模型返回的内容不是图片，请重试。');
+                    const preview = new windowRef.Image();
+                    preview.src = image;
+                    try { await preview.decode(); }
+                    catch { throw new Error('模型返回的图片无法打开，请重试。'); }
+                },
+                startRequestLog: request => startWorkflowImageRequestLog(node, request, {
+                    title: `产品精修 · ${model.name || model.modelId}`, operation: 'retouch', signal
+                })
+            }
+        });
+        signal?.throwIfAborted();
+        if (!image) throw new Error('供应商未返回精修图片，请重试。');
+
+        const asset = await saveWorkflowNodeMediaAsset(image, workflowId, node.id, node.activeMediaOperationId);
+        const assetKey = asset?.asset_key;
+        if (!assetKey?.startsWith('media:') || state.nodes.get(node.id) !== node || signal?.aborted) {
+            if (assetKey) await releaseWorkflowNodeMediaAssets([asset], workflowId, node.id);
+            signal?.throwIfAborted();
+            throw new Error('图片已精修，但工作流媒体保存失败。');
+        }
+
+        rememberWorkflowMediaOperation(node, [asset]);
+        setCanonicalImageOutput(node, [image], { assetKey, imageCount: 1, assetReady: true });
+        node.data.mediaAssetKeys = [assetKey];
+        delete node.data.mediaIntegrity;
+        if (node.activeMediaOperationId) node.productRetouchResultCommitted = true;
+        try {
+            await propagateImagesToDownstreamPreview(node.id, [image]);
+        } catch {
+            addLog('warning', '精修结果已保存，下游预览未更新', '可重新运行预览节点以读取已保存的精修图片。', { nodeId: node.id });
+        } finally {
+            onNodeResultUpdated(node.id, { downstreamImageResults: true });
+        }
+        return { image };
+    }
+
     const nodeHandlers = {
         ECommerceImageSet: executeCommerceImageSet,
+        ProductRetouch: executeProductRetouch,
         ImageImport: async (node) => {
             const imageValue = await restoreImageImportOutputValue(node);
             if (!imageValue) throw new Error('未导入图片');
@@ -2080,7 +2155,7 @@ export function createExecutionCoreApi({
         },
         ImageGenerate: async (node, inputs, signal, executionContext = {}) => {
             const { id } = node;
-            const prepared = executionContext.commerceImageRequest;
+            const prepared = executionContext.preparedImageRequest;
             const singleRetry = executionContext.imageRetry === true;
             const settings = prepared?.settings || readImageGenerationSettings(node, documentRef);
             const errorEl = !prepared && !singleRetry && documentRef.getElementById(`${id}-error`);
@@ -2127,7 +2202,7 @@ export function createExecutionCoreApi({
                 targetGenerationCount = generationCount;
 
                 if (isNewApiAsyncImage) {
-                    if (prepared) throw new Error('电商套图暂不支持此异步生图协议，请切换为同步生图模型。');
+                    if (prepared) throw new Error('当前节点需要同步生图协议，请切换模型。');
                     return await asyncMediaExecution.runAsyncImageGeneration({
                         node,
                         inputs,
@@ -2205,9 +2280,9 @@ export function createExecutionCoreApi({
                                 ? getOpenAiImageRequestLogBody(requestBody, inputs, modelCfg.modelId)
                                 : requestBody;
                             if (prepared) {
-                                finishRequestLog = startCommerceRequestLog(node, {
+                                finishRequestLog = prepared.startRequestLog({
                                     model: modelCfg, provider: apiCfg, url: requestUrl, protocol, requestBody: loggedRequestBody
-                                }, { action: prepared.action, shot: prepared.shot, signal });
+                                });
                             } else {
                                 logRequestToPanel(
                                     generationCount > 1
@@ -2230,34 +2305,26 @@ export function createExecutionCoreApi({
                                 signal
                             });
 
+                            let result;
                             if (!response.ok) {
                                 const t = await response.text();
-                                const recoveredResult = await recoverImageResultFromFailedResponse(t, response.headers.get('content-type') || '', {
+                                result = await recoverImageResultFromFailedResponse(t, response.headers.get('content-type') || '', {
                                     apiCfg,
                                     modelCfg,
                                     url,
                                     requestBody,
                                     status: response.status
                                 });
-                                if (recoveredResult) return recoveredResult;
-                                const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
-                                const err = new Error(formatProxyErrorMessage(response.status, t, 'API 错误', errorContext));
-                                err.serverResponse = {
-                                    url,
-                                    requestBody,
-                                    status: response.status,
-                                    body: t
-                                };
-                                applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
-                                throw err;
+                                if (!result) {
+                                    const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
+                                    const err = new Error(formatProxyErrorMessage(response.status, t, 'API 错误', errorContext));
+                                    err.serverResponse = { url, requestBody, status: response.status, body: t };
+                                    applyUserFacingError(err, classifyProviderError(response.status, t, errorContext));
+                                    throw err;
+                                }
+                            } else {
+                                result = await parseJsonResponseOrThrow(response, { apiCfg, modelCfg, url, requestBody });
                             }
-
-                            const result = await parseJsonResponseOrThrow(response, {
-                                apiCfg,
-                                modelCfg,
-                                url,
-                                requestBody
-                            });
                             if (!result) throw new Error('API 返回了空的 JSON 响应');
 
                             let imageData = '';
@@ -2283,6 +2350,7 @@ export function createExecutionCoreApi({
                                 throw err;
                             }
 
+                            await prepared?.validateImage?.(imageData);
                             return imageData;
                         }, {
                             nodeType: 'ImageGenerate',

@@ -6,6 +6,7 @@ import { cleanupElementResources } from '../core/common-utils.js';
 import { createSelectionApi } from '../canvas/selection.js';
 import { appendMappedConnectionSnapshots } from '../canvas/connection-copy-utils.js';
 import { normalizeCommerceImageSetState } from '../features/ecommerce-image-set/commerce-image-set-plan.js';
+import { normalizeProductRetouchSettings } from '../features/product-retouch/product-retouch-settings.js';
 import { normalizePromptImageMentions } from './prompt-image-mentions.js';
 import {
     normalizeConcurrentRequestStatusPayload,
@@ -1305,7 +1306,22 @@ export function createNodeLifecycleApi({
             isClone: effectiveRestoreData?.isClone === true && typeof effectiveRestoreData?.cloneSourceId === 'string' && !!effectiveRestoreData.cloneSourceId,
             cloneSourceId: typeof effectiveRestoreData?.cloneSourceId === 'string' ? effectiveRestoreData.cloneSourceId : ''
         };
-        captureNodePersistenceExtensions(nodeData, effectiveRestoreData);
+        if (normalizedType === 'ProductRetouch' && effectiveRestoreData?.data?.mediaOwnershipTemporaryOwners) {
+            // Operation owners stay with their original workflow and node when copied.
+            const { mediaOwnershipTemporaryOwners, ...otherFields } = effectiveRestoreData.data;
+            const workflowId = getActiveWorkflowId();
+            const owners = Array.isArray(mediaOwnershipTemporaryOwners) ? mediaOwnershipTemporaryOwners.filter(owner => {
+                if (!Array.isArray(owner?.assetKeys) || typeof owner.ownerId !== 'string') return false;
+                try {
+                    const identity = JSON.parse(owner.ownerId);
+                    return Array.isArray(identity) && identity.length === 3 && identity[0] === workflowId && identity[1] === id;
+                } catch { return false; }
+            }) : [];
+            if (owners.length) nodeData.data.mediaOwnershipTemporaryOwners = clonePlainValue(owners);
+            captureNodePersistenceExtensions(nodeData, { ...effectiveRestoreData, data: otherFields });
+        } else {
+            captureNodePersistenceExtensions(nodeData, effectiveRestoreData);
+        }
         const restoredSize = rememberImageFirstRestoredSize(nodeData, effectiveRestoreData);
         if (restoredSize?.width) el.style.minWidth = `${Math.min(restoredSize.width, Number(config.minWidth) || getDefaultNodeWidth(config))}px`;
         if (restoredSize?.height) el.style.minHeight = `${Math.min(restoredSize.height, normalizedType === 'ImageGenerate' ? 248 : 200)}px`;
@@ -1340,6 +1356,9 @@ export function createNodeLifecycleApi({
         if (imagePromptMentions.length) nodeData.data.imagePromptMentions = imagePromptMentions;
         if (normalizedType === 'ECommerceImageSet') {
             nodeData.data.commerceImageSet = normalizeCommerceImageSetState(effectiveRestoreData?.commerceImageSet);
+        }
+        if (normalizedType === 'ProductRetouch') {
+            nodeData.data.productRetouch = normalizeProductRetouchSettings(effectiveRestoreData?.productRetouch);
         }
         if (normalizedType === 'ImageGenerate') {
             const revision = readGenerationRevision(effectiveRestoreData?.generationRevision);

@@ -1,0 +1,256 @@
+.product-retouch-card {
+    display: grid;
+    flex: 1 1 auto;
+    min-width: 0;
+    place-items: center;
+    border-radius: var(--radius-node, 12px);
+    overflow: hidden;
+}
+
+.product-retouch-card-empty {
+    display: grid;
+    justify-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 26px 14px;
+    color: var(--text-secondary);
+}
+
+.product-retouch-card-empty > span {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    margin-bottom: 3px;
+    border: 1px solid var(--node-control-border);
+    border-radius: var(--radius-node, 12px);
+    background: var(--node-control-surface);
+    color: var(--text-link, var(--text-primary));
+}
+
+.product-retouch-card-empty strong { color: var(--text-primary); font-size: 15px; }
+.product-retouch-card-empty small { font-size: 13px; }
+.product-retouch-card-preview {
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: zoom-in;
+}
+
+.product-retouch-card-preview img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+html:root #canvas-container .node.node-product-retouch.node-media-aspect { border: 0; }
+.product-retouch-card :focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -3px; }
+.product-retouch-card [hidden],
+.product-retouch-settings [hidden],
+.product-retouch-footer [hidden] { display: none; }
+
+.product-retouch-settings {
+    display: grid;
+    gap: 16px;
+    min-width: 0;
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+.product-retouch-source { display: grid; gap: 7px; min-width: 0; }
+.product-retouch-source h3,
+.product-retouch-background legend {
+    margin: 0;
+    padding: 0;
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.product-retouch-source-frame {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    min-height: 66px;
+    padding: 9px;
+    border: 1px dashed var(--node-control-border);
+    border-radius: var(--radius-node, 12px);
+    background: var(--node-control-surface);
+}
+
+.product-retouch-source-frame[data-ready="true"] { border-style: solid; }
+.product-retouch-source-icon,
+.product-retouch-source-preview {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    overflow: hidden;
+    padding: 0;
+    border: 1px solid var(--node-control-border);
+    border-radius: 6px;
+    background: var(--surface-panel);
+    color: var(--text-secondary);
+}
+
+.product-retouch-source-preview { cursor: zoom-in; }
+.product-retouch-source-preview img { width: 100%; height: 100%; object-fit: cover; }
+.product-retouch-source-copy { display: grid; gap: 3px; min-width: 0; }
+.product-retouch-source-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.product-retouch-source-copy span { color: var(--text-secondary); overflow-wrap: anywhere; }
+.product-retouch-upload {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-height: 32px;
+    padding: 0 8px;
+    border: 1px solid var(--node-control-border);
+    border-radius: 6px;
+    background: var(--surface-panel);
+    color: var(--text-primary);
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.product-retouch-upload:enabled:hover { border-color: var(--accent-primary); }
+.product-retouch-upload:disabled { opacity: .55; cursor: default; }
+.product-retouch-connections { color: var(--text-secondary); }
+.product-retouch-connections > summary { padding-block: 2px; cursor: pointer; }
+.product-retouch-connections .image-input-row { padding-inline: 0; }
+.product-retouch-connections [data-input-role]:has(option:only-child) { display: none; }
+
+.product-retouch-background { min-width: 0; padding: 0; margin: 0; border: 0; }
+.product-retouch-swatches {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-top: 7px;
+}
+
+.product-retouch-swatches label {
+    position: relative;
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    gap: 5px;
+    min-height: 68px;
+    min-width: 0;
+    padding: 5px 2px;
+    border: 1px solid var(--node-control-border);
+    border-radius: 6px;
+    background: var(--node-control-surface);
+    color: var(--text-primary);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.product-retouch-swatches label:has(:checked) {
+    border-color: var(--accent-primary);
+    background: color-mix(in srgb, var(--accent-primary) 10%, var(--node-control-surface));
+    box-shadow: inset 0 0 0 1px var(--accent-primary);
+    font-weight: 650;
+}
+
+.product-retouch-swatches label:has(:enabled):hover { border-color: var(--accent-primary); }
+.product-retouch-swatches label:has(:disabled) { cursor: default; }
+.product-retouch-swatches label:has(:focus-visible) { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.product-retouch-swatches input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: inherit; }
+.product-retouch-swatch {
+    display: block;
+    width: 30px;
+    height: 22px;
+    border: 1px solid var(--node-control-border);
+    border-radius: 4px;
+}
+
+.product-retouch-swatch[data-background="white"] { background: #fff; }
+.product-retouch-swatch[data-background="black"] { background: #000; }
+.product-retouch-swatch[data-background="original"] {
+    display: grid;
+    place-items: center;
+    color: var(--text-secondary);
+}
+.product-retouch-swatch[data-background="original"] svg { width: 18px; height: 18px; }
+
+.product-retouch-treatment,
+.product-retouch-model-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 88px), 1fr));
+    gap: 7px;
+}
+
+.product-retouch-treatment label,
+.product-retouch-model-fields label { display: grid; gap: 5px; min-width: 0; }
+.product-retouch-settings :is(select, textarea) {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    min-height: 34px;
+    padding: 6px;
+    border: 1px solid var(--node-control-border);
+    border-radius: 6px;
+    background: var(--node-control-surface);
+    color: var(--text-primary);
+    font: inherit;
+}
+
+.product-retouch-settings textarea { display: block; resize: vertical; }
+.product-retouch-settings :is(select, textarea):disabled { opacity: .6; }
+.product-retouch-disclosure { min-width: 0; border-top: 1px solid var(--node-control-border); }
+.product-retouch-disclosure + .product-retouch-disclosure { margin-top: -12px; }
+.product-retouch-disclosure > summary {
+    min-width: 0;
+    padding-block: 8px;
+    color: var(--text-primary);
+    font-weight: 600;
+    cursor: pointer;
+    overflow-wrap: anywhere;
+}
+
+.product-retouch-disclosure > summary span { margin-inline-start: 5px; color: var(--text-secondary); font-weight: 400; }
+.product-retouch-model .product-retouch-link { margin-top: 7px; }
+.product-retouch-link {
+    justify-self: start;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-link, var(--text-primary));
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+}
+
+.product-retouch-settings :is(button, select, summary, textarea):focus-visible,
+.product-retouch-footer button:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
+.product-retouch-footer {
+    display: grid;
+    gap: 7px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.product-retouch-footer p { margin: 0; color: var(--text-secondary); font-size: 13px; overflow-wrap: anywhere; }
+.product-retouch-footer p:empty { display: none; }
+.product-retouch-footer p[data-error="true"] { color: var(--text-danger, var(--text-primary)); }
+.product-retouch-footer button.product-retouch-run {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 38px;
+    width: 100%;
+    font-weight: 650;
+}
+
+.product-retouch-footer .product-retouch-run:disabled { opacity: .6; cursor: default; }

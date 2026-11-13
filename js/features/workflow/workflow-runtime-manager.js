@@ -38,6 +38,7 @@ import {
     NODE_CAPABILITIES
 } from '../../nodes/registry.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
+import { normalizeProductRetouchSettings } from '../product-retouch/product-retouch-settings.js';
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
 import { readImageSaveFilename } from '../../nodes/image-save-settings.js';
 import { createImageGenerationRevisionApi, readGenerationRevision } from '../../nodes/image-generation-revision.js';
@@ -73,7 +74,7 @@ const WORKFLOW_RUNTIME_STATE_KEYS = [
     'videoRequestTimeoutSeconds'
 ];
 
-const IMAGE_RESULT_NODE_TYPES = new Set(['ImageGenerate', 'ECommerceImageSet', 'ImagePreview', 'ImageSave', 'ImageResize', 'ImageCompare', 'ImageMerge']);
+const IMAGE_RESULT_NODE_TYPES = new Set(['ImageGenerate', 'ECommerceImageSet', 'ProductRetouch', 'ImagePreview', 'ImageSave', 'ImageResize', 'ImageCompare', 'ImageMerge']);
 const CANONICAL_IMAGE_NODE_TYPES = new Set(['ImageGenerate', 'ECommerceImageSet', 'ImageMerge', 'ImagePreview', 'ImageSave']);
 
 export function createRuntimeForwardedMediaReferenceApi({ runtimeState, workflowId, referenceMediaAsset, removeMediaReference }) {
@@ -403,6 +404,15 @@ export function serializeRuntimeNode(node, doc) {
     }
     if (node.type === 'ECommerceImageSet' && node.data?.commerceImageSet) {
         serialized.commerceImageSet = clonePlainValue(node.data.commerceImageSet);
+    }
+    if (node.type === 'ProductRetouch') {
+        serialized.productRetouch = normalizeProductRetouchSettings(node.data?.productRetouch);
+        if (node.data?.mediaIntegrity?.state === 'missing') {
+            serialized.mediaIntegrity = clonePlainValue(node.data.mediaIntegrity);
+        }
+        if (node.data?.mediaOwnershipTemporaryOwners?.length) {
+            serialized.data = { mediaOwnershipTemporaryOwners: clonePlainValue(node.data.mediaOwnershipTemporaryOwners) };
+        }
     }
     if (node.type === 'CameraControl') {
         serialized.pitch = Number(node.data?.pitch ?? 12);
@@ -1015,8 +1025,8 @@ export function createWorkflowRuntimeManager({
             if (hasMappedAssets && !state.runningNodeIds.has(node.id)) delete node.imageGenerationRequestImages;
             syncVisibleImageGenerateAsyncUi(runtimeNode, node);
             syncVisibleGenerationProgress(node, runtimeNode);
-        } else if (runtimeNode.type === 'ECommerceImageSet') {
-            node.data.commerceImageSet = clonePlainValue(runtimeNode.data?.commerceImageSet || {});
+        } else if (runtimeNode.type === 'ECommerceImageSet' || runtimeNode.type === 'ProductRetouch') {
+            if (runtimeNode.type === 'ECommerceImageSet') node.data.commerceImageSet = clonePlainValue(runtimeNode.data?.commerceImageSet || {});
             const images = getCanonicalImageList(runtimeNode, { includeResizePreview: false });
             const assetKeys = runtimeNode.data?.mediaAssetKeys || [];
             if (images.length) {
@@ -1030,6 +1040,13 @@ export function createWorkflowRuntimeManager({
                 node.data.imageMemoryReleased = true;
             }
             node.data.mediaAssetKeys = assetKeys.slice();
+            if (runtimeNode.type === 'ProductRetouch') {
+                if (runtimeNode.data?.mediaIntegrity) node.data.mediaIntegrity = clonePlainValue(runtimeNode.data.mediaIntegrity);
+                else delete node.data.mediaIntegrity;
+            }
+            if (runtimeNode.type === 'ProductRetouch' && runtimeNode.data?.mediaOwnershipTemporaryOwners?.length) {
+                node.data.mediaOwnershipTemporaryOwners = clonePlainValue(runtimeNode.data.mediaOwnershipTemporaryOwners);
+            }
             syncVisibleGenerationProgress(node, runtimeNode);
         } else if (runtimeNode.type === 'TextChat') {
             syncVisibleTextChatNode(runtimeNode, node);

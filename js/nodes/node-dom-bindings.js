@@ -3,6 +3,7 @@ import { createImageReferenceOverview } from './image-reference-overview.js';
 import { createImageNodeResults } from './image-node-results.js';
 import { renderImageNodeRunState } from './image-node-run-state.js';
 import { bindNodeMediaAspect } from './node-media-aspect.js';
+import { normalizeProductRetouchSettings } from '../features/product-retouch/product-retouch-settings.js';
 import { getThinkingCapability } from '../features/execution/thinking-config.js';
 import { createSelectionApi } from '../canvas/selection.js';
 /**
@@ -1150,6 +1151,9 @@ export function createNodeDomBindingsApi({
 
     function syncCloneNodeFromSource(cloneNode, sourceNode) {
         if (!cloneNode?.el || !sourceNode?.el) return;
+        if (cloneNode.type === 'ProductRetouch') {
+            cloneNode.data.productRetouch = normalizeProductRetouchSettings(sourceNode.data?.productRetouch);
+        }
         queryNodeControls(sourceNode.el, 'input[id], select[id], textarea[id]').forEach((sourceControl) => {
             const suffix = getNodeControlSuffix(sourceControl, sourceNode.id);
             if (!suffix) return;
@@ -1290,12 +1294,13 @@ export function createNodeDomBindingsApi({
         syncVideoProtocolDraftsToClone();
     }
 
-    function syncClonesFromSource(sourceNodeId) {
+    function syncClonesFromSource(sourceNodeId, onSync = null) {
         const sourceNode = state.nodes.get(sourceNodeId);
         if (!sourceNode || sourceNode.isClone) return;
         state.nodes.forEach((node) => {
             if (node?.isClone === true && node.cloneSourceId === sourceNodeId && node.type === sourceNode.type) {
                 syncCloneNodeFromSource(node, sourceNode);
+                onSync?.(node.id);
             }
         });
         updateAllConnections();

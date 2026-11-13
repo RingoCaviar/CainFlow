@@ -19,6 +19,7 @@ import { getImageParameterValues, renderImageParameterOptions, supportsImageWebS
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 import { applyReferenceImagePorts } from './reference-image-ports.js';
 import { renderCommerceImageSetBody } from './commerce-image-set-view.js';
+import { renderProductRetouchBody } from './product-retouch-view.js';
 import { getCustomParamsInputPorts } from './types/custom-params.js';
 import { getProtocol } from '../features/execution/protocols/index.js';
 import { describeVideoProtocolCard } from './video-protocol-card.js';
@@ -1253,6 +1254,7 @@ function renderNodeBody(type, id, restoreData, state) {
     if (type === 'ColorReset') return renderColorResetBody(id, restoreData);
     if (type === 'ImageGenerate') return renderImageGenerateBody(id, restoreData, state.models, state.providers);
     if (type === 'ECommerceImageSet') return `${renderCommerceImageSetBody()}${renderImageReferenceOverview(id, '商品参考图')}`;
+    if (type === 'ProductRetouch') return renderProductRetouchBody();
     if (type === 'VideoGenerate') return renderVideoGenerateBody(id, restoreData, state.models, state.providers);
     if (type === 'CameraControl') return renderCameraControlBody(id, restoreData);
     if (type === 'TextChat') return renderTextChatBody(id, restoreData, state.models, state.providers);

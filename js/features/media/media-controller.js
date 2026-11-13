@@ -407,7 +407,7 @@ export function createMediaControllerApi({
         delete node.data.imageMemoryReleased;
     }
 
-    function persistImageImportData(nodeId, node, imageData) {
+    function persistImageImportData(nodeId, node, imageData, beforePublish) {
         const writeToken = (parseInt(node.imageImportWriteToken || '0', 10) || 0) + 1;
         node.imageImportWriteToken = writeToken;
         clearStaleImageImportAssetState(node);
@@ -423,6 +423,7 @@ export function createMediaControllerApi({
             rememberWorkflowMediaOperation(node, [mediaAsset]);
             const assetKey = mediaAsset?.asset_key || '';
             if (!assetKey) return false;
+            beforePublish?.();
             markImageImportAssetReady(node, assetKey, 1);
             await syncImageImportSourceState(nodeId, { refreshDependents: true });
             scheduleDisplayImageMemorySweep({ delayMs: displayImageMemoryManager.releaseGraceMs });
@@ -2586,20 +2587,27 @@ export function createMediaControllerApi({
         reader.readAsDataURL(file);
     }
 
-    async function loadImageData(nodeId, imageData) {
+    async function loadImageData(nodeId, imageData, { publishAfterSave = false, filename = '' } = {}) {
         const node = getNodeById(nodeId);
         if (isNodeRunning(nodeId)) {
             showToast('节点正在运行，暂不能修改图片', 'warning');
             return false;
         }
         if (!node || node.type !== 'ImageImport' || !isInlineImageData(imageData)) return false;
-        if (node.imageImportAssetKey || node.data?.imageImportAssetKey || node.mediaAssetKeys?.length || node.data?.mediaAssetKeys?.length) pushHistory();
-        node.importMode = 'upload';
-        node.imageUrl = '';
-        delete node.imageImportFileName;
-        node.imageData = imageData;
-        node.data = node.data || {};
-        node.data.image = imageData;
+        const hasStoredImage = node.imageImportAssetKey || node.data?.imageImportAssetKey || node.mediaAssetKeys?.length || node.data?.mediaAssetKeys?.length;
+        if (publishAfterSave && hasStoredImage) return false;
+        if (hasStoredImage) pushHistory();
+        const publish = () => {
+            node.importMode = 'upload';
+            node.imageUrl = '';
+            if (filename) node.imageImportFileName = filename;
+            else delete node.imageImportFileName;
+            node.imageData = imageData;
+            node.data = node.data || {};
+            node.data.image = imageData;
+        };
+        if (publishAfterSave) return persistImageImportData(nodeId, node, imageData, publish);
+        publish();
         return persistImageImportData(nodeId, node, imageData);
     }
 

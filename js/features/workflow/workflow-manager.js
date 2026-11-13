@@ -741,8 +741,20 @@ export function createWorkflowManagerApi({
             if (preparedWorkflow.mediaOwnershipRestoreOwnerIds) {
                 data.mediaOwnershipRestoreOwnerIds = preparedWorkflow.mediaOwnershipRestoreOwnerIds;
             }
+            const committedRetouchOwners = (data.workflowId === getActiveWorkflowId() ? preparedWorkflow.nodes || [] : [])
+                .filter(node => node.type === 'ProductRetouch' && node.data?.mediaOwnershipTemporaryOwners?.length)
+                .map(node => [node.id, new Set(node.data.mediaOwnershipTemporaryOwners.map(owner => owner.ownerId))]);
             if (!await mediaOwnership.commitPersistentWorkflow(preparedWorkflow)) {
                 throw new Error('工作流已保存，但媒体引用交接尚未完成；将于下次保存或重新打开时重试');
+            }
+            if (data.workflowId === getActiveWorkflowId()) {
+                for (const [nodeId, committed] of committedRetouchOwners) {
+                    const liveData = state.nodes.get(nodeId)?.data;
+                    if (!liveData?.mediaOwnershipTemporaryOwners) continue;
+                    const remaining = liveData.mediaOwnershipTemporaryOwners.filter(owner => !committed.has(owner.ownerId));
+                    if (remaining.length) liveData.mediaOwnershipTemporaryOwners = remaining;
+                    else delete liveData.mediaOwnershipTemporaryOwners;
+                }
             }
             await migration?.commit();
             migration = null;
@@ -1000,7 +1012,8 @@ export function createWorkflowManagerApi({
             mergedNodes.push(shouldMergeRuntimeNode ? {
                 ...cloneWorkflowItem(runtimeNode),
                 x: node.x ?? runtimeNode.x,
-                y: node.y ?? runtimeNode.y
+                y: node.y ?? runtimeNode.y,
+                ...(node.type === 'ProductRetouch' && node.productRetouch ? { productRetouch: node.productRetouch } : {})
             } : node);
             mergedNodeIds.add(node.id);
             runtimeNodeById.delete(node.id);

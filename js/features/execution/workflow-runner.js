@@ -87,7 +87,7 @@ function isCommerceImageGeneration(node, plan) {
 
 function isUnbatchedImageInput(node, portName) {
     return isMultiConnectionInput(node?.type, portName) || (node?.type === 'ImageGenerate' && portName === 'mask')
-        || (['ImageResize', 'ColorReset', 'CameraControl'].includes(node?.type) && portName === 'image')
+        || (['ImageResize', 'ColorReset', 'CameraControl', 'ProductRetouch'].includes(node?.type) && portName === 'image')
         || (node?.type === 'ImageCompare' && ['imageA', 'imageB'].includes(portName));
 }
 
@@ -211,7 +211,7 @@ export function createWorkflowRunnerApi({
     focusCanvasNode = () => {},
     onWorkflowFailures = () => {}
 }) {
-    const mediaOperationNodeTypes = new Set(['ImageGenerate', 'VideoGenerate', 'ECommerceImageSet']);
+    const mediaOperationNodeTypes = new Set(['ImageGenerate', 'VideoGenerate', 'ECommerceImageSet', 'ProductRetouch']);
     const recipeSourcesByInputs = new WeakMap();
     function isAbortLikeError(err) {
         if (!err) return false;
@@ -576,8 +576,7 @@ export function createWorkflowRunnerApi({
 
     function getPreservedNodeDataForReset(node) {
         if (node?.type === 'ImageSave') return { ...(node.data || {}), filename: readImageSaveFilename(node) };
-        if (node?.type === 'ImageMerge') return { ...(node.data || {}) };
-        if (node?.type === 'ECommerceImageSet') return { ...(node.data || {}) };
+        if (['ImageMerge', 'ECommerceImageSet', 'ProductRetouch'].includes(node?.type)) return { ...(node.data || {}) };
         if (node?.type === 'ImageCompare') return { ...(node.data || {}), comparePosition: node.comparePosition ?? node.data?.comparePosition ?? 50 };
         if (node?.type === 'ImageResize') return { ...(node.data || {}), ...readImageResizeSettings(node) };
         if (node?.type === 'ColorReset') {
@@ -1078,6 +1077,19 @@ export function createWorkflowRunnerApi({
             if (videos) return videos;
         }
         if (portName === 'image') {
+            if (toNode?.type === 'ProductRetouch') {
+                if (fromNode.type === 'ImageImport') {
+                    return fromNode.importMode === 'url'
+                        ? getCachedOutputValue(fromNode, portName)
+                        : await restoreImageImportOutput(fromNode);
+                }
+                const images = getCanonicalImageList(fromNode, { includeResizePreview: false });
+                if (images.length) return images;
+                const [assetKey] = fromNode.data?.mediaAssetKeys || [];
+                if (assetKey) return await getImageAsset(assetKey);
+                if (fromNode.data?.imageAssetKey) return await getImageAssetList(fromNode.data.imageAssetKey);
+                return undefined;
+            }
             if (['ImageResize', 'ColorReset', 'ImageCompare', 'CameraControl'].includes(toNode?.type)) {
                 return await readPrimaryImageOutput(fromNode, getNodeImageOutputList(fromNode), async key => {
                     if (key.startsWith('media:')) return await getImageAsset(key);
@@ -1141,7 +1153,31 @@ export function createWorkflowRunnerApi({
         };
     }
 
+    function assertProductRetouchSourceLoaded(connections, outputsByConnection) {
+        const sources = connections.filter(connection => connection.to.port === 'image'
+            && state.nodes.get(connection.from.nodeId)?.enabled !== false);
+        if (sources.length === 0) return;
+        const inputError = message => Object.assign(new Error(message), { inputPort: 'image' });
+        if (sources.length !== 1) throw inputError('产品精修只能连接一个商品参考图来源。');
+        const [connection] = sources;
+        const source = state.nodes.get(connection.from.nodeId);
+        const images = normalizeImageList(outputsByConnection.get(connection));
+        const output = projectImageOutput(source, images);
+        const raw = [source?.data?.imageList, source?.data?.images, source?.imageDataList, source?.generatedImages]
+            .find(list => Array.isArray(list) && list.length > 0);
+        if (Math.max(output.count, raw?.length || 0) > 1) {
+            throw inputError('产品精修每次只处理一张商品参考图，请连接单图来源。');
+        }
+        if (images.length !== 1 || output.missingPositions.length > 0 || source?.data?.mediaIntegrity?.state === 'missing' || (raw && !raw[0])) {
+            throw inputError('商品参考图的原图不可用，请恢复图片或重新导入。');
+        }
+    }
+
     function assertConnectedReferenceImagesLoaded(plan, node, outputsByConnection) {
+        if (node?.type === 'ProductRetouch') {
+            assertProductRetouchSourceLoaded(plan.inputConnectionsByNode[node.id] || [], outputsByConnection);
+            return;
+        }
         if (!['ImageGenerate', 'VideoGenerate', 'TextChat', 'ECommerceImageSet'].includes(node?.type)) return;
 
         const missingConnections = (plan.inputConnectionsByNode[node.id] || [])
@@ -2026,7 +2062,7 @@ export function createWorkflowRunnerApi({
             const result = await executeNodeWithInputBatches(node, inputs, signal, connections, plan, token?.recipe);
             // Durable source identities must settle before a downstream recipe is captured.
             await waitForPendingImageAssetSaves({ nodeId: node.id, requireSuccess: true });
-            if (signal?.aborted) {
+            if (signal?.aborted && !node.productRetouchResultCommitted) {
                 const error = new Error('Node run aborted'); error.name = 'AbortError'; throw error;
             }
             generationRevisionApi?.completeAttempt(token, { succeeded: true, partial: node.generationAttemptIncomplete === true });
@@ -2653,8 +2689,9 @@ export function createWorkflowRunnerApi({
             const isNodeMarkedRunning = runningNodes.has(nodeId) || getRunningNodeIds().has(nodeId);
             if (!isNodeMarkedRunning && !nodeController) return false;
 
-            const branchNodeIds = collectDownstreamNodeIds(plan, nodeId);
             const activeNode = state.nodes.get(nodeId);
+            if (activeNode?.productRetouchResultCommitted) return false;
+            const branchNodeIds = collectDownstreamNodeIds(plan, nodeId);
             const operationIds = new Set([
                 activeNode?.activeMediaOperationId,
                 ...(activeNode?.activeMediaOperationIds || [])
@@ -2750,7 +2787,7 @@ export function createWorkflowRunnerApi({
                                     const inputs = await collectInputsForNode(plan, nid);
                                     const loggedInputs = await executeNodeAttempt(node, inputs, linkedAbort.signal, plan.inputConnectionsByNode[nid], plan);
 
-                                    if (session.canceledBranchNodeIds.has(nid) || nodeController.signal.aborted) {
+                                    if (!node.productRetouchResultCommitted && (session.canceledBranchNodeIds.has(nid) || nodeController.signal.aborted)) {
                                         const abortError = new Error('Node run aborted');
                                         abortError.name = 'AbortError';
                                         throw abortError;
@@ -2813,6 +2850,7 @@ export function createWorkflowRunnerApi({
                                     unregisterNodeCancelHandler(session, nid);
                                     delete node.activeMediaOperationId;
                                     delete node.activeMediaOperationIds;
+                                    delete node.productRetouchResultCommitted;
                                     delete node.imageGenerationRetryActive;
                                     runningNodes.delete(nid);
                                 }

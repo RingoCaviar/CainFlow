@@ -11,9 +11,11 @@ import { renderImageNodeRunState } from '../../nodes/image-node-run-state.js';
 import { getNodeModelConfigurationIssue } from '../execution/model-configuration-readiness.js';
 import { getResolvedProviderForModel } from '../execution/provider-request-utils.js';
 import { createCommerceImageSetView } from '../../nodes/commerce-image-set-view.js';
+import { createProductRetouchView } from '../../nodes/product-retouch-view.js';
 import { createImageGenerationBatchView } from './image-generation-batch.js';
 
-const nodeLabels = { ImageGenerate: '图片生成', ECommerceImageSet: '电商套图', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比', ImageMerge: '多图合一', ImageSave: '保存节点', CameraControl: '视角控制' };
+const nodeLabels = { ImageGenerate: '图片生成', ECommerceImageSet: '电商套图', ProductRetouch: '产品精修', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比', ImageMerge: '多图合一', ImageSave: '保存节点', CameraControl: '视角控制' };
+const dockedNodeTypes = new Set(['ECommerceImageSet', 'ProductRetouch']);
 const cameraFields = [['pitch', '俯仰角 Pitch'], ['yaw', '偏航角 Yaw'], ['distance', '距离 Distance'], ['fov', '视野角 FOV'], ['roll', '翻滚角 Roll']];
 // Only ordinary empty states use the node name. Loading, recovery and error
 // messages still belong to the media renderer and must remain visible.
@@ -25,7 +27,7 @@ const emptyPreviewMessages = new Set(['无输入图片', '无输入视频', '运
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
     runCurrentNode, waitForNodeRun, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
     panelManager = null, openModelSettings = () => {}, openResultPreview = () => {},
-    openShotError = () => {}, openNodeFailureLog = () => false, openReferencePreview = null, bindReferencePrompt = null }) {
+    openShotError = () => {}, openNodeFailureLog = () => false, openReferencePreview = null, bindReferencePrompt = null, uploadRetouchReference }) {
     const views = new Map();
     const dragClasses = new Set(['selected', 'is-interacting', 'connection-insert-candidate', 'connection-shake-armed']);
     const presentationClasses = value => (value || '').split(/\s+/).filter(name => name && !dragClasses.has(name)).sort().join(' ');
@@ -134,7 +136,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         return { left, right, bottom, width: right - left, height: Math.max(1, bottom - top), top };
     };
     function updateMode() {
-        const docked = current?.type === 'ECommerceImageSet';
+        const docked = dockedNodeTypes.has(current?.type);
         const canExpand = !docked && !['ImageImport', 'ImageSave', 'CameraControl'].includes(current?.type);
         if (!canExpand) { expanded = false; expandedRect = null; }
         expandButton.hidden = expandButton.disabled = !canExpand;
@@ -144,7 +146,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const parent = docked ? dock : documentRef.body;
         if (panel.parentNode !== parent) parent.append(panel);
         widthHandle.hidden = docked;
-        closeButton.setAttribute('aria-label', docked ? '关闭电商套图参数' : '关闭节点参数浮层');
+        closeButton.setAttribute('aria-label', docked ? `关闭${nodeLabels[current.type]}参数` : '关闭节点参数浮层');
         if (docked) {
             for (const property of ['left', 'top', 'width', 'height', 'min-width', 'max-height']) panel.style.removeProperty(property);
         }
@@ -360,6 +362,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const node = state.nodes.get(nodeId), view = views.get(node);
         if (!view) return;
         view.commerce?.refresh();
+        view.retouch?.refresh();
         if (view.referenceDetails) {
             view.referenceDetails.hidden = !state.connections.some(edge => edge.to.nodeId === nodeId && edge.to.port === REFERENCE_IMAGES_PORT);
         }
@@ -440,10 +443,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (current === node) {
             panel.dataset.importMode = node.type === 'ImageImport'
                 ? (view.urlFields.hidden ? 'upload' : 'url') : '';
-            widthHandle.hidden = node.type === 'ECommerceImageSet' || node.type === 'ImageImport' && panel.dataset.importMode === 'upload';
+            widthHandle.hidden = dockedNodeTypes.has(node.type) || node.type === 'ImageImport' && panel.dataset.importMode === 'upload';
             const running = state.runningNodeIds?.has(node.id) || ['waiting', 'running'].includes(node.runStatus) || node.el.classList.contains('running');
             const generationCount = node.type === 'ImageGenerate' ? readImageGenerationSettings(node, documentRef).generationCount : 1;
-            generate.hidden = ['ImageImport', 'ImageSave', 'ECommerceImageSet'].includes(node.type);
+            generate.hidden = ['ImageImport', 'ImageSave'].includes(node.type) || dockedNodeTypes.has(node.type);
             setText(generate, node.type === 'ImagePreview' ? (running ? '更新中' : '更新预览')
                 : node.type === 'ImageCompare' ? (running ? '更新中' : '更新对比')
                 : node.type === 'ImageMerge' ? (running ? '合并中' : '更新合并')
@@ -473,7 +476,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 'B 为必需输入；A 可选，移动指针调整分界。', '按图片输入的数字顺序合并每个来源的完整批次。',
                 '修改文件名后，使用卡片上的保存按钮保存媒体。', '在独立编辑器调整相机；参数即时保存，输出为相机提示词。',
                 '修改即时预览；点击按钮执行当前节点。'];
-            const hasFeedback = node.type !== 'ImageGenerate' && !!feedback.textContent && !passiveFeedback.includes(feedback.textContent);
+            const hasFeedback = node.type !== 'ImageGenerate' && node.type !== 'ProductRetouch'
+                && !!feedback.textContent && !passiveFeedback.includes(feedback.textContent);
             feedback.hidden = !hasFeedback;
             panel.dataset.hasFeedback = String(hasFeedback);
             footer.hidden = node.type === 'ImageImport' || node.type === 'ImageSave' && !hasFeedback;
@@ -504,7 +508,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         panel.hidden = false;
         panel.setAttribute('aria-hidden', 'false'); panel.inert = false;
         panel.dataset.nodeId = node.id;
-        panel.setAttribute('aria-label', `${node.el.dataset.nodeTitle || node.customTitle || nodeLabels[node.type]} · ${node.type === 'ECommerceImageSet' ? '节点参数' : '节点参数浮层'}`);
+        panel.setAttribute('aria-label', `${node.el.dataset.nodeTitle || node.customTitle || nodeLabels[node.type]} · ${dockedNodeTypes.has(node.type) ? '节点参数' : '节点参数浮层'}`);
         if (group) { const view = views.get(node); if (view.group !== group || view.settingsPopup && !view.settingsPopup.matches(':popover-open')) setGroup(node, group); }
         refreshNode(node.id);
         position();
@@ -760,6 +764,20 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections: [], inputs, commerce, referenceDetails,
             footerTools: commerce.actions }, []);
     }
+    function installProductRetouch(node) {
+        const form = documentRef.createElement('div');
+        form.className = 'node-body image-first-parameter-content';
+        form.dataset.nodeId = node.id;
+        installUniversalInput(node);
+        const inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, openReferencePreview,
+            onChange: () => refreshNode(node.id) });
+        const retouch = createProductRetouchView({ node, state, documentRef, inputDetails: inputs.element,
+            run: runCurrentNode, waitForNodeRun, uploadReference: uploadRetouchReference,
+            openReferencePreview, openResultPreview, openModelSettings, openNodeFailureLog });
+        form.append(retouch.element, retouch.actions);
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections: [], inputs, retouch,
+            footerTools: retouch.actions }, []);
+    }
     documentRef.addEventListener('cainflow:commerce-image-set-updated', event => {
         const nodeId = event.detail?.nodeId || event.target?.id;
         if (nodeId) refreshNode(nodeId);
@@ -769,6 +787,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const node = state.nodes.get(nodeId);
         if (!isImageFirstCardNode(node) || views.has(node)) return;
         if (node.type === 'ECommerceImageSet') { installCommerce(node); return; }
+        if (node.type === 'ProductRetouch') { installProductRetouch(node); return; }
         if (node.type === 'ImageImport' || node.type === 'ImagePreview' || node.type === 'ImageCompare' || node.type === 'ImageMerge' || node.type === 'ImageSave' || node.type === 'CameraControl') { installMedia(node); return; }
         if (node.type === 'ImageResize' || node.type === 'ColorReset') { installProcessing(node); return; }
         if (node.type !== 'ImageGenerate') return;

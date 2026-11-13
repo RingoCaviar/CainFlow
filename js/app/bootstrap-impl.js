@@ -729,6 +729,45 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
     state, selectionApi, documentRef: document, windowRef: window, storage: diskStorage,
     bindReferencePrompt: (node, input) => nodeDomBindingsApi.bindReferencePrompt(node, input),
     panelManager,
+    uploadRetouchReference: async (target, file) => {
+        const dataUrl = await blobToDataUrl(file);
+        const image = new Image();
+        image.src = dataUrl;
+        try { await image.decode(); }
+        catch { throw new Error('无法读取这张图片，请选择有效的图片文件'); }
+        if (state.nodes.get(target.id) !== target || state.runningNodeIds.has(target.id)) {
+            throw new Error('节点已变化，请重新选择参考图');
+        }
+        const edge = state.connections.find(item => item.to.nodeId === target.id && item.to.port === 'image');
+        let sourceId = edge?.from.nodeId;
+        if (sourceId) {
+            const source = state.nodes.get(sourceId);
+            if (source?.type !== 'ImageImport' || source.enabled === false || source.isClone || state.runningNodeIds.has(sourceId)
+                || getImageOutputAssets(source).length || getCanonicalImageList(source).length) {
+                throw new Error('参考图连接已变化，请在连接明细中调整');
+            }
+        } else {
+            const edit = getSessionManagerApi().prepareHistoryEdit();
+            const width = NODE_CONFIGS.ImageImport.defaultWidth;
+            try {
+                sourceId = addNode('ImageImport', target.x - width - 72, target.y,
+                    { customTitle: file.name || '商品参考图' }, true);
+                const connected = sourceId && connectionsApi.finishConnection(
+                    { nodeId: sourceId, portName: 'image', dataType: 'image', isOutput: true, historyPushed: true },
+                    { nodeId: target.id, port: 'image', type: 'image', dir: 'input' }
+                );
+                if (!connected) throw new Error('无法连接商品参考图');
+                edit.commit();
+            } catch (error) {
+                if (sourceId) removeNode(sourceId, { onlyId: true, skipHistory: true, showToast: false });
+                edit.cancel();
+                throw error;
+            }
+        }
+        if (!await loadImageData(sourceId, dataUrl, { publishAfterSave: true, filename: file.name })) {
+            throw new Error('参考图保存失败，请重新上传');
+        }
+    },
     openResultPreview: (images, index, onClose) => openFullscreenPreview(images[index], null, { images, index, onClose }),
     openShotError: (label, reason) => showErrorModal('', reason, null, `「${label}」生成失败`),
     openNodeFailureLog,
@@ -769,7 +808,11 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
     swapInputConnections: id => connectionsApi.swapInputConnections(id),
     moveMergeInputConnection: (id, direction) => connectionsApi.moveMergeInputConnection(id, direction),
     onSettingsChanged: id => {
-        if (state.nodes.get(id)?.type === 'ECommerceImageSet') scheduleSave();
+        const node = state.nodes.get(id);
+        if (node?.type === 'ProductRetouch' && !node.isClone) {
+            nodeDomBindingsApi.syncClonesFromSource(id, registry.imageFirstCanvasApi.refreshNode);
+        }
+        if (['ECommerceImageSet', 'ProductRetouch'].includes(node?.type)) scheduleSave();
         nodeDomBindingsApi.syncDependentPromptSources(id);
         registry.imageGenerationRevisionApi.onSettingsChanged(id);
         registry.imageGenerationRevisionApi.observeAll();

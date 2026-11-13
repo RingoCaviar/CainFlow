@@ -83,6 +83,9 @@ _Avoid_: Direct AI canvas mutation, sequence of unrelated undo steps
 **电商套图方案**:
 同一商品在指定平台选定的有序图位，分为主副图和详情图。方案关联商品参考图和可确认的卖点。每个图位包含用途、构图和可确认的画面文案。用户先选择图位，确认方案后开始制作。图位身份在生成、重试和重新打开工作流时保持稳定。
 
+**产品精修**:
+以一张商品参考图为依据的单图编辑任务，保留商品的外形、颜色、标识和包装文字，可调整背景、布光、阴影和质感。每次成功执行产生一张精修结果。
+
 **Canvas MCP session**:
 An opt-in connection between a local MCP client and an open CainFlow editor. Commands target an editor and Workflow identity. A canvas revision guards edits and run launches. Each applied edit is one undoable action.
 

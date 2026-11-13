@@ -3,6 +3,7 @@
  */
 import { imageGenerateNode } from './types/image-generate.js';
 import { commerceImageSetNode } from './types/commerce-image-set.js';
+import { productRetouchNode } from './types/product-retouch.js';
 import { videoGenerateNode } from './types/video-generate.js';
 import { imageImportNode } from './types/image-import.js';
 import { imageCompareNode } from './types/image-compare.js';
@@ -34,6 +35,7 @@ const nodeDefinitions = [
     colorResetNode,
     imageGenerateNode,
     commerceImageSetNode,
+    productRetouchNode,
     videoGenerateNode,
     cameraControlNode,
     customParamsNode,

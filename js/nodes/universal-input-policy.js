@@ -10,7 +10,7 @@ import { splitTextForTextSplitNode } from '../core/common-utils.js';
 import { DEFAULT_REFERENCE_IMAGE_COUNT } from './reference-image-ports.js';
 
 // Each node type opts in when its card and input details use this contract.
-const UNIVERSAL_INPUT_NODE_TYPES = new Set(['ImageGenerate', 'ECommerceImageSet', 'ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge', 'ImageSave', 'CameraControl']);
+const UNIVERSAL_INPUT_NODE_TYPES = new Set(['ImageGenerate', 'ECommerceImageSet', 'ProductRetouch', 'ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge', 'ImageSave', 'CameraControl']);
 
 function mergeRoleCount(node, incoming = []) {
     const indices = incoming.filter(edge => /^image_\d+$/.test(edge.to.port))
@@ -21,6 +21,7 @@ function mergeRoleCount(node, incoming = []) {
 
 export function getUniversalInputRoles(node, state = null, incoming = null) {
     if (node?.type === 'ECommerceImageSet') return [['referenceImages', '商品参考图', 'image']];
+    if (node?.type === 'ProductRetouch') return [['image', '商品参考图', 'image']];
     if (node?.type === 'ImageSave') return [['image', '图片输入', 'image'], ['video', '视频输入', 'video']];
     if (node?.type === 'ImageMerge') {
         const edges = incoming ?? state?.connections?.filter(edge => edge.to?.nodeId === node.id);
