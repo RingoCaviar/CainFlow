@@ -12,6 +12,10 @@ const configuration = {
 };
 const generate = (id, x, y, width = 300) => ({ id, type: 'ImageGenerate', x, y, width, height: 220, userResized: true, apiConfigId: 'image', providerId: 'p', prompt: id });
 const failure = '测试失败：' + 'unbroken-error-token'.repeat(160) + '\n完整错误尾标：保留所有排查细节';
+const panel = '#image-parameter-panel';
+const section = `${panel} .image-generation-batch`;
+const toggle = `${section} [data-image-batch-toggle]`;
+const submit = `${panel} [data-parameter-action=generate]`;
 
 async function controlled(app, held = false) {
     await app.send('Page.addScriptToEvaluateOnNewDocument', { source: `window.feedbackRequests=[];window.feedbackAborted=false;window.feedbackSuccess=false;const feedbackFetch=window.fetch;window.fetch=async(url,options={})=>{if(String(url)==='/proxy'&&options.body){const body=JSON.parse(options.body);if(typeof body.prompt==='string'){feedbackRequests.push(body);const success=()=>new Response(JSON.stringify({data:[{b64_json:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII='}]}),{headers:{'Content-Type':'application/json'}});if(feedbackSuccess)return success();if(${held})return await new Promise((resolve,reject)=>{window.releaseFeedback=()=>resolve(success());options.signal.addEventListener('abort',()=>{feedbackAborted=true;reject(new DOMException('The operation was aborted','AbortError'))},{once:true})});return new Response(JSON.stringify({error:{message:${JSON.stringify(failure)}}}),{status:400,headers:{'Content-Type':'application/json'}});}}return feedbackFetch(url,options)};` });
@@ -38,29 +42,26 @@ async function press(app, selector, milliseconds = 0) {
 }
 
 test('failure feedback appears once in parameters and preserves complete modal details at normal and narrow widths', { timeout: 45000 }, async () => {
+    const reason = `${section} [data-image-batch-error]`;
+    const retry = `${section} [data-image-batch-retry]`;
     await withAppBrowser({ ...configuration, nodes: [generate('failed', 40, 40, 260)], connections: [] }, async app => {
         await controlled(app); await open(app, 'failed');
         await app.evaluate("document.querySelector('[data-parameter-action=generate]').click()");
         await app.waitFor("document.getElementById('failed-run-status')?.dataset.status==='error'&&document.getElementById('btn-stop').disabled");
         await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
-        await app.waitFor("document.querySelector('.image-parameter-run-feedback').getAnimations({subtree:true}).every(animation=>animation.playState!=='running')");
         assert.equal(await app.evaluate("!!document.querySelector('#failed > .image-first-run-feedback')"), false);
-        const compact = await app.evaluate("(()=>{const panel=document.getElementById('image-parameter-panel'),row=panel.querySelector('.image-parameter-run-feedback'),summary=row.querySelector('.node-failure-summary');return {inPanel:panel.contains(row),summary:summary.textContent,width:summary.clientWidth,scrollWidth:summary.scrollWidth,height:summary.getBoundingClientRect().height}})()");
-        assert.ok(compact.inPanel);
-        const errorStyle = await app.evaluate("(()=>{const row=document.querySelector('#image-parameter-panel .image-parameter-run-feedback'),style=getComputedStyle(row);return {background:style.backgroundColor,border:style.borderTopWidth,color:getComputedStyle(row.querySelector('.node-failure-summary')).color,ordinary:getComputedStyle(document.getElementById('image-parameter-panel')).color,icon:getComputedStyle(row,'::before').content}})()");
-        assert.notEqual(errorStyle.background, 'rgba(0, 0, 0, 0)', 'errors have a tinted surface');
-        assert.equal(errorStyle.border, '1px');
-        assert.notEqual(errorStyle.color, errorStyle.ordinary, 'error text retains its semantic color outside the canvas');
-        assert.equal(errorStyle.icon, '\"!\"');
+        assert.match(await app.evaluate(`document.querySelector('${section}').innerText`), /生成失败/);
+        assert.equal(await app.evaluate(`document.querySelector('${reason}')?.innerText.trim()`), '查看原因');
+        assert.equal(await app.evaluate(`document.querySelector('${retry}')?.innerText.trim()`), '重试');
+        assert.equal(await app.evaluate(`document.querySelector('${panel} .node-failure-summary')?.checkVisibility() ?? false`), false);
         assert.equal(await app.evaluate("document.getElementById('failed-error').checkVisibility()"), false, 'only the concise failure and detail entry are shown');
-        assert.ok(compact.summary.length < 200 && compact.summary.includes('测试失败'));
-        assert.ok(compact.scrollWidth <= compact.width + 1 && compact.height <= 48);
+        assert.doesNotMatch(await app.evaluate(`document.querySelector('${section}').innerText`), /unbroken-error-token/);
         if (await app.evaluate("document.getElementById('modal-error').classList.contains('active')")) {
             await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
             await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
             await app.waitFor("!document.getElementById('modal-error').classList.contains('active')");
         }
-        await press(app, '#image-parameter-panel [data-image-run-action=details]');
+        await press(app, reason);
         await app.waitFor("document.getElementById('modal-error').classList.contains('active')");
         await app.evaluate("if(!document.getElementById('btn-show-full-log').classList.contains('hidden'))document.getElementById('btn-show-full-log').click()");
         assert.match(await app.evaluate("document.getElementById('error-modal-detail').textContent+document.getElementById('error-modal-msg').textContent"), /完整错误尾标：保留所有排查细节/);
@@ -69,17 +70,23 @@ test('failure feedback appears once in parameters and preserves complete modal d
         await app.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 500, deviceScaleFactor: 1, mobile: false });
         await open(app, 'failed');
         assert.equal(await app.evaluate("document.getElementById('failed-error').checkVisibility()"), false, 'the legacy full error must not duplicate the summary');
-        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .node-failure-summary').checkVisibility()"), true);
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-image-run-action=details]').click()");
+        assert.equal(await app.evaluate(`(() => {
+            const status = document.querySelector('${section}');
+            const footer = document.querySelector('${panel} footer');
+            return status.scrollWidth <= status.clientWidth + 1 && status.nextElementSibling === footer;
+        })()`), true, 'single-image failure actions fit the narrow panel');
+        await app.evaluate("document.getElementById('btn-clear-logs').click()");
+        await press(app, reason);
         await app.waitFor("document.getElementById('modal-error').classList.contains('active')");
-        await app.evaluate("if(!document.getElementById('btn-show-full-log').classList.contains('hidden'))document.getElementById('btn-show-full-log').click()");
-        assert.match(await app.evaluate("document.getElementById('error-modal-detail').textContent+document.getElementById('error-modal-msg').textContent"), /完整错误尾标：保留所有排查细节/);
+        assert.match(await app.evaluate("document.getElementById('error-modal-msg').textContent"), /完整错误尾标：保留所有排查细节/);
         await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
         await app.waitFor("!document.getElementById('modal-error').classList.contains('active')");
-        await app.evaluate("feedbackSuccess=true;document.querySelector('[data-parameter-action=generate]').click()");
+        await app.evaluate('feedbackSuccess=true');
+        await press(app, retry);
         await app.waitFor("document.getElementById('failed-run-status').dataset.status==='completed'");
-        assert.equal(await app.evaluate("getComputedStyle(document.querySelector('#image-parameter-panel .image-parameter-run-feedback'),'::before').content"), 'none', 'success clears the error icon');
-        assert.equal(await app.evaluate("getComputedStyle(document.querySelector('#image-parameter-panel .image-parameter-run-feedback')).borderTopWidth"), '0px', 'success clears the error border');
+        assert.equal(await app.evaluate('feedbackRequests.length'), 2, 'the single-image retry sends exactly one more request');
+        assert.equal(await app.evaluate(`document.querySelector('${reason}')?.checkVisibility() ?? false`), false, 'success clears the error action');
+        assert.equal(await app.evaluate(`document.querySelector('${retry}')?.checkVisibility() ?? false`), false, 'success clears the retry action');
     });
 });
 
@@ -118,17 +125,23 @@ test('a genuinely incomplete batch says partially completed with its real progre
         await app.waitFor("partialRequests===2&&document.getElementById('partial-run-status').dataset.status==='completed'&&document.getElementById('btn-stop').disabled");
         assert.equal(await app.evaluate("document.getElementById('partial-run-status').textContent"), '部分完成');
         assert.equal(await app.evaluate("document.getElementById('partial-generation-progress').textContent"), '1/2');
-        assert.equal(await app.evaluate("document.getElementById('partial-generation-progress').checkVisibility()"), true, await app.evaluate("document.getElementById('partial-generation-progress').parentElement.outerHTML"));
+        assert.equal(await app.evaluate("document.getElementById('partial-generation-progress').checkVisibility()"), false);
+        assert.match(await app.evaluate(`document.querySelector('${section}').innerText`), /已完成 1\/2 张/);
         assert.equal(await app.evaluate("!document.querySelector('[data-node-id=partial] [data-image-generation-dirty]')"), true);
         await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.nodes.find(n=>n.id==='partial')?.generationRevision?.dirty===true)");
         await app.evaluate("document.querySelector('[data-parameter-action=close]').click()");
         await press(app, '#partial .node-concurrent-status-dot[data-status=failed]');
         assert.match(await app.evaluate("document.querySelector('.node-concurrent-status-error-popover:not(.hidden)').textContent"), /partial-provider-failure-detail/);
         await open(app, 'partial');
+        await app.evaluate(`document.querySelector('${toggle}').scrollIntoView({ block: 'nearest' })`);
+        await press(app, toggle);
+        assert.equal(await app.evaluate(`document.querySelector('${toggle}').getAttribute('aria-expanded')`), 'true');
         await app.evaluate("partialFail=false;document.querySelector('[data-parameter-action=generate]').click()");
         await app.waitFor("partialRequests===4&&document.getElementById('partial-run-status').textContent==='完成'&&document.getElementById('btn-stop').disabled");
         assert.equal(await app.evaluate("document.getElementById('partial-generation-progress').textContent"), '2/2');
-        assert.equal(await app.evaluate("document.getElementById('partial-generation-progress').checkVisibility()"), true);
+        assert.equal(await app.evaluate("document.getElementById('partial-generation-progress').checkVisibility()"), false);
+        assert.equal(await app.evaluate(`document.querySelector('${toggle}').getAttribute('aria-expanded')`), 'false', 'a new batch starts with its details collapsed');
+        assert.match(await app.evaluate(`document.querySelector('${section}').innerText`), /已完成 2\/2 张/);
         assert.equal(await app.evaluate("!document.querySelector('[data-node-id=partial] [data-image-generation-dirty]')"), true);
         await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.nodes.find(n=>n.id==='partial')?.generationRevision?.dirty===false)");
         assert.equal(await app.evaluate("document.querySelector('#partial .node-concurrent-status-dot[data-status=failed]')===null"), true);
@@ -161,8 +174,6 @@ test('the parameter panel tracks individual images and retries just the failed s
                 };
             });
         };`;
-    const panel = '#image-parameter-panel';
-    const section = `${panel} .image-generation-batch`;
     const failedSlot = `${section} [data-image-batch-slot="1"]`;
     const retry = `${failedSlot} [data-image-batch-retry]`;
     const errorDetails = `${failedSlot} button[data-image-batch-error]`;
@@ -179,13 +190,25 @@ test('the parameter panel tracks individual images and retries just the failed s
         await app.waitFor('releaseImageBatchRequest.length===3');
         await waitForStates(app, ['running', 'running', 'running']);
         assert.deepEqual(await app.evaluate(`${rows}.map(row=>row.dataset.imageBatchSlot)`), ['0', '1', '2']);
+        assert.equal(await app.evaluate(`document.querySelector('${toggle}')?.innerText.trim()`), '查看明细');
+        assert.equal(await app.evaluate(`document.querySelector('${toggle}').getAttribute('aria-expanded')`), 'false');
+        assert.equal(await app.evaluate(`${rows}.some(row=>row.checkVisibility())`), false, 'individual images start collapsed');
 
         await app.evaluate('releaseImageBatchRequest[2](2);releaseImageBatchRequest[1](-1)');
         await waitForStates(app, ['running', 'failed', 'completed']);
+        const summary = await app.evaluate(`document.querySelector('${section}').innerText`);
+        assert.match(summary, /已完成 1\/3 张/);
+        assert.match(summary, /1 张失败/);
+        assert.equal(await app.evaluate(`document.querySelector('${toggle}').getAttribute('aria-expanded')`), 'false', 'updates keep the current batch collapsed');
+        await app.evaluate(`document.querySelector('${toggle}').focus()`);
+        const enter = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 };
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', ...enter, text: '\r' });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', ...enter });
+        assert.equal(await app.evaluate(`document.querySelector('${toggle}').getAttribute('aria-expanded')`), 'true');
         assert.equal(await app.evaluate(`(()=>{const preview=document.querySelector('${section} [data-image-batch-slot="2"] [data-image-batch-preview]');return preview.checkVisibility()&&!preview.disabled})()`), true, 'completed images can be previewed while other slots run');
         assert.equal(await app.evaluate(`document.querySelector('${retry}')?.checkVisibility() === true && document.querySelector('${retry}').disabled`), true);
         assert.equal(await app.evaluate(`document.querySelector('${failedSlot}').innerText.includes('fixture failure for image 2')`), false);
-        assert.equal(await app.evaluate(`document.querySelector('${errorDetails}')?.textContent`), '生成失败');
+        assert.equal(await app.evaluate(`document.querySelector('${errorDetails}')?.textContent`), '查看原因');
         await app.evaluate(`document.querySelector('${errorDetails}').scrollIntoView({block:'nearest'})`);
         await press(app, errorDetails);
         await app.waitFor("document.getElementById('modal-error').classList.contains('active')");
@@ -200,6 +223,7 @@ test('the parameter panel tracks individual images and retries just the failed s
 
         await app.evaluate('releaseImageBatchRequest[0](0)');
         await waitForStates(app, ['completed', 'failed', 'completed']);
+        assert.equal(await app.evaluate(`document.querySelector('${toggle}').getAttribute('aria-expanded')`), 'true', 'updates keep the expanded details open');
         await app.waitFor(`document.querySelector('${retry}')?.disabled===false&&(${assetKeys}).then(keys=>keys.length===2)`);
         const successes = await app.evaluate(assetKeys);
 
@@ -243,6 +267,7 @@ test('waiting has no fabricated progress and the original reachable two-second c
         await app.evaluate("document.querySelector('[data-parameter-group-toggle=more]').click();document.getElementById('target').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:300,clientY:200}));document.getElementById('context-menu-run-to-here').click()");
         await app.waitFor("feedbackRequests.length===1&&document.getElementById('target-run-status')?.dataset.status==='waiting'");
         assert.equal(await app.evaluate("document.getElementById('target-generation-progress').checkVisibility()"), false);
+        assert.doesNotMatch(await app.evaluate(`document.querySelector('${section}')?.checkVisibility() ? document.querySelector('${section}').innerText : ''`), /\d+\/\d+/);
         assert.equal(await app.evaluate("document.querySelector('[data-parameter-action=generate]').disabled"), true);
         assert.equal(await app.evaluate("(()=>{const controls=[...document.querySelectorAll('.image-reference-overview .image-reference-drag')];return controls.length>0&&controls.every(control=>control.dataset.reorderDisabled==='true')})()"), true);
         assert.equal(await app.evaluate("document.querySelector('#upstream .node-run-cancel-btn').closest('fieldset[disabled]')===null"), true);
@@ -250,11 +275,30 @@ test('waiting has no fabricated progress and the original reachable two-second c
         await delay(350);
         assert.equal(await app.evaluate('feedbackAborted'), false, 'a normal click never cancels the request');
         await open(app, 'upstream');
+        const compact = await app.evaluate(`(() => {
+            const status = document.querySelector('${section}');
+            const button = document.querySelector('${submit}');
+            const rect = status.getBoundingClientRect();
+            return {
+                text: status.innerText.trim(),
+                height: rect.height,
+                aboveFooter: rect.bottom <= button.closest('footer').getBoundingClientRect().top + 1,
+                progressVisible: document.getElementById('upstream-generation-progress').checkVisibility(),
+                button: button.innerText.trim(),
+                disabled: button.disabled
+            };
+        })()`);
+        assert.equal(compact.text, '正在生成 1 张图片');
+        assert.ok(compact.height > 0 && compact.height <= 40 && compact.aboveFooter, JSON.stringify(compact));
+        assert.equal(compact.progressVisible, false);
+        assert.equal(compact.button, '生成');
+        assert.equal(compact.disabled, true);
         const cancelPoint = await point(app, '#upstream .node-run-cancel-btn');
         assert.equal(await app.evaluate(`document.querySelector('#upstream .node-run-cancel-btn').contains(document.elementFromPoint(${cancelPoint.x},${cancelPoint.y}))`), true, 'the selected running node keeps its original cancel reachable above its parameter editor');
         await press(app, '#upstream .node-run-cancel-btn', 2150);
         await app.waitFor("feedbackAborted&&document.getElementById('upstream-run-status')?.dataset.status==='aborted'&&document.getElementById('btn-stop').disabled");
         await app.waitFor("document.querySelector('#image-parameter-panel .image-generation-batch [data-image-batch-slot=\"0\"][data-status=cancelled]')?.checkVisibility()");
+        assert.match(await app.evaluate(`document.querySelector('${section}').innerText`), /已取消/);
         assert.equal(await app.evaluate("document.querySelector('#upstream .node-run-cancel-btn').checkVisibility()"), false);
         assert.equal(await app.evaluate("['upstream','target'].every(id=>document.getElementById(id))&&[...document.querySelectorAll('#nodes-layer>.node')].filter(node=>!['upstream','target'].includes(node.id)).every(node=>node.classList.contains('node-save'))"), true);
     });

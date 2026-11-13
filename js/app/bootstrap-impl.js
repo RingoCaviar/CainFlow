@@ -402,11 +402,13 @@ function showWorkflowFailureSummary(failures = []) {
     });
     modal.classList.add('active');
 }
-document.addEventListener('cainflow:node-failure-clicked', (event) => {
-    const nodeId = event.detail?.nodeId;
+function openNodeFailureLog(nodeId) {
     const log = state.logs?.find((entry) => entry.type === 'error' && entry.nodeId === nodeId);
-    if (log) getLogPanelApi().showLogDetail(log.id);
-});
+    if (!log) return false;
+    getLogPanelApi().showLogDetail(log.id);
+    return true;
+}
+document.addEventListener('cainflow:node-failure-clicked', (event) => openNodeFailureLog(event.detail?.nodeId));
 const interactionPerformanceGuard = createInteractionPerformanceGuard({
     state,
     canvasContainer,
@@ -727,6 +729,7 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
     panelManager,
     openResultPreview: (images, index, onClose) => openFullscreenPreview(images[index], null, { images, index, onClose }),
     openShotError: (label, reason) => showErrorModal('', reason, null, `「${label}」生成失败`),
+    openNodeFailureLog,
     openReferencePreview: async (edge, onClose) => {
         const source = state.nodes.get(edge.from.nodeId);
         const isCurrent = () => source && state.nodes.get(edge.from.nodeId) === source && state.connections.includes(edge);

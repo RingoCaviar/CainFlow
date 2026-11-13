@@ -269,12 +269,17 @@ body.toolbar-pinned {
     pointer-events: none;
 }
 
-@media (max-width: 520px) {
-    body:has(#image-parameter-panel:not([hidden]) .image-generation-batch:not([hidden])) #toast-container {
-        top: var(--floating-notices-top-offset);
-        bottom: auto;
-        flex-direction: column;
-    }
+body:has(#image-parameter-panel:not([hidden]) > .image-generation-batch:not([hidden])) #toast-container {
+    top: var(--floating-notices-top-offset);
+    bottom: auto;
+    flex-direction: column;
+}
+
+body:has(#image-parameter-panel:not([hidden]) > .image-generation-batch:not([hidden])) #toast-container .toast.error .toast-message {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
 }
 
 /* Keep transient overlays clear of active feature chrome before they can obscure controls. */
