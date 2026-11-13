@@ -1,4 +1,10 @@
 import { getOpenAiImageCapabilities } from '../features/execution/openai-image-capabilities.js';
+import { getGoogleImageCapabilities } from '../features/execution/google-image-capabilities.js';
+
+export function supportsImageWebSearch(protocol, modelId) {
+    if (protocol === 'google') return getGoogleImageCapabilities(modelId)?.search !== false;
+    return !['openai', 'ttapi-openai', 'newapi-image-async'].includes(protocol);
+}
 
 const DEFAULT_VALUES = {
     quality: ['auto', 'low', 'medium', 'high'],

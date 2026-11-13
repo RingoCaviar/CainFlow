@@ -6,6 +6,14 @@ test('model aspect spelling maps to the same ratio parameter as canvas plans', (
 });
 
 import { resolveAgentSize, parseSizeAnswer, sizeCapabilities } from '../js/features/prompt-agent/prompt-agent-size.js';
+
+test('Gemini size answers use the selected model resolution values', () => {
+    const flash = { protocol: 'google', modelId: 'gemini-3.1-flash-image' };
+    const fixed = { protocol: 'google', modelId: 'gemini-2.5-flash-image' };
+    assert.equal(resolveAgentSize({ ...flash, parameters: parseSizeAnswer('用 512px') }).effective.resolution, '512');
+    assert.equal(resolveAgentSize({ ...fixed, parameters: parseSizeAnswer('用 1K') }).effective.resolution, '');
+    assert.throws(() => resolveAgentSize({ ...fixed, parameters: parseSizeAnswer('用 512px') }), /不支持所选分辨率/);
+});
 import { createPromptAgentConversationStore } from '../js/features/prompt-agent/prompt-agent-conversation-store.js';
 test('automatic asks, a combined change validates the destination, and defaults never overwrite explicit intent', () => {
  assert.throws(() => resolveAgentSize({protocol:'openai',parameters:{aspect:'16:9'}}), error => error.sizeClarification.kind === 'resolution');

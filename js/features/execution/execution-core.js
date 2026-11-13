@@ -1402,7 +1402,7 @@ export function createExecutionCoreApi({
                 : (isTtapiOpenAi
                     ? buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, inputs, protocolParams })
                     : (isGoogle
-                        ? buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled })
+                        ? buildGoogleImageRequest({ modelId: modelCfg.modelId, prompt, inputs, aspect, resolution, searchEnabled })
                         : buildOpenAiImageRequest({
                     modelCfg,
                     prompt,
@@ -2082,7 +2082,7 @@ export function createExecutionCoreApi({
                 const buildRequestBody = () => {
                     if (isTtapi) return buildTtapiImageRequest({ modelCfg, prompt, inputs, aspect, resolution, searchEnabled, protocolParams });
                     if (isTtapiOpenAi) return buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, inputs, protocolParams });
-                    if (isGoogle) return buildGoogleImageRequest({ prompt, inputs, aspect, resolution, searchEnabled });
+                    if (isGoogle) return buildGoogleImageRequest({ modelId: modelCfg.modelId, prompt, inputs, aspect, resolution, searchEnabled });
                     return buildOpenAiImageRequest({
                         modelCfg, prompt, resolution, quality, moderation, background, mask, inputs, protocolParams,
                         protocol, url, edit: isOpenAiImageEdit
