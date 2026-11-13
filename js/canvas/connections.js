@@ -234,8 +234,7 @@ export function createConnectionsApi({
         const fromNode = getNodeById(connection.from?.nodeId);
         const toNode = getNodeById(connection.to?.nodeId);
         if (!fromNode || !toNode) return false;
-        return isNodeVisibleInViewport(fromNode, viewport, 100) ||
-            isNodeVisibleInViewport(toNode, viewport, 100);
+        return connectionBoundsOverlapViewport(fromNode, toNode, viewport);
     }
 
     function isConnectionAwaitingLayout(connection) {
@@ -1083,15 +1082,23 @@ export function createConnectionsApi({
         return 'c_' + Math.random().toString(36).substr(2, 9);
     }
 
-    function isNodeVisibleInViewport(node, viewport, padding = 100) {
-        if (!node) return false;
-        const bounds = getNodeBounds(node);
-        return !(
-            bounds.right < viewport.left - padding ||
-            bounds.left > viewport.right + padding ||
-            bounds.bottom < viewport.top - padding ||
-            bounds.top > viewport.bottom + padding
-        );
+    function connectionBoundsOverlapViewport(fromNode, toNode, viewport) {
+        const from = getNodeBounds(fromNode);
+        const to = getNodeBounds(toNode);
+        const padding = 100;
+        if (Math.max(from.bottom, to.bottom) < viewport.top - padding ||
+            Math.min(from.top, to.top) > viewport.bottom + padding) return false;
+
+        const left = Math.min(from.left, to.left);
+        const right = Math.max(from.right, to.right);
+        if (right >= viewport.left - padding && left <= viewport.right + padding) return true;
+        if (state.connectionLineType === 'orthogonal') return false;
+
+        // Bound the Bézier control points using the largest possible port span.
+        const span = Math.max(Math.abs(from.right - to.left), Math.abs(to.right - from.left));
+        const { control1, control2 } = getBezierCurveGeometry(0, 0, span, 0, getConnectionPathOptions());
+        return Math.max(right, from.right + control1.x) >= viewport.left - padding &&
+            Math.min(left, to.left + control2.x - span) <= viewport.right + padding;
     }
 
     function getCurrentConnectionViewport(containerRect = null) {
@@ -1209,8 +1216,7 @@ export function createConnectionsApi({
         const {
             containerRect = canvasContainer.getBoundingClientRect(),
             viewport = getCurrentConnectionViewport(containerRect),
-            laneById = getConnectionLaneMap(),
-            padding = 100
+            laneById = getConnectionLaneMap()
         } = context;
         let path = pathById.get(conn.id);
         if (path) {
@@ -1229,11 +1235,11 @@ export function createConnectionsApi({
             return false;
         }
 
-        const isFromVisible = isNodeVisibleInViewport(fromNode, viewport, padding);
-        const isToVisible = isNodeVisibleInViewport(toNode, viewport, padding);
-        if (!isFromVisible && !isToVisible && path) {
-            setSvgAttribute(path, 'd', '');
-            updateFlowDecoration(path, conn.id, false);
+        if (!connectionBoundsOverlapViewport(fromNode, toNode, viewport)) {
+            if (path) {
+                setSvgAttribute(path, 'd', '');
+                updateFlowDecoration(path, conn.id, false);
+            }
             return false;
         }
 
@@ -1305,7 +1311,10 @@ export function createConnectionsApi({
     }
 
     function updateAllConnections() {
-        return performanceMonitor?.measure?.('connection-full-refresh', updateAllConnectionsImpl) ?? updateAllConnectionsImpl();
+        if (performanceMonitor?.measure) {
+            return performanceMonitor.measure('connection-full-refresh', updateAllConnectionsImpl);
+        }
+        return updateAllConnectionsImpl();
     }
 
     function prepareWholeConnectionProjection({ reflectInteractionState = true } = {}) {
@@ -1343,8 +1352,7 @@ export function createConnectionsApi({
         return {
             containerRect,
             viewport: getCurrentConnectionViewport(containerRect),
-            laneById: getConnectionLaneMap(),
-            padding: 100
+            laneById: getConnectionLaneMap()
         };
     }
 
@@ -1453,7 +1461,7 @@ export function createConnectionsApi({
             if (translateInternalDragPath(conn, draggedIds, laneById)) return;
             if (!context) {
                 const containerRect = canvasContainer.getBoundingClientRect();
-                context = { containerRect, viewport: getCurrentConnectionViewport(containerRect), laneById, padding: 100 };
+                context = { containerRect, viewport: getCurrentConnectionViewport(containerRect), laneById };
             }
             renderConnectionPath(conn, context);
         });
@@ -1495,15 +1503,33 @@ export function createConnectionsApi({
             distance(expected.to, actual.to) <= CONNECTION_ENDPOINT_TOLERANCE;
     }
 
-    function detectMisalignedConnections({ nodeIds = [] } = {}) {
+    function detectMisalignedConnections({ nodeIds = [], viewportOnly = false } = {}) {
         const nodeSet = new Set(Array.isArray(nodeIds) ? nodeIds : [nodeIds]);
         const containerRect = canvasContainer.getBoundingClientRect();
-        const laneById = getConnectionLaneMap();
-        return state.connections.map((conn) => {
+        const viewport = getCurrentConnectionViewport(containerRect);
+        let candidates = state.connections;
+        if (viewportOnly) {
+            const endpointIds = new Set();
+            candidates = candidates.filter((connection) => {
+                // Keep checking drawn paths, including lines that cross the viewport
+                // with both endpoints offscreen.
+                if (!pathById.get(connection.id)?.getAttribute('d') && !isConnectionNearViewport(connection, viewport)) {
+                    return false;
+                }
+                endpointIds.add(connection.from?.nodeId);
+                endpointIds.add(connection.to?.nodeId);
+                return true;
+            });
+            for (const nodeId of endpointIds) {
+                if (nodeId) invalidateNodePortCache(nodeId, { markDirty: false, measurementOnly: true });
+            }
+        }
+        return candidates.map((conn) => {
             if (nodeSet.size && !nodeSet.has(conn.from?.nodeId) && !nodeSet.has(conn.to?.nodeId)) return false;
             const path = pathById.get(conn.id);
             const pathData = path?.getAttribute('d') || '';
             if (!pathData) {
+                if (!viewportOnly && !isConnectionNearViewport(conn, viewport)) return false;
                 const endpointsVisible = isConnectionEndpointVisible(conn.from.nodeId, conn.from.port, 'output') &&
                     isConnectionEndpointVisible(conn.to.nodeId, conn.to.port, 'input');
                 if (!endpointsVisible) return false;
@@ -1548,8 +1574,7 @@ export function createConnectionsApi({
         const context = {
             containerRect,
             viewport: getCurrentConnectionViewport(containerRect),
-            laneById: getConnectionLaneMap(),
-            padding: 100
+            laneById: getConnectionLaneMap()
         };
         for (const { conn, pathEl } of draggingState.connectionsToUpdate) {
             if (pathEl && !pathEl.isConnected) continue;

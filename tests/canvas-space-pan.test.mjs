@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCanvasInteractionsApi } from '../js/canvas/canvas-interactions.js';
+import { createConnectionProjection } from '../js/canvas/connection-projection.js';
 
 function createClassList() {
     return { add() {}, remove() {}, contains() { return false; } };
@@ -23,7 +24,7 @@ test('shake detach upgrades drag history before topology changes and leaves edge
     }
 });
 
-function createHarness({ getNodeMinimumSize = null, connectionTargetApi = {}, requestFrame = null } = {}) {
+function createHarness({ getNodeMinimumSize = null, connectionTargetApi = {}, requestFrame = null, connectionProjection = null } = {}) {
     const canvasListeners = [];
     const windowListeners = [];
     const canvasContainer = {
@@ -71,7 +72,7 @@ function createHarness({ getNodeMinimumSize = null, connectionTargetApi = {}, re
         serializeOneNode() {}, addNode() {}, checkLineIntersection: connectionTargetApi.checkLineIntersection || (() => false),
         getConnectionSamplePoints: connectionTargetApi.getConnectionSamplePoints || (() => []), documentRef, getNodeMinimumSize,
         scheduleConnectionRefresh(options) { legacyRefreshCalls.push(options); },
-        connectionProjection: {
+        connectionProjection: connectionProjection || {
             beginInteraction(kind, nodeIds) {
                 projectionCalls.push(['begin', kind, nodeIds]);
                 return {
@@ -505,6 +506,79 @@ test('window blur settles a node resize and clears its cursor state', () => {
     assert.equal(state.resizing, null);
     assert.equal(state.nodes.get('node-1').userResized, true);
     assert.equal(saveCalls.length, 1);
+});
+
+test('releasing a resize or losing focus settles only the resized node connections', () => {
+    for (const end of ['mouseup', 'blur']) {
+        const frames = [];
+        const calls = [];
+        const projection = createConnectionProjection({
+            updateAllConnections() { calls.push('full refresh'); },
+            invalidateNodePortCache(nodeId, options) {
+                calls.push([options?.measurementOnly ? 'measure' : 'invalidate', nodeId]);
+            },
+            updateDirtyConnections() { calls.push('refresh changed connections'); },
+            detectMisalignedConnections({ nodeIds }) {
+                calls.push(['check alignment', nodeIds, state.nodes.get('node-1').width]);
+                return [{ connectionId: 'resized-edge' }];
+            },
+            markConnectionDirty(connectionId) { calls.push(['repair', connectionId]); },
+            requestAnimationFrameRef(callback) { frames.push(callback); return frames.length; },
+            cancelAnimationFrameRef() {}
+        });
+        const { windowListeners, state, legacyRefreshCalls, saveCalls } = createHarness({ connectionProjection: projection.interactions });
+        const style = { left: '50px', top: '60px', width: '320px', height: '240px' };
+        state.nodes.set('node-1', { x: 50, y: 60, el: { style, classList: createClassList() } });
+        state.resizing = {
+            nodeId: 'node-1', edge: 'right', startX: 100, startY: 100,
+            startNodeX: 50, startNodeY: 60, startWidth: 320, startHeight: 240,
+            minWidth: 180, maxWidth: Infinity, minHeight: 120, maxHeight: Infinity,
+            textareaResizeTargets: []
+        };
+        windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: 140, clientY: 100 });
+        windowListeners.find(({ type, options }) => type === end && !(options === true || options?.capture))
+            .listener({ clientX: 140, clientY: 100, target: { closest() { return null; } } });
+
+        assert.equal(state.resizing, null, end);
+        assert.equal(saveCalls.length, 1, end);
+        assert.equal(legacyRefreshCalls.filter(({ force }) => force).length, 0, end);
+        assert.deepEqual(calls, [['invalidate', 'node-1']], end);
+        while (frames.length) frames.shift()();
+        assert.deepEqual(calls, [
+            ['invalidate', 'node-1'],
+            'refresh changed connections',
+            ['measure', 'node-1'],
+            ['check alignment', ['node-1'], 360],
+            ['repair', 'resized-edge'],
+            'refresh changed connections'
+        ], end);
+    }
+});
+
+test('a top resize that changes vertical ordering refreshes shared connection lanes', () => {
+    const frames = [];
+    let fullRefreshes = 0;
+    const projection = createConnectionProjection({
+        updateAllConnections() { fullRefreshes += 1; },
+        requestAnimationFrameRef(callback) { frames.push(callback); return frames.length; },
+        cancelAnimationFrameRef() {}
+    });
+    const { windowListeners, state } = createHarness({ connectionProjection: projection.interactions });
+    const style = { left: '50px', top: '60px', width: '320px', height: '240px' };
+    state.nodes.set('node-1', { x: 50, y: 60, el: { style, classList: createClassList() } });
+    state.resizing = {
+        nodeId: 'node-1', edge: 'top', startX: 100, startY: 100,
+        startNodeX: 50, startNodeY: 60, startWidth: 320, startHeight: 240,
+        minWidth: 180, maxWidth: Infinity, minHeight: 120, maxHeight: Infinity,
+        textareaResizeTargets: []
+    };
+    windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: 100, clientY: 140 });
+    windowListeners.find(({ type, options }) => type === 'mouseup' && !(options === true || options?.capture))
+        .listener({ clientX: 100, clientY: 140, target: { closest() { return null; } } });
+    while (frames.length) frames.shift()();
+
+    assert.equal(state.nodes.get('node-1').y, 100);
+    assert.equal(fullRefreshes, 1, 'peer lanes can change when the resized node moves vertically');
 });
 
 test('temporary connection drawing uses one projection lease', () => {

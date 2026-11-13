@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createConnectionsApi } from '../js/canvas/connections.js';
 import { createConnectionProjection } from '../js/canvas/connection-projection.js';
+import { createCanvasPerformanceMonitor } from '../js/app/dev/canvas-performance-monitor.js';
 
 function createClassList() {
     const values = new Set();
@@ -85,6 +86,7 @@ function createHarness(connectionCount, {
     setTimeoutImpl,
     createBezierPathImpl,
     connectionRenderer,
+    performanceMonitor,
     distinctTargets = false,
     portsInitiallyVisible = true,
     running = false,
@@ -203,7 +205,8 @@ function createHarness(connectionCount, {
         scheduleSave,
         onConnectionsChanged,
         documentRef,
-        connectionRenderer
+        connectionRenderer,
+        performanceMonitor
     });
     return {
         api,
@@ -584,6 +587,82 @@ test('connection restoration materializes only connections near the viewport', (
 
     assert.equal(paths.length, 1);
     assert.equal(paths[0].getAttribute('data-conn-id'), 'connection-1');
+});
+
+test('one full refresh keeps never-rendered offscreen connections culled until they enter view', () => {
+    const { api, state, paths, getPortRectReadCount } = createHarness(1);
+    state.nodes.get('from').x = 2000;
+    state.nodes.get('to').x = 2200;
+
+    api.updateAllConnections();
+    assert.deepEqual(api.detectMisalignedConnections(), []);
+    assert.equal(paths.length, 0);
+    assert.equal(getPortRectReadCount(), 0);
+
+    state.canvas.x = -2000;
+    api.updateAllConnections();
+    assert.ok(paths[0]?.getAttribute('d'));
+});
+
+test('restoration renders a long connection crossing the viewport with both endpoints offscreen', () => {
+    const { api, state, paths } = createHarness(1, {
+        createBezierPathImpl: (fromX, fromY, toX, toY) => `M ${fromX} ${fromY} L ${toX} ${toY}`
+    });
+    const source = state.nodes.get('from');
+    const target = state.nodes.get('to');
+    source.x = -600;
+    target.x = 1300;
+    const output = createPort('text', 'output', source.x + source.width);
+    const input = createPort('text', 'input', target.x);
+    state.nodes.set(source.id, createNode(source.id, source.x, output, input));
+    state.nodes.set(target.id, createNode(target.id, target.x, output, input));
+
+    const restoration = api.beginConnectionRestoration();
+    restoration.renderViewport();
+    restoration.finish({ completed: true });
+
+    assert.equal(paths[0]?.getAttribute('d'), 'M -476 24 L 1304 24');
+    api.updateAllConnections();
+    assert.equal(paths[0]?.getAttribute('d'), 'M -476 24 L 1304 24');
+});
+
+test('pan and zoom settlement measure newly visible connections and defer distant ones', async () => {
+    const { api, state, frames, paths } = createHarness(3, { distinctTargets: true });
+    let visiblePortReads = 0;
+    let distantPortReads = 0;
+    function addConnectionNodes(index, x, onRead) {
+        const outputPort = createPort('text', 'output', () => x + 120 + state.canvas.x, onRead);
+        const inputPort = createPort('text', 'input', () => x + 200 + state.canvas.x, onRead);
+        const source = createNode(`from-${index}`, x, outputPort, inputPort);
+        const target = createNode(`to-${index}`, x + 200, outputPort, inputPort);
+        state.nodes.set(source.id, source);
+        state.nodes.set(target.id, target);
+        state.connections[index - 1].from.nodeId = source.id;
+    }
+    addConnectionNodes(2, 1800, () => { visiblePortReads += 1; });
+    addConnectionNodes(3, 4200, () => { distantPortReads += 1; });
+    const restoration = api.beginConnectionRestoration();
+    restoration.renderViewport();
+    restoration.finish({ completed: true });
+    assert.deepEqual(paths.map(path => path.getAttribute('data-conn-id')), ['connection-1']);
+
+    const projection = createRestorationProjection(api, {
+        detectMisalignedConnections: api.detectMisalignedConnections,
+        requestAnimationFrameRef(callback) { frames.push(callback); return frames.length; },
+        cancelAnimationFrameRef() {}
+    });
+    for (const [kind, x, expected] of [['pan', -1800, 'connection-2'], ['zoom', -4200, 'connection-3']]) {
+        const finished = projection.interactions.beginInteraction(kind).finish();
+        state.canvas.x = x;
+        frames.shift()(0);
+        await finished;
+        assert.ok(paths.find(path => path.getAttribute('data-conn-id') === expected)?.getAttribute('d'));
+        if (kind === 'pan') {
+            assert.ok(visiblePortReads > 0);
+            assert.equal(distantPortReads, 0, 'distant, unmaterialized endpoints need no measurements');
+        }
+    }
+    assert.ok(distantPortReads > 0, 'a later viewport change measures the newly visible endpoints');
 });
 
 test('adopted connection projection is reindexed by the visible renderer', () => {
@@ -1205,6 +1284,23 @@ test('alignment verification waits for workflow restoration before updating path
     }
     await finishing;
     assert.notEqual(paths[0].getAttribute('d'), originalPath);
+});
+
+test('a full connection refresh renders once with performance sampling on or off', () => {
+    for (const search of ['', '?perf=1']) {
+        const renderedConnections = [];
+        const { api } = createHarness(2, {
+            performanceMonitor: createCanvasPerformanceMonitor({ globalRef: { location: { search } } }),
+            createBezierPathImpl(fromX, fromY, toX, toY) {
+                renderedConnections.push(`M ${fromX} ${fromY} L ${toX} ${toY}`);
+                return renderedConnections.at(-1);
+            }
+        });
+
+        api.updateAllConnections();
+
+        assert.equal(renderedConnections.length, 2, `one render per connection with search "${search}"`);
+    }
 });
 
 test('connection restoration closes its renderer transaction after a render failure', async () => {

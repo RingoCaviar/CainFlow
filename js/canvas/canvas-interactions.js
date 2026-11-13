@@ -263,7 +263,15 @@ export function createCanvasInteractionsApi({
             node.observedHeight = node.height;
             node.userResized = true;
             node.el.classList.remove('is-interacting');
-            refreshNodeConnections(r.nodeId, { force: true });
+            if (typeof connectionProjection?.nodeGeometrySettled === 'function') {
+                Promise.resolve(connectionProjection.nodeGeometrySettled(r.nodeId, {
+                    verticalPositionChanged: node.y !== r.startNodeY
+                })).catch((error) => {
+                    console.warn('Connection projection failed to settle node resize:', error);
+                });
+            } else {
+                refreshNodeConnections(r.nodeId, { force: true });
+            }
         }
         if (r.cursorClass) documentRef.body.classList.remove(r.cursorClass);
         state.resizing = null;
