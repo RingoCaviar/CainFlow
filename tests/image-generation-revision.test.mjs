@@ -63,6 +63,21 @@ test('reference descriptions affect the actual prompt while source titles remain
  source.data.imageDescriptions[1]='blue scene with a mountain';api.observeAll();assert.equal(node.generationDirty,true);
 });
 
+test('replacing the selected original invalidates the generation recipe even when its prompt token stays the same', () => {
+    const { node, api } = fixture();
+    const bind = id => { node.data.imagePromptMentions = [{ token: '@图片1', source: { id, historyId: id } }]; };
+    const initial = api.fingerprint(node);
+    bind('old');
+    assert.equal(api.fingerprint(node), initial, 'an unused token does not alter a generation recipe');
+    node.data.prompt = '沿用 @图片1';
+    const token = api.beginAttempt(node, {});
+    assert.equal(api.completeAttempt(token, { succeeded: true }), true);
+    assert.equal(node.generationDirty, false);
+    bind('replacement');
+    api.observeAll();
+    assert.equal(node.generationDirty, true);
+});
+
 test('an active upstream prompt masks the local protocol prompt draft and inactive variant drafts',()=>{
  registerProtocol({...OpenaiProtocol,id:'revision-variant',parameters:{...OpenaiProtocol.parameters,unusedDraft:{id:'unusedDraft',dataType:'string'}},variants:{model:{parameters:{unusedDraft:null}}}});
  const {node,state,api}=fixture();state.models[0].protocol='revision-variant';node.data.protocolParams={prompt:'old local',systemPrompt:'system',unusedDraft:'old'};

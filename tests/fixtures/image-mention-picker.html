@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN" data-app-theme="paper">
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="../../css/modules/00-foundation.css">
+    <link rel="stylesheet" href="../../css/themes.css">
+    <link rel="stylesheet" href="../../css/features/image-mention-picker.css">
+    <style>
+        main { position: fixed; inset: auto 12px 44px auto; width: min(440px, calc(100% - 24px)); padding: 12px; border: 1px solid var(--panel-border); border-radius: var(--radius-node); background: var(--panel-bg); }
+        textarea { display: block; width: 100%; height: 80px; margin-top: 10px; padding: 8px; border: 1px solid var(--panel-input-border); border-radius: var(--radius-sm); background: var(--panel-input-bg); color: var(--text-primary); font: 15px/1.55 var(--font); resize: none; }
+        label { color: var(--text-primary); }
+        #surface-result { display: none; }
+    </style>
+</head>
+<body>
+<main>
+    <label for="prompt">生图提示词</label>
+    <textarea id="prompt" placeholder="输入提示词，@ 引用图片"></textarea>
+</main>
+<pre id="surface-result"></pre>
+<script type="module">
+import { bindImageMentionPicker } from '../../js/features/ui/image-mention-picker.js';
+import { getSurfaceCoordinator } from '../../js/features/ui/surface-coordinator.js';
+
+const input = document.querySelector('textarea');
+const art = '../../artifacts/prototype-image-first-canvas/assets/';
+const upstream = [
+    { id: 'product', name: '户外灯 · 正面原图', kind: 'import', previewUrl: art + 'product.png', referenceNumber: 1 },
+    { id: 'lighting', name: '站台光影', kind: 'canvas', previewUrl: art + 'scene-platform.png', referenceNumber: 2 }
+];
+const scene = [
+    ...upstream,
+    { id: 'snow', name: '雪地构图', kind: 'history', searchText: '户外 夜景' },
+    { id: 'close-up', name: '灯罩材质细节', kind: 'history', previewUrl: art + 'scene-detail.png' }
+];
+const extra = [{ id: 'generate', name: '产品生图', kind: 'node', description: 'ImageGenerate', sourceNodeId: 'generate' }];
+let nextScene, thumbnailReads = 0, inputEvents = 0;
+input.addEventListener('input', () => inputEvents++);
+bindImageMentionPicker({
+    input, getUpstream: () => upstream, getScene: () => nextScene ?? scene, getExtraChoices: () => extra,
+    readThumbnail: async item => { thumbnailReads++; return item.id === 'snow' ? art + 'scene-snow.png' : null; },
+    onSelect: item => item.id === 'snow' ? '@图片3' : '@图片2'
+});
+
+const result = document.getElementById('surface-result');
+const picker = () => document.querySelector('.image-mention-picker');
+const mode = id => picker().querySelector(`[data-mention-mode="${id}"]`);
+const rows = () => [...picker().querySelectorAll('[role=option]')];
+const active = () => picker().querySelector('[aria-selected=true]')?.dataset.mentionId;
+const key = (key, options = {}) => input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...options }));
+const wait = async condition => {
+    for (let i = 0; i < 80; i++) {
+        if (condition()) return;
+        await new Promise(resolve => setTimeout(resolve, 16));
+    }
+    throw new Error(`Fixture state did not settle: ${JSON.stringify({ value: input.value, matches: picker()?.innerText, thumbs: picker() && sample().thumbs, thumbnailReads })}`);
+};
+const type = (value, caret = value.length) => {
+    input.focus(); input.value = value; input.setSelectionRange(caret, caret);
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+};
+const selected = () => rows().map(row => row.dataset.mentionId);
+const sample = () => {
+    const rect = picker().getBoundingClientRect();
+    const editor = input.getBoundingClientRect();
+    return { theme: document.documentElement.dataset.appTheme, visible: rect.left >= 0 && rect.top >= 0
+        && rect.right <= innerWidth && rect.bottom <= innerHeight, above: rect.bottom <= editor.top, width: rect.width,
+        thumbs: rows().filter(row => row.querySelector('.has-image img')).length };
+};
+
+try {
+    type('保持主体，@ 不改变背景', 6);
+    await wait(() => picker() && rows().length === 2 && sample().thumbs === 2);
+    const first = { mode: mode('upstream').getAttribute('aria-pressed'), active: active(), ids: selected(), layout: sample() };
+    key('ArrowDown');
+    const keyboard = active();
+    key('Enter');
+    const inserted = { value: input.value, caret: input.selectionStart, closed: !picker(), inputEvents };
+    document.execCommand('undo');
+    const undo = input.value;
+    if (picker()) key('Escape');
+    type('调整@雪地');
+    key('ArrowRight', { altKey: true });
+    await wait(() => rows().length === 1 && rows()[0].querySelector('.has-image img'));
+    const search = { ids: selected(), source: rows()[0].innerText, thumbnailReads };
+    key('Escape');
+    const escape = { closed: !picker(), value: input.value, focused: document.activeElement === input };
+    let resolveScene;
+    nextScene = new Promise(resolve => { resolveScene = resolve; });
+    type('@'); mode('scene').click(); mode('extra').click(); resolveScene(scene);
+    await wait(() => active() === 'generate');
+    const extraAfterRace = { ids: selected(), noImageForNode: !rows()[0].querySelector('img') };
+    key('Escape');
+    const settings = document.createElement('div');
+    settings.id = 'fixture-settings';
+    settings.className = 'image-parameter-settings-popup';
+    settings.setAttribute('popover', 'manual');
+    document.body.append(settings);
+    settings.append(input);
+    settings.showPopover();
+    const surfaces = getSurfaceCoordinator(document);
+    surfaces.openPopover(settings.id, { element: settings, trigger: document.querySelector('label'), close: () => settings.hidePopover() });
+    type('@');
+    await wait(() => active() === 'product');
+    const nested = picker().matches(':popover-open') && settings.matches(':popover-open');
+    key('Escape');
+    const nestedEscape = !picker() && settings.matches(':popover-open');
+    surfaces.forgetPopover(settings.id);
+    document.querySelector('main').append(input);
+    settings.remove();
+    nextScene = null;
+    document.documentElement.dataset.appTheme = 'pro';
+    type('把 @ 用作配色参考', 3); mode('scene').click();
+    await wait(() => rows().length === scene.length && sample().thumbs === scene.length);
+    result.textContent = JSON.stringify({ first, keyboard, inserted, undo, search, escape, extraAfterRace, nested, nestedEscape, final: sample() });
+} catch (error) { result.textContent = JSON.stringify({ error: error.stack }); }
+</script>
+</body>
+</html>

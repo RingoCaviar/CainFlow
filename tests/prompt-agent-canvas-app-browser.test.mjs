@@ -47,9 +47,9 @@ test('complete application previews, applies, executes and undoes a canvas plan 
             }
         }
         await send('Emulation.setDeviceMetricsOverride', { width: 640, height: 720, deviceScaleFactor: 1, mobile: false });
-        await evaluate("document.getElementById('prompt-agent-input').value='@受控';document.getElementById('prompt-agent-input').dispatchEvent(new Event('input',{bubbles:true}))");
-        await waitFor("Boolean(document.querySelector('.prompt-agent-node-mentions'))");
-        assert.equal(await evaluate("(()=>{const r=document.querySelector('.prompt-agent-node-mentions').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight})()"), true);
+        await evaluate("(()=>{const input=document.getElementById('prompt-agent-input');input.value='@受控';input.setSelectionRange(input.value.length,input.value.length);input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('.image-mention-picker [data-mention-mode=extra]').click()})()");
+        await waitFor("Boolean(document.querySelector('.image-mention-picker [role=option]'))");
+        assert.equal(await evaluate("(()=>{const r=document.querySelector('.image-mention-picker').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight})()"), true);
         await evaluate("document.getElementById('prompt-agent-input').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}))");
         assert.match(await evaluate("document.getElementById('prompt-agent-input').value"), /@受控海报\[/);
         assert.equal(await evaluate('window.agentRequests.length'), 1);

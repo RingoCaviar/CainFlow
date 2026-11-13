@@ -35,8 +35,10 @@ async function openAgent(app, id, sources = []) {
     await change(app, 'prompt-agent-input', '');
     for (const nodeId of [id, ...sources]) {
         await app.evaluate("(()=>{const input=document.getElementById('prompt-agent-input');input.value+='@';input.setSelectionRange(input.value.length,input.value.length);input.dispatchEvent(new Event('input',{bubbles:true}))})()");
-        await app.waitFor("Boolean(document.querySelector('.prompt-agent-node-mentions [role=option]'))");
-        await app.evaluate(`(()=>{const option=[...document.querySelectorAll('.prompt-agent-node-mentions [role=option]')].find(button=>button.textContent.endsWith(' · '+${JSON.stringify(nodeId)}));if(!option)throw new Error('Missing mention candidate');option.click()})()`);
+        await app.evaluate("document.querySelector('.image-mention-picker [data-mention-mode=extra]').click()");
+        const option = `document.querySelector('.image-mention-picker [data-mention-id="'+CSS.escape(${JSON.stringify(nodeId)})+'"]')`;
+        await app.waitFor(`Boolean(${option})`);
+        await app.evaluate(`${option}.click()`);
     }
     const draft = await app.evaluate("document.getElementById('prompt-agent-input').value");
     await change(app, 'prompt-agent-input', draft + '优化提示词');

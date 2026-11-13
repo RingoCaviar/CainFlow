@@ -127,6 +127,39 @@ class MediaLibraryTests(unittest.TestCase):
             self.assertFalse(library.get(9)['thumb'])
             self.assertTrue(library.delete(9, current['fileVersion']))
 
+    def test_versioned_original_read_rejects_a_replaced_file_before_and_after_scan(self):
+        with tempfile.TemporaryDirectory() as root:
+            library = MediaLibrary(self.make_store(root))
+            item = library.save({'mimeType': 'image/png'}, b'old reference')
+            path = Path(item['directory'], item['relativePath'])
+            self.assertEqual(b'old reference', library.read(item['id'], item['fileVersion'])[1])
+            path.write_bytes(b'new reference image')
+            with self.assertRaisesRegex(ValueError, '文件已变化'):
+                library.read(item['id'], item['fileVersion'])
+            current = library.list()[0]
+            with self.assertRaisesRegex(ValueError, '文件已变化'):
+                library.read(item['id'], item['fileVersion'])
+            self.assertEqual(b'new reference image', library.read(item['id'], current['fileVersion'])[1])
+
+    def test_thumbnail_urls_preserve_search_metadata_and_serve_only_the_selected_file_version(self):
+        with tempfile.TemporaryDirectory() as root:
+            library = MediaLibrary(self.make_store(root))
+            item = library.save({'mimeType': 'image/png', 'prompt': 'blue studio'}, b'original')
+            version = item['fileVersion']
+            thumbnail = 'data:image/webp;base64,dGh1bWJuYWls'
+            library.update_thumbnail(item['id'], thumbnail, version)
+            summary = library.list_page(thumbnail_urls=True)['items'][0]
+            self.assertNotIn('thumb', summary)
+            self.assertEqual(summary['prompt'], 'blue studio')
+            self.assertEqual(summary['thumbUrl'], f"/api/storage/library/{item['id']}/thumbnail?v={version}")
+            self.assertEqual(library.read_thumbnail(item['id'], version), ('image/webp', b'thumbnail'))
+            self.assertEqual(library.list()[0]['thumb'], thumbnail)
+
+            path = Path(item['directory'], item['relativePath'])
+            path.write_bytes(b'changed original')
+            self.assertIsNone(library.read_thumbnail(item['id'], version))
+            self.assertNotIn('thumbUrl', library.list_page(thumbnail_urls=True)['items'][0])
+
     def test_archive_directory_cannot_overlap_cache_maintenance_roots(self):
         with tempfile.TemporaryDirectory() as root:
             store = self.make_store(root)

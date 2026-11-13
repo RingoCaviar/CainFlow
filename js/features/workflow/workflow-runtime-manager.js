@@ -47,6 +47,7 @@ import { applyProtocolVariantSnapshot } from '../../nodes/protocol-variant-draft
 import { saveGeneratedMediaToDirectory } from '../media/generated-media-directory-save.js';
 import { downloadGeneratedVideo } from '../media/video/video-download.js';
 import { applyNodePersistenceExtensions } from '../../nodes/node-persistence-extensions.js';
+import { normalizePromptImageMentions } from '../../nodes/prompt-image-mentions.js';
 import { applyImageSaveMediaState, resolveImagePreviewInputState } from '../media/image-display-input-state.js';
 export { applyImageSaveMediaState } from '../media/image-display-input-state.js';
 import {
@@ -206,6 +207,7 @@ export function serializeRuntimeNode(node, doc) {
         lastDuration: node.lastDuration || null
     };
     if (node.data?.thinking) serialized.thinking = JSON.parse(JSON.stringify(node.data.thinking));
+    if (node.data?.imagePromptMentions?.length) serialized.imagePromptMentions = normalizePromptImageMentions(node.data.imagePromptMentions);
     if (typeof node.data?.imageDescription === 'string' && node.data.imageDescription.trim()) {
         serialized.imageDescription = node.data.imageDescription.trim().slice(0, 2000);
     }
@@ -467,11 +469,14 @@ function getRuntimeDisplayImageCount(node) {
     );
 }
 
-function getPlanImageRestoreNodeIds(plan = {}) {
+function getPlanImageRestoreNodeIds(plan = {}, state) {
     const nodeIds = new Set();
     const planNodeIds = plan?.executionOrder || plan?.nodeIds || [];
     planNodeIds.forEach((nodeId) => {
         if (nodeId) nodeIds.add(String(nodeId));
+        for (const { source } of normalizePromptImageMentions(state?.nodes.get(nodeId)?.data?.imagePromptMentions)) {
+            if (source.sourceNodeId && (!source.workflowId || source.workflowId === state.activeWorkflowId)) nodeIds.add(source.sourceNodeId);
+        }
     });
     Object.values(plan?.inputConnectionsByNode || {}).forEach((connections) => {
         if (!Array.isArray(connections)) return;
@@ -525,6 +530,7 @@ export function createRuntimeAutoSaveToDir({
 
 export function createWorkflowRuntimeManager({
     state,
+    referenceImageCatalog = null,
     nodeConfigs,
     createNodeMarkup,
     createBezierPath,
@@ -1842,6 +1848,7 @@ export function createWorkflowRuntimeManager({
         const data = cloneWorkflowData(workflowData);
         const runtimeExecutionCoreApi = createExecutionCoreApi({
             state: runtimeState,
+            referenceImageCatalog,
             nodeConfigs,
             syncTextSplitNodeData: () => {},
             documentRef: runtimeDocument,
@@ -1932,6 +1939,7 @@ export function createWorkflowRuntimeManager({
             waitForImageRestores(nodeIds = null) {
                 return runtimeNodeLifecycleApi.waitForImageRestores?.(nodeIds) || Promise.resolve();
             },
+            captureSceneReferenceImages: runtimeExecutionCoreApi.captureSceneReferenceImages,
             waitForPendingImageAssetSaves() {
                 return runtimeExecutionCoreApi.waitForPendingImageAssetSaves();
             },
@@ -2099,7 +2107,11 @@ export function createWorkflowRuntimeManager({
             let executionResult = null;
             let completionResult;
             try {
-                await context.waitForImageRestores(getPlanImageRestoreNodeIds(plan));
+                await context.waitForImageRestores(getPlanImageRestoreNodeIds(plan, context.state));
+                if (!context.stopController.signal.aborted) {
+                    const capture = context.captureSceneReferenceImages?.(plan, context.stopController.signal);
+                    if (capture) await capture;
+                }
                 if (context.stopController.signal.aborted) {
                     executionResult = { started: false, executed: false, reason: 'stopped-before-start', outcome: 'stopped' };
                 } else {

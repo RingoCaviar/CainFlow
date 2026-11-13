@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 
 const edges = ['first', 'second'].map((id, order) => ({ id: `edge-${id}`, from: { nodeId: id, port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, type: 'image', order })).concat({ id: 'saved-output', from: { nodeId: 'target', port: 'image' }, to: { nodeId: 'sink', port: 'image' }, type: 'image' });
@@ -12,6 +14,8 @@ session.activeWorkflowName = 'Snapshot';
 session.activeWorkflowId = 'snapshot-workflow';
 session.workflowTabs = [{ name: 'Snapshot', workflowId: 'snapshot-workflow', data: { workflowId: 'snapshot-workflow', nodes: session.nodes, connections: edges } }];
 const thumbnails = app => app.evaluate("[...document.querySelectorAll('.prompt-agent-message-user .prompt-agent-message-context-images img')].map(img=>img.src)");
+const mention = app => app.evaluate(`(()=>{const input=document.getElementById('prompt-agent-input');input.value+='@';input.focus();input.setSelectionRange(input.value.length,input.value.length);input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+const selectChatModel = app => app.evaluate("document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click()");
 async function upload(app, id, color) {
     await app.evaluate(`(async()=>{const transfer=new DataTransfer();transfer.items.add(new File([await(await fetch('/tests/fixtures/reference-${color}.png')).blob()],'${color}.png',{type:'image/png'}));const input=document.getElementById('${id}-file');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
     await app.waitFor(`fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.nodes.find(n=>n.id==='${id}')?.mediaAssetKeys?.length===1)`);
@@ -25,7 +29,15 @@ test('mentioned node thumbnails retain the actual reference order, preview origi
         await app.waitFor("!!document.getElementById('setting-agent-auto-compact-tokens')");
         await app.evaluate("(()=>{const field=document.getElementById('setting-agent-auto-compact-tokens');field.value='1000000';field.dispatchEvent(new Event('change',{bubbles:true}));document.getElementById('settings-close').click()})()");
         await upload(app, 'first', 'red'); await upload(app, 'second', 'blue');
-        await app.evaluate("document.getElementById('target').click();(id=>{if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click();const input=document.getElementById('prompt-agent-input');if(!input.value.includes('['+id+']')){input.value+=(input.value?'\\n':'')+'@';input.setSelectionRange(input.value.length,input.value.length);input.dispatchEvent(new Event('input',{bubbles:true}));const option=[...document.querySelectorAll('.prompt-agent-node-mentions [role=option]')].find(b=>b.textContent.endsWith(' · '+id));if(!option)throw new Error('Missing node mention '+id);option.click()}})(\"target\");document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=image][data-provider-id=p]').click();(()=>{const input=document.getElementById('prompt-agent-input');input.value+=' 优化提示词';input.dispatchEvent(new Event('input',{bubbles:true}))})();document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await app.evaluate("document.getElementById('target').click();if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click()");
+        if (!(await app.evaluate("document.getElementById('prompt-agent-input').value.includes('[target]')"))) {
+            await mention(app);
+            await app.evaluate("document.querySelector('.image-mention-picker [data-mention-mode=extra]').click()");
+            await app.waitFor("!!document.querySelector('.image-mention-picker [data-mention-id=target]')");
+            await app.evaluate("document.querySelector('.image-mention-picker [data-mention-id=target]').click()");
+        }
+        await selectChatModel(app);
+        await app.evaluate("document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=image][data-provider-id=p]').click();(()=>{const input=document.getElementById('prompt-agent-input');input.value+=' 优化提示词';input.dispatchEvent(new Event('input',{bubbles:true}))})();document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
         await app.waitFor("document.querySelectorAll('.prompt-agent-message-context-images img').length===2 && document.querySelector('.prompt-agent-canvas-plan')");
         const originals = await thumbnails(app);
         assert.equal(originals.length, 2);
@@ -62,4 +74,61 @@ test('mentioned node thumbnails retain the actual reference order, preview origi
         await upload(app, 'first', 'orange');
         assert.deepEqual(await thumbnails(app), originals, 'editing the live source cannot rewrite historical message images');
     }, { preserveRetiredSaveNodes: true });
+});
+
+test('Agent @ picker switches from upstream thumbnails to history and submits the mentioned originals', { timeout: 30000 }, async () => {
+    await withAppBrowser(session, async app => {
+        await app.send('Page.addScriptToEvaluateOnNewDocument', { source: `const nativeFetch=fetch;window.mentionRequests=[];window.fetch=async(url,options={})=>{
+            if(String(url)==='/proxy'){mentionRequests.push(JSON.parse(options.body));return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({intent:'chat',message:'已查看参考图'})}}]}),{headers:{'Content-Type':'application/json'}})}
+            return nativeFetch(url,options)};` });
+        await reloadAppBrowser(app);
+        await upload(app, 'first', 'red'); await upload(app, 'second', 'blue');
+        const historyId = await app.evaluate(`(async()=>{
+            const original=await(await fetch('/tests/fixtures/reference-orange.png')).blob();
+            const metadata=new TextEncoder().encode(JSON.stringify({mimeType:'image/png',mediaType:'image',prompt:'暖色历史参考'}));
+            const header=new Uint8Array(4);new DataView(header.buffer).setUint32(0,metadata.length);
+            const response=await fetch('/api/storage/library',{method:'POST',body:new Blob([header,metadata,original],{type:'application/octet-stream'})});
+            if(!response.ok)throw new Error('Could not seed directory history');
+            return (await response.json()).item.id;
+        })()`);
+        const original = await app.evaluate(`(async()=>{const blob=await(await fetch('/tests/fixtures/reference-orange.png')).blob();return new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.readAsDataURL(blob)})})()`);
+        const options = '.image-mention-picker [data-mention-id]';
+        const attachments = '#prompt-agent-references img';
+        await app.evaluate("document.getElementById('target').click();document.getElementById('btn-prompt-agent').click()");
+        await selectChatModel(app);
+        await mention(app);
+        assert.equal(await app.evaluate("document.querySelector('[data-mention-mode=upstream]').getAttribute('aria-pressed')"), 'true');
+        await app.waitFor(`document.querySelectorAll('${options} .has-image img').length===2`);
+        await app.evaluate(`document.querySelectorAll('${options}')[1].click()`);
+        await app.waitFor(`document.querySelector('${attachments}')?.naturalWidth>0 && !document.getElementById('prompt-agent-send').disabled`);
+        const upstream = await app.evaluate(`document.querySelector('${attachments}').src`);
+        assert.match(await app.evaluate("document.getElementById('prompt-agent-input').value"), /^@图片1 /);
+
+        await mention(app);
+        await app.evaluate("document.querySelector('[data-mention-mode=scene]').click()");
+        const historyOption = `[...document.querySelectorAll('${options}')].find(row=>JSON.parse(row.dataset.mentionId)[1]===${JSON.stringify(String(historyId))})`;
+        await app.waitFor(`Boolean(${historyOption}?.querySelector('.has-image img'))`);
+        if (process.env.CAINFLOW_QA_SCREENSHOT_DIR) {
+            await mkdir(process.env.CAINFLOW_QA_SCREENSHOT_DIR, { recursive: true });
+            const screenshot = await app.send('Page.captureScreenshot', { format: 'png' });
+            await writeFile(join(process.env.CAINFLOW_QA_SCREENSHOT_DIR, 'agent-image-mention.png'), Buffer.from(screenshot.data, 'base64'));
+        }
+        await app.evaluate(`${historyOption}.click()`);
+        await app.waitFor(`document.querySelectorAll('${attachments}').length===2 && !document.getElementById('prompt-agent-send').disabled`);
+        assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('${attachments}')].map(img=>img.src)`), [upstream, original]);
+        await app.evaluate(`(()=>{const input=document.getElementById('prompt-agent-input');input.setSelectionRange(0,'@图片1 '.length);document.execCommand('delete');})()`);
+        assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('${attachments}')].map(img=>img.src)`), [original]);
+        await app.evaluate("document.execCommand('undo')");
+        assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('${attachments}')].map(img=>img.src)`), [upstream, original]);
+        await app.evaluate("document.execCommand('redo')");
+        assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('${attachments}')].map(img=>img.src)`), [original]);
+        await app.evaluate(`(()=>{const input=document.getElementById('prompt-agent-input');input.value+='比较这张图片的配色';input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+        await app.evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await app.waitFor('window.mentionRequests.length===1');
+        const turn = await app.evaluate("mentionRequests[0].messages.at(-1).content");
+        const request = JSON.parse(turn.find(part => part.type === 'text').text);
+        assert.deepEqual(request.images.filter(image => image.origins.includes('本轮附件')).map(image => image.mentionTokens), [['@图片2']]);
+        assert.equal(request.userRequest, '@图片2 比较这张图片的配色');
+        assert.ok(turn.some(part => part.type === 'image_url' && part.image_url.url === original));
+    });
 });

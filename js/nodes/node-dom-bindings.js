@@ -46,6 +46,8 @@ import { getPrimaryImageImportMediaAssetReference, getPrimaryTextInput } from '.
 import { getSurfaceCoordinator } from '../features/ui/surface-coordinator.js';
 import { isUniversalInputNode } from './universal-input-policy.js';
 import { readImageSaveFilename } from './image-save-settings.js';
+import { bindImageMentionPicker } from '../features/ui/image-mention-picker.js';
+import { normalizePromptImageMentions, registerPromptImageMention, remapCopiedPromptImageMentions } from './prompt-image-mentions.js';
 
 export function createNodeDomBindingsApi({
     state,
@@ -56,6 +58,7 @@ export function createNodeDomBindingsApi({
     viewportApi,
     getPortPosition,
     getCachedOutputValue = (node, port) => node?.data?.[port],
+    referenceImageCatalog = null,
     createReferenceThumbnail,
     readReferenceSourceImages,
     openReferencePreview,
@@ -113,6 +116,43 @@ export function createNodeDomBindingsApi({
     const ZOOM_SETTLE_GUARD_MS = 220;
     const pendingConnectedInputLayoutFrames = new Map();
     const imagePromptSourceLayouts = new WeakMap();
+    const referencePromptBindings = new WeakMap();
+
+    function bindReferencePrompt(node, input) {
+        if (!referenceImageCatalog || !node || !input || node.isClone || referencePromptBindings.has(input)) return;
+        const oldPlaceholder = input.getAttribute('placeholder');
+        input.placeholder = oldPlaceholder ? `${oldPlaceholder} · @ 引用图片` : '@ 引用图片';
+        const owner = () => input.closest('#image-parameter-panel, .node') || node.el;
+        const picker = bindImageMentionPicker({
+            input, surfaces, owner,
+            getUpstream: () => referenceImageCatalog.getUpstream(node.id),
+            getScene: () => referenceImageCatalog.getScene(),
+            readThumbnail: candidate => referenceImageCatalog.readThumbnail(candidate),
+            onSelect(candidate, range) {
+                if (state.nodes.get(node.id) !== node || !range.isCurrent()) return null;
+                const source = candidate.sourceNodeId ? { ...candidate, workflowId: getWorkflowId?.() || '' } : candidate;
+                const token = registerPromptImageMention(node, source, input.value, range, input.maxLength);
+                if (!token) showToast('提示词已达到长度上限。', 'warning');
+                else queueMicrotask(() => { if (state.nodes.get(node.id) === node) scheduleSave(); });
+                return token;
+            }
+        });
+        referencePromptBindings.set(input, picker);
+        return () => {
+            picker.destroy();
+            if (oldPlaceholder === null) input.removeAttribute('placeholder');
+            else input.placeholder = oldPlaceholder;
+            referencePromptBindings.delete(input);
+        };
+    }
+
+    function bindProtocolReferencePrompts(id, container) {
+        const node = state.nodes.get(id);
+        container._referencePromptCleanup?.();
+        const controls = container.querySelectorAll(`[data-protocol-prompt], [id="${id}-param-systemPrompt"]`);
+        const cleanups = Array.from(controls, input => bindReferencePrompt(node, input)).filter(Boolean);
+        container._referencePromptCleanup = () => cleanups.forEach(cleanup => cleanup());
+    }
     const referenceOverview = createImageReferenceOverview({ state, documentRef, getCachedOutputValue,
         createThumbnail: createReferenceThumbnail, readSourceImages: readReferenceSourceImages,
         readAsset: readResultAsset,
@@ -1110,6 +1150,19 @@ export function createNodeDomBindingsApi({
         });
 
         cloneNode.providerId = sourceNode.providerId || '';
+        if (sourceNode.data?.imagePromptMentions || cloneNode.data?.imagePromptMentions) {
+            cloneNode.data ||= {};
+            const connectionIds = new Map();
+            const cloneEdges = (state.connections || []).filter(edge => edge.to.nodeId === cloneNode.id);
+            for (const edge of (state.connections || []).filter(edge => edge.to.nodeId === sourceNode.id)) {
+                const cloneEdge = cloneEdges.find(candidate => candidate.from.nodeId === edge.from.nodeId
+                    && candidate.from.port === edge.from.port && candidate.to.port === edge.to.port);
+                if (cloneEdge) connectionIds.set(edge.id, cloneEdge.id);
+            }
+            const workflowId = getWorkflowId?.() || '';
+            cloneNode.data.imagePromptMentions = remapCopiedPromptImageMentions(sourceNode.data?.imagePromptMentions,
+                { nodeIds: new Map(), connectionIds, fromWorkflowId: workflowId, toWorkflowId: workflowId });
+        }
         cloneNode.customTitle = sourceNode.customTitle || '';
         const cloneTitle = queryNodeControl(cloneNode.el, '.node-title');
         const sourceTitle = queryNodeControl(sourceNode.el, '.node-title');
@@ -1629,6 +1682,7 @@ export function createNodeDomBindingsApi({
         bindZoomSettleGuard(container);
         bindCustomNodeSelects(container);
         bindImageGenerateProtocolParamInputs(id, container);
+        bindProtocolReferencePrompts(id, container);
         bindProtocolNumberStepControls(container, documentRef);
     }
 
@@ -1697,6 +1751,7 @@ export function createNodeDomBindingsApi({
         const container = documentRef.getElementById(`${id}-protocol-params`);
         const node = state.nodes.get(id);
         if (!container || !node) return;
+        container._referencePromptCleanup?.();
 
         // 旧数据兼容
         node.data = node.data || {};
@@ -1734,6 +1789,7 @@ export function createNodeDomBindingsApi({
         bindZoomSettleGuard(container);
         bindCustomNodeSelects(container);
         bindVideoGenerateProtocolParamInputs(id, container);
+        bindProtocolReferencePrompts(id, container);
         bindProtocolNumberStepControls(container, documentRef);
         fitNodeToContent(id);
     }
@@ -3294,6 +3350,15 @@ export function createNodeDomBindingsApi({
 
         el.addEventListener('input', () => syncDependentPromptSources(id));
         el.addEventListener('change', () => syncDependentPromptSources(id));
+        if (['ImageGenerate', 'VideoGenerate', 'TextChat'].includes(type)) {
+            const node = state.nodes.get(id);
+            for (const suffix of type === 'TextChat' ? ['prompt', 'sysprompt'] : ['prompt']) {
+                const cleanup = bindReferencePrompt(node, documentRef.getElementById(`${id}-${suffix}`));
+                if (cleanup) (el._cleanupFns ||= []).push(cleanup);
+            }
+            const protocolContainer = documentRef.getElementById(`${id}-protocol-params`);
+            if (protocolContainer) (el._cleanupFns ||= []).push(() => protocolContainer._referencePromptCleanup?.());
+        }
         queryNodeControls(el, 'input, select, textarea').forEach((input) => {
             if (type === 'ImageGenerate' || type === 'ImageSave') input.addEventListener('input', () => syncNodeFormData(id, type));
             input.addEventListener('change', () => {
@@ -3335,6 +3400,7 @@ export function createNodeDomBindingsApi({
     }
 
     return {
+        bindReferencePrompt,
         bindNodeInteractions,
         bindNodePorts,
         syncImageGenerateResolutionOptions,

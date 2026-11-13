@@ -549,7 +549,7 @@ body:has(#toolbar:hover, #toolbar :focus-visible, #toolbar .btn.active:not(#btn-
 .prompt-agent-search-menu > summary:focus-visible { outline: 2px solid var(--menu-focus-ring); outline-offset: 1px; }
 .prompt-agent-search-menu > summary span { font-size: 11px; white-space: nowrap; }
 .prompt-agent-search-content { display: grid; gap: 6px; padding-top: 6px; min-width: 0; }
-.prompt-agent-model-menu, .prompt-agent-node-mentions,
+.prompt-agent-model-menu,
 .prompt-agent-command-menu, .prompt-agent-reference-picker {
     /* Composite translucent theme colors over canvas color so underlying text
        cannot bleed through a portaled menu. */
@@ -641,7 +641,7 @@ body:has(#toolbar:hover, #toolbar :focus-visible, #toolbar .btn.active:not(#btn-
 /* Agent owns flat controls, including popovers portaled outside the panel.
    Shadows belong to floating surfaces, not individual buttons. */
 :is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-reference-picker,
-    #prompt-agent-command-menu, .prompt-agent-model-menu, .prompt-agent-node-mentions) button {
+    #prompt-agent-command-menu, .prompt-agent-model-menu) button {
     background-image: none;
     box-shadow: none;
     text-shadow: none;
@@ -672,10 +672,6 @@ body:has(#toolbar:hover, #toolbar :focus-visible, #toolbar .btn.active:not(#btn-
 }
 #prompt-agent-send, #prompt-agent-cancel { font-size: 13px; }
 .prompt-agent-canvas-actions [hidden] { display: none; }
-.prompt-agent-node-mentions { position: fixed; z-index: var(--layer-menu); width: min(280px, calc(100vw - 12px)); overflow: auto; padding: 4px;     }
-.prompt-agent-node-mentions button { background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 4px 6px; display: block; width: 100%; min-height: 28px; text-align: left; overflow-wrap: anywhere; color: var(--text-primary); }
-.prompt-agent-node-mentions button:is(:hover, :focus-visible, [aria-selected="true"]) { background: var(--panel-active-bg); outline: 2px solid var(--text-link); outline-offset: -2px; }
-
 /* Shared thinking controls use flat semantic surfaces in settings, nodes and Agent. */
 .prompt-agent-node-context {
     display: flex;

@@ -11,6 +11,16 @@ def make_handler(client='127.0.0.1', origin='http://127.0.0.1:8767'):
 
 
 class StorageRouteSecurityTests(unittest.TestCase):
+    def test_directory_thumbnail_request_reads_the_requested_version(self):
+        handler = make_handler()
+        handler.path = '/api/storage/library/-8/thumbnail?v=4%3A123'
+        with mock.patch.object(storage_routes, 'MediaLibrary') as library, \
+                mock.patch.object(storage_routes, 'write_bytes') as write_bytes:
+            library.return_value.read_thumbnail.return_value = ('image/webp', b'thumbnail')
+            self.assertTrue(storage_routes.handle_get(handler))
+            library.return_value.read_thumbnail.assert_called_once_with(-8, '4:123')
+            write_bytes.assert_called_once_with(handler, b'thumbnail', content_type='image/webp', headers={'Cache-Control': 'no-store'})
+
     def test_integrity_report_endpoint_returns_the_published_report(self):
         handler = make_handler()
         handler.path = '/api/storage/integrity-report'

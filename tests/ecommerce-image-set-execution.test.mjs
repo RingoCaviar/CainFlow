@@ -10,7 +10,7 @@ const nextReference = 'data:image/png;base64,AgAA';
 const roles = ['angle', 'detail', 'feature', 'scene', 'included'];
 
 function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main', ...roles], beforeImageRequest, beforePlanRequest,
-    galleryAspect, imageModel = 'gemini-2.5-flash-image', imageProtocol = 'google', responseImageData } = {}) {
+    galleryAspect, imageModel = 'gemini-2.5-flash-image', imageProtocol = 'google', responseImageData, referenceImageCatalog } = {}) {
     const node = { id: 'commerce', type: 'ECommerceImageSet', data: { commerceImageSet: {
         platformId: 'amazon', productNotes: '杯盖可拆卸', plannerModelId: 'vision', plannerProviderId: 'provider',
         imageModelId: 'image', imageProviderId: 'provider', selectedShotIds, galleryAspect
@@ -31,6 +31,7 @@ function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main',
             ],
             providers: [{ id: 'provider', endpoint: 'https://fixture.test', apikey: 'fixture-key' }]
         },
+        referenceImageCatalog,
         nodeConfigs: {}, documentRef: { getElementById: () => null }, windowRef: { requestAnimationFrame: noop },
         dataURLtoBlob: source => new Blob([Buffer.from(source.split(',')[1], 'base64')], { type: 'image/png' }),
         getProxyHeaders: () => ({}), showToast: noop, addLog: noop, showResolutionBadge: noop,
@@ -84,6 +85,21 @@ function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main',
     return { node, execute, normalizeRunOptions: core.normalizeRunOptions, apiCalls, requestLogs, requestStatistics, imagePrompts, history, assets,
         setFailure: role => { failedRole = role; }, clearFailure: () => { failedRole = undefined; } };
 }
+
+test('commerce shot mentions attach a scene image only to the selected shot', async () => {
+    const { node, execute, apiCalls, imagePrompts } = createCommerceExecutionFixture({
+        selectedShotIds: ['detail', 'scene'],
+        referenceImageCatalog: { readImage: async source => source.historyId === '1' ? nextReference : '' }
+    });
+    await execute('plan');
+    node.data.imagePromptMentions = [{ token: '@图片1', source: { id: 'history:1', historyId: '1', name: '细节素材' } }];
+    node.data.commerceImageSet.plan.shots.find(shot => shot.id === 'detail').prompt += '使用 @图片1。';
+    node.data.commerceImageSet.plan.confirmed = true;
+    await execute('generate');
+    assert.deepEqual(apiCalls.filter(call => call.type === 'image').map(call => call.images), [['AAAA', 'AgAA'], ['AAAA']]);
+    assert.match(imagePrompts.get('detail'), /使用 参考图 2。/);
+    assert.doesNotMatch(imagePrompts.get('scene'), /参考图 2/);
+});
 
 test('commerce logs every planner and image request with its operation and outcome', async () => {
     const { node, execute, apiCalls, requestLogs, requestStatistics, clearFailure } = createCommerceExecutionFixture({

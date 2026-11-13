@@ -237,51 +237,26 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     };
 }
 
-export function attachCanvasMentions({ documentRef, input, adapter }) {
-    const mentions = new Map(); let menu = null; let index = 0;
+export function createCanvasMentions({ input, adapter, close }) {
+    const mentions = new Map();
     const remember = node => {
-        const token = `@${node.name.replace(/\s/g, '_')}[${node.id}]`;
+        const token = `@${node.name.replace(/[\s@\[\]]/g, '_')}[${node.id}]`;
         mentions.set(node.id, { id: node.id, token, name: node.name, type: node.type });
         return token;
     };
-    const surfaces = getSurfaceCoordinator(documentRef);
-    const close = () => { menu?.remove(); menu = null; input.removeAttribute('aria-activedescendant'); input.removeAttribute('aria-controls'); input.setAttribute('aria-expanded', 'false'); surfaces?.forgetPopover('agent-node-mentions'); };
-    input.addEventListener('input', () => {
-        close();
-        const before = input.value.slice(0, input.selectionStart);
-        const match = before.match(/@([^\s@]*)$/); if (!match) return;
-        const candidates = adapter.context().nodes.filter(node => `${node.name} ${node.type}`.toLowerCase().includes(match[1].toLowerCase())).slice(0, 30);
-        if (!candidates.length) return;
-        menu = documentRef.createElement('div'); menu.className = 'prompt-agent-node-mentions'; menu.setAttribute('role', 'listbox');
-        menu.id = 'agent-node-mentions'; input.setAttribute('aria-controls', menu.id); input.setAttribute('aria-expanded', 'true');
-        const rect = input.getBoundingClientRect();
-        Object.assign(menu.style, { left: `${Math.max(6, Math.min(rect.left, documentRef.defaultView.innerWidth - 290))}px`, bottom: `${documentRef.defaultView.innerHeight - rect.top + 4}px`, maxHeight: `${Math.max(60, rect.top - 16)}px` });
-        documentRef.body.appendChild(menu); index = 0;
-        candidates.forEach((node, i) => {
-            const button = documentRef.createElement('button'); button.type = 'button'; button.textContent = `${node.name} · ${node.type} · ${node.id}`; button.setAttribute('role', 'option');
-            button.id = `agent-node-mention-${i}`; button.setAttribute('aria-selected', String(i === 0));
-            button.addEventListener('click', () => {
-                const token = remember(node);
-                input.value = before.slice(0, -match[0].length) + token + ' ' + input.value.slice(input.selectionStart);
-                close(); input.focus();
-            }); menu.appendChild(button);
+    const read = () => {
+        const tokens = [...input.value.matchAll(/@[^\s@\[\]]+\[([^\]\r\n]+)\]/g)]
+            .filter((match, index, matches) => matches.findIndex(item => item[1] === match[1]) === index);
+        if (!tokens.length) return [];
+        const missing = tokens.filter(match => mentions.get(match[1])?.token !== match[0]);
+        const nodes = missing.length ? new Map(adapter.context().nodes.map(node => [node.id, node])) : null;
+        return tokens.flatMap(([token, id]) => {
+            const remembered = mentions.get(id);
+            if (remembered?.token === token) return [remembered];
+            const node = nodes?.get(id);
+            return node ? [{ id, token, name: node.name, type: node.type }] : [];
         });
-        input.setAttribute('aria-activedescendant', menu.firstElementChild.id);
-        surfaces?.openPopover('agent-node-mentions', { element: menu, trigger: input, owner: documentRef.getElementById('prompt-agent-panel'), close });
-    });
-    input.addEventListener('keydown', event => {
-        if (!menu) return;
-        const buttons = [...menu.children];
-        if (['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(event.key)) { event.preventDefault(); event.stopImmediatePropagation(); }
-        if (event.key === 'Escape') close();
-        else if (event.key === 'Enter') buttons[index]?.click();
-        else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-            index = (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
-            buttons.forEach((button, i) => button.setAttribute('aria-selected', String(i === index))); buttons[index].scrollIntoView({ block: 'nearest' });
-            input.setAttribute('aria-activedescendant', buttons[index].id);
-        }
-    }, true);
-    const read = () => [...mentions.values()].filter(item => input.value.includes(item.token));
+    };
     const append = node => {
         if (read().some(item => item.id === node.id)) return false;
         const token = remember(node);
@@ -290,5 +265,5 @@ export function attachCanvasMentions({ documentRef, input, adapter }) {
         close(); input.dispatchEvent(new Event('input', { bubbles: true })); input.focus();
         return true;
     };
-    return { close, read, append, clear: () => { mentions.clear(); close(); } };
+    return { close, read, append, remember, clear: () => { mentions.clear(); close(); } };
 }

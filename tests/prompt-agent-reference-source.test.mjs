@@ -66,6 +66,18 @@ test('history imports reuse unchanged persisted nodes but never changed or delet
     await h.source.importReference({historyId:'1'},options);assert.equal(h.creates,2);
     h.state.nodes.delete('2');await h.source.importReference({historyId:'1'},options);assert.equal(h.creates,3);
 });
+test('history mention reuses the original only for the same saved file version', async () => {
+    const h = harness();
+    let reads = 0;
+    const options = { isCurrent: () => true, read: async () => { reads++; return image; } };
+    const first = await h.source.importReference({ historyId: '1', historyVersion: 'original' }, options);
+    const same = await h.source.importReference({ historyId: '1', historyVersion: 'original' }, options);
+    const replaced = await h.source.importReference({ historyId: '1', historyVersion: 'replacement' }, options);
+    assert.equal(same.sourceNodeId, first.sourceNodeId);
+    assert.notEqual(replaced.sourceNodeId, first.sourceNodeId);
+    assert.equal(reads, 2);
+    assert.equal(h.state.nodes.get(replaced.sourceNodeId).agentReferenceSource.historyVersion, 'replacement');
+});
 test('save retry reuses its node and already-read file',async()=>{
     const h=harness(), candidate={name:'file'};let reads=0;
     const options={isCurrent:()=>true,read:async()=>{reads++;return image;}};

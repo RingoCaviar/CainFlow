@@ -32,6 +32,7 @@ import { getNodeImageResultPersistence, IMAGE_RESULT_PERSISTENCE } from '../../n
 import { appendReferenceDescriptions } from './reference-image-description.js';
 import { queryImageNodeRunControl, renderImageNodeRunState } from '../../nodes/image-node-run-state.js';
 import { orderImageReferenceConnections } from '../../nodes/image-reference-projection.js';
+import { findPromptImageMentions } from '../../nodes/prompt-image-mentions.js';
 
 export function clearNodeExecutionFailure(node) {
     if (!node) return;
@@ -98,18 +99,24 @@ export function shouldRunNodeForEachInput(node, inputs) {
     ));
 }
 
+const videoFrameBatchPositions = new WeakMap();
+
 export function buildInputBatches(node, inputs) {
     const entries = Object.entries(inputs || {});
     if (entries.length === 0) return [{}];
 
     return entries.reduce((batches, [key, value]) => {
-        const values = Array.isArray(value) && value.length > 0 && !isUnbatchedImageInput(node, key)
-            ? value
-            : [value];
+        const split = Array.isArray(value) && value.length > 0 && !isUnbatchedImageInput(node, key);
+        const values = split ? value : [value];
+        const trackFrame = node.type === 'VideoGenerate' && /^image_\d+$/.test(key) && split;
         const nextBatches = [];
         batches.forEach((batch) => {
-            values.forEach((item) => {
-                nextBatches.push({ ...batch, [key]: item });
+            const positions = videoFrameBatchPositions.get(batch);
+            values.forEach((item, index) => {
+                const nextBatch = { ...batch, [key]: item };
+                if (trackFrame) videoFrameBatchPositions.set(nextBatch, { ...positions, [key]: index });
+                else if (positions) videoFrameBatchPositions.set(nextBatch, positions);
+                nextBatches.push(nextBatch);
             });
         });
         return nextBatches;
@@ -663,7 +670,8 @@ export function createWorkflowRunnerApi({
                 // User annotations configure references to this output. A new
                 // execution clears result pixels, never this persisted draft.
                 ...(typeof annotations.imageDescription === 'string' ? { imageDescription: annotations.imageDescription } : {}),
-                ...(Array.isArray(annotations.imageDescriptions) ? { imageDescriptions: annotations.imageDescriptions.slice() } : {})
+                ...(Array.isArray(annotations.imageDescriptions) ? { imageDescriptions: annotations.imageDescriptions.slice() } : {}),
+                ...(Array.isArray(annotations.imagePromptMentions) ? { imagePromptMentions: annotations.imagePromptMentions } : {})
             };
             node.isSucceeded = false;
             if (node.type === 'ImageGenerate') {
@@ -1246,7 +1254,7 @@ export function createWorkflowRunnerApi({
 
     function prepareVideoExecutionInput(node, inputs, connections = []) {
         const model = getSelectedNodeModel(node);
-        return resolveVideoExecutionInputRecord({
+        const record = resolveVideoExecutionInputRecord({
             protocol: getProtocolSnapshot(getGenerationInputProtocolId(model)),
             modelId: model?.modelId,
             inputs,
@@ -1259,6 +1267,17 @@ export function createWorkflowRunnerApi({
                 providerId: documentRef.getElementById(`${node.id}-provider`)?.value || node.providerId || ''
             }
         });
+        const framePositions = videoFrameBatchPositions.get(inputs);
+        if (framePositions) {
+            const mentions = findPromptImageMentions(node, [record.prompt, record.controls.protocolParams?.systemPrompt]);
+            for (const { token, source } of mentions) {
+                if (!source.connectionId || !Object.hasOwn(framePositions, source.targetPort) || framePositions[source.targetPort] === source.sourceImageIndex) continue;
+                const error = new Error(`当前视频批次的帧输入不包含 ${token}（${source.name || '参考图'}）。请使用单图帧输入，或从「场景图片」重新引用。`);
+                error.inputPort = source.targetPort;
+                throw error;
+            }
+        }
+        return record;
     }
 
     async function collectInputsForNode(plan, nodeId) {
@@ -1864,13 +1883,16 @@ export function createWorkflowRunnerApi({
         }
         const shouldRunBatches = !isFixedTextChatWithCachedResult(node) && shouldRunNodeForEachInput(node, inputs);
         const batches = shouldRunBatches ? buildInputBatches(node, inputs) : [inputs || {}];
+        // Check all video batches before any provider request. A reference to
+        // one frame slot must not name a different frame in a later batch.
+        const videoInputs = node.type === 'VideoGenerate' ? batches.map(batch => prepareVideoExecutionInput(node, batch, connections)) : [];
         if (plan?.imageRetryNodeId === node.id) return retryImageBatchSlot(node, batches, signal, plan, recipe);
         prepareApiNodeGenerationProgress(node, batches.length);
         if (node.type === 'ImageGenerate') return executeTrackedImageBatches(node, batches, signal, recipe);
 
         if (!shouldRunBatches) {
             await executeNode(node, inputs, signal, {
-                videoExecutionInput: node?.type === 'VideoGenerate' ? prepareVideoExecutionInput(node, inputs, connections) : null
+                videoExecutionInput: videoInputs[0] || null
             });
             return inputs;
         }
@@ -1899,7 +1921,7 @@ export function createWorkflowRunnerApi({
             const settled = await Promise.allSettled(batches.map((batch, index) => (
                 executeConcurrentBatchRequest(
                     node, batch, index, batches.length, signal, requestStatusTracker,
-                    node?.type === 'VideoGenerate' ? prepareVideoExecutionInput(node, batch, connections) : null
+                    videoInputs[index] || null
                 )
             )));
             const rejected = settled.filter((result) => result.status === 'rejected');
@@ -1942,7 +1964,7 @@ export function createWorkflowRunnerApi({
             if (shouldAggregateImages) resetNodeImageOutputsForBatch(node);
             if (shouldAggregateTexts) resetNodeTextOutputsForBatch(node);
             await executeNode(node, batches[index], signal, {
-                videoExecutionInput: node?.type === 'VideoGenerate' ? prepareVideoExecutionInput(node, batches[index], connections) : null
+                videoExecutionInput: videoInputs[index] || null
             });
 
             if (shouldAggregateImages) {

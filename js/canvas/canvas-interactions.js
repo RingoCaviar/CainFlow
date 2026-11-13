@@ -243,7 +243,8 @@ export function createCanvasInteractionsApi({
             idMap,
             internalConnections: dragging.internalConnections || [],
             externalConnections: dragging.externalConnections || [],
-            includeExternalConnections: false
+            includeExternalConnections: false,
+            remapPromptMentions: { fromWorkflowId: getActiveWorkflowId(), toWorkflowId: getActiveWorkflowId() }
         });
         const newStartPositions = new Map();
         idMap.forEach((newId, originalId) => {

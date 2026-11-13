@@ -2,6 +2,7 @@ import { bindTaskToReply, confirmTaskParameters, CreativeTaskConfirmationRequire
 import { normalizePromptAgentChoices } from './prompt-agent-choices.js';
 import { sizeCapabilities, replaceAgentSizeFields, resolveAgentSize, parseSizeAnswer } from './prompt-agent-size.js';
 import { getEffectiveProtocol, getModelProviders } from '../execution/provider-request-utils.js';
+import { getOpenAIChatCapabilities } from '../execution/openai-chat-capabilities.js';
 import { createAgentSizeSettings } from './prompt-agent-size-ui.js';
 import { createThinkingControl } from '../execution/thinking-control.js';
 import { resolveAgentProvider } from './prompt-agent-provider.js';
@@ -15,7 +16,8 @@ import { bindPromptAgentCanvasDismiss } from './prompt-agent-canvas-dismiss.js';
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 import { createAgentSearchMenu, renderAgentSearch } from './prompt-agent-search-ui.js';
 import { AGENT_RESULT_DRAG_TYPE, beginAgentResultDrag, takeAgentResultDrag, endAgentResultDrag } from './prompt-agent-result-drag.js';
-import { renderCanvasPlan, attachCanvasMentions } from './prompt-agent-canvas-ui.js';
+import { renderCanvasPlan, createCanvasMentions } from './prompt-agent-canvas-ui.js';
+import { bindImageMentionPicker } from '../ui/image-mention-picker.js';
 import { promptPlanToCanvas } from './prompt-agent-canvas-plan.js';
 import { createPromptAgentInput } from './prompt-agent-input.js';
 import { renderAgentBody } from './prompt-agent-body.js';
@@ -26,6 +28,8 @@ const COMMANDS = [
     { name: '/clear', title: '清空上下文', description: '清除本场景的聊天、摘要、参考图和生成记录，重新开始。' },
     { name: '/compact', title: '压缩上下文', description: '用常规设置指定的模型整理摘要；未指定时跟随对话模型。' }
 ];
+
+const IMAGE_MENTION = /@图片\d+(?![\d\[])/g;
 
 function uniqueReferenceImages(images = []) {
     const unique = new Map();
@@ -121,10 +125,12 @@ export function createPromptAgentController({
     createRunId = () => globalThis.crypto?.randomUUID?.() || `agent-run-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     readReferenceFile = readImageFile,
     referenceSource = null,
+    referenceImageCatalog = null,
     resizeObserverFactory = (callback) => typeof ResizeObserver === 'function' ? new ResizeObserver(callback) : null
 } = {}) {
     const surfaces = getSurfaceCoordinator(documentRef);
     let canvasMentions = null;
+    let imageMentions = null;
     const canvasViews = new Set();
     let initialized = false;
     let modelMenus = null;
@@ -149,6 +155,8 @@ export function createPromptAgentController({
     let commandMatches = [];
     let commandIndex = 0;
     let pendingReferenceImages = [];
+    const undoneImageMentions = new Map();
+    let nextImageMentionNumber = 1;
     let preparedNodeContext = null;
     let preparedImageRequest = null;
     let referencePickerOpen = false;
@@ -362,9 +370,11 @@ export function createPromptAgentController({
 
     function closeCommandMenu() {
         surfaces?.forgetPopover('agent-command');
+        if (!commandMenuOpen) return;
         commandMenuOpen = false;
         const { commandMenu, input } = getElements();
         if (commandMenu) commandMenu.hidden = true;
+        input?.setAttribute('aria-controls', commandMenu?.id || 'prompt-agent-command-menu');
         input?.setAttribute('aria-expanded', 'false');
         input?.removeAttribute('aria-activedescendant');
     }
@@ -530,6 +540,7 @@ export function createPromptAgentController({
         commandMenuOpen = true;
         commandMenu.hidden = false;
         surfaces?.openPopover('agent-command', { element: commandMenu, trigger: input, close: closeCommandMenu });
+        input.setAttribute('aria-controls', commandMenu.id);
         input.setAttribute('aria-expanded', 'true');
         input.setAttribute('aria-activedescendant', `prompt-agent-command-${commandMatches[commandIndex].name.slice(1)}`);
     }
@@ -694,6 +705,8 @@ export function createPromptAgentController({
             preparedImageRequest = null;
             const clearing = results.clear(clearedWorkflowId);
             pendingReferenceImages = [];
+            undoneImageMentions.clear();
+            nextImageMentionNumber = 1;
             if (input) input.value = '';
             // Persistence may have no workflow document yet. Clear the visible
             // store independently, after result cleanup captures its old runs.
@@ -775,7 +788,8 @@ export function createPromptAgentController({
             if (reference.sourceNodeId) item.dataset.sourceNodeId = reference.sourceNodeId;
             const image = documentRef.createElement('img');
             image.src = reference.dataUrl || reference.previewUrl || '';
-            image.alt = `${snapshot ? '自动读取的上下文图片' : '参考图'} ${numberOffset + index + 1}：${reference.name || '图片'}`;
+            image.alt = reference.mentionToken ? `${reference.mentionToken}：${reference.name || '图片'}`
+                : `${snapshot ? '自动读取的上下文图片' : '参考图'} ${numberOffset + index + 1}：${reference.name || '图片'}`;
             image.title = image.alt;
             image.draggable = false;
             if (!reference.loading && (reference.dataUrl || reference.previewUrl)) {
@@ -797,7 +811,8 @@ export function createPromptAgentController({
             item.appendChild(image);
             const number = documentRef.createElement('span');
             number.className = 'prompt-agent-reference-number';
-            number.textContent = String(numberOffset + index + 1);
+            if (reference.mentionToken) number.dataset.mentionToken = reference.mentionToken;
+            number.textContent = reference.mentionToken ? `@${reference.mentionToken.slice('@图片'.length)}` : String(numberOffset + index + 1);
             number.setAttribute('aria-hidden', 'true');
             item.appendChild(number);
             if (reference.loading) {
@@ -818,8 +833,7 @@ export function createPromptAgentController({
                 removeButton.textContent = '×';
                 removeButton.setAttribute('aria-label', `移除 ${image.alt}`);
                 removeButton.addEventListener('click', () => {
-                    const currentIndex = pendingReferenceImages.indexOf(reference);
-                    if (currentIndex >= 0) pendingReferenceImages.splice(currentIndex, 1);
+                    removePendingReference(reference);
                     referencePickerError = '';
                     renderPendingReferences();
                 });
@@ -960,7 +974,7 @@ export function createPromptAgentController({
     }
 
     function setReferencePickerOpen(open, focusTrigger = false) {
-        if (open) closeCommandMenu();
+        if (open) { closeCommandMenu(); imageMentions?.close(); }
         referencePickerOpen = open;
         if (!open) { thumbnailObservers.forEach(observer => observer.disconnect()); thumbnailObservers = []; }
         const { referencePicker, addReferenceButton, referencePickerList } = getElements();
@@ -976,18 +990,54 @@ export function createPromptAgentController({
         } else if (focusTrigger) addReferenceButton?.focus?.();
     }
 
-    async function toggleSceneReference(candidate) {
+    function removePendingReference(reference) {
+        const index = pendingReferenceImages.indexOf(reference);
+        if (index >= 0) pendingReferenceImages.splice(index, 1);
+        if (!reference.mentionToken) return;
+        undoneImageMentions.delete(reference.mentionToken);
+        const input = getElements().input;
+        if (input) input.value = input.value.replace(IMAGE_MENTION, token => token === reference.mentionToken ? '' : token);
+    }
+
+    function reconcileImageMentions() {
+        const text = getElements().input?.value || '';
+        const used = new Set(text.match(IMAGE_MENTION) || []);
+        let changed = false;
+        pendingReferenceImages = pendingReferenceImages.filter((image, index) => {
+            if (!image.mentionToken || used.has(image.mentionToken)) return true;
+            changed = true;
+            if (image.dataUrl && !image.error) undoneImageMentions.set(image.mentionToken, { image: { ...image }, index });
+            if (image.mentionOnly) return false;
+            delete image.mentionToken;
+            return true;
+        });
+        for (const token of used) {
+            const restored = undoneImageMentions.get(token);
+            if (!restored) continue;
+            const existing = pendingReferenceImages.find(image => getPromptAgentReferenceKey(image) === getPromptAgentReferenceKey(restored.image));
+            if (existing) existing.mentionToken = token;
+            else pendingReferenceImages.splice(restored.index, 0, restored.image);
+            undoneImageMentions.delete(token);
+            changed = true;
+        }
+        // Keep a short undo history without retaining every original removed from a long draft.
+        while (undoneImageMentions.size > 8) undoneImageMentions.delete(undoneImageMentions.keys().next().value);
+        if (changed) { referencePickerError = ''; renderPendingReferences(); }
+    }
+
+    async function toggleSceneReference(candidate, { toggle = true, mentionToken } = {}) {
         referencePickerError = '';
         const key = getPromptAgentReferenceKey(candidate);
         const index = pendingReferenceImages.findIndex((item) => getPromptAgentReferenceKey(item) === key);
         if (index >= 0) {
-            pendingReferenceImages.splice(index, 1);
-            renderPendingReferences();
-            return;
+            const pending = pendingReferenceImages[index];
+            if (toggle) { removePendingReference(pending); renderPendingReferences(); }
+            else if (mentionToken) { pending.mentionToken = mentionToken; renderPendingReferences(); }
+            return pending;
         }
         // Reserve the position immediately so slow image reads cannot reorder
         // the user's selections. Removing it cancels this pending selection.
-        const pending = { ...candidate, loading: true };
+        const pending = { ...candidate, loading: true, ...(mentionToken ? { mentionToken, mentionOnly: true } : {}) };
         const revision = workflowRevision;
         pendingReferenceImages.push(pending);
         renderPendingReferences();
@@ -999,10 +1049,11 @@ export function createPromptAgentController({
             delete pending.loading;
         } catch (error) {
             if (revision !== workflowRevision || !pendingReferenceImages.includes(pending)) return;
-            pendingReferenceImages.splice(pendingReferenceImages.indexOf(pending), 1);
+            removePendingReference(pending);
             referencePickerError = `${candidate.name}：${error?.message || '参考图读取失败，请重试。'}`;
         }
         renderPendingReferences();
+        return pending;
     }
 
     async function loadHistoryReferences() {
@@ -1019,11 +1070,18 @@ export function createPromptAgentController({
         }
     }
 
-    function toggleImportedReference(candidate, { toggle = true } = {}) {
+    function toggleImportedReference(candidate, { toggle = true, mentionToken, read } = {}) {
         const key = referenceSource?.getReferenceId?.(candidate) || candidate.referenceId;
         const existing = pendingReferenceImages.findIndex(item => item.selectionKey === candidate.referenceId || item.referenceId === key);
-        if (existing >= 0) { if (toggle) { pendingReferenceImages.splice(existing, 1); renderPendingReferences(); } return Promise.resolve(); }
-        const pending = { name: candidate.name, description: candidate.description || '', referenceId: candidate.referenceId, selectionKey: candidate.referenceId, previewUrl: candidate.previewUrl, loading: true };
+        if (existing >= 0) {
+            const pending = pendingReferenceImages[existing];
+            if (toggle) { removePendingReference(pending); renderPendingReferences(); }
+            else if (mentionToken) { pending.mentionToken = mentionToken; renderPendingReferences(); }
+            return Promise.resolve(pending);
+        }
+        const pending = { name: candidate.name, description: candidate.description || '', referenceId: candidate.referenceId,
+            selectionKey: candidate.referenceId, previewUrl: candidate.previewUrl, loading: true,
+            ...(mentionToken ? { mentionToken, mentionOnly: true } : {}) };
         const revision = workflowRevision;
         const slot = importSlot++;
         const isCurrent = () => revision === workflowRevision && pendingReferenceImages.includes(pending);
@@ -1034,7 +1092,8 @@ export function createPromptAgentController({
             const operation = importQueue.catch(() => {}).then(async () => {
                 if (!isCurrent()) return;
                 try {
-                    const image = await referenceSource.importReference(candidate, { isCurrent, slot, read: () => readReferenceFile(candidate.file),
+                    const image = await referenceSource.importReference(candidate, { isCurrent, slot,
+                        read: read || (candidate.file ? () => readReferenceFile(candidate.file) : undefined),
                         onSourceNode: (id) => { pending.sourceNodeId = id; }
                     });
                     if (!isCurrent()) return;
@@ -1054,6 +1113,66 @@ export function createPromptAgentController({
         pending.retry = run;
         pendingReferenceImages.push(pending);
         return run();
+    }
+
+    function getUpstreamMentionImages() {
+        if (!referenceImageCatalog) return [];
+        const mentions = canvasMentions?.read() || [];
+        const selected = canvasAdapter?.context()?.summary?.selectedIds || [];
+        const targets = mentions.length ? mentions.map(item => item.id) : selected;
+        return targets.flatMap(id => referenceImageCatalog.getUpstream(id));
+    }
+
+    async function getSceneMentionImages() {
+        const scene = await referenceImageCatalog?.getScene() || [];
+        const conversation = conversationStore.getCompactionContext();
+        const results = (referenceSource?.getContextReferences?.(conversation) || [])
+            .filter(image => image.runId && image.assetKey)
+            .map(image => ({ ...image, id: image.referenceId, kind: 'canvas', searchText: image.prompt }));
+        return Object.assign([...scene, ...results], { warning: scene.warning });
+    }
+
+    function selectMentionImage(candidate, { isCurrent }) {
+        if (!referenceSource || !referenceImageCatalog || !isCurrent()) return null;
+        const input = getElements().input;
+        const sourceId = candidate.sourceId || candidate.id;
+        let sceneImport;
+        if (candidate.kind === 'import') {
+            if (!referenceImageCatalog.getCanvas().some(image => image.id === sourceId)) throw new Error('图片已变化，请重新选择。');
+            sceneImport = nodeAdapter?.getSceneReferenceImages?.().find(image => image.sourceNodeId === candidate.sourceNodeId
+                && image.sourceImageIndex === candidate.sourceImageIndex);
+        }
+        const historyId = candidate.historyId || `agent-asset:${sourceId}`;
+        const referenceId = sceneImport?.referenceId || sourceId;
+        const resolvedId = sceneImport?.referenceId || referenceSource.getReferenceId?.({ historyId, historyVersion: candidate.historyVersion, referenceId });
+        const matches = image => image.selectionKey === referenceId || (resolvedId && image.referenceId === resolvedId);
+        const existing = pendingReferenceImages.find(matches) || [...undoneImageMentions.values()].find(({ image }) => matches(image))?.image;
+        const used = new Set(input.value.match(IMAGE_MENTION) || []);
+        while (used.has(`@图片${nextImageMentionNumber}`)) nextImageMentionNumber += 1;
+        const mentionToken = existing?.mentionToken || `@图片${nextImageMentionNumber++}`;
+        if (undoneImageMentions.has(mentionToken)) return mentionToken;
+        if (sceneImport) {
+            void toggleSceneReference(sceneImport, { toggle: false, mentionToken });
+        } else {
+            void toggleImportedReference({ historyId, historyVersion: candidate.historyVersion, referenceId, name: candidate.name,
+                description: candidate.kind === 'history' ? undefined : candidate.description, previewUrl: candidate.previewUrl },
+            { toggle: false, mentionToken, read: async () => {
+                const source = await referenceImageCatalog.readImage(candidate);
+                const dataUrl = /^https?:\/\//i.test(source) ? await readWebImage(source) : source;
+                if (!/^data:image\//i.test(dataUrl)) throw new Error('参考原图不可用，请重新选择。');
+                return { name: candidate.name, dataUrl, type: dataUrl.slice(5, dataUrl.indexOf(';')) };
+            } });
+        }
+        return mentionToken;
+    }
+
+    function missingImageMention(text, attachments) {
+        const bound = new Set(attachments.map(image => image.mentionToken).filter(Boolean));
+        return (text?.match(IMAGE_MENTION) || []).find(token => !bound.has(token));
+    }
+
+    function unavailableImageMentionMessage(token) {
+        return `${token} 对应的参考图已不可用，请重新选择或移除标记。`;
     }
 
     async function addReferenceFiles(files = []) {
@@ -1261,7 +1380,7 @@ export function createPromptAgentController({
     function close() {
         const panel = getElements().panel;
         if (panel) surfaces?.closePopovers(panel);
-        canvasMentions?.close(); canvasViews.forEach(view => view.close()); setOpen(false);
+        imageMentions?.close(); canvasViews.forEach(view => view.close()); setOpen(false);
     }
     function toggle() {
         const { panel } = getElements();
@@ -1585,7 +1704,10 @@ export function createPromptAgentController({
             activeOperation.removedReferenceNodeIds ||= new Set();
             nodeIds.forEach((id) => activeOperation.removedReferenceNodeIds.add(id));
         }
-        pendingReferenceImages = pendingReferenceImages.filter((image) => !removed.has(image.sourceNodeId));
+        pendingReferenceImages.filter(image => removed.has(image.sourceNodeId)).forEach(removePendingReference);
+        for (const [token, { image }] of undoneImageMentions) {
+            if (removed.has(image.sourceNodeId)) undoneImageMentions.delete(token);
+        }
         referencePickerError = '';
         const changed = conversationStore.removeNodeReferences(nodeIds);
         for (const actionState of promptPlanActionStates) actionState.removeNodeReferences(removed);
@@ -1601,7 +1723,9 @@ export function createPromptAgentController({
             if (label) label.textContent = `你发送的图片 · ${count} 张`;
             const summary = strip.querySelector('summary');
             if (summary) summary.textContent = `Agent 自动读取的上下文 · ${count} 张`;
-            strip.querySelectorAll('.prompt-agent-reference-number').forEach((number, index) => { number.textContent = String(index + 1); });
+            strip.querySelectorAll('.prompt-agent-reference-number').forEach((number, index) => {
+                if (!number.dataset.mentionToken) number.textContent = String(index + 1);
+            });
         });
         renderPendingReferences();
         if (changed) {
@@ -1984,19 +2108,37 @@ export function createPromptAgentController({
         if (!text && attachments.length === 0) return;
         const replyModelId = getElements().modelSelect?.value || getSelectedModelId() || models[0].id;
         if (choiceAnswer && !models.some(model => model.id === replyModelId)) return;
+        const replyModel = models.find(model => model.id === replyModelId);
+        const replyConfig = captureThinkingConfig(replyModelId);
+        const explicitReferences = confirmedRequest?.referenceImages || attachments;
+        const unboundMention = !choice && missingImageMention(requestText, explicitReferences);
+        const mentionsImage = !choiceAnswer && Boolean(requestText?.match(IMAGE_MENTION)?.length);
+        if (unboundMention) {
+            referencePickerError = unavailableImageMentionMessage(unboundMention);
+            renderPendingReferences();
+            return;
+        }
+        const configuredModel = replyConfig?.model || replyModel;
+        if (mentionsImage && configuredModel && (configuredModel.capabilities?.imageInput === false
+            || getOpenAIChatCapabilities({ model: configuredModel, provider: selectedProvider(configuredModel, 'chat') })?.imageInput === false)) {
+            referencePickerError = '当前对话模型不支持图片输入，请切换到支持图片的模型或移除图片提及。';
+            renderPendingReferences();
+            return;
+        }
         scrollToLatest();
         const stagedReferences = attachments.slice();
         // Capture selection and explicit mentions at Send, before compression
         // or media reads can yield to a later canvas selection.
-        const nodeMentions = confirmedRequest ? confirmedRequest.nodeMentions || [] : (resendMessage || choice) ? [] : canvasMentions?.read() || [];
+        const nodeMentions = confirmedRequest ? confirmedRequest.nodeMentions || []
+            : resendMessage ? resendMessage.nodeMentions || [] : choice ? [] : canvasMentions?.read() || [];
         const includeSelection = !confirmedNewTask && !choiceAnswer;
         const canvasContext = canvasAdapter?.context(nodeMentions.map(item => item.id), { includeSelection }) || null;
         const selectedIds = canvasContext?.summary.selectedIds || [];
         const selectedContext = canvasContext ? (selectedIds.length === 1 ? nodeAdapter?.getContext?.(selectedIds[0]) : null)
             : includeSelection ? nodeAdapter?.getSelectedContext?.() : null;
         const operation = beginOperation('reply');
-        operation.model = JSON.parse(JSON.stringify(models.find(model => model.id === replyModelId) || {}));
-        operation.config = captureThinkingConfig(replyModelId);
+        operation.model = JSON.parse(JSON.stringify(replyModel || {}));
+        operation.config = replyConfig;
         operation.searchSettings = conversationStore.getSearchSettings();
         operation.sizeSettings = conversationStore.getSize(conversationStore.getImageModelId());
         operation.imageSizeCapabilities = imageSizeCapabilities();
@@ -2069,8 +2211,19 @@ export function createPromptAgentController({
                 if (!isLiveOperation(operation)) return;
                 if (!workflowReferenceImages) throw new Error('读取图片期间对话已更新，请重试。');
             }
+            if (mentionsImage && !resendMessage && !confirmedRequest) {
+                const latestDraft = isCurrentOperation(operation) ? pendingReferenceImages : operation.store.getDraft().referenceImages;
+                const latestMentions = new Map(latestDraft.filter(image => image.mentionToken)
+                    .map(image => [image.mentionToken, getPromptAgentReferenceKey(image)]));
+                referenceImages = referenceImages.filter(image => !image.mentionToken || latestMentions.get(image.mentionToken) === getPromptAgentReferenceKey(image));
+            }
             referenceImages = referenceImages.filter(image => !operation.removedReferenceNodeIds?.has(image.sourceNodeId));
             workflowReferenceImages = workflowReferenceImages.filter(image => !operation.removedReferenceNodeIds?.has(image.sourceNodeId));
+            const removedMention = mentionsImage && missingImageMention(requestText, referenceImages);
+            if (removedMention) {
+                setOperationStatus(operation, unavailableImageMentionMessage(removedMention));
+                return;
+            }
             let context;
             if (operation.discardOverLimitContext) {
                 const fitted = fitContext({ conversation, message: requestText, confirmedNewTask, choiceAnswer, referenceImages, workflowReferenceImages });
@@ -2088,7 +2241,11 @@ export function createPromptAgentController({
                 scrollToLatest();
             }
             if (operation.consumeDraft && isCurrentOperation(operation)) {
-                if (input.value.trim() === text) input.value = '';
+                if (input.value.trim() === text) {
+                    input.value = '';
+                    undoneImageMentions.clear();
+                    nextImageMentionNumber = 1;
+                }
                 renderPreparedNodeContext();
                 pendingReferenceImages = pendingReferenceImages.filter(image => !stagedReferences.includes(image));
                 referencePickerError = '';
@@ -2246,7 +2403,6 @@ export function createPromptAgentController({
                 setHeight(input.getBoundingClientRect().height + (event.key === 'ArrowUp' ? 12 : -12));
             });
         }
-        if (input && canvasAdapter) canvasMentions = attachCanvasMentions({ documentRef, input, adapter: canvasAdapter });
         input?.addEventListener('input', renderPreparedNodeContext);
         input?.addEventListener('input', renderPreparedImageRequest);
         documentRef.getElementById('prompt-agent-insert-image-request')?.addEventListener('click', () => {
@@ -2282,10 +2438,25 @@ export function createPromptAgentController({
         addImageModelButton?.addEventListener('click', () => configureProvider('image', getSelectedImageModel()));
         input?.addEventListener('focus', renderModelOptions);
         input?.addEventListener('input', () => {
+            reconcileImageMentions();
             renderCommandMenu({ resetSelection: true });
             updateSendButtonState();
             captureDraft(true);
         });
+        if (input && documentRef.defaultView && (canvasAdapter || referenceImageCatalog)) {
+            if (canvasAdapter) canvasMentions = createCanvasMentions({ input, adapter: canvasAdapter, close: () => imageMentions?.close() });
+            imageMentions = bindImageMentionPicker({
+                input, owner: getElements().panel, surfaces,
+                getUpstream: getUpstreamMentionImages, getScene: getSceneMentionImages,
+                readThumbnail: referenceImageCatalog?.readThumbnail,
+                getExtraChoices: canvasAdapter ? () => canvasAdapter.context().nodes.map(node => ({
+                    id: node.id, name: node.name, kind: 'node', description: node.type, sourceNodeId: node.id,
+                    searchText: node.id, node
+                })) : undefined,
+                onSelect: (candidate, context) => context.mode === 'extra'
+                    ? canvasMentions.remember(candidate.node) : selectMentionImage(candidate, context)
+            });
+        }
         input?.addEventListener('keydown', async (event) => {
             if (event.isComposing || event.keyCode === 229 || (event.key === 'Enter' && event.shiftKey)) return;
             if (event.key === 'Enter' && event.repeat) { event.preventDefault(); return; }
@@ -2317,7 +2488,12 @@ export function createPromptAgentController({
             target?.click(); target?.focus();
         });
         documentRef.getElementById('prompt-agent-reference-more')?.addEventListener('click', () => { referenceLimit += 60; renderReferencePicker(); });
-        documentRef.getElementById('prompt-agent-reference-clear')?.addEventListener('click', () => { pendingReferenceImages = []; referencePickerError = ''; renderPendingReferences(); });
+        documentRef.getElementById('prompt-agent-reference-clear')?.addEventListener('click', () => {
+            pendingReferenceImages.slice().forEach(removePendingReference);
+            undoneImageMentions.clear();
+            referencePickerError = '';
+            renderPendingReferences();
+        });
         const upload = documentRef.getElementById('prompt-agent-reference-upload');
         documentRef.getElementById('prompt-agent-reference-upload-button')?.addEventListener('click', () => upload?.click());
         upload?.addEventListener('change', async () => { const files = [...upload.files]; upload.value = ''; await addReferenceFiles(files); });
@@ -2519,6 +2695,7 @@ export function createPromptAgentController({
         historyReferences = []; historyLoading = false; historyError = '';
         referenceTab = 'scene'; referenceLimit = 60;
         pendingReferenceImages = [];
+        undoneImageMentions.clear();
         referencePickerError = '';
         setCommandStatus();
         conversationStore.restore(value);
@@ -2526,6 +2703,10 @@ export function createPromptAgentController({
         const draft = conversationStore.getDraft();
         const input = getElements().input;
         if (input) input.value = draft.text;
+        nextImageMentionNumber = (draft.text.match(IMAGE_MENTION) || []).reduce((next, token) => {
+            const number = Number(token.slice('@图片'.length));
+            return Number.isSafeInteger(number) && number < Number.MAX_SAFE_INTEGER ? Math.max(next, number + 1) : next;
+        }, 1);
         pendingReferenceImages = draft.referenceImages.map(image => ({ ...image, selectionKey: image.referenceId }));
         for (const message of [...(value?.archivedMessages || []), ...(value?.messages || [])]) {
             if (message.canvasPlan) {

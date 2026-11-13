@@ -29,7 +29,7 @@ export {
 } from './image-generation-size.js';
 
 
-function getImageInputKeys(inputs = {}) {
+export function getImageInputKeys(inputs = {}) {
     return Object.keys(inputs)
         .filter((key) => key === 'image' || key === 'referenceImages' || /^image_\d+$/.test(key))
         .sort((a, b) => {

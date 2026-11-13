@@ -49,12 +49,17 @@ def handle_get(handler):
     if path == '/api/storage/library' or path.startswith('/api/storage/library/'):
         try:
             library = MediaLibrary(storage_service)
+            query = parse_qs(parsed.query)
+            version = (query.get('v') or [None])[0]
             if path == '/api/storage/library':
                 migration_errors = library.migrate_legacy()
-                limit = max(0, int((parse_qs(parsed.query).get('limit') or ['0'])[0]))
-                write_json(handler, {**library.list_page(limit), 'migrationErrors': migration_errors})
-            elif path.endswith('/file'):
-                media = library.read(int(path.split('/')[-2]))
+                limit = max(0, int((query.get('limit') or ['0'])[0]))
+                thumbnail_urls = query.get('thumbnailUrls') == ['1']
+                write_json(handler, {**library.list_page(limit, thumbnail_urls), 'migrationErrors': migration_errors})
+            elif path.endswith(('/file', '/thumbnail')):
+                identifier = int(path.split('/')[-2])
+                media = library.read_thumbnail(identifier, version) if path.endswith('/thumbnail') \
+                    else library.read(identifier, handler.headers.get('X-Media-Version') or version)
                 if not media:
                     write_error(handler, 404, '文件不存在，请刷新历史')
                 else:

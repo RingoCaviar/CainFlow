@@ -65,6 +65,7 @@
     <link rel="stylesheet" href="css/features/node-canvas-theme-skin.css">
     <link rel="stylesheet" href="css/features/image-first-canvas.css">
     <link rel="stylesheet" href="css/features/image-result-actions.css">
+    <link rel="stylesheet" href="css/features/image-mention-picker.css">
     <link rel="stylesheet" href="css/features/button-edges.css">
     <link rel="stylesheet" href="css/features/preview-controls.css">
     <script type="module">
@@ -358,7 +359,7 @@
                     <div class="prompt-agent-input-row">
                         <button id="prompt-agent-add-reference" class="btn btn-ghost prompt-agent-add-reference" type="button" aria-label="添加参考图" title="从场景、历史或本地添加参考图" aria-expanded="false" aria-controls="prompt-agent-reference-picker"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
                         <div class="prompt-agent-input-wrap">
-                            <textarea id="prompt-agent-input" rows="2" placeholder="描述画面，输入 / 使用命令" title="Enter 发送，Shift+Enter 换行" aria-label="Prompt Agent 输入，Enter 发送，Shift+Enter 换行" aria-controls="prompt-agent-command-menu" aria-autocomplete="list"></textarea>
+                            <textarea id="prompt-agent-input" rows="2" placeholder="描述画面，@ 引用图片，/ 使用命令" title="Enter 发送，Shift+Enter 换行" aria-label="Prompt Agent 输入，Enter 发送，Shift+Enter 换行" aria-controls="prompt-agent-command-menu" aria-autocomplete="list"></textarea>
                             <button id="prompt-agent-input-resize" class="prompt-agent-input-resize" type="button" aria-label="调整 Agent 输入框高度" title="向上拖动以增高输入框；方向键也可调整"></button>
                         </div>
                         <button id="prompt-agent-send" class="btn btn-primary" type="submit">发送</button>

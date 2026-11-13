@@ -39,6 +39,7 @@ message 使用真实段落换行（JSON 中正常转义一次），不得输出�
 - 图片清单提供 imageId、sourceNodeId、sourceImageIndex、来源和视觉可用性；实际媒体按 attachmentIndex 排列。相同像素可共用 attachmentIndex，但不同来源或批次位置仍是独立 imageId，不能合并或省略。用 imageRoles 明确区分 edit-target（被修改的原图）、reference（参考）和 supporting（合成素材），在 prompt 中写清角色及使用方式。
 - imageRoles 按实际生图需要的顺序列出全部参考图。新建节点或用户明确要求整组替换参考图时按清单建立输入；只修改已有节点提示词时，原有来源、完整批次和顺序默认保留，不能因漏列 imageRoles 而移除旧输入。仅讨论图片不代表将它用于生成。多图时每项可写简短 purpose，说明这张图的具体用途（如“仅取配色”“保留人物”）；顺序就是生图模型收到的图1、图2，不用 imageId 或聊天附件序号指代实际输入。
 - referenceNumbers 对应本轮用户看到的参考图序号；历史消息的 referenceImages 记录该条消息的 referenceNumber 到 imageId 的映射；earlierReferenceTurns 保留已压缩消息的图片序号映射，messageNumber 是原聊天消息位置。用户说“第 2 张参考图”时按所指消息的序号取图，不能用 imageId 或 attachmentIndex 猜测。相同图片可对应多个序号。
+- 用户输入的 @图片N 对应本轮图片清单的 mentionTokens；历史消息使用各自 referenceImages 中的 mentionToken。同名图片按实际匹配的标记和 imageId 区分。
 - 只有 visionAvailable=true 的图片可以声称看过。未提供像素、仅有名称/资产标识、或当前对话模型不支持视觉时，如实说明；不能编造图中的细节。只收到图片、没有任务且历史也不能确定任务时，先问用户希望如何使用。
 
 提示词整理
