@@ -1,6 +1,7 @@
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
 import { validateUniversalImageInputs } from '../../nodes/universal-input-policy.js';
+import { projectImageOutput } from '../../nodes/image-output-projection.js';
 import { normalizePromptImageMentions, resolvePromptImageMentions } from '../../nodes/prompt-image-mentions.js';
 import { resolveGenerationInputProjection } from '../../nodes/generation-input-projection.js';
 import { applyImageSaveMediaState, resolveImagePreviewInputState } from '../media/image-display-input-state.js';
@@ -21,6 +22,7 @@ import {
     getEffectiveProtocol,
     getModelsForTask,
     getOpenAiImageContents,
+    getOpenAiReferenceImages,
     getResolvedProviderForModel,
     getResolvedProviderIdForModel,
     resolveProviderUrl
@@ -1276,7 +1278,7 @@ export function createExecutionCoreApi({
         return params;
     }
 
-    function collectCachedInputsForNode(nodeId) {
+    function collectCachedInputsForNode(nodeId, { requireCompleteReferences = false } = {}) {
         const inputs = {};
         const node = state.nodes.get(nodeId);
         orderInputConnections(
@@ -1286,6 +1288,15 @@ export function createExecutionCoreApi({
             .forEach((connection) => {
                 const fromNode = state.nodes.get(connection.from.nodeId);
                 const value = getCachedOutputValue(fromNode, connection.from.port);
+                if (requireCompleteReferences && fromNode?.enabled !== false
+                    && /^(?:referenceImages|image(?:_\d+)?)$/.test(connection.to.port)) {
+                    const images = normalizeImageList(value);
+                    const output = projectImageOutput(fromNode, images);
+                    if (!images.length) throw new Error('已连接的参考图输入未读取到图片数据，请先生成或导入原图。');
+                    if (output.missingPositions.length || output.count > images.length) {
+                        throw new Error('已连接参考来源的原图存在缺失，读取批次不完整；请恢复原图后重试。');
+                    }
+                }
                 if (value === undefined) return;
                 if (isMultiConnectionInput(node?.type, connection.to.port)) {
                     inputs[connection.to.port] = appendReferenceImages(
@@ -1617,7 +1628,7 @@ export function createExecutionCoreApi({
     function buildNodeRequestPreview(nodeId) {
         const node = state.nodes.get(nodeId);
         if (!node) throw new Error('节点不存在');
-        const inputs = collectCachedInputsForNode(nodeId);
+        const inputs = collectCachedInputsForNode(nodeId, { requireCompleteReferences: node.type === 'ImageGenerate' });
         if (node.type === 'ImageGenerate') return buildImageGenerateRequestPreview(node, inputs);
         if (node.type === 'VideoGenerate') return buildVideoGenerateRequestPreview(node, inputs);
         if (node.type === 'TextChat') return buildTextChatRequestPreview(node, inputs);
@@ -1638,24 +1649,6 @@ export function createExecutionCoreApi({
 
     function hasRemoteImageInput(inputs = {}) {
         return Object.values(inputs).some((value) => hasRemoteImageValue(value));
-    }
-
-    function getReferenceImageInputs(inputs = {}) {
-        return Object.keys(inputs)
-            .filter((key) => key === 'image' || key === 'referenceImages' || /^image_\d+$/.test(key))
-            .sort((a, b) => {
-                if (a === 'image') return -1;
-                if (b === 'image') return 1;
-                if (a === 'referenceImages') return 1;
-                if (b === 'referenceImages') return -1;
-                const numA = parseInt(a.slice('image_'.length), 10) || 0;
-                const numB = parseInt(b.slice('image_'.length), 10) || 0;
-                return numA - numB;
-            })
-            .flatMap((key) => key === 'referenceImages'
-                ? normalizeImageList(inputs[key]).map((value) => ({ key, value }))
-                : [{ key, value: getPrimaryImageInput(inputs[key]) }])
-            .filter((entry) => entry.value);
     }
 
     function getImageFileExtension(mimeType = '') {
@@ -1737,7 +1730,7 @@ export function createExecutionCoreApi({
 
     async function buildOpenAiImageEditFormData(requestBody, inputs, modelId, signal) {
         const formData = new FormData();
-        const referenceImages = getReferenceImageInputs(inputs);
+        const referenceImages = getOpenAiReferenceImages(inputs);
         // OpenAI encodes multiple files as an array; keep the scalar field for a single image.
         const imageFieldName = referenceImages.length > 1 ? 'image[]' : 'image';
 
@@ -1746,7 +1739,7 @@ export function createExecutionCoreApi({
         }
 
         for (let index = 0; index < referenceImages.length; index += 1) {
-            const blob = await getReferenceImageBlob(referenceImages[index].value, signal);
+            const blob = await getReferenceImageBlob(referenceImages[index], signal);
             const extension = getImageFileExtension(blob?.type);
             formData.append(imageFieldName, blob, `reference_${index + 1}.${extension}`);
         }
@@ -1760,7 +1753,7 @@ export function createExecutionCoreApi({
     }
 
     function getOpenAiImageRequestLogBody(requestBody, inputs, modelId) {
-        const referenceImages = getReferenceImageInputs(inputs);
+        const referenceImages = getOpenAiReferenceImages(inputs);
         if (referenceImages.length === 0 && !requestBody.mask?.data) return requestBody;
         return {
             ...getOpenAiImageEditFields(requestBody, modelId),

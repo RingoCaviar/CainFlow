@@ -618,7 +618,7 @@ function normalizeOpenAiImageBackground(background) {
     return value === 'transparent' || value === 'opaque' || value === 'auto' ? value : '';
 }
 
-function getOpenAiReferenceImages(inputs = {}) {
+export function getOpenAiReferenceImages(inputs = {}) {
     return getImageInputKeys(inputs)
         .flatMap((key) => normalizeImageList(inputs[key]));
 }

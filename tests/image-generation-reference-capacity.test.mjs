@@ -115,9 +115,10 @@ test('the public workflow runner sends the complete ordered 65-image input to th
  assert.deepEqual([...first.data.imageList,...second.data.imageList],images);
 });
 
-test('current-only generation rejects an empty cached reference source even when another source has images',async()=>{
- const {runner,state,target,first,second,images,requests}=fixture(),connections=structuredClone(state.connections);
+test('request preview and current-only generation reject an empty reference source while excluding disabled sources',async()=>{
+ const {core,runner,state,target,first,second,images,requests}=fixture(),connections=structuredClone(state.connections);
  second.data={};
+ assert.throws(()=>core.buildNodeRequestPreview(target.id),/参考图输入.*未读取到图片数据/);
  await runner.runWorkflow({mode:'selected-only',selectedNodeIds:[target.id]});
  assert.equal(requests.length,0,'a populated shared reference port must not hide a missing connected source');
  assert.equal(target.isFailed,true);
@@ -125,6 +126,20 @@ test('current-only generation rejects an empty cached reference source even when
  assert.deepEqual(first.data.imageList,images.slice(0,33));
  assert.deepEqual(second.data,{});
  assert.deepEqual(state.connections,connections);
+ second.enabled=false;
+ assert.deepEqual(core.buildNodeRequestPreview(target.id).requestBody.reference_images,images.slice(0,33));
+});
+
+test('a prompt image cannot hide an incomplete connected reference batch in the request preview', async () => {
+    const { core, runner, target, second, requests, referenceImageCatalog } = fixture();
+    second.data.imageList.pop();
+    const historyItem = (await referenceImageCatalog.getScene()).find(item => item.kind === 'history');
+    const history = registerPromptImageMention(target, historyItem, '@', { start: 0, end: 1 });
+    target.promptDraft = `配色参照${history}`;
+
+    await assert.rejects(async () => core.buildNodeRequestPreview(target.id), /读取批次不完整/);
+    await assert.rejects(runner.runWorkflow({ mode: 'selected-only', selectedNodeIds: [target.id] }), /原图缺失/);
+    assert.equal(requests.length, 0);
 });
 
 for(const type of ['VideoGenerate','TextChat']) test(`${type} retains its existing aggregation limit in cached preview and public workflow execution`,async()=>{
