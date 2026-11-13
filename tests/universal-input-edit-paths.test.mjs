@@ -30,7 +30,7 @@ function target(id = 'target') {
 }
 function harness(nodes, connections = [], callbacks = {}) {
     const state = { nodes: new Map(nodes.map(item => [item.id, item])), connections,
-        runningNodeIds: new Set(), models: [{ id: 'image', modelId: 'gpt-image-1', protocol: 'openai' }] };
+        runningNodeIds: new Set(), models: [{ id: 'image', modelId: 'gpt-image-2.6-sunburst', protocol: 'openai' }] };
     const submissions = [], messages = [];
     let history = 0;
     const api = createBatchConnectionModeApi({ state,
@@ -43,12 +43,15 @@ function harness(nodes, connections = [], callbacks = {}) {
 
 test('batch connecting to a migrated generation card rejects capacity instead of using its hidden reference port', () => {
     const source = node('source', 'ImageImport', [port('source', 'image', 'image', 'output')], { imageList: ['a', 'b', 'c'] });
-    const old = node('old', 'ImageImport', [], { imageList: ['d', 'e', 'f'] });
+    const old = node('old', 'ImageImport', [], {
+        imageList: Array.from({ length: 14 }, (_, index) => `retained-${index}`)
+    });
     const edge = { id: 'old-edge', from: { nodeId: 'old', port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, type: 'image', order: 8 };
-    const { api, state, submissions, history } = harness([source, old, target()], [edge]);
+    const { api, state, submissions, messages, history } = harness([source, old, target()], [edge]);
     api.enter('source'); api.connectTo('target');
     assert.deepEqual(state.connections, [edge]);
     assert.deepEqual(submissions, []);
+    assert.match(messages.at(-1), /最多接收 16 张参考图.*至少占用 17 张/);
     assert.equal(history(), 0);
 });
 
@@ -149,7 +152,9 @@ test('restoring a complete migrated reference graph is not truncated by the old 
 
 test('preserving-connection preflight checks complete reference batches without changing retained edge metadata', () => {
     const source = node('source', 'ImageImport', [port('source', 'image', 'image', 'output')], { imageList: ['a', 'b'] });
-    const old = node('old', 'ImagePreview', [port('old', 'image', 'image', 'output')], { imageList: ['c', 'd', 'e', 'f'] });
+    const old = node('old', 'ImagePreview', [port('old', 'image', 'image', 'output')], {
+        imageList: Array.from({ length: 15 }, (_, index) => `retained-${index}`)
+    });
     const destination = target();
     const retained = { id: 'retained', from: { nodeId: 'old', port: 'image', vendor: { preserve: true } },
         to: { nodeId: 'target', port: 'referenceImages' }, type: 'image', order: 12, vendor: { batch: 'originals' } };
@@ -159,7 +164,7 @@ test('preserving-connection preflight checks complete reference batches without 
         internalConnections: [{ id: 'bypass', from: { nodeId: 'source', port: 'image' },
             to: { nodeId: 'target', port: 'referenceImages' }, type: 'image', order: 0 }],
         validateUniversalInputs: true });
-    assert.equal(result.added, 0, 'the new two-image batch cannot expand four originals beyond the protocol maximum of five');
+    assert.equal(result.added, 0, 'the new two-image batch cannot expand 15 originals beyond the model maximum of 16');
     assert.equal(result.skipped, 1);
     assert.deepEqual(state.connections, [retained], 'existing connections remain intact instead of being pruned to the current capacity');
 });
