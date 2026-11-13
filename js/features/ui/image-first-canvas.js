@@ -25,7 +25,7 @@ const emptyPreviewMessages = new Set(['无输入图片', '无输入视频', '运
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
     runCurrentNode, waitForNodeRun, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
     panelManager = null, openModelSettings = () => {}, openResultPreview = () => {},
-    openShotError = () => {}, openReferencePreview = null, bindReferencePrompt = null }) {
+    openShotError = () => {}, openNodeFailureLog = () => false, openReferencePreview = null, bindReferencePrompt = null }) {
     const views = new Map();
     const dragClasses = new Set(['selected', 'is-interacting', 'connection-insert-candidate', 'connection-shake-armed']);
     const presentationClasses = value => (value || '').split(/\s+/).filter(name => name && !dragClasses.has(name)).sort().join(' ');
@@ -286,6 +286,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             const currentView = views.get(current);
             currentView?.settingsPopup?.hidePopover?.();
             if (currentView?.footerTools) current.parameterRoot.append(currentView.footerTools);
+            if (currentView?.batch) current.parameterRoot.append(currentView.batch.element);
             const countField = currentView?.countField;
             if (countField) { current.parameterRoot.append(countField); countField.hidden = true; }
             panel.append(footer);
@@ -449,9 +450,13 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 : node.type === 'ImageSave' ? (running ? '更新中' : '更新媒体')
                 : node.type === 'CameraControl' ? '编辑视角'
                 : node.type === 'ImageResize' ? (running ? '处理中' : '处理图片')
-                    : node.type === 'ColorReset' ? (running ? '调色中' : '应用调色') : (running ? '生成中' : generationCount > 1 ? `生成 ×${generationCount}` : '生成'));
+                    : node.type === 'ColorReset' ? (running ? '调色中' : '应用调色') : (generationCount > 1 ? `生成 ×${generationCount}` : '生成'));
             const issue = node.type === 'ImageGenerate' ? getNodeModelConfigurationIssue({ state, node, documentRef }) : null;
-            view.batch?.refresh({ running, blocked: !!issue || running || node.enabled === false || node.isClone === true });
+            if (view.batch) {
+                const { hasRequests, allFailed } = view.batch.refresh({ running, blocked: !!issue || running || node.enabled === false || node.isClone === true });
+                view.form.classList.toggle('has-image-batch', hasRequests);
+                view.form.classList.toggle('has-failed-image-batch', allFailed);
+            }
             if (configuration.parentNode !== footer.parentNode) footer.before(configuration);
             configuration.hidden = !issue;
             setText(configurationMessage, issue?.message || '');
@@ -485,6 +490,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (node.parameterRoot.parentNode !== scroll) scroll.append(node.parameterRoot);
         if (footer.parentNode !== panel) panel.append(footer);
         const view = views.get(node);
+        if (view.batch && view.batch.element.parentNode !== panel) footer.before(view.batch.element);
         countSlot.hidden = !view.countField;
         if (view.countField) {
             if (view.countField.parentNode !== countSlot) countSlot.append(view.countField);
@@ -572,6 +578,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             view.resizeObserver.observe(node.el);
             view.resizeObserver.observe(form);
             if (view.settingsPopup) view.resizeObserver.observe(view.settingsPopup);
+            if (view.batch) view.resizeObserver.observe(view.batch.element);
         }
         form.dataset.nodeType = node.type;
         node.parameterRoot = form;
@@ -873,10 +880,11 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         failureDetails.addEventListener('click', event => { event.stopPropagation(); failureSummary?.click(); });
         runFeedback.append(failureDetails);
         const batch = createImageGenerationBatchView({
-            node, documentRef, progress, progressFallback: runState,
+            node, documentRef,
             retryImage: (imageRetryIndex, imageRetryBatchId) => runCurrentNode(node.id, { imageRetryIndex, imageRetryBatchId }),
             openPreview: openResultPreview,
-            openError: openShotError
+            openError: openShotError,
+            openRunError: () => openNodeFailureLog(node.id)
         });
         const cancel = node.el.querySelector('.node-run-cancel-btn');
         if (cancel) node.el.append(cancel);
@@ -926,7 +934,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         panel.addEventListener(type, event => {
             // Freeze only while editing. Execution/result layout must finish
             // settling before it becomes the anchor for the next edit.
-            preserveOrdinaryAnchor = !event.target.closest('[data-parameter-action], [data-parameter-resize], [data-image-batch-retry]');
+            preserveOrdinaryAnchor = !event.target.closest('[data-parameter-action], [data-parameter-resize], [data-image-batch-retry], [data-image-batch-toggle]');
         }, true);
     }
     function finishGesture(cancelled = false) {

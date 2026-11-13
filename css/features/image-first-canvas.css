@@ -455,41 +455,105 @@ html:root #canvas-container .node.image-first-card > .node-body {
 .image-parameter-panel .image-parameter-run-feedback .node-failure-summary.hidden { display: none; }
 .image-parameter-run-feedback [data-image-run-action=details] { flex: 0 0 auto; min-height: 26px; padding: 3px 5px; border: 1px solid var(--node-control-border); border-radius: 5px; background: var(--node-control-surface); color: var(--text-primary); font: inherit; cursor: pointer; }
 .image-generation-batch {
-    display: grid;
-    gap: 8px;
+    flex: 0 0 auto;
     min-width: 0;
-    padding: 10px 12px;
-    border: 1px solid var(--node-control-border);
-    border-radius: 8px;
-    background: var(--surface-control);
-    color: var(--text-primary);
+    margin: 0 var(--parameter-spacing) var(--parameter-spacing);
+    border-top: 1px solid var(--node-control-border);
 }
 .image-generation-batch[hidden],
-.image-generation-batch [hidden] { display: none; }
+.image-generation-batch [hidden],
+.image-parameter-panel .has-image-batch .node-generation-progress-field,
+.image-parameter-panel .has-failed-image-batch .image-parameter-run-feedback { display: none; }
 .image-generation-batch-heading,
 .image-generation-batch-item {
     display: flex;
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
-    gap: 4px 12px;
+    gap: 2px 8px;
+    min-height: 32px;
+    padding-inline: 8px;
 }
-.image-generation-batch-heading h3 { margin: 0; font-size: 13px; font-weight: 600; }
 .image-generation-batch-totals,
 .image-generation-batch-identity,
-.image-generation-batch-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
-.image-generation-batch-totals { color: var(--text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
-.image-parameter-panel .image-generation-batch .image-generation-progress { margin: 0; color: var(--text-secondary); font-weight: 600; }
-.image-generation-batch-failures { color: var(--text-danger); }
-.image-generation-batch-list { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--node-control-border); }
-.image-generation-batch-row { min-width: 0; padding: 5px 0; }
+.image-generation-batch-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
+.image-generation-batch-totals { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.image-generation-batch-count { color: var(--text-primary); font-weight: 550; }
+.image-generation-batch-issues { font-size: 12px; }
+.image-generation-batch.has-failures .image-generation-batch-issues,
+.image-generation-batch-row[data-status="failed"] .image-generation-batch-status { color: var(--text-danger); }
+.image-generation-batch-list { margin: 0; padding: 0; list-style: none; }
+.image-generation-batch:not(.is-single) .image-generation-batch-list {
+    max-height: min(170px, 30vh);
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: 1px 0 3px;
+    border-top: 1px solid var(--node-control-border);
+    background: var(--surface-control);
+    border-radius: 0 0 6px 6px;
+    scrollbar-width: thin;
+}
+.image-generation-batch-row { min-width: 0; }
 .image-generation-batch-row + .image-generation-batch-row { border-top: 1px solid var(--node-control-border); }
-.image-generation-batch-item { min-height: 32px; }
-.image-generation-batch-name { font-weight: 550; }
-.image-generation-batch-status { display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); font-size: 12px; }
-.image-generation-batch-status::before { content: ''; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.image-generation-batch-name { color: var(--text-secondary); font-size: 12px; }
+.image-generation-batch-status,
+.image-generation-batch-count { display: inline-flex; align-items: center; gap: 7px; }
+.image-generation-batch-status { color: var(--text-secondary); font-size: 12px; }
+.image-generation-batch-status::before {
+    content: ''; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+}
 .image-generation-batch-row[data-status="running"] .image-generation-batch-status { color: var(--text-link); }
 .image-generation-batch-row[data-status="completed"] .image-generation-batch-status { color: var(--text-success); }
+.image-generation-batch.is-single .image-generation-batch-item { flex-direction: row-reverse; }
+.image-generation-batch.is-single .image-generation-batch-identity:not(:has(.image-generation-batch-preview:not([hidden]))) { display: none; }
+.image-generation-batch.is-single .image-generation-batch-actions { flex: 1; }
+.image-generation-batch.is-single .image-generation-batch-status { margin-inline-end: auto; font-size: 13px; font-weight: 550; }
+.image-generation-batch.is-single [data-status="running"] .image-generation-batch-status,
+.image-generation-batch.is-single [data-status="completed"] .image-generation-batch-status { color: var(--text-primary); }
+.image-generation-batch[data-status="running"] .image-generation-batch-count::before,
+.image-generation-batch.is-single [data-status="running"] .image-generation-batch-status::before {
+    content: '';
+    box-sizing: border-box;
+    flex: none;
+    width: 12px;
+    height: 12px;
+    border: 2px solid color-mix(in srgb, var(--accent-primary) 30%, transparent);
+    border-top-color: var(--accent-primary);
+    border-radius: 50%;
+    background: none;
+    animation: image-generation-spin 900ms linear infinite;
+}
+.image-generation-batch.is-single [data-status="completed"] .image-generation-batch-status::before { color: var(--text-success); }
+@keyframes image-generation-spin { to { transform: rotate(1turn); } }
+@media (prefers-reduced-motion: reduce) {
+    .image-generation-batch[data-status="running"] .image-generation-batch-count::before,
+    .image-generation-batch.is-single [data-status="running"] .image-generation-batch-status::before { animation: none; }
+}
+.image-generation-batch-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 28px;
+    padding: 0 5px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 12px;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.image-generation-batch-toggle::after {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border: solid currentColor;
+    border-width: 0 1px 1px 0;
+    transform: translateY(-2px) rotate(45deg);
+}
+.image-generation-batch-toggle[aria-expanded="true"]::after { transform: translateY(2px) rotate(225deg); }
+.image-generation-batch-toggle:hover { background: var(--panel-hover-bg); }
 .image-generation-batch-preview {
     display: block;
     flex: none;
@@ -516,7 +580,8 @@ html:root #canvas-container .node.image-first-card > .node-body {
 .image-generation-batch-retry:disabled { opacity: .58; cursor: default; }
 .image-generation-batch button:not(.image-parameter-failure-button):hover:not(:disabled) { border-color: var(--accent-primary); color: var(--text-link); }
 .image-generation-batch :is(button, li):focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
-.image-generation-batch-note { margin: 0; color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }
+.image-generation-batch-row:focus-visible { outline-offset: -2px; }
+.image-generation-batch-note { margin: 2px 8px 4px; color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }
 .image-parameter-failure-button {
     min-block-size: 28px;
     padding: 3px 7px;
@@ -1099,7 +1164,7 @@ html:root #canvas-container .node.node-media-aspect .node-media-aspect-surface {
 
 .image-parameter-panel .image-parameter-run-feedback .image-node-run-status { display: none; }
 .image-parameter-panel .image-parameter-run-feedback .image-node-run-actions { display: contents; }
-.image-parameter-panel .image-parameter-run-feedback:not(:has(.node-generation-progress-field:not([hidden]), .node-failure-summary:not(.hidden), [data-image-run-action="details"]:not([hidden]))) { display: none; }
+.image-parameter-panel .image-parameter-run-feedback:not(:has(.node-failure-summary:not(.hidden), [data-image-run-action="details"]:not([hidden]))):not(.image-first-parameter-content:not(.has-image-batch) .image-parameter-run-feedback:has(.node-generation-progress-field:not([hidden]))) { display: none; }
 
 /* Keep compact editors focused on controls; retain warnings and source actions. */
 .image-parameter-panel:not([data-node-type="ImageGenerate"]) .image-first-parameter-content.node-body { gap: 6px; }
