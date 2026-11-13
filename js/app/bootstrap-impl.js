@@ -2123,6 +2123,7 @@ historyFeature = createHistoryFeature({
     copyToClipboard,
     copyImageToClipboard: uiUtils.copyImageToClipboard,
     createImageResultActions: buildImageResultActions,
+    localStorageRef: diskStorage,
     showToast
 });
 historyPreviewApi = historyFeature.historyPreviewApi;
