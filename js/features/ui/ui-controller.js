@@ -17,7 +17,7 @@ import {
     saveWorkflowToFile
 } from '../../services/workflow-api.js';
 import { openDialogStyle1 } from './dialog-style-1.js';
-import { startHistoryDownload } from '../history/history-download.js';
+import { downloadHistoryBatch } from '../history/history-download.js';
 import { createMediaIntegrityDrawerController, renderMediaIntegrityDrawer } from '../media/media-integrity-drawer.js';
 const PROMPT_LIBRARY_STORAGE_KEY = 'cainflow_prompt_library';
 
@@ -58,7 +58,6 @@ export function createUiControllerApi({
     saveState,
     showToast,
     copyToClipboard,
-    downloadImage,
     initFeatureModules,
     syncOpenWorkflowsBeforeConfigExport = () => {},
     onConfigWorkflowsImported = async () => {},
@@ -1021,27 +1020,9 @@ export function createUiControllerApi({
         });
 
         documentRef.getElementById('btn-batch-download')?.addEventListener('click', async () => {
-            if (state.selectedHistoryIds.size === 0) {
-                showToast('请先选择要下载的图片', 'warn');
-                return;
+            if (await downloadHistoryBatch([...state.selectedHistoryIds], { getHistoryEntry, showToast, documentRef, windowRef })) {
+                setHistorySelectionMode(false);
             }
-
-            const items = await getHistoryMetadata();
-            const selected = items.filter((item) => state.selectedHistoryIds.has(item.id));
-
-            let startedCount = 0;
-            for (const item of selected) {
-                const entry = await getHistoryEntry(item.id);
-                if (await startHistoryDownload(entry, { downloadImage, documentRef, windowRef })) startedCount += 1;
-                await new Promise((resolve) => setTimeout(resolve, 200));
-            }
-
-            const failedCount = selected.length - startedCount;
-            const desktopSave = Boolean(windowRef.__cainflowDesktop?.saveFile);
-            showToast(failedCount > 0
-                ? `${desktopSave ? '已保存' : '已开始保存到本地'} ${startedCount} 项；${failedCount} 项${desktopSave ? '取消或失败' : '未能发起保存'}`
-                : `${desktopSave ? '已保存' : '已开始保存到本地'} ${startedCount} 项`, failedCount > 0 ? 'error' : 'success');
-            setHistorySelectionMode(false);
         });
 
         documentRef.getElementById('btn-batch-delete')?.addEventListener('click', async () => {

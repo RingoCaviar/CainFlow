@@ -1,6 +1,6 @@
 // Coordinates existing window lifecycles; closing always uses the owning feature.
 const coordinators = new WeakMap();
-const MODALS = '.modal-overlay, .modal.active, .fullscreen-overlay, .history-fullscreen-overlay, .painter-overlay, .image-compare-advanced-overlay, .camera-control-editor-overlay, .dialog-style-1, .reference-image-count-dialog, .provider-models-dialog, .api-settings-help-dialog, #protocol-developer-panel';
+const MODALS = '.modal-overlay, .modal.active, .fullscreen-overlay, .history-fullscreen-overlay, .history-download-progress[open], .painter-overlay, .image-compare-advanced-overlay, .camera-control-editor-overlay, .dialog-style-1, .reference-image-count-dialog, .provider-models-dialog, .api-settings-help-dialog, #protocol-developer-panel';
 
 export function getSurfaceCoordinator(documentRef) {
     if (!documentRef?.defaultView?.MutationObserver || !documentRef.body) return null;

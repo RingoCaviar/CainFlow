@@ -2185,7 +2185,6 @@ uiFeature = createUiFeature({
     saveState,
     showToast,
     copyToClipboard,
-    downloadImage,
     initFeatureModules,
     syncOpenWorkflowsBeforeConfigExport: () => workflowManagerApi.snapshotActiveWorkflow(),
     onConfigWorkflowsImported: (workflows) => workflowManagerApi.reloadAfterWorkflowImport(workflows?.[0]?.name || ''),

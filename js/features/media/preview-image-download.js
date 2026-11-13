@@ -1,5 +1,11 @@
 const extensions = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'image/avif': 'avif', 'image/bmp': 'bmp', 'image/svg+xml': 'svg', 'image/tiff': 'tiff' };
 
+export function getImageExtension(source) {
+    const mime = source instanceof Blob ? source.type : /^data:([^;,]+)/i.exec(String(source))?.[1];
+    const extension = extensions[mime] || /\.(png|jpe?g|webp|gif|avif|bmp|svg|tiff?)(?:[?#]|$)/i.exec(String(source))?.[1];
+    return extension ? '.' + extension : '';
+}
+
 /** Save original bytes; reserve the browser picker during the click's user activation. */
 export async function downloadPreviewImage(source, {
     windowRef = window, documentRef = document, fetchRef = fetch,
@@ -9,12 +15,11 @@ export async function downloadPreviewImage(source, {
     try {
         if (!source) throw new Error('原图尚未加载，请稍后重试');
         const base = filename.replace(/\.[a-z0-9]+$/i, '').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_');
-        const sourceMime = source instanceof Blob ? source.type : /^data:([^;,]+)/i.exec(String(source))?.[1];
-        const knownExtension = extensions[sourceMime] || /\.(png|jpe?g|webp|gif|avif|bmp|svg|tiff?)(?:[?#]|$)/i.exec(String(source))?.[1];
+        const knownExtension = getImageExtension(source);
         const desktop = windowRef.__cainflowDesktop;
         // Unknown formats deliberately have no guessed extension: never label JPEG bytes as PNG.
         const handle = !desktop?.saveFile && typeof windowRef.showSaveFilePicker === 'function'
-            ? await windowRef.showSaveFilePicker({ suggestedName: base + (knownExtension ? `.${knownExtension}` : '') })
+            ? await windowRef.showSaveFilePicker({ suggestedName: base + knownExtension })
             : null;
         let blob = source;
         if (!(blob instanceof Blob)) {
@@ -23,8 +28,7 @@ export async function downloadPreviewImage(source, {
             blob = await response.blob();
         }
         if (!blob.type.startsWith('image/')) throw new Error('无法识别原图格式');
-        const extension = extensions[blob.type] || knownExtension;
-        const name = base + (extension ? `.${extension}` : '');
+        const name = base + (getImageExtension(blob) || knownExtension);
         if (desktop?.saveFile) {
             if (!await desktop.saveFile(name, blob.type, blob)) return 'cancelled';
         } else if (handle) {

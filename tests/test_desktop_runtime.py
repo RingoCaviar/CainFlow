@@ -1,10 +1,12 @@
 import http.client
 import ctypes
+import errno
 import os
 import tempfile
 import threading
 import types
 from datetime import datetime, timedelta
+from pathlib import Path
 import unittest
 from unittest import mock
 
@@ -116,6 +118,90 @@ class DesktopBridgeTests(unittest.TestCase):
             self.assertEqual(result, destination)
             with open(destination, 'rb') as stream:
                 self.assertEqual(stream.read(), b'cainflow')
+
+    def test_directory_save_picks_once_and_preserves_existing_files(self):
+        webview = mock.Mock(SAVE_DIALOG=1, FOLDER_DIALOG=2)
+        bridge = DesktopBridge('v-test', webview)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / 'picture.png').write_bytes(b'existing')
+            window = mock.Mock()
+            window.create_file_dialog.return_value = (directory,)
+            bridge.attach_window(window)
+
+            token = bridge.begin_directory_save()
+            self.assertTrue(token)
+            self.assertNotEqual(token, directory)
+            first = bridge.save_file_to_directory(token, 'picture.png', {'encoding': 'base64', 'data': 'Zmlyc3Q='})
+            second = bridge.save_file_to_directory(token, 'picture.png', {'encoding': 'base64', 'data': 'c2Vjb25k'})
+            bridge.end_directory_save(token)
+
+            window.create_file_dialog.assert_called_once_with(webview.FOLDER_DIALOG)
+            self.assertEqual(Path(first), root / 'picture (1).png')
+            self.assertEqual(Path(second), root / 'picture (2).png')
+            self.assertEqual({file.name: file.read_bytes() for file in root.iterdir()}, {
+                'picture.png': b'existing', 'picture (1).png': b'first', 'picture (2).png': b'second',
+            })
+            with self.assertRaises(ValueError):
+                bridge.save_file_to_directory(token, 'released.png', 'invalid')
+
+    def test_directory_save_requires_confirmation_and_rejects_path_names(self):
+        webview = mock.Mock(FOLDER_DIALOG=2)
+        bridge = DesktopBridge('v-test', webview)
+        window = mock.Mock()
+        window.create_file_dialog.return_value = None
+        bridge.attach_window(window)
+        self.assertIsNone(bridge.begin_directory_save())
+
+        with tempfile.TemporaryDirectory() as directory:
+            window.create_file_dialog.return_value = (directory,)
+            token = bridge.begin_directory_save()
+            with self.assertRaises(ValueError):
+                bridge.save_file_to_directory(directory, 'picture.png', 'invalid')
+            for name in ('../outside.png', r'..\outside.png', 'C:outside.png', 'image.png:stream', '\0'):
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    bridge.save_file_to_directory(token, name, 'invalid')
+            bridge.end_directory_save(token)
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_directory_save_rejects_windows_device_names(self):
+        bridge = DesktopBridge('v-test', mock.Mock(FOLDER_DIALOG=2))
+        with tempfile.TemporaryDirectory() as directory:
+            window = mock.Mock()
+            window.create_file_dialog.return_value = (directory,)
+            bridge.attach_window(window)
+            token = bridge.begin_directory_save()
+            with mock.patch.object(bridge, '_write_save_content') as write:
+                for name in ('NUL.png', 'CoN .txt', 'COM¹.mp4', 'lpt2.extra.png', 'CONOUT$'):
+                    with self.subTest(name=name), self.assertRaises(ValueError):
+                        bridge.save_file_to_directory(token, name, 'invalid')
+                write.assert_not_called()
+            bridge.end_directory_save(token)
+
+    def test_directory_save_on_filesystem_without_hard_links(self):
+        bridge = DesktopBridge('v-test', mock.Mock(FOLDER_DIALOG=2))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / 'picture.png').write_bytes(b'existing')
+            window = mock.Mock()
+            window.create_file_dialog.return_value = (directory,)
+            bridge.attach_window(window)
+            token = bridge.begin_directory_save()
+
+            unsupported_links_os = mock.Mock(wraps=os)
+            unsupported_links_os.name = 'posix'
+            unsupported_links_os.link.side_effect = OSError(errno.EOPNOTSUPP, 'hard links unavailable')
+            with mock.patch('backend.services.desktop_bridge.os', unsupported_links_os):
+                saved = bridge.save_file_to_directory(token, 'picture.png', 'saved')
+                unsupported_links_os.fsync.side_effect = [None, OSError(errno.ENOSPC, 'disk full')]
+                with self.assertRaisesRegex(OSError, 'disk full'):
+                    bridge.save_file_to_directory(token, 'failed.png', 'partial')
+
+            bridge.end_directory_save(token)
+            self.assertEqual(Path(saved), root / 'picture (1).png')
+            self.assertEqual({file.name: file.read_bytes() for file in root.iterdir()}, {
+                'picture.png': b'existing', 'picture (1).png': b'saved',
+            })
 
     def test_external_links_reject_non_http_schemes(self):
         bridge = DesktopBridge('v-test', mock.Mock())

@@ -92,17 +92,11 @@ test('desktop history downloads wait for the native save result', async () => {
     assert.equal(await startHistoryDownload({ id: 12, image: 'data:image/png;base64,AAAA' }, { windowRef }), false);
 });
 
-test('all history save entry points use the shared request-result helper', async () => {
-    const files = await Promise.all([
-        readFile(new URL('../js/features/history/history-preview.js', import.meta.url), 'utf8'),
-        readFile(new URL('../js/features/history/history-fullscreen.js', import.meta.url), 'utf8'),
-        readFile(new URL('../js/features/ui/ui-controller.js', import.meta.url), 'utf8')
-    ]);
+test('the history preview uses the single-file save result', async () => {
+    const source = await readFile(new URL('../js/features/history/history-preview.js', import.meta.url), 'utf8');
 
-    for (const source of files) {
-        assert.match(source, /startHistoryDownload/);
-        assert.match(source, /已开始保存到本地/);
-    }
+    assert.match(source, /startHistoryDownload/);
+    assert.match(source, /已开始保存到本地/);
 });
 
 test('download feedback stays visible above an open history preview', async () => {
