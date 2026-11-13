@@ -102,6 +102,15 @@
         ],
         "createdAt": "2026-11-13T02:40:18.787Z",
         "reason": "Codex: resize timing fixture imports the existing production theme and does not define a palette"
+      },
+      {
+        "rule": "marquee",
+        "value": "*",
+        "files": [
+          "index.html"
+        ],
+        "createdAt": "2026-11-13T06:40:24.237Z",
+        "reason": "Codex verified against d76ff6e: both matches are the loading and reduced-motion animation variants of the same indeterminate canvas progress bar. The element has progressbar semantics, appears only during actual workflow loading, and does not scroll content."
       }
     ]
   }
