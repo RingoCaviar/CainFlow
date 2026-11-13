@@ -38,8 +38,7 @@ export function createCanvasInteractionsApi({
     addNode,
     getNodeMinimumSize = null,
     enforceNodeContentMinimum = null,
-    checkLineIntersection,
-    getConnectionSamplePoints,
+    findConnectionsCrossingSegments = () => new Set(),
     onConnectionsChanged = () => {},
     onViewportSettled = () => {},
     getConnectionCreateCandidates = null,
@@ -53,11 +52,15 @@ export function createCanvasInteractionsApi({
     let connectionDrawScheduled = false;
     let connectionDrawPointer = null;
     const projectionInteractionLeases = new Map();
+    const pendingGestureFrames = new WeakMap();
     let samplePanOrigin = null;
     let sampleZoomOrigin = null;
     let sampleDrag = null;
     let sampleConnection = null;
     let cuttingHistoryRecorded = false;
+    let cutWorkflowId = null;
+    let pendingCutFrame = null;
+    const pendingCutSegments = [];
     let suppressNodeDragClick = false;
     const ZOOM_SETTLE_DELAY_MS = 120;
     const SHAKE_DETACH_DURATION_MS = 300;
@@ -66,12 +69,6 @@ export function createCanvasInteractionsApi({
     const SHAKE_MIN_REVERSALS = 4;
     const SHAKE_MIN_TRAVEL = 120;
     const SHAKE_REVERSE_DOT = -0.45;
-    const OUTPUT_PORT_TRANSITION = 28;
-    const INPUT_PORT_TURN_LEAD = 72;
-    const PAIR_LANE_GAP = 14;
-    const PORT_LANE_GAP = 6;
-    const NODE_LANE_GAP = 4;
-    const MAX_LANE_OFFSET = 42;
     const FALLBACK_NODE_WIDTH = 180;
     const FALLBACK_NODE_HEIGHT = 120;
     const WHEEL_ZOOM_SENSITIVITY = 0.0011;
@@ -83,6 +80,41 @@ export function createCanvasInteractionsApi({
         const dpr = Number(windowRef.devicePixelRatio) || 1;
         const scale = zoom * dpr;
         return scale > 0 ? Math.round(delta * scale) / scale : delta;
+    }
+
+    function queueGestureFrame(gesture, pointer, apply) {
+        const queued = pendingGestureFrames.get(gesture);
+        if (queued) {
+            queued.pointer = pointer;
+            return;
+        }
+        const frame = { pointer };
+        pendingGestureFrames.set(gesture, frame);
+        requestAnimationFrameRef(() => {
+            if (pendingGestureFrames.get(gesture) !== frame) return;
+            pendingGestureFrames.delete(gesture);
+            if ((gesture === state.dragging || gesture === state.marquee || gesture === state.resizing) &&
+                isCurrentGesture(gesture)) {
+                apply(gesture, frame.pointer);
+            }
+        });
+    }
+
+    function isCurrentGesture(gesture) {
+        if (gesture.workflowId !== undefined && gesture.workflowId !== getActiveWorkflowId()) return false;
+        if (gesture.node && state.nodes.get(gesture.nodeId) !== gesture.node) return false;
+        if (gesture.startPositions) {
+            for (const [id, start] of gesture.startPositions) {
+                if (start.node && state.nodes.get(id) !== start.node) return false;
+            }
+        }
+        return true;
+    }
+
+    function takeGesturePointer(gesture, releasePointer) {
+        const queued = pendingGestureFrames.get(gesture);
+        pendingGestureFrames.delete(gesture);
+        return releasePointer || queued?.pointer;
     }
 
     function refreshNodeConnections(nodeId, { force = false } = {}) {
@@ -186,64 +218,223 @@ export function createCanvasInteractionsApi({
         notifyViewportSettled();
     }
 
-    function settleNodeDrag({ endPosition = null, abort = false } = {}) {
-        if (!state.dragging) return;
+    function recordDragMotion(dragging, pos) {
+        const dx = Math.abs(pos.x - dragging.startX);
+        const dy = Math.abs(pos.y - dragging.startY);
+        if (dx > 0.5 || dy > 0.5) dragging.hasMotion = true;
+        if (dx > 2 || dy > 2) dragging.hasMoved = true;
+    }
 
-        const moved = state.dragging.hasMoved || (endPosition && (
-            Math.abs(endPosition.x - state.dragging.startX) > 2 ||
-            Math.abs(endPosition.y - state.dragging.startY) > 2
-        ));
-        if (moved && !abort) {
+    function cloneDraggedNodes(dragging) {
+        dragging.cloned = true;
+        const idMap = new Map();
+        for (const nodeId of dragging.nodes) {
+            const node = state.nodes.get(nodeId);
+            if (!node) continue;
+            const data = serializeOneNode(nodeId);
+            data.id = null;
+            const newId = addNode(node.type, node.x, node.y, data, true);
+            if (newId) idMap.set(nodeId, newId);
+        }
+        if (!idMap.size) return false;
+
+        const { added } = appendMappedConnectionSnapshots({
+            state,
+            idMap,
+            internalConnections: dragging.internalConnections || [],
+            externalConnections: dragging.externalConnections || [],
+            includeExternalConnections: false
+        });
+        const newStartPositions = new Map();
+        idMap.forEach((newId, originalId) => {
+            const start = dragging.startPositions.get(originalId);
+            if (start) newStartPositions.set(newId, { ...start, node: state.nodes.get(newId) });
+        });
+        dragging.nodes = [...idMap.values()];
+        dragging.startPositions = newStartPositions;
+        dragging.connectionsToUpdate = [];
+        dragging.portOffsets = new Map();
+        for (const nodeId of state.selectedNodes) state.nodes.get(nodeId)?.el.classList.remove('is-interacting');
+        selectionApi.setSelection(dragging.nodes, { notify: false });
+        if (added > 0) updatePortStyles();
+        return true;
+    }
+
+    function applyNodeDragPosition(dragging, pos, { settling = false } = {}) {
+        if (dragging.deferSelectionOnDrag && !dragging.selectionActivated) dragging.activateSelection?.();
+        const cloned = dragging.isCloneDrag && !dragging.cloned && cloneDraggedNodes(dragging);
+        let dragProjection = getProjectionInteraction(CANVAS_INTERACTION_KIND.NODE_DRAG);
+        if (!dragProjection) dragProjection = beginProjectionInteraction(CANVAS_INTERACTION_KIND.NODE_DRAG, dragging.nodes);
+        if (!settling && !dragging.interactionVisualsActive) {
+            dragging.interactionVisualsActive = true;
+            documentRef.getElementById('connections-group').classList.add('is-interacting');
+            for (const nodeId of dragging.nodes) state.nodes.get(nodeId)?.el?.classList.add('is-interacting');
+        }
+
+        const visualDx = alignCanvasDeltaToDevicePixel(pos.x - dragging.startX);
+        const visualDy = alignCanvasDeltaToDevicePixel(pos.y - dragging.startY);
+        let moved = false;
+        for (const nodeId of dragging.nodes) {
+            const node = state.nodes.get(nodeId);
+            const start = dragging.startPositions.get(nodeId);
+            if (!node || !start) continue;
+            const nextX = start.x + visualDx;
+            const nextY = start.y + visualDy;
+            if (node.x !== nextX) {
+                node.x = nextX;
+                moved = true;
+                if (!settling) node.el.style.setProperty('--node-drag-x', `${visualDx}px`);
+            }
+            if (node.y !== nextY) {
+                node.y = nextY;
+                moved = true;
+                if (!settling) node.el.style.setProperty('--node-drag-y', `${visualDy}px`);
+            }
+        }
+        if (cloned) {
+            if (!settling) publishClonedConnections();
+        } else if (dragProjection && moved) {
+            if (!settling && typeof dragProjection.nodePositionsApplied === 'function') dragProjection.nodePositionsApplied();
+            else dragProjection.changed();
+        } else if (!dragProjection && !settling && moved) {
+            updateDraggingConnections?.(dragging);
+        }
+        if (!settling) renderShakeDetachProgress(dragging);
+        return cloned;
+    }
+
+    function publishClonedConnections() {
+        updateAllConnections();
+        onConnectionsChanged();
+    }
+
+    function settleNodeDrag({ endPosition = null, abort = false } = {}) {
+        const dragging = state.dragging;
+        if (!dragging) return;
+
+        const pointer = takeGesturePointer(dragging, endPosition);
+        const isCurrent = isCurrentGesture(dragging);
+        let cloned = false;
+        if (isCurrent && dragging.hasMotion && pointer) {
+            recordDragMotion(dragging, pointer);
+            cloned = applyNodeDragPosition(dragging, pointer, { settling: true });
+        }
+        const moved = dragging.hasMoved;
+        if (isCurrent && moved && !abort) {
             state.justDragged = true;
             setTimeout(() => { state.justDragged = false; }, 100);
             suppressNodeDragClick = true;
         }
 
-        for (const nodeId of state.dragging.nodes) {
-            const node = state.nodes.get(nodeId);
+        for (const nodeId of dragging.nodes) {
+            const node = dragging.startPositions.get(nodeId)?.node || (isCurrent && state.nodes.get(nodeId));
             if (!node) continue;
-            node.el.style.left = node.x + 'px';
-            node.el.style.top = node.y + 'px';
+            if (isCurrent) {
+                node.el.style.left = node.x + 'px';
+                node.el.style.top = node.y + 'px';
+            }
             node.el.style.setProperty('--node-drag-x', '0px');
             node.el.style.setProperty('--node-drag-y', '0px');
             node.el.style.removeProperty('transform');
             node.el.classList.remove('is-interacting', 'connection-shake-armed');
             node.el.style.removeProperty('--connection-shake-progress');
         }
+        if (cloned) publishClonedConnections();
 
-        if (abort) {
+        if (!isCurrent || abort || !moved) {
             clearConnectionInsertPreview?.();
         } else if (commitConnectionInsertPreview) {
-            commitConnectionInsertPreview();
+            commitConnectionInsertPreview({ refresh: true });
         } else if (clearConnectionInsertPreview) {
             clearConnectionInsertPreview();
         }
 
         state.dragging = null;
+        if (!isCurrent) {
+            projectionInteractionLeases.delete(CANVAS_INTERACTION_KIND.NODE_DRAG);
+            return;
+        }
         if (moved) documentRef.dispatchEvent?.(new CustomEvent('cainflow:node-drag-ended'));
         closeProjectionInteraction(CANVAS_INTERACTION_KIND.NODE_DRAG, abort ? 'abort' : 'finish');
         scheduleSave();
     }
 
-    function settleNodeResize() {
+    function applyNodeResizePointer(r, pos, { settling = false } = {}) {
+        const node = state.nodes.get(r.nodeId);
+        if (!node || isNodeRunning(r.nodeId)) return;
+        const zoom = state.canvas.zoom;
+        const dx = (pos.x - r.startX) / zoom;
+        const dy = (pos.y - r.startY) / zoom;
+        const edge = r.edge || 'bottom-right';
+        const movesLeft = edge.includes('left');
+        const movesTop = edge.includes('top');
+        let targetWidth = r.startWidth + (movesLeft ? -dx : edge.includes('right') ? dx : 0);
+        const targetHeight = r.startHeight + (movesTop ? -dy : edge.includes('bottom') ? dy : 0);
+        if (r.mediaAspectRatio > 0 && (movesTop || edge.includes('bottom'))
+            && (edge === 'top' || edge === 'bottom' || Math.abs(dy * r.mediaAspectRatio) > Math.abs(dx))) {
+            targetWidth = r.startWidth + (movesTop ? -dy : dy) * r.mediaAspectRatio;
+        }
+        const maxWidth = Number.isFinite(r.maxWidth) && r.maxWidth > 0 ? r.maxWidth : Infinity;
+        const maxHeight = Number.isFinite(r.maxHeight) && r.maxHeight > 0 ? r.maxHeight : Infinity;
+        let minimumHeight = r.minHeight;
+        let width = Math.min(maxWidth, Math.max(targetWidth, r.minWidth));
+        if (typeof getNodeMinimumSize === 'function') {
+            let minimum = getNodeMinimumSize(node, { width, normalizeFlexibleHeights: true });
+            const minimumWidth = Math.max(r.minWidth, Number(minimum?.minWidth) || 0);
+            const adjustedWidth = Math.min(maxWidth, Math.max(targetWidth, minimumWidth));
+            if (adjustedWidth !== width) {
+                minimum = getNodeMinimumSize(node, { width: adjustedWidth, normalizeFlexibleHeights: true });
+            }
+            width = Math.min(maxWidth, Math.max(adjustedWidth, Number(minimum?.minWidth) || 0));
+            minimumHeight = Number(minimum?.minHeight) || 0;
+        }
+        const allowedHeight = maxHeight >= minimumHeight ? maxHeight : Infinity;
+        const height = node.el.classList.contains('node-media-aspect')
+            ? minimumHeight
+            : Math.min(Math.max(targetHeight, minimumHeight), allowedHeight);
+        node.el.style.width = `${width}px`;
+        node.el.style.height = `${height}px`;
+        if (movesLeft) {
+            node.x = r.startNodeX + r.startWidth - width;
+            node.el.style.left = `${node.x}px`;
+        }
+        if (movesTop) {
+            node.y = r.startNodeY + r.startHeight - height;
+            node.el.style.top = `${node.y}px`;
+        }
+        distributeNodeTextareaResize(r, height);
+        if (settling) return;
+        if (typeof connectionProjection?.nodeResizeApplied === 'function') connectionProjection.nodeResizeApplied(r.nodeId);
+        else refreshNodeConnections(r.nodeId);
+    }
+
+    function settleNodeResize(releasePointer = null) {
         const r = state.resizing;
         if (!r) return;
+        const pointer = takeGesturePointer(r, releasePointer);
+        if (!isCurrentGesture(r)) {
+            r.node?.el.classList.remove('is-interacting');
+            if (r.cursorClass) documentRef.body.classList.remove(r.cursorClass);
+            state.resizing = null;
+            return;
+        }
+        if (r.hasPointerMovement && pointer) applyNodeResizePointer(r, pointer, { settling: true });
         const node = state.nodes.get(r.nodeId);
         if (node) {
             let finalWidth = parseInt(node.el.style.width, 10) || r.startWidth;
             let finalHeight = parseInt(node.el.style.height, 10) || r.startHeight;
             distributeNodeTextareaResize(r, finalHeight);
             if (typeof getNodeMinimumSize === 'function') {
+                const measuredWidth = finalWidth;
                 let minimum = getNodeMinimumSize(node, {
                     width: finalWidth,
                     normalizeFlexibleHeights: true
                 });
                 const configuredMaxWidth = Number.isFinite(r.maxWidth) && r.maxWidth > 0 ? r.maxWidth : Infinity;
                 finalWidth = Math.min(configuredMaxWidth, Math.max(finalWidth, Number(minimum?.minWidth) || 0));
-                minimum = getNodeMinimumSize(node, {
-                    width: finalWidth,
-                    normalizeFlexibleHeights: true
-                });
+                if (finalWidth !== measuredWidth) {
+                    minimum = getNodeMinimumSize(node, { width: finalWidth, normalizeFlexibleHeights: true });
+                }
                 finalHeight = node.el.classList.contains('node-media-aspect') ? minimum.minHeight : Math.max(finalHeight, Number(minimum?.minHeight) || 0);
                 node.el.style.width = `${Math.round(finalWidth)}px`;
                 node.el.style.height = `${Math.round(finalHeight)}px`;
@@ -625,15 +816,47 @@ export function createCanvasInteractionsApi({
 
     function syncMarqueeSelection(marquee) {
         const marqueeRect = getMarqueeCanvasRect(marquee);
-        if (!marqueeRect) return false;
+        if (!marqueeRect) return;
 
-        const desired = new Set(marquee.initialSelection);
+        const desired = new Set([...marquee.initialSelection].filter(id => state.nodes.has(id)));
         state.nodes.forEach((node, id) => {
             const nodeBounds = getNodeCanvasBounds(node);
             if (nodeBounds && rectsIntersect(marqueeRect, nodeBounds)) desired.add(id);
         });
 
-        return selectionApi.setSelection(Array.from(desired)).length > 0;
+        if (desired.size !== state.selectedNodes.size || [...desired].some(id => !state.selectedNodes.has(id))) {
+            selectionApi.setSelection([...desired]);
+        }
+    }
+
+    function applyMarqueePointer(marquee, pointer, { settling = false } = {}) {
+        marquee.endX = pointer.x;
+        marquee.endY = pointer.y;
+        marquee.endCanvasX = pointer.canvas.x;
+        marquee.endCanvasY = pointer.canvas.y;
+        if (!settling) {
+            const { style } = documentRef.getElementById('selection-box');
+            style.left = `${Math.min(marquee.startX, pointer.x)}px`;
+            style.top = `${Math.min(marquee.startY, pointer.y)}px`;
+            style.width = `${Math.abs(marquee.startX - pointer.x)}px`;
+            style.height = `${Math.abs(marquee.startY - pointer.y)}px`;
+        }
+        syncMarqueeSelection(marquee);
+    }
+
+    function settleMarquee(releasePointer = null) {
+        const marquee = state.marquee;
+        if (!marquee) return;
+        const pointer = takeGesturePointer(marquee, releasePointer);
+        if (isCurrentGesture(marquee)) {
+            if (pointer) applyMarqueePointer(marquee, pointer, { settling: true });
+            if (Math.abs(marquee.startX - marquee.endX) > 5 || Math.abs(marquee.startY - marquee.endY) > 5) {
+                state.justDragged = true;
+                setTimeout(() => { state.justDragged = false; }, 100);
+            }
+        }
+        documentRef.getElementById('selection-box').classList.add('hidden');
+        state.marquee = null;
     }
 
     function finishZoomInteraction() {
@@ -681,75 +904,65 @@ export function createCanvasInteractionsApi({
         return state.runningNodeIds?.has(nodeId) || state.nodes.get(nodeId)?.el?.classList.contains('running');
     }
 
-    function hasRunningEndpoint(connection) {
-        return isNodeRunning(connection.from.nodeId) || isNodeRunning(connection.to.nodeId);
+    function appendCutPoint(point) {
+        const previous = state.cutPath.at(-1);
+        if (previous?.x === point.x && previous.y === point.y) return;
+        if (previous) pendingCutSegments.push([previous, point]);
+        // The queued segments own the trajectory. Only the final point is needed across frames.
+        state.cutPath[0] = point;
     }
 
-    function clampLaneOffset(value) {
-        return Math.max(-MAX_LANE_OFFSET, Math.min(MAX_LANE_OFFSET, value));
+    function flushCutSegments() {
+        pendingCutFrame = null;
+        if (!pendingCutSegments.length) return;
+        const segments = pendingCutSegments.splice(0);
+        if (cutWorkflowId !== getActiveWorkflowId() || state.canvasPlanApplying || state.historyTransitionInProgress) {
+            cutWorkflowId = null;
+            return;
+        }
+        const connectionsToRemove = findConnectionsCrossingSegments(segments);
+        if (!connectionsToRemove.size) return;
+        if (!cuttingHistoryRecorded) {
+            try {
+                pushHistory();
+            } catch (error) {
+                showToast(error.message, 'warning');
+                return;
+            }
+            cuttingHistoryRecorded = true;
+        }
+        state.connections = state.connections.filter(connection => !connectionsToRemove.has(connection.id));
+        updateAllConnections();
+        updatePortStyles();
+        scheduleSave();
+        onConnectionsChanged();
     }
 
-    function getPortOrder(nodeId, portName, direction) {
-        const node = state.nodes.get(nodeId);
-        const ports = Array.from(node?.el?.querySelectorAll?.(`.node-port[data-direction="${direction}"]`) || []);
-        const index = ports.findIndex((portEl) => portEl.dataset.port === portName);
-        return index >= 0 ? index : ports.length;
-    }
-
-    function compareConnectionsForLane(a, b) {
-        const fromA = state.nodes.get(a.from?.nodeId);
-        const fromB = state.nodes.get(b.from?.nodeId);
-        const toA = state.nodes.get(a.to?.nodeId);
-        const toB = state.nodes.get(b.to?.nodeId);
-        return ((fromA?.y ?? 0) - (fromB?.y ?? 0)) ||
-            ((toA?.y ?? 0) - (toB?.y ?? 0)) ||
-            (getPortOrder(a.from?.nodeId, a.from?.port, 'output') - getPortOrder(b.from?.nodeId, b.from?.port, 'output')) ||
-            (getPortOrder(a.to?.nodeId, a.to?.port, 'input') - getPortOrder(b.to?.nodeId, b.to?.port, 'input')) ||
-            String(a.id || '').localeCompare(String(b.id || ''));
-    }
-
-    function addCenteredLaneOffsets(laneById, group, gap, weight = 1) {
-        if (!Array.isArray(group) || group.length <= 1) return;
-        const sorted = group.slice().sort(compareConnectionsForLane);
-        const center = (sorted.length - 1) / 2;
-        sorted.forEach((connection, index) => {
-            const current = laneById.get(connection.id) || 0;
-            laneById.set(connection.id, clampLaneOffset(current + (index - center) * gap * weight));
+    function queueCutMovement(event, point) {
+        for (const sample of event.getCoalescedEvents?.() || []) {
+            appendCutPoint(viewportApi.screenToCanvas(sample.clientX, sample.clientY));
+        }
+        appendCutPoint(point);
+        if (pendingCutFrame || !pendingCutSegments.length) return;
+        const frame = {};
+        pendingCutFrame = frame;
+        requestAnimationFrameRef(() => {
+            if (pendingCutFrame === frame) flushCutSegments();
         });
     }
 
-    function buildConnectionLaneMap() {
-        const laneById = new Map();
-        const pairGroups = new Map();
-        const outputGroups = new Map();
-        const targetGroups = new Map();
-
-        state.connections.forEach((connection) => {
-            if (!connection?.id || !state.nodes.has(connection.from?.nodeId) || !state.nodes.has(connection.to?.nodeId)) return;
-            const pairKey = `${connection.from.nodeId}->${connection.to.nodeId}`;
-            const outputKey = `${connection.from.nodeId}:${connection.from.port}`;
-            const targetKey = `${connection.to.nodeId}`;
-            if (!pairGroups.has(pairKey)) pairGroups.set(pairKey, []);
-            if (!outputGroups.has(outputKey)) outputGroups.set(outputKey, []);
-            if (!targetGroups.has(targetKey)) targetGroups.set(targetKey, []);
-            pairGroups.get(pairKey).push(connection);
-            outputGroups.get(outputKey).push(connection);
-            targetGroups.get(targetKey).push(connection);
-        });
-
-        pairGroups.forEach((group) => addCenteredLaneOffsets(laneById, group, PAIR_LANE_GAP, 1));
-        outputGroups.forEach((group) => addCenteredLaneOffsets(laneById, group, PORT_LANE_GAP, 0.7));
-        targetGroups.forEach((group) => addCenteredLaneOffsets(laneById, group, NODE_LANE_GAP, 0.55));
-        return laneById;
-    }
-
-    function getConnectionPathOptions(connection, laneById) {
-        return {
-            type: state.connectionLineType || 'bezier',
-            outputTransition: OUTPUT_PORT_TRANSITION,
-            inputTransition: INPUT_PORT_TURN_LEAD,
-            laneOffset: laneById.get(connection.id) || 0
-        };
+    function finishCut(event = null) {
+        if (!state.isCutting) return;
+        if (Number.isFinite(event?.clientX) && Number.isFinite(event?.clientY)) {
+            appendCutPoint(viewportApi.screenToCanvas(event.clientX, event.clientY));
+        }
+        flushCutSegments();
+        state.isCutting = false;
+        cutWorkflowId = null;
+        state.cutPath = [];
+        canvasContainer.style.cursor = '';
+        state.justCut = true;
+        setTimeout(() => { state.justCut = false; }, 100);
     }
 
     function clearShakeDetachVisuals(draggingState) {
@@ -760,7 +973,6 @@ export function createCanvasInteractionsApi({
     }
 
     function resetShakeTracker(draggingState, pos, now) {
-        clearShakeDetachVisuals(draggingState);
         draggingState.connectionShake = {
             lastX: pos.x,
             lastY: pos.y,
@@ -769,7 +981,8 @@ export function createCanvasInteractionsApi({
             activeSince: null,
             lastReversalAt: null,
             reversalCount: 0,
-            travel: 0
+            travel: 0,
+            progress: null
         };
         return draggingState.connectionShake;
     }
@@ -781,12 +994,11 @@ export function createCanvasInteractionsApi({
 
         const nodeId = draggingState.nodes[0];
         const node = state.nodes.get(nodeId);
-        if (!node || isNodeRunning(nodeId) || !hasNodeConnections(nodeId)) {
-            clearShakeDetachVisuals(draggingState);
+        const now = getNow();
+        if (!node || isNodeRunning(nodeId)) {
+            if (draggingState.connectionShake) resetShakeTracker(draggingState, pos, now);
             return;
         }
-
-        const now = getNow();
         const shake = draggingState.connectionShake || resetShakeTracker(draggingState, pos, now);
         const dx = pos.x - shake.lastX;
         const dy = pos.y - shake.lastY;
@@ -816,21 +1028,25 @@ export function createCanvasInteractionsApi({
         if (shake.activeSince) {
             shake.travel += distance;
             const progress = Math.min(1, Math.max(0, (now - shake.activeSince) / SHAKE_DETACH_DURATION_MS));
-            node.el.classList.add('connection-shake-armed');
-            node.el.style.setProperty('--connection-shake-progress', progress.toFixed(3));
+            shake.progress = progress.toFixed(3);
 
             if (
                 now - shake.activeSince >= SHAKE_DETACH_DURATION_MS &&
                 shake.reversalCount >= SHAKE_MIN_REVERSALS &&
                 shake.travel >= SHAKE_MIN_TRAVEL
             ) {
+                if (!hasNodeConnections(nodeId)) {
+                    resetShakeTracker(draggingState, pos, now);
+                    return;
+                }
+                if (draggingState.deferSelectionOnDrag && !draggingState.selectionActivated) draggingState.activateSelection?.();
                 try { draggingState.promoteHistory?.(); }
                 catch (error) { showToast(error.message, 'warning'); resetShakeTracker(draggingState, pos, now); return; }
                 const result = detachNodesFromConnections([nodeId], { save: false });
                 draggingState.connectionShakeDetached = result?.changed;
                 draggingState.connectionsToUpdate = [];
                 draggingState.portOffsets = new Map();
-                clearShakeDetachVisuals(draggingState);
+                shake.progress = null;
                 if (result?.changed) {
                     clearConnectionInsertPreview?.();
                     node.el.classList.add('connection-shake-detached');
@@ -847,6 +1063,19 @@ export function createCanvasInteractionsApi({
         shake.lastVector = vector;
     }
 
+    function renderShakeDetachProgress(dragging) {
+        const shake = dragging.connectionShake;
+        if (!shake) return;
+        const nodeId = dragging.nodes[0];
+        const progress = shake.progress != null && hasNodeConnections(nodeId) ? shake.progress : null;
+        if ((dragging.renderedShakeProgress ?? null) === progress) return;
+        dragging.renderedShakeProgress = progress;
+        if (progress == null) return clearShakeDetachVisuals(dragging);
+        const node = state.nodes.get(nodeId);
+        node?.el?.classList.add('connection-shake-armed');
+        node?.el?.style.setProperty('--connection-shake-progress', progress);
+    }
+
     function initCanvasInteractions() {
         // Only suppress the click/dblclick belonging to the completed drag.
         // A fresh press starts a new gesture, even within the old 100ms window.
@@ -859,9 +1088,11 @@ export function createCanvasInteractionsApi({
         canvasContainer.addEventListener('dblclick', stopDragClick, true);
         windowRef.addEventListener('blur', () => {
             suppressNodeDragClick = false;
+            finishCut();
             documentRef.body.classList.remove('is-interacting');
             documentRef.getElementById('connections-group').classList.remove('is-interacting');
             settleCanvasPan({ abort: true });
+            settleMarquee();
             settleNodeDrag({ abort: true });
             settleNodeResize();
             for (const kind of projectionInteractionLeases.keys()) {
@@ -898,6 +1129,9 @@ export function createCanvasInteractionsApi({
             if (e.ctrlKey && e.button === 2) {
                 state.isCutting = true;
                 cuttingHistoryRecorded = false;
+                cutWorkflowId = getActiveWorkflowId();
+                pendingCutSegments.length = 0;
+                pendingCutFrame = null;
                 const pos = viewportApi.screenToCanvas(e.clientX, e.clientY);
                 state.cutPath = [pos];
                 canvasContainer.style.cursor = 'crosshair';
@@ -930,6 +1164,7 @@ export function createCanvasInteractionsApi({
                 e.preventDefault();
                 const startCanvas = viewportApi.screenToCanvas(e.clientX, e.clientY);
                 state.marquee = {
+                    workflowId: getActiveWorkflowId(),
                     startX: e.clientX,
                     startY: e.clientY,
                     endX: e.clientX,
@@ -950,52 +1185,15 @@ export function createCanvasInteractionsApi({
         });
 
         windowRef.addEventListener('mousemove', (e) => {
-            if (!state.canvas.isPanning) {
+            const wasPanning = state.canvas.isPanning;
+            if (!wasPanning) {
                 state.mouseCanvas = viewportApi.screenToCanvas(e.clientX, e.clientY);
             }
             if (state.isCutting) {
-                const pos = viewportApi.screenToCanvas(e.clientX, e.clientY);
-                const prevPos = state.cutPath[state.cutPath.length - 1];
-                state.cutPath.push(pos);
-
-                let changed = false;
-                const connectionsToRemove = new Set();
-                const laneById = buildConnectionLaneMap();
-
-                for (const conn of state.connections) {
-                    if (hasRunningEndpoint(conn)) continue;
-                    const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output');
-                    const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input');
-
-                    const samplePoints = getConnectionSamplePoints(
-                        from.x,
-                        from.y,
-                        to.x,
-                        to.y,
-                        getConnectionPathOptions(conn, laneById)
-                    );
-
-                    for (let i = 1; i < samplePoints.length; i++) {
-                        if (checkLineIntersection(prevPos, pos, samplePoints[i - 1], samplePoints[i])) {
-                            connectionsToRemove.add(conn.id);
-                            changed = true;
-                            break;
-                        }
-                    }
-                }
-
-                if (changed) {
-                    if (!cuttingHistoryRecorded) {
-                        try { pushHistory(); }
-                        catch (error) { showToast(error.message, 'warning'); return; }
-                        cuttingHistoryRecorded = true;
-                    }
-                    state.connections = state.connections.filter((c) => !connectionsToRemove.has(c.id));
-                    updateAllConnections();
-                    updatePortStyles();
-                    scheduleSave();
-                    onConnectionsChanged();
-                }
+                const point = state.canvas.isPanning
+                    ? viewportApi.screenToCanvas(e.clientX, e.clientY)
+                    : state.mouseCanvas;
+                queueCutMovement(e, point);
             }
 
             if (state.canvas.isPanning) {
@@ -1010,178 +1208,23 @@ export function createCanvasInteractionsApi({
                     getProjectionInteraction(CANVAS_INTERACTION_KIND.PAN)?.changed();
                 }
             }
-            if (state.marquee) {
-                state.marquee.endX = e.clientX;
-                state.marquee.endY = e.clientY;
-                state.marquee.endCanvasX = state.mouseCanvas.x;
-                state.marquee.endCanvasY = state.mouseCanvas.y;
-                const box = documentRef.getElementById('selection-box');
-                const x = Math.min(state.marquee.startX, state.marquee.endX);
-                const y = Math.min(state.marquee.startY, state.marquee.endY);
-                const w = Math.abs(state.marquee.startX - state.marquee.endX);
-                const h = Math.abs(state.marquee.startY - state.marquee.endY);
-                box.style.left = x + 'px';
-                box.style.top = y + 'px';
-                box.style.width = w + 'px';
-                box.style.height = h + 'px';
-
-                syncMarqueeSelection(state.marquee);
+            if (state.marquee || state.dragging) {
+                const pos = wasPanning ? viewportApi.screenToCanvas(e.clientX, e.clientY) : state.mouseCanvas;
+                if (state.marquee && isCurrentGesture(state.marquee)) {
+                    queueGestureFrame(state.marquee, { x: e.clientX, y: e.clientY, canvas: pos }, applyMarqueePointer);
+                }
+                if (state.dragging) {
+                    recordDragMotion(state.dragging, pos);
+                    if (state.dragging.nodes.length === 1 && isCurrentGesture(state.dragging)) {
+                        updateShakeDetach(state.dragging, pos);
+                    }
+                    if (state.dragging.hasMotion) queueGestureFrame(state.dragging, pos, applyNodeDragPosition);
+                }
             }
-            if (state.dragging) {
-                if (state.dragging.isCloneDrag && !state.dragging.cloned) {
-                    state.dragging.cloned = true;
-                    const newDraggedIds = [];
-                    const idMap = new Map();
-
-                    for (const nodeId of state.dragging.nodes) {
-                        const origNode = state.nodes.get(nodeId);
-                        if (origNode) {
-                            const data = serializeOneNode(nodeId);
-                            data.id = null;
-                            const newId = addNode(origNode.type, origNode.x, origNode.y, data, true);
-                            if (newId) {
-                                newDraggedIds.push(newId);
-                                idMap.set(nodeId, newId);
-                            }
-                        }
-                    }
-
-                    if (newDraggedIds.length > 0) {
-                        const connectionResult = appendMappedConnectionSnapshots({
-                            state,
-                            idMap,
-                            internalConnections: state.dragging.internalConnections || [],
-                            externalConnections: state.dragging.externalConnections || [],
-                            includeExternalConnections: false
-                        });
-                        const newStartPositions = new Map();
-                        idMap.forEach((newId, origId) => {
-                            const startPos = state.dragging.startPositions.get(origId);
-                            if (startPos) newStartPositions.set(newId, { x: startPos.x, y: startPos.y });
-                        });
-
-                        state.dragging.nodes = newDraggedIds;
-                        state.dragging.startPositions = newStartPositions;
-                        state.dragging.connectionsToUpdate = [];
-                        state.dragging.portOffsets = new Map();
-
-                        const previouslySelected = Array.from(state.selectedNodes);
-                        selectionApi.clearSelection({ notify: false });
-                        previouslySelected.forEach((nid) => {
-                            state.nodes.get(nid)?.el.classList.remove('is-interacting');
-                        });
-
-                        newDraggedIds.forEach((id) => {
-                            selectionApi.addToSelection(id, { notify: false });
-                            state.nodes.get(id)?.el.classList.add('is-interacting');
-                        });
-
-                        updateAllConnections();
-                        if (connectionResult.added > 0) {
-                            updatePortStyles();
-                        }
-                        onConnectionsChanged();
-                    }
-                }
-                const pos = viewportApi.screenToCanvas(e.clientX, e.clientY);
-                const dx = pos.x - state.dragging.startX;
-                const dy = pos.y - state.dragging.startY;
-                const hasDragMovement = Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5;
-                if (Math.abs(dx) > 2 || Math.abs(dy) > 2) state.dragging.hasMoved = true;
-
-                if (hasDragMovement && !getProjectionInteraction(CANVAS_INTERACTION_KIND.NODE_DRAG)) {
-                    beginProjectionInteraction(CANVAS_INTERACTION_KIND.NODE_DRAG, state.dragging.nodes);
-                }
-
-                if (hasDragMovement && state.dragging.deferSelectionOnDrag && !state.dragging.selectionActivated) {
-                    state.dragging.activateSelection?.();
-                }
-
-                if (hasDragMovement && !state.dragging.interactionVisualsActive) {
-                    state.dragging.interactionVisualsActive = true;
-                    documentRef.getElementById('connections-group').classList.add('is-interacting');
-                    for (const nodeId of state.dragging.nodes) {
-                        state.nodes.get(nodeId)?.el?.classList.add('is-interacting');
-                    }
-                }
-
-                for (const nodeId of state.dragging.nodes) {
-                    const node = state.nodes.get(nodeId);
-                    if (node) {
-                        const startPos = state.dragging.startPositions.get(nodeId);
-                        const visualDx = alignCanvasDeltaToDevicePixel(dx);
-                        const visualDy = alignCanvasDeltaToDevicePixel(dy);
-                        node.x = startPos.x + visualDx;
-                        node.y = startPos.y + visualDy;
-                        node.el.style.setProperty('--node-drag-x', `${visualDx}px`);
-                        node.el.style.setProperty('--node-drag-y', `${visualDy}px`);
-                    }
-                }
-                updateShakeDetach(state.dragging, pos);
-                const dragProjection = getProjectionInteraction(CANVAS_INTERACTION_KIND.NODE_DRAG);
-                if (dragProjection) dragProjection.changed();
-                else updateDraggingConnections?.(state.dragging);
-            }
-            if (state.resizing) {
-                const r = state.resizing;
-                const zoom = state.canvas.zoom;
-                const dx = (e.clientX - r.startX) / zoom;
-                const dy = (e.clientY - r.startY) / zoom;
-                const node = state.nodes.get(r.nodeId);
-                if (node) {
-                    if (isNodeRunning(r.nodeId)) return;
-                    const edge = r.edge || 'bottom-right';
-                    const movesLeft = edge.includes('left');
-                    const movesTop = edge.includes('top');
-                    let targetW = r.startWidth + (movesLeft ? -dx : edge.includes('right') ? dx : 0);
-                    const targetH = r.startHeight + (movesTop ? -dy : edge.includes('bottom') ? dy : 0);
-                    if (r.mediaAspectRatio > 0 && (movesTop || edge.includes('bottom'))
-                        && (edge === 'top' || edge === 'bottom' || Math.abs(dy * r.mediaAspectRatio) > Math.abs(dx))) {
-                        targetW = r.startWidth + (movesTop ? -dy : dy) * r.mediaAspectRatio;
-                    }
-                    let dynamicMinWidth = r.minWidth;
-                    let dynamicMinHeight = typeof getNodeMinimumSize === 'function' ? 0 : r.minHeight;
-                    const configuredMaxWidth = Number.isFinite(r.maxWidth) && r.maxWidth > 0 ? r.maxWidth : Infinity;
-                    let constrainedWidth = Math.min(configuredMaxWidth, Math.max(targetW, r.minWidth));
-                    const configuredMaxHeight = Number.isFinite(r.maxHeight) && r.maxHeight > 0 ? r.maxHeight : Infinity;
-
-                    if (typeof getNodeMinimumSize === 'function') {
-                        const provisionalMinimum = getNodeMinimumSize(node, {
-                            width: constrainedWidth,
-                            normalizeFlexibleHeights: true
-                        });
-                        if (provisionalMinimum) {
-                            dynamicMinWidth = Math.max(dynamicMinWidth, Number(provisionalMinimum.minWidth) || 0);
-                        }
-
-                        constrainedWidth = Math.min(configuredMaxWidth, Math.max(targetW, dynamicMinWidth));
-                        const finalMinimum = getNodeMinimumSize(node, {
-                            width: constrainedWidth,
-                            normalizeFlexibleHeights: true
-                        });
-                        if (finalMinimum) {
-                            dynamicMinWidth = Math.max(dynamicMinWidth, Number(finalMinimum.minWidth) || 0);
-                            dynamicMinHeight = Math.max(dynamicMinHeight, Number(finalMinimum.minHeight) || 0);
-                            constrainedWidth = Math.min(configuredMaxWidth, Math.max(targetW, dynamicMinWidth));
-                        }
-                    }
-
-                    const maxHeight = configuredMaxHeight >= dynamicMinHeight ? configuredMaxHeight : Infinity;
-                    const newH = node.el.classList.contains('node-media-aspect') ? dynamicMinHeight : Math.min(Math.max(targetH, dynamicMinHeight), maxHeight);
-                    node.el.style.width = constrainedWidth + 'px';
-                    node.el.style.height = newH + 'px';
-                    if (movesLeft) {
-                        node.x = r.startNodeX + r.startWidth - constrainedWidth;
-                        node.el.style.left = `${node.x}px`;
-                    }
-                    if (movesTop) {
-                        node.y = r.startNodeY + r.startHeight - newH;
-                        node.el.style.top = `${node.y}px`;
-                    }
-                    distributeNodeTextareaResize(r, newH);
-
-                    refreshNodeConnections(r.nodeId);
-                }
+            if (state.resizing && isCurrentGesture(state.resizing) &&
+                (state.resizing.hasPointerMovement || e.clientX !== state.resizing.startX || e.clientY !== state.resizing.startY)) {
+                state.resizing.hasPointerMovement = true;
+                queueGestureFrame(state.resizing, { x: e.clientX, y: e.clientY }, applyNodeResizePointer);
             }
             if (state.connecting) {
                 const dx = e.clientX - state.connecting.screenX;
@@ -1253,43 +1296,25 @@ export function createCanvasInteractionsApi({
 
         windowRef.addEventListener('mouseup', (e) => {
             // Read geometry before removing interaction styles across the canvas.
-            const dragEndPosition = state.dragging ? viewportApi.screenToCanvas(e.clientX, e.clientY) : null;
+            const releasePointer = Number.isFinite(e.clientX) && Number.isFinite(e.clientY)
+                ? { x: e.clientX, y: e.clientY }
+                : null;
+            const releaseCanvasPoint = releasePointer && (state.dragging || state.marquee)
+                ? viewportApi.screenToCanvas(e.clientX, e.clientY)
+                : null;
             documentRef.body.classList.remove('is-interacting');
             documentRef.getElementById('connections-group').classList.remove('is-interacting');
 
-            if (state.isCutting) {
-                state.isCutting = false;
-                state.cutPath = [];
-                canvasContainer.style.cursor = '';
-                state.justCut = true;
-                setTimeout(() => { state.justCut = false; }, 100);
-            }
+            finishCut(e);
 
             if (state.canvas.isPanning) {
                 settleCanvasPan();
             }
-            if (state.marquee) {
-                state.marquee.endX = e.clientX;
-                state.marquee.endY = e.clientY;
-                const endCanvas = viewportApi.screenToCanvas(e.clientX, e.clientY);
-                state.marquee.endCanvasX = endCanvas.x;
-                state.marquee.endCanvasY = endCanvas.y;
-                syncMarqueeSelection(state.marquee);
-
-                const dw = Math.abs(state.marquee.startX - e.clientX);
-                const dh = Math.abs(state.marquee.startY - e.clientY);
-                if (dw > 5 || dh > 5) {
-                    state.justDragged = true;
-                    setTimeout(() => { state.justDragged = false; }, 100);
-                }
-
-                documentRef.getElementById('selection-box').classList.add('hidden');
-                state.marquee = null;
-            }
+            settleMarquee(releasePointer && releaseCanvasPoint ? { ...releasePointer, canvas: releaseCanvasPoint } : null);
             if (state.dragging) {
-                settleNodeDrag({ endPosition: dragEndPosition });
+                settleNodeDrag({ endPosition: releaseCanvasPoint });
             }
-            settleNodeResize();
+            settleNodeResize(releasePointer);
             if (state.connecting) {
                 if (state.connecting.dragged) {
                     const releasedOnCanvas = e.target.closest('#canvas-container');

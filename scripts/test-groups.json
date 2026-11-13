@@ -278,6 +278,10 @@
     {
       "pattern": "^(docs/|README[^/]*|LICENSE[^/]*|.*\\.md$)",
       "ignore": true
+    },
+    {
+      "pattern": "^\\.impeccable/config\\.json$",
+      "ignore": true
     }
   ],
   "tests": {

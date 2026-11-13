@@ -36,7 +36,7 @@ test('node edges expose the matching resize cursors without covering ports or co
     assert.equal(result.activeCursor, 'ew-resize');
 });
 
-test('a connected node stays aligned after releasing its resize handle', { timeout: 30000 }, async () => {
+test('a connected node uses the final pointer on quick resize release and stays aligned', { timeout: 30000 }, async () => {
     await withAppBrowser({
         autoCheckUpdatesOnLoad: false,
         models: [{ id: 'chat', modelId: 'chat', protocol: 'openai', taskType: 'chat', providerIds: ['p'] }],
@@ -70,14 +70,21 @@ test('a connected node stays aligned after releasing its resize handle', { timeo
             return { x: rect.x + rect.width / 2, y: rect.y + 30 };
         })()`);
         assert.equal(await app.evaluate(`document.elementFromPoint(${handle.x}, ${handle.y})?.dataset.resizeEdge`), 'right');
-        await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...handle, button: 'left', clickCount: 1 });
-        const moved = { x: handle.x + 80, y: handle.y };
-        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...moved, buttons: 1 });
-        await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...moved, button: 'left', clickCount: 1 });
-        await app.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+        const moved = { x: handle.x + 25, y: handle.y };
+        const released = { x: handle.x + 80, y: handle.y };
+        await app.send('Emulation.setVirtualTimePolicy', { policy: 'pause' });
+        const gesture = Promise.all([
+            app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...handle, button: 'left', clickCount: 1 }),
+            app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...moved, buttons: 1 }),
+            app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...released, button: 'left', clickCount: 1 })
+        ]);
+        const frames = app.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+        await app.send('Emulation.setVirtualTimePolicy', { policy: 'advance', budget: 100 });
+        await gesture;
+        await frames;
 
         const after = await app.evaluate(readGeometry);
-        assert.ok(after.source.x > before.source.x + 60, 'the source port moves with the resized edge');
+        assert.ok(Math.abs(after.source.x - before.source.x - 80) < 1, 'the port follows the release position');
         assert.deepEqual(after.target, before.target);
         assert.ok(after.startOffset < 1 && after.endOffset < 1, JSON.stringify(after));
     });

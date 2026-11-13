@@ -33,7 +33,6 @@ import { diskStorage } from '../services/storage-documents.js';
 import { migrateAutoCompactTokens, readAutoCompactTokens, readCompactionModelId, readCompactionProviderId, readDiscardOverLimitContext } from '../features/prompt-agent/auto-compact-preference.js';
 import {
     createBezierPath as createBezierPathService,
-    checkLineIntersection as checkLineIntersectionService,
     getConnectionSamplePoints as getConnectionSamplePointsService
 } from '../canvas/geometry.js';
 import { createConnectionsApi } from '../canvas/connections.js';
@@ -273,6 +272,7 @@ const connectionProjectionInteractions = {
     beginInteraction: (kind, nodeIds) => registry.connectionProjectionApi?.interactions.beginInteraction(kind, nodeIds),
     nodeAppearanceChanged: (nodeIds) => registry.connectionProjectionApi?.interactions.nodeAppearanceChanged(nodeIds),
     nodeGeometryChanged: (nodeIds) => registry.connectionProjectionApi?.interactions.nodeGeometryChanged(nodeIds),
+    nodeResizeApplied: (nodeId) => registry.connectionProjectionApi?.interactions.nodeResizeApplied(nodeId),
     nodeGeometrySettled: (nodeId, change) => registry.connectionProjectionApi?.interactions.nodeGeometrySettled(nodeId, change)
 };
 
@@ -839,6 +839,7 @@ const {
     detectMisalignedConnections,
     clearConnectionInsertPreview,
     commitConnectionInsertPreview,
+    findConnectionsCrossingSegments,
     getCompatibleNodeTypeCandidates,
     createNodeFromConnectionCandidate,
     finishConnection,
@@ -1348,8 +1349,7 @@ function getCanvasInteractionsApi() {
             addNode,
             getNodeMinimumSize: (nodeOrId, options) => getNodeLifecycleApi().getNodeMinimumSize(nodeOrId, options),
             enforceNodeContentMinimum: (nodeId, options) => getNodeLifecycleApi().enforceNodeContentMinimum(nodeId, options),
-            checkLineIntersection: checkLineIntersectionService,
-            getConnectionSamplePoints: getConnectionSamplePointsService,
+            findConnectionsCrossingSegments,
             onViewportSettled: () => mediaControllerApi.scheduleMediaMemorySweep?.({ reason: 'viewport-settled' })
         });
     }

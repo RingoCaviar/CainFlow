@@ -93,8 +93,9 @@
                 bubbles: true, button: 0, clientX: 300, clientY: 600
             }));
             window.dispatchEvent(new MouseEvent('mousemove', {
-                bubbles: true, button: 0, clientX: 300, clientY: 780
+                bubbles: true, buttons: 1, clientX: 300, clientY: 780
             }));
+            await new Promise(resolve => requestAnimationFrame(resolve));
             const during = gap();
             window.dispatchEvent(new MouseEvent('mouseup', {
                 bubbles: true, button: 0, clientX: 300, clientY: 780
@@ -104,7 +105,7 @@
                 bubbles: true, button: 0, clientX: 300, clientY: 780
             }));
             window.dispatchEvent(new MouseEvent('mousemove', {
-                bubbles: true, button: 0, clientX: 300, clientY: 620
+                bubbles: true, buttons: 1, clientX: 300, clientY: 620
             }));
             window.dispatchEvent(new MouseEvent('mouseup', {
                 bubbles: true, button: 0, clientX: 300, clientY: 620

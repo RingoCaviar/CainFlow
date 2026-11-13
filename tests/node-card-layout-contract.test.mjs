@@ -42,8 +42,8 @@ test('node cards use compact headers and edge-aligned ports with stable hit area
 
 test('resizing honors the measured content height at the final width', () => {
     assert.match(bindings, /minHeight:\s*Math\.max\(60, Math\.min\(defaultMinimum\.minHeight, resizeTargetMinHeight\)\)/);
-    assert.match(interactions, /let dynamicMinHeight = typeof getNodeMinimumSize === 'function' \? 0 : r\.minHeight;/);
-    assert.match(interactions, /dynamicMinHeight = Math\.max\(dynamicMinHeight, Number\(finalMinimum\.minHeight\) \|\| 0\)/);
+    assert.match(interactions, /getNodeMinimumSize\(node, \{ width: adjustedWidth, normalizeFlexibleHeights: true \}\)/);
+    assert.match(interactions, /minimumHeight = Number\(minimum\?\.minHeight\) \|\| 0/);
     assert.match(interactions, /finalHeight = node\.el\.classList\.contains\('node-media-aspect'\) \? minimum\.minHeight : Math\.max\(finalHeight, Number\(minimum\?\.minHeight\) \|\| 0\)/);
 });
 
@@ -71,8 +71,8 @@ test('generation cards use a roomy default width and a smaller resize minimum', 
     assert.match(lifecycle, /usesContentSizedDefault[\s\S]*?minimum\.minHeight/);
     assert.match(lifecycle, /const bodyMinimumWidth = config\?\.contentSized === true \? 0 : bodySize\.width/);
     assert.match(lifecycle, /Math\.max\(configuredMinWidth, headerWidth, portsRowSize\.width, bodyMinimumWidth\)/);
-    assert.match(canvasInteractions, /Math\.min\(configuredMaxWidth, Math\.max\(targetW, r\.minWidth\)\)/);
-    assert.match(canvasInteractions, /configuredMaxHeight >= dynamicMinHeight \? configuredMaxHeight : Infinity/);
+    assert.match(canvasInteractions, /Math\.min\(maxWidth, Math\.max\(targetWidth, r\.minWidth\)\)/);
+    assert.match(canvasInteractions, /maxHeight >= minimumHeight \? maxHeight : Infinity/);
 });
 
 test('compact text and result areas define the normal minimum content height', () => {

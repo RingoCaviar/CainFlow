@@ -84,6 +84,24 @@
         ],
         "createdAt": "2026-11-11T08:14:33.882Z",
         "reason": "Agent verified: the browser fixture asserts controls across existing themes and defines no colored box or text shadow; this change introduces no visual effect."
+      },
+      {
+        "rule": "dark-glow",
+        "value": "*",
+        "files": [
+          "tests/fixtures/generation-progress-resize.html"
+        ],
+        "createdAt": "2026-11-13T02:40:18.741Z",
+        "reason": "Codex: resize timing fixture imports the existing production theme; this fixture verifies card geometry and does not define a shadow"
+      },
+      {
+        "rule": "ai-color-palette",
+        "value": "*",
+        "files": [
+          "tests/fixtures/generation-progress-resize.html"
+        ],
+        "createdAt": "2026-11-13T02:40:18.787Z",
+        "reason": "Codex: resize timing fixture imports the existing production theme and does not define a palette"
       }
     ]
   }

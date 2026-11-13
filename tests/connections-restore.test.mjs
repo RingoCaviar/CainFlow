@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createConnectionsApi } from '../js/canvas/connections.js';
 import { createConnectionProjection } from '../js/canvas/connection-projection.js';
 import { createCanvasPerformanceMonitor } from '../js/app/dev/canvas-performance-monitor.js';
+import { getConnectionSamplePoints } from '../js/canvas/geometry.js';
 
 function createClassList() {
     const values = new Set();
@@ -85,6 +86,7 @@ function createHarness(connectionCount, {
     cancelAnimationFrameImpl,
     setTimeoutImpl,
     createBezierPathImpl,
+    sampleConnection = () => [],
     connectionRenderer,
     performanceMonitor,
     distinctTargets = false,
@@ -199,7 +201,7 @@ function createHarness(connectionCount, {
         createBezierPath: (fromX, fromY, toX, toY, options) => createBezierPathImpl
             ? createBezierPathImpl(fromX, fromY, toX, toY, options)
             : `M ${fromX} ${fromY} L ${toX} ${toY}`,
-        getConnectionSamplePoints: () => [],
+        getConnectionSamplePoints: sampleConnection,
         pushHistory,
         showToast: () => {},
         scheduleSave,
@@ -446,6 +448,75 @@ test('offscreen paths and shared SVG layers skip identical attributes while reta
     writes.length = 0;
     api.updateAllConnections();
     assert.deepEqual(writes, [], 'the stable visible geometry also keeps its existing SVG attributes');
+});
+
+test('cut hit-testing samples nearby routes once until the route or endpoint changes', () => {
+    let sampled = 0;
+    const { api, state, setOutputPortLeft } = createHarness(2, {
+        distinctTargets: true,
+        sampleConnection(...args) {
+            sampled += 1;
+            return getConnectionSamplePoints(...args);
+        }
+    });
+    const distantSource = createNode('distant-source', 5000, createPort('text', 'output', 5120), createPort('text', 'input', 5000));
+    const distantTarget = createNode('distant-target', 5500, createPort('text', 'output', 5620), createPort('text', 'input', 5500));
+    state.nodes.set(distantSource.id, distantSource);
+    state.nodes.set(distantTarget.id, distantTarget);
+    state.connections[1].from.nodeId = distantSource.id;
+    state.connections[1].to.nodeId = distantTarget.id;
+    const segments = [[{ x: 170, y: 0 }, { x: 170, y: 60 }]];
+
+    assert.deepEqual([...api.findConnectionsCrossingSegments(segments)], ['connection-1']);
+    assert.deepEqual([...api.findConnectionsCrossingSegments(segments)], ['connection-1']);
+    assert.equal(sampled, 1, 'distant connections are not sampled and the nearby route is reused');
+
+    state.connectionLineType = 'orthogonal';
+    assert.deepEqual([...api.findConnectionsCrossingSegments(segments)], ['connection-1']);
+    assert.equal(sampled, 2, 'changing the route invalidates cached samples');
+
+    setOutputPortLeft(190);
+    api.invalidateNodePortCache('from');
+    assert.deepEqual([...api.findConnectionsCrossingSegments(segments)], []);
+    assert.equal(sampled, 3, 'fresh endpoint geometry is tested');
+
+    state.runningNodeIds.add('from');
+    assert.deepEqual([...api.findConnectionsCrossingSegments([[{ x: 205, y: 0 }, { x: 205, y: 60 }]])], []);
+    assert.equal(sampled, 3, 'running endpoint protection is checked live');
+});
+
+test('insertion preview reuses local curve samples and checks the actual release position', () => {
+    let sampled = 0;
+    const { api, state } = createHarness(2, {
+        distinctTargets: true,
+        sampleConnection(...args) {
+            sampled += 1;
+            return getConnectionSamplePoints(...args);
+        }
+    });
+    const distantSource = createNode('distant-source', 5000, createPort('text', 'output', 5120), createPort('text', 'input', 5000));
+    const distantTarget = createNode('distant-target', 5500, createPort('text', 'output', 5620), createPort('text', 'input', 5500));
+    state.nodes.set(distantSource.id, distantSource);
+    state.nodes.set(distantTarget.id, distantTarget);
+    state.connections[1].from.nodeId = distantSource.id;
+    state.connections[1].to.nodeId = distantTarget.id;
+    const insert = createNode('insert', 140, createPort('text', 'output', 260), createPort('text', 'input', 140));
+    insert.el.querySelector = selector => insert.el.querySelectorAll(selector)[0];
+    state.nodes.set(insert.id, insert);
+    state.dragging = { nodes: [insert.id] };
+
+    api.updateDirtyConnections();
+    assert.equal(state.connectionInsertPreview?.connectionId, 'connection-1');
+    insert.x += 10;
+    api.markNodeConnectionsDirty(insert.id);
+    api.updateDirtyConnections();
+    assert.equal(state.connectionInsertPreview?.connectionId, 'connection-1');
+    assert.equal(sampled, 1, 'the moving isolated node keeps the nearby curve geometry cached');
+
+    insert.x = 600;
+    assert.equal(api.commitConnectionInsertPreview({ refresh: true }), false);
+    assert.equal(state.connectionInsertPreview, null);
+    assert.equal(state.connections.length, 2, 'releasing away from the line leaves both edges intact');
 });
 
 test('repeated connection projection only changes insertion highlight classes when the candidate changes', () => {

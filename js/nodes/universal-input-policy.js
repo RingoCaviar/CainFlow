@@ -10,17 +10,20 @@ import { splitTextForTextSplitNode } from '../core/common-utils.js';
 // Each node type opts in when its card and input details use this contract.
 const UNIVERSAL_INPUT_NODE_TYPES = new Set(['ImageGenerate', 'ECommerceImageSet', 'ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge', 'ImageSave', 'CameraControl']);
 
-function mergeRoleCount(node, connections = []) {
-    const indices = connections.filter(edge => edge.to?.nodeId === node.id && /^image_\d+$/.test(edge.to.port))
+function mergeRoleCount(node, incoming = []) {
+    const indices = incoming.filter(edge => /^image_\d+$/.test(edge.to.port))
         .map(edge => Number(edge.to.port.slice(6))).filter(index => Number.isSafeInteger(index) && index > 0);
     const configured = Number(node.data?.inputCount ?? node.inputCount ?? 1);
     return Math.max(1, Number.isSafeInteger(configured) ? configured : 1, ...(indices.map(index => index + 1)));
 }
 
-export function getUniversalInputRoles(node, state = null) {
+export function getUniversalInputRoles(node, state = null, incoming = null) {
     if (node?.type === 'ECommerceImageSet') return [['referenceImages', '商品参考图', 'image']];
     if (node?.type === 'ImageSave') return [['image', '图片输入', 'image'], ['video', '视频输入', 'video']];
-    if (node?.type === 'ImageMerge') return Array.from({ length: mergeRoleCount(node, state?.connections) }, (_, index) => [`image_${index + 1}`, `图片 ${index + 1}`, 'image']);
+    if (node?.type === 'ImageMerge') {
+        const edges = incoming ?? state?.connections?.filter(edge => edge.to?.nodeId === node.id);
+        return Array.from({ length: mergeRoleCount(node, edges) }, (_, index) => [`image_${index + 1}`, `图片 ${index + 1}`, 'image']);
+    }
     if (node?.type === 'ImageCompare') return [['imageA', '对比 A（可选）', 'image'], ['imageB', '结果 B（必需）', 'image']];
     if (isUniversalInputNode(node) && node.type !== 'ImageGenerate') return [['image', '图片输入', 'image']];
     return node?.type === 'ImageGenerate' ? [
@@ -107,43 +110,49 @@ function createsCycle(connections, sourceId, targetId) {
     return false;
 }
 
-export function resolveUniversalInput({ state, sourceNode, sourcePort, sourceType, targetNode, role = 'auto', ignoreConnectionId = null }) {
+export function resolveUniversalInput({ state, sourceNode, sourcePort, sourceType, targetNode, role = 'auto', ignoreConnectionId = null, connectionLookup = null }) {
     const failure = error => ({ port: '', type: '', multiple: false, error });
     if (!isUniversalInputNode(targetNode)) return failure('当前节点尚未启用通用输入。');
     const descriptor = sourceOutputDescriptor(sourceNode, sourcePort);
     if (!descriptor) return failure('来源输出端口不存在或已变化，请重新连接。');
     if (sourceType && sourceType !== descriptor.type) return failure('来源输出类型已变化，请重新连接。');
     const type = descriptor.type;
-    const connections = (state.connections || []).filter(edge => !ignoreConnectionId || edge.id !== ignoreConnectionId);
+    const connections = state.connections || [];
+    const allIncoming = connectionLookup?.incomingByNode.get(targetNode.id)
+        ?? (connectionLookup ? [] : connections.filter(edge => edge.to?.nodeId === targetNode.id));
+    const targetConnections = ignoreConnectionId ? allIncoming.filter(edge => edge.id !== ignoreConnectionId) : allIncoming;
     const compareRole = targetNode.type === 'ImageCompare' && type === 'image'
-        ? ['imageA', 'imageB'].find(name => !connections.some(edge => edge.to?.nodeId === targetNode.id && edge.to.port === name)) : null;
+        ? ['imageA', 'imageB'].find(name => !targetConnections.some(edge => edge.to.port === name)) : null;
     if (targetNode.type === 'ImageCompare' && type === 'image' && role === 'auto' && !compareRole) return failure('对比 A/B 已满，请在输入明细中明确替换。');
     let port = role;
     if (role === 'auto') {
         if (targetNode.type === 'ImageCompare') port = compareRole;
         else if (targetNode.type === 'ImageSave') port = { image: 'image', video: 'video' }[type];
         else if (targetNode.type === 'ImageMerge') {
-            const indices = connections.filter(edge => edge.to?.nodeId === targetNode.id && /^image_\d+$/.test(edge.to.port))
+            const indices = targetConnections.filter(edge => /^image_\d+$/.test(edge.to.port))
                 .map(edge => Number(edge.to.port.slice(6))).filter(index => Number.isSafeInteger(index) && index > 0);
             port = type === 'image' ? `image_${Math.max(0, ...indices) + 1}` : null;
         } else if (targetNode.type === 'ECommerceImageSet') port = type === 'image' ? 'referenceImages' : null;
         else port = (targetNode.type !== 'ImageGenerate' ? { image: 'image' }
             : { image: 'referenceImages', text: sourceNode.type === 'CameraControl' ? 'camera_prompt' : 'prompt', params: 'params' })[type];
     }
-    if (!getUniversalInputRoles(targetNode, state).some(([name, , acceptedType]) => name === port && acceptedType === type)) return failure('来源类型不兼容所选输入用途。');
+    if (!getUniversalInputRoles(targetNode, state, allIncoming).some(([name, , acceptedType]) => name === port && acceptedType === type)) return failure('来源类型不兼容所选输入用途。');
     if (sourceNode.id === targetNode.id) return failure('节点不能连接到自身。');
     if ([sourceNode, targetNode].some(node => state.runningNodeIds?.has(node.id) || ['waiting','running'].includes(node.runStatus))) {
         return failure('节点正在运行，暂不能修改输入连接。');
     }
-    const incoming = connections.filter(edge => edge.to?.nodeId === targetNode.id && (targetNode.type === 'ImageGenerate' ? logicalPort(edge.to.port) : edge.to.port) === port);
+    const incoming = targetConnections.filter(edge => (targetNode.type === 'ImageGenerate' ? logicalPort(edge.to.port) : edge.to.port) === port);
     if (targetNode.type === 'ImageMerge') {
-        const original = state.connections.find(edge => edge.id === ignoreConnectionId);
+        const original = connectionLookup ? connectionLookup.byId.get(ignoreConnectionId) : connections.find(edge => edge.id === ignoreConnectionId);
         const keepsSource = original?.from.nodeId === sourceNode.id && original.from.port === sourcePort;
-        if (!keepsSource && connections.some(edge => edge.to?.nodeId === targetNode.id && edge.from?.nodeId === sourceNode.id && edge.from.port === sourcePort)) return failure('不能重复连接相同来源输出。');
+        if (!keepsSource && targetConnections.some(edge => edge.from?.nodeId === sourceNode.id && edge.from.port === sourcePort)) return failure('不能重复连接相同来源输出。');
     }
     if (incoming.some(edge => edge.from?.nodeId === sourceNode.id && edge.from?.port === sourcePort)) return failure('不能重复连接相同来源输出。');
     if (port !== 'referenceImages' && incoming.length) return failure('该输入用途已占用，请在输入明细中明确替换。');
-    if (createsCycle(connections, sourceNode.id, targetNode.id)) return failure('此连接会形成循环，请选择其他来源。');
+    const wouldCycle = connectionLookup
+        ? connectionLookup.createsCycle(sourceNode.id, targetNode.id)
+        : createsCycle(ignoreConnectionId ? connections.filter(edge => edge.id !== ignoreConnectionId) : connections, sourceNode.id, targetNode.id);
+    if (wouldCycle) return failure('此连接会形成循环，请选择其他来源。');
     if (targetNode.type !== 'ImageGenerate') {
         if (targetNode.type === 'ImageResize' && hasRemoteImageOutput(sourceNode)) return failure('URL 图片不支持连接到图片缩放节点。');
         return { port, type, multiple: targetNode.type === 'ECommerceImageSet', error: '' };
