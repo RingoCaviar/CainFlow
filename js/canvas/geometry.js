@@ -90,7 +90,7 @@ function pushWaypoint(points, point) {
 const ORTHOGONAL_PORT_GUARD = 5;
 const ORTHOGONAL_CORNER_RADIUS = 8;
 
-function buildOrthogonalWaypoints(x1, y1, x2, y2) {
+function buildOrthogonalWaypoints(x1, y1, x2, y2, options) {
     const points = [];
     const turnGuard = ORTHOGONAL_PORT_GUARD + ORTHOGONAL_CORNER_RADIUS;
     const startGuard = { x: x1 + turnGuard, y: y1 };
@@ -98,6 +98,16 @@ function buildOrthogonalWaypoints(x1, y1, x2, y2) {
 
     pushWaypoint(points, { x: x1, y: y1 });
     pushWaypoint(points, startGuard);
+
+    const laneOffset = getLaneOffset(options);
+    if (laneOffset && Math.abs(y1 - y2) < 1) {
+        const laneY = (y1 + y2) / 2 + laneOffset;
+        pushWaypoint(points, { x: startGuard.x, y: laneY });
+        pushWaypoint(points, { x: endGuard.x, y: laneY });
+        pushWaypoint(points, endGuard);
+        pushWaypoint(points, { x: x2, y: y2 });
+        return points;
+    }
 
     if (startGuard.x > endGuard.x) {
         const midY = y1 + (y2 - y1) / 2;
@@ -185,8 +195,8 @@ function sampleBezierPoints(x1, y1, x2, y2, steps = 18, options = {}) {
     return points;
 }
 
-function sampleOrthogonalPoints(x1, y1, x2, y2) {
-    const waypoints = buildOrthogonalWaypoints(x1, y1, x2, y2);
+function sampleOrthogonalPoints(x1, y1, x2, y2, options) {
+    const waypoints = buildOrthogonalWaypoints(x1, y1, x2, y2, options);
     const points = [waypoints[0]];
 
     for (let i = 1; i < waypoints.length; i++) {
@@ -210,7 +220,7 @@ function sampleOrthogonalPoints(x1, y1, x2, y2) {
 export function getConnectionSamplePoints(x1, y1, x2, y2, options = {}) {
     const { type = 'bezier' } = normalizeConnectionPathOptions(options);
     return type === 'orthogonal'
-        ? sampleOrthogonalPoints(x1, y1, x2, y2)
+        ? sampleOrthogonalPoints(x1, y1, x2, y2, options)
         : sampleBezierPoints(x1, y1, x2, y2, 18, options);
 }
 
@@ -218,7 +228,7 @@ export function createBezierPath(x1, y1, x2, y2, options = {}) {
     const { type = 'bezier' } = normalizeConnectionPathOptions(options);
 
     if (type === 'orthogonal') {
-        const waypoints = buildOrthogonalWaypoints(x1, y1, x2, y2);
+        const waypoints = buildOrthogonalWaypoints(x1, y1, x2, y2, options);
         return createRoundedPolylinePath(waypoints, ORTHOGONAL_CORNER_RADIUS);
     }
 

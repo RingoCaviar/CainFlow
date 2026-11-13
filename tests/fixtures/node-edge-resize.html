@@ -37,25 +37,21 @@
             const nodeRect = node.getBoundingClientRect();
             const shell = node.querySelector('.node-glass-bg');
             const shellRect = shell.getBoundingClientRect();
-            const shellStyle = getComputedStyle(shell);
             const measurePort = (direction) => {
                 const port = node.querySelector(`.node-port.${direction} .port-dot`);
                 const rect = port.getBoundingClientRect();
                 const isInput = direction === 'input';
-                const borderCenter = isInput
-                    ? shellRect.left + parseFloat(shellStyle.borderLeftWidth) / 2
-                    : shellRect.right - parseFloat(shellStyle.borderRightWidth) / 2;
+                const edge = isInput ? shellRect.left : shellRect.right;
                 const center = rect.left + rect.width / 2;
-                const outerX = isInput ? shellRect.left - 3 : shellRect.right + 3;
-                const innerX = isInput ? shellRect.left + 3 : shellRect.right - 3;
-                const seamX = borderCenter;
+                const outerX = center + (isInput ? -3 : 3);
+                const innerX = edge + (isInput ? 3 : -3);
+                const gapX = (edge + center) / 2;
                 const y = rect.top + rect.height / 2;
                 return {
-                    borderOffset: Math.round((center - borderCenter) * 100) / 100,
-                    edgeOffset: Math.round((center - (isInput ? shellRect.left : shellRect.right)) * 100) / 100,
+                    edgeGap: Math.round((isInput ? edge - center : center - edge) * 100) / 100,
                     clipPath: getComputedStyle(port).clipPath,
                     outerHit: document.elementFromPoint(outerX, y) === port,
-                    seamHit: document.elementFromPoint(seamX, y) === port,
+                    gapHit: document.elementFromPoint(gapX, y) === port,
                     innerHit: document.elementFromPoint(innerX, y) === port
                 };
             };

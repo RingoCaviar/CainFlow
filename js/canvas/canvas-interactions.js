@@ -61,7 +61,7 @@ export function createCanvasInteractionsApi({
     let cutWorkflowId = null;
     let pendingCutFrame = null;
     const pendingCutSegments = [];
-    let suppressNodeDragClick = false;
+    let suppressDragClick = false;
     const ZOOM_SETTLE_DELAY_MS = 120;
     const SHAKE_DETACH_DURATION_MS = 300;
     const SHAKE_SAMPLE_DISTANCE = 8;
@@ -191,6 +191,14 @@ export function createCanvasInteractionsApi({
     function finishConnectionDrawInteraction() {
         connectionDrawPointer = null;
         closeProjectionInteraction(CANVAS_INTERACTION_KIND.CONNECTION_DRAW);
+    }
+
+    function cancelConnectionDraw() {
+        state.connecting = null;
+        connectionDrawPointer = null;
+        tempConnection.setAttribute('d', '');
+        clearConnectionTargetFeedback?.();
+        closeProjectionInteraction(CANVAS_INTERACTION_KIND.CONNECTION_DRAW, 'abort');
     }
 
     function settleCanvasPan({ abort = false } = {}) {
@@ -324,7 +332,7 @@ export function createCanvasInteractionsApi({
         if (isCurrent && moved && !abort) {
             state.justDragged = true;
             setTimeout(() => { state.justDragged = false; }, 100);
-            suppressNodeDragClick = true;
+            suppressDragClick = true;
         }
 
         for (const nodeId of dragging.nodes) {
@@ -1081,14 +1089,25 @@ export function createCanvasInteractionsApi({
         // Only suppress the click/dblclick belonging to the completed drag.
         // A fresh press starts a new gesture, even within the old 100ms window.
         const stopDragClick = event => {
-            if (!suppressNodeDragClick || event.detail === 0) return false;
+            if (!suppressDragClick || event.detail === 0) return false;
             event.preventDefault();
             event.stopImmediatePropagation();
             return true;
         };
         canvasContainer.addEventListener('dblclick', stopDragClick, true);
+        windowRef.addEventListener('keydown', event => {
+            if (event.key !== 'Escape' || event.isComposing || !state.connecting) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            if (state.connecting.dragged) suppressDragClick = true;
+            if (!state.isInteracting && !state.canvas.isPanning) {
+                documentRef.body.classList.remove('is-interacting');
+                documentRef.getElementById('connections-group').classList.remove('is-interacting');
+            }
+            cancelConnectionDraw();
+        }, true);
         windowRef.addEventListener('blur', () => {
-            suppressNodeDragClick = false;
+            suppressDragClick = false;
             finishCut();
             documentRef.body.classList.remove('is-interacting');
             documentRef.getElementById('connections-group').classList.remove('is-interacting');
@@ -1096,17 +1115,15 @@ export function createCanvasInteractionsApi({
             settleMarquee();
             settleNodeDrag({ abort: true });
             settleNodeResize();
+            cancelConnectionDraw();
             for (const kind of projectionInteractionLeases.keys()) {
                 closeProjectionInteraction(kind, 'abort');
             }
-            tempConnection.setAttribute('d', '');
-            state.connecting = null;
-            clearConnectionTargetFeedback?.();
         });
 
         canvasContainer.addEventListener('mousedown', (e) => {
-            if (suppressNodeDragClick) state.justDragged = false;
-            suppressNodeDragClick = false;
+            if (suppressDragClick) state.justDragged = false;
+            suppressDragClick = false;
             if (e.target?.closest?.('#canvas-navigation')) return;
             if (e.button !== 0 || !state.isSpacePressed) return;
 
@@ -1247,11 +1264,11 @@ export function createCanvasInteractionsApi({
                         const source = pointer.source;
                         const currentRect = canvasContainer.getBoundingClientRect();
                         const canvas = state.canvas;
-                        const snapped = updateConnectionTargetFeedback?.(source, pointer.clientX, pointer.clientY);
+                        const feedback = updateConnectionTargetFeedback?.(source, pointer.clientX, pointer.clientY);
                         drawTempConnection(source.startX, source.startY,
-                            snapped?.position.x ?? (pointer.clientX - currentRect.left - canvas.x) / canvas.zoom,
-                            snapped?.position.y ?? (pointer.clientY - currentRect.top - canvas.y) / canvas.zoom,
-                            source.isOutput);
+                            feedback?.position?.x ?? (pointer.clientX - currentRect.left - canvas.x) / canvas.zoom,
+                            feedback?.position?.y ?? (pointer.clientY - currentRect.top - canvas.y) / canvas.zoom,
+                            source.isOutput, feedback?.starts);
                     });
                 }
             }
@@ -1273,19 +1290,19 @@ export function createCanvasInteractionsApi({
             if (state.connecting?.dragged && typeof getNearestConnectionTarget === 'function') {
                 const nearest = getNearestConnectionTarget(state.connecting, e.clientX, e.clientY);
                 if (nearest) {
-                    finishConnection?.(state.connecting, nearest.target);
+                    if (finishConnection?.(state.connecting, nearest.target)) suppressDragClick = true;
                     state.connecting = null;
                     tempConnection.setAttribute('d', '');
                     documentRef.body.classList.remove('is-interacting');
                     documentRef.getElementById('connections-group').classList.remove('is-interacting');
                 } else if (e.target?.closest?.('.port-dot')) {
                     const portEl = e.target.closest('.node-port');
-                    if (portEl) finishConnection?.(state.connecting, {
+                    if (portEl && finishConnection?.(state.connecting, {
                         nodeId: portEl.dataset.nodeId,
                         port: portEl.dataset.port,
                         type: portEl.dataset.type,
                         dir: portEl.dataset.direction
-                    });
+                    })) suppressDragClick = true;
                     state.connecting = null;
                     tempConnection.setAttribute('d', '');
                     documentRef.body.classList.remove('is-interacting');

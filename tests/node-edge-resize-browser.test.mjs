@@ -20,16 +20,14 @@ test('node edges expose the matching resize cursors without covering ports or co
         { edge: 'bottom', bound: true },
         { edge: 'bottom-right', bound: true }
     ]);
-    assert.ok(Math.abs(result.inputPort.borderOffset) <= 1, `input port is ${result.inputPort.borderOffset}px from the border`);
-    assert.ok(Math.abs(result.outputPort.borderOffset) <= 1, `output port is ${result.outputPort.borderOffset}px from the border`);
-    assert.ok(Math.abs(result.inputPort.edgeOffset) <= 0.5, `input port overlaps the card by ${result.inputPort.edgeOffset}px`);
-    assert.ok(Math.abs(result.outputPort.edgeOffset) <= 0.5, `output port overlaps the card by ${result.outputPort.edgeOffset}px`);
+    assert.ok(Math.abs(result.inputPort.edgeGap - 4) <= 0.1, `input port gap: ${result.inputPort.edgeGap}px`);
+    assert.ok(Math.abs(result.outputPort.edgeGap - 4) <= 0.1, `output port gap: ${result.outputPort.edgeGap}px`);
     assert.equal(result.inputPort.clipPath, 'path("M 18.2 0 A 18.2 18.2 0 0 0 18.2 36.4 Z")');
     assert.equal(result.outputPort.clipPath, 'path("M 18.2 0 A 18.2 18.2 0 0 1 18.2 36.4 Z")');
     assert.equal(result.inputPort.outerHit, true);
     assert.equal(result.outputPort.outerHit, true);
-    assert.equal(result.inputPort.seamHit, false);
-    assert.equal(result.outputPort.seamHit, false);
+    assert.equal(result.inputPort.gapHit, false);
+    assert.equal(result.outputPort.gapHit, false);
     assert.equal(result.inputPort.innerHit, false);
     assert.equal(result.outputPort.innerHit, false);
     assert.equal(result.deleteAccessible, true);

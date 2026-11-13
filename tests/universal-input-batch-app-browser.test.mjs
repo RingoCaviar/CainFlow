@@ -75,11 +75,11 @@ async function assertSourcesSelected(app) {
         ['first-image', 'no-output', 'second-image', 'video']);
 }
 
-async function portPoint(app, selector) {
+async function portPoint(app, selector, ratio = null) {
     return app.evaluate(`(() => {
         const dot = document.querySelector(${JSON.stringify(selector)});
         const rect = dot.getBoundingClientRect();
-        const ratio = dot.closest('.node-port').dataset.direction === 'input' ? 0.25 : 0.75;
+        const ratio = ${ratio} ?? (dot.closest('.node-port').dataset.direction === 'input' ? 0.25 : 0.75);
         return { x: rect.left + rect.width * ratio, y: rect.top + rect.height / 2 };
     })()`);
 }
@@ -96,16 +96,67 @@ async function clickAt(app, point, button = 'left') {
     await pointer(app, 'mouseReleased', point, button);
 }
 
-async function dragImagesToTarget(app, expectedCount) {
+const previewPath = '#temp-connection';
+
+async function wireEndpoints(app, selector) {
+    return app.evaluate(`Array.from(document.querySelectorAll(${JSON.stringify(selector)})).flatMap(path => {
+        const style = getComputedStyle(path);
+        if (style.visibility === 'hidden' || style.display === 'none' || style.stroke === 'none' || Number(style.opacity) === 0) return [];
+        const matrix = path.getScreenCTM();
+        return (path.getAttribute('d')?.match(/[Mm][^Mm]+/g) || []).flatMap(data => {
+            const segment = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            segment.setAttribute('d', data);
+            const length = segment.getTotalLength();
+            if (length <= 0) return [];
+            const point = offset => {
+                const { x, y } = segment.getPointAtLength(offset).matrixTransform(matrix);
+                return { x, y };
+            };
+            return [{ start: point(0), end: point(length) }];
+        });
+    })`);
+}
+
+function distance(a, b) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+async function assertWires(app, selector, sources, destination) {
+    const wires = await wireEndpoints(app, selector);
+    assert.equal(wires.length, sources.length, 'each compatible source has one visible line');
+    for (const source of sources) {
+        const dot = await portPoint(app, `#${source} .node-port[data-direction="output"] .port-dot`, 0.5);
+        assert.equal(wires.filter(({ start }) => distance(start, dot) < 2).length, 1, `one line starts at ${source}`);
+    }
+    assert.ok(wires.every(({ end }) => distance(end, destination) < 2), 'the lines converge at the cursor or snapped input');
+}
+
+async function beginImageDrag(app) {
     const start = await portPoint(app, '#second-image .node-port[data-direction="output"] .port-dot');
-    const target = await portPoint(app, '#target .universal-input .port-dot');
-    // Exercise snapping through a release just outside the actual port dot.
-    const drop = { x: target.x - 16, y: target.y };
+    const cursor = { x: start.x + 38, y: start.y + 28 };
     await pointer(app, 'mousePressed', start);
-    await pointer(app, 'mouseMoved', { x: start.x + 30, y: start.y + 20 });
+    await pointer(app, 'mouseMoved', cursor);
+    await app.waitFor("document.querySelector('.connection-batch-preview')?.textContent.trim() === '2 个来源'");
+    await assertWires(app, previewPath, ['first-image', 'second-image'], cursor);
+    return start;
+}
+
+async function assertPreviewCleared(app) {
+    assert.deepEqual(await wireEndpoints(app, previewPath), []);
+    assert.equal(await app.evaluate("!!document.querySelector('.connection-batch-preview')"), false);
+}
+
+async function dragImagesToTarget(app, sources) {
+    await beginImageDrag(app);
+    const target = await portPoint(app, '#target .universal-input .port-dot', 0.5);
+    // Exercise snapping through a release just outside the actual port dot.
+    const drop = { x: target.x - 22, y: target.y };
+    assert.equal(await app.evaluate(`Boolean(document.elementFromPoint(${drop.x}, ${drop.y})?.closest('.port-dot'))`), false);
     await pointer(app, 'mouseMoved', drop);
-    await app.waitFor(`document.querySelector('.connection-batch-preview')?.textContent.trim() === '连接 ${expectedCount} 个来源'`);
+    await app.waitFor(`document.querySelector('.connection-batch-preview')?.textContent.trim() === '连接 ${sources.length} 个来源'`);
+    await assertWires(app, previewPath, sources, target);
     await pointer(app, 'mouseReleased', drop);
+    await assertPreviewCleared(app);
 }
 
 async function assertImageReferences(app, sourceIds) {
@@ -115,6 +166,8 @@ async function assertImageReferences(app, sourceIds) {
         from: { nodeId, port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, order
     })));
     await app.waitFor(`document.querySelectorAll('#connections-svg path[data-conn-id]').length === ${sourceIds.length}`);
+    const target = await portPoint(app, '#target .universal-input .port-dot', 0.5);
+    await assertWires(app, '#connections-svg path[data-conn-id]', sourceIds, target);
     return saved;
 }
 
@@ -138,13 +191,26 @@ test('dragging one selected image output connects all compatible selected source
     await withAppBrowser(multiSourceSession, async app => {
         await selectSources(app);
         const assertNoWarnings = await watchForConnectionWarnings(app);
-        await dragImagesToTarget(app, 2);
+        const origin = await beginImageDrag(app);
+        await app.evaluate("window.dispatchEvent(new Event('blur'))");
+        await pointer(app, 'mouseReleased', origin);
+        await assertPreviewCleared(app);
+        await beginImageDrag(app);
+        const target = await portPoint(app, '#target .universal-input .port-dot');
+        await pointer(app, 'mouseMoved', target);
+        await app.waitFor("document.querySelector('.connection-batch-preview')?.classList.contains('is-snapped')");
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+        await pointer(app, 'mouseReleased', target);
+        await assertPreviewCleared(app);
+        assert.deepEqual(await wireEndpoints(app, '#connections-svg path[data-conn-id]'), []);
+        await assertSourcesSelected(app);
+        await dragImagesToTarget(app, ['first-image', 'second-image']);
         await assertNoWarnings();
 
         const sourceIds = ['second-image', 'first-image'];
         const saved = await assertImageReferences(app, sourceIds);
         await assertSourcesSelected(app);
-        assert.equal(await app.evaluate("document.querySelector('.connection-batch-preview')?.getClientRects().length > 0"), false);
         await assertBatchUndone(app);
         await shortcut(app, 'y');
         assert.deepEqual(await assertImageReferences(app, sourceIds), saved);
@@ -158,7 +224,7 @@ test('dragging from an already connected anchor adds only the new selected sourc
     };
     await withAppBrowser({ ...multiSourceSession, connections: [retained] }, async app => {
         await selectSources(app);
-        await dragImagesToTarget(app, 1);
+        await dragImagesToTarget(app, ['first-image']);
         const [first] = await assertImageReferences(app, ['second-image', 'first-image']);
         assert.deepEqual(first, retained);
         await shortcut(app, 'z');
