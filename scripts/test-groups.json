@@ -386,7 +386,7 @@
     "tests/history-directory-preview-browser.test.mjs": {"tier": "browser", "groups": ["media", "history"]},
     "tests/history-download-feedback.test.mjs": {"tier": "fast", "groups": ["media", "history"]},
     "tests/history-image-clipboard.test.mjs": {"tier": "fast", "groups": ["media", "history", "nodes"]},
-    "tests/history-preview-controls-browser.test.mjs": {"tier": "browser", "groups": ["media", "history"]},
+    "tests/history-preview-controls-browser.test.mjs": {"tier": "browser", "groups": ["media", "history"], "sources": ["js/app/bootstrap/history-bootstrap.js", "js/app/bootstrap-impl.js"]},
     "tests/history-video-thumbnail-hydration.test.mjs": {"tier": "fast", "groups": ["media", "history", "nodes"]},
     "tests/image-assistant-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes", "agent"]},
     "tests/image-assistant-performance-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"]},

@@ -25,6 +25,7 @@ export function createHistoryFeature({
     copyToClipboard,
     copyImageToClipboard,
     createImageResultActions,
+    localStorageRef,
     showToast
 }) {
     let historyPreviewApi = null;
@@ -109,6 +110,7 @@ export function createHistoryFeature({
         copyToClipboard,
         copyImageToClipboard,
         createImageResultActions,
+        localStorageRef,
         onImageHandoff: () => registry.historyFullscreenApi?.close(),
         renderHistoryList: () => renderHistoryList(),
         showToast

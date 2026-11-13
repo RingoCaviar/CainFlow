@@ -717,12 +717,14 @@ body:has(#toolbar [aria-expanded="true"]:not(#btn-prompt-agent)) .help-panel {
 
 .preview-prompt-text {
     flex: 1;
+    min-width: 0;
     font-size: 14px;
     line-height: 1.5;
     color: var(--text-primary);
     opacity: 0.9;
     max-height: 120px;
     overflow-y: auto;
+    overflow-wrap: anywhere;
     text-align: left;
     padding-right: 4px;
     user-select: text !important;
@@ -770,18 +772,124 @@ body:has(#toolbar [aria-expanded="true"]:not(#btn-prompt-agent)) .help-panel {
     bottom: 32px;
     left: 50%;
     transform: translateX(-50%);
-    width: 90%;
-    max-width: 600px;
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: center;
+    z-index: 3010;
+    pointer-events: none;
+}
+
+.preview-info-content,
+.preview-info-toggle {
     background: var(--history-preview-bg);
     backdrop-filter: blur(20px);
     border: 1px solid var(--history-preview-border);
+    color: var(--text-primary);
+    pointer-events: auto;
+}
+
+.preview-info-content {
+    width: min(90vw, 600px);
     border-radius: var(--radius-md);
     padding: 16px 24px;
-    color: var(--text-primary);
     font-size: 14px;
-    z-index: 3010;
     box-shadow: var(--history-preview-shadow);
-    pointer-events: auto;
+}
+
+.preview-info:has(.preview-info-toggle:not([hidden])) {
+    bottom: 24px;
+    gap: 6px;
+}
+
+.preview-info:has(.preview-info-toggle:not([hidden])) .preview-info-content {
+    max-height: calc(100dvh - 112px);
+    border-radius: 12px;
+    overflow: auto;
+    overscroll-behavior: contain;
+}
+
+.preview-info:has(.preview-info-toggle:not([hidden])) .preview-meta {
+    color: var(--text-secondary);
+    flex-wrap: wrap;
+    row-gap: 4px;
+}
+
+.preview-info:has(.preview-info-toggle:not([hidden])) .preview-meta > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.preview-info-toggle {
+    display: inline-grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--panel-bg);
+    box-shadow: var(--panel-shadow-soft);
+    cursor: pointer;
+}
+
+.preview-info-toggle[hidden] {
+    display: none;
+}
+
+.preview-info-toggle[aria-expanded="false"] svg {
+    transform: rotate(180deg);
+}
+
+.preview-info-toggle:hover {
+    border-color: var(--accent-primary);
+}
+
+.preview-info-toggle:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: -4px;
+}
+
+@media (max-width: 800px) {
+    .preview-info:has(.preview-info-toggle:not([hidden])) .preview-info-content {
+        max-height: calc(100dvh - 144px);
+    }
+
+    #history-preview-modal:has(.preview-info-toggle:not([hidden])) .preview-nav-btn {
+        top: 26px;
+        width: 36px;
+        height: 36px;
+        transform: none;
+    }
+
+    #history-preview-modal:has(.preview-info-toggle:not([hidden])) .preview-nav-btn.prev {
+        left: 12px;
+    }
+
+    #history-preview-modal:has(.preview-info-toggle:not([hidden])) .preview-nav-btn.next {
+        left: 54px;
+        right: auto;
+    }
+
+    #history-preview-modal:has(.preview-info-toggle:not([hidden])) .preview-nav-btn svg {
+        width: 20px;
+        height: 20px;
+    }
+}
+
+@media (max-width: 520px) {
+    .preview-info:has(.preview-info-toggle:not([hidden])) .preview-info-content {
+        padding: 12px 16px;
+    }
+
+    #history-preview-modal:has(.preview-info-toggle:not([hidden])) .preview-zoom-controls {
+        right: 12px;
+        gap: 4px;
+    }
+
+    #history-preview-modal:has(.preview-info-toggle:not([hidden])) .preview-zoom-controls button {
+        min-width: 34px;
+        height: 34px;
+        padding: 0 6px;
+    }
 }
 
 

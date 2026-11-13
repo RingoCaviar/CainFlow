@@ -9,6 +9,8 @@ import { downloadPreviewImage } from '../media/preview-image-download.js';
 import { createHistoryImageContextMenu } from './history-image-context-menu.js';
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 
+const IMAGE_INFO_COLLAPSED_KEY = 'cainflow_history_preview_info_collapsed';
+
 export function createHistoryPreviewApi({
     getHistory,
     getHistoryMetadata = async () => [],
@@ -23,6 +25,7 @@ export function createHistoryPreviewApi({
     onImageHandoff = () => {},
     renderHistoryList,
     showToast,
+    localStorageRef = null,
     documentRef = document,
     windowRef = window
 }) {
@@ -47,9 +50,25 @@ export function createHistoryPreviewApi({
         videoObjectUrl: ''
     };
     const imageContextMenu = createHistoryImageContextMenu({ documentRef, windowRef });
+    const infoContent = documentRef.getElementById('history-preview-info-content');
+    const infoToggle = documentRef.getElementById('btn-toggle-history-preview-info');
+    let imageInfoCollapsed = localStorageRef?.getItem(IMAGE_INFO_COLLAPSED_KEY) === 'true';
 
     function isVideoHistoryItem(item) {
         return item?.mediaType === 'video' || item?.hasVideo || item?.videoBlob instanceof Blob;
+    }
+
+    function syncPreviewInfo(isVideo) {
+        if (!infoContent || !infoToggle) return;
+        const collapsed = !isVideo && imageInfoCollapsed;
+        const label = collapsed ? '展开图片信息' : '收起图片信息';
+        const moveFocus = isVideo && documentRef.activeElement === infoToggle;
+        infoContent.hidden = collapsed;
+        infoToggle.hidden = isVideo;
+        infoToggle.setAttribute('aria-expanded', String(!collapsed));
+        infoToggle.setAttribute('aria-label', label);
+        infoToggle.title = label;
+        if (moveFocus) documentRef.getElementById('btn-preview-fit')?.focus({ preventScroll: true });
     }
 
     function getPreviewVideoElement() {
@@ -269,6 +288,7 @@ export function createHistoryPreviewApi({
         revokePreviewVideoUrl();
         const isVideo = isVideoHistoryItem(item);
         setPreviewMode(isVideo ? 'video' : 'image');
+        syncPreviewInfo(isVideo);
         const actionHost = documentRef.getElementById('history-image-result-actions');
         actionHost?.replaceChildren();
         btnDownload?.classList.toggle('hidden', !isVideo && Boolean(createImageResultActions));
@@ -529,6 +549,11 @@ export function createHistoryPreviewApi({
     }
 
     function initHistoryPreview() {
+        infoToggle?.addEventListener('click', () => {
+            imageInfoCollapsed = !imageInfoCollapsed;
+            syncPreviewInfo(false);
+            localStorageRef?.setItem(IMAGE_INFO_COLLAPSED_KEY, String(imageInfoCollapsed));
+        });
         const actionDock = documentRef.querySelector('#history-preview-modal .preview-action-dock');
         actionDock?.querySelector('.preview-action-reveal')?.addEventListener('click', event => {
             const expanded = actionDock.classList.toggle('is-expanded');

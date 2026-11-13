@@ -1310,17 +1310,26 @@
             </svg>
         </button>
         <div class="preview-info">
-            <div class="preview-prompt-container">
-                <div id="preview-prompt" class="preview-prompt-text"></div>
-                <button id="btn-copy-prompt" class="copy-btn" title="复制提示词">
-                    <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                    </svg>
-                </button>
+            <button id="btn-toggle-history-preview-info" class="preview-info-toggle" type="button"
+                aria-expanded="true" aria-controls="history-preview-info-content" aria-label="收起图片信息" title="收起图片信息" hidden>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="m6 9 6 6 6-6" />
+                </svg>
+            </button>
+            <div id="history-preview-info-content" class="preview-info-content">
+                <div class="preview-prompt-container">
+                    <div id="preview-prompt" class="preview-prompt-text"></div>
+                    <button id="btn-copy-prompt" class="copy-btn" title="复制提示词">
+                        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                        </svg>
+                    </button>
+                </div>
+                <div id="preview-meta" class="preview-meta"></div>
+                <div id="history-image-result-actions"></div>
             </div>
-            <div id="preview-meta" class="preview-meta"></div>
-            <div id="history-image-result-actions"></div>
         </div>
     </div>
 
