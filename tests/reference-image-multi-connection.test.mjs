@@ -19,6 +19,9 @@ import {
 } from '../js/nodes/reference-image-ports.js';
 import { resolveGenerationInputProjection } from '../js/nodes/generation-input-projection.js';
 import { RelayVideoProtocol } from '../js/features/execution/protocols/api6789-video.js';
+import { createReferenceImageCatalog } from '../js/features/media/reference-image-catalog.js';
+import { createCanvasImageSourceId } from '../js/features/media/reference-image-identity.js';
+import { registerPromptImageMention, resolvePromptImageMentions } from '../js/nodes/prompt-image-mentions.js';
 
 const connectionsSource = await readFile(new URL('../js/canvas/connections.js', import.meta.url), 'utf8');
 const runnerSource = await readFile(new URL('../js/features/execution/workflow-runner.js', import.meta.url), 'utf8');
@@ -109,6 +112,40 @@ test('pasted multi-connections append after the target order while retaining gro
         state.connections.slice(1).map((connection) => [connection.from.nodeId, connection.order]),
         [['new-a', 5], ['new-b', 6]]
     );
+});
+
+test('pasting nodes into another workflow rebinds copied image mentions to the exact copied source and edge', async () => {
+    const image = 'data:image/png;base64,AAAA';
+    const node = (id, type, port, direction) => ({ id, type, data: {}, el: {
+        dataset: {},
+        querySelectorAll: selector => selector.includes(direction) ? [{ dataset: { port } }] : [], classList: { contains: () => false }
+    } });
+    const source = node('source', 'ImageImport', 'image', 'output');
+    source.data.image = image;
+    const target = node('target', 'ImageGenerate', 'referenceImages', 'input');
+    const connection = { id: 'source-edge', from: { nodeId: source.id, port: 'image' }, to: { nodeId: target.id, port: 'referenceImages' }, type: 'image' };
+    const original = { nodes: new Map([[source.id, source], [target.id, target]]), connections: [connection] };
+    const catalog = createReferenceImageCatalog({ state: original });
+    const range = { start: 0, end: 1 };
+    const sceneToken = registerPromptImageMention(target, { ...catalog.getCanvas()[0], workflowId: 'before' }, '@', range);
+    const upstreamToken = registerPromptImageMention(target, { ...catalog.getUpstream(target.id)[0], workflowId: 'before' }, '@', range);
+
+    const copiedSource = { ...source, id: 'copied-source' };
+    const copiedTarget = { ...target, id: 'copied-target', data: structuredClone(target.data) };
+    const copied = { nodes: new Map([[copiedSource.id, copiedSource], [copiedTarget.id, copiedTarget]]), connections: [] };
+    const idMap = new Map([[source.id, copiedSource.id], [target.id, copiedTarget.id]]);
+    appendMappedConnectionSnapshots({ state: copied, idMap, internalConnections: [connection],
+        remapPromptMentions: { fromWorkflowId: 'before', toWorkflowId: 'after' } });
+    const copiedCatalog = createReferenceImageCatalog({ state: copied });
+    const [scene, upstream] = copiedTarget.data.imagePromptMentions;
+    assert.equal(scene.source.workflowId, 'after');
+    assert.equal(scene.source.sourceId, createCanvasImageSourceId(copiedSource.id, 'image', 0, scene.source.imageFingerprint));
+    assert.equal(scene.source.sourceId, copiedCatalog.getCanvas()[0].id);
+    assert.equal(upstream.source.connectionId, copied.connections[0].id);
+    assert.equal(target.data.imagePromptMentions[1].source.connectionId, connection.id);
+    const resolved = await resolvePromptImageMentions({ node: copiedTarget, workflowId: 'after', inputs: { referenceImages: [image] },
+        prompts: [`${sceneToken} 和 ${upstreamToken}`], getUpstream: () => copiedCatalog.getUpstream(copiedTarget.id) });
+    assert.deepEqual(resolved, { inputs: { referenceImages: [image] }, prompts: ['参考图 1 和 参考图 1'] });
 });
 
 test('pasted multi-connections retain one explicit order across internal and external snapshots', () => {

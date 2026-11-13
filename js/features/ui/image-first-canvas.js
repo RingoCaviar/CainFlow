@@ -25,7 +25,7 @@ const emptyPreviewMessages = new Set(['无输入图片', '无输入视频', '运
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
     runCurrentNode, waitForNodeRun, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
     panelManager = null, openModelSettings = () => {}, openResultPreview = () => {},
-    openShotError = () => {}, openReferencePreview = null }) {
+    openShotError = () => {}, openReferencePreview = null, bindReferencePrompt = null }) {
     const views = new Map();
     const dragClasses = new Set(['selected', 'is-interacting', 'connection-insert-candidate', 'connection-shake-armed']);
     const presentationClasses = value => (value || '').split(/\s+/).filter(name => name && !dragClasses.has(name)).sort().join(' ');
@@ -723,11 +723,12 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         installUniversalInput(node);
         const inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, onChange: () => refreshNode(node.id) });
         const commerce = createCommerceImageSetView({
-            node, state, documentRef, openResultPreview, openShotError,
+            node, state, documentRef, openResultPreview, openShotError, bindReferencePrompt,
             run: (commerceAction, commerceShotId) => runCurrentNode(node.id, { commerceAction, commerceShotId }),
             waitForNodeRun: () => waitForNodeRun(node.id),
             onChange: () => onSettingsChanged(node.id)
         });
+        (node.el._cleanupFns ||= []).push(commerce.destroy);
         const references = documentRef.createElement('section');
         references.className = 'commerce-image-set-references';
         const referenceTitle = documentRef.createElement('h3');

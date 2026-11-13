@@ -9,6 +9,7 @@ import {
 } from '../nodes/reference-image-ports.js';
 import { getGenerationNodeInputConnectionPolicy } from '../nodes/generation-input-projection.js';
 import { isUniversalInputNode, resolveUniversalInput } from '../nodes/universal-input-policy.js';
+import { remapCopiedPromptImageMentions } from '../nodes/prompt-image-mentions.js';
 export function createConnectionId() {
     return 'c_' + Math.random().toString(36).substr(2, 9);
 }
@@ -158,8 +159,9 @@ function appendConnectionList(state, idMap, entries, validateUniversalInputs) {
     };
     const mappedConnections = entries.map(({ snapshot, kind }) => ({
         connection: buildMappedConnection(snapshot, idMap, kind),
-        kind
+        kind, oldConnectionId: snapshot.id
     }));
+    const connectionIds = new Map();
     const orderedMultiConnections = new Map();
 
     mappedConnections.forEach((entry) => {
@@ -195,11 +197,12 @@ function appendConnectionList(state, idMap, entries, validateUniversalInputs) {
         }
 
         state.connections.push(mappedConnection);
+        if (mappedEntry.oldConnectionId) connectionIds.set(mappedEntry.oldConnectionId, mappedConnection.id);
         added += 1;
         counts[mappedEntry.kind].added += 1;
     });
 
-    return { added, skipped, counts };
+    return { added, skipped, counts, connectionIds };
 }
 
 export function appendMappedConnectionSnapshots({
@@ -208,7 +211,8 @@ export function appendMappedConnectionSnapshots({
     internalConnections = [],
     externalConnections = [],
     includeExternalConnections = false,
-    validateUniversalInputs = false
+    validateUniversalInputs = false,
+    remapPromptMentions = null
 }) {
     const entries = [
         ...internalConnections.map((snapshot) => ({ snapshot, kind: 'internal' })),
@@ -219,6 +223,16 @@ export function appendMappedConnectionSnapshots({
     // Copy/restore retains historical relationships. A bypass preflight opts
     // into current policy because it would introduce new input relationships.
     const result = appendConnectionList(state, idMap, entries, validateUniversalInputs);
+    if (remapPromptMentions) {
+        for (const nodeId of idMap.values()) {
+            const data = state.nodes.get(nodeId)?.data;
+            if (data?.imagePromptMentions?.length) {
+                data.imagePromptMentions = remapCopiedPromptImageMentions(data.imagePromptMentions, {
+                    nodeIds: idMap, connectionIds: result.connectionIds, ...remapPromptMentions
+                });
+            }
+        }
+    }
 
     return {
         added: result.added,

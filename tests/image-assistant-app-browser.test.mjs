@@ -6,6 +6,21 @@ import assert from 'node:assert/strict';
 import { withAppBrowser, delay, waitForAutosave, reloadAppBrowser as reloadApp } from './helpers/app-browser.mjs';
 import { parseColor, composite, contrastRatio } from './helpers/browser-theme-fixture.mjs';
 
+const selectNodeMention = id => `(async()=>{
+    const id=${JSON.stringify(id)};
+    if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click();
+    const input=document.getElementById('prompt-agent-input');
+    if(input.value.includes('['+id+']'))return;
+    input.value+=(input.value?'\\n':'')+'@';
+    input.setSelectionRange(input.value.length,input.value.length);
+    input.dispatchEvent(new Event('input',{bubbles:true}));
+    document.querySelector('.image-mention-picker [data-mention-mode=extra]').click();
+    await new Promise(requestAnimationFrame);
+    const option=[...document.querySelectorAll('.image-mention-picker [data-mention-id]')].find(row=>row.dataset.mentionId===id);
+    if(!option)throw new Error('Missing node mention '+id);
+    option.click();
+})()`;
+
 const session = {
     autoCheckUpdatesOnLoad: false,
     models: [
@@ -338,7 +353,7 @@ test('prepared node mention authorizes a previewed plan only after sending and e
         apiConfigId: 'image', providerId: 'p', prompt: 'original local prompt' }], connections: [] }, async app => {
         const { evaluate, waitFor } = app;
         await controlImages(app);
-        await evaluate("(id=>{if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click();const input=document.getElementById('prompt-agent-input');if(!input.value.includes('['+id+']')){input.value+=(input.value?'\\n':'')+'@';input.setSelectionRange(input.value.length,input.value.length);input.dispatchEvent(new Event('input',{bubbles:true}));const option=[...document.querySelectorAll('.prompt-agent-node-mentions [role=option]')].find(b=>b.textContent.endsWith(' · '+id));if(!option)throw new Error('Missing node mention '+id);option.click()}})(\"context-one\");document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click()");
+        await evaluate(`(async()=>{await ${selectNodeMention('context-one')};document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click()})()`);
         assert.equal(await evaluate('imageRequests.length'), 0);
         await evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
         await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
@@ -633,7 +648,7 @@ test('seven themes and narrow panels keep creation actions legible and keyboard 
         await evaluate("(async()=>{document.querySelector('.fullscreen-close').click();document.getElementById('source-a').click();await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))})()");
         assert.equal(await evaluate("document.getElementById('image-parameter-panel').dataset.nodeId"), 'source-a',
             'closing a reference preview does not take back a newly selected editor');
-        await evaluate("(id=>{if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click();const input=document.getElementById('prompt-agent-input');if(!input.value.includes('['+id+']')){input.value+=(input.value?'\\n':'')+'@';input.setSelectionRange(input.value.length,input.value.length);input.dispatchEvent(new Event('input',{bubbles:true}));const option=[...document.querySelectorAll('.prompt-agent-node-mentions [role=option]')].find(b=>b.textContent.endsWith(' · '+id));if(!option)throw new Error('Missing node mention '+id);option.click()}})(\"source-a\")");
+        await evaluate(`(async()=>{await ${selectNodeMention('source-a')}})()`);
         const evidence = [];
         for (const theme of ['dark','pro','paper','light','glass-light','glass-dark','pink']) {
             await evaluate(`document.documentElement.dataset.appTheme='${theme}'`);
@@ -663,7 +678,7 @@ test('seven themes and narrow panels keep creation actions legible and keyboard 
         await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});
         await waitFor("!document.querySelector('.image-result-menu')");
         assert.equal(await evaluate('document.activeElement.dataset.resultAction'), 'more');
-        await evaluate("(id=>{if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click();const input=document.getElementById('prompt-agent-input');if(!input.value.includes('['+id+']')){input.value+=(input.value?'\\n':'')+'@';input.setSelectionRange(input.value.length,input.value.length);input.dispatchEvent(new Event('input',{bubbles:true}));const option=[...document.querySelectorAll('.prompt-agent-node-mentions [role=option]')].find(b=>b.textContent.endsWith(' · '+id));if(!option)throw new Error('Missing node mention '+id);option.click()}})(\"source-a\");document.getElementById('prompt-agent-resize').focus()");
+        await evaluate(`(async()=>{await ${selectNodeMention('source-a')};document.getElementById('prompt-agent-resize').focus()})()`);
         await send('Input.dispatchKeyEvent',{type:'keyDown',key:'End',code:'End'});
         const preferred = await evaluate("document.getElementById('prompt-agent-panel').offsetWidth");
         await send('Emulation.setDeviceMetricsOverride',{width:640,height:720,deviceScaleFactor:1,mobile:false});
@@ -689,7 +704,7 @@ test('old workflow completes source review, ordered generation through Agent, un
         assert.equal(await evaluate("document.getElementById('reference-target-prompt').value"),'保留的本地稿');
         await evaluate("document.querySelector('[data-conn-id=old-prompt-link]').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));document.querySelector('[data-reference-connection=\"edge-source-b\"] .image-reference-thumbnail').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',altKey:true,bubbles:true,cancelable:true}))");
         await change(evaluate,'reference-target-apiconfig','google');
-        await evaluate("window.assistantTargetId='reference-target';window.keepReferenceSources=true;(id=>{if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click();const input=document.getElementById('prompt-agent-input');if(!input.value.includes('['+id+']')){input.value+=(input.value?'\\n':'')+'@';input.setSelectionRange(input.value.length,input.value.length);input.dispatchEvent(new Event('input',{bubbles:true}));const option=[...document.querySelectorAll('.prompt-agent-node-mentions [role=option]')].find(b=>b.textContent.endsWith(' · '+id));if(!option)throw new Error('Missing node mention '+id);option.click()}})(\"reference-target\");document.getElementById('prompt-agent-input').value+='使用乙和甲作为参考图，保持乙在前。';document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=google][data-provider-id=p]').click();document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await evaluate(`(async()=>{window.assistantTargetId='reference-target';window.keepReferenceSources=true;await ${selectNodeMention('reference-target')};document.getElementById('prompt-agent-input').value+='使用乙和甲作为参考图，保持乙在前。';document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=google][data-provider-id=p]').click();document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))})()`);
         await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
         assert.equal(await evaluate("document.getElementById('reference-target-prompt').value"),'保留的本地稿');
         await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='运行').click()");
@@ -799,7 +814,7 @@ test('assistant optimization sends the mentioned generation target reference ori
     await withAppBrowser(seeded, async app => {
         const { evaluate, waitFor } = app;
         await generateReferenceSources(app);
-        await evaluate("window.assistantTargetId='reference-target';(id=>{if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click();const input=document.getElementById('prompt-agent-input');if(!input.value.includes('['+id+']')){input.value+=(input.value?'\\n':'')+'@';input.setSelectionRange(input.value.length,input.value.length);input.dispatchEvent(new Event('input',{bubbles:true}));const option=[...document.querySelectorAll('.prompt-agent-node-mentions [role=option]')].find(b=>b.textContent.endsWith(' · '+id));if(!option)throw new Error('Missing node mention '+id);option.click()}})(\"reference-target\");document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click()");
+        await evaluate(`(async()=>{window.assistantTargetId='reference-target';await ${selectNodeMention('reference-target')};document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click()})()`);
         await evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
         await waitFor("imageRequests.some(r=>r.messages)");
         const images = await evaluate("imageRequests.find(r=>r.messages).messages.at(-1).content.filter(p=>p.type==='image_url').map(p=>p.image_url.url)");
@@ -895,7 +910,7 @@ test('long generation errors retain a compact wrapped summary and complete detai
 test('legacy Agent prompt reply preserves references by default and clears them only on explicit request', {timeout:30000},async()=>{
     for (const removeReferences of [false,true]) await withAppBrowser(referenceSession(),async app=>{
         const {evaluate,waitFor}=app;await generateReferenceSources(app);
-        await evaluate("window.assistantLegacy=true;window.assistantTargetId='reference-target';(id=>{if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click();const input=document.getElementById('prompt-agent-input');if(!input.value.includes('['+id+']')){input.value+=(input.value?'\\n':'')+'@';input.setSelectionRange(input.value.length,input.value.length);input.dispatchEvent(new Event('input',{bubbles:true}));const option=[...document.querySelectorAll('.prompt-agent-node-mentions [role=option]')].find(b=>b.textContent.endsWith(' · '+id));if(!option)throw new Error('Missing node mention '+id);option.click()}})(\"reference-target\");document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click()");
+        await evaluate(`(async()=>{window.assistantLegacy=true;window.assistantTargetId='reference-target';await ${selectNodeMention('reference-target')};document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click()})()`);
         await change(evaluate,'prompt-agent-input',removeReferences?'@图片生成[reference-target] 不要参考图，画蓝色背景':'@图片生成[reference-target] 把背景改成蓝色');
         await evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
         await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
@@ -951,7 +966,7 @@ test('selected-node optimization keeps active reference order through apply, reg
 test('same-pixel references keep all source slots while sharing Agent pixel attachments', {timeout:30000},async()=>{
     await withAppBrowser(referenceSession(),async app=>{
         const {evaluate,waitFor}=app;await generateReferenceSources(app,{samePixels:true});
-        await evaluate("window.assistantTargetId='reference-target';(id=>{if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click();const input=document.getElementById('prompt-agent-input');if(!input.value.includes('['+id+']')){input.value+=(input.value?'\\n':'')+'@';input.setSelectionRange(input.value.length,input.value.length);input.dispatchEvent(new Event('input',{bubbles:true}));const option=[...document.querySelectorAll('.prompt-agent-node-mentions [role=option]')].find(b=>b.textContent.endsWith(' · '+id));if(!option)throw new Error('Missing node mention '+id);option.click()}})(\"reference-target\");document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await evaluate(`(async()=>{window.assistantTargetId='reference-target';await ${selectNodeMention('reference-target')};document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))})()`);
         await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
         const catalog=await evaluate("(()=>{const content=imageRequests.find(r=>r.messages).messages.at(-1).content;return {pixels:content.filter(p=>p.type==='image_url').length,slots:JSON.parse(content.find(p=>p.type==='text').text).images.filter(i=>i.connectedToNode).map(i=>[i.sourceNodeId,i.sourceImageIndex])}})()");
         assert.equal(catalog.pixels,1);
@@ -967,7 +982,7 @@ test('same-pixel references keep all source slots while sharing Agent pixel atta
 test('prompt-only followup after applying a plan retains all reference originals', {timeout:45000},async()=>{
     await withAppBrowser(referenceSession(),async app=>{
         const {evaluate,waitFor}=app;await generateReferenceSources(app);
-        await evaluate("window.assistantTargetId='reference-target';(id=>{if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click();const input=document.getElementById('prompt-agent-input');if(!input.value.includes('['+id+']')){input.value+=(input.value?'\\n':'')+'@';input.setSelectionRange(input.value.length,input.value.length);input.dispatchEvent(new Event('input',{bubbles:true}));const option=[...document.querySelectorAll('.prompt-agent-node-mentions [role=option]')].find(b=>b.textContent.endsWith(' · '+id));if(!option)throw new Error('Missing node mention '+id);option.click()}})(\"reference-target\");document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await evaluate(`(async()=>{window.assistantTargetId='reference-target';await ${selectNodeMention('reference-target')};document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))})()`);
         await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
         await evaluate("document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=google][data-provider-id=p]').click();[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='仅应用').click()");
         await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已应用并保存') && !document.getElementById('prompt-agent-input').disabled");
@@ -993,7 +1008,7 @@ test('Agent can run with every reference source disabled without disconnecting t
     const seeded=referenceSession();seeded.nodes[0].enabled=false;seeded.nodes[1].enabled=false;
     await withAppBrowser(seeded,async app=>{
         const {evaluate,waitFor}=app;await controlImages(app);
-        await evaluate("window.assistantTargetId='reference-target';(id=>{if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click();const input=document.getElementById('prompt-agent-input');if(!input.value.includes('['+id+']')){input.value+=(input.value?'\\n':'')+'@';input.setSelectionRange(input.value.length,input.value.length);input.dispatchEvent(new Event('input',{bubbles:true}));const option=[...document.querySelectorAll('.prompt-agent-node-mentions [role=option]')].find(b=>b.textContent.endsWith(' · '+id));if(!option)throw new Error('Missing node mention '+id);option.click()}})(\"reference-target\");document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await evaluate(`(async()=>{window.assistantTargetId='reference-target';await ${selectNodeMention('reference-target')};document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))})()`);
         await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
         await evaluate("document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=google][data-provider-id=p]').click();[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='运行').click()");
         await waitFor("imageRequests.some(r=>r.contents) && document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
@@ -1069,7 +1084,7 @@ test('one result attachment is not repeated as an automatic context thumbnail', 
         const { evaluate, waitFor } = app;
         await generateReferenceSources(app);
         await openImageParameters(app, 'source-a');
-        await evaluate("window.assistantTargetId='source-a';(id=>{if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click();const input=document.getElementById('prompt-agent-input');if(!input.value.includes('['+id+']')){input.value+=(input.value?'\\n':'')+'@';input.setSelectionRange(input.value.length,input.value.length);input.dispatchEvent(new Event('input',{bubbles:true}));const option=[...document.querySelectorAll('.prompt-agent-node-mentions [role=option]')].find(b=>b.textContent.endsWith(' · '+id));if(!option)throw new Error('Missing node mention '+id);option.click()}})(\"source-a\");document.querySelector('#source-a-image-results [data-result-action=reference]').click()");
+        await evaluate(`(async()=>{window.assistantTargetId='source-a';await ${selectNodeMention('source-a')};document.querySelector('#source-a-image-results [data-result-action=reference]').click()})()`);
         await waitFor("document.querySelectorAll('#prompt-agent-references img').length===1 && !document.querySelector('#prompt-agent-references .is-loading')");
         const original = await evaluate("document.querySelector('#prompt-agent-references img').src");
         await change(evaluate, 'prompt-agent-input', '给这张图片增加一杯奶茶');

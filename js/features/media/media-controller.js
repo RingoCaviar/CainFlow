@@ -2577,6 +2577,7 @@ export function createMediaControllerApi({
             if (node.imageImportAssetKey || node.data?.imageImportAssetKey || node.mediaAssetKeys?.length || node.data?.mediaAssetKeys?.length) pushHistory();
             node.importMode = 'upload';
             node.imageUrl = '';
+            node.imageImportFileName = typeof file.name === 'string' ? file.name : '';
             node.imageData = data;
             node.data = node.data || {};
             node.data.image = data;
@@ -2595,6 +2596,7 @@ export function createMediaControllerApi({
         if (node.imageImportAssetKey || node.data?.imageImportAssetKey || node.mediaAssetKeys?.length || node.data?.mediaAssetKeys?.length) pushHistory();
         node.importMode = 'upload';
         node.imageUrl = '';
+        delete node.imageImportFileName;
         node.imageData = imageData;
         node.data = node.data || {};
         node.data.image = imageData;

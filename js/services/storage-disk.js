@@ -467,7 +467,9 @@ export function createDiskStorageApi(getState) {
     }
     async function getHistoryPage(options = {}) {
         const limit = Number.isFinite(options.limit) ? options.limit : 0;
-        const response = await requestLibrary(`/api/storage/library?limit=${Math.max(0, limit || 0)}`, { cache: 'no-store' });
+        const query = new URLSearchParams({ limit: Math.max(0, limit || 0) });
+        if (options.thumbnailUrls) query.set('thumbnailUrls', '1');
+        const response = await requestLibrary(`/api/storage/library?${query}`, { cache: 'no-store' });
         if (!response.ok) {
             const message = (await response.json().catch(() => ({}))).error || `读取保存目录失败：HTTP ${response.status}`;
             globalThis.dispatchEvent?.(new CustomEvent('cainflow:storage-error', { detail: { message } }));
@@ -482,19 +484,22 @@ export function createDiskStorageApi(getState) {
         return { items: options.includeThumbs === false ? items.map(({ thumb, ...item }) => item) : items, count: result.count ?? items.length };
     }
     async function getHistoryMetadata(options = {}) { return (await getHistoryPage(options)).items; }
-    async function hydrateHistory(entry) {
+    async function hydrateHistory(entry, { fileVersion } = {}) {
         if (!entry) return null;
+        if (fileVersion && (!entry.fileUrl || entry.fileVersion !== fileVersion)) return null;
         const key = entry.videoAssetKey || entry.imageAssetKey;
-        const response = entry.fileUrl ? await fetch(entry.fileUrl, { cache: 'no-store' }) : null;
+        const response = entry.fileUrl ? await fetch(entry.fileUrl, {
+            cache: 'no-store', ...(fileVersion ? { headers: { 'X-Media-Version': fileVersion } } : {})
+        }) : null;
         const blob = response ? (response.ok ? await response.blob() : null) : await getAssetBlob(key);
         if (entry.mediaType === 'video') return { ...entry, video: blob, videoBlob: blob };
         return { ...entry, image: await blobToDataUrl(blob) };
     }
     async function getHistory() { return Promise.all((await getHistoryMetadata()).map(hydrateHistory)); }
     async function getHistoryCount() { return (await getHistoryPage({ limit: 1, includeThumbs: false })).count; }
-    async function getHistoryEntry(id) {
+    async function getHistoryEntry(id, options = {}) {
         const response = await requestLibrary(`/api/storage/library/${encodeURIComponent(id)}`, { cache: 'no-store' });
-        return response.ok ? hydrateHistory((await response.json()).item) : null;
+        return response.ok ? hydrateHistory((await response.json()).item, options) : null;
     }
     async function updateHistoryThumb(id, thumb, entry) {
         const response = await requestLibrary(`/api/storage/library/${encodeURIComponent(id)}/thumbnail`, {

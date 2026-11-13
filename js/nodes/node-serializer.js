@@ -15,6 +15,7 @@ import { readImageResizeSettings } from './image-resize-settings.js';
 import { applyNodePersistenceExtensions } from './node-persistence-extensions.js';
 import { normalizeCommerceImageSetState } from '../features/ecommerce-image-set/commerce-image-set-plan.js';
 import { readGenerationRevision } from './image-generation-revision.js';
+import { normalizePromptImageMentions } from './prompt-image-mentions.js';
 
 export function createNodeSerializer({ state, documentRef }) {
     function getOrderedNodes() {
@@ -84,6 +85,7 @@ export function createNodeSerializer({ state, documentRef }) {
                 lastDuration: node.lastDuration || null
             };
             if (node.data?.thinking) serialized.thinking = JSON.parse(JSON.stringify(node.data.thinking));
+            if (node.data?.imagePromptMentions?.length) serialized.imagePromptMentions = normalizePromptImageMentions(node.data.imagePromptMentions);
             if (node.isClone === true && typeof node.cloneSourceId === 'string' && node.cloneSourceId) {
                 serialized.isClone = true;
                 serialized.cloneSourceId = node.cloneSourceId;

@@ -27,7 +27,7 @@ function setImage(element, url) {
     element.hidden = !url;
 }
 
-export function createCommerceImageSetView({ node, state, documentRef, run, waitForNodeRun, onChange, openResultPreview, openShotError }) {
+export function createCommerceImageSetView({ node, state, documentRef, run, waitForNodeRun, onChange, openResultPreview, openShotError, bindReferencePrompt }) {
     const card = node.el.querySelector('.commerce-image-set-card');
     const cover = card.querySelector('img');
     const cardTitle = card.querySelector('.commerce-image-set-card-title');
@@ -220,6 +220,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
         const copyFields = editor.querySelector('.commerce-image-set-copy-fields');
         if (copyFields) copyFields.hidden = !shot.allowCopy;
         const shotFields = Array.from(editor.querySelectorAll('[data-commerce-shot-field]'));
+        const destroyPrompt = bindReferencePrompt?.(node, editor.querySelector('[data-commerce-shot-field="prompt"]'));
         const image = row.querySelector('img');
         image.alt = shot.label;
         const preview = row.querySelector('[data-commerce-action="preview"]');
@@ -239,7 +240,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
                 item.toggle.setAttribute('aria-expanded', String(expanded));
             }
         });
-        return { row, editor, toggle, shotFields, image, preview, replan, retry, failure,
+        return { row, editor, toggle, shotFields, image, preview, replan, retry, failure, destroyPrompt,
             message, copySummary: row.querySelector('.commerce-image-set-copy-summary') };
     }
 
@@ -247,11 +248,16 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
         return node.commerceShotPreviews?.[shotId];
     }
 
+    function clearShotRows() {
+        for (const row of shotRows.values()) row.destroyPrompt?.();
+        shotRows.clear();
+    }
+
     function renderShots(plan, results, { locked, readyToReplan, canRetry, shownShotId }) {
         const planShots = plan?.shots || [];
         const structure = JSON.stringify(planShots.map(({ id, label, aspect, source, group, allowCopy, purpose }) => [id, label, aspect, source, group, allowCopy, purpose]));
         if (structure !== shotStructure) {
-            shotRows.clear();
+            clearShotRows();
             const groups = [];
             for (const [group, title] of shotGroups) {
                 const groupShots = planShots.filter(shot => (shot.group || 'gallery') === group);
@@ -593,5 +599,5 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
     }
     element.addEventListener('click', handleAction);
     actions.addEventListener('click', handleAction);
-    return { element, actions, refresh };
+    return { element, actions, refresh, destroy: clearShotRows };
 }

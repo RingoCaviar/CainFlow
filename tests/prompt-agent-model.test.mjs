@@ -351,6 +351,22 @@ test('visible reference numbers map to media even when equal images are selected
     ]);
 });
 
+test('image mentions map to their own source slots even when those slots share pixels', async () => {
+    const dataUrl = 'data:image/png;base64,SAME';
+    const a = { name: '同名参考', referenceId: 'node-a', sourceNodeId: 'a', sourceImageIndex: 0, dataUrl, mentionToken: '@图片2' };
+    const b = { ...a, referenceId: 'node-b', sourceNodeId: 'b', mentionToken: '@图片1' };
+    const { result, request } = replyHarness({ intent: 'chat', message: '收到' }, {
+        message: '比较 @图片1 和 @图片2', referenceImages: [b, a], workflowReferenceImages: [a, b],
+        conversation: { messages: [{ role: 'user', text: '之前的顺序', referenceImages: [a, b] }] }
+    });
+    await result;
+    const messages = request().messages;
+    const content = JSON.parse(messages.at(-1).content[0].text);
+    assert.deepEqual(content.images.map(image => [image.imageId, image.mentionTokens]), [['image-1', ['@图片1']], ['image-2', ['@图片2']]]);
+    assert.deepEqual(JSON.parse(messages[1].content).referenceImages.map(image => [image.mentionToken, image.imageId]),
+        [['@图片2', 'image-2'], ['@图片1', 'image-1']]);
+});
+
 test('text-only models receive explicit missing-vision metadata without image payloads', async () => {
     for (const configuration of [
         { model: { ...model, capabilities: { imageInput: false } } },

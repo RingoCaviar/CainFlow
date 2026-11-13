@@ -10,6 +10,7 @@ import { resolveImageRequestSize } from '../features/execution/image-generation-
 import { getOpenAiImageCapabilities } from '../features/execution/openai-image-capabilities.js';
 import { getGoogleImageCapabilities } from '../features/execution/google-image-capabilities.js';
 import { resolveThinking, getThinkingCapability, normalizeThinkingSelection } from '../features/execution/thinking-config.js';
+import { findPromptImageMentions } from './prompt-image-mentions.js';
 
 const PROTOCOL_PRESENTATION_FIELDS = new Set(['id', 'name', 'label', 'helpText', 'description', 'note', 'videoMeta',
     'schemaVersion', 'baseSchemaVersion', 'baseRevision', 'overrideRevision', 'overrideRecord', 'executionSnapshot',
@@ -132,9 +133,14 @@ export function createImageGenerationRevisionApi({ state, documentRef, getActive
         let size;
         try { const { resolution, aspect } = resolveImageRequestSize({ protocol, modelId: model?.modelId, ...settings }); size = { resolution, aspect }; }
         catch { size = { resolution: settings.resolution, aspect: settings.aspect, customWidth: settings.customWidth, customHeight: settings.customHeight }; }
+        const prompts = (getTextInputList(fromRole('prompt')).length ? getTextInputList(fromRole('prompt')) : [settings.protocolParams.prompt || settings.prompt || '']).map(text => text.trim());
+        const cameraPrompt = getPrimaryTextInput(fromRole('camera_prompt')).trim();
+        const imageMentions = findPromptImageMentions(node, [...prompts, cameraPrompt, settings.protocolParams.systemPrompt])
+            .map(({ token, source }) => ({ token, identity: source.connectionId
+                ? [source.connectionId, source.sourceNodeId, source.sourcePort, source.targetPort, source.sourceImageIndex] : source.sourceId || source.id }));
         const values = { model: { id: settings.apiConfigId, modelId: model?.modelId || '', protocol }, provider: provider?.id || settings.providerId,
-            prompt: (getTextInputList(fromRole('prompt')).length ? getTextInputList(fromRole('prompt')) : [settings.protocolParams.prompt || settings.prompt || '']).map(text => text.trim()),
-            cameraPrompt: getPrimaryTextInput(fromRole('camera_prompt')).trim(), generationCount: settings.generationCount,
+            prompt: prompts, cameraPrompt, generationCount: settings.generationCount,
+            ...(imageMentions.length ? { imageMentions } : {}),
             ...size,
             ...(['openai', 'ttapi-openai'].includes(protocol) ? { quality: settings.quality, moderation: settings.moderation, background: settings.background } : {}),
             ...(['google', 'ttapi'].includes(protocol) ? {

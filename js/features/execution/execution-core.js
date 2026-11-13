@@ -1,6 +1,8 @@
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
 import { validateUniversalImageInputs } from '../../nodes/universal-input-policy.js';
+import { normalizePromptImageMentions, resolvePromptImageMentions } from '../../nodes/prompt-image-mentions.js';
+import { resolveGenerationInputProjection } from '../../nodes/generation-input-projection.js';
 import { applyImageSaveMediaState, resolveImagePreviewInputState } from '../media/image-display-input-state.js';
 import { applyThinking, resolveThinking } from './thinking-config.js';
 /**
@@ -60,6 +62,7 @@ import {
 
 export function createExecutionCoreApi({
     state,
+    referenceImageCatalog = null,
     nodeConfigs,
     syncTextSplitNodeData = () => {},
     documentRef = document,
@@ -103,6 +106,34 @@ export function createExecutionCoreApi({
     connectionProjection = null,
     getImageHistorySidebarActive = () => false
 }) {
+    const sceneReferenceImages = new Map();
+
+    function canCaptureSceneReference(source) {
+        return source.sourceNodeId && !source.connectionId && (!source.workflowId || source.workflowId === getActiveWorkflowId());
+    }
+
+    function captureSceneReferenceImages(plan, signal) {
+        if (!referenceImageCatalog) return;
+        const sources = new Map();
+        const resetNodeIds = new Set(plan.mode === 'all' ? state.nodes.keys() : plan.scopeNodeSet || plan.executionOrder);
+        for (const nodeId of plan.executionOrder || []) {
+            for (const { source } of normalizePromptImageMentions(state.nodes.get(nodeId)?.data?.imagePromptMentions)) {
+                if (canCaptureSceneReference(source) && resetNodeIds.has(source.sourceNodeId)) sources.set(source.id, source);
+            }
+        }
+        if (!sources.size) return;
+        return (async () => {
+            for (const [id, source] of sources) {
+                signal?.throwIfAborted();
+                // Defer a missing/failed original to the specific node and prompt
+                // that uses it, instead of failing an unrelated workflow branch.
+                const image = await Promise.resolve().then(() => referenceImageCatalog.readImage(source, { state })).catch(() => '');
+                signal?.throwIfAborted();
+                sceneReferenceImages.set(id, image);
+            }
+        })();
+    }
+
     const imageAssetSaveChains = new Map();
     const imageAssetSaveFailures = new WeakMap();
 
@@ -1373,7 +1404,26 @@ export function createExecutionCoreApi({
         if (reason) throw new Error(reason);
     }
 
+    function resolveRequestMentions(node, inputs, prompts, { signal, videoPorts } = {}) {
+        const hasSnapshot = source => Boolean(signal && sceneReferenceImages.has(source.id));
+        return resolvePromptImageMentions({ node, inputs, prompts, videoPorts, signal, workflowId: getActiveWorkflowId(),
+            getUpstream: () => referenceImageCatalog?.getUpstream?.(node.id, { state }) || [],
+            readImage: source => hasSnapshot(source) ? sceneReferenceImages.get(source.id)
+                : referenceImageCatalog?.readImage(source, { state }) });
+    }
+
+    function withRequestMentions(node, inputs, prompts, build, options) {
+        const resolved = resolveRequestMentions(node, inputs, prompts, options);
+        return resolved instanceof Promise ? resolved.then(build) : build(resolved);
+    }
+
     function buildImageGenerateRequestPreview(node, inputs) {
+        const prompt = buildImageGeneratePrompt(node, inputs);
+        return withRequestMentions(node, inputs, [prompt], ({ inputs, prompts }) =>
+            renderImageGenerateRequestPreview(node, inputs, prompts[0]));
+    }
+
+    function renderImageGenerateRequestPreview(node, inputs, prompt) {
         const { id } = node;
         const settings = readImageGenerationSettings(node, documentRef);
         const { modelCfg, apiCfg, protocol } = resolveRequestNodeConfig(node, 'image');
@@ -1384,7 +1434,6 @@ export function createExecutionCoreApi({
         const background = settings.background;
         const mask = getImageGenerateMask(inputs);
         const searchEnabled = settings.search;
-        const prompt = buildImageGeneratePrompt(node, inputs);
         const protocolParams = getImageGenerateProtocolParams(node);
         const isGoogle = protocol === 'google';
         const isTtapi = protocol === 'ttapi';
@@ -1441,13 +1490,23 @@ export function createExecutionCoreApi({
         const { id } = node;
         const { modelCfg, apiCfg, protocol } = resolveRequestNodeConfig(node, 'video');
         const userPrompt = (getPrimaryTextInput(inputs.prompt)
+            || documentRef.querySelector?.(`#${id} [data-protocol-prompt="true"]`)?.value
             || documentRef.getElementById(`${id}-param-prompt`)?.value
             || documentRef.getElementById(`${id}-prompt`)?.value
             || '').trim();
         const systemPrompt = (documentRef.getElementById(`${id}-param-systemPrompt`)?.value || node?.data?.protocolParams?.systemPrompt || '').trim();
-        const prompt = appendReferenceDescriptions(systemPrompt ? systemPrompt + '\n' + userPrompt : userPrompt, state, id);
-        const protocolParams = node.data?.protocolParams || {};
         const declaredProtocol = getProtocolSnapshot(protocol);
+        const videoPorts = resolveGenerationInputProjection({ protocol: declaredProtocol, modelId: modelCfg.modelId, taskType: 'video' }).ports;
+        const prompt = appendReferenceDescriptions(userPrompt, state, id);
+        return withRequestMentions(node, inputs, [prompt, systemPrompt], ({ inputs, prompts }) => {
+            const [user, system] = prompts;
+            return renderVideoGenerateRequestPreview(node, inputs, system ? system + '\n' + user : user, { modelCfg, apiCfg, protocol, declaredProtocol });
+        }, { videoPorts });
+    }
+
+    function renderVideoGenerateRequestPreview(node, inputs, prompt, { modelCfg, apiCfg, protocol, declaredProtocol }) {
+        const { id } = node;
+        const protocolParams = node.data?.protocolParams || {};
         const declaredPlan = Object.keys(declaredProtocol?.variants || {}).length > 0
             ? compileVideoProtocol({
                 protocol: declaredProtocol,
@@ -1524,11 +1583,16 @@ export function createExecutionCoreApi({
         };
     }
 
-    function createTextChatRequestPlan(node, inputs) {
+    function readTextChatPrompts(node, inputs) {
         const { id } = node;
-        const { modelCfg, apiCfg, protocol } = resolveRequestNodeConfig(node, 'chat');
         const sysprompt = documentRef.getElementById(`${id}-sysprompt`)?.value || '';
         const prompt = appendReferenceDescriptions(getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '', state, id);
+        return [prompt, sysprompt];
+    }
+
+    function createTextChatRequestPlan(node, inputs, [prompt, sysprompt]) {
+        const { id } = node;
+        const { modelCfg, apiCfg, protocol } = resolveRequestNodeConfig(node, 'chat');
         return createChatRequestPlan({
             provider: apiCfg,
             model: modelCfg,
@@ -1543,11 +1607,11 @@ export function createExecutionCoreApi({
     }
 
     function buildTextChatRequestPreview(node, inputs) {
-        return {
+        return withRequestMentions(node, inputs, readTextChatPrompts(node, inputs), ({ inputs, prompts }) => ({
             nodeId: node.id,
             nodeType: node.type,
-            ...createTextChatRequestPlan(node, inputs).preview
-        };
+            ...createTextChatRequestPlan(node, inputs, prompts).preview
+        }));
     }
 
     function buildNodeRequestPreview(nodeId) {
@@ -1770,11 +1834,12 @@ export function createExecutionCoreApi({
         const settings = normalizeCommerceImageSetState(node.data?.commerceImageSet);
         const sourceImages = normalizeImageList(inputs.referenceImages);
         if (!sourceImages.length || sourceImages.length > 5) throw new Error('请连接 1 至 5 张商品参考图。');
-        const references = await Promise.all(sourceImages.map(async image => {
+        const readCommerceImage = async image => {
             if (isInlineImageData(image)) return image;
             if (isRemoteImageUrl(image)) return blobToDataUrl(await downloadGeneratedImage(image, signal));
             throw new Error('无法读取商品参考图，请重新连接原图。');
-        }));
+        };
+        const references = await Promise.all(sourceImages.map(readCommerceImage));
         signal?.throwIfAborted();
         if (commerceAction === 'plan' || commerceAction === 'replan-shot') {
             const replanningShot = commerceAction === 'replan-shot';
@@ -1875,15 +1940,21 @@ export function createExecutionCoreApi({
                             await saveImageGenerationHistoryEntry({ nodeId: node.id, image, prompt: shot.label,
                                 model: '商品原图', generationDurationSeconds: getNodeGenerationDurationSeconds(node) });
                         } else {
+                            const shotPrompt = buildCommerceImageSetImagePrompt({ shot, plan, productNotes: settings.productNotes });
+                            const resolved = await resolveRequestMentions(node, { referenceImages: sourceImages }, [shotPrompt], { signal });
+                            const extraImages = resolved.inputs.referenceImages.slice(sourceImages.length);
+                            if (references.length + extraImages.length > 5) throw new Error('每个图位最多使用 5 张参考图，请减少提示词引用或上游输入。');
+                            const shotInputs = extraImages.length ? { referenceImages: [...references, ...await Promise.all(extraImages.map(readCommerceImage))] } : generationInputs;
+                            assertImageInputCompatibility(node, shotInputs, imageSettings);
                             // Keep 4:5 exact at roughly 1K, using dimensions aligned to 16 pixels.
                             const size = imageSettings.resolution === '1K' && shot.aspect === '4:5'
                                 ? { resolution: 'custom', customWidth: '832', customHeight: '1040' }
                                 : { aspect: shot.aspect };
-                            const { image: generated } = await nodeHandlers.ImageGenerate(node, generationInputs, signal, {
+                            const { image: generated } = await nodeHandlers.ImageGenerate(node, shotInputs, signal, {
                                 commerceImageRequest: {
                                     action: commerceAction,
                                     shot,
-                                    prompt: buildCommerceImageSetImagePrompt({ shot, plan, productNotes: settings.productNotes }),
+                                    prompt: resolved.prompts[0],
                                     settings: { ...imageSettings, ...size }
                                 }
                             });
@@ -2028,6 +2099,10 @@ export function createExecutionCoreApi({
             let sequentialRequestIndex;
 
             try {
+                const promptText = prepared?.prompt || buildImageGeneratePrompt(node, inputs);
+                const resolved = prepared ? { inputs, prompts: [promptText] }
+                    : await resolveRequestMentions(node, inputs, [promptText], { signal });
+                inputs = resolved.inputs;
                 if (!prepared) assertImageInputCompatibility(node, inputs, settings);
                 const configId = settings.apiConfigId;
                 const modelCfg = state.models.find((model) => model.id === configId);
@@ -2042,7 +2117,7 @@ export function createExecutionCoreApi({
                 const moderation = settings.moderation;
                 const background = settings.background;
                 const searchEnabled = settings.search;
-                const prompt = prepared?.prompt || buildImageGeneratePrompt(node, inputs);
+                const [prompt] = resolved.prompts;
                 const protocolParams = prepared ? settings.protocolParams : getImageGenerateProtocolParams(node);
 
                 if (!apiCfg.apikey) throw new Error('API 提供商密钥未配置');
@@ -2481,8 +2556,18 @@ export function createExecutionCoreApi({
                 throw err;
             }
         },
-        VideoGenerate: async (node, inputs, signal, executionContext = {}) => asyncMediaExecution.runVideoGenerateNode(node, inputs, signal,
-            executionContext.videoExecutionInput),
+        VideoGenerate: async (node, inputs, signal, { videoExecutionInput } = {}) => {
+            if (videoExecutionInput?.valid) {
+                const { controls, prompt, projection } = videoExecutionInput;
+                const systemPrompt = String(controls.protocolParams?.systemPrompt || '');
+                const resolved = await resolveRequestMentions(node, videoExecutionInput.inputs, [prompt, systemPrompt], { signal, videoPorts: projection?.ports });
+                if (resolved.inputs !== videoExecutionInput.inputs) {
+                    videoExecutionInput = { ...videoExecutionInput, inputs: resolved.inputs, prompt: resolved.prompts[0],
+                        controls: { ...controls, protocolParams: { ...controls.protocolParams, systemPrompt: resolved.prompts[1] } } };
+                }
+            }
+            return asyncMediaExecution.runVideoGenerateNode(node, inputs, signal, videoExecutionInput);
+        },
         TextChat: async (node, inputs, signal, executionContext = {}) => {
             const { id } = node;
             const fixedToggle = documentRef.getElementById(`${id}-fixed`);
@@ -2508,8 +2593,9 @@ export function createExecutionCoreApi({
             if (!apiCfg) throw new Error('未找到绑定的 API 提供商');
             node.providerId = resolvedProviderId;
 
-            const sysprompt = documentRef.getElementById(`${id}-sysprompt`).value;
-            const prompt = appendReferenceDescriptions(getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`).value, state, id);
+            const resolved = await resolveRequestMentions(node, inputs, readTextChatPrompts(node, inputs), { signal });
+            const [prompt, sysprompt] = resolved.prompts;
+            inputs = resolved.inputs;
             const responseArea = documentRef.getElementById(`${id}-response`);
 
             if (!apiCfg.apikey) throw new Error('API 提供商密钥未配置');
@@ -2893,6 +2979,7 @@ export function createExecutionCoreApi({
         topologicalSort,
         getCachedOutputValue,
         buildNodeRequestPreview,
+        captureSceneReferenceImages,
         downloadGeneratedImage,
         downloadGeneratedVideo,
         resumeVideoGeneration: asyncMediaExecution.resumeVideoGeneration,

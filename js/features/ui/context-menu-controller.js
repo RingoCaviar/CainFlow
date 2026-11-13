@@ -325,18 +325,20 @@ export function createContextMenuControllerApi({
         return JSON.stringify(payload, null, 2);
     }
 
-    function openRequestBodyPreviewDialog(nodeId) {
+    async function openRequestBodyPreviewDialog(nodeId) {
         if (typeof buildNodeRequestPreview !== 'function') {
             showToast?.('当前版本未接入请求体预览能力', 'warning');
             return;
         }
         let preview = null;
+        const node = state.nodes.get(nodeId);
         try {
-            preview = buildNodeRequestPreview(nodeId);
+            preview = await buildNodeRequestPreview(nodeId);
         } catch (error) {
-            showToast?.(`请求体预览失败：${error.message || error}`, 'error', 5000);
+            if (state.nodes.get(nodeId) === node) showToast?.(`请求体预览失败：${error.message || error}`, 'error', 5000);
             return;
         }
+        if (state.nodes.get(nodeId) !== node) return;
 
         const dialog = getRequestBodyPreviewDialog();
         dialog.innerHTML = `

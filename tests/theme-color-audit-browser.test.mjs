@@ -9,7 +9,7 @@ import { parseColor, composite, contrastRatio, renderComputedFixture } from './h
 const themes = ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink'];
 const session = { autoCheckUpdatesOnLoad: false, models: [{ id: 'chat', modelId: 'test', name: '受控对话', protocol: 'openai', taskType: 'chat', providerIds: ['p'] }], providers: [{ id: 'p', name: 'Controlled', endpoint: 'https://controlled.test/v1', apikey: 'test' }] };
 test('feature colors cannot reintroduce missing palette names or leak protocol button colors', () => {
-    for(const file of ['css/prompt-agent.css','css/protocol-developer-panel.css']) {
+    for(const file of ['css/prompt-agent.css','css/protocol-developer-panel.css','css/features/image-mention-picker.css']) {
         const css=readFileSync(new URL(`../${file}`,import.meta.url),'utf8');
         assert.doesNotMatch(css,/var\(--(?:bg-primary|bg-secondary|bg-tertiary|accent-color|accent-subtle|danger-color|success-color|warning-color)[,)]/);
     }
@@ -41,16 +41,17 @@ async function capture(send, name) {
 }
 
 test('dynamic Agent and protocol surfaces remain readable across seven live theme switches', { timeout: 60000 }, async () => {
-    await withAppBrowser(session, async ({ evaluate, send, waitFor }) => {
+    const withMention = { ...session, nodes: [{ id: 'mention-node', type: 'ImageImport', customTitle: '参考图片', x: 20, y: 60 }], connections: [] };
+    await withAppBrowser(withMention, async ({ evaluate, send, waitFor }) => {
         const failures = [];
-        await evaluate(`(async () => { window.readColors = selector => [...document.querySelectorAll(selector)].filter(e => e.getClientRects().length && !e.matches('[type=checkbox], [type=radio], :disabled')).map(e => {
+        await evaluate(`(() => { window.readColors = selector => [...document.querySelectorAll(selector)].filter(e => e.getClientRects().length && !e.matches('[type=checkbox], [type=radio], :disabled')).map(e => {
             const s=getComputedStyle(e), backgrounds=[];
             for(let p=e;p;p=p.parentElement) backgrounds.push(getComputedStyle(p).backgroundColor);
             return { label:e.className || e.id, text:e.textContent.slice(0,50), color:s.color, backgrounds, image:s.backgroundImage, outline:s.outlineStyle, outlineColor:s.outlineColor };
         }); document.getElementById('btn-prompt-agent').click(); document.getElementById('prompt-agent-panel').style.width='300px';
-        const {attachCanvasMentions}=await import('/js/features/prompt-agent/prompt-agent-canvas-ui.js');
-        window.qaMentions=attachCanvasMentions({documentRef:document,input:document.getElementById('prompt-agent-input'),adapter:{context:()=>({nodes:[{id:'test-node',name:'参考图片',type:'ImageInput'}]})}});
-        const input=document.getElementById('prompt-agent-input'); input.value='@'; input.selectionStart=1; input.dispatchEvent(new Event('input',{bubbles:true})); })()`);
+        const input=document.getElementById('prompt-agent-input'); input.value='@'; input.setSelectionRange(1,1); input.dispatchEvent(new Event('input',{bubbles:true}));
+        document.querySelector('.image-mention-picker [data-mention-mode=extra]').click(); })()`);
+        await waitFor(`Boolean(document.querySelector('.image-mention-option[aria-selected=true]'))`);
         const check = (rows, theme, area) => {
             for (const row of rows) {
                 let bg = [255,255,255,1];
@@ -61,18 +62,19 @@ test('dynamic Agent and protocol surfaces remain readable across seven live them
         };
         for (const theme of themes) {
             await evaluate(`document.documentElement.dataset.appTheme='${theme}'`); await delay(250);
-            const rows = await evaluate(`readColors('.prompt-agent-node-mentions, .prompt-agent-node-mentions button')`);
+            const rows = await evaluate(`readColors('.image-mention-picker, .image-mention-option[aria-selected=true], .image-mention-name, .image-mention-source, .image-mention-modes button')`);
             check(rows.slice(1), theme, 'mentions');
             if (parseColor(rows[0].backgrounds[0])[3] !== 1) failures.push(`${theme} mentions surface must be opaque`);
-            if (rows[1].outline === 'none') failures.push(`${theme} mention selection has no visible indicator`);
+            const selected = rows.find(row => row.label === 'image-mention-option');
+            if (selected.outline === 'none') failures.push(`${theme} mention selection has no visible indicator`);
             let selectedBackground=[255,255,255,1];
-            for(const color of rows[1].backgrounds.toReversed()) selectedBackground=composite(parseColor(color),selectedBackground);
-            assert.ok(contrastRatio(parseColor(rows[1].outlineColor),selectedBackground)>=3, `${theme} selected outline contrast`);
+            for(const color of selected.backgrounds.toReversed()) selectedBackground=composite(parseColor(color),selectedBackground);
+            assert.ok(contrastRatio(parseColor(selected.outlineColor),selectedBackground)>=3, `${theme} selected outline contrast`);
             await capture(send, `agent-${theme}`);
         }
         await send('Emulation.setDeviceMetricsOverride', { width: 640, height: 720, deviceScaleFactor: 1, mobile: false });
         await delay(250);
-        await evaluate(`qaMentions.close(); document.querySelector('#prompt-agent-model + .prompt-agent-model-trigger').click()`);
+        await evaluate(`document.querySelector('.image-mention-dismiss').click(); document.querySelector('#prompt-agent-model + .prompt-agent-model-trigger').click()`);
         await waitFor(`Boolean(document.querySelector('.prompt-agent-model-menu'))`);
         for(const theme of themes) {
             await evaluate(`document.documentElement.dataset.appTheme='${theme}'`);await delay(250);
@@ -82,7 +84,7 @@ test('dynamic Agent and protocol surfaces remain readable across seven live them
             await capture(send, `model-narrow-${theme}`);
         }
         await send('Emulation.setDeviceMetricsOverride', { width: 1700, height: 1000, deviceScaleFactor: 1, mobile: false });
-        await evaluate(`qaMentions.close(); document.getElementById('btn-settings').dispatchEvent(new MouseEvent('click',{bubbles:true,ctrlKey:true})); document.getElementById('btn-open-protocol-dev').click();`);
+        await evaluate(`document.getElementById('btn-settings').dispatchEvent(new MouseEvent('click',{bubbles:true,ctrlKey:true})); document.getElementById('btn-open-protocol-dev').click();`);
         await waitFor(`Boolean(document.querySelector('.btn-edit-protocol'))`);
         await evaluate(`document.querySelector('.btn-edit-protocol').click()`);
         await waitFor(`Boolean(document.querySelector('.parameter-row input'))`);

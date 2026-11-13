@@ -6,6 +6,7 @@ import { cleanupElementResources } from '../core/common-utils.js';
 import { createSelectionApi } from '../canvas/selection.js';
 import { appendMappedConnectionSnapshots } from '../canvas/connection-copy-utils.js';
 import { normalizeCommerceImageSetState } from '../features/ecommerce-image-set/commerce-image-set-plan.js';
+import { normalizePromptImageMentions } from './prompt-image-mentions.js';
 import {
     normalizeConcurrentRequestStatusPayload,
     renderConcurrentRequestStatusPanel
@@ -32,6 +33,7 @@ export function createNodeLifecycleApi({
     createNodeMarkup,
     nodesLayer,
     generateId,
+    getActiveWorkflowId = () => state.activeWorkflowId || '',
     getImageAsset,
     getImageAssetList = async () => [],
     persistInlineImageImport = null,
@@ -1298,7 +1300,8 @@ export function createNodeLifecycleApi({
             defaultTitle: config.title,
             customTitle: normalizeCustomNodeTitle(effectiveRestoreData?.customTitle || ''),
             agentReferenceSource: normalizedType === 'ImageImport' && effectiveRestoreData?.agentReferenceSource
-                ? { historyId: String(effectiveRestoreData.agentReferenceSource.historyId || ''), assetKey: String(effectiveRestoreData.agentReferenceSource.assetKey || '') } : null,
+                ? { historyId: String(effectiveRestoreData.agentReferenceSource.historyId || ''), assetKey: String(effectiveRestoreData.agentReferenceSource.assetKey || ''),
+                    ...(effectiveRestoreData.agentReferenceSource.historyVersion ? { historyVersion: String(effectiveRestoreData.agentReferenceSource.historyVersion) } : {}) } : null,
             isClone: effectiveRestoreData?.isClone === true && typeof effectiveRestoreData?.cloneSourceId === 'string' && !!effectiveRestoreData.cloneSourceId,
             cloneSourceId: typeof effectiveRestoreData?.cloneSourceId === 'string' ? effectiveRestoreData.cloneSourceId : ''
         };
@@ -1333,6 +1336,8 @@ export function createNodeLifecycleApi({
         if (effectiveRestoreData?.protocolParams) {
             nodeData.data.protocolParams = clonePlainValue(effectiveRestoreData.protocolParams);
         }
+        const imagePromptMentions = normalizePromptImageMentions(effectiveRestoreData?.imagePromptMentions);
+        if (imagePromptMentions.length) nodeData.data.imagePromptMentions = imagePromptMentions;
         if (normalizedType === 'ECommerceImageSet') {
             nodeData.data.commerceImageSet = normalizeCommerceImageSetState(effectiveRestoreData?.commerceImageSet);
         }
@@ -2230,11 +2235,13 @@ export function createNodeLifecycleApi({
             connection?.to?.port
         ));
 
+        const workflowId = getActiveWorkflowId();
         return appendMappedConnectionSnapshots({
             state,
             idMap: new Map([[sourceNodeId, cloneNodeId]]),
             externalConnections: incomingConnections,
-            includeExternalConnections: true
+            includeExternalConnections: true,
+            remapPromptMentions: { fromWorkflowId: workflowId, toWorkflowId: workflowId }
         }).added;
     }
 

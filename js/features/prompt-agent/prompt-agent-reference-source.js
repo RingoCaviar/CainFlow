@@ -17,8 +17,9 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
         catch { /* Browser storage can be unavailable; the current candidate still keeps the edit. */ }
     };
     const assetKey = node => node?.imageImportAssetKey || node?.data?.imageImportAssetKey || '';
-    const reusable = (node, id) => node?.type === 'ImageImport' && node.importMode !== 'url'
-        && node.agentReferenceSource?.historyId === String(id)
+    const reusable = (node, candidate) => node?.type === 'ImageImport' && node.importMode !== 'url'
+        && node.agentReferenceSource?.historyId === String(candidate.historyId)
+        && (!candidate.historyVersion || node.agentReferenceSource.historyVersion === candidate.historyVersion)
         && node.agentReferenceSource.assetKey === assetKey(node) && assetKey(node);
     async function listHistory() {
         // History metadata exposes local thumbnail URLs, never hydrated originals.
@@ -27,20 +28,21 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
         return entries.filter(item => item.mediaType !== 'video').sort((a, b) => Number(b.timestamp) - Number(a.timestamp)).map(item => ({
             referenceId: `history:${item.id}`, historyId: String(item.id),
             name: item.name || item.title || `历史图片 ${item.id}`, prompt: item.prompt || '',
-            timestamp: item.timestamp, thumbAssetKey: item.thumbAssetKey, previewUrl: item.thumb || '',
+            timestamp: item.timestamp, historyVersion: item.fileVersion, thumbAssetKey: item.thumbAssetKey, previewUrl: item.thumb || '',
             description: descriptions[item.id] || ''
         }));
     }
     async function readHistory(candidate) {
-        const entry = await getHistoryEntry(candidate.historyId);
+        const entry = await getHistoryEntry(candidate.historyId, { fileVersion: candidate.historyVersion });
+        if (candidate.historyVersion && entry?.fileVersion !== candidate.historyVersion) throw new Error('历史图片已变化，请刷新后重新选择。');
         if (!entry?.image?.startsWith('data:image/')) throw new Error('历史原图缺失，请重新导入图片。');
         return { name: candidate.name, description: candidate.description ?? readDescriptions()[candidate.historyId] ?? '', dataUrl: entry.image, type: entry.image.slice(5, entry.image.indexOf(';')) };
     }
     async function importReference(candidate, { isCurrent, read, slot = 0, onSourceNode = () => {} } = {}) {
         if (!isCurrent()) return null;
         let node = candidate.nodeId ? state.nodes.get(candidate.nodeId) : null;
-        if (!node && candidate.historyId) node = [...state.nodes.values()].find(item => reusable(item, candidate.historyId));
-        if (node && reusable(node, candidate.historyId)) {
+        if (!node && candidate.historyId) node = [...state.nodes.values()].find(item => reusable(item, candidate));
+        if (node && reusable(node, candidate)) {
             onSourceNode(node.id);
             const scene = nodeAdapter.getSceneReferenceImages().find(item => item.sourceNodeId === node.id);
             const result = await nodeAdapter.readSceneReferenceImage(scene);
@@ -48,7 +50,7 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
         }
         const image = candidate.resolvedImage || await (candidate.webImage
             ? readWebImage(candidate.webImage.imageUrl).then(dataUrl => ({ name: candidate.name, dataUrl, type: dataUrl.slice(5, dataUrl.indexOf(';')) }))
-            : candidate.historyId ? readHistory(candidate) : read());
+            : read ? read() : readHistory(candidate));
         if (!isCurrent()) return null;
         candidate.resolvedImage = image;
         if (!image?.dataUrl?.startsWith('data:image/')) throw new Error('无法读取图片。');
@@ -72,6 +74,7 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
         if (candidate.description) setImageDescription(node, candidate.description);
         candidate.savedAssetKey = assetKey(node);
         if (candidate.historyId) node.agentReferenceSource = { historyId: String(candidate.historyId), assetKey: assetKey(node),
+            ...(candidate.historyVersion ? { historyVersion: candidate.historyVersion } : {}),
             ...(candidate.webImage ? { web: { ...candidate.webImage } } : {}) };
         scheduleSave();
         const scene = nodeAdapter.getSceneReferenceImages().find(item => item.sourceNodeId === node.id);
@@ -151,7 +154,7 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
     return { listHistory, readHistory, saveDescription, importReference, getContextReferences, hydrateLatestResults, preparePlanReferences,
         getReferenceId: candidate => {
             if (!candidate.historyId) return candidate.referenceId;
-            const node = candidate.historyId && [...state.nodes.values()].find(item => reusable(item, candidate.historyId));
+            const node = [...state.nodes.values()].find(item => reusable(item, candidate));
             return nodeAdapter.getSceneReferenceImages().find(item => item.sourceNodeId === node?.id)?.referenceId || candidate.referenceId;
         },
         loadThumbnail: candidate => candidate.thumbAssetKey ? getImageAsset(candidate.thumbAssetKey) : Promise.resolve('') };

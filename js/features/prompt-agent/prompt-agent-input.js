@@ -6,6 +6,11 @@ function isImageSource(source, protocol) {
         || (protocol !== 'google' && /^https:\/\//i.test(source)));
 }
 
+function findReferenceImageId(images, image) {
+    return (image.referenceId && images.find(entry => entry.reference.referenceId === image.referenceId)?.imageId)
+        || images.find(entry => entry.source === image.dataUrl)?.imageId || null;
+}
+
 function projectHistory(conversation, images) {
     const history = [];
     const omitted = Boolean(conversation?.messageOffset);
@@ -37,8 +42,9 @@ function projectHistory(conversation, images) {
             ...(message.referenceImages?.length ? { referenceImages: message.referenceImages.map((image, index) => ({
                 referenceNumber: index + 1,
                 name: image.name,
+                ...(image.mentionToken ? { mentionToken: image.mentionToken } : {}),
                 ...(image.description ? { description: image.description } : {}),
-                imageId: images.find((entry) => entry.source === image.dataUrl)?.imageId || null
+                imageId: findReferenceImageId(images, image)
             })) } : {})
         });
         history.unshift({ role: message.role === 'agent' ? 'assistant' : 'user', content });
@@ -106,6 +112,10 @@ export function createPromptAgentInput({
             if (referenceNumber !== null) {
                 entry.referenceNumbers ||= [];
                 entry.referenceNumbers.push(referenceNumber);
+                if (image.mentionToken) {
+                    entry.mentionTokens ||= [];
+                    entry.mentionTokens.push(image.mentionToken);
+                }
             }
         });
     };
@@ -154,8 +164,9 @@ export function createPromptAgentInput({
                 referenceImages: turn.referenceImages.map((image, referenceIndex) => ({
                     referenceNumber: referenceIndex + 1,
                     name: image.name,
+                    ...(image.mentionToken ? { mentionToken: image.mentionToken } : {}),
                     ...(image.description ? { description: image.description } : {}),
-                    imageId: images.find((entry) => entry.source === image.dataUrl)?.imageId || null
+                    imageId: findReferenceImageId(images, image)
                 }))
             }] : []
         )),

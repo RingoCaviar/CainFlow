@@ -251,6 +251,57 @@ test('late latest-result reads cannot submit into a restored or cleared conversa
     }
 });
 
+test('text-only Agent models stop explicit image mentions before consuming the draft', async () => {
+    for (const model of [
+        { ...TEST_CHAT_MODEL, capabilities: { imageInput: false } },
+        { ...TEST_CHAT_MODEL, protocol: 'openai', modelId: 'o3-mini' }
+    ]) {
+        const requests = [];
+        const { controller, elements } = createHarness(async request => { requests.push(request); return { message: '已收到' }; }, undefined, null, {
+            getChatModels: () => [model], getProviders: () => [{ ...TEST_COMPACTION_PROVIDER, endpoint: 'https://api.openai.com/v1' }]
+        });
+        const original = { name: '参考原图', dataUrl: 'data:image/png;base64,AAAA', sourceNodeId: 'reference' };
+        const request = '查看 @图片1';
+        controller.restoreWorkflow({ draft: { text: request, referenceImages: [{ ...original, mentionToken: '@图片1', mentionOnly: true }] } });
+        await controller.submit();
+        assert.equal(requests.length, 0);
+        assert.equal(elements['prompt-agent-input'].value, request);
+        assert.match(elements['prompt-agent-reference-error'].textContent, /不支持图片输入/);
+        assert.equal(controller.snapshotWorkflow().draft.referenceImages[0].dataUrl, original.dataUrl);
+
+        controller.restoreWorkflow({ draft: { text: '描述构图', referenceImages: [original] } });
+        await controller.submit();
+        assert.equal(requests.length, 1, 'ordinary attachment metadata retains its existing text-only fallback');
+    }
+});
+
+test('removing a mentioned image during compaction or image loading cancels submission', async () => {
+    for (const phase of ['compaction', 'image read']) {
+        let finish, requests = 0;
+        const app = createWorkflowHarness(async () => { requests++; return { message: 'unexpected' }; }, phase === 'compaction' ? {
+            getAutoCompactTokenLimit: () => 4000,
+            createCompaction: () => new Promise(resolve => { finish = () => resolve({ summary: '压缩摘要' }); })
+        } : {
+            referenceSource: { getContextReferences: () => [],
+                hydrateLatestResults: images => new Promise(resolve => { finish = () => resolve(images); }) }
+        });
+        const original = { name: '参考原图', dataUrl: 'data:image/png;base64,AAAA', sourceNodeId: 'reference', mentionToken: '@图片1', mentionOnly: true };
+        app.controller.restoreWorkflow({
+            messages: phase === 'compaction' ? [{ role: 'user', text: '压缩前旧记录'.repeat(5000) }] : [],
+            draft: { text: '查看 @图片1', referenceImages: [original] }
+        });
+        const sending = app.controller.submit();
+        assert.equal(typeof finish, 'function');
+        if (phase === 'compaction') app.controller.removeNodeReferences(['reference']);
+        else enterText(app.elements, '查看');
+        finish();
+        await sending;
+        assert.equal(requests, 0);
+        assert.match(app.elements['prompt-agent-command-status'].textContent, /@图片1 对应的参考图已不可用/);
+        assert.doesNotMatch(JSON.stringify(app.controller.snapshotWorkflow().messages || []), /查看 @图片1/);
+    }
+});
+
 test('server calibration is displayed but not persisted or carried into another workflow', async () => {
     const { controller, elements } = createHarness(async request => ({ message: '收到', intent: 'chat', tokenObservation: {
         inputTokens: 3000, measurement: measurePromptAgentContext({ ...request, model: TEST_CHAT_MODEL })

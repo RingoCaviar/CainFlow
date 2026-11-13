@@ -154,15 +154,20 @@ class MediaLibrary:
                 failures.append({'id': entry['id'], 'message': str(error)})
         return failures
 
-    def _item(self, row):
+    def _item(self, row, thumbnail_urls=False):
         metadata = json.loads(row['metadata'])
         media_type = 'video' if row['mime'].startswith('video/') else 'image'
         url = f"/api/storage/library/{row['id']}/file"
-        metadata.update(fileVersion=f"{row['size']}:{row['mtime']}", id=row['id'], mediaType=media_type, fileUrl=url, directory=row['root'], relativePath=row['path'],
+        version = f"{row['size']}:{row['mtime']}"
+        metadata.update(fileVersion=version, id=row['id'], mediaType=media_type, fileUrl=url, directory=row['root'], relativePath=row['path'],
                         timestamp=metadata.get('timestamp') or row['mtime'] // 1000000,
                         videoMimeType=row['mime'] if media_type == 'video' else '', videoSizeBytes=row['size'] if media_type == 'video' else 0)
         # Directory originals are authoritative; cached media identities never replace them.
-        metadata['thumb'] = metadata.get('thumb', '')
+        if thumbnail_urls:
+            if metadata.pop('thumb', ''):
+                metadata['thumbUrl'] = f"/api/storage/library/{row['id']}/thumbnail?v={version}"
+        else:
+            metadata['thumb'] = metadata.get('thumb', '')
         metadata['hasImage'] = media_type == 'image'
         metadata['hasVideo'] = media_type == 'video'
         metadata['imageAssetKey'] = ''
@@ -190,7 +195,7 @@ class MediaLibrary:
                     elif stat.S_ISREG(info.st_mode) and os.path.splitext(entry.name)[1].lower() in IMAGE_EXTENSIONS | VIDEO_EXTENSIONS:
                         yield os.path.relpath(entry.path, root), info
 
-    def list_page(self, limit=0):
+    def list_page(self, limit=0, thumbnail_urls=False):
         root = self._root()
         if not os.path.isdir(root):
             raise FileNotFoundError('保存目录不存在或暂时不可访问')
@@ -228,7 +233,7 @@ class MediaLibrary:
                 batch = ids[offset:offset + 500]
                 rows.update((row['id'], row) for row in db.execute(
                     'SELECT * FROM files WHERE id IN (' + ','.join('?' for _ in batch) + ')', batch))
-            return {'items': [self._item(rows[identifier]) for identifier in ids], 'count': len(visible)}
+            return {'items': [self._item(rows[identifier], thumbnail_urls) for identifier in ids], 'count': len(visible)}
 
     def _current_row(self, identifier):
         with self._db() as db:
@@ -246,13 +251,36 @@ class MediaLibrary:
             row = self._current_row(identifier)
             return self._item(row) if row else None
 
-    def read(self, identifier):
+    def read(self, identifier, version=None):
         with self.storage._lock:
             row = self._current_row(identifier)
             if not row:
                 return None
             with open(self._path(row), 'rb') as file:
-                return row['mime'], file.read()
+                if version is None:
+                    return row['mime'], file.read()
+                def check_version():
+                    info = os.fstat(file.fileno())
+                    if version != f"{info.st_size}:{info.st_mtime_ns}":
+                        raise ValueError('文件已变化，请重新选择历史图片')
+                check_version()
+                body = file.read()
+                check_version()
+                return row['mime'], body
+
+    def read_thumbnail(self, identifier, version):
+        with self.storage._lock:
+            row = self._current_row(identifier)
+            if not row or version != f"{row['size']}:{row['mtime']}":
+                return None
+            info = os.stat(self._path(row))
+            if version != f"{info.st_size}:{info.st_mtime_ns}":
+                return None
+            source = json.loads(row['metadata']).get('thumb') or ''
+            match = re.fullmatch(r'data:(image/(?:webp|jpeg|png));base64,(.+)', source)
+            if match:
+                return match.group(1), base64.b64decode(match.group(2), validate=True)
+            return None
 
     def update_thumbnail(self, identifier, thumb, version=None):
         if not isinstance(thumb, str) or len(thumb) > 700000 or not thumb.startswith(('data:image/webp;base64,', 'data:image/jpeg;base64,', 'data:image/png;base64,')):

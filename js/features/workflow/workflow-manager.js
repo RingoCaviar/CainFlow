@@ -38,6 +38,7 @@ import {
 import { removeWorkflowTabsTransaction } from './workflow-tab-close.js';
 import { serializeConnection } from '../../canvas/connection-snapshot.js';
 import { applyWorkflowPersistenceExtensions } from '../../nodes/node-persistence-extensions.js';
+import { remapCopiedPromptImageMentions } from '../../nodes/prompt-image-mentions.js';
 import { createLegacyMediaMigrationCoordinator } from '../media/legacy-media-migration.js';
 import {
     createMediaOwnershipCoordinator,
@@ -422,11 +423,16 @@ export function createWorkflowManagerApi({
             const data = cloneWorkflowData(tab.data);
             data.workflowId = operation.newWorkflowId;
             data.mediaOwnershipRevision = 0;
+            const nodeIds = new Map((data.nodes || []).map(node => [node.id, node.id]));
+            const connectionIds = new Map((data.connections || []).map(edge => [edge.id, edge.id]));
             for (const node of data.nodes || []) {
                 // Temporary writes belong to the source workflow. The copy's
                 // formal owner keeps the shared asset without releasing them.
                 if (node.data) delete node.data.mediaOwnershipTemporaryOwners;
                 delete node.mediaOwnershipTemporaryOwners;
+                if (node.imagePromptMentions?.length) node.imagePromptMentions = remapCopiedPromptImageMentions(node.imagePromptMentions, {
+                    nodeIds, connectionIds, fromWorkflowId: operation.workflowId, toWorkflowId: operation.newWorkflowId
+                });
             }
             for (const run of getPromptAgentResultRuns(data)) {
                 // The copy gains its own durable owner during the normal save.

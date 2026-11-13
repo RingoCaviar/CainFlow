@@ -130,9 +130,10 @@ export function createClipboardControllerApi({
             return showToast('剪贴板为空', 'warning');
         }
 
+        const currentWorkflowId = getWorkflowId();
         const includeExternalConnections = options.includeExternalConnections === true
             && Boolean(state.clipboard.sourceWorkflowId)
-            && state.clipboard.sourceWorkflowId === getWorkflowId();
+            && state.clipboard.sourceWorkflowId === currentWorkflowId;
         const mousePos = options.position && Number.isFinite(options.position.x) && Number.isFinite(options.position.y)
             ? options.position
             : state.mouseCanvas;
@@ -158,7 +159,8 @@ export function createClipboardControllerApi({
             idMap,
             internalConnections: clip.connections || [],
             externalConnections: clip.externalConnections || [],
-            includeExternalConnections
+            includeExternalConnections,
+            remapPromptMentions: { fromWorkflowId: clip.sourceWorkflowId, toWorkflowId: currentWorkflowId }
         });
 
         updateAllConnections();

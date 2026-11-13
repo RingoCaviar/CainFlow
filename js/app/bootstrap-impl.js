@@ -1,6 +1,7 @@
 import { confirmAction } from '../features/ui/app-dialogs.js';
 import { createRetiredSaveNodeCleanup } from '../features/persistence/retired-save-nodes.js';
 import { createImageFirstCanvas } from '../features/ui/image-first-canvas.js';
+import { createReferenceImageCatalog } from '../features/media/reference-image-catalog.js';
 import { createImageGenerationRevisionApi } from '../nodes/image-generation-revision.js';
 import { getImageOutputAssets, readPrimaryImageOutput } from '../nodes/image-output-projection.js';
 import { createAgentChatModelPreference } from '../features/prompt-agent/prompt-agent-model-preference.js';
@@ -327,6 +328,10 @@ const {
     trimHistoryCache,
     deleteHistoryEntry
 } = indexedDbApi;
+const referenceImageCatalog = createReferenceImageCatalog({
+    state, getHistoryMetadata, getHistoryEntry, getImageAsset, getImageAssetList,
+    createThumbnail: source => mediaControllerApi.createReferenceThumbnail(source)
+});
 const cameraControlNodeApi = createCameraControlNodeApi({
     state,
     getImageAsset,
@@ -718,6 +723,7 @@ document.addEventListener('input', observeNodeInputRevision);
 document.addEventListener('change', observeNodeInputRevision);
 registry.imageFirstCanvasApi = createImageFirstCanvas({
     state, selectionApi, documentRef: document, windowRef: window, storage: diskStorage,
+    bindReferencePrompt: (node, input) => nodeDomBindingsApi.bindReferencePrompt(node, input),
     panelManager,
     openResultPreview: (images, index, onClose) => openFullscreenPreview(images[index], null, { images, index, onClose }),
     openShotError: (label, reason) => showErrorModal('', reason, null, `「${label}」生成失败`),
@@ -767,6 +773,7 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
 const nodeDomBindingsApi = createNodeDomBindingsApi({
     onNodeBound: id => { registry.imageFirstCanvasApi.install(id); registry.imageGenerationRevisionApi.initializeNode(id); },
     state,
+    referenceImageCatalog,
     selectionApi,
     canvasContainer,
     connectionsGroup,
@@ -1137,6 +1144,7 @@ const promptAgentController = createPromptAgentController({
     onNativeClipboardWrite: () => getClipboardControllerApi().markNativeClipboardWrite(),
     onDraftChange: () => workflowManagerApi.markActiveWorkflowDirty({ capture: false }),
     canvasAdapter: promptAgentCanvasAdapter,
+    referenceImageCatalog,
     panelManager,
     getSearchModels: () => state.models.filter(model => !model.taskType || model.taskType === 'chat'),
     getProviders: () => state.providers,
@@ -1637,6 +1645,7 @@ function getNodeLifecycleApi() {
     if (!registry.nodeLifecycleApi) {
         registry.nodeLifecycleApi = createNodeLifecycleApi({
             state,
+            getActiveWorkflowId: () => workflowManagerApi.getActiveWorkflowId(),
             selectionApi,
             nodeConfigs: NODE_CONFIGS,
             createNodeMarkup,
@@ -1733,6 +1742,7 @@ function getExecutionCoreApi() {
     if (!registry.executionCoreApi) {
         registry.executionCoreApi = createExecutionCoreApi({
             state,
+            referenceImageCatalog,
             nodeConfigs: NODE_CONFIGS,
             syncTextSplitNodeData: (nodeId) => nodeDomBindingsApi.syncTextSplitNodeData(nodeId),
             showToast,
@@ -1837,6 +1847,7 @@ function getWorkflowRuntimeManagerApi() {
     if (!registry.workflowRuntimeManagerApi) {
         registry.workflowRuntimeManagerApi = createWorkflowRuntimeManager({
             state,
+            referenceImageCatalog,
             nodeConfigs: NODE_CONFIGS,
             createNodeMarkup,
             createBezierPath: createBezierPathService,

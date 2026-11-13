@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createExecutionCoreApi } from '../js/features/execution/execution-core.js';
+import { resolveVideoExecutionInputRecord } from '../js/nodes/video-execution-input-record.js';
+import { getProtocolSnapshot } from '../js/features/execution/protocols/index.js';
 import '../js/features/execution/protocols/api6789-video.js';
 import '../js/features/execution/protocols/veo-unified.js';
 
-function createVideoExecutionApi({ node, elements, onRequestBody, model = {
+function createVideoExecutionApi({ node, elements, onRequestBody, referenceImageCatalog, model = {
     id: 'model-1', name: 'Kling O3', modelId: 'kling-o3',
     protocol: 'async-video-api', providerIds: ['provider-1']
 } }) {
@@ -18,6 +20,7 @@ function createVideoExecutionApi({ node, elements, onRequestBody, model = {
                 id: 'provider-1', name: 'Relay', endpoint: 'https://relay.example', apikey: '<REDACTED>'
             }]
         },
+        referenceImageCatalog,
         nodeConfigs: {},
         documentRef: {
             getElementById: (id) => elements.get(id) || null,
@@ -127,4 +130,31 @@ test('video request preview reads a prompt currently entered in the protocol-dri
     const api = createVideoExecutionApi({ node, elements, onRequestBody: () => {} });
 
     assert.equal(api.buildNodeRequestPreview(node.id).requestBody.prompt, '协议控件中的海浪');
+});
+
+test('a video prompt mention supplies the original without a connected image port', async () => {
+    const image = 'data:image/png;base64,AAAA';
+    const node = { id: 'video-1', type: 'VideoGenerate', enabled: true, data: {
+        protocolParams: {}, imagePromptMentions: [{ token: '@图片1', source: { id: 'history:1', historyId: '1', name: '历史素材' } }]
+    } };
+    const prompt = '镜头跟随 @图片1';
+    const elements = new Map(Object.entries({
+        'video-1-apiconfig': { value: 'model-1' },
+        'video-1-provider': { value: 'provider-1' },
+        'video-1-param-prompt': { value: prompt }
+    }));
+    let actualRequestBody;
+    const api = createVideoExecutionApi({ node, elements,
+        model: { id: 'model-1', name: 'VEO', modelId: 'veo-3', protocol: 'veo-unified', providerIds: ['provider-1'] },
+        referenceImageCatalog: { readImage: async source => source.historyId === '1' ? image : '' },
+        onRequestBody: body => { actualRequestBody = body; }
+    });
+    const videoExecutionInput = resolveVideoExecutionInputRecord({ protocol: getProtocolSnapshot('veo-unified'),
+        modelId: 'veo-3', prompt, controls: { protocolParams: {} }, selection: { modelConfigId: 'model-1', providerId: 'provider-1' } });
+    assert.equal(videoExecutionInput.valid, true);
+    await assert.rejects(api.executeNode(node, {}, new AbortController().signal, { videoExecutionInput }), /request captured/);
+    const preview = await api.buildNodeRequestPreview(node.id);
+    assert.equal(actualRequestBody.prompt, '镜头跟随 参考图 1');
+    assert.deepEqual(actualRequestBody.Ingredients_images, [image]);
+    assert.deepEqual(preview.requestBody, actualRequestBody);
 });

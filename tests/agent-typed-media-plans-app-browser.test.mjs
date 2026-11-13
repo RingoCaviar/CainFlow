@@ -38,8 +38,10 @@ async function propose(app, plan, request, mentions = []) {
     await app.evaluate(`typedMediaReply=${JSON.stringify({ intent: 'generate', message: '请检查媒体用途与原输入', canvasPlan: plan })};if(!document.getElementById('prompt-agent-panel').classList.contains('active'))document.getElementById('btn-prompt-agent').click();document.getElementById('prompt-agent-panel').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.getElementById('prompt-agent-input').value='';`);
     for (const [id, name] of mentions) {
         await app.evaluate(`(()=>{const input=document.getElementById('prompt-agent-input');input.value+=${JSON.stringify('@' + name)};input.setSelectionRange(input.value.length,input.value.length);input.dispatchEvent(new Event('input',{bubbles:true}))})()`);
-        await app.waitFor(`Boolean([...document.querySelectorAll('.prompt-agent-node-mentions [role=option]')].find(option=>option.textContent.endsWith(${JSON.stringify(' · ' + id)})))`);
-        await app.evaluate(`[...document.querySelectorAll('.prompt-agent-node-mentions [role=option]')].find(option=>option.textContent.endsWith(${JSON.stringify(' · ' + id)})).click()`);
+        await app.evaluate("document.querySelector('.image-mention-picker [data-mention-mode=extra]').click()");
+        const option = `document.querySelector('.image-mention-picker [data-mention-id="'+CSS.escape(${JSON.stringify(id)})+'"]')`;
+        await app.waitFor(`Boolean(${option})`);
+        await app.evaluate(`${option}.click()`);
     }
     await app.evaluate(`(()=>{const input=document.getElementById('prompt-agent-input');input.value+=${JSON.stringify(request)};input.dispatchEvent(new Event('input',{bubbles:true}))})()`);
     await nativeClick(app, "document.getElementById('prompt-agent-send')");
