@@ -90,6 +90,45 @@ test('cancelled reading cannot create nodes or references',async()=>{
     const pending=h.source.importReference({}, {isCurrent:()=>current,read:()=>new Promise(resolve=>{finish=resolve;})});
     current=false;finish(image);assert.equal(await pending,null);assert.equal(h.creates,0);
 });
+
+for (const outcome of ['cancelled', 'failed', 'edited', 'switched']) {
+    test(`replacement import cleanup respects the original workflow and live node after a ${outcome} write`, async () => {
+        const state = { activeWorkflowId: 'original', nodes: new Map() };
+        const controller = new AbortController();
+        let startSave, finishSave;
+        const writing = new Promise(resolve => { startSave = resolve; });
+        const source = createPromptAgentReferenceSource({
+            state,
+            nodeAdapter: { getSceneReferenceImages: () => { assert.fail('abandoned import must never be attached'); } },
+            createImportNode: ({ provisional }) => {
+                assert.equal(provisional, true);
+                state.nodes.set('created', { id: 'created', type: 'ImageImport', x: 10, y: 20 });
+                return 'created';
+            },
+            discardImportNode: id => state.nodes.delete(id),
+            loadImageData: id => {
+                state.nodes.get(id).imageImportWriteToken = 1;
+                return new Promise(resolve => { finishSave = resolve; startSave(); });
+            }
+        });
+        const importing = source.importReference({}, {
+            isCurrent: () => !controller.signal.aborted, signal: controller.signal, read: async () => image
+        });
+        await writing;
+        if (outcome === 'edited') state.nodes.get('created').imageImportWriteToken = 2;
+        if (outcome === 'switched') {
+            state.activeWorkflowId = 'different';
+            state.nodes.set('created', { id: 'created', type: 'ImageImport' });
+        }
+        if (outcome !== 'failed') controller.abort();
+        if (outcome === 'cancelled') assert.equal(state.nodes.has('created'), false, 'abort rolls back before the write settles');
+        finishSave(outcome !== 'failed');
+        if (outcome === 'failed') await assert.rejects(importing, /保存失败/);
+        else assert.equal(await importing, null);
+        assert.equal(state.nodes.has('created'), ['edited', 'switched'].includes(outcome));
+    });
+}
+
 test('preview reads originals without importing nodes',async()=>{
     const h=harness();assert.equal((await h.source.readHistory({historyId:'1'})).dataUrl,image.dataUrl);assert.equal(h.creates,0);
 });

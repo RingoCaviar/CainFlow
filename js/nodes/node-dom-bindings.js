@@ -47,7 +47,9 @@ import { getSurfaceCoordinator } from '../features/ui/surface-coordinator.js';
 import { isUniversalInputNode } from './universal-input-policy.js';
 import { readImageSaveFilename } from './image-save-settings.js';
 import { bindImageMentionPicker } from '../features/ui/image-mention-picker.js';
-import { normalizePromptImageMentions, registerPromptImageMention, remapCopiedPromptImageMentions } from './prompt-image-mentions.js';
+import {
+    findPromptImageMentionUpstream, normalizePromptImageMentions, registerPromptImageMention, remapCopiedPromptImageMentions
+} from './prompt-image-mentions.js';
 
 export function createNodeDomBindingsApi({
     state,
@@ -128,6 +130,17 @@ export function createNodeDomBindingsApi({
             getUpstream: () => referenceImageCatalog.getUpstream(node.id),
             getScene: () => referenceImageCatalog.getScene(),
             readThumbnail: candidate => referenceImageCatalog.readThumbnail(candidate),
+            getMention(token) {
+                const source = node.data?.imagePromptMentions?.find(record => record.token === token)?.source;
+                if (source) return { ...source, mode: source.connectionId ? 'upstream' : 'scene' };
+            },
+            readMentionThumbnail(source) {
+                if (state.nodes.get(node.id) !== node || (source.workflowId && source.workflowId !== getWorkflowId?.())) return '';
+                const candidate = source.connectionId
+                    ? findPromptImageMentionUpstream(source, referenceImageCatalog.getUpstream(node.id))
+                    : source;
+                return candidate ? referenceImageCatalog.readThumbnail(candidate) : '';
+            },
             onSelect(candidate, range) {
                 if (state.nodes.get(node.id) !== node || !range.isCurrent()) return null;
                 const source = candidate.sourceNodeId ? { ...candidate, workflowId: getWorkflowId?.() || '' } : candidate;

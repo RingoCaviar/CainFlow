@@ -537,6 +537,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             if (current !== node) close({ remember: false });
             return;
         }
+        if (current === node && !panel.hidden) {
+            refreshNode(node.id);
+            return;
+        }
         if (closed !== node) open(node);
     }
     function installUniversalInput(node) {

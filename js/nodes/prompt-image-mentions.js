@@ -32,7 +32,8 @@ export function registerPromptImageMention(node, candidate, prompt, range, maxLe
     let number = 1;
     while (!sameSource && usedTokens.has(`@图片${number}`)) number++;
     const token = sameSource?.token || `@图片${number}`;
-    if (maxLength >= 0 && prompt.length - (range.end - range.start) + token.length + 1 > maxLength) return '';
+    const separatorLength = range.replacing ? 0 : 1;
+    if (maxLength >= 0 && prompt.length - (range.end - range.start) + token.length + separatorLength > maxLength) return '';
     if (!sameSource) {
         node.data ||= {};
         node.data.imagePromptMentions = normalizePromptImageMentions([...records, { token, source: candidate }]);
@@ -65,13 +66,17 @@ export function remapCopiedPromptImageMentions(records, { nodeIds, connectionIds
     });
 }
 
-function getUpstreamLabel(node, inputs, source, upstream) {
+export function findPromptImageMentionUpstream(source, upstream) {
     const sameConnectionSlot = candidate => candidate.connectionId === source.connectionId && candidate.sourceNodeId === source.sourceNodeId
         && candidate.sourcePort === source.sourcePort && candidate.targetPort === source.targetPort
         && candidate.sourceImageIndex === source.sourceImageIndex;
     const sameSource = candidate => (candidate.sourceId || candidate.id) === (source.sourceId || source.id)
         && (!source.targetPort || source.targetPort === candidate.targetPort);
-    const slot = source.connectionId ? upstream.find(sameConnectionSlot) : upstream.find(sameSource);
+    return source.connectionId ? upstream.find(sameConnectionSlot) : upstream.find(sameSource);
+}
+
+function getUpstreamLabel(node, inputs, source, upstream) {
+    const slot = findPromptImageMentionUpstream(source, upstream);
     if (!slot) return '';
     const keys = getImageInputKeys(inputs);
     const port = slot.targetPort;

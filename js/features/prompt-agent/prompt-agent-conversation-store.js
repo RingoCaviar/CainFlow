@@ -48,7 +48,12 @@ function normalizeReferenceImages(images = []) {
             dataUrl: image.dataUrl,
             ...(image.description ? { description: String(image.description).trim().slice(0, 2000) } : {}),
             ...(image.referenceId ? { referenceId: String(image.referenceId) } : {}),
-            ...(/^@图片\d+$/.test(image.mentionToken || '') ? { mentionToken: image.mentionToken, ...(image.mentionOnly === true ? { mentionOnly: true } : {}) } : {}),
+            ...(/^@图片\d+$/.test(image.mentionToken || '') ? {
+                mentionToken: image.mentionToken,
+                ...(image.mentionOnly === true ? { mentionOnly: true } : {}),
+                ...(['upstream', 'scene'].includes(image.mentionMode) ? { mentionMode: image.mentionMode } : {}),
+                ...(typeof image.mentionCandidateId === 'string' && image.mentionCandidateId ? { mentionCandidateId: image.mentionCandidateId } : {})
+            } : {}),
             ...(image.sourceNodeId ? { sourceNodeId: String(image.sourceNodeId), sourceImageIndex: Number(image.sourceImageIndex) || 0 } : {})
         }))
         .filter((image) => {

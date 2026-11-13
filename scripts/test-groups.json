@@ -418,7 +418,7 @@
     "tests/image-import-preview-gestures-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"]},
     "tests/image-import-run-readiness.test.mjs": {"tier": "fast", "groups": ["media", "nodes"]},
     "tests/image-import-url-reference-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"]},
-    "tests/image-mention-picker.test.mjs": {"tier": "browser", "groups": ["agent", "canvas", "media", "ui"], "sources": ["css/features/image-mention-picker.css", "js/features/ui/image-mention-picker.js"]},
+    "tests/image-mention-picker.test.mjs": {"tier": "browser", "groups": ["agent", "canvas", "media", "ui"], "sources": ["css/features/image-mention-picker.css", "js/features/ui/image-mention-picker.js", "js/features/ui/image-mention-tokens.js"]},
     "tests/image-merge-media-state.test.mjs": {"tier": "fast", "groups": ["media", "nodes"]},
     "tests/image-merge-memory-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"]},
     "tests/image-merge-memory-budget.test.mjs": {"tier": "fast", "groups": ["media", "nodes"]},

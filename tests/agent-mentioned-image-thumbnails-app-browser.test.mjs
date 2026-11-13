@@ -76,10 +76,14 @@ test('mentioned node thumbnails retain the actual reference order, preview origi
     }, { preserveRetiredSaveNodes: true });
 });
 
-test('Agent @ picker switches from upstream thumbnails to history and submits the mentioned originals', { timeout: 30000 }, async () => {
+test('Agent replaces one image mention and sends the correct original while retaining its other occurrence', { timeout: 45000 }, async () => {
     await withAppBrowser(session, async app => {
         await app.send('Page.addScriptToEvaluateOnNewDocument', { source: `const nativeFetch=fetch;window.mentionRequests=[];window.fetch=async(url,options={})=>{
             if(String(url)==='/proxy'){mentionRequests.push(JSON.parse(options.body));return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({intent:'chat',message:'已查看参考图'})}}]}),{headers:{'Content-Type':'application/json'}})}
+            if(String(url)==='/api/storage/media-assets' && options.method==='PUT' && window.holdMentionImport) {
+                window.holdMentionImport=false;
+                await new Promise(resolve=>{window.releaseMentionImport=resolve});
+            }
             return nativeFetch(url,options)};` });
         await reloadAppBrowser(app);
         await upload(app, 'first', 'red'); await upload(app, 'second', 'blue');
@@ -105,6 +109,25 @@ test('Agent @ picker switches from upstream thumbnails to history and submits th
         assert.match(await app.evaluate("document.getElementById('prompt-agent-input').value"), /^@图片1 /);
 
         await mention(app);
+        await app.waitFor(`document.querySelectorAll('${options}').length===2`);
+        await app.evaluate(`document.querySelectorAll('${options}')[1].click()`);
+        await app.waitFor("document.querySelectorAll('.image-mention-token[data-mention-token=\"@图片1\"]').length===2");
+        const clickedMention = ".image-mention-token[data-mention-token=\"@图片1\"]";
+        const point = await app.evaluate(`(()=>{const marker=document.querySelectorAll(${JSON.stringify(clickedMention)})[1], rect=marker.getBoundingClientRect();
+            const x=rect.x+rect.width/2,y=rect.y+rect.height/2;
+            return {x,y,interactive:document.elementFromPoint(x,y)===marker,background:getComputedStyle(marker).backgroundColor};
+        })()`);
+        assert.equal(point.interactive, true);
+        assert.notEqual(point.background, 'rgba(0, 0, 0, 0)');
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y });
+        assert.equal(await app.evaluate("Boolean(document.querySelector('.image-mention-preview img'))"), false);
+        await app.waitFor("document.querySelector('.image-mention-preview img')?.naturalWidth>0");
+        assert.deepEqual(await app.evaluate(`(()=>{const image=document.querySelector('.image-mention-preview img'), canvas=document.createElement('canvas');canvas.width=1;canvas.height=1;const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0,1,1);return Array.from(ctx.getImageData(0,0,1,1).data).slice(0,3).map(color=>color>128)})()`), [false, false, true]);
+        await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', button: 'left', clickCount: 1, x: point.x, y: point.y });
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'left', clickCount: 1, x: point.x, y: point.y });
+        await app.waitFor("document.querySelector('.image-mention-picker')?.textContent.includes('更换参考图')");
+        assert.equal(await app.evaluate("!!document.querySelector('.image-mention-picker [data-mention-mode=extra]')"), false);
+        assert.equal(await app.evaluate("document.querySelector('[data-mention-mode=upstream]').getAttribute('aria-pressed')"), 'true');
         await app.evaluate("document.querySelector('[data-mention-mode=scene]').click()");
         const historyOption = `[...document.querySelectorAll('${options}')].find(row=>JSON.parse(row.dataset.mentionId)[1]===${JSON.stringify(String(historyId))})`;
         await app.waitFor(`Boolean(${historyOption}?.querySelector('.has-image img'))`);
@@ -113,8 +136,25 @@ test('Agent @ picker switches from upstream thumbnails to history and submits th
             const screenshot = await app.send('Page.captureScreenshot', { format: 'png' });
             await writeFile(join(process.env.CAINFLOW_QA_SCREENSHOT_DIR, 'agent-image-mention.png'), Buffer.from(screenshot.data, 'base64'));
         }
+        const nodeCount = await app.evaluate("document.querySelectorAll('#canvas-container .node').length");
+        await app.evaluate(`window.holdMentionImport=true;${historyOption}.click()`);
+        await app.waitFor("typeof window.releaseMentionImport==='function'");
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-send').disabled"), true);
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+        await app.waitFor(`document.querySelectorAll('#canvas-container .node').length===${nodeCount} && !document.querySelector('.image-mention-picker')`);
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), '@图片1 @图片1 ');
+        assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('${attachments}')].map(img=>img.src)`), [upstream]);
+        await app.evaluate(`window.releaseMentionImport(); document.querySelectorAll(${JSON.stringify(clickedMention)})[1].click();`);
+        await app.evaluate("document.querySelector('[data-mention-mode=scene]').click()");
+        await app.waitFor(`Boolean(${historyOption}?.querySelector('.has-image img'))`);
         await app.evaluate(`${historyOption}.click()`);
         await app.waitFor(`document.querySelectorAll('${attachments}').length===2 && !document.getElementById('prompt-agent-send').disabled`);
+        assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('${attachments}')].map(img=>img.src)`), [upstream, original]);
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), '@图片1 @图片2 ');
+        await app.evaluate("document.execCommand('undo')");
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), '@图片1 @图片1 ');
+        assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('${attachments}')].map(img=>img.src)`), [upstream]);
+        await app.evaluate("document.execCommand('redo')");
         assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('${attachments}')].map(img=>img.src)`), [upstream, original]);
         await app.evaluate(`(()=>{const input=document.getElementById('prompt-agent-input');input.setSelectionRange(0,'@图片1 '.length);document.execCommand('delete');})()`);
         assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('${attachments}')].map(img=>img.src)`), [original]);
