@@ -22,14 +22,23 @@ const session = {
     ]
 };
 
-async function controlImages(app) {
+async function controlImages(app, { distinctSourceImages = false } = {}) {
     await app.send('Page.addScriptToEvaluateOnNewDocument', { source: `window.imageRequests=[];const nativeFetch=window.fetch;window.fetch=async(url,options={})=>{
         if(String(url)==='/proxy') {
             const form=options.body instanceof FormData,body=form?Object.fromEntries(options.body):JSON.parse(options.body);
             if(typeof body.prompt==='string') {
                 const index=imageRequests.filter(r=>r.prompt===body.prompt).length;
                 imageRequests.push({prompt:body.prompt,mask:body.mask instanceof Blob,maskData:body.mask instanceof Blob?btoa(String.fromCharCode(...new Uint8Array(await body.mask.arrayBuffer()))):'',references:form?(options.body.getAll('image[]').length||Number(options.body.has('image'))):0});
-                return new Response(JSON.stringify({data:[{b64_json:body.prompt==='mask source'&&index%2===1?'${otherPng}':'${png}'}]}),{headers:{'Content-Type':'application/json'}});
+                let output = body.prompt === 'mask source' && index % 2 === 1 ? '${otherPng}' : '${png}';
+                if (${distinctSourceImages} && body.prompt === 'mask source') {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = canvas.height = 1;
+                    const context = canvas.getContext('2d');
+                    context.fillStyle = 'rgb(' + index + ', 0, 0)';
+                    context.fillRect(0, 0, 1, 1);
+                    output = canvas.toDataURL('image/png').split(',')[1];
+                }
+                return new Response(JSON.stringify({data:[{b64_json:output}]}),{headers:{'Content-Type':'application/json'}});
             }
         } return nativeFetch(url,options);
     };` });
@@ -63,21 +72,21 @@ test('a new single-image mask cannot silently consume a later multi-image batch,
     });
 });
 
-test('generation validates the complete real reference batch against its protocol capacity without disconnecting sources', { timeout: 45000 }, async () => {
+test('generation validates the complete real reference batch against its model capacity without disconnecting sources', { timeout: 45000 }, async () => {
     await withAppBrowser({ ...session,
-        nodes: session.nodes.map(node => node.id === 'mask-source' ? { ...node, generationCount: 5 } : node),
+        nodes: session.nodes.map(node => node.id === 'mask-source' ? { ...node, generationCount: 16 } : node),
         connections: session.connections.filter(edge => edge.id === 'reference')
     }, async app => {
         const { evaluate, waitFor } = app;
-        await controlImages(app);
+        await controlImages(app, { distinctSourceImages: true });
         await evaluate("document.getElementById('btn-run').click()");
         await waitFor("imageRequests.some(r=>r.prompt==='masked target') && document.getElementById('btn-stop').disabled");
-        assert.equal(await evaluate("imageRequests.find(r=>r.prompt==='masked target').references"), 5, 'all five originals reach the real edit request');
-        await evaluate("(()=>{const field=document.getElementById('mask-source-generation-count');field.value='6';field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));document.getElementById('btn-run').click()})()");
-        await waitFor("imageRequests.filter(r=>r.prompt==='mask source').length===11 && document.getElementById('btn-stop').disabled");
-        assert.equal(await evaluate("imageRequests.filter(r=>r.prompt==='masked target').length"), 1, 'a six-image source is retained and blocked before the next request');
-        assert.match(await evaluate("document.querySelector('.image-first-parameter-content[data-node-id=mask-target] .node-failure-summary').textContent"), /最多.*5.*6/);
-        await waitFor("(async()=>{const saved=(await fetch('/api/storage/documents/session').then(r=>r.json())).value;return saved?.nodes?.find(n=>n.id==='mask-source')?.mediaAssetKeys?.length===6})()");
+        assert.equal(await evaluate("imageRequests.find(r=>r.prompt==='masked target').references"), 16, 'all sixteen originals reach the real edit request');
+        await evaluate("(()=>{const field=document.getElementById('mask-source-generation-count');field.value='17';field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));document.getElementById('btn-run').click()})()");
+        await waitFor("imageRequests.filter(r=>r.prompt==='mask source').length===33 && document.getElementById('btn-stop').disabled");
+        assert.equal(await evaluate("imageRequests.filter(r=>r.prompt==='masked target').length"), 1, 'a seventeen-image source is retained and blocked before the next request');
+        assert.match(await evaluate("document.querySelector('.image-first-parameter-content[data-node-id=mask-target] .node-failure-summary').textContent"), /最多.*16.*17/);
+        await waitFor("(async()=>{const saved=(await fetch('/api/storage/documents/session').then(r=>r.json())).value;return saved?.nodes?.find(n=>n.id==='mask-source')?.mediaAssetKeys?.length===17})()");
         const edge = await evaluate("(async()=>{const saved=(await fetch('/api/storage/documents/session').then(r=>r.json())).value;return saved.connections.find(c=>c.id==='reference')})()");
         assert.deepEqual(edge, session.connections[0]);
     });
