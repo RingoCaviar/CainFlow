@@ -1,11 +1,13 @@
 import { getNodeDefinitionPorts } from './registry.js';
 import { getCanonicalImageList, normalizeImageList } from '../features/execution/execution-data-utils.js';
 import { projectImageOutput } from './image-output-projection.js';
-import { getGenerationInputProtocolId } from '../features/execution/provider-request-utils.js';
+import { countGoogleImageParts, getGenerationInputProtocolId } from '../features/execution/provider-request-utils.js';
+import { getGoogleImageCapabilities } from '../features/execution/google-image-capabilities.js';
 import { getOpenAiImageCapabilities } from '../features/execution/openai-image-capabilities.js';
 import { getProtocol } from '../features/execution/protocols/index.js';
 import { resolveDeclarativeProtocolVariant } from '../features/execution/protocols/declarative-protocol-schema.js';
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
+import { DEFAULT_REFERENCE_IMAGE_COUNT } from './reference-image-ports.js';
 
 // Each node type opts in when its card and input details use this contract.
 const UNIVERSAL_INPUT_NODE_TYPES = new Set(['ImageGenerate', 'ECommerceImageSet', 'ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge', 'ImageSave', 'CameraControl']);
@@ -69,7 +71,7 @@ function sourceOutputDescriptor(node, name) {
     return index > 0 && index <= count ? { ...template, name } : null;
 }
 
-function generationContract(state, node) {
+export function resolveImageGenerationInputContract(state, node) {
     const modelId = node.apiConfigId ?? node.data?.apiConfigId ?? state.nodeDefaults?.ImageGenerate?.apiConfigId;
     const model = (state.models || []).find(candidate => candidate.id === modelId);
     if (!model) return { error: '请先选择有效的生图模型。' };
@@ -81,13 +83,21 @@ function generationContract(state, node) {
     if (hasVariants && !resolved.variant) return { error: '当前协议未配置此模型变体，请切换兼容模型。' };
     const configuration = resolved.configuration;
     if (Array.isArray(configuration.taskTypes) && !configuration.taskTypes.includes('image')) return { error: '当前模型协议不支持图片生成。' };
-    const reference = Object.entries(configuration.parameters || {}).find(([key, parameter]) => (parameter?.id || key) === 'referenceImages')?.[1];
+    const [referenceKey, reference] = Object.entries(configuration.parameters || {})
+        .find(([key, parameter]) => (parameter?.id || key) === 'referenceImages') || [];
     const supportsReferences = reference?.inputPort === true && reference.portType === 'image'
         && (!Array.isArray(reference.taskTypes) || reference.taskTypes.includes('image'));
     const openAi = protocolId === 'openai' ? getOpenAiImageCapabilities(model.modelId) : null;
-    const capacities = [reference?.portCount, configuration.referenceImage?.maxCount, openAi?.maxReferences]
+    const google = protocolId === 'google' ? getGoogleImageCapabilities(model.modelId) : null;
+    const modelMaximum = (openAi || google)?.maxReferences;
+    // The original built-in port count is the fallback for models without a
+    // known limit. An override or variant can still impose its own lower cap.
+    const useModelMaximum = modelMaximum != null && Number(reference?.portCount) === DEFAULT_REFERENCE_IMAGE_COUNT
+        && resolved.variant?.parameters?.[referenceKey]?.portCount == null
+        && protocol.overrideRecord?.config?.parameters?.[referenceKey]?.portCount == null;
+    const capacities = [useModelMaximum ? undefined : reference?.portCount, configuration.referenceImage?.maxCount, modelMaximum]
         .filter(value => value !== undefined && value !== null && Number.isFinite(Number(value))).map(Number);
-    return { protocolId, supportsReferences, supportsMask: protocolId === 'openai' && openAi?.maxReferences !== 0,
+    return { protocolId, modelMaximum, supportsReferences, supportsMask: protocolId === 'openai' && openAi?.maxReferences !== 0,
         maxReferences: capacities.length ? Math.max(0, Math.min(...capacities)) : Infinity, error: '' };
 }
 
@@ -157,7 +167,7 @@ export function resolveUniversalInput({ state, sourceNode, sourcePort, sourceTyp
         if (targetNode.type === 'ImageResize' && hasRemoteImageOutput(sourceNode)) return failure('URL 图片不支持连接到图片缩放节点。');
         return { port, type, multiple: targetNode.type === 'ECommerceImageSet', error: '' };
     }
-    const contract = generationContract(state, targetNode), unsupported = roleError(contract, port);
+    const contract = resolveImageGenerationInputContract(state, targetNode), unsupported = roleError(contract, port);
     if (unsupported) return failure(unsupported);
     if (type === 'image' && contract.protocolId === 'google' && hasRemoteImageOutput(sourceNode)) return failure('URL 图片仅支持兼容参考图，当前模型不支持。');
     if (port === 'mask' && imageOutput(sourceNode).count !== 1) return failure('新增遮罩需要已明确输出的单图来源；多图或尚无输出的来源不能自动截取。');
@@ -228,7 +238,7 @@ export function validateUniversalImageInputs({ state, node, inputs }) {
     const masks = incoming.filter(edge => edge.to.port === 'mask');
     const inputReferenceCount = inputs ? Object.entries(inputs).filter(([port]) => referencePort(port))
         .reduce((sum, [, value]) => sum + normalizeImageList(value).length, 0) : 0;
-    const contract = generationContract(state, node);
+    const contract = resolveImageGenerationInputContract(state, node);
     // Old mask connections retain their previous protocol behavior, including
     // protocols that ignored the mask. Explicit replacements get the new rule.
     const checked = incoming.filter(edge => edge.to.port !== 'mask' || edge.maskConsumption === 'single');
@@ -248,7 +258,11 @@ export function validateUniversalImageInputs({ state, node, inputs }) {
         retainedReferenceCount += output.count;
     }
     const count = Math.max(inputReferenceCount, retainedReferenceCount);
-    if (count > contract.maxReferences) return `当前模型最多接收 ${contract.maxReferences} 张参考图，完整有效来源批次共有 ${count} 张。`;
+    const customCount = contract.protocolId === 'google' && contract.modelMaximum != null
+        ? countGoogleImageParts(inputs?.params?.contents) : 0;
+    if (count + customCount > contract.maxReferences) {
+        return `当前模型最多接收 ${contract.maxReferences} 张参考图，完整有效来源批次共有 ${count + customCount} 张。`;
+    }
     if (inputs && references.length && inputReferenceCount < retainedReferenceCount) return '已连接参考来源的原图存在缺失，读取批次不完整；请恢复原图后重试。';
     for (const edge of masks) {
         if (edge.maskConsumption !== 'single') continue;

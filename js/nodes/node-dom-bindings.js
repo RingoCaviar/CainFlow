@@ -23,7 +23,7 @@ import {
 } from '../features/execution/provider-request-utils.js';
 import { getImageAspectSelectState, normalizeImageSizeControls, resolveImageRequestSize, usesOpenAiImageSize } from '../features/execution/image-generation-size.js';
 import { getOpenAiImageCapabilities } from '../features/execution/openai-image-capabilities.js';
-import { syncImageParameterControls } from './image-parameter-controls.js';
+import { supportsImageWebSearch, syncImageParameterControls } from './image-parameter-controls.js';
 import { collectConnectionSnapshotsForNodes } from '../canvas/connection-copy-utils.js';
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 import { getProtocol } from '../features/execution/protocols/index.js';
@@ -1889,7 +1889,8 @@ export function createNodeDomBindingsApi({
         updateImageGenerateAspectAvailability(id, protocol, controls.aspect, model?.modelId);
         syncImageParameterControls(documentRef, id, protocol, model?.modelId);
         updateImageGenerateMaskPortVisibility(id, usesOpenAiImageControls && (protocol !== 'openai' || getOpenAiImageCapabilities(model?.modelId)?.maxReferences !== 0));
-        updateImageGenerateAsyncFieldsVisibility(id, isNewApiAsyncImage, usesOpenAiImageControls);
+        updateImageGenerateAsyncFieldsVisibility(id, isNewApiAsyncImage);
+        documentRef.getElementById(`${id}-search-field`)?.classList.toggle('hidden', !supportsImageWebSearch(protocol, model?.modelId));
         updateImageGenerateCustomResolutionVisibility(id);
         refreshImageGenerateProtocolParams(id);
         syncImageAdvancedSummary(id);
@@ -1961,7 +1962,7 @@ export function createNodeDomBindingsApi({
         }
     }
 
-    function updateImageGenerateAsyncFieldsVisibility(id, isNewApiAsyncImage, isOpenAiModel = false) {
+    function updateImageGenerateAsyncFieldsVisibility(id, isNewApiAsyncImage) {
         [
             `${id}-image-async-result-field`,
             `${id}-resume-image-id-field`,
@@ -1970,8 +1971,6 @@ export function createNodeDomBindingsApi({
             const field = documentRef.getElementById(fieldId);
             if (field) field.classList.toggle('hidden', !isNewApiAsyncImage);
         });
-        const searchField = documentRef.getElementById(`${id}-search-field`);
-        if (searchField) searchField.classList.toggle('hidden', isOpenAiModel || isNewApiAsyncImage);
     }
 
     function updateImageGenerateCustomResolutionVisibility(id) {
@@ -2736,11 +2735,13 @@ export function createNodeDomBindingsApi({
             modelSelect?.addEventListener('cainflow:image-model-configuration-changed', () => {
                 refreshImageGenerateProtocolParams(id);
                 syncImageAdvancedSummary(id);
+                referenceOverview.render(id);
             });
             modelSelect?.addEventListener('change', () => {
                 syncImageGenerateResolutionOptions(id);
                 persistNodeModelSelection(id, type);
                 syncNodeFormData(id, type);
+                referenceOverview.render(id);
                 fitNodeToContent(id, { allowShrink: true, preserveCurrentWidth: true, reason: 'element-resize' });
             });
             const providerSelect = queryNodeControl(el, `#${id}-provider`);

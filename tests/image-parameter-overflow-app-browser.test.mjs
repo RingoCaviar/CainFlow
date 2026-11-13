@@ -5,7 +5,8 @@ import { withAppBrowser } from './helpers/app-browser.mjs';
 test('short parameter fields share rows while custom dimensions and long text keep their space', { timeout: 30000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false,
         models: [{ id: 'image', modelId: 'gpt-image-2', name: 'A deliberately long model name for compact selectors', protocol: 'openai', taskType: 'image', providerIds: ['p'] },
-            { id: 'google', modelId: 'gemini-3.1-flash-image-preview', name: 'Gemini Image', protocol: 'google', taskType: 'image', providerIds: ['p'], thinking: { profile: 'google-image' } }],
+            { id: 'google', modelId: 'gemini-3.1-flash-image', name: 'Gemini Image', protocol: 'google', taskType: 'image', providerIds: ['p'], thinking: { profile: 'google-image' } },
+            { id: 'google-fixed', modelId: 'gemini-2.5-flash-image', name: 'Gemini 2.5 Flash Image', protocol: 'google', taskType: 'image', providerIds: ['p'] }],
         providers: [{ id: 'p', name: 'A deliberately long provider name', endpoint: 'https://controlled.test/v1', apikey: 'test' }],
         nodes: [{ id: 'paired', type: 'ImageGenerate', x: 180, y: 60, apiConfigId: 'image', providerId: 'p' }], connections: []
     }, async app => {
@@ -55,6 +56,12 @@ test('short parameter fields share rows while custom dimensions and long text ke
         assert.ok(supported.noteFont>=12 && supported.switchHeight>=24 && supported.trackBorder>=1, 'thinking notes and the search off state stay readable and reachable');
         assert.equal(supported.searchWidth, supported.optionsWidth, 'a model with search only does not leave empty option columns');
         assert.ok(await app.evaluate("[...document.querySelector('#image-parameter-panel .thinking-control select').options].some(option=>option.value==='level:high')"), 'switching models refreshes the detached thinking control options');
+        assert.ok(await app.evaluate("document.querySelector('#paired-resolution option[value=\"512\"]')"));
+        assert.ok(await app.evaluate("document.querySelector('#paired-aspect option[value=\"1:8\"]')"));
+        await app.evaluate("(()=>{const s=document.getElementById('paired-apiconfig');s.value='google-fixed';s.dispatchEvent(new Event('change',{bubbles:true}))})()");
+        await app.waitFor("document.getElementById('paired-search-field').classList.contains('hidden')");
+        assert.deepEqual(await app.evaluate("[...document.getElementById('paired-resolution').options].map(option=>option.value)"), ['']);
+        assert.equal(await app.evaluate("!!document.querySelector('#paired-aspect option[value=\"1:8\"]')"), false);
         await app.evaluate("(()=>{const s=document.getElementById('paired-apiconfig');s.value='image';s.dispatchEvent(new Event('change',{bubbles:true}))})()");
         await app.waitFor("document.querySelector('#image-parameter-panel .thinking-control').hidden===true");
     });

@@ -20,8 +20,7 @@ const GPT_IMAGE_1 = { ...STATIC_GPT_IMAGE, inputFidelities: ['low', 'high'] };
 const GPT_IMAGE_1_MINI = { ...STATIC_GPT_IMAGE, inputFidelities: ['low'] };
 const GPT_IMAGE_2_5 = { ...FLEXIBLE_GPT_IMAGE, qualities: HIGH_QUALITIES };
 const GPT_IMAGE_2_6 = {
-    ...STATIC_GPT_IMAGE,
-    qualities: HIGH_QUALITIES,
+    ...GPT_IMAGE_2_5,
     complexities: ['low', 'medium', 'high']
 };
 

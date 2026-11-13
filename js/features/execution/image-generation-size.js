@@ -1,4 +1,5 @@
 /** 图片生成节点的分辨率档位、比例与请求尺寸共用同一份映射。 */
+import { getGoogleImageCapabilities } from './google-image-capabilities.js';
 import { getOpenAiImageCapabilities } from './openai-image-capabilities.js';
 
 export const GOOGLE_IMAGE_RESOLUTION_OPTIONS = [
@@ -71,6 +72,10 @@ export function usesOpenAiImageSize(protocol) {
 
 export function getImageResolutionOptionsForProtocol(protocol, modelId) {
     if (protocol === 'newapi-image-async') return NEWAPI_ASYNC_IMAGE_RESOLUTION_OPTIONS;
+    const imageSizes = protocol === 'google' ? getGoogleImageCapabilities(modelId)?.imageSizes : undefined;
+    if (imageSizes) {
+        return [GOOGLE_IMAGE_RESOLUTION_OPTIONS[0], ...imageSizes.map(value => ({ value, label: value === '512' ? '512 px' : value }))];
+    }
     const fixed = fixedOpenAiSizes(protocol, modelId);
     if (fixed) {
         const automatic = fixed === FIXED_OPENAI_SIZES['gpt-image-1'];
@@ -80,6 +85,8 @@ export function getImageResolutionOptionsForProtocol(protocol, modelId) {
 }
 
 export function getImageAspectOptionsForProtocol(protocol, modelId) {
+    const aspectRatios = protocol === 'google' ? getGoogleImageCapabilities(modelId)?.aspectRatios : undefined;
+    if (aspectRatios) return IMAGE_ASPECT_OPTIONS.filter(({ value }) => !value || aspectRatios.includes(value));
     const fixed = fixedOpenAiSizes(protocol, modelId);
     if (fixed) return Object.keys(fixed['1K']).map(value => ({ value, label: value }));
     return usesOpenAiImageSize(protocol) ? OPENAI_IMAGE_ASPECT_OPTIONS : IMAGE_ASPECT_OPTIONS;
@@ -88,7 +95,10 @@ export function getImageAspectOptionsForProtocol(protocol, modelId) {
 export function getImageAspectSelectState(protocol, resolution, aspect = '', modelId) {
     const options = getImageAspectOptionsForProtocol(protocol, modelId);
     if (!usesOpenAiImageSize(protocol)) {
-        return { options, value: aspect, disabled: false, title: '' };
+        const value = protocol === 'google' && getGoogleImageCapabilities(modelId)?.aspectRatios
+            ? (options.some(option => option.value === aspect) ? aspect : '')
+            : aspect;
+        return { options, value, disabled: false, title: '' };
     }
     if (!resolution || resolution === 'custom') {
         const label = resolution === 'custom' ? '由自定义宽高决定' : '由模型决定';
@@ -190,9 +200,21 @@ export function resolveImageRequestSize({ protocol = '', modelId, resolution = '
         return { resolution: size, aspect: '', display: size ? `${size.replace('x', ' × ')} px` : '自动（由模型决定）' };
     }
 
-    const selected = normalizeImageSizeControls({ resolution, aspect }, protocol);
+    const selected = normalizeImageSizeControls({ resolution, aspect }, protocol, modelId);
+    const google = protocol === 'google' ? getGoogleImageCapabilities(modelId) : undefined;
+    if (google?.imageSizes) {
+        const requestedSize = String(resolution || '').trim().toUpperCase();
+        const requestedAspect = String(aspect || '').trim();
+        const fixedSizeDefault = !google.imageSizes.length && requestedSize === '1K';
+        if (requestedSize && requestedSize !== 'AUTO' && !fixedSizeDefault && !selected.resolution) {
+            throw new Error(`${modelId} 不支持分辨率 ${resolution}，请重新选择。`);
+        }
+        if (requestedAspect && requestedAspect.toLowerCase() !== 'auto' && !selected.aspect) {
+            throw new Error(`${modelId} 不支持宽高比 ${aspect}，请重新选择。`);
+        }
+    }
     const requestResolution = protocol === 'ttapi' ? (selected.resolution || '1K') : selected.resolution;
-    const label = requestResolution || '默认（未指定）';
+    const label = requestResolution || (google?.imageSizes ? '默认（1K）' : '默认（未指定）');
     return {
         resolution: requestResolution,
         aspect: selected.aspect,

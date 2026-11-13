@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { isUniversalInputNode, resolveUniversalInput, validateUniversalImageInputs } from '../js/nodes/universal-input-policy.js';
 import '../js/features/execution/protocols/openai.js';
 import '../js/features/execution/protocols/google.js';
-import { registerProtocol } from '../js/features/execution/protocols/index.js';
+import { clearProtocolOverride, getProtocol, registerProtocol, setProtocolOverride } from '../js/features/execution/protocols/index.js';
 import { serializeConnection } from '../js/canvas/connection-snapshot.js';
 import { projectImageOutput } from '../js/nodes/image-output-projection.js';
 
@@ -109,13 +109,13 @@ test('universal input rejects occupied roles, duplicates, cycles and running end
 
 test('reference capacity counts complete enabled batches and follows the exact protocol variant', () => {
     const context = setup();
-    const previous = { id: 'previous', type: 'ImageGenerate', data: { imageList: ['a','b','c'] } };
+    const previous = { id: 'previous', type: 'ImageGenerate', data: { imageList: Array.from({ length: 14 }, (_, index) => `previous-${index}`) } };
     const sourceNode = { id: 'source', type: 'ImageGenerate', data: { mediaAssetKeys: ['media:d','media:e','media:f'], imageCount: 3 } };
     context.state.nodes.set(previous.id, previous);
     context.state.nodes.set(sourceNode.id, sourceNode);
     context.state.connections.push({ id: 'old', from: { nodeId: previous.id, port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, type: 'image' });
     const args = { ...context, sourceNode, sourcePort: 'image' };
-    assert.match(resolveUniversalInput(args).error, /最多.*5.*6/);
+    assert.match(resolveUniversalInput(args).error, /最多.*16.*17/);
     previous.enabled = false;
     assert.equal(resolveUniversalInput(args).error, '', 'disabled sources retain their edge without consuming capacity');
     registerProtocol({ id: 'universal-input-capacity-test', taskTypes: ['image'], parameters: {
@@ -133,11 +133,11 @@ test('reference capacity counts complete enabled batches and follows the exact p
 });
 
 test('full reference capacity rejects a pending new source and dynamic text split outputs retain their actual type', () => {
-    const context = setup(), full = { id: 'full', type: 'ImageGenerate', data: { imageList: ['1','2','3','4','5'] } };
+    const context = setup(), full = { id: 'full', type: 'ImageGenerate', data: { imageList: Array.from({ length: 16 }, (_, index) => `full-${index}`) } };
     context.state.nodes.set(full.id, full);
     context.state.connections = [{ id: 'full-edge', from: { nodeId: full.id, port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }, type: 'image' }];
     const pending = { id: 'pending', type: 'ImageGenerate', data: {} };
-    assert.match(resolveUniversalInput({ ...context, sourceNode: pending, sourcePort: 'image' }).error, /最多.*5/);
+    assert.match(resolveUniversalInput({ ...context, sourceNode: pending, sourcePort: 'image' }).error, /最多.*16/);
     context.state.connections = [];
     const sourceNode = { id: 'split', type: 'TextSplit', data: { outputCount: 3 } };
     context.state.nodes.set(sourceNode.id, sourceNode);
@@ -177,6 +177,50 @@ test('OpenAI legacy image models enforce their reference and mask limits before 
     assert.match(resolveUniversalInput({ ...args, role: 'mask' }).error, /不支持遮罩/);
 });
 
+for (const [protocol, modelId, limit] of [
+    ['openai', 'gpt-image-2', 16],
+    ['google', 'gemini-3.1-flash-image-preview', 14],
+    ['google', 'gemini-2.5-flash-image', 3],
+    ['openai', 'compatibility-image', 5],
+    ['google', 'compatibility-image', 5]
+]) test(`${modelId} uses its ${limit}-image limit during connection editing and execution`, () => {
+    const { state, targetNode } = setup();
+    Object.assign(state.models[0], { modelId, protocol });
+    const images = Array.from({ length: limit + 1 }, (_, index) => `original-${index}`);
+    const source = { id: 'source', type: 'ImageGenerate', data: { imageList: images.slice(0, limit) } };
+    state.nodes.set(source.id, source);
+    const args = { state, targetNode, sourceNode: source, sourcePort: 'image' };
+    assert.equal(resolveUniversalInput(args).error, '');
+    state.connections.push({ id: 'reference', from: { nodeId: source.id, port: 'image' },
+        to: { nodeId: targetNode.id, port: 'referenceImages' }, type: 'image', order: 4 });
+    const saved = structuredClone(state.connections);
+    const validate = referenceImages => validateUniversalImageInputs({ state, node: targetNode, inputs: { referenceImages } });
+    assert.equal(validate(source.data.imageList), '');
+    source.data.imageList = images;
+    const error = new RegExp(`最多接收 ${limit} 张参考图.*${limit + 1} 张`);
+    assert.match(resolveUniversalInput({ ...args, ignoreConnectionId: 'reference' }).error, error);
+    assert.match(validate(images), error);
+    assert.deepEqual(state.connections, saved);
+});
+
+test('a built-in override can lower the model limit while a larger override leaves the model limit in effect', () => {
+    const { state, targetNode } = setup();
+    const references = Array.from({ length: 17 }, (_, index) => `original-${index}`);
+    const baseRevision = getProtocol('openai').baseRevision;
+    const validate = referenceImages => validateUniversalImageInputs({ state, node: targetNode, inputs: { referenceImages } });
+    try {
+        setProtocolOverride('openai', { baseRevision, config: { parameters: { referenceImages: { portCount: 5 } } } });
+        assert.match(validate(references.slice(0, 6)), /最多接收 5 张参考图.*6 张/);
+        setProtocolOverride('openai', { baseRevision, config: { parameters: { referenceImages: { portCount: 20 } } } });
+        assert.equal(validate(references.slice(0, 16)), '');
+        assert.match(validate(references), /最多接收 16 张参考图.*17 张/);
+        setProtocolOverride('openai', { baseRevision, config: { referenceImage: { maxCount: 4 } } });
+        assert.match(validate(references.slice(0, 5)), /最多接收 4 张参考图.*5 张/);
+    } finally {
+        clearProtocolOverride('openai');
+    }
+});
+
 test('execution rechecks full batches and preserves single mask safeguards after saving and reopening', () => {
     const { state, targetNode: node } = setup();
     const source = { id: 'source', type: 'ImageGenerate', data: { imageList: ['first','second'] } };
@@ -191,7 +235,8 @@ test('execution rechecks full batches and preserves single mask safeguards after
     state.models[0].protocol = 'openai';
     state.connections[0].to.port = 'referenceImages';
     delete state.connections[0].maskConsumption;
-    assert.match(validateUniversalImageInputs({ state, node, inputs: { referenceImages: ['1','2','3','4','5','6'] } }), /最多.*5.*6/);
+    const referenceImages = Array.from({ length: 17 }, (_, index) => `original-${index}`);
+    assert.match(validateUniversalImageInputs({ state, node, inputs: { referenceImages } }), /最多.*16.*17/);
     source.data.mediaIntegrity = { missingItems: [{ position: 0 }] };
     assert.match(validateUniversalImageInputs({ state, node, inputs: { referenceImages: ['second'] } }), /原图.*缺失/);
     delete source.data.mediaIntegrity;

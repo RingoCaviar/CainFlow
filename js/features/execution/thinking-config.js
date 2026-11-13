@@ -1,3 +1,4 @@
+import { getGoogleImageCapabilities } from './google-image-capabilities.js';
 import { getOpenAIChatCapabilities } from './openai-chat-capabilities.js';
 
 // Profiles describe wire contracts, not promises that a relay supports the same
@@ -5,7 +6,7 @@ import { getOpenAIChatCapabilities } from './openai-chat-capabilities.js';
 export const THINKING_SOURCES = {
     openai: 'https://developers.openai.com/api/docs/guides/reasoning',
     google: 'https://ai.google.dev/gemini-api/docs/generate-content/thinking?hl=en',
-    image: 'https://ai.google.dev/gemini-api/docs/image-generation',
+    image: 'https://aistudio.google.com/docs/image-generation?generate-content=true#thinking-levels',
     deepseek: 'https://api-docs.deepseek.com/guides/thinking_mode/',
     qwen: 'https://help.aliyun.com/en/model-studio/deep-thinking'
 };
@@ -24,7 +25,8 @@ export const THINKING_PROFILES = {
     'google-25-pro': { label: 'Gemini 2.5 Pro · Token 预算', wire: 'google-budget', task: 'chat', min: 128, max: 32768, dynamic: true },
     'google-25-flash': { label: 'Gemini 2.5 Flash · Token 预算', wire: 'google-budget', task: 'chat', min: 1, max: 24576, off: true, dynamic: true },
     'google-25-lite': { label: 'Gemini 2.5 Flash-Lite · Token 预算', wire: 'google-budget', task: 'chat', min: 512, max: 24576, off: true, dynamic: true },
-    'google-image': { label: 'Gemini 3.1 Flash Image · minimal / high', wire: 'google-level', task: 'image', levels: ['minimal', 'high'] },
+    'google-image': { label: 'Gemini 3.1 Flash / Flash Lite Image · minimal / high', wire: 'google-level', task: 'image', levels: getGoogleImageCapabilities('gemini-3.1-flash-image').thinkingLevels },
+    'google-image-extended': { label: 'Gemini Nano Banana 2.1 · minimal / medium / high', wire: 'google-level', task: 'image', levels: getGoogleImageCapabilities('gemini-nano-banana-2.1').thinkingLevels },
     'deepseek': { label: 'DeepSeek · 开关及 low / high / max', wire: 'deepseek', task: 'chat', off: true, on: true, levels: ['low', 'high', 'max'] },
     'qwen': { label: 'Qwen 混合思考 · 开关及预算', wire: 'qwen', task: 'chat', off: true, on: true, min: 1, max: 32768 },
     'qwen-thinking': { label: 'Qwen 固定思考 · 预算', wire: 'qwen-fixed', task: 'chat', min: 1, max: 32768 },
@@ -41,13 +43,14 @@ export function normalizeThinkingSelection(value) {
     if (value == null || value.mode === 'inherit') return undefined;
     return { mode: String(value.mode || 'invalid'), ...(own(value, 'value') ? { value: value.value } : {}) };
 }
-function automaticProfile(model, provider, task, protocol) {
-    let host = '';
+function getThinkingHost(provider, protocol) {
     const endpoint = protocol === 'responses' && provider?.autoComplete === false ? provider.responsesEndpoint : provider?.endpoint;
-    try { host = new URL(endpoint || '').hostname.toLowerCase(); } catch { return ''; }
+    try { return new URL(endpoint || '').hostname.toLowerCase(); } catch { return ''; }
+}
+
+function automaticProfile(model, task, protocol, host) {
     const id = String(model?.modelId || '').toLowerCase();
-    if (protocol === 'google' && host === 'generativelanguage.googleapis.com') {
-        if (task === 'image') return /^gemini-3\.1-flash(?:-lite)?-image(?:-preview)?$/.test(id) ? 'google-image' : '';
+    if (task === 'chat' && protocol === 'google' && host === 'generativelanguage.googleapis.com') {
         const known = { 'gemini-2.5-pro': 'google-25-pro', 'gemini-2.5-flash': 'google-25-flash', 'gemini-2.5-flash-lite': 'google-25-lite',
             'gemini-3-flash-preview': 'google-level', 'gemini-3-pro-preview': 'google-pro', 'gemini-3.1-pro-preview': 'google-pro',
             'gemini-3.1-flash-lite': 'google-level', 'gemini-3.5-flash-lite': 'google-level', 'gemini-3.6-flash': 'google-level', 'gemini-3.8-flash': 'google-level-no-minimal', 'gemini-4-argon': 'google-level-no-minimal' };
@@ -62,7 +65,13 @@ export function getThinkingCapability({ model = {}, provider = {}, task = model.
     const config = normalizeThinkingConfig(model.thinking);
     const configured = config?.providers?.[provider.id] || config?.profile || 'auto';
     const official = task === 'chat' ? getOpenAIChatCapabilities({ model, provider, protocol }) : null;
-    const id = configured === 'auto' ? official?.thinkingProfile || automaticProfile(model, provider, task, protocol) : configured;
+    const host = getThinkingHost(provider, protocol);
+    const googleImage = task === 'image' && protocol === 'google' && host === 'generativelanguage.googleapis.com'
+        ? getGoogleImageCapabilities(model.modelId)
+        : undefined;
+    const googleProfile = googleImage?.thinkingLevels.includes('medium') ? 'google-image-extended'
+        : googleImage?.thinkingLevels.length ? 'google-image' : '';
+    const id = configured === 'auto' ? official?.thinkingProfile || googleProfile || automaticProfile(model, task, protocol, host) : configured;
     const configuredProfile = THINKING_PROFILES[id];
     const officialProfile = THINKING_PROFILES[official?.thinkingProfile];
     let profile = configuredProfile;
@@ -71,13 +80,17 @@ export function getThinkingCapability({ model = {}, provider = {}, task = model.
     } else if (officialProfile && configuredProfile) {
         const levels = configuredProfile.wire === 'openai' ? configuredProfile.levels.filter(level => officialProfile.levels.includes(level)) : [];
         profile = levels.length ? { ...configuredProfile, levels } : null;
+    } else if (googleImage && configuredProfile) {
+        const levels = configuredProfile.wire === 'google-level' && configuredProfile.task === 'image'
+            ? configuredProfile.levels.filter(level => googleImage.thinkingLevels.includes(level)) : [];
+        profile = levels.length ? { ...configuredProfile, levels } : null;
     }
     const compatible = profile && profile.task === task && !(profile.wire.startsWith('qwen') && protocol === 'responses') && (profile.wire.startsWith('google') ? protocol === 'google'
         : profile.wire === 'ttapi' ? protocol === 'ttapi' : ['openai', 'responses', 'ttapi-openai'].includes(protocol));
     return { ...(compatible ? profile : {}), id, supported: Boolean(compatible),
         reason: configured === 'none' ? '已设置不发送思考参数' : !compatible ? '由接口控制；当前模型或渠道未确认可调整思考参数' : '',
-        source: profile?.wire.startsWith('google') ? THINKING_SOURCES[task === 'image' ? 'image' : 'google'] : THINKING_SOURCES[profile?.wire.startsWith('qwen') ? 'qwen' : profile?.wire],
-        verifiedAt: official ? '2026-11-11' : '2026-10-22' };
+        source: googleImage ? THINKING_SOURCES.image : profile?.wire.startsWith('google') ? THINKING_SOURCES[task === 'image' ? 'image' : 'google'] : THINKING_SOURCES[profile?.wire.startsWith('qwen') ? 'qwen' : profile?.wire],
+        verifiedAt: googleImage ? '2026-11-13' : official ? '2026-11-11' : '2026-10-22' };
 }
 export function resolveThinking(options, ...overrides) {
     const capability = getThinkingCapability(options);

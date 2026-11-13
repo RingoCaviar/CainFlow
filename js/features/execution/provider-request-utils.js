@@ -10,12 +10,14 @@ import {
 import { getProtocol } from './protocols/index.js';
 import { normalizeImageList } from './execution-data-utils.js';
 import { getOpenAiImageCapabilities } from './openai-image-capabilities.js';
+import { getGoogleImageCapabilities } from './google-image-capabilities.js';
 import { requireModelCompatibilityFormat } from './model-compatibility-format.js';
 import {
     OPENAI_IMAGE_RESOLUTION_OPTIONS,
     getImageAspectOptionsForProtocol,
     getImageResolutionOptionsForProtocol,
     normalizeImageSizeControls,
+    resolveImageRequestSize,
     validateOpenAiImageSize
 } from './image-generation-size.js';
 
@@ -494,15 +496,84 @@ function applyCustomRequestParams(requestBody, inputs = {}) {
     return { ...requestBody, ...getCustomRequestParams(inputs) };
 }
 
-export function buildGoogleImageRequest({ prompt, inputs = {}, aspect, resolution, searchEnabled }) {
-    const parts = [{ text: prompt }, ...getInputInlineParts(inputs)];
+function normalizeGoogleImageGenerationConfig(config, modelId, aspect, resolution) {
+    const {
+        imageConfig, image_config: imageConfigAlias, responseModalities, response_modalities: modalitiesAlias,
+        ...rest
+    } = config || {};
+    const {
+        aspectRatio, aspect_ratio: aspectAlias, imageSize, image_size: sizeAlias, ...otherImageConfig
+    } = imageConfig ?? imageConfigAlias ?? {};
+    const size = resolveImageRequestSize({
+        protocol: 'google', modelId, aspect: aspectRatio ?? aspectAlias ?? aspect,
+        resolution: imageSize ?? sizeAlias ?? resolution
+    });
+    const modalities = responseModalities ?? modalitiesAlias ?? ['TEXT', 'IMAGE'];
+    if (!Array.isArray(modalities) || !modalities.includes('IMAGE')) {
+        throw new Error('Gemini 生图的 responseModalities 必须包含 IMAGE。');
+    }
+    if (size.aspect) otherImageConfig.aspectRatio = size.aspect;
+    if (size.resolution) otherImageConfig.imageSize = size.resolution;
+    return {
+        ...rest,
+        responseModalities: modalities,
+        ...(Object.keys(otherImageConfig).length ? { imageConfig: otherImageConfig } : {})
+    };
+}
+
+export function countGoogleImageParts(contents) {
+    return (Array.isArray(contents) ? contents : [contents]).reduce((total, content) => {
+        if (!Array.isArray(content?.parts)) return total;
+        return total + content.parts.filter(part => {
+            const media = part?.inlineData ?? part?.inline_data ?? part?.fileData ?? part?.file_data;
+            return /^image\//i.test(media?.mimeType ?? media?.mime_type ?? '');
+        }).length;
+    }, 0);
+}
+
+export function buildGoogleImageRequest({ modelId, prompt, inputs = {}, aspect, resolution, searchEnabled }) {
+    const capability = getGoogleImageCapabilities(modelId);
+    const inlineImages = getInputInlineParts(inputs);
+    const customParams = getCustomRequestParams(inputs);
+    if (capability) {
+        const referenceCount = getImageInputKeys(inputs).reduce((count, key) => count + normalizeImageList(inputs[key]).length, 0);
+        if (inlineImages.length !== referenceCount) {
+            throw new Error('当前 Gemini 生图请求需要内嵌原图，请下载或重新连接无法读取的参考图。');
+        }
+        if (referenceCount && Object.hasOwn(customParams, 'contents')) {
+            throw new Error('自定义 contents 会替换已连接的参考图，请移除该自定义参数。');
+        }
+        const totalReferences = referenceCount + countGoogleImageParts(customParams.contents);
+        if (totalReferences > capability.maxReferences) {
+            throw new Error(`${modelId} 最多支持 ${capability.maxReferences} 张参考图，当前有 ${totalReferences} 张。`);
+        }
+    }
+    const parts = [{ text: prompt }, ...inlineImages];
+    if (capability?.imageSizes) {
+        const { generationConfig, generation_config: configAlias, tools, ...rest } = customParams;
+        for (const tool of Array.isArray(tools) ? tools : []) {
+            const search = tool?.googleSearch ?? tool?.google_search;
+            if (!search) continue;
+            if (!capability.search) throw new Error(`${modelId} 不支持 Google 搜索，请移除该自定义工具。`);
+            const searchTypes = search.searchTypes ?? search.search_types;
+            if (!capability.imageSearch && (searchTypes?.imageSearch ?? searchTypes?.image_search)) {
+                throw new Error(`${modelId} 不支持 Google 图片搜索，请移除该自定义工具。`);
+            }
+        }
+        return {
+            contents: [{ parts }],
+            ...rest,
+            generationConfig: normalizeGoogleImageGenerationConfig(generationConfig ?? configAlias, modelId, aspect, resolution),
+            ...(tools !== undefined ? { tools } : searchEnabled && capability.search ? { tools: [{ googleSearch: {} }] } : {})
+        };
+    }
     const requestBody = { contents: [{ parts }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } };
     const imageConfig = {};
     if (aspect) imageConfig.aspectRatio = aspect;
     if (resolution) imageConfig.imageSize = resolution;
     if (Object.keys(imageConfig).length > 0) requestBody.generationConfig.imageConfig = imageConfig;
-    if (searchEnabled) requestBody.tools = [{ googleSearch: {} }];
-    return applyCustomRequestParams(requestBody, inputs);
+    if (searchEnabled && capability?.search !== false) requestBody.tools = [{ googleSearch: {} }];
+    return { ...requestBody, ...customParams };
 }
 
 export function buildGoogleChatRequest({ prompt, inputs = {}, sysprompt, searchEnabled }) {

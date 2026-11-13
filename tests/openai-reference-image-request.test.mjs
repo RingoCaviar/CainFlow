@@ -164,6 +164,24 @@ test('OpenAI single-reference edits keep the scalar image field', async () => {
     assert.equal(form.has('mask'), false);
 });
 
+test('OpenAI GPT Image sends all 16 references in order and rejects a seventeenth before fetching', async () => {
+    const { api, node, requests, elements } = createImageRequestHarness({ modelId: 'gpt-image-2.6-sunburst' });
+    elements.get('image-generate-resolution').value = '1536x864';
+    const references = Array.from({ length: 17 }, (_, index) => `reference ${index + 1}`);
+    const referenceImages = references.map(value => `data:image/png;base64,${Buffer.from(value).toString('base64')}`);
+    const signal = new AbortController().signal;
+
+    await api.nodeHandlers.ImageGenerate(node, { referenceImages: referenceImages.slice(0, 16) }, signal);
+    assert.equal(requests.length, 1);
+    const form = await requests[0].formData();
+    assert.equal(form.has('image'), false);
+    assert.equal(form.get('size'), '1536x864');
+    assert.deepEqual(await Promise.all(form.getAll('image[]').map(image => image.text())), references.slice(0, 16));
+
+    await assert.rejects(api.nodeHandlers.ImageGenerate(node, { referenceImages }, signal), /最多.*16.*张参考图/);
+    assert.equal(requests.length, 1);
+});
+
 test('OpenAI generation without references keeps the JSON generations request', async () => {
     const { api, node, requests } = createImageRequestHarness();
     await api.nodeHandlers.ImageGenerate(node, {}, new AbortController().signal);
@@ -219,14 +237,16 @@ test('GPT Image edit fields reflect model support in sequential and concurrent r
     }
 });
 
-test('GPT Image 2.6 accepts complexity and extended quality without compression for PNG', async () => {
+test('GPT Image 2.6 accepts custom dimensions, complexity and extended quality without compression for PNG', async () => {
     const { api, node, requests, elements } = createImageRequestHarness({
         modelId: 'gpt-image-2.6-flare',
         protocolParams: { output_format: 'png', output_compression: '75', complexity: 'low' }
     });
     elements.get('image-generate-quality').value = 'xhigh';
+    elements.get('image-generate-resolution').value = '1920x1088';
     await api.nodeHandlers.ImageGenerate(node, {}, new AbortController().signal);
     const body = await requests[0].json();
+    assert.equal(body.size, '1920x1088');
     assert.equal(body.quality, 'xhigh');
     assert.equal(body.complexity, 'low');
     assert.equal(body.output_format, 'png');

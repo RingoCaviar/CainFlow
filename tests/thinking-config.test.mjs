@@ -45,6 +45,26 @@ test('Provider overrides, wrong protocol, model change and invalid values never 
     assert.throws(() => resolveThinking(config, level('high')), /不可用/);
     for (const [profile, protocol, value] of [['openai-max', 'openai', level('none')], ['google-25-pro', 'google', { mode: 'off' }], ['google-25-lite', 'google', { mode: 'budget', value: 511 }], ['google-25-pro', 'google', { mode: 'budget', value: 32769 }], ['qwen-thinking', 'openai', { mode: 'off' }], ['qwen', 'responses', { mode: 'on' }]]) assert.throws(() => resolveThinking(options(profile, 'chat', protocol), value));
 });
+test('official Gemini image models constrain thinking levels while relay profiles remain explicit', () => {
+    const config = options('auto', 'image', 'google');
+    config.provider = { endpoint: 'https://generativelanguage.googleapis.com/v1' };
+    config.model.modelId = 'gemini-nano-banana-2.1';
+    assert.deepEqual(getThinkingCapability(config).levels, ['minimal', 'medium', 'high']);
+    assert.deepEqual(resolveThinking(config, level('medium')).patch, { generationConfig: { thinkingConfig: { thinkingLevel: 'medium' } } });
+
+    config.model.modelId = 'gemini-3.1-flash-image';
+    config.model.thinking.profile = 'google-image-extended';
+    assert.deepEqual(getThinkingCapability(config).levels, ['minimal', 'high']);
+    assert.throws(() => resolveThinking(config, level('medium')), /档位/);
+
+    for (const modelId of ['gemini-3-pro-image', 'gemini-2.5-flash-image']) {
+        config.model.modelId = modelId;
+        assert.equal(getThinkingCapability(config).supported, false);
+        assert.throws(() => resolveThinking(config, level('high')), /不可用/);
+        assert.deepEqual(resolveThinking(config, { mode: 'default' }).patch, {});
+    }
+    assert.deepEqual(getThinkingCapability({ ...config, provider }).levels, ['minimal', 'medium', 'high']);
+});
 test('Google configuration preserves image and response options; conflicting custom fields fail', () => {
     const body = { generationConfig: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { imageSize: '2K' } } };
     applyThinking(body, options('google-image', 'image', 'google'), level('high'));

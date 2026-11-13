@@ -11,7 +11,8 @@ const session = {
     autoCheckUpdatesOnLoad: false,
     models: [
         { id: 'chat', modelId: 'chat', name: '受控对话', protocol: 'openai', taskType: 'chat', providerIds: ['p'] },
-        { id: 'image', modelId: 'gpt-image-1', name: '受控图片', protocol: 'openai', taskType: 'image', providerIds: ['p'] }
+        { id: 'image', modelId: 'gpt-image-1', name: '受控图片', protocol: 'openai', taskType: 'image', providerIds: ['p'] },
+        { id: 'gemini-image', modelId: 'gemini-2.5-flash-image', name: '受控 Gemini 图片', protocol: 'google', taskType: 'image', providerIds: ['p'] }
     ],
     providers: [{ id: 'p', name: '受控供应商', endpoint: 'https://controlled.test/v1', apikey: 'test' }],
     nodes: [
@@ -63,6 +64,16 @@ test('reference gallery uses square thumbnails with overlay numbers and preserve
         const spacing = await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel'),r=p.getBoundingClientRect(),thumb=p.querySelector('.image-reference-thumbnail').getBoundingClientRect(),prompt=p.querySelector('.image-node-prompt-field textarea').getBoundingClientRect(),controls=[...p.querySelectorAll('.image-parameter-settings-entry,.image-parameter-model-entry,.image-parameter-more-entry,.generation-count-control,[data-parameter-action=generate]')].map(el=>el.getBoundingClientRect());return [thumb.top-r.top,thumb.left-r.left,prompt.top-thumb.bottom,controls[0].top-prompt.bottom,prompt.left-r.left,r.right-prompt.right,r.bottom-controls.at(-1).bottom,...controls.slice(1).map((box,index)=>box.left-controls[index].right)]})()");
         assert.ok(spacing.every(gap=>Math.abs(gap-6)<0.5), 'visible edges share one spacing, including reference wrappers and nested footer groups: '+JSON.stringify(spacing));
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#target-reference-sources [data-reference-number]')].map(item=>item.dataset.referenceNumber)"), ['1', '2', '3', '4', '5', '6', '7', '8']);
+        assert.equal(await app.evaluate("document.querySelector('#target-reference-sources .image-reference-grid').title"), '参考图 8 / 16 张');
+        const selectModel = id => app.evaluate(`(()=>{const field=document.getElementById('target-apiconfig');field.value=${JSON.stringify(id)};field.dispatchEvent(new Event('change',{bubbles:true}))})()`);
+        await selectModel('gemini-image');
+        assert.equal(await app.evaluate("document.querySelector('#target-reference-sources .image-reference-capacity')?.textContent"),
+            '参考图 8 / 3 张 · 已超出当前模型上限');
+        assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#target-reference-sources [data-reference-connection]')].map(row=>row.dataset.referenceConnection)"),
+            ['edge-single-a', 'edge-single-b', 'edge-batch']);
+        assert.equal(await app.evaluate("document.querySelectorAll('#target-reference-sources [data-reference-number]').length"), 8);
+        await selectModel('image');
+        assert.equal(await app.evaluate("document.querySelector('#target-reference-sources .image-reference-capacity')===null"), true);
 
         assert.equal(await app.evaluate("document.querySelectorAll('#target-reference-sources .image-reference-details').length"), 0);
         assert.equal(await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.nodes.find(n=>n.id==='single-a').imageDescription)"), description, 'source descriptions are retained as data');

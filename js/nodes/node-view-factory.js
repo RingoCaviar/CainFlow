@@ -15,7 +15,7 @@ import {
     VIDEO_ASPECT_OPTIONS
 } from '../features/execution/provider-request-utils.js';
 import { getImageAspectSelectState, normalizeImageSizeControls, resolveImageRequestSize } from '../features/execution/image-generation-size.js';
-import { getImageParameterValues, renderImageParameterOptions } from './image-parameter-controls.js';
+import { getImageParameterValues, renderImageParameterOptions, supportsImageWebSearch } from './image-parameter-controls.js';
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 import { applyReferenceImagePorts } from './reference-image-ports.js';
 import { renderCommerceImageSetBody } from './commerce-image-set-view.js';
@@ -404,10 +404,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
         .join('');
     const selectedProvider = getResolvedProviderForModel(selectedModel, providers, selectedProviderId);
     const protocol = getEffectiveProtocol(selectedModel, selectedProvider);
-    const isOpenAiModel = !!selectedModel && protocol === 'openai';
-    const isTtapiOpenAiModel = !!selectedModel && protocol === 'ttapi-openai';
     const isNewApiAsyncImage = !!selectedModel && protocol === 'newapi-image-async';
-    const usesOpenAiImageControls = isOpenAiModel || isTtapiOpenAiModel;
     const modelId = selectedModel?.modelId;
     const imageParameters = selectedModel ? getImageParameterValues(protocol, modelId) : {};
     const customResolutionMatch = String(rd.customResolution || '').match(/^(\d{2,5})x(\d{2,5})$/i);
@@ -505,7 +502,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             label: '启用搜索',
             inputId: `${id}-search`,
             checked: rd.search === true,
-            hidden: usesOpenAiImageControls || isNewApiAsyncImage,
+            hidden: !supportsImageWebSearch(protocol, modelId),
             fieldId: `${id}-search-field`
         })}
         </div>

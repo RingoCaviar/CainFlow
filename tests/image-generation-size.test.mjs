@@ -3,11 +3,13 @@ import test from 'node:test';
 
 import {
     getImageAspectOptionsForProtocol,
+    getImageAspectSelectState,
     getImageResolutionOptionsForProtocol,
     normalizeImageSizeControls,
     resolveImageRequestSize,
     validateOpenAiImageSize
 } from '../js/features/execution/image-generation-size.js';
+import { getGoogleImageCapabilities } from '../js/features/execution/google-image-capabilities.js';
 import { createNodeMarkup } from '../js/nodes/node-view-factory.js';
 import { imageGenerateNode } from '../js/nodes/types/image-generate.js';
 import { createExecutionCoreApi } from '../js/features/execution/execution-core.js';
@@ -108,6 +110,51 @@ test('non-OpenAI requests keep resolution tier and aspect ratio as independent f
     const ttapiSize = resolveImageRequestSize({ protocol: 'ttapi', resolution: '', aspect: '1:1' });
     assert.equal(ttapiSize.display, '1K（具体像素由模型决定）');
     assert.equal(buildTtapiImageRequest({ modelCfg: { modelId: 'image-model' }, prompt: '山谷', ...ttapiSize }).image_size, '1K');
+});
+
+test('known Gemini image models expose their documented reference and search capabilities', () => {
+    for (const [modelId, references, web, images] of [
+        ['gemini-nano-banana-2.1', 14, true, true],
+        ['gemini-3.1-flash-image', 14, true, true],
+        ['gemini-3.1-flash-image-preview', 14, true, true],
+        ['gemini-3.1-flash-lite-image', 14, false, false],
+        ['gemini-3-pro-image', 14, true, false],
+        ['gemini-3-pro-image-preview', 14, true, false],
+        ['gemini-2.5-flash-image', 3, false, false],
+        ['gemini-2.5-flash-image-preview', 3, false, false],
+        ['imagen-4.0-generate-001', 0, false, false]
+    ]) {
+        const capabilities = getGoogleImageCapabilities(modelId);
+        assert.equal(capabilities.maxReferences, references, modelId);
+        assert.equal(capabilities.search, web, modelId);
+        assert.equal(capabilities.imageSearch, images, modelId);
+    }
+    assert.equal(getGoogleImageCapabilities('relay-gemini-3-pro-image'), undefined);
+});
+
+test('Gemini size choices and request values depend on the selected image model', () => {
+    const protocol = 'google';
+    const flash = 'gemini-3.1-flash-image';
+    const lite = 'gemini-3.1-flash-lite-image';
+    const pro = 'gemini-3-pro-image';
+    const legacy = 'gemini-2.5-flash-image';
+    const banana = 'gemini-nano-banana-2.1';
+    const values = options => options.map(option => option.value);
+    assert.deepEqual(values(getImageResolutionOptionsForProtocol(protocol, flash)), ['', '512', '1K', '2K', '4K']);
+    assert.deepEqual(values(getImageResolutionOptionsForProtocol(protocol, banana)), ['', '1K', '2K', '4K']);
+    assert.deepEqual(values(getImageResolutionOptionsForProtocol(protocol, lite)), ['']);
+    assert.deepEqual(values(getImageResolutionOptionsForProtocol(protocol, legacy)), ['']);
+    assert.deepEqual(values(getImageAspectOptionsForProtocol(protocol, flash)), values(getImageAspectOptionsForProtocol(protocol, lite)));
+    assert.equal(getImageAspectOptionsForProtocol(protocol, flash).length, 15);
+    assert.equal(getImageAspectOptionsForProtocol(protocol, pro).length, 11);
+    assert.equal(getImageAspectSelectState(protocol, '2K', '8:1', pro).value, '');
+    assert.equal(resolveImageRequestSize({ protocol, modelId: flash, resolution: '512', aspect: '8:1' }).resolution, '512');
+    assert.equal(resolveImageRequestSize({ protocol, modelId: legacy, resolution: '1k', aspect: '21:9' }).resolution, '');
+    assert.equal(resolveImageRequestSize({ protocol, modelId: lite, aspect: '1:8' }).aspect, '1:8');
+    assert.throws(() => resolveImageRequestSize({ protocol, modelId: lite, resolution: '4K' }), /不支持/);
+    assert.throws(() => resolveImageRequestSize({ protocol, modelId: banana, resolution: '512' }), /不支持/);
+    assert.throws(() => resolveImageRequestSize({ protocol, modelId: pro, aspect: '1:8' }), /不支持/);
+    assert.equal(resolveImageRequestSize({ protocol, modelId: 'custom-image', resolution: '4K', aspect: '8:1' }).aspect, '8:1');
 });
 
 test('image node renders separate controls and a read-only request resolution', () => {

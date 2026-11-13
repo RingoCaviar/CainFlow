@@ -8,6 +8,7 @@ import { resolveDeclarativeProtocolVariant } from '../features/execution/protoco
 import { getImageDescription } from '../features/execution/reference-image-description.js';
 import { resolveImageRequestSize } from '../features/execution/image-generation-size.js';
 import { getOpenAiImageCapabilities } from '../features/execution/openai-image-capabilities.js';
+import { getGoogleImageCapabilities } from '../features/execution/google-image-capabilities.js';
 import { resolveThinking, getThinkingCapability, normalizeThinkingSelection } from '../features/execution/thinking-config.js';
 
 const PROTOCOL_PRESENTATION_FIELDS = new Set(['id', 'name', 'label', 'helpText', 'description', 'note', 'videoMeta',
@@ -136,7 +137,9 @@ export function createImageGenerationRevisionApi({ state, documentRef, getActive
             cameraPrompt: getPrimaryTextInput(fromRole('camera_prompt')).trim(), generationCount: settings.generationCount,
             ...size,
             ...(['openai', 'ttapi-openai'].includes(protocol) ? { quality: settings.quality, moderation: settings.moderation, background: settings.background } : {}),
-            ...(['google', 'ttapi'].includes(protocol) ? { search: settings.search } : {}),
+            ...(['google', 'ttapi'].includes(protocol) ? {
+                search: settings.search && (protocol !== 'google' || getGoogleImageCapabilities(model?.modelId)?.search !== false)
+            } : {}),
             protocolParams, thinking: thinkingWireConfiguration(model, provider, protocol, node.data?.thinking),
             protocolWire: protocolWireConfiguration(effectiveConfiguration), customParams: compact(fromRole('params')),
             sources: identities.map(source => ['prompt', 'camera_prompt', 'params'].includes(source.role)

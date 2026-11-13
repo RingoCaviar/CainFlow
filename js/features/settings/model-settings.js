@@ -15,7 +15,7 @@ import {
 } from '../execution/provider-request-utils.js';
 import { getImageAspectSelectState, normalizeImageSizeControls, resolveImageRequestSize } from '../execution/image-generation-size.js';
 import { getOpenAiImageCapabilities } from '../execution/openai-image-capabilities.js';
-import { syncImageParameterControls } from '../../nodes/image-parameter-controls.js';
+import { supportsImageWebSearch, syncImageParameterControls } from '../../nodes/image-parameter-controls.js';
 import {
     getModelProtocolHelpText,
     getProtocolSelectOptions,
@@ -722,10 +722,9 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
         const isOpenAiModel = protocol === 'openai';
         const isTtapiOpenAiModel = protocol === 'ttapi-openai';
         const usesOpenAiImageControls = isOpenAiModel || isTtapiOpenAiModel;
-        const isNewApiAsyncImage = protocol === 'newapi-image-async';
         syncImageParameterControls(documentRef, id, protocol, model?.modelId);
         const searchField = documentRef.getElementById(`${id}-search-field`);
-        if (searchField) searchField.classList.toggle('hidden', usesOpenAiImageControls || isNewApiAsyncImage);
+        searchField?.classList.toggle('hidden', !supportsImageWebSearch(protocol, model?.modelId));
         const maskPort = documentRef.querySelector(`.node-port[data-node-id="${id}"][data-port="mask"][data-direction="input"]`);
         if (maskPort) {
             const wasHidden = maskPort.classList.contains('hidden');
@@ -782,6 +781,10 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                     if (providerSelect) providerSelect.innerHTML = '<option value="">-- 暂无可用供应商 --</option>';
                     if (providerField) providerField.classList.add('hidden');
                     node.providerId = '';
+                    if (node.type === 'ImageGenerate') {
+                        node.apiConfigId = node.data.apiConfigId = '';
+                        syncImageGenerateResolutionOptions(id);
+                    }
                     continue;
                 }
 
@@ -808,6 +811,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
 
                 node.providerId = providerSettings.getResolvedModelProviderId(selectedModel, providerSelect?.value || currentProviderId);
                 if (node.type === 'ImageGenerate') {
+                    node.apiConfigId = node.data.apiConfigId = selectedModel.id;
                     syncImageGenerateResolutionOptions(id);
                     fitNodeToContent(id, { allowShrink: true, preserveCurrentWidth: true, reason: 'element-resize' });
                 }

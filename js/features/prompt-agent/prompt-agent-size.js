@@ -1,4 +1,5 @@
 import { getImageResolutionOptionsForProtocol, getImageAspectOptionsForProtocol, getLegacyOpenAiImageSizeSelection, usesOpenAiImageSize, validateOpenAiImageSize, resolveImageRequestSize } from '../execution/image-generation-size.js';
+import { getGoogleImageCapabilities } from '../execution/google-image-capabilities.js';
 
 export const SIZE_KEYS = ['resolution', 'aspectRatio', 'customWidth', 'customHeight'];
 export function sizeFields(value = {}) {
@@ -34,7 +35,11 @@ export function resolveAgentSize({ protocol = '', modelId = '', current = {}, de
         }
         Object.assign(effective, size, { aspectRatio: patch.aspectRatio || aspect });
     }
-    const resolution = capabilities.resolutions.find(option => option.value.toLowerCase() === String(effective.resolution).toLowerCase());
+    const googleSizes = protocol === 'google' ? getGoogleImageCapabilities(modelId)?.imageSizes : undefined;
+    const requestedResolution = String(effective.resolution).trim().toLowerCase();
+    const resolutionValue = googleSizes && !googleSizes.length && requestedResolution === '1k' ? ''
+        : googleSizes?.includes('512') && requestedResolution === '512px' ? '512' : requestedResolution;
+    const resolution = capabilities.resolutions.find(option => option.value.toLowerCase() === resolutionValue);
     if (!resolution) throw new Error('当前模型不支持所选分辨率，请重新选择。');
     effective.resolution = resolution.value;
     if (Object.hasOwn(patch, 'resolution')) patch.resolution = effective.resolution;

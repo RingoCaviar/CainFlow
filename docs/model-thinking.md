@@ -9,7 +9,7 @@
 | OpenAI 对话 | Chat 的 `reasoning_effort`；Responses 的 `reasoning.effort` | 最新核验与型号档位见 [OpenAI 模型参数](openai-model-parameters.md)。官方依据：[Reasoning](https://developers.openai.com/api/docs/guides/reasoning)。 |
 | Gemini 对话等级 | `generationConfig.thinkingConfig.thinkingLevel` | [Thinking](https://ai.google.dev/gemini-api/docs/generate-content/thinking?hl=en)。按登记模型区分 low/high、minimal/low/medium/high 或 low/medium/high。 |
 | Gemini 2.5 预算 | `generationConfig.thinkingConfig.thinkingBudget` | 同上。Pro 128–32768，不能关闭；Flash 允许关闭及 1–24576；Flash-Lite 允许关闭及 512–24576。动态预算发送 -1。等级与预算不同时发送。 |
-| Gemini 生图 | 同等级字段 | [Image generation](https://ai.google.dev/gemini-api/docs/image-generation)。3.1 Flash Image / Flash-Lite Image 登记 minimal/high。固定或未确认可调整模型显示“由接口控制”。 |
+| Gemini 生图 | 同等级字段 | Nano Banana 2.1 支持 `minimal`、`medium` 和 `high`，默认 `medium`。3.1 Flash Image 与 Flash Lite Image 支持 `minimal` 和 `high`，默认 `minimal`。固定或未确认可调整模型显示“由接口控制”。[Google 官方生图思考档位（2026-11-13 核验）](https://aistudio.google.com/docs/image-generation?generate-content=true#thinking-levels) |
 | OpenAI 生图 | 无新增思考字段 | [Images API](https://developers.openai.com/api/reference/resources/images/methods/generate)。画质参数保留原义。 |
 | DeepSeek | `thinking.type` 和 `reasoning_effort` | [Thinking mode](https://api-docs.deepseek.com/guides/thinking_mode/)。登记 Flash / V4 Pro 的 enabled/disabled 与 low/high/max；关闭不发送启用档位。 |
 | Qwen | `enable_thinking`、`thinking_budget` | [Deep thinking](https://help.aliyun.com/en/model-studio/deep-thinking)。自动识别登记的商业版非流式模型；预算模板采用文档列出的 1–32768 范围。固定思考模板不提供关闭。未登记、仅流式模型不自动开放；更高预算不自行猜测。 |
