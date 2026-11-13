@@ -174,20 +174,19 @@ export function createConnectionProjection({
         return promise;
     }
 
-    function repairAlignmentNow(nodeIds = [], reason = 'interaction-settled') {
-        const targets = normalizeIds(nodeIds);
-        if (targets.length > 0) {
-            targets.forEach((nodeId) => invalidateNodePortCache?.(nodeId, { markDirty: false, measurementOnly: true }));
-        } else {
-            invalidateNodePortCache?.(undefined, { markDirty: false, measurementOnly: true });
+    function repairAlignmentNow(nodeIds, reason, viewportOnly) {
+        if (!viewportOnly) {
+            const invalidateMeasurement = (nodeId) => invalidateNodePortCache?.(nodeId, { markDirty: false, measurementOnly: true });
+            if (nodeIds.length) nodeIds.forEach(invalidateMeasurement);
+            else invalidateMeasurement();
         }
-        const mismatches = detectMisalignedConnections?.({ nodeIds: targets }) || [];
+        const mismatches = detectMisalignedConnections?.({ nodeIds, viewportOnly }) || [];
         mismatches.forEach((item) => markConnectionDirty?.(item.connectionId || item));
         if (mismatches.length) {
             updateDirtyConnections?.();
             onAlignmentCorrected({ mismatches, reason });
         }
-        return { inspected: targets.length, corrected: mismatches.length };
+        return { inspected: nodeIds.length, corrected: mismatches.length };
     }
 
     function reportAlignmentRepairFailure(error, reason) {
@@ -198,11 +197,11 @@ export function createConnectionProjection({
         }
     }
 
-    function verifyAlignment(nodeIds = [], reason = 'interaction-settled', signal = null) {
+    function verifyAlignment(nodeIds = [], reason = 'interaction-settled', signal = null, { viewportOnly = false } = {}) {
         if (destroyed) return Promise.resolve({ inspected: 0, corrected: 0 });
         if (signal?.aborted) return Promise.resolve({ inspected: 0, corrected: 0 });
         if (restorationTransaction.promise) {
-            return restorationTransaction.promise.then(() => verifyAlignment(nodeIds, reason, signal));
+            return restorationTransaction.promise.then(() => verifyAlignment(nodeIds, reason, signal, { viewportOnly }));
         }
         const targets = normalizeIds(nodeIds);
         return new Promise((resolve, reject) => {
@@ -225,7 +224,7 @@ export function createConnectionProjection({
                     return;
                 }
                 try {
-                    finish(repairAlignmentNow(targets, reason));
+                    finish(repairAlignmentNow(targets, reason, viewportOnly));
                 } catch (error) {
                     completed = true;
                     pendingAlignmentFrames.delete(alignmentFrameId);
@@ -274,6 +273,15 @@ export function createConnectionProjection({
             markGeometry(nodeIds);
             schedule();
         },
+        nodeGeometrySettled(nodeId, { verticalPositionChanged = false } = {}) {
+            const targets = normalizeIds(nodeId);
+            if (destroyed || targets.length === 0) return Promise.resolve({ inspected: 0, corrected: 0 });
+            markGeometry(targets);
+            // Vertical ordering can change the lanes of edges that share a port or target.
+            if (verticalPositionChanged) pendingWholeProjection = true;
+            schedule();
+            return verifyAlignment(targets);
+        },
         nodeAppearanceChanged(nodeIds) {
             if (destroyed) return;
             markAppearance(nodeIds);
@@ -304,7 +312,8 @@ export function createConnectionProjection({
                     // rather than synchronously rebuilding every edge on pointer up.
                     if (kind === CANVAS_INTERACTION_KIND.NODE_DRAG) schedule();
                     else commit();
-                    return verifyAlignment([...targets]);
+                    const viewportOnly = kind === CANVAS_INTERACTION_KIND.PAN || kind === CANVAS_INTERACTION_KIND.ZOOM;
+                    return verifyAlignment([...targets], 'interaction-settled', null, { viewportOnly });
                 },
                 abort() {
                     return this.finish();

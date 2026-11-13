@@ -272,7 +272,8 @@ function flushConnectionRefresh(options = {}) {
 const connectionProjectionInteractions = {
     beginInteraction: (kind, nodeIds) => registry.connectionProjectionApi?.interactions.beginInteraction(kind, nodeIds),
     nodeAppearanceChanged: (nodeIds) => registry.connectionProjectionApi?.interactions.nodeAppearanceChanged(nodeIds),
-    nodeGeometryChanged: (nodeIds) => registry.connectionProjectionApi?.interactions.nodeGeometryChanged(nodeIds)
+    nodeGeometryChanged: (nodeIds) => registry.connectionProjectionApi?.interactions.nodeGeometryChanged(nodeIds),
+    nodeGeometrySettled: (nodeId, change) => registry.connectionProjectionApi?.interactions.nodeGeometrySettled(nodeId, change)
 };
 
 function applyGlobalAnimationSetting() {
