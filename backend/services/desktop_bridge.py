@@ -1,16 +1,24 @@
 import base64
+import errno
 import os
+import re
 import subprocess
 import sys
 import tempfile
 import threading
+import uuid
 import webbrowser
+from contextlib import suppress
 from urllib.parse import urlparse
 
 from backend import config
 from backend.services.storage_service import storage_service
 from backend.services.image_clipboard import copy_png_to_clipboard
 from backend.services.windows_taskbar_service import WindowsTaskbarService
+
+
+_DOS_DEVICE_NAME = re.compile(r'CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|(?:COM|LPT)[0-9¹²³]')
+_LINK_UNAVAILABLE = {errno.EOPNOTSUPP, errno.ENOTSUP, errno.ENOSYS, errno.EPERM}
 
 
 class DesktopBridge:
@@ -20,6 +28,8 @@ class DesktopBridge:
         self._window = None
         self._close_allowed = False
         self._taskbar_service = taskbar_service or WindowsTaskbarService()
+        self._directory_save = None
+        self._directory_save_lock = threading.Lock()
 
     def attach_window(self, window):
         self._window = window
@@ -67,6 +77,35 @@ class DesktopBridge:
         result = self._window.create_file_dialog(self._webview.FOLDER_DIALOG)
         return result[0] if result else None
 
+    def begin_directory_save(self):
+        directory = self.choose_directory()
+        if not directory:
+            return None
+        directory = os.path.realpath(directory)
+        if not os.path.isdir(directory):
+            raise ValueError('保存目录不存在')
+        token = uuid.uuid4().hex
+        with self._directory_save_lock:
+            self._directory_save = (token, directory)
+        return token
+
+    def save_file_to_directory(self, token, name, payload):
+        if (not isinstance(name, str) or not name or name.endswith(('.', ' '))
+                or re.search(r'[<>:"/\\|?*\x00-\x1f]', name)
+                or _DOS_DEVICE_NAME.fullmatch(name.partition('.')[0].rstrip(' ').upper())):
+            raise ValueError('无效的保存文件名')
+        with self._directory_save_lock:
+            if not self._directory_save or self._directory_save[0] != token:
+                raise ValueError('保存目录授权已失效，请重新选择')
+            _, directory = self._directory_save
+            destination = os.path.join(directory, name)
+            return self._write_save_content(destination, self._decode_payload(payload), keep_existing=True)
+
+    def end_directory_save(self, token):
+        with self._directory_save_lock:
+            if self._directory_save and self._directory_save[0] == token:
+                self._directory_save = None
+
     def save_file(self, name, mime='', payload=None):
         if not self._window:
             return None
@@ -81,20 +120,59 @@ class DesktopBridge:
         content = self._decode_payload(payload)
         parent = os.path.dirname(os.path.abspath(destination))
         os.makedirs(parent, exist_ok=True)
+        self._write_save_content(destination, content)
+        return destination
+
+    @staticmethod
+    def _write_save_content(destination, content, *, keep_existing=False):
+        parent = os.path.dirname(os.path.abspath(destination))
         fd, temp_path = tempfile.mkstemp(prefix='.cainflow-save-', dir=parent)
         try:
             with os.fdopen(fd, 'wb') as stream:
                 stream.write(content)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temp_path, destination)
-        except Exception:
-            try:
+            if not keep_existing:
+                os.replace(temp_path, destination)
+                return destination
+
+            # Publish the completed file atomically without replacing existing files.
+            windows = os.name == 'nt'
+            publish = os.rename if windows else os.link
+            stem, extension = os.path.splitext(destination)
+            number = 0
+            candidate = destination
+            while True:
+                try:
+                    if publish:
+                        publish(temp_path, candidate)
+                    else:
+                        DesktopBridge._write_exclusive_save_content(candidate, content)
+                    return candidate
+                except FileExistsError:
+                    number += 1
+                    candidate = f'{stem} ({number}){extension}'
+                except OSError as error:
+                    if windows or not publish or error.errno not in _LINK_UNAVAILABLE:
+                        raise
+                    # Some removable and network filesystems cannot create hard links.
+                    publish = None
+        finally:
+            with suppress(OSError):
                 os.unlink(temp_path)
-            except OSError:
-                pass
+
+    @staticmethod
+    def _write_exclusive_save_content(destination, content):
+        stream = open(destination, 'xb')
+        try:
+            with stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+        except Exception:
+            with suppress(OSError):
+                os.unlink(destination)
             raise
-        return destination
 
     def copy_image(self, payload):
         return copy_png_to_clipboard(self._decode_payload(payload))

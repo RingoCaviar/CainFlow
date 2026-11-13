@@ -77,7 +77,6 @@ export function createHistoryFeature({
                 deleteHistoryEntry,
                 deleteHistoryItems: (ids) => historyPreviewApi.deleteHistoryItems(ids),
                 openHistoryPreview: (item) => historyPreviewApi.openHistoryPreview(item),
-                downloadImage,
                 createThumbnail,
                 createVideoThumbnail,
                 updateHistoryThumb,

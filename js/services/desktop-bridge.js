@@ -15,6 +15,17 @@ function bytesToBase64(bytes) {
     return btoa(binary);
 }
 
+async function getSavePayload(source) {
+    let blob = source;
+    if (!(blob instanceof Blob)) {
+        const response = await fetch(String(source));
+        if (!response.ok) throw new Error(`读取保存内容失败: HTTP ${response.status}`);
+        blob = await response.blob();
+    }
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    return { mime: blob.type, payload: { encoding: 'base64', data: bytesToBase64(bytes) } };
+}
+
 async function waitForDesktopApi(timeoutMs = 2500) {
     if (getReadyApi()) return getReadyApi();
     const desktopExpected = new URLSearchParams(globalThis.location?.search || '').get('desktop') === '1';
@@ -80,18 +91,18 @@ export async function initializeDesktopBridge() {
                 return api.copy_image({ encoding: 'base64', data: bytesToBase64(bytes) });
             }
         } : {}),
+        ...(typeof api.begin_directory_save === 'function' &&
+            typeof api.save_file_to_directory === 'function' && typeof api.end_directory_save === 'function' ? {
+            beginDirectorySave: () => api.begin_directory_save(),
+            saveFileToDirectory: async (token, name, source) => {
+                const { payload } = await getSavePayload(source);
+                return api.save_file_to_directory(token, name, payload);
+            },
+            endDirectorySave: token => api.end_directory_save(token)
+        } : {}),
         saveFile: async (name, mime, source) => {
-            let blob = source;
-            if (!(blob instanceof Blob)) {
-                const response = await fetch(String(source));
-                if (!response.ok) throw new Error(`读取保存内容失败: HTTP ${response.status}`);
-                blob = await response.blob();
-            }
-            const bytes = new Uint8Array(await blob.arrayBuffer());
-            return api.save_file(name, mime || blob.type || '', {
-                encoding: 'base64',
-                data: bytesToBase64(bytes)
-            });
+            const { mime: sourceMime, payload } = await getSavePayload(source);
+            return api.save_file(name, mime || sourceMime || '', payload);
         }
     };
     installTaskbarFocusHandlers();

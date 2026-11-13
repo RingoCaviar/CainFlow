@@ -6,7 +6,7 @@ import {
     needsHistoryVideoThumbnail
 } from './history-utils.js';
 import { createHistoryVideoContextMenu } from './history-video-context-menu.js';
-import { startHistoryDownload } from './history-download.js';
+import { downloadHistoryBatch } from './history-download.js';
 
 const CARD_MIN_WIDTH = 230;
 const CARD_GAP = 12;
@@ -25,7 +25,6 @@ export function createHistoryFullscreenApi({
     deleteHistoryEntry,
     deleteHistoryItems,
     openHistoryPreview,
-    downloadImage,
     createThumbnail = null,
     createVideoThumbnail = null,
     updateHistoryThumb = null,
@@ -589,22 +588,7 @@ export function createHistoryFullscreenApi({
     }
 
     async function downloadSelected() {
-        if (state.selectedHistoryIds.size === 0) {
-            showToast('请先选择要下载的历史记录', 'warn');
-            return;
-        }
-        const selected = viewState.items.filter((item) => state.selectedHistoryIds.has(item.id));
-        let startedCount = 0;
-        for (const item of selected) {
-            const entry = await getHistoryEntry(item.id);
-            if (await startHistoryDownload(entry, { downloadImage, documentRef, windowRef })) startedCount += 1;
-            await new Promise((resolve) => setTimeout(resolve, 180));
-        }
-        const failedCount = selected.length - startedCount;
-        const desktopSave = Boolean(windowRef.__cainflowDesktop?.saveFile);
-        showToast(failedCount > 0
-            ? `${desktopSave ? '已保存' : '已开始保存到本地'} ${startedCount} 项；${failedCount} 项${desktopSave ? '取消或失败' : '未能发起保存'}`
-            : `${desktopSave ? '已保存' : '已开始保存到本地'} ${startedCount} 项`, failedCount > 0 ? 'error' : 'success');
+        await downloadHistoryBatch([...state.selectedHistoryIds], { getHistoryEntry, showToast, documentRef, windowRef });
     }
 
     async function handleClearHistory() {
