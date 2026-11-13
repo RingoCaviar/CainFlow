@@ -66,7 +66,6 @@ export function createHistoryFullscreenApi({
             list: documentRef.getElementById('history-fullscreen-list'),
             timeline: documentRef.getElementById('history-fullscreen-timeline'),
             tooltip: documentRef.getElementById('history-fullscreen-rail-tooltip'),
-            count: documentRef.getElementById('history-fullscreen-count'),
             summary: documentRef.getElementById('history-fullscreen-summary'),
             batchToolbar: documentRef.getElementById('history-fullscreen-batch-toolbar'),
             selectedCount: documentRef.getElementById('history-fullscreen-selected-count')
@@ -78,12 +77,15 @@ export function createHistoryFullscreenApi({
         if (selectedCount) selectedCount.textContent = String(state.selectedHistoryIds.size);
     }
 
+    function syncHistoryCount() {
+        const { summary } = getEls();
+        if (summary) summary.textContent = `共 ${viewState.items.length} 条记录`;
+    }
+
     function renderEmptyState() {
-        const { list, timeline, count, summary } = getEls();
+        const { list, timeline } = getEls();
         viewState.rows = [];
         viewState.renderedRangeKey = '';
-        if (count) count.textContent = '0';
-        if (summary) summary.textContent = '按大概时间分组浏览历史记录';
         if (list) {
             list.classList.remove('history-fullscreen-list-virtual');
             list.style.height = '';
@@ -203,6 +205,7 @@ export function createHistoryFullscreenApi({
 
     function releaseViewState() {
         viewState.items = [];
+        syncHistoryCount();
         viewState.itemMap = new Map();
         viewState.groups = [];
         viewState.rows = [];
@@ -219,7 +222,7 @@ export function createHistoryFullscreenApi({
 
     function ensureModalObserver() {
         if (modalObserver || typeof MutationObserver !== 'function') return;
-        const { modal, list, timeline, count, summary } = getEls();
+        const { modal, list, timeline } = getEls();
         if (!modal) return;
         modalObserver = new MutationObserver(() => {
             if (!modal.classList.contains('hidden')) return;
@@ -230,8 +233,6 @@ export function createHistoryFullscreenApi({
                 list.style.height = '';
             }
             if (timeline) timeline.innerHTML = '';
-            if (count) count.textContent = '0';
-            if (summary) summary.textContent = '按大概时间分组浏览历史记录';
             releaseViewState();
         });
         modalObserver.observe(modal, {
@@ -298,15 +299,13 @@ export function createHistoryFullscreenApi({
     }
 
     function renderGroups() {
-        const { list, count, summary } = getEls();
+        const { list } = getEls();
         if (!list) return;
+        syncHistoryCount();
         if (!viewState.items.length) {
             renderEmptyState();
             return;
         }
-
-        if (count) count.textContent = String(viewState.items.length);
-        if (summary) summary.textContent = `按大概时间分组浏览 ${viewState.items.length} 条历史记录`;
 
         buildVirtualRows();
         renderTimeline(viewState.groups);
@@ -521,7 +520,7 @@ export function createHistoryFullscreenApi({
     }
 
     function close() {
-        const { modal, list, timeline, batchToolbar, count, summary } = getEls();
+        const { modal, list, timeline, batchToolbar } = getEls();
         modal?.classList.add('hidden');
         hideTimelineTooltip();
         viewState.version += 1;
@@ -535,8 +534,6 @@ export function createHistoryFullscreenApi({
             list.style.height = '';
         }
         if (timeline) timeline.innerHTML = '';
-        if (count) count.textContent = '0';
-        if (summary) summary.textContent = '按大概时间分组浏览历史记录';
         releaseViewState();
     }
 
