@@ -273,6 +273,12 @@ export function createConnectionProjection({
             markGeometry(nodeIds);
             schedule();
         },
+        nodeResizeApplied(nodeId) {
+            if (destroyed) return;
+            markGeometry(nodeId);
+            // The resize callback has already applied node geometry in this frame.
+            commit();
+        },
         nodeGeometrySettled(nodeId, { verticalPositionChanged = false } = {}) {
             const targets = normalizeIds(nodeId);
             if (destroyed || targets.length === 0) return Promise.resolve({ inspected: 0, corrected: 0 });
@@ -302,6 +308,12 @@ export function createConnectionProjection({
                     normalizeIds(change.nodeIds).forEach((nodeId) => targets.add(nodeId));
                     if (kind === CANVAS_INTERACTION_KIND.NODE_DRAG) markGeometry([...targets], { translationOnly: true });
                     schedule();
+                },
+                nodePositionsApplied() {
+                    if (destroyed || closed) return;
+                    if (kind !== CANVAS_INTERACTION_KIND.NODE_DRAG) throw new Error('Canvas interaction does not move nodes');
+                    markGeometry([...targets], { translationOnly: true });
+                    commit();
                 },
                 finish() {
                     if (destroyed) return Promise.resolve({ inspected: 0, corrected: 0 });

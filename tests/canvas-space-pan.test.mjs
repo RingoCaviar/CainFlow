@@ -67,10 +67,10 @@ function createHarness({ getNodeMinimumSize = null, connectionTargetApi = {}, re
         updateDraggingConnections(draggingState) { draggingConnectionCalls.push(draggingState); },
         updatePortStyles() {},
         scheduleSave() { saveCalls.push(true); },
-        getActiveWorkflowId: () => 'workflow-a',
+        getActiveWorkflowId: () => state.activeWorkflowId,
         saveViewportState(value) { viewportSaveCalls.push(value); },
-        serializeOneNode() {}, addNode() {}, checkLineIntersection: connectionTargetApi.checkLineIntersection || (() => false),
-        getConnectionSamplePoints: connectionTargetApi.getConnectionSamplePoints || (() => []), documentRef, getNodeMinimumSize,
+        serializeOneNode: connectionTargetApi.serializeOneNode || (() => {}),
+        addNode: connectionTargetApi.addNode || (() => {}), documentRef, getNodeMinimumSize,
         scheduleConnectionRefresh(options) { legacyRefreshCalls.push(options); },
         connectionProjection: connectionProjection || {
             beginInteraction(kind, nodeIds) {
@@ -93,7 +93,7 @@ function createHarness({ getNodeMinimumSize = null, connectionTargetApi = {}, re
     });
     api.initCanvasInteractions();
     return {
-        api, canvasListeners, windowListeners, state, viewportCalls, projectionCalls,
+        api, canvasContainer, canvasListeners, windowListeners, state, viewportCalls, projectionCalls,
         draggingConnectionCalls, legacyRefreshCalls, saveCalls, viewportSaveCalls
     };
 }
@@ -102,7 +102,7 @@ test('cutting records one protected snapshot per gesture before removing edges a
     for(const fail of [false,true]) {
         let calls=0;
         const {state,canvasListeners,windowListeners}=createHarness({connectionTargetApi:{
-            getPortPosition:()=>({x:0,y:0}),getConnectionSamplePoints:()=>[{x:0,y:0},{x:100,y:100}],checkLineIntersection:()=>true,
+            findConnectionsCrossingSegments: () => new Set(['edge']),
             pushHistory(){calls++;if(fail)throw Error('protection failed')}
         }});
         const start=canvasListeners.find(({type,options})=>type==='mousedown'&&!options).listener;
@@ -112,6 +112,64 @@ test('cutting records one protected snapshot per gesture before removing edges a
         state.connections=[edge];move({clientX:10,clientY:10});
         assert.equal(calls,1);assert.equal(state.connections.length,fail?1:0);
         if(!fail){state.connections=[edge];move({clientX:20,clientY:20});assert.equal(calls,1);}
+    }
+});
+
+test('a fast cut preserves coalesced samples and its final release in one geometry pass', () => {
+    const frames = [];
+    const batches = [];
+    let undoEntries = 0;
+    const { state, canvasListeners, windowListeners } = createHarness({
+        requestFrame(callback) { frames.push(callback); return frames.length; },
+        connectionTargetApi: {
+            findConnectionsCrossingSegments(segments) {
+                batches.push(segments.map(segment => segment.map(({ x, y }) => [x, y])));
+                return new Set(['first', 'second']);
+            },
+            pushHistory() { undoEntries += 1; }
+        }
+    });
+    state.connections = [{ id: 'first' }, { id: 'second' }];
+    const start = canvasListeners.find(({ type, options }) => type === 'mousedown' && !options).listener;
+    const move = windowListeners.find(({ type }) => type === 'mousemove').listener;
+    const release = windowListeners.find(({ type, options }) => type === 'mouseup' && !options).listener;
+
+    start({ ctrlKey: true, button: 2, clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() {} });
+    move({ clientX: 80, clientY: 0, getCoalescedEvents: () => [
+        { clientX: 20, clientY: 40 }, { clientX: 60, clientY: 40 }
+    ] });
+    assert.equal(batches.length, 0);
+    release({ clientX: 90, clientY: -20, target: { closest() { return null; } } });
+    while (frames.length) frames.shift()();
+
+    assert.deepEqual(batches, [[[[0, 0], [20, 40]], [[20, 40], [60, 40]], [[60, 40], [80, 0]], [[80, 0], [90, -20]]]]);
+    assert.equal(undoEntries, 1);
+    assert.deepEqual(state.connections, []);
+});
+
+test('a queued cut does not affect another workflow or run during a protected edit', () => {
+    for (const change of ['workflow', 'plan', 'undo']) {
+        const frames = [];
+        let undoEntries = 0;
+        const { state, canvasListeners, windowListeners } = createHarness({
+            requestFrame(callback) { frames.push(callback); return frames.length; },
+            connectionTargetApi: {
+                findConnectionsCrossingSegments: () => new Set(['shared-edge-id']),
+                pushHistory() { undoEntries += 1; }
+            }
+        });
+        const start = canvasListeners.find(({ type, options }) => type === 'mousedown' && !options).listener;
+        const move = windowListeners.find(({ type }) => type === 'mousemove').listener;
+        state.connections = [{ id: 'shared-edge-id' }];
+        start({ ctrlKey: true, button: 2, clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() {} });
+        move({ clientX: 80, clientY: 0 });
+        if (change === 'workflow') state.activeWorkflowId = 'another-workflow';
+        if (change === 'plan') state.canvasPlanApplying = true;
+        if (change === 'undo') state.historyTransitionInProgress = true;
+        while (frames.length) frames.shift()();
+
+        assert.equal(undoEntries, 0, change);
+        assert.deepEqual(state.connections, [{ id: 'shared-edge-id' }], change);
     }
 });
 
@@ -365,6 +423,224 @@ test('node dragging reports targeted changes and settlement through a projection
     assert.deepEqual(legacyRefreshCalls, []);
 });
 
+test('dragging submits the latest pointer once per frame and saves the release position', () => {
+    const frames = [];
+    const { windowListeners, state, projectionCalls, saveCalls } = createHarness({
+        requestFrame(callback) { frames.push(callback); return frames.length; }
+    });
+    const node = state.nodes.get('node-1');
+    node.el = { classList: createClassList(), style: { setProperty() {}, removeProperty() {} } };
+    state.dragging = {
+        nodes: ['node-1'],
+        startX: 0,
+        startY: 0,
+        startPositions: new Map([['node-1', { x: 50, y: 60 }]])
+    };
+    const move = windowListeners.find(({ type }) => type === 'mousemove').listener;
+    const up = windowListeners.find(({ type, options }) => type === 'mouseup' && !options).listener;
+    move({ clientX: 10, clientY: 20 });
+    move({ clientX: 30, clientY: 40 });
+
+    assert.equal(frames.length, 1);
+    assert.equal(node.x, 50);
+    assert.equal(projectionCalls.length, 0);
+    frames.shift()();
+    assert.equal(node.x, 80);
+    assert.equal(node.y, 100);
+    assert.equal(projectionCalls.filter(([event]) => event === 'changed').length, 1);
+
+    move({ clientX: 40, clientY: 50 });
+    up({ clientX: 60, clientY: 70, target: { closest() { return null; } } });
+    assert.equal(state.dragging, null);
+    assert.equal(node.el.style.left, '110px');
+    assert.equal(node.el.style.top, '130px');
+    assert.equal(saveCalls.length, 1);
+    const callCount = projectionCalls.length;
+    frames.shift()();
+    assert.equal(projectionCalls.length, callCount, 'the queued callback belongs to the ended drag');
+});
+
+test('queued drag and resize never change a replacement node with the same id', () => {
+    for (const kind of ['dragging', 'resizing']) {
+        for (const switchWorkflow of [false, true]) {
+            const frames = [];
+            const { windowListeners, state, projectionCalls, saveCalls } = createHarness({
+                requestFrame(callback) { frames.push(callback); }
+            });
+            const createElement = () => ({
+                classList: createClassList(),
+                style: { width: '240px', height: '180px', setProperty() {}, removeProperty() {} }
+            });
+            const node = state.nodes.get('node-1');
+            node.el = createElement();
+            state[kind] = kind === 'dragging' ? {
+                nodes: ['node-1'], startX: 0, startY: 0,
+                workflowId: state.activeWorkflowId,
+                startPositions: new Map([['node-1', { x: 50, y: 60, node }]])
+            } : {
+                nodeId: 'node-1', node, workflowId: state.activeWorkflowId, edge: 'bottom-right', startX: 0, startY: 0,
+                startWidth: 240, startHeight: 180, minWidth: 100, minHeight: 80
+            };
+            const move = windowListeners.find(({ type }) => type === 'mousemove').listener;
+            const up = windowListeners.find(({ type, options }) => type === 'mouseup' && !options).listener;
+            move({ clientX: 50, clientY: 30 });
+            if (switchWorkflow) state.activeWorkflowId = 'workflow-b';
+            const replacement = { x: 100, y: 120, el: createElement() };
+            state.nodes.set('node-1', replacement);
+            frames.shift()();
+            up({ clientX: 80, clientY: 70, target: { closest() { return null; } } });
+
+            assert.equal(state[kind], null);
+            assert.deepEqual([replacement.x, replacement.y, replacement.el.style.width, replacement.el.style.height],
+                [100, 120, '240px', '180px']);
+            assert.deepEqual(projectionCalls, []);
+            assert.deepEqual(saveCalls, []);
+        }
+    }
+});
+
+test('queued marquee cannot select nodes in a newly activated workflow', () => {
+    const frames = [];
+    const { canvasListeners, canvasContainer, windowListeners, state } = createHarness({
+        requestFrame(callback) { frames.push(callback); }
+    });
+    state.isSpacePressed = false;
+    const down = canvasListeners.find(({ type, options }) => type === 'mousedown' && !options).listener;
+    const move = windowListeners.find(({ type }) => type === 'mousemove').listener;
+    const up = windowListeners.find(({ type, options }) => type === 'mouseup' && !options).listener;
+    down({ button: 0, clientX: 10, clientY: 10, target: canvasContainer, preventDefault() {} });
+    move({ clientX: 75, clientY: 80 });
+    state.activeWorkflowId = 'workflow-b';
+    frames.shift()();
+    up({ clientX: 75, clientY: 80, target: canvasContainer });
+    assert.equal(state.marquee, null);
+    assert.equal(state.selectedNodes.size, 0);
+});
+
+test('a clone released before its first frame captures undo before creating the clone', () => {
+    const frames = [];
+    const calls = [];
+    const { windowListeners, state } = createHarness({
+        requestFrame(callback) { frames.push(callback); return frames.length; },
+        connectionTargetApi: {
+            serializeOneNode() { return {}; },
+            addNode(_type, x, y) {
+                calls.push('clone');
+                state.nodes.set('copy', { x, y, el: createNodeElement() });
+                return 'copy';
+            }
+        }
+    });
+    function createNodeElement() {
+        return { classList: createClassList(), style: { setProperty() {}, removeProperty() {} } };
+    }
+    state.nodes.get('node-1').el = createNodeElement();
+    const dragging = {
+        nodes: ['node-1'],
+        startX: 0,
+        startY: 0,
+        startPositions: new Map([['node-1', { x: 50, y: 60, node: state.nodes.get('node-1') }]]),
+        isCloneDrag: true,
+        deferSelectionOnDrag: true,
+        activateSelection() {
+            calls.push('undo');
+            dragging.selectionActivated = true;
+        }
+    };
+    state.dragging = dragging;
+    windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: 10, clientY: 10 });
+    assert.deepEqual(calls, []);
+    windowListeners.find(({ type, options }) => type === 'mouseup' && !options)
+        .listener({ clientX: 35, clientY: 25, target: { closest() { return null; } } });
+
+    assert.deepEqual(calls, ['undo', 'clone']);
+    assert.equal(state.nodes.get('node-1').x, 50);
+    assert.equal(state.nodes.get('copy').el.style.left, '85px');
+    assert.equal(state.nodes.get('copy').el.style.top, '85px');
+    assert.deepEqual([...state.selectedNodes], ['copy']);
+    frames.shift()();
+    assert.deepEqual(calls, ['undo', 'clone']);
+});
+
+test('a cloned group can keep moving in subsequent frames', () => {
+    const frames = [];
+    const createElement = () => ({
+        classList: createClassList(), style: { setProperty() {}, removeProperty() {} }
+    });
+    const { windowListeners, state } = createHarness({
+        requestFrame(callback) { frames.push(callback); },
+        connectionTargetApi: {
+            serializeOneNode(id) { return { customTitle: id }; },
+            addNode(_type, x, y, data) {
+                const id = `copy-${data.customTitle}`;
+                state.nodes.set(id, { x, y, el: createElement() });
+                return id;
+            }
+        }
+    });
+    state.nodes.get('node-1').el = createElement();
+    state.nodes.set('node-2', { x: 100, y: 120, el: createElement() });
+    state.dragging = {
+        nodes: ['node-1', 'node-2'], workflowId: state.activeWorkflowId, startX: 0, startY: 0, isCloneDrag: true,
+        startPositions: new Map([...state.nodes].map(([id, node]) => [id, { x: node.x, y: node.y, node }]))
+    };
+    const move = windowListeners.find(({ type }) => type === 'mousemove').listener;
+    const up = windowListeners.find(({ type, options }) => type === 'mouseup' && !options).listener;
+    move({ clientX: 10, clientY: 20 });
+    frames.shift()();
+    move({ clientX: 30, clientY: 40 });
+    frames.shift()();
+    assert.equal(state.nodes.get('copy-node-1').x, 80);
+    assert.equal(state.nodes.get('copy-node-2').x, 130);
+    up({ clientX: 50, clientY: 60, target: { closest() { return null; } } });
+    assert.equal(state.nodes.get('copy-node-1').el.style.left, '100px');
+    assert.equal(state.nodes.get('copy-node-2').el.style.left, '150px');
+    assert.equal(state.nodes.get('node-1').x, 50);
+    assert.equal(state.nodes.get('node-2').x, 100);
+});
+
+test('marquee selection coalesces movement and uses the release point before the frame', () => {
+    const frames = [];
+    const { canvasListeners, canvasContainer, windowListeners, state } = createHarness({
+        requestFrame(callback) { frames.push(callback); return frames.length; }
+    });
+    state.isSpacePressed = false;
+    const down = canvasListeners.find(({ type, options }) => type === 'mousedown' && !options).listener;
+    const move = windowListeners.find(({ type }) => type === 'mousemove').listener;
+    const up = windowListeners.find(({ type, options }) => type === 'mouseup' && !options).listener;
+    down({ button: 0, clientX: 10, clientY: 10, target: canvasContainer, preventDefault() {} });
+    move({ clientX: 15, clientY: 20 });
+    move({ clientX: 35, clientY: 40 });
+    assert.equal(frames.length, 1);
+    assert.equal(state.selectedNodes.size, 0);
+
+    up({ clientX: 75, clientY: 80, target: canvasContainer });
+    assert.deepEqual([...state.selectedNodes], ['node-1']);
+    assert.equal(state.marquee, null);
+    frames.shift()();
+    assert.deepEqual([...state.selectedNodes], ['node-1']);
+});
+
+test('window blur finalizes the queued marquee and prevents a stale selection frame', () => {
+    const frames = [];
+    const { canvasListeners, canvasContainer, windowListeners, state } = createHarness({
+        requestFrame(callback) { frames.push(callback); return frames.length; }
+    });
+    state.isSpacePressed = false;
+    const down = canvasListeners.find(({ type, options }) => type === 'mousedown' && !options).listener;
+    const move = windowListeners.find(({ type }) => type === 'mousemove').listener;
+    down({ button: 0, clientX: 10, clientY: 10, target: canvasContainer, preventDefault() {} });
+    move({ clientX: 75, clientY: 80 });
+    windowListeners.find(({ type }) => type === 'blur').listener();
+    assert.equal(state.marquee, null);
+    assert.deepEqual([...state.selectedNodes], ['node-1']);
+
+    down({ button: 0, clientX: 10, clientY: 10, target: canvasContainer, preventDefault() {} });
+    assert.equal(state.selectedNodes.size, 0);
+    frames.shift()();
+    assert.equal(state.selectedNodes.size, 0);
+});
+
 test('window blur settles an in-progress node drag', () => {
     const { windowListeners, state, projectionCalls } = createHarness();
     const node = state.nodes.get('node-1');
@@ -508,6 +784,45 @@ test('window blur settles a node resize and clears its cursor state', () => {
     assert.equal(saveCalls.length, 1);
 });
 
+test('resizing processes one pointer per frame and flushes the last pointer on release', () => {
+    const frames = [];
+    const measuredWidths = [];
+    const { windowListeners, state } = createHarness({
+        requestFrame(callback) { frames.push(callback); return frames.length; },
+        getNodeMinimumSize(_node, { width }) {
+            measuredWidths.push(width);
+            return { minWidth: 180, minHeight: 120 };
+        }
+    });
+    const style = { width: '320px', height: '240px' };
+    const node = { x: 50, y: 60, el: { style, classList: createClassList() } };
+    state.nodes.set('node-1', node);
+    state.resizing = {
+        nodeId: 'node-1', edge: 'bottom-right', startX: 100, startY: 100,
+        startNodeX: 50, startNodeY: 60, startWidth: 320, startHeight: 240,
+        minWidth: 180, maxWidth: Infinity, minHeight: 120, maxHeight: Infinity,
+        textareaResizeTargets: []
+    };
+    const move = windowListeners.find(({ type }) => type === 'mousemove').listener;
+    const up = windowListeners.find(({ type, options }) => type === 'mouseup' && !options).listener;
+    move({ clientX: 110, clientY: 120 });
+    move({ clientX: 130, clientY: 140 });
+    assert.equal(frames.length, 1);
+    assert.deepEqual(measuredWidths, []);
+    frames.shift()();
+    assert.deepEqual(measuredWidths, [350]);
+    assert.equal(style.height, '280px');
+
+    move({ clientX: 140, clientY: 150 });
+    up({ clientX: 160, clientY: 170, target: { closest() { return null; } } });
+    assert.equal(state.resizing, null);
+    assert.equal(node.width, 380);
+    assert.equal(node.height, 310);
+    assert.ok(measuredWidths.slice(1).every(width => width === 380));
+    frames.shift()();
+    assert.equal(node.width, 380);
+});
+
 test('releasing a resize or losing focus settles only the resized node connections', () => {
     for (const end of ['mouseup', 'blur']) {
         const frames = [];
@@ -542,9 +857,15 @@ test('releasing a resize or losing focus settles only the resized node connectio
         assert.equal(state.resizing, null, end);
         assert.equal(saveCalls.length, 1, end);
         assert.equal(legacyRefreshCalls.filter(({ force }) => force).length, 0, end);
-        assert.deepEqual(calls, [['invalidate', 'node-1']], end);
+        assert.deepEqual(calls, [
+            ['invalidate', 'node-1'],
+            'refresh changed connections',
+            ['invalidate', 'node-1']
+        ], end);
         while (frames.length) frames.shift()();
         assert.deepEqual(calls, [
+            ['invalidate', 'node-1'],
+            'refresh changed connections',
             ['invalidate', 'node-1'],
             'refresh changed connections',
             ['measure', 'node-1'],

@@ -5,6 +5,41 @@ const session={autoCheckUpdatesOnLoad:false,models:[{id:'chat',modelId:'chat',na
 async function point(app,selector){return app.evaluate(`(()=>{const p=document.querySelector(${JSON.stringify(selector)}),r=p.getBoundingClientRect();return {x:r.x+r.width*(p.closest('.node-port').dataset.direction==='input'?.25:.75),y:r.y+r.height/2}})()`)}
 async function drag(app,from,to){const start=await point(app,from),end=await point(app,to);for(const event of [{type:'mouseMoved',...start},{type:'mousePressed',...start,button:'left',clickCount:1},{type:'mouseMoved',x:start.x+30,y:start.y+20,button:'left',buttons:1},{type:'mouseMoved',...end,button:'left',buttons:1},{type:'mouseReleased',...end,button:'left',clickCount:1}])await app.send('Input.dispatchMouseEvent',event)}
 async function graph(app){return app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value)")}
+
+test('releasing near a port that moved during a drag uses its current position', { timeout: 30000 }, async () => {
+    const sourcePort = '#source .node-port[data-direction=output] .port-dot';
+    const targetPort = '#target .universal-input .port-dot';
+    await withAppBrowser({
+        ...session,
+        nodes: [
+            { id: 'source', type: 'ImageImport', x: 60, y: 160 },
+            { id: 'target', type: 'ImageGenerate', x: 540, y: 160, apiConfigId: 'image', providerId: 'p' }
+        ],
+        connections: []
+    }, async app => {
+        const start = await point(app, sourcePort);
+        const oldTarget = await point(app, targetPort);
+        await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...start, button: 'left', clickCount: 1 });
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...oldTarget, buttons: 1 });
+        await app.waitFor("Boolean(document.querySelector('#target .connection-target-nearest'))");
+
+        await app.evaluate(`(() => {
+            const target = document.getElementById('target');
+            target.style.top = '260px';
+            const { x, y, width, height } = document.querySelector(${JSON.stringify(targetPort)}).getBoundingClientRect();
+            document.getElementById('canvas-container').dispatchEvent(new MouseEvent('mouseup', {
+                bubbles: true, cancelable: true, button: 0, clientX: x + width / 2 + 16, clientY: y + height / 2
+            }));
+        })()`);
+
+        await app.waitFor("fetch('/api/storage/documents/session').then(r => r.json()).then(r => r.value.connections.length === 1)");
+        const [edge] = (await graph(app)).connections;
+        assert.deepEqual(edge.from, { nodeId: 'source', port: 'image' });
+        assert.deepEqual(edge.to, { nodeId: 'target', port: 'referenceImages' });
+        assert.equal(await app.evaluate("Boolean(document.querySelector('.connection-target-nearest'))"), false);
+    });
+});
+
 test('a universal input refuses an occupied prompt and preserves the exact existing edge and history', {timeout:30000},async()=>{
  const edge={id:'retained-prompt',from:{nodeId:'old',port:'text'},to:{nodeId:'target',port:'prompt'},type:'text'};
  const seeded={...session,nodes:[{id:'old',type:'Text',x:30,y:60,text:'old'},{id:'next',type:'Text',x:30,y:430,text:'new'},{id:'target',type:'ImageGenerate',x:620,y:230,apiConfigId:'image',providerId:'p'}],connections:[edge]};

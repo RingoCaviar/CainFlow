@@ -55,6 +55,85 @@ test('mixed selection reuses internal paths and stays aligned across resize rele
     });
 });
 
+test('a quick cut crosses both wires along its route and one undo restores them', { timeout: 30000 }, async () => {
+    const nodes = [
+        { id: 'first-source', type: 'Text', x: 100, y: 120, text: 'first' },
+        { id: 'first-target', type: 'Text', x: 620, y: 120 },
+        { id: 'second-source', type: 'Text', x: 100, y: 405, text: 'second' },
+        { id: 'second-target', type: 'Text', x: 620, y: 405 }
+    ];
+    const connections = ['first', 'second'].map(id => ({
+        id: id + '-cut',
+        from: { nodeId: id + '-source', port: 'text' },
+        to: { nodeId: id + '-target', port: 'text' },
+        type: 'text'
+    }));
+    const bothDrawn = `['first-cut', 'second-cut'].every(id =>
+        Boolean(document.querySelector('path[data-conn-id="' + id + '"]')?.getAttribute('d')))`;
+    await withAppBrowser({ ...session, nodes, connections }, async app => {
+        await app.waitFor(bothDrawn);
+        const points = await app.evaluate(`['first-cut', 'second-cut'].map(id => {
+            const path = document.querySelector('path[data-conn-id="' + id + '"]');
+            const { x, y } = path.getPointAtLength(path.getTotalLength() / 2).matrixTransform(path.getScreenCTM());
+            return { x, y };
+        })`);
+        const [first, second] = points;
+        await app.evaluate(`(() => {
+            const canvas = document.getElementById('canvas-container');
+            const fire = (type, x, y, buttons) => canvas.dispatchEvent(new MouseEvent(type, {
+                bubbles: true, cancelable: true, ctrlKey: true, button: 2, buttons, clientX: x, clientY: y
+            }));
+            fire('mousedown', ${first.x}, ${first.y - 22}, 2);
+            fire('mousemove', ${first.x}, ${first.y + 22}, 2);
+            fire('mouseup', ${second.x}, ${second.y + 22}, 0);
+        })()`);
+        assert.equal(await app.evaluate("document.querySelectorAll('path[data-conn-id$=-cut]').length"), 0);
+        await undo(app);
+        await app.waitFor(bothDrawn);
+    });
+});
+
+test('an isolated node can insert into a wire at the final drag position and undo as one action', { timeout: 30000 }, async () => {
+    const edge = {
+        id: 'original-wire', from: { nodeId: 'input', port: 'image' },
+        to: { nodeId: 'output', port: 'image' }, type: 'image'
+    };
+    await withAppBrowser({
+        ...session,
+        nodes: [
+            { id: 'input', type: 'ImageImport', x: 80, y: 450 },
+            { id: 'bridge', type: 'ImageResize', x: 430, y: 90 },
+            { id: 'output', type: 'ImagePreview', x: 800, y: 450 }
+        ],
+        connections: [edge]
+    }, async app => {
+        const originalDrawn = "Boolean(document.querySelector('path[data-conn-id=original-wire]')?.getAttribute('d'))";
+        await app.waitFor(originalDrawn);
+        await app.evaluate(`(() => {
+            const header = document.querySelector('#bridge .node-header');
+            const node = document.getElementById('bridge').getBoundingClientRect();
+            const rect = header.getBoundingClientRect();
+            const start = { clientX: rect.x + 35, clientY: rect.y + rect.height / 2 };
+            const path = document.querySelector('path[data-conn-id=original-wire]');
+            const cross = path.getPointAtLength(path.getTotalLength() / 2).matrixTransform(path.getScreenCTM());
+            const fire = (target, type, point, buttons) => target.dispatchEvent(new MouseEvent(type, {
+                bubbles: true, cancelable: true, button: 0, buttons, ...point
+            }));
+            fire(header, 'mousedown', start, 1);
+            fire(document, 'mousemove', { clientX: start.clientX + 12, clientY: start.clientY + 8 }, 1);
+            fire(document, 'mouseup', {
+                clientX: start.clientX + cross.x - node.x - node.width / 2,
+                clientY: start.clientY + cross.y - node.y - node.height / 2
+            }, 0);
+        })()`);
+        const inserted = await saved(app, "s=>s.connections.some(c=>c.from.nodeId==='input'&&c.to.nodeId==='bridge')&&s.connections.some(c=>c.from.nodeId==='bridge'&&c.to.nodeId==='output')");
+        assert.equal(inserted.connections.length, 2);
+        await undo(app);
+        await app.waitFor(originalDrawn);
+        assert.equal(await app.evaluate("parseFloat(document.getElementById('bridge').style.top)"), 90);
+    });
+});
+
 async function action(app, id, menuId) {
     await app.evaluate(`document.getElementById('${id}').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:650,clientY:230}));document.getElementById('${menuId}').click()`);
 }
@@ -99,7 +178,7 @@ test('repeated node moves never synchronously protect media and preserve origina
         const original=(await saved(app,'s=>s.nodes[0]?.mediaAssetKeys?.length===1')).nodes[0].mediaAssetKeys[0];
         await app.evaluate(`(()=>{window.moveSyncRequests=0;const open=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(method,url,async){if(async===false)moveSyncRequests++;return open.apply(this,arguments)};window.retainedMoveNode=document.getElementById('source')})()`);
         for(let index=0;index<6;index++) {
-            await app.evaluate(`(async()=>{const node=document.getElementById('source'),header=node.querySelector('.node-header'),r=header.getBoundingClientRect();window.beforeMove=[parseFloat(node.style.left),parseFloat(node.style.top)];header.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,clientX:r.x+30,clientY:r.y+12}));document.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,buttons:1,clientX:r.x+60,clientY:r.y+32}));await new Promise(requestAnimationFrame);document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0}));window.afterMove=[parseFloat(node.style.left),parseFloat(node.style.top)]})()`);
+            await app.evaluate(`(async()=>{const node=document.getElementById('source'),header=node.querySelector('.node-header'),r=header.getBoundingClientRect();window.beforeMove=[parseFloat(node.style.left),parseFloat(node.style.top)];header.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,clientX:r.x+30,clientY:r.y+12}));const end={clientX:r.x+60,clientY:r.y+32};document.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,buttons:1,...end}));await new Promise(requestAnimationFrame);document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0,...end}));window.afterMove=[parseFloat(node.style.left),parseFloat(node.style.top)]})()`);
         }
         assert.notDeepEqual(await app.evaluate('afterMove'),await app.evaluate('beforeMove'));
         assert.equal(await app.evaluate('moveSyncRequests'),0);
@@ -108,7 +187,7 @@ test('repeated node moves never synchronously protect media and preserve origina
         await redo(app);
         assert.deepEqual(await app.evaluate("[parseFloat(document.getElementById('source').style.left),parseFloat(document.getElementById('source').style.top)]"),await app.evaluate('afterMove'));
         assert.equal(await app.evaluate("document.getElementById('source')===retainedMoveNode && moveSyncRequests===0"),true);
-        await app.evaluate(`(async()=>{const header=document.querySelector('#source .node-header'),r=header.getBoundingClientRect();header.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,ctrlKey:true,clientX:r.x+30,clientY:r.y+12}));document.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,buttons:1,ctrlKey:true,clientX:r.x+90,clientY:r.y+52}));await new Promise(requestAnimationFrame);document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0}));})()`);
+        await app.evaluate(`(async()=>{const header=document.querySelector('#source .node-header'),r=header.getBoundingClientRect();header.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,ctrlKey:true,clientX:r.x+30,clientY:r.y+12}));const end={clientX:r.x+90,clientY:r.y+52};document.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,buttons:1,ctrlKey:true,...end}));await new Promise(requestAnimationFrame);document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0,...end}));})()`);
         await saved(app,'s=>s.nodes.length===2');
         assert.ok(await app.evaluate('moveSyncRequests>0'),'Ctrl-drag cloning still protects its full undo snapshot');
         await undo(app);await saved(app,'s=>s.nodes.length===1');

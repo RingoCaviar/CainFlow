@@ -2403,7 +2403,7 @@ export function createNodeDomBindingsApi({
             nodeIds.forEach((nid) => {
                 const node = state.nodes.get(nid);
                 if (node) {
-                    startPositions.set(nid, { x: node.x, y: node.y });
+                    startPositions.set(nid, { x: node.x, y: node.y, node });
                 }
             });
 
@@ -2433,6 +2433,7 @@ export function createNodeDomBindingsApi({
 
             return {
                 nodes: nodeIds,
+                workflowId: getWorkflowId?.(),
                 startX: pos.x,
                 startY: pos.y,
                 startPositions,
@@ -2634,6 +2635,8 @@ export function createNodeDomBindingsApi({
             const mediaSurface = el.classList.contains('node-media-aspect') ? el.querySelector('.node-media-aspect-surface') : null;
             state.resizing = {
                 nodeId: id,
+                node,
+                workflowId: getWorkflowId?.(),
                 edge,
                 cursorClass: `is-node-resizing-${cursor}`,
                 startX: e.clientX,
