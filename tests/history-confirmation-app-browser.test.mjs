@@ -122,6 +122,8 @@ test('sidebar and fullscreen history each choose one download folder and report 
             if (batch.offset) {
                 await app.evaluate(click('btn-expand-history'));
                 await app.waitFor("document.querySelectorAll('#history-fullscreen-list .history-card').length === 3");
+                assert.equal(await app.evaluate(`document.querySelector('.history-fullscreen-title-group').innerText.replace(/\\s+/g, ' ').trim()`),
+                    '全屏历史 共 3 条记录');
                 await app.evaluate(`${click('btn-history-fullscreen-batch')}; ${click('btn-history-fullscreen-select-all')}`);
                 await app.waitFor("document.getElementById('history-fullscreen-selected-count').textContent === '3'");
             }
