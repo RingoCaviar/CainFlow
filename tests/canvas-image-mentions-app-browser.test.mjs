@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
-import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
+import { delay, withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 import { uploadImageOriginal } from './helpers/image-upload.mjs';
 
 const image = async file => (await readFile(new URL(file, import.meta.url))).toString('base64');
@@ -37,13 +37,17 @@ async function type(app, text) {
     await app.send('Input.insertText', { text });
 }
 
+async function centerOf(app, selector) {
+    return app.evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(selector)}),r=el.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+}
+
 async function click(app, selector) {
-    const point = await app.evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(selector)}),r=el.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+    const point = await centerOf(app, selector);
     await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
     await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
 }
 
-test('canvas @ mentions use the selected import and directory original after reopening, preserving the upstream input', { timeout: 55000 }, async () => {
+test('canvas @ mentions preview and replace one occurrence after reopening, preserving the other originals', { timeout: 55000 }, async () => {
     await withAppBrowser(session, async app => {
         await app.send('Page.addScriptToEvaluateOnNewDocument', { source: `window.referenceRequests=[];const originalFetch=fetch;
             window.fetch=async(url, options={})=>{
@@ -84,14 +88,37 @@ test('canvas @ mentions use the selected import and directory original after reo
         await click(app, `${picker} [data-mention-mode=scene]`);
         await app.waitFor(`[...document.querySelectorAll('${options}')].some(row=>row.querySelector('.image-mention-source').textContent==='目录历史')`);
         await app.evaluate(`[...document.querySelectorAll('${options}')].find(row=>row.querySelector('.image-mention-source').textContent==='目录历史').click()`);
-        assert.equal(await app.evaluate("document.getElementById('target-prompt').value"), '保留 @图片1 融合 @图片2 背景参考 @图片3 ');
+        await type(app, '二次融合 @图片2。');
+        const prompt = "document.getElementById('target-prompt').value";
+        const originalPrompt = '保留 @图片1 融合 @图片2 背景参考 @图片3 二次融合 @图片2。';
+        const replacedPrompt = '保留 @图片1 融合 @图片3 背景参考 @图片3 二次融合 @图片2。';
+        assert.equal(await app.evaluate(prompt), originalPrompt);
         await reloadAppBrowser(app);
         await openParameters(app, 'target');
-        assert.equal(await app.evaluate("document.getElementById('target-prompt').value"), '保留 @图片1 融合 @图片2 背景参考 @图片3 ');
+        const mention = '.image-mention-token[data-mention-token="@图片2"]';
+        await app.waitFor(`document.querySelectorAll('${mention}').length===2`);
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...await centerOf(app, mention) });
+        await delay(400);
+        assert.equal(await app.evaluate("Boolean(document.querySelector('.image-mention-preview img'))"), false);
+        await app.waitFor("document.querySelector('.image-mention-preview img')?.naturalWidth > 0");
+        assert.match(await app.evaluate("document.querySelector('.image-mention-preview').textContent"), /灯罩细节/);
+        if (process.env.CAINFLOW_MENTION_HOVER_SCREENSHOT) {
+            const { data } = await app.send('Page.captureScreenshot', { format: 'png' });
+            await writeFile(process.env.CAINFLOW_MENTION_HOVER_SCREENSHOT, Buffer.from(data, 'base64'));
+        }
+        await click(app, mention);
+        assert.equal(await app.evaluate(prompt), originalPrompt);
+        await app.waitFor(`[...document.querySelectorAll('${options}')].some(row=>row.querySelector('.image-mention-source').textContent==='目录历史')`);
+        await app.evaluate(`[...document.querySelectorAll('${options}')].find(row=>row.querySelector('.image-mention-source').textContent==='目录历史').click()`);
+        assert.equal(await app.evaluate(prompt), replacedPrompt);
+        await app.evaluate("document.execCommand('undo')");
+        assert.equal(await app.evaluate(prompt), originalPrompt);
+        await app.evaluate("document.execCommand('redo')");
+        assert.equal(await app.evaluate(prompt), replacedPrompt);
         await app.evaluate("document.querySelector('[data-parameter-action=generate]').click()");
         await app.waitFor("referenceRequests.length===1 && document.getElementById('target-run-status').dataset.status==='completed'");
         const request = await app.evaluate('referenceRequests[0]');
-        assert.equal(request.find(part => part.text).text, '保留 参考图 1 融合 参考图 2 背景参考 参考图 3');
-        assert.deepEqual(request.flatMap(part => part.inlineData ? [part.inlineData.data] : []), [product, detail, background]);
+        assert.equal(request.find(part => part.text).text, '保留 参考图 1 融合 参考图 2 背景参考 参考图 2 二次融合 参考图 3。');
+        assert.deepEqual(request.flatMap(part => part.inlineData ? [part.inlineData.data] : []), [product, background, detail]);
     });
 });

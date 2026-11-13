@@ -280,6 +280,18 @@ test('reference images remain available after older turns are compressed', () =>
     assert.equal(restored.getReferenceImages()[0].dataUrl, 'data:image/png;base64,SOURCE');
 });
 
+test('an image mention draft retains the selected picker source on reopen', () => {
+    const store = createPromptAgentConversationStore();
+    const draft = { text: '参考 @图片1 ', referenceImages: [{
+        name: '构图.png', type: 'image/png', dataUrl: 'data:image/png;base64,AAAA', referenceId: 'canvas-image',
+        mentionToken: '@图片1', mentionOnly: true, mentionMode: 'upstream', mentionCandidateId: 'upstream-image'
+    }] };
+    store.setDraft(draft);
+    const reopened = createPromptAgentConversationStore();
+    reopened.restore(JSON.parse(JSON.stringify(store.snapshot())));
+    assert.deepEqual(reopened.getDraft(), draft);
+});
+
 test('distinct scene selections with identical pixels preserve their order and node identity after restore', () => {
     const dataUrl = 'data:image/png;base64,SAME';
     const references = ['b', 'a'].map((id) => ({

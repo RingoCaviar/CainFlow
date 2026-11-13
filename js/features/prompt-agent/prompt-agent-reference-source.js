@@ -1,7 +1,11 @@
 import { latestResultRun } from './prompt-agent-result-order.js';
 import { setImageDescription } from '../execution/reference-image-description.js';
 
-export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistoryMetadata, getHistoryEntry, getImageAsset, createImportNode, loadImageData, readWebImage, scheduleSave = () => {} }) {
+export function createPromptAgentReferenceSource({
+    state, nodeAdapter, getHistoryMetadata, getHistoryEntry, getImageAsset, createImportNode,
+    discardImportNode, getWorkflowId = () => state.activeWorkflowId,
+    loadImageData, readWebImage, scheduleSave = () => {}
+}) {
     const descriptionStorageKey = 'cainflow.agent-history-image-descriptions';
     const readDescriptions = () => {
         try { return JSON.parse(globalThis.localStorage?.getItem(descriptionStorageKey) || '{}') || {}; }
@@ -38,8 +42,9 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
         if (!entry?.image?.startsWith('data:image/')) throw new Error('历史原图缺失，请重新导入图片。');
         return { name: candidate.name, description: candidate.description ?? readDescriptions()[candidate.historyId] ?? '', dataUrl: entry.image, type: entry.image.slice(5, entry.image.indexOf(';')) };
     }
-    async function importReference(candidate, { isCurrent, read, slot = 0, onSourceNode = () => {} } = {}) {
+    async function importReference(candidate, { isCurrent, read, slot = 0, onSourceNode = () => {}, signal } = {}) {
         if (!isCurrent()) return null;
+        const workflowId = getWorkflowId();
         let node = candidate.nodeId ? state.nodes.get(candidate.nodeId) : null;
         if (!node && candidate.historyId) node = [...state.nodes.values()].find(item => reusable(item, candidate));
         if (node && reusable(node, candidate)) {
@@ -54,8 +59,9 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
         if (!isCurrent()) return null;
         candidate.resolvedImage = image;
         if (!image?.dataUrl?.startsWith('data:image/')) throw new Error('无法读取图片。');
+        const createdForReplacement = Boolean(!node && signal && discardImportNode);
         if (!node) {
-            const id = createImportNode({ name: image.name || candidate.name, slot });
+            const id = createImportNode({ name: image.name || candidate.name, slot, provisional: createdForReplacement });
             if (!id) throw new Error('无法创建图片导入节点。');
             candidate.nodeId = id;
             node = state.nodes.get(id);
@@ -68,18 +74,39 @@ export function createPromptAgentReferenceSource({ state, nodeAdapter, getHistor
         }
         candidate.attempted = true;
         onSourceNode(node.id);
-        const saved = await loadImageData(node.id, image.dataUrl);
-        if (!isCurrent()) return null;
-        if (!saved) throw new Error('图片保存失败，点击重试。');
-        if (candidate.description) setImageDescription(node, candidate.description);
-        candidate.savedAssetKey = assetKey(node);
-        if (candidate.historyId) node.agentReferenceSource = { historyId: String(candidate.historyId), assetKey: assetKey(node),
-            ...(candidate.historyVersion ? { historyVersion: candidate.historyVersion } : {}),
-            ...(candidate.webImage ? { web: { ...candidate.webImage } } : {}) };
-        scheduleSave();
-        const scene = nodeAdapter.getSceneReferenceImages().find(item => item.sourceNodeId === node.id);
-        if (!scene) throw new Error('导入节点尚未就绪，请重试。');
-        return { ...image, referenceId: scene.referenceId, sourceNodeId: node.id, sourceImageIndex: 0 };
+        const initialWriteToken = node.imageImportWriteToken;
+        const expectedWriteToken = (parseInt(initialWriteToken || '0', 10) || 0) + 1;
+        const initialTitle = node.customTitle;
+        const initialPosition = [node.x, node.y];
+        let rollback;
+        const discard = () => {
+            if (!createdForReplacement || rollback || state.nodes.get(node.id) !== node || getWorkflowId() !== workflowId
+                || node.imageImportWriteToken !== initialWriteToken && node.imageImportWriteToken !== expectedWriteToken
+                || node.importMode === 'url' || node.customTitle !== initialTitle || node.x !== initialPosition[0] || node.y !== initialPosition[1]
+                || state.connections?.some(connection => connection.from?.nodeId === node.id || connection.to?.nodeId === node.id)) return;
+            rollback = Promise.resolve(discardImportNode(node.id)).catch(error => { console.warn('Discarding cancelled Agent image import failed:', error); });
+        };
+        if (createdForReplacement) signal.addEventListener('abort', discard, { once: true });
+        try {
+            const saved = await loadImageData(node.id, image.dataUrl);
+            if (!isCurrent()) { discard(); return null; }
+            if (!saved) throw new Error('图片保存失败，点击重试。');
+            if (candidate.description) setImageDescription(node, candidate.description);
+            candidate.savedAssetKey = assetKey(node);
+            if (candidate.historyId) node.agentReferenceSource = { historyId: String(candidate.historyId), assetKey: assetKey(node),
+                ...(candidate.historyVersion ? { historyVersion: candidate.historyVersion } : {}),
+                ...(candidate.webImage ? { web: { ...candidate.webImage } } : {}) };
+            scheduleSave();
+            const scene = nodeAdapter.getSceneReferenceImages().find(item => item.sourceNodeId === node.id);
+            if (!scene) throw new Error('导入节点尚未就绪，请重试。');
+            return { ...image, referenceId: scene.referenceId, sourceNodeId: node.id, sourceImageIndex: 0 };
+        } catch (error) {
+            discard();
+            throw error;
+        } finally {
+            if (createdForReplacement) signal.removeEventListener('abort', discard);
+            if (rollback) await rollback;
+        }
     }
     function getContextReferences(conversation) {
         const latest = latestResultRun(conversation);

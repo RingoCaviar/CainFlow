@@ -1145,6 +1145,7 @@ const promptAgentController = createPromptAgentController({
     onDraftChange: () => workflowManagerApi.markActiveWorkflowDirty({ capture: false }),
     canvasAdapter: promptAgentCanvasAdapter,
     referenceImageCatalog,
+    createMentionThumbnail: source => mediaControllerApi.createReferenceThumbnail(source),
     panelManager,
     getSearchModels: () => state.models.filter(model => !model.taskType || model.taskType === 'chat'),
     getProviders: () => state.providers,
@@ -1153,8 +1154,10 @@ const promptAgentController = createPromptAgentController({
     readWebImage: readAgentWebImage,
     referenceSource: createPromptAgentReferenceSource({
         state, nodeAdapter: promptAgentNodeAdapter, getHistoryMetadata, getHistoryEntry, getImageAsset, readWebImage: readAgentWebImage,
+        getWorkflowId: () => workflowManagerApi.getActiveWorkflowId(),
+        discardImportNode: id => removeNode(id, { onlyId: true, skipHistory: true, showToast: false, notifyReferences: false }),
         scheduleSave, loadImageData: (id, data) => mediaControllerApi.loadImageData(id, data),
-        createImportNode: ({ name, slot }) => {
+        createImportNode: ({ name, slot, provisional }) => {
             const rect = canvasContainer.getBoundingClientRect();
             const panel = document.getElementById('prompt-agent-panel').getBoundingClientRect();
             const width = NODE_CONFIGS.ImageImport.defaultWidth || 300;
@@ -1168,7 +1171,7 @@ const promptAgentController = createPromptAgentController({
                 if ([...state.nodes.values()].every(node => position.x + width + 12 <= node.x || position.x >= node.x + (node.width || width) + 12
                     || position.y + height + 12 <= node.y || position.y >= node.y + (node.el?.offsetHeight || height) + 12)) break;
             }
-            return addNode('ImageImport', position.x, position.y, { customTitle: name });
+            return addNode('ImageImport', position.x, position.y, { customTitle: name }, provisional);
         }
     }),
     getPanelWidth: () => diskStorage.getItem('cainflow_prompt_agent_panel_width'),

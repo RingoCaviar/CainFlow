@@ -22,6 +22,11 @@
 import { bindImageMentionPicker } from '../../js/features/ui/image-mention-picker.js';
 import { getSurfaceCoordinator } from '../../js/features/ui/surface-coordinator.js';
 
+// Chromium's virtual-time DOM capture advances timers before painting.
+// Deliver the fixture's frame callbacks before checking their rendered output.
+window.requestAnimationFrame = callback => window.setTimeout(() => callback(performance.now()), 0);
+window.cancelAnimationFrame = id => window.clearTimeout(id);
+
 const input = document.querySelector('textarea');
 const art = '../../artifacts/prototype-image-first-canvas/assets/';
 const upstream = [
@@ -34,12 +39,21 @@ const scene = [
     { id: 'close-up', name: '灯罩材质细节', kind: 'history', previewUrl: art + 'scene-detail.png' }
 ];
 const extra = [{ id: 'generate', name: '产品生图', kind: 'node', description: 'ImageGenerate', sourceNodeId: 'generate' }];
+const mentions = new Map([
+    ['@图片2', { ...upstream[1], mode: 'upstream' }],
+    ['@图片3', { ...scene[2], mode: 'scene' }]
+]);
 let nextScene, thumbnailReads = 0, inputEvents = 0;
+let replacementContext;
 input.addEventListener('input', () => inputEvents++);
 bindImageMentionPicker({
     input, getUpstream: () => upstream, getScene: () => nextScene ?? scene, getExtraChoices: () => extra,
     readThumbnail: async item => { thumbnailReads++; return item.id === 'snow' ? art + 'scene-snow.png' : null; },
-    onSelect: item => item.id === 'snow' ? '@图片3' : '@图片2'
+    getMention: token => mentions.get(token),
+    onSelect(item, context) {
+        if (context.replacing) replacementContext = { token: context.token, start: context.start, end: context.end };
+        return item.id === 'snow' ? '@图片3' : '@图片2';
+    }
 });
 
 const result = document.getElementById('surface-result');
@@ -47,6 +61,7 @@ const picker = () => document.querySelector('.image-mention-picker');
 const mode = id => picker().querySelector(`[data-mention-mode="${id}"]`);
 const rows = () => [...picker().querySelectorAll('[role=option]')];
 const active = () => picker().querySelector('[aria-selected=true]')?.dataset.mentionId;
+const tokens = () => [...document.querySelectorAll('.image-mention-token[data-mention-token]')];
 const key = (key, options = {}) => input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...options }));
 const wait = async condition => {
     for (let i = 0; i < 80; i++) {
@@ -68,7 +83,7 @@ const sample = () => {
         thumbs: rows().filter(row => row.querySelector('.has-image img')).length };
 };
 
-try {
+async function exercisePicker() {
     type('保持主体，@ 不改变背景', 6);
     await wait(() => picker() && rows().length === 2 && sample().thumbs === 2);
     const first = { mode: mode('upstream').getAttribute('aria-pressed'), active: active(), ids: selected(), layout: sample() };
@@ -105,6 +120,16 @@ try {
     const nested = picker().matches(':popover-open') && settings.matches(':popover-open');
     key('Escape');
     const nestedEscape = !picker() && settings.matches(':popover-open');
+    type('复用 @图片2 保持构图');
+    await wait(() => tokens().length === 1 && tokens()[0].getBoundingClientRect().width > 0);
+    const nestedToken = tokens()[0];
+    const box = nestedToken.getBoundingClientRect();
+    const nestedMarkerReachable = nestedToken.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+    nestedToken.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerType: 'mouse' }));
+    nestedToken.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+    await wait(() => picker()?.matches(':popover-open'));
+    const nestedReplacement = nestedMarkerReachable && settings.matches(':popover-open') && mode('upstream').getAttribute('aria-pressed') === 'true';
+    key('Escape');
     surfaces.forgetPopover(settings.id);
     document.querySelector('main').append(input);
     settings.remove();
@@ -112,7 +137,71 @@ try {
     document.documentElement.dataset.appTheme = 'pro';
     type('把 @ 用作配色参考', 3); mode('scene').click();
     await wait(() => rows().length === scene.length && sample().thumbs === scene.length);
-    result.textContent = JSON.stringify({ first, keyboard, inserted, undo, search, escape, extraAfterRace, nested, nestedEscape, final: sample() });
+    return { first, keyboard, inserted, undo, search, escape, extraAfterRace, nested, nestedEscape, nestedReplacement, final: sample() };
+}
+
+async function exerciseInlineMentions() {
+    const original = '复用 @图片2\n对比 @图片2 看细节，保留未绑定的 @图片99。';
+    const expectedStart = original.lastIndexOf('@图片2');
+    const preview = () => document.querySelector('.image-mention-preview');
+    const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const pointer = (target, type) => target.dispatchEvent(new PointerEvent(type, { pointerType: 'mouse' }));
+    type(original);
+    await wait(() => tokens().length === 2 && tokens().every(token => token.getBoundingClientRect().width > 0));
+    const [first, second] = tokens();
+    const firstBox = first.getBoundingClientRect();
+    const secondBox = second.getBoundingClientRect();
+    const hit = box => document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+    const colors = getComputedStyle(second);
+    const inline = {
+        tokens: tokens().map(token => token.dataset.mentionToken),
+        hitTargets: first.contains(hit(firstBox)) && second.contains(hit(secondBox)),
+        separateLines: secondBox.top > firstBox.top,
+        hasAccent: colors.color !== getComputedStyle(input).color || colors.backgroundColor !== 'rgba(0, 0, 0, 0)'
+    };
+
+    pointer(second, 'pointerenter');
+    await delay(180);
+    pointer(second, 'pointerleave');
+    await delay(900);
+    const cancelledHover = !preview();
+
+    const start = performance.now();
+    pointer(second, 'pointerenter');
+    await delay(850);
+    const absentBeforeSecond = !preview();
+    await wait(() => preview()?.querySelector('img')?.naturalWidth > 0);
+    const hover = { cancelledHover, absentBeforeSecond, elapsed: performance.now() - start,
+        source: new URL(preview().querySelector('img').src).pathname.split('/').pop() };
+
+    second.click();
+    await wait(() => picker() && rows().length === upstream.length);
+    const replacing = { unchangedOnOpen: input.value === original, previewClosed: !preview(),
+        opensPicker: picker().getAttribute('aria-label') === '更换参考图', upstream: mode('upstream').getAttribute('aria-pressed') === 'true',
+        imageOnly: !mode('extra') };
+    key('Escape');
+    replacing.cancelled = !picker() && input.value === original;
+    tokens()[1].click();
+    await wait(() => picker() && rows().length === upstream.length);
+    mode('scene').click();
+    const search = picker().querySelector('input[type=search]');
+    search.value = '雪地';
+    search.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    await wait(() => rows().length === 1 && rows()[0].dataset.mentionId === 'snow');
+    const searchedInPlace = input.value === original && document.activeElement === search;
+    search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await wait(() => !picker() && tokens().some(token => token.dataset.mentionToken === '@图片3'));
+    const changed = { text: input.value, markers: tokens().map(token => token.dataset.mentionToken), context: replacementContext, expectedStart };
+    document.execCommand('undo');
+    await wait(() => tokens().length === 2 && tokens().every(token => token.dataset.mentionToken === '@图片2'));
+    const undo = input.value;
+    input.setSelectionRange(undo.length, undo.length);
+    return { inline, hover, replacing, searchedInPlace, changed, undo };
+}
+
+try {
+    const checks = new URLSearchParams(location.search).has('inline') ? await exerciseInlineMentions() : await exercisePicker();
+    result.textContent = JSON.stringify(checks);
 } catch (error) { result.textContent = JSON.stringify({ error: error.stack }); }
 </script>
 </body>

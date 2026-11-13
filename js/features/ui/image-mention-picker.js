@@ -1,4 +1,5 @@
 import { getSurfaceCoordinator } from './surface-coordinator.js';
+import { bindImageMentionTokens } from './image-mention-tokens.js';
 
 const PAGE_SIZE = 24;
 const SOURCES = { import: '导入图片', canvas: '节点输出', history: '目录历史', node: '画布节点' };
@@ -46,7 +47,7 @@ function matchesQuery(candidate, mode, query) {
 
 export function bindImageMentionPicker({
     input, getUpstream, getScene, readThumbnail, onSelect, owner,
-    surfaces = getSurfaceCoordinator(input?.ownerDocument), getExtraChoices, extraLabel = '节点'
+    surfaces = getSurfaceCoordinator(input?.ownerDocument), getExtraChoices, extraLabel = '节点', getMention, readMentionThumbnail
 }) {
     const doc = input.ownerDocument, view = doc.defaultView;
     const id = `image-mention-picker-${++serial}`;
@@ -61,12 +62,25 @@ export function bindImageMentionPicker({
         if (content) node.textContent = content;
         return node;
     };
-    let popup, list, status, tabs, empty, more, mode, mention, loading, failure, selecting, positionObserver, thumbnailObserver;
+    let popup, list, status, tabs, empty, more, search, mode, mention, loading, failure, selecting, positionObserver, thumbnailObserver, selectionController;
     let candidates = [], choices = [], rows = [], active = -1, generation = 0, composing = false, limit = PAGE_SIZE;
     let thumbnails = new Map();
     let cache = new Map();
     const pendingThumbnails = new WeakMap();
     const originalAria = Object.fromEntries(['aria-controls', 'aria-expanded', 'aria-activedescendant'].map(key => [key, input.getAttribute(key)]));
+    const tokens = getMention && view.MutationObserver ? bindImageMentionTokens({
+        input, getMention, readThumbnail: readMentionThumbnail || readThumbnail,
+        onReplace(occurrence) {
+            close();
+            input.focus({ preventScroll: true });
+            input.setSelectionRange(occurrence.end, occurrence.end);
+            openPicker({ ...occurrence, query: '', replacing: true });
+        }
+    }) : null;
+
+    function availableModes() {
+        return mention?.replacing ? modes.filter(item => item.id !== 'extra') : modes;
+    }
 
     function restoreAria() {
         for (const [key, value] of Object.entries(originalAria)) {
@@ -76,10 +90,12 @@ export function bindImageMentionPicker({
     }
 
     function close() {
+        tokens?.hidePreview();
         if (!popup) return;
         generation++;
+        selectionController?.abort();
         popup.remove();
-        popup = null; mention = null; selecting = false;
+        popup = null; mention = null; search = null; selecting = false;
         rows = []; choices = []; candidates = []; cache.clear(); thumbnails.clear();
         positionObserver?.disconnect();
         thumbnailObserver?.disconnect();
@@ -115,7 +131,7 @@ export function bindImageMentionPicker({
         const placeAbove = below < desired && above > below;
         const room = placeAbove ? above : below;
         const left = Math.max(inset, Math.min(rect.left, view.innerWidth - popup.offsetWidth - inset));
-        const minHeight = Math.min(154, Math.max(0, view.innerHeight - 2 * inset));
+        const minHeight = Math.min(mention.replacing ? 196 : 154, Math.max(0, view.innerHeight - 2 * inset));
         Object.assign(popup.style, {
             left: `${left}px`,
             top: placeAbove ? 'auto' : `${Math.min(rect.bottom + gap, view.innerHeight - minHeight - inset)}px`,
@@ -156,9 +172,10 @@ export function bindImageMentionPicker({
         if (active >= 0) rows[active]?.setAttribute('aria-selected', 'false');
         active = next;
         const row = rows[active];
-        if (!row) { input.removeAttribute('aria-activedescendant'); return; }
+        if (!row) { input.removeAttribute('aria-activedescendant'); search?.removeAttribute('aria-activedescendant'); return; }
         row.setAttribute('aria-selected', 'true');
         input.setAttribute('aria-activedescendant', row.id);
+        search?.setAttribute('aria-activedescendant', row.id);
         if (scroll) row.scrollIntoView({ block: 'nearest' });
     }
 
@@ -167,6 +184,9 @@ export function bindImageMentionPicker({
         const selectedId = choices[active]?.id;
         const scrollTop = list.scrollTop;
         choices = candidates.filter(candidate => matchesQuery(candidate, mode.id, mention.query));
+        const current = choices.findIndex(candidate => candidate.id === mention.candidate?.id);
+        if (current >= PAGE_SIZE) choices.unshift(...choices.splice(current, 1));
+        const retained = choices.findIndex(candidate => candidate.id === (selectedId || mention.candidate?.id));
         thumbnailObserver?.disconnect();
         list.replaceChildren();
         list.setAttribute('aria-busy', String(loading || selecting));
@@ -200,13 +220,13 @@ export function bindImageMentionPicker({
         const count = choices.length;
         status.textContent = loading ? '读取中' : mode.id === 'extra' ? `${count} 个节点` : `${count} 张图片`;
         more.hidden = count <= limit;
-        const retained = choices.findIndex(candidate => candidate.id === selectedId);
-        markActive(rows.length ? (retained >= 0 && retained < rows.length ? retained : 0) : -1);
         list.scrollTop = retained >= 0 ? scrollTop : 0;
+        markActive(rows.length ? (retained >= 0 && retained < rows.length ? retained : 0) : -1, !selectedId && retained > 0 && retained < rows.length);
         position();
     }
 
     function switchMode(next) {
+        selectionController?.abort();
         const request = ++generation;
         mode = next; loading = true; failure = ''; selecting = false; active = -1; limit = PAGE_SIZE;
         candidates = []; choices = [];
@@ -232,18 +252,22 @@ export function bindImageMentionPicker({
         const selected = { ...mention, mode: mode.id };
         const request = generation;
         const before = input.value;
-        const isCurrent = () => Boolean(popup && request === generation && input.isConnected && !input.disabled && !input.readOnly
+        const controller = selectionController = new AbortController();
+        const isCurrent = () => Boolean(popup && !controller.signal.aborted && request === generation && input.isConnected && !input.disabled && !input.readOnly
             && input.value === before && input.selectionStart === selected.end && input.selectionEnd === selected.end);
         selecting = true;
         list.setAttribute('aria-busy', 'true');
         try {
-            const selection = onSelect(candidate, { ...selected, isCurrent });
-            const token = selection && typeof selection.then === 'function' ? await selection : selection;
+            const selection = onSelect(candidate, { ...selected, isCurrent, signal: controller.signal });
+            const result = selection && typeof selection.then === 'function' ? await selection : selection;
+            const token = typeof result === 'string' ? result : result?.token;
             if (!isCurrent() || typeof token !== 'string' || !token) return;
+            result?.commit?.();
             close();
             input.focus({ preventScroll: true });
+            if (selected.replacing && token === selected.token) { tokens?.refresh(); return; }
             input.setSelectionRange(selected.start, selected.end);
-            const text = `${token} `;
+            const text = selected.replacing ? token : `${token} `;
             // Native insertion joins the textarea's existing undo history.
             if (!doc.execCommand?.('insertText', false, text)) {
                 input.setRangeText(text, selected.start, selected.end, 'end');
@@ -252,13 +276,16 @@ export function bindImageMentionPicker({
         } catch (error) {
             if (isCurrent()) { failure = error?.message || '无法引用这张图片，请重新选择。'; render(); }
         } finally {
+            if (selectionController === controller) selectionController = null;
             if (popup && request === generation) { selecting = false; list.setAttribute('aria-busy', String(loading)); }
         }
     }
 
     function open() {
+        if (mention?.replacing) close();
         const trigger = currentMention(input);
         if (!trigger) { close(); return; }
+        if (getMention?.(input.value.slice(trigger.start, trigger.end))) { close(); return; }
         if (popup) {
             if (trigger.start === mention.start) {
                 if (trigger.query !== mention.query) { mention = trigger; limit = PAGE_SIZE; failure = ''; render(); }
@@ -266,12 +293,19 @@ export function bindImageMentionPicker({
             }
             close();
         }
+        openPicker(trigger);
+    }
+
+    function openPicker(trigger) {
+        tokens?.hidePreview();
         mention = trigger; cache = new Map(); thumbnails = new Map();
         const parent = input.closest('.image-parameter-settings-popup:popover-open');
         popup = element('div', 'image-mention-picker');
         popup.id = id;
         popup.setAttribute('role', 'group');
-        popup.setAttribute('aria-label', '提及图片');
+        const title = mention.replacing ? '更换参考图' : '提及图片';
+        popup.setAttribute('aria-label', title);
+        popup.classList.toggle('is-replacing', mention.replacing === true);
         popup.addEventListener('mousedown', event => { if (event.target.closest('button')) event.preventDefault(); });
         if (!surfaces) popup.addEventListener('keydown', event => {
             if (event.key !== 'Escape' || event.isComposing) return;
@@ -279,7 +313,7 @@ export function bindImageMentionPicker({
             close(); input.focus({ preventScroll: true });
         });
         const heading = element('div', 'image-mention-heading');
-        heading.append(icon(doc, 'at'), element('strong', '', '提及图片'));
+        heading.append(icon(doc, 'at'), element('strong', '', title));
         const dismiss = element('button', 'image-mention-dismiss');
         dismiss.type = 'button'; dismiss.setAttribute('aria-label', '关闭图片选择');
         dismiss.append(icon(doc, 'close'));
@@ -288,13 +322,13 @@ export function bindImageMentionPicker({
         const switcher = element('div', 'image-mention-modes');
         switcher.setAttribute('role', 'group');
         switcher.setAttribute('aria-label', '选择来源');
-        tabs = modes.map(item => {
+        tabs = availableModes().map(item => {
             const button = element('button', '', item.label);
             button.type = 'button'; button.dataset.mentionMode = item.id;
             button.addEventListener('click', () => {
                 if (candidates.warning && mode === item) cache.delete(item.id);
                 if (mode !== item || failure || candidates.warning) switchMode(item);
-                input.focus({ preventScroll: true });
+                (search || input).focus({ preventScroll: true });
             });
             switcher.append(button);
             return button;
@@ -305,7 +339,7 @@ export function bindImageMentionPicker({
         empty.setAttribute('role', 'status');
         more = element('button', 'image-mention-more', '显示更多');
         more.type = 'button';
-        more.addEventListener('click', () => { const next = limit; limit += PAGE_SIZE; render(); markActive(next, true); input.focus(); });
+        more.addEventListener('click', () => { const next = limit; limit += PAGE_SIZE; render(); markActive(next, true); (search || input).focus({ preventScroll: true }); });
         const footer = element('div', 'image-mention-footer');
         footer.append(element('span', '', '↑↓ 浏览 · Enter 选中'));
         status = element('span');
@@ -313,7 +347,29 @@ export function bindImageMentionPicker({
         footer.append(status);
         const content = element('div', 'image-mention-results');
         content.append(list, empty, more);
-        popup.append(heading, switcher, content, footer);
+        popup.append(heading, switcher);
+        if (mention.replacing) {
+            search = element('input', 'image-mention-search');
+            search.type = 'search';
+            search.placeholder = '搜索图片';
+            search.setAttribute('role', 'combobox');
+            search.setAttribute('aria-label', '搜索图片');
+            search.setAttribute('aria-expanded', 'true');
+            search.setAttribute('aria-controls', list.id);
+            search.addEventListener('input', () => {
+                if (selecting) {
+                    selectionController?.abort();
+                    selecting = false;
+                }
+                mention.query = search.value.trim();
+                limit = PAGE_SIZE;
+                failure = '';
+                render();
+            });
+            search.addEventListener('keydown', keydown, true);
+            popup.append(search);
+        }
+        popup.append(content, footer);
         if (parent && popup.showPopover) popup.setAttribute('popover', 'manual');
         doc.body.append(popup);
         if (popup.hasAttribute('popover')) popup.showPopover();
@@ -337,7 +393,10 @@ export function bindImageMentionPicker({
         position();
         if (!popup) return;
         surfaces?.openPopover(id, { element: popup, trigger: input, parent: parent?.id, owner: typeof owner === 'function' ? owner() : owner, close });
-        if (popup) switchMode(modes[0]);
+        if (popup) {
+            switchMode(availableModes().find(item => item.id === trigger.candidate?.mode) || modes[0]);
+            search?.focus({ preventScroll: true });
+        }
     }
 
     function keydown(event) {
@@ -345,12 +404,16 @@ export function bindImageMentionPicker({
         const { key } = event;
         const switchBy = event.altKey && (key === 'ArrowLeft' || key === 'ArrowRight');
         if (!switchBy && (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !['ArrowDown', 'ArrowUp', 'Enter', 'Escape', 'Tab'].includes(key))) return;
-        if (key === 'Tab') { event.preventDefault(); tabs[modes.indexOf(mode)].focus(); return; }
+        const visibleModes = availableModes();
+        if (key === 'Tab') {
+            if (event.currentTarget !== input) return;
+            event.preventDefault(); tabs[visibleModes.indexOf(mode)].focus(); return;
+        }
         event.preventDefault(); event.stopImmediatePropagation();
         if (key === 'Escape') { close(); return; }
         if (switchBy) {
             const offset = key === 'ArrowRight' ? 1 : -1;
-            switchMode(modes[(modes.indexOf(mode) + offset + modes.length) % modes.length]); return;
+            switchMode(visibleModes[(visibleModes.indexOf(mode) + offset + visibleModes.length) % visibleModes.length]); return;
         }
         if (key === 'Enter') { if (choices[active]) void choose(choices[active]); return; }
         if (!rows.length) return;
@@ -364,6 +427,10 @@ export function bindImageMentionPicker({
     const onCompositionEnd = () => { composing = false; open(); };
     const onCaretChange = () => {
         if (!popup || doc.activeElement !== input) return;
+        if (mention.replacing) {
+            if (input.selectionStart !== mention.end || input.selectionEnd !== mention.end) close();
+            return;
+        }
         const next = currentMention(input);
         if (!next || next.start !== mention.start || next.end !== mention.end) close();
     };
@@ -372,8 +439,9 @@ export function bindImageMentionPicker({
     input.addEventListener('compositionstart', onCompositionStart);
     input.addEventListener('compositionend', onCompositionEnd);
     input.addEventListener('selectionchange', onCaretChange);
-    return { open, close, destroy() {
+    return { open, close, refresh: () => tokens?.refresh(), destroy() {
         close();
+        tokens?.destroy();
         input.removeEventListener('input', onInput);
         input.removeEventListener('keydown', keydown, true);
         input.removeEventListener('compositionstart', onCompositionStart);
