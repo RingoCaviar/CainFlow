@@ -120,6 +120,15 @@
         ],
         "createdAt": "2026-11-13T07:53:14.184Z",
         "reason": "Codex verified the sole #22d3ee finding is reproduced on the unmodified fixture and disappears when its production foundation stylesheet is omitted. This fixture checks resize cursors and port hit geometry and introduces no shadow. Production canvas and theme scans retain the rule."
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "css/features/panels.css"
+        ],
+        "createdAt": "2026-11-13T08:10:10.682Z",
+        "reason": "Codex verified against e311d29: the two matches are .workflow-item::before, overridden by themes.css to a 2px active workflow indicator, and .update-changelog-body blockquote, a quotation marker for release notes."
       }
     ]
   }
