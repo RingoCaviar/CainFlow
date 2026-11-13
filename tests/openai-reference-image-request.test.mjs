@@ -164,6 +164,22 @@ test('OpenAI single-reference edits keep the scalar image field', async () => {
     assert.equal(form.has('mask'), false);
 });
 
+test('OpenAI edits upload all previewed images from an old numbered input', async () => {
+    const { api, node, requests, state } = createImageRequestHarness({ modelId: 'gpt-image-2.5-sunburst' });
+    const images = ['first', 'second'].map(value => `data:image/png;base64,${Buffer.from(value).toString('base64')}`);
+    const source = { id: 'source', type: 'ImagePreview', enabled: true, data: { imageList: images, imageCount: 2 } };
+    state.nodes.set(source.id, source);
+    state.connections.push({
+        type: 'image', from: { nodeId: source.id, port: 'image' }, to: { nodeId: node.id, port: 'image_1' }
+    });
+    const preview = api.buildNodeRequestPreview(node.id);
+    assert.deepEqual(preview.requestBody.reference_images, images);
+    await api.nodeHandlers.ImageGenerate(node, { image_1: images }, new AbortController().signal);
+
+    const form = await requests[0].formData();
+    assert.deepEqual(await Promise.all(form.getAll('image[]').map(image => image.text())), ['first', 'second']);
+});
+
 test('OpenAI GPT Image sends all 16 references in order and rejects a seventeenth before fetching', async () => {
     const { api, node, requests, elements } = createImageRequestHarness({ modelId: 'gpt-image-2.6-sunburst' });
     elements.get('image-generate-resolution').value = '1536x864';
