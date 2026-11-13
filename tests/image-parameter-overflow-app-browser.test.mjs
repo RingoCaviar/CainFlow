@@ -111,7 +111,22 @@ test('parameter editor uses viewport space and preserves scrolling without overl
         assert.equal(await app.evaluate("document.querySelector('.image-parameter-scroll').scrollTop"), offset, 'clicking count retains the scroll position');
         for (const width of [280, 320, 390, 1280]) {
             await app.send('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: false });
+            const panelWidth = Math.min(560, width - 24);
+            await app.waitFor(`innerWidth === ${width} && innerHeight === 800 &&
+                document.getElementById('image-parameter-panel').style.width === '${panelWidth}px'`);
+            for (const count of [1, 10, 100]) {
+                await app.evaluate(`(() => {
+                    const input = document.getElementById('image-generation-count');
+                    input.value = '${count}';
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                })()`);
+                assert.deepEqual(await app.evaluate("(()=>{const i=document.getElementById('image-generation-count');return {value:i.value,width:i.offsetWidth,max:i.getAttribute('max')}})()"), {value:String(count),width:32,max:null});
+            }
+            const generate = `document.querySelector('#image-parameter-panel [data-parameter-action="generate"]')`;
+            await app.waitFor(`${generate}.textContent === '生成 ×100'`);
             await settle();
+            await app.waitFor(`${generate}.getAnimations().every(animation => animation.playState !== 'running')`);
             const layout = await app.evaluate(`(() => {
                 const panel = document.getElementById('image-parameter-panel');
                 const footer = panel.querySelector('.image-parameter-footer');
@@ -128,11 +143,8 @@ test('parameter editor uses viewport space and preserves scrolling without overl
             assert.ok(layout.controls.every((r,index)=>!index || Math.abs(r.left-layout.controls[index-1].right-6)<1), `${width}px footer gaps keep the shared 6px rhythm`);
             assert.equal(layout.controls[2].width, 32, 'More remains square');
             assert.equal(layout.controls[3].width, 82, 'count retains its three-digit input space even in a narrow window');
-            if (width>=320) assert.ok(layout.controls[4].width>=72 && layout.controls[4].width<=82, 'generate keeps its compact minimum while fitting a three-digit batch label');
-            for (const count of [1, 10, 100]) {
-                await app.evaluate(`(()=>{const input=document.getElementById('image-generation-count');input.value='${count}';input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}))})()`);
-                assert.deepEqual(await app.evaluate("(()=>{const i=document.getElementById('image-generation-count');return {value:i.value,width:i.offsetWidth,max:i.getAttribute('max')}})()"), {value:String(count),width:32,max:null});
-            }
+            if (width>=320) assert.ok(layout.controls[4].width>=72 && layout.controls[4].width<=82,
+                `${width}px viewport: generate fits a three-digit batch label at ${layout.controls[4].width}px`);
             if (width===1280) assert.ok(layout.controls[0].width<=124 && layout.controls[0].width<layout.controls[1].width, 'short size summary uses compact width rather than an equal share');
             assert.ok(layout.controls.every((r, index) => r.left>=0 && r.right<=width && (!index || r.left>=layout.controls[index-1].right)), 'all five controls remain on screen without overlap');
             assert.ok(Math.abs(layout.promptWidth-layout.fieldWidth)<1, 'More no longer takes width from the prompt');

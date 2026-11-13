@@ -9,6 +9,7 @@ import { configuration, imageTypes, originals, graphEdge, integratedWorkflow, sa
 const themes = ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink'];
 const screenshotDirectory = process.env.CAINFLOW_QA_SCREENSHOT_DIR || 'D:/mygithub/CainFlow/.scratch/image-first-canvas/verification/themes';
 const panel = '#image-parameter-panel';
+const failureReason = `${panel}[data-node-id=failure] .image-generation-batch [data-image-batch-error]:not([hidden])`;
 const geometry = app => app.evaluate("({canvas:document.getElementById('nodes-layer').style.transform,nodes:[...document.querySelectorAll('#nodes-layer>.image-first-card')].map(node=>({id:node.id,x:node.style.left,y:node.style.top,width:node.offsetWidth,height:node.offsetHeight})),ports:[...document.querySelectorAll('#nodes-layer .image-first-card .node-port')].filter(port=>port.checkVisibility()).map(port=>({nodeId:port.closest('.node').id,port:port.dataset.port,direction:port.dataset.direction,rect:port.querySelector('.port-dot').getBoundingClientRect().toJSON()}))})");
 const getKeys = (graph, id) => graph.nodes.find(node => node.id === id)?.mediaAssetKeys || [];
 
@@ -206,12 +207,12 @@ test('seven live themes preserve real run states, compact references, native foc
             assert.equal(await app.evaluate("document.querySelector('[data-node-id=failure] [data-image-generation-dirty]')"), null, 'pending state adds no presentation row');
             await capture(app, `${theme}-normal-references`, manifest);
             const canvas = await app.evaluate("document.getElementById('nodes-layer').style.transform");
-            await nativeClick(app, '[data-node-id=failure] [data-image-run-action=details]');
+            await nativeClick(app, failureReason);
             await app.waitFor("document.getElementById('modal-error').classList.contains('active')");
             assert.ok(await app.evaluate("!!document.getElementById('image-parameter-panel').closest('[inert]')"), 'a real failure modal masks the parameter editor');
             await key(app, 'Escape');
             await app.waitFor("!document.getElementById('modal-error').classList.contains('active')");
-            assert.ok(await app.evaluate("!!document.activeElement.closest('[data-node-id=failure]')"), 'Escape restores focus to the actual error opener');
+            assert.ok(await app.evaluate(`document.activeElement.matches(${JSON.stringify(failureReason)})`), 'Escape restores focus to the actual error opener');
             await openParameters(app, 'generate', 'reference');
             assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-references').checkVisibility()"));
             await focusTool(app); await checkPanel(app);

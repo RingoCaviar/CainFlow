@@ -49,6 +49,7 @@ test('history image preview remembers the information disclosure through navigat
         const toggle = "document.getElementById('btn-toggle-history-preview-info')";
         const info = "document.getElementById('history-preview-info-content')";
         const previewOpen = "!document.getElementById('history-preview-modal').classList.contains('hidden')";
+        const nextPreviewReady = "!document.getElementById('btn-next-preview').classList.contains('disabled')";
         const panelArea = () => app.evaluate(`(() => {
             const { width, height } = document.querySelector('#history-preview-modal .preview-info').getBoundingClientRect();
             return width * height;
@@ -80,6 +81,7 @@ test('history image preview remembers the information disclosure through navigat
 
         await openHistory();
         await openItem(newerId, '第一张图片');
+        await app.waitFor(nextPreviewReady);
         assert.equal(await app.evaluate(`${toggle}?.getAttribute('aria-expanded')`), 'true');
         assert.equal(await app.evaluate(`${toggle}.getAttribute('aria-controls')`), 'history-preview-info-content');
         assert.equal(await app.evaluate(`${toggle}.getAttribute('aria-label')`), '收起图片信息');
@@ -88,14 +90,16 @@ test('history image preview remembers the information disclosure through navigat
         const expandedArea = await panelArea();
 
         await app.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 420, deviceScaleFactor: 1, mobile: false });
-        assert.equal(await app.evaluate(`(() => {
+        await app.waitFor('innerWidth === 360 && innerHeight === 420');
+        await app.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+        assert.deepEqual(await app.evaluate(`(() => {
             const controls = ['btn-copy-prompt', 'btn-next-preview', 'btn-preview-fit', 'btn-toggle-history-preview-info'];
-            return controls.every(id => {
+            return controls.filter(id => {
                 const button = document.getElementById(id);
                 const { x, y, width, height } = button.getBoundingClientRect();
-                return button.contains(document.elementFromPoint(x + width / 2, y + height / 2));
+                return !button.contains(document.elementFromPoint(x + width / 2, y + height / 2));
             });
-        })()`), true, 'copy, navigation, zoom, and disclosure remain clickable in a narrow and short window');
+        })()`), [], 'copy, navigation, zoom, and disclosure remain clickable in a narrow and short window');
         await app.send('Emulation.setDeviceMetricsOverride', { width: 1100, height: 820, deviceScaleFactor: 1, mobile: false });
 
         const position = await app.evaluate(`(() => {
@@ -119,7 +123,7 @@ test('history image preview remembers the information disclosure through navigat
         })()`), true, 'the collapsed toggle remains visible and clear of zoom controls in a narrow window');
         await app.send('Emulation.setDeviceMetricsOverride', { width: 1100, height: 820, deviceScaleFactor: 1, mobile: false });
 
-        await app.waitFor("!document.getElementById('btn-next-preview').classList.contains('disabled')");
+        await app.waitFor(nextPreviewReady);
         await press('ArrowRight', 39);
         await app.waitFor("document.getElementById('preview-prompt').textContent === '第二张图片'");
         assert.equal(await app.evaluate(`${info}.getClientRects().length`), 0);
