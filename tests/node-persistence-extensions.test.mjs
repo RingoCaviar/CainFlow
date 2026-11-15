@@ -67,6 +67,25 @@ test('retouch snapshots keep the original paired with its single output and disc
     assert.equal(serializeRuntimeNode(node, documentRef).productRetouchComparison, undefined);
 });
 
+test('retouch snapshots keep the latest analysis and exclude its live execution stage', () => {
+    const analysis = { prompt: '杯身右下：清理指纹，保留拉丝纹理。' };
+    const node = { id: 'retouch', type: 'ProductRetouch', productRetouchStage: 'retouching', data: {
+        productRetouch: { analysisModelId: 'vision', analysisProviderId: 'provider' }, productRetouchAnalysis: analysis
+    } };
+    captureNodePersistenceExtensions(node, { productRetouchAnalysis: { prompt: '旧提示词' }, productRetouchStage: 'analyzing',
+        data: { productRetouchAnalysis: { prompt: '旧提示词' }, productRetouchStage: 'analyzing' } });
+    const documentRef = { getElementById: () => null, querySelectorAll: () => [] };
+    const visible = createNodeSerializer({ state: { nodes: new Map([[node.id, node]]) }, documentRef });
+    for (const snapshot of [visible.serializeNodes()[0], serializeRuntimeNode(node, documentRef)]) {
+        assert.deepEqual(snapshot.productRetouchAnalysis, analysis);
+        assert.equal(snapshot.productRetouch.analysisModelId, 'vision');
+        assert.equal(snapshot.productRetouch.analysisProviderId, 'provider');
+        assert.equal(snapshot.productRetouchStage, undefined);
+        assert.equal(snapshot.data?.productRetouchStage, undefined);
+        assert.equal(snapshot.data?.productRetouchAnalysis, undefined);
+    }
+});
+
 test('non-JSON runtime objects and accessors never enter opaque persistence', () => {
     const source = { safe: [null, 0, false], runtime: new Map([['large', 'object']]), fn() {}, infinite: Infinity };
     const arrayAccessor = [0];

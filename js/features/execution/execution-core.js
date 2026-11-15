@@ -29,8 +29,7 @@ import {
 } from './provider-request-utils.js';
 import { getImageAspectOptionsForProtocol, resolveImageRequestSize, usesOpenAiImageSize } from './image-generation-size.js';
 import { getOpenAiImageCapabilities } from './openai-image-capabilities.js';
-import { getGoogleImageCapabilities } from './google-image-capabilities.js';
-import { createChatRequestPlan, executeChatRequestPlan } from './chat-request-plan.js';
+import { createChatRequestPlan, executeChatRequestPlan, requestChatCompletion } from './chat-request-plan.js';
 import {
     appendReferenceImages,
     clearCanonicalImageOutput,
@@ -62,7 +61,14 @@ import {
     createCommerceImageSetPlan,
     normalizeCommerceImageSetState
 } from '../ecommerce-image-set/commerce-image-set-plan.js';
-import { buildProductRetouchPrompt, getProductRetouchModelOptions, normalizeProductRetouchSettings } from '../product-retouch/product-retouch-settings.js';
+import {
+    buildProductRetouchPrompt,
+    createProductRetouchAnalysisRequest,
+    getProductRetouchAnalysisModelOptions,
+    getProductRetouchModelOptions,
+    normalizeProductRetouchSettings,
+    parseProductRetouchAnalysis
+} from '../product-retouch/product-retouch-settings.js';
 
 export function createExecutionCoreApi({
     state,
@@ -2024,6 +2030,8 @@ export function createExecutionCoreApi({
         const settings = normalizeProductRetouchSettings(node.data?.productRetouch);
         const options = getProductRetouchModelOptions(state, settings);
         if (!options.ready) throw new Error('请选择支持参考图编辑且已配置密钥的模型和供应商。');
+        const analysisOptions = getProductRetouchAnalysisModelOptions(state, settings);
+        if (!analysisOptions.ready) throw new Error('请选择支持图片输入且已配置密钥的分析模型和供应商。');
         const model = options.models.find(item => item.id === settings.modelId);
         const workflowId = getActiveWorkflowId();
         if (!workflowId) throw new Error('精修结果需要保存到当前工作流。');
@@ -2036,9 +2044,41 @@ export function createExecutionCoreApi({
             throw new Error('无法读取商品参考图，请重新连接原图。');
         }
 
-        const relayModelId = model.modelId.split('/').at(-1);
-        const gemini = model.protocol === 'google' || getGoogleImageCapabilities(relayModelId)?.maxReferences > 0;
-        const prompt = buildProductRetouchPrompt(settings, { gemini });
+        try {
+            node.productRetouchStage = 'analyzing';
+            onNodeResultUpdated(node.id, { progressOnly: true });
+            const analysisModel = analysisOptions.models.find(item => item.id === settings.analysisModelId);
+            const analysisProvider = analysisOptions.providers.find(item => item.id === settings.analysisProviderId);
+            const request = createProductRetouchAnalysisRequest({ settings, reference, model: analysisModel, provider: analysisProvider });
+            const needsGoogleKey = request.protocol === 'google' && analysisProvider.autoComplete === false
+                && !/[?&](?:key|api[_-]?key)=[^&#\s]+/i.test(request.url);
+            const headers = getProxyHeaders(request.url, request.method, {
+                'Content-Type': 'application/json',
+                ...(request.protocol === 'openai' ? { Authorization: `Bearer ${analysisProvider.apikey}` } : {}),
+                ...(needsGoogleKey ? { 'x-goog-api-key': analysisProvider.apikey } : {})
+            });
+            const requestForLog = { ...request, requestBody: { model: analysisModel.modelId, referenceImageCount: 1 } };
+            const onOutcome = startWorkflowImageRequestLog(node, requestForLog, {
+                title: `产品精修 · 分析原图 · ${analysisModel.name || analysisModel.modelId}`, operation: 'analyze', signal
+            });
+            const analysis = await runTrackedProviderRequest(node, analysisProvider, analysisModel, sanitizeRequestUrl(request.url), async () => {
+                const { text } = await requestChatCompletion(request, { fetchRef, headers, signal });
+                signal?.throwIfAborted();
+                return parseProductRetouchAnalysis(text);
+            }, { onOutcome });
+            signal?.throwIfAborted();
+            node.productRetouchStage = 'retouching';
+            node.data.productRetouchAnalysis = analysis;
+            onNodeResultUpdated(node.id);
+            const prompt = buildProductRetouchPrompt(settings, analysis);
+            return await executeProductRetouchImage(node, { model, settings, reference, workflowId, prompt }, signal);
+        } finally {
+            delete node.productRetouchStage;
+            onNodeResultUpdated(node.id, { progressOnly: true });
+        }
+    }
+
+    async function executeProductRetouchImage(node, { model, settings, reference, workflowId, prompt }, signal) {
         const inputFidelity = getOpenAiImageCapabilities(model.modelId)?.inputFidelities.includes('high') ? 'high' : undefined;
         const { image } = await nodeHandlers.ImageGenerate(node, { referenceImages: [reference] }, signal, {
             preparedImageRequest: {

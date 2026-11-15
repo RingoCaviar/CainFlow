@@ -33,7 +33,8 @@ const emptyPreviewMessages = new Set(['无输入图片', '无输入视频', '运
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
     runCurrentNode, waitForNodeRun, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
     panelManager = null, openModelSettings = () => {}, openResultPreview = () => {},
-    openShotError = () => {}, openNodeFailureLog = () => false, openReferencePreview = null, bindReferencePrompt = null, uploadRetouchReference }) {
+    openShotError = () => {}, openNodeFailureLog = () => false, openReferencePreview = null, bindReferencePrompt = null,
+    uploadRetouchReference, onNativeClipboardWrite }) {
     const views = new Map();
     const dragClasses = new Set(['selected', 'is-interacting', 'connection-insert-candidate', 'connection-shake-armed']);
     const presentationClasses = value => (value || '').split(/\s+/).filter(name => name && !dragClasses.has(name)).sort().join(' ');
@@ -870,7 +871,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             onChange: () => refreshNode(node.id) });
         const retouch = createProductRetouchView({ node, state, documentRef, inputDetails: inputs.element,
             run: runCurrentNode, waitForNodeRun, uploadReference: uploadRetouchReference,
-            openReferencePreview, openResultPreview, openModelSettings, openNodeFailureLog });
+            openReferencePreview, openResultPreview, openModelSettings, openNodeFailureLog, onNativeClipboardWrite });
         form.append(retouch.element, retouch.actions);
         registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections: [], inputs, retouch,
             footerTools: retouch.actions }, []);

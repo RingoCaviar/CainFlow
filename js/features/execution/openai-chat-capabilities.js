@@ -49,6 +49,12 @@ const profiles = new Map([
     ['gpt-3.5-turbo', olderText],
 ]);
 
+export function getOpenAIChatModelProfile(modelId) {
+    const id = String(modelId || '').toLowerCase().replace(/-\d{4}-\d{2}-\d{2}$/, '');
+    const profile = profiles.get(id);
+    return profile ? { ...profile, systemRole: profile.systemRole || 'system' } : null;
+}
+
 export function getOpenAIChatCapabilities({ model = {}, provider = {}, protocol = model.protocol } = {}) {
     if (!['openai', 'responses'].includes(protocol)) return null;
     const endpoint = protocol === 'responses' && provider.autoComplete === false ? provider.responsesEndpoint : provider.endpoint;
@@ -58,7 +64,5 @@ export function getOpenAIChatCapabilities({ model = {}, provider = {}, protocol 
     } catch {
         return null;
     }
-    const id = String(model.modelId || '').toLowerCase().replace(/-\d{4}-\d{2}-\d{2}$/, '');
-    const profile = profiles.get(id);
-    return profile ? { ...profile, systemRole: profile.systemRole || 'system' } : null;
+    return getOpenAIChatModelProfile(model.modelId);
 }

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
+import { withAppBrowser, reloadAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
 import { uploadImageOriginal } from './helpers/image-upload.mjs';
 import { key, nativeClick, openParameters, saved } from './helpers/image-first-integrated-fixture.mjs';
 
@@ -12,6 +12,9 @@ const background = value => `document.querySelector('${panel} [data-retouch-fiel
 const inspect = `${panel} [data-retouch-inspect]`;
 const dockWidthHandle = `${panel} [data-parameter-resize=width]`;
 const closeDock = `${panel} [data-parameter-action=close]`;
+const analysisDetails = `${panel} [data-retouch-analysis]`;
+const analysisPrompt = `${analysisDetails} [data-retouch-analysis-prompt]`;
+const copyAnalysis = `${panel} [data-retouch-action=copy-analysis]`;
 const compareStage = '#retouch .product-retouch-compare-stage';
 const compareSlider = '#retouch [data-retouch-compare-slider]';
 const cardPreview = `${compareStage} .product-retouch-card-preview`;
@@ -30,6 +33,51 @@ async function selectOption(app, name, value) {
         control.dispatchEvent(new Event('input', { bubbles: true }));
         control.dispatchEvent(new Event('change', { bubbles: true }));
     })()`);
+}
+
+async function selectWorkflow(app, name) {
+    const row = `.workflow-item[data-name=${JSON.stringify(name)}]`;
+    await app.evaluate("document.getElementById('btn-toggle-workflow').click()");
+    await app.waitFor(`Boolean(document.querySelector(${JSON.stringify(row)}))`);
+    await app.evaluate(`document.querySelector(${JSON.stringify(row)}).click()`);
+    await app.waitFor(`document.querySelector(${JSON.stringify(row)})?.classList.contains('is-active')`);
+    await app.evaluate("document.getElementById('btn-close-workflow').click()");
+    await app.waitFor("!document.getElementById('workflow-sidebar').classList.contains('active')");
+}
+
+async function assertAnalysisPrompt(app, expected, { selectAndCopy = false } = {}) {
+    const details = `document.querySelector('${analysisDetails}')`;
+    const prompt = `document.querySelector('${analysisPrompt}')`;
+    const summary = `${analysisDetails} > summary`;
+    await app.waitFor(`${details}?.checkVisibility()`);
+    assert.equal(await app.evaluate(`${details}.open`), false, 'the generated prompt starts folded');
+    await app.evaluate(`document.querySelector('${summary}').scrollIntoView({ block: 'nearest' })`);
+    await nativeClick(app, summary);
+    await app.waitFor(`${prompt}.checkVisibility()`);
+    assert.equal(await app.evaluate(`${prompt}.textContent`), expected);
+    if (selectAndCopy) {
+        const { start, end } = await app.evaluate(`(() => {
+            const text = ${prompt};
+            text.scrollIntoView({ block: 'nearest' });
+            const range = document.createRange();
+            range.selectNodeContents(text);
+            const { left, right, top, height } = range.getBoundingClientRect();
+            const y = top + height / 2;
+            return { start: { x: left + 1, y }, end: { x: right - 1, y } };
+        })()`);
+        await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...start, button: 'left', buttons: 1, clickCount: 1 });
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...end, button: 'left', buttons: 1 });
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...end, button: 'left', clickCount: 1 });
+        assert.equal(await app.evaluate('window.getSelection().toString()'), expected, 'the displayed prompt supports pointer text selection');
+        await app.evaluate(`document.querySelector('${copyAnalysis}').scrollIntoView({ block: 'nearest' })`);
+        await nativeClick(app, copyAnalysis);
+        await app.waitFor('copiedAnalysis.length === 1');
+        assert.deepEqual(await app.evaluate('copiedAnalysis'), [expected]);
+        await app.waitFor(`document.querySelector('${panel} [data-retouch-analysis-copy-status]').textContent === '已复制'`);
+    }
+    await app.evaluate(`document.querySelector('${summary}').scrollIntoView({ block: 'nearest' })`);
+    await nativeClick(app, summary);
+    await app.waitFor(`!${details}.open`);
 }
 
 const outputIsBlue = selector => `(() => {
@@ -353,11 +401,17 @@ async function exerciseDockWidth(app) {
     return app.evaluate(widthOfDock);
 }
 
-test('product retouch sends the chosen finish and keeps the actual original paired with its one downstream result', { timeout: 60000 }, async () => {
+test('product retouch analyzes and edits the same original in one run and preserves its downstream result', { timeout: 60000 }, async () => {
     const source = (await readFile(new URL('./fixtures/reference-red.png', import.meta.url))).toString('base64');
     const replacement = (await readFile(new URL('./fixtures/reference-orange.png', import.meta.url))).toString('base64');
     const result = (await readFile(new URL('./fixtures/reference-blue.png', import.meta.url))).toString('base64');
+    const advice = { adjustments: [{ area: '杯身正面', edit: '清理右侧污点' }] };
+    const advicePrompt = '杯身正面：清理右侧污点';
+    const replacementAdvice = { adjustments: [{ area: '杯身底部', edit: '轻擦一处指纹' }] };
+    const replacementPrompt = '杯身底部：轻擦一处指纹';
     const workflowId = 'retouch-fixture';
+    const workflowName = '商品精修';
+    const otherWorkflow = { workflowId: 'retouch-other', nodes: [{ id: 'retouch', type: 'ProductRetouch', x: 350, y: 110 }], connections: [] };
     const nodes = [
         { id: 'retouch', type: 'ProductRetouch', x: 350, y: 110 },
         { id: 'result', type: 'ImagePreview', x: 740, y: 110 },
@@ -367,6 +421,20 @@ test('product retouch sends the chosen finish and keeps the actual original pair
         { id: 'output', from: { nodeId: 'retouch', port: 'image' }, to: { nodeId: 'result', port: 'image' }, type: 'image' }
     ];
     const initScript = `window.retouchRequests = [];
+        window.analysisRequests = [];
+        window.copiedAnalysis = [];
+        Object.defineProperty(navigator.clipboard, 'writeText', { value: async text => {
+            if (window.rejectClipboard) throw new Error('Fixture clipboard permission denied');
+            window.copiedAnalysis.push(text);
+        } });
+        const nativeExecCommand = document.execCommand.bind(document);
+        document.execCommand = (command, ...args) => {
+            if (command !== 'copy' || !window.rejectClipboard) return nativeExecCommand(command, ...args);
+            const field = document.activeElement;
+            if (field?.tagName !== 'TEXTAREA' || field.selectionStart === field.selectionEnd) return false;
+            window.copiedAnalysis.push(field.value.slice(field.selectionStart, field.selectionEnd));
+            return true;
+        };
         const originalFetch = window.fetch.bind(window);
         window.fetch = async (url, options) => {
             if (url === '/api/storage/media-assets' && options?.method === 'PUT' && window.rejectUpload) {
@@ -374,15 +442,25 @@ test('product retouch sends the chosen finish and keeps the actual original pair
             }
             if (url !== '/proxy') return originalFetch(url, options);
             const body = options?.body;
+            const urlHeader = new Headers(options.headers).get('x-target-url-b64');
             if (!(body instanceof FormData)) {
-                window.retouchRequests.push({ multipart: false });
-                return Response.json({ error: { message: 'Expected a multipart image edit request' } }, { status: 400 });
+                const { messages, model } = JSON.parse(body || '{}');
+                const content = messages?.findLast(message => message.role === 'user')?.content;
+                if (!Array.isArray(content)) {
+                    return Response.json({ error: { message: 'Expected a multimodal vision analysis request' } }, { status: 400 });
+                }
+                const references = content.filter(part => part.type === 'image_url').map(part => part.image_url.url);
+                window.analysisRequests.push({ model, references, urlHeader });
+                if (window.holdAnalysis) await new Promise(resolve => { window.releaseAnalysis = resolve; });
+                const advice = window.emptyAnalysis ? { adjustments: [] }
+                    : references[0] === ${JSON.stringify(`data:image/png;base64,${replacement}`)} ? ${JSON.stringify(replacementAdvice)} : ${JSON.stringify(advice)};
+                return Response.json({ choices: [{ message: { content: JSON.stringify(advice) } }] });
             }
             const images = [...body].filter(([key]) => key === 'image' || key === 'image[]');
             const references = await Promise.all(images.map(async ([, file]) =>
                 btoa(String.fromCharCode(...new Uint8Array(await file.arrayBuffer())))));
-            window.retouchRequests.push({ references, prompt: body.get('prompt'), model: body.get('model'),
-                urlHeader: new Headers(options.headers).get('x-target-url-b64') });
+            window.retouchRequests.push({ references, prompt: body.get('prompt'), model: body.get('model'), urlHeader });
+            if (window.holdEdit) await new Promise(resolve => { window.releaseEdit = resolve; });
             if (window.rejectRetouch) {
                 await new Promise(resolve => { window.releaseFailedRetouch = resolve; });
                 return Response.json({ data: [{ b64_json: 'YnJva2Vu' }] });
@@ -401,19 +479,30 @@ test('product retouch sends the chosen finish and keeps the actual original pair
 
     await withAppBrowser({
         autoCheckUpdatesOnLoad: false, autoRetry: false, nodes, connections,
-        activeWorkflowId: workflowId, activeWorkflowName: '商品精修',
-        workflowTabs: [{ workflowId, name: '商品精修', data: { workflowId, nodes, connections } }],
+        activeWorkflowId: workflowId, activeWorkflowName: workflowName,
+        workflowTabs: [{ workflowId, name: workflowName, data: { workflowId, nodes, connections } }],
         models: [
-            { id: 'image', modelId: 'gpt-image-1', name: '受控精修模型', taskType: 'image', protocol: 'openai', providerIds: ['p'] },
+            { id: 'vision', modelId: 'gpt-4.1-mini', name: '受控视觉分析模型', taskType: 'chat', protocol: 'openai', providerIds: ['fallback', 'vision-p'] },
+            { id: 'text-only', modelId: 'gpt-3.5-turbo', name: '纯文字模型', taskType: 'chat', protocol: 'openai', providerIds: ['text-only-p'] },
+            { id: 'image', modelId: 'gpt-image-1', name: '受控精修模型', taskType: 'image', protocol: 'openai', providerIds: ['fallback', 'p'] },
             { id: 'generate-only', modelId: 'dall-e-3', name: '仅生图模型', taskType: 'image', protocol: 'openai', providerIds: ['p'] }
         ],
-        providers: [{ id: 'p', name: '受控供应商', endpoint: 'https://fixture.test/v1', apikey: 'test' }]
+        providers: [
+            { id: 'fallback', name: '备用供应商', endpoint: 'https://fallback.fixture.test/v1', apikey: 'test' },
+            { id: 'vision-p', name: '视觉分析供应商', endpoint: 'https://vision.fixture.test/v1', apikey: 'test' },
+            { id: 'text-only-p', name: '纯文字供应商', endpoint: 'https://api.openai.com/v1', apikey: 'test' },
+            { id: 'p', name: '图像编辑供应商', endpoint: 'https://fixture.test/v1', apikey: 'test' }
+        ]
     }, async app => {
+        assert.equal(await app.evaluate(`fetch('/api/workflows/' + encodeURIComponent('另一工作流'), {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(${JSON.stringify(otherWorkflow)})
+        }).then(response => response.ok)`), true);
         await openParameters(app, 'retouch');
         assert.equal(await app.evaluate(`document.querySelector('${panel}').dataset.mode`), 'docked');
         assert.equal(await app.evaluate(`${background('white')}.checked`), true);
         assert.equal(await app.evaluate(`${runButton}.disabled`), true);
         assert.equal(await app.evaluate(`${field('modelId')}.querySelector('option[value=generate-only]') === null`), true);
+        assert.equal(await app.evaluate(`${field('analysisModelId')}.querySelector('option[value=text-only]') === null`), true);
 
         await app.evaluate(`${background('black')}.click()`);
         await selectOption(app, 'finish', 'polished');
@@ -441,25 +530,50 @@ test('product retouch sends the chosen finish and keeps the actual original pair
             })`, 7500, { interval: 200 });
         }, { failOnRequests: ['/api/storage/media-assets', '/api/storage/documents/session'] });
         await openParameters(app, 'retouch');
-        await app.waitFor(`${status}.textContent.includes('请选择精修模型')`);
-        assert.equal(await app.evaluate(`${runButton}.disabled`), true, 'an original alone cannot run without an edit model');
-        assert.equal(await app.evaluate('retouchRequests.length'), 0);
+        assert.equal(await app.evaluate(`${runButton}.disabled`), true, 'an original alone cannot run without model configurations');
         await selectOption(app, 'modelId', 'image');
         await selectOption(app, 'providerId', 'p');
+        assert.equal(await app.evaluate(`${runButton}.disabled`), true, 'retouch requires the vision configuration too');
+        assert.deepEqual(await app.evaluate('[analysisRequests.length, retouchRequests.length]'), [0, 0]);
+        await selectOption(app, 'analysisModelId', 'vision');
+        await selectOption(app, 'analysisProviderId', 'vision-p');
         await app.waitFor(`${runButton}.checkVisibility() && !${runButton}.disabled`);
+        await waitForAutosave(app);
+        await app.evaluate('window.holdAnalysis = true; window.holdEdit = true');
         await nativeClick(app, `${panel} [data-retouch-action=run]`);
-        await app.waitFor('retouchRequests.length > 0');
+        await app.waitFor(`typeof window.releaseAnalysis === 'function' && ${status}.textContent.includes('正在分析商品参考图')`);
+        assert.match(await app.evaluate(`${runButton}.textContent`), /分析中/);
+        assert.deepEqual(await app.evaluate('[analysisRequests.length, retouchRequests.length]'), [1, 0],
+            'a single run waits for vision analysis before sending the image edit');
+        const [analysis] = await app.evaluate('analysisRequests');
+        assert.equal(analysis.model, 'gpt-4.1-mini');
+        assert.deepEqual(analysis.references, [`data:image/png;base64,${source}`]);
+        assert.equal(Buffer.from(analysis.urlHeader, 'base64url').toString(), 'https://vision.fixture.test/v1/chat/completions');
+        await selectWorkflow(app, '另一工作流');
+        await openParameters(app, 'retouch');
+        await app.evaluate('window.holdAnalysis = false; window.releaseAnalysis()');
+        await app.waitFor("typeof window.releaseEdit === 'function'");
+        assert.equal(await app.evaluate(`document.querySelector('${analysisDetails}').checkVisibility()`), false,
+            'background analysis is isolated from a same-ID node in the visible workflow');
+        await selectWorkflow(app, workflowName);
+        await openParameters(app, 'retouch');
+        await app.waitFor(`${status}.textContent.includes('正在精修商品图')`);
+        assert.match(await app.evaluate(`${runButton}.textContent`), /精修中/);
         const [request] = await app.evaluate('retouchRequests');
         assert.deepEqual(request.references, [source]);
         assert.equal(request.model, 'gpt-image-1');
         assert.equal(Buffer.from(request.urlHeader, 'base64url').toString(), 'https://fixture.test/v1/images/edits');
         assert.match(request.prompt, /背景[^。]*纯黑|黑(?:色背景|底)/);
         assert.match(request.prompt, /抛光/);
+        assert.ok(request.prompt.includes(advicePrompt), 'the image edit uses the advice produced by analysis');
+        await assertAnalysisPrompt(app, advicePrompt, { selectAndCopy: true });
+        await app.evaluate('window.holdEdit = false; window.releaseEdit()');
 
         const cardResult = '#retouch .product-retouch-card img';
         const downstreamResult = '#result-preview img';
         await app.waitFor(outputIsBlue(cardResult));
         await app.waitFor(outputIsBlue(downstreamResult));
+        assert.equal(await app.evaluate('analysisRequests.length'), 1);
         assert.equal(await app.evaluate('retouchRequests.length'), 1);
         await app.waitFor(`document.querySelector('${compareStage}').dataset.comparison === 'split'
             && Array.from(document.querySelectorAll('${compareStage} img')).filter(image => image.complete && image.naturalWidth).length === 2`);
@@ -490,6 +604,8 @@ test('product retouch sends the chosen finish and keeps the actual original pair
         await openComparison(app);
         await app.evaluate('window.releaseFailedRetouch()');
         await app.waitFor(`${status}.textContent.includes('已保留上次结果')`);
+        assert.equal(await app.evaluate('analysisRequests.length'), 2);
+        assert.deepEqual(await app.evaluate('analysisRequests[1].references'), [`data:image/png;base64,${replacement}`]);
         assert.equal(await app.evaluate('retouchRequests.length'), 2);
         assert.deepEqual(await app.evaluate('retouchRequests[1].references'), [replacement]);
         assert.equal(await app.evaluate(outputIsBlue(cardResult)), true);
@@ -508,15 +624,25 @@ test('product retouch sends the chosen finish and keeps the actual original pair
         assert.equal(await app.evaluate(`${field('finish')}.value`), 'polished');
         assert.equal(await app.evaluate(`${field('modelId')}.value`), 'image');
         assert.equal(await app.evaluate(`${field('providerId')}.value`), 'p');
+        assert.equal(await app.evaluate(`${field('analysisModelId')}.value`), 'vision');
+        assert.equal(await app.evaluate(`${field('analysisProviderId')}.value`), 'vision-p');
         await app.waitFor(outputIsBlue(cardResult));
         await app.waitFor(outputIsBlue(downstreamResult));
-        assert.equal(await app.evaluate('retouchRequests.length'), 0);
+        assert.deepEqual(await app.evaluate('[analysisRequests.length, retouchRequests.length]'), [0, 0]);
+        await assertAnalysisPrompt(app, replacementPrompt);
         const workflow = await saved(app);
         const resultKeys = id => workflow.nodes.find(node => node.id === id)?.mediaAssetKeys;
         assert.equal(resultKeys('retouch')?.length, 1, 'the original is a comparison asset outside the node output');
         assert.deepEqual(resultKeys('result'), resultKeys('retouch'), 'the downstream preview receives only the processed result');
 
         await resizeViewport(app, 500, 560);
+        await app.waitFor(`innerWidth === 500 && ${widthOfDock} <= 260`);
+        await app.evaluate(`document.querySelector('${analysisDetails} > summary').scrollIntoView({ block: 'center' })`);
+        await app.evaluate('window.rejectClipboard = true');
+        await nativeClick(app, copyAnalysis);
+        await app.waitFor('copiedAnalysis.length === 1');
+        assert.deepEqual(await app.evaluate('copiedAnalysis'), [replacementPrompt]);
+        assert.equal(await app.evaluate(`document.querySelector('${analysisDetails}').open`), false, 'fallback copy works in a narrow folded pane');
         await openComparison(app);
         await app.waitFor(`document.querySelector('${dialogFrame}').dataset.comparison === 'switch'
             && !document.querySelector('${dialogSlider}').checkVisibility()`);
@@ -581,7 +707,7 @@ test('product retouch sends the chosen finish and keeps the actual original pair
         await app.waitFor(`${comparisonMode} === 'split'`);
         assert.deepEqual(await sampleRenderedImageColors(app, compareStage), [red, blue]);
 
-        await app.evaluate('window.wideRetouch = true');
+        await app.evaluate('window.wideRetouch = true; window.emptyAnalysis = true');
         await nativeClick(app, `${panel} [data-retouch-action=run]`);
         await app.waitFor(`document.querySelector('${compareStage}').dataset.comparison === 'switch'`);
         assert.equal(await app.evaluate(`document.querySelector('${compareSlider}').checkVisibility()`), false);
@@ -597,10 +723,18 @@ test('product retouch sends the chosen finish and keeps the actual original pair
             && !document.querySelector('${dialogSlider}').checkVisibility()`);
         await closeComparison(app);
 
+        const emptyAnalysis = `${analysisDetails} [data-retouch-analysis-empty]`;
+        await app.evaluate(`document.querySelector('${analysisDetails}').scrollIntoView({ block: 'nearest' })`);
+        await nativeClick(app, `${analysisDetails} summary`);
+        await app.waitFor(`document.querySelector('${emptyAnalysis}').checkVisibility()`);
+        assert.equal(await app.evaluate(`document.querySelector('${copyAnalysis}').checkVisibility()`), false,
+            'a valid analysis without localized advice remains visible and offers no empty copy');
+
         await openParameters(app, 'retouch-clone');
         assert.equal(await app.evaluate(`${background('black')}.checked && ${background('black')}.disabled`), true);
         assert.equal(await app.evaluate(`${field('finish')}.value`), 'polished');
         assert.equal(await app.evaluate(`${field('modelId')}.value`), 'image');
+        assert.equal(await app.evaluate(`${field('analysisModelId')}.value`), 'vision');
 
         await app.evaluate(`document.getElementById('canvas-container').dispatchEvent(new MouseEvent('contextmenu',
             { bubbles: true, cancelable: true, clientX: 75, clientY: 380 }));`);

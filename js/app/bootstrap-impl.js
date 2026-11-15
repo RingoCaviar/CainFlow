@@ -727,6 +727,7 @@ document.addEventListener('input', observeNodeInputRevision);
 document.addEventListener('change', observeNodeInputRevision);
 registry.imageFirstCanvasApi = createImageFirstCanvas({
     state, selectionApi, documentRef: document, windowRef: window, storage: diskStorage,
+    onNativeClipboardWrite: () => getClipboardControllerApi().markNativeClipboardWrite(),
     bindReferencePrompt: (node, input) => nodeDomBindingsApi.bindReferencePrompt(node, input),
     panelManager,
     uploadRetouchReference: async (target, file) => {

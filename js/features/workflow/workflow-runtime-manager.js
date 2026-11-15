@@ -38,7 +38,7 @@ import {
     NODE_CAPABILITIES
 } from '../../nodes/registry.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
-import { normalizeProductRetouchSettings } from '../product-retouch/product-retouch-settings.js';
+import { normalizeProductRetouchSettings, readProductRetouchAnalysis } from '../product-retouch/product-retouch-settings.js';
 import { readProductRetouchComparison } from '../product-retouch/product-retouch-comparison.js';
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
 import { readImageSaveFilename } from '../../nodes/image-save-settings.js';
@@ -408,6 +408,8 @@ export function serializeRuntimeNode(node, doc) {
     }
     if (node.type === 'ProductRetouch') {
         serialized.productRetouch = normalizeProductRetouchSettings(node.data?.productRetouch);
+        const analysis = readProductRetouchAnalysis(node);
+        if (analysis) serialized.productRetouchAnalysis = analysis;
         const comparison = readProductRetouchComparison(node);
         if (comparison) serialized.productRetouchComparison = comparison;
         if (node.data?.mediaIntegrity?.state === 'missing') {
@@ -708,6 +710,12 @@ export function createWorkflowRuntimeManager({
 
     function syncVisibleGenerationProgress(node, runtimeNode) {
         if (!node?.id || !runtimeNode) return;
+        if (node.type === 'ProductRetouch') {
+            if (runtimeNode.productRetouchStage && state.runningNodeIds.has(node.id)) {
+                node.productRetouchStage = runtimeNode.productRetouchStage;
+            } else delete node.productRetouchStage;
+            return;
+        }
         if (node.type === 'ECommerceImageSet') {
             if (runtimeNode.apiGenerationProgress && state.runningNodeIds.has(node.id)) {
                 node.apiGenerationProgress = { ...runtimeNode.apiGenerationProgress };
@@ -1044,6 +1052,9 @@ export function createWorkflowRuntimeManager({
             }
             node.data.mediaAssetKeys = assetKeys.slice();
             if (runtimeNode.type === 'ProductRetouch') {
+                const analysis = readProductRetouchAnalysis(runtimeNode);
+                if (analysis) node.data.productRetouchAnalysis = analysis;
+                else delete node.data.productRetouchAnalysis;
                 const comparison = readProductRetouchComparison(runtimeNode);
                 if (comparison) node.data.productRetouchComparison = comparison;
                 else delete node.data.productRetouchComparison;
@@ -1232,7 +1243,7 @@ export function createWorkflowRuntimeManager({
             state.runningNodeCancelHandlers.delete(nodeId);
             const node = state.nodes.get(nodeId);
             if (!node?.el) return;
-            if (node.type === 'ECommerceImageSet') syncVisibleGenerationProgress(node, {});
+            if (node.type === 'ECommerceImageSet' || node.type === 'ProductRetouch') syncVisibleGenerationProgress(node, {});
             node.el.classList.remove('running', 'running-locked');
             node.el.querySelector('.node-run-cancel-btn')?.classList.remove('is-holding', 'is-canceling');
             setVisibleNodeControlsLocked(node, false);
@@ -1317,7 +1328,7 @@ export function createWorkflowRuntimeManager({
         }
         if (payload.status === 'waiting') {
             node.isSucceeded = false;
-            if (node.type === 'ECommerceImageSet') syncVisibleGenerationProgress(node, {});
+            if (node.type === 'ECommerceImageSet' || node.type === 'ProductRetouch') syncVisibleGenerationProgress(node, {});
             if (node.type === 'ImageGenerate' && !payload.preserveImageBatch) {
                 clearCanonicalImageOutput(node);
                 delete node.data.mediaAssetKeys;
@@ -1358,7 +1369,7 @@ export function createWorkflowRuntimeManager({
         }
 
         clearVisibleNodeRunState(nodeId);
-        if (node.type === 'ECommerceImageSet') syncVisibleGenerationProgress(node, {});
+        if (node.type === 'ECommerceImageSet' || node.type === 'ProductRetouch') syncVisibleGenerationProgress(node, {});
 
         const status = payload.status || 'idle';
         if (status === 'completed') {
@@ -1419,6 +1430,10 @@ export function createWorkflowRuntimeManager({
                     preserveImageBatch: runtimeNode?.imageGenerationRetryActive === true
                 });
                 if (runtimeNode?.type === 'ECommerceImageSet') syncVisibleGenerationProgress(state.nodes.get(nodeId), runtimeNode);
+                if (runtimeNode?.type === 'ProductRetouch') {
+                    syncVisibleGenerationProgress(state.nodes.get(nodeId), runtimeNode);
+                    onVisibleNodeChanged(nodeId);
+                }
                 if (runtimeNode?.data?.concurrentRequestStatus?.total > 0) {
                     applyVisibleNodeRunState(workflowReference, {
                         nodeId,
@@ -1914,7 +1929,7 @@ export function createWorkflowRuntimeManager({
                 if (progressOnly) {
                     const runtimeNode = runtimeState.nodes.get(nodeId);
                     const visibleNode = state.nodes.get(nodeId);
-                    if (runtimeNode?.type === 'ECommerceImageSet' && !context.activePlanNodeIds.has(nodeId)) return;
+                    if (['ECommerceImageSet', 'ProductRetouch'].includes(runtimeNode?.type) && !context.activePlanNodeIds.has(nodeId)) return;
                     if (runtimeNode && visibleNode && isActiveWorkflow({ workflowId, workflowName })) {
                         syncVisibleGenerationProgress(visibleNode, runtimeNode);
                         onVisibleNodeChanged(nodeId);

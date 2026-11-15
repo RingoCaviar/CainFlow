@@ -6,7 +6,7 @@ import { cleanupElementResources } from '../core/common-utils.js';
 import { createSelectionApi } from '../canvas/selection.js';
 import { appendMappedConnectionSnapshots } from '../canvas/connection-copy-utils.js';
 import { normalizeCommerceImageSetState } from '../features/ecommerce-image-set/commerce-image-set-plan.js';
-import { normalizeProductRetouchSettings } from '../features/product-retouch/product-retouch-settings.js';
+import { normalizeProductRetouchSettings, readProductRetouchAnalysis } from '../features/product-retouch/product-retouch-settings.js';
 import { readProductRetouchComparison } from '../features/product-retouch/product-retouch-comparison.js';
 import { normalizePromptImageMentions } from './prompt-image-mentions.js';
 import {
@@ -1360,6 +1360,8 @@ export function createNodeLifecycleApi({
         }
         if (normalizedType === 'ProductRetouch') {
             nodeData.data.productRetouch = normalizeProductRetouchSettings(effectiveRestoreData?.productRetouch);
+            const analysis = readProductRetouchAnalysis({ ...effectiveRestoreData, type: normalizedType });
+            if (analysis) nodeData.data.productRetouchAnalysis = analysis;
             const comparison = readProductRetouchComparison({ ...effectiveRestoreData, type: normalizedType });
             if (comparison) nodeData.data.productRetouchComparison = comparison;
         }
@@ -2287,6 +2289,7 @@ export function createNodeLifecycleApi({
         }
         const snapshot = serializeOneNode(sourceNodeId);
         if (!snapshot) return null;
+        if (sourceNode.type === 'ProductRetouch') delete snapshot.productRetouchAnalysis;
         pushHistory();
         const newIds = [];
         let addedConnectionCount = 0;
