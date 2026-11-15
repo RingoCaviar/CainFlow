@@ -138,6 +138,7 @@ test('Gemini retouch sends the inline original first and limits changes to the r
     const [reference, prompt] = request.contents[0].parts;
     assert.deepEqual(reference.inlineData, { mimeType: 'image/png', data: 'AAAA' });
     assert.match(prompt.text, /原图为唯一依据/);
+    assert.match(prompt.text, /优先局部去除.*灰尘.*指纹.*污渍.*浅表擦痕.*周围的纹理和明暗/);
     assert.match(prompt.text, /刻度.*包装文字/);
     assert.match(prompt.text, /位置.*字形.*内容/);
     assert.match(prompt.text, /保留原图的背景内容和颜色/);
@@ -150,7 +151,8 @@ test('Gemini retouch sends the inline original first and limits changes to the r
 });
 
 test('Gemini retouch explains how to separate a dark product from a black background without recoloring it', async () => {
-    const { execute, requests } = createRetouchFixture({ protocol: 'google', modelId: 'gemini-3.1-flash-image' });
+    const { node, execute, requests } = createRetouchFixture({ protocol: 'google', modelId: 'gemini-3.1-flash-image' });
+    node.data.productRetouch.finish = 'natural';
     await execute();
     const { contents, generationConfig } = JSON.parse(requests[0].body);
     const prompt = contents[0].parts[1].text;
@@ -158,6 +160,8 @@ test('Gemini retouch explains how to separate a dark product from a black backgr
     assert.match(prompt, /轮廓.*保持商品原色/);
     assert.match(prompt, /高反差/);
     assert.match(prompt, /去除.*接触阴影.*保留商品自身/);
+    assert.match(prompt, /优先局部去除.*浅表擦痕/);
+    assert.match(prompt, /表面：.*保留织纹、颗粒、缝线/);
     assert.equal(generationConfig.imageConfig, undefined);
     assert.equal(generationConfig.thinkingConfig, undefined);
 });
@@ -170,6 +174,7 @@ test('a recognized Gemini model behind an OpenAI relay uses the Gemini retouch b
         assert.ok(body.get('image') instanceof Blob);
         assert.equal(body.get('model'), modelId);
         assert.match(body.get('prompt'), /原图为唯一依据/);
+        assert.match(body.get('prompt'), /优先局部去除.*浅表擦痕/);
     }
 });
 
