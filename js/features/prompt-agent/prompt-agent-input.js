@@ -1,5 +1,6 @@
 import { projectAgentSearch, getSummarySearchSources } from './prompt-agent-search-data.js';
 import { projectCanvasPlan } from './prompt-agent-canvas-plan.js';
+import { readImageSize } from './prompt-agent-image-tokens.js';
 
 function isImageSource(source, protocol) {
     return typeof source === 'string' && (/^data:image\/[^;]+;base64,/i.test(source)
@@ -58,10 +59,11 @@ function projectHistory(conversation, images) {
 
 export function createPromptAgentInput({
     message = '', confirmedNewTask = false, taskConfirmationRetry = false, choiceAnswer = null, context = null, conversation = null, workflowMemory = '', sizeSettings = {}, imageSizeCapabilities = null,
-    referenceImages = [], workflowReferenceImages = [], model, searchAllowed = true, searchContext = null, canvasContext = null, canvasReads = []
+    imageParameterCapabilities = null, referenceImages = [], workflowReferenceImages = [], model, searchAllowed = true, searchContext = null, canvasContext = null, canvasReads = []
 } = {}) {
     const images = [];
     const bySource = new Map();
+    const sizes = new Map();
     const addImage = (image, origin, connectedToNode = false, referenceNumber = null) => {
         const sources = image.dataUrl ? [image.dataUrl] : (image.images?.length ? image.images : Array(Math.max(1, image.assetKeys?.length || 0)).fill(null));
         sources.forEach((source, index) => {
@@ -77,6 +79,7 @@ export function createPromptAgentInput({
                 && existing.resultNumber !== image.resultNumber) key = `${key}\0${image.runId}:${image.resultNumber}`;
             let entry = bySource.get(key);
             if (!entry) {
+                if (source && !sizes.has(source)) sizes.set(source, readImageSize(source));
                 entry = {
                     imageId: `image-${images.length + 1}`,
                     ...(image.sourceNodeId ? { sourceNodeId: image.sourceNodeId, sourcePort: image.sourcePort || 'image', sourceImageIndex: image.sourceImageIndex ?? index } : {}),
@@ -88,6 +91,7 @@ export function createPromptAgentInput({
                     ...(image.runId ? { runId: image.runId, resultNumber: image.resultNumber, messageNumber: image.messageNumber, prompt: image.prompt } : {}),
                     connectedToNode: false,
                     visionAvailable: model?.capabilities?.imageInput !== false && isImageSource(source, model?.protocol),
+                    ...(!image.referenceUnavailable ? sizes.get(source) : null),
                     reference: { ...image, ...(source ? { dataUrl: source } : {}), sourceImageIndex: image.sourceImageIndex ?? index },
                     source
                 };
@@ -155,6 +159,7 @@ export function createPromptAgentInput({
         contextSummary: String(conversation?.contextSummary || ''),
         workflowMemory: String(conversation?.memory ?? workflowMemory),
         ...(imageSizeCapabilities ? { imageSizeCapabilities } : {}),
+        ...(imageParameterCapabilities ? { imageParameterCapabilities } : {}),
         ...(Object.keys(sizeSettings).length ? { imageSizeDefaults: sizeSettings } : {}),
         // Keep the user's per-message image numbering without resending any
         // archived dialogue. Pixel attachments are resolved by the catalog.

@@ -33,9 +33,38 @@ test('an independent generation request starts a new creative task without confi
     const task = bindTaskToReply(draft, previous, '生成一张4K的黑夜里的足球场照片');
 
     assert.notEqual(task.id, previous.id);
-    assert.deepEqual(draft.promptPlan.parameters, { resolution: '4K' });
+    assert.deepEqual(draft.promptPlan.parameters, { resolution: '4K', count: 1 });
     assert.deepEqual(cup.promptPlan, oldPlan);
     assert.notEqual(bindTaskToReply(structuredClone(draft), previous, '再来一张，夜间足球场照片').id, previous.id);
+});
+
+test('a request for one output with three product states keeps a generation count of one', () => {
+    const draft = reply({});
+    draft.taskUpdate = { parameters: { count: { value: 1, evidence: '生成一张类似的图片' } } };
+
+    const task = bindTaskToReply(draft, null, '根据第一张图，给图2这个产品生成一张类似的图片，同一张图体现产品的三个状态。');
+
+    assert.equal(draft.promptPlan.parameters.count, 1);
+    assert.equal(task.parameters.count, 1);
+});
+
+test('an output count with short evidence is recovered from the complete request', () => {
+    const draft = reply({});
+    draft.taskUpdate = { parameters: { count: { value: '2', evidence: '两张' } } };
+
+    bindTaskToReply(draft, null, '参考图1，帮我出两张不同构图的产品图。');
+
+    assert.equal(draft.promptPlan.parameters.count, 2);
+});
+
+test('reference and in-frame quantities do not change the output count', () => {
+    const draft = reply({});
+    const task = bindTaskToReply(draft, null, '参考第一张图，画面中展示出三张卡片和产品的三个状态。');
+
+    assert.equal(task.parameters.count, undefined);
+    assert.throws(() => updateCreativeTask(task, '参考第一张图', {
+        parameters: { count: { value: 1, evidence: '一张' } }
+    }), /不一致/);
 });
 
 test('a model cannot reset the creative task through an edit or ambiguous continuation', () => {
@@ -87,6 +116,30 @@ test('step-specific settings do not spread and ambiguous multi-step sizes ask fo
  const task=bindTaskToReply(r,null,'第一张用2K');assert.equal(r.canvasPlan.steps[0].parameters.resolution,'2K');assert.equal(r.canvasPlan.steps[1].parameters.resolution,undefined);
  const next=make();bindTaskToReply(next,task,'继续改背景');assert.equal(next.canvasPlan.steps[0].parameters.resolution,'2K');
  assert.throws(()=>bindTaskToReply(make(),task,'改成4K'),/所有生图步骤/);
+});
+
+test('a per-step aspect answer stays selected when continuing a task-wide reference ratio', () => {
+    const plan = () => ({ canvasPlan: { steps: ['hero', 'detail'].map(id => ({
+        id, type: 'ImageGenerate', parameters: { prompt: id }
+    })) } });
+    const draft = { ...plan(), sizeIntent: { referenceSize: { width: 1200, height: 800 } } };
+    const task = bindTaskToReply(draft, null, '生成两张不同的图，画幅统一参考图1');
+    const confirmed = confirmTaskParameters(task, draft.canvasPlan, { aspectRatio: '1:1' }, 'hero');
+    const continuation = plan();
+    bindTaskToReply(continuation, JSON.parse(JSON.stringify(confirmed)), '仅换背景');
+    const [hero, detail] = continuation.canvasPlan.steps;
+    assert.equal(hero.sizeIntent.aspectRatio, '1:1');
+    assert.deepEqual(detail.sizeIntent.referenceSize, { width: 1200, height: 800 });
+    assert.ok(continuation.canvasPlan.steps.every(step => step.parameters.generationCount === undefined));
+});
+
+test('an evidenced shared ratio and total output count map to the distinct image steps', () => {
+    const draft = { sizeIntent: { aspectRatio: '16:9', evidence: '两张都用16:9' },
+        taskUpdate: { parameters: { count: { value: 2, evidence: '生成两张' } } },
+        canvasPlan: { steps: ['hero', 'detail'].map(id => ({ id, type: 'ImageGenerate', parameters: { prompt: id } })) } };
+    bindTaskToReply(draft, null, '生成两张不同的图，两张都用16:9');
+    assert.deepEqual(draft.canvasPlan.steps.map(step => [step.sizeIntent.aspectRatio, step.parameters.generationCount]),
+        [['16:9', undefined], ['16:9', undefined]]);
 });
 
  test('new creative task discards old model dimension suggestions and unknown step settings are rejected',()=>{

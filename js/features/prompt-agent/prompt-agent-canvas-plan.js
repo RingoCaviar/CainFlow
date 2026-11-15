@@ -130,12 +130,19 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         }
         if (!object(parameters)) fail('节点参数必须是对象');
         for (const [key, value] of Object.entries(parameters)) {
+            if (step.type === 'ImageGenerate' && key === 'protocolParams') {
+                if (!object(value) || Object.entries(value).some(([name, setting]) =>
+                    ['__proto__', 'constructor', 'prototype'].includes(name) || !['string', 'number', 'boolean'].includes(typeof setting)
+                    || (typeof setting === 'number' && !Number.isFinite(setting)) || (typeof setting === 'string' && setting.length > 25000))) {
+                    fail('生图模型参数必须是有效的设置项');
+                }
+                continue;
+            }
             if (!CANVAS_FIELDS[step.type].includes(key) || !['string', 'number', 'boolean'].includes(typeof value)) fail(`不支持参数 ${step.type}.${key}`);
             if (typeof value === 'number' && (!Number.isFinite(value) || value < 0)) fail(`参数 ${key} 无效`);
             if (typeof value === 'string' && value.length > 25000) fail(`参数 ${key} 过长`);
         }
         if (parameters.inputCount !== undefined && (!Number.isInteger(parameters.inputCount) || parameters.inputCount < 1 || parameters.inputCount > 20)) fail('合并输入数量必须在 1 至 20 之间');
-        if (parameters.generationCount !== undefined && (!Number.isInteger(parameters.generationCount) || parameters.generationCount < 1 || parameters.generationCount > 20)) fail('生成数量必须在 1 至 20 之间');
         if (step.type === 'ImageGenerate' && !existing && !String(parameters.prompt || '').trim()) fail('新建生图步骤缺少提示词');
         if (step.type === 'ImageImport' && !existing && !(step.execute === false && !step.assetKey && !step.imageId) && !/^media:/.test(step.assetKey || '')) fail('图片导入必须引用已登记的本地原图资产');
         if (step.assetKey && !context.nodes.some(node => node.assets.includes(step.assetKey))
@@ -236,7 +243,7 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
 }
 
 export function describeCanvasPlan(plan, context) {
-    const displayValue = value => value === '' || value == null ? '（空）' : typeof value === 'string' ? value : String(value);
+    const displayValue = value => value === '' || value == null ? '（空）' : typeof value === 'object' ? JSON.stringify(value) : String(value);
     const stepLabel = step => context.nodes.find(node => node.id === (step.nodeId || plan.bindings?.[step.id]))?.name || step.title;
     const label = ref => {
         const step = plan.steps.find(step => step.id === ref);
@@ -300,6 +307,8 @@ export function promptPlanToCanvas(prompt, context, { message = '' } = {}) {
     const target = prompt.targetNodeId && context.nodes.find(node => node.id === prompt.targetNodeId);
     const steps = [{ id: 'generate', type: 'ImageGenerate', title: target?.name || '图片生成', parameters: { prompt: prompt.prompt },
         generationPatch: cloneCanvasValue(prompt.parameters || {}), ...(typeof prompt.negativePrompt === 'string' ? { negativePrompt: prompt.negativePrompt } : {}),
+        ...Object.fromEntries(['sizeIntent', 'sizeAnswer', 'parameterSources', 'parameterAnswers'].filter(key => prompt[key] !== undefined)
+            .map(key => [key, cloneCanvasValue(prompt[key])])),
         ...(target ? { nodeId: target.id } : {}), execute: true }];
     const referenceInputChange = referenceInputChangePermission(message, [target?.id]);
     const connections = [], dependencies = target ? [target.id] : [];

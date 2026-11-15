@@ -5,7 +5,73 @@ test('model aspect spelling maps to the same ratio parameter as canvas plans', (
  assert.deepEqual(normalizePromptAgentParameters({ aspect: '16:9', resolution: '2K' }), { aspectRatio: '16:9', resolution: '2K' });
 });
 
-import { resolveAgentSize, parseSizeAnswer, sizeCapabilities } from '../js/features/prompt-agent/prompt-agent-size.js';
+import * as agentSize from '../js/features/prompt-agent/prompt-agent-size.js';
+const { resolveAgentSize, parseSizeAnswer, sizeCapabilities } = agentSize;
+
+test('Agent chooses a compatible preset for a reference image before trying custom dimensions', () => {
+    const model = { protocol: 'openai', modelId: 'gpt-image-2' };
+    const patch = agentSize.resolveDesiredAgentAspect({ ...model, referenceSize: { width: 1917, height: 1080 },
+        defaults: { resolution: '2K', aspectRatio: '1:1' } });
+    assert.deepEqual(patch, { resolution: '2K', aspectRatio: '16:9' });
+    assert.match(resolveAgentSize({ ...model, parameters: patch }).summary, /2048 × 1152/);
+
+    const withoutTier = agentSize.resolveDesiredAgentAspect({ ...model, aspectRatio: '4:3' });
+    assert.deepEqual(withoutTier, { resolution: '1K', aspectRatio: '4:3' });
+    assert.match(resolveAgentSize({ ...model, parameters: withoutTier }).summary, /1024 × 768/);
+});
+
+test('GPT Image uses legal pixel dimensions when a requested ratio is outside its presets', () => {
+    const model = { protocol: 'openai', modelId: 'gpt-image-2' };
+    const patch = agentSize.resolveDesiredAgentAspect({ ...model, aspectRatio: '7:5' });
+    assert.equal(patch.resolution, 'custom');
+    assert.equal(patch.customWidth / patch.customHeight, 7 / 5);
+    assert.match(resolveAgentSize({ ...model, parameters: patch }).summary, /自定义/);
+
+    const reference = agentSize.resolveDesiredAgentAspect({ ...model, referenceSize: { width: 1280, height: 800 } });
+    assert.deepEqual(reference, { resolution: 'custom', customWidth: 1280, customHeight: 800 });
+
+    const withPanelDefaults = agentSize.resolveDraftImageSize({ ...model, sizeIntent: { aspectRatio: '8:5' },
+        defaults: { resolution: '2K', aspectRatio: '1:1' } });
+    assert.equal(withPanelDefaults.effective.resolution, 'custom');
+    assert.equal(withPanelDefaults.effective.customWidth / withPanelDefaults.effective.customHeight, 8 / 5);
+});
+
+test('a ratio-only model approximates a reference and lets the user repair an unavailable exact ratio', () => {
+    const model = { protocol: 'google', modelId: 'gemini-2.5-flash-image' };
+    const approximate = agentSize.resolveDraftImageSize({ ...model, sizeIntent: { referenceSize: { width: 1600, height: 1000 } } });
+    assert.deepEqual(approximate.patch, { aspectRatio: '3:2' });
+    assert.equal(approximate.effective.resolution, '');
+    assert.equal(sizeCapabilities(model.protocol, model.modelId).customDimensions, undefined);
+
+    const exact = { ...model, sizeIntent: { aspectRatio: '8:5' } };
+    assert.throws(() => agentSize.resolveDraftImageSize(exact), error => error.sizeClarification?.kind === 'aspect'
+        && error.sizeClarification.choices.some(option => option.value === '3:2'));
+    const answer = parseSizeAnswer('比例16:9');
+    assert.equal(agentSize.resolveDraftImageSize({ ...exact, answer }).effective.aspectRatio, '16:9');
+    assert.equal(agentSize.resolveDraftImageSize({ ...exact, answer: { aspectRatio: '' } }).effective.aspectRatio, '');
+});
+
+test('a model change discards incompatible suggested sizing while preserving explicit dimensions', () => {
+    const suggested = { parameters: { resolution: 'custom', customWidth: 1280, customHeight: 800, aspectRatio: '16:9' },
+        sources: { resolution: '方案建议', customWidth: '方案建议', customHeight: '方案建议', aspectRatio: '方案建议' } };
+    const banana = { protocol: 'google', modelId: 'gemini-2.5-flash-image' };
+    assert.deepEqual(agentSize.resolveDraftImageSize({ ...banana, ...suggested }).patch, { aspectRatio: '16:9' });
+    assert.throws(() => agentSize.resolveDraftImageSize({ ...banana, parameters: suggested.parameters }), error => error.sizeClarification?.kind === 'dimensions');
+
+    const size = agentSize.resolveDraftImageSize({ protocol: 'openai', modelId: 'gpt-image-2',
+        parameters: { resolution: 'custom', customWidth: 1280, customHeight: 800 }, defaults: { resolution: '2K', aspectRatio: '1:1' } });
+    assert.match(size.summary, /1280 × 800/);
+});
+
+test('the default sizing answer clears incompatible custom dimensions and keeps a usable ratio', () => {
+    const model = { protocol: 'google', modelId: 'gemini-3-pro-image' };
+    const result = agentSize.resolveDraftImageSize({ ...model, sizeIntent: { aspectRatio: '16:9' },
+        parameters: { resolution: 'custom', customWidth: 1280, customHeight: 800 },
+        defaults: { resolution: '2K' }, answer: { resolution: '' } });
+    assert.deepEqual(result.patch, { resolution: '', aspectRatio: '16:9' });
+    assert.equal(result.effective.customWidth, '');
+    assert.equal(result.effective.customHeight, '');
+});
 
 test('Gemini size answers use the selected model resolution values', () => {
     const flash = { protocol: 'google', modelId: 'gemini-3.1-flash-image' };

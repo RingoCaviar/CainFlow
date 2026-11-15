@@ -295,7 +295,13 @@ export function createPromptAgentNodeAdapter({
                 const size = resolveAgentSize({ protocol, modelId: sizeModel?.modelId, current: sizeContext?.parameters, parameters: input });
                 input = replaceAgentSizeFields(input, size.patch);
             }
-            parameters = normalizePromptAgentParameters(input, sizeContext.parameterSchema);
+            let schema = sizeContext.parameterSchema;
+            if (protocol === 'openai' && Object.hasOwn(input.protocolParams || {}, 'output_compression')) {
+                const currentFormat = readValue(controlDocument, `${node.id}-param-output_format`, sizeContext.parameters.protocolParams.output_format || '');
+                const openAiOutputFormat = input.protocolParams.output_format ?? currentFormat;
+                schema = readPromptAgentParameterSchema(documentRef, node.id, node, { openAiOutputFormat });
+            }
+            parameters = normalizePromptAgentParameters(input, schema);
         } catch (error) {
             if (error.sizeClarification) throw error;
             return false;
@@ -382,7 +388,9 @@ export function createPromptAgentNodeAdapter({
         writeValue(controlDocument, `${node.id}-moderation`, plan.parameters?.moderation, createEvent);
         writeValue(controlDocument, `${node.id}-background`, plan.parameters?.background, createEvent);
         writeBoolean(controlDocument, `${node.id}-search`, plan.parameters?.search, createEvent);
-        Object.entries(plan.parameters?.protocolParams || {}).forEach(([paramId, value]) => {
+        const { output_format: outputFormat, ...otherProtocolParameters } = plan.parameters?.protocolParams || {};
+        writeValue(controlDocument, `${node.id}-param-output_format`, outputFormat, createEvent);
+        Object.entries(otherProtocolParameters).forEach(([paramId, value]) => {
             if (typeof value === 'boolean') writeBoolean(controlDocument, `${node.id}-param-${paramId}`, value, createEvent);
             else writeValue(controlDocument, `${node.id}-param-${paramId}`, value, createEvent);
         });

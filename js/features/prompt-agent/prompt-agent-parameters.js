@@ -1,3 +1,5 @@
+import { supportsOpenAiOutputCompression } from '../../nodes/image-parameter-controls.js';
+
 const PROMPT_AGENT_PARAMETER_CONTROLS = {
     aspectRatio: 'aspect',
     resolution: 'resolution',
@@ -14,6 +16,89 @@ const PARAMETER_TYPES = {
     aspectRatio: 'string', resolution: 'string', customWidth: 'integer', customHeight: 'integer',
     quality: 'string', moderation: 'string', background: 'string', search: 'boolean', count: 'integer'
 };
+
+const sizeParameterKeys = new Set(['aspect', 'aspectRatio', 'resolution', 'customWidth', 'customHeight']);
+const parameterLabels = { count: '出图数量', quality: '画质', moderation: '审核设置', background: '背景', search: '联网搜索',
+    output_format: '文件格式', output_compression: '压缩比例', input_fidelity: '参考图保真度', style: '风格', complexity: '复杂度' };
+
+export function mergeAgentSizeAnswer(previous, answer) {
+    const next = { ...previous, ...answer };
+    if (Object.hasOwn(answer, 'resolution') && answer.resolution !== 'custom'
+        || Object.hasOwn(answer, 'aspectRatio') && next.resolution === 'custom') {
+        if (next.resolution === 'custom') delete next.resolution;
+        delete next.customWidth;
+        delete next.customHeight;
+    }
+    if (answer.resolution === 'custom' && answer.customWidth && answer.customHeight) delete next.aspectRatio;
+    return next;
+}
+
+function clarifyParameter(key, rule, field = key) {
+    const label = parameterLabels[key] || key;
+    const error = new Error(`当前生图模型无法使用所需的${label}，请选择替代设置。`);
+    const alternatives = rule?.enum || (key === 'count' && rule?.maximum ? [rule.maximum] : []);
+    error.parameterClarification = { field, choices: [
+        ...alternatives.map(value => ({ value, label: key === 'count' ? `生成 ${value} 张` : String(value) })),
+        { value: null, label: '使用模型默认' }
+    ] };
+    return error;
+}
+
+export function resolveAgentParameterPatch(parameters = {}, sources = {}, schema = {}, answers = {}, current = {}) {
+    const result = {};
+    for (const [key, proposal] of Object.entries({ ...parameters, ...answers })) {
+        if (sizeParameterKeys.has(key) || proposal === null) continue;
+        const rule = Object.hasOwn(schema, key) ? schema[key] : null;
+        if (key === 'search' && proposal === false && !rule) continue;
+        if (key.startsWith('protocolParams.')) continue;
+        if (key === 'protocolParams' && proposal && typeof proposal === 'object' && !Array.isArray(proposal)) {
+            const fields = {};
+            const requested = name => sources[`protocolParams.${name}`] === '本轮设置';
+            const compressionFormats = rule?.properties?.output_compression?.requiresOutputFormat;
+            const format = Object.hasOwn(answers, 'protocolParams.output_format') ? answers['protocolParams.output_format'] : proposal.output_format;
+            const keepCompression = answers['protocolParams.output_compression'] !== null;
+            const effectiveFormat = format || current.protocolParams?.output_format;
+            const compressionRequested = requested('output_compression') && keepCompression;
+            const transparent = (Object.hasOwn(answers, 'background') ? answers.background : parameters.background ?? current.background) === 'transparent' && schema.background?.enum?.includes('transparent');
+            if (compressionFormats && proposal.output_compression != null && keepCompression && !supportsOpenAiOutputCompression(effectiveFormat)) {
+                const supported = compressionFormats.filter(value => value !== 'jpeg' || !transparent);
+                if (compressionRequested && requested('output_format') && format) {
+                    const error = new Error('压缩率适用于 JPEG 或 WebP，请选择输出格式。');
+                    error.parameterClarification = { field: 'protocolParams.output_format', choices: supported.map(value => ({value,label:value.toUpperCase()})) };
+                    throw error;
+                }
+                if (compressionRequested) fields.output_format = supported[0];
+            }
+            for (const [name, value] of Object.entries(proposal)) {
+                const field = `protocolParams.${name}`;
+                const nestedRule = Object.hasOwn(rule?.properties || {}, name) ? rule.properties[name] : null;
+                const setting = Object.hasOwn(answers, field) ? answers[field] : value;
+                if (setting === null) continue;
+                if (name === 'output_format' && fields.output_format) continue;
+                if (name === 'output_compression' && compressionFormats && !supportsOpenAiOutputCompression(fields.output_format || effectiveFormat)) continue;
+                if (name === 'output_format' && setting === 'jpeg' && transparent && compressionFormats) {
+                    if (requested(name)) throw clarifyParameter(name, { enum: ['png', 'webp'] }, field);
+                    fields.output_format = 'png';
+                    continue;
+                }
+                if (nestedRule) {
+                    try { fields[name] = normalizeValue(setting, nestedRule, name); continue; }
+                    catch { /* A requested setting gets a choice below. */ }
+                }
+                if (requested(name)) throw clarifyParameter(name, nestedRule, field);
+            }
+            if (Object.keys(fields).length) result[key] = fields;
+            continue;
+        }
+        if (rule) {
+            try { result[key] = normalizeValue(proposal, rule, key); continue; }
+            catch { /* Only a requested setting needs a decision. */ }
+        }
+        if (sources[key] !== '本轮设置' && sources[key] !== '沿用任务' && !Object.hasOwn(answers, key)) continue;
+        throw clarifyParameter(key, rule);
+    }
+    return result;
+}
 
 function readControlSchema(control, type) {
     const schema = { type: control.type === 'checkbox' ? 'boolean' : (control.type === 'number' ? 'number' : type) };
@@ -38,17 +123,21 @@ export function getPromptAgentControl(documentRef, node, id) {
     return roots.length ? null : documentRef.getElementById(id);
 }
 
-function hiddenByCapability(control, node) {
+function hiddenByCapability(control, node, exceptFieldId = null) {
     const boundaries = [node?.parameterRoot, node?.el].filter(Boolean);
-    if (!boundaries.length) return !!control.closest?.('[hidden], .hidden');
+    if (!boundaries.length) {
+        const field = control.closest?.('[hidden], .hidden');
+        return Boolean(field && field.id !== exceptFieldId);
+    }
     for (let element = control; element; element = element.parentElement) {
-        if ((element.hidden && element.dataset?.parameterGroup === undefined) || element.classList?.contains('hidden')) return true;
+        if (element.id !== exceptFieldId
+            && ((element.hidden && element.dataset?.parameterGroup === undefined) || element.classList?.contains('hidden'))) return true;
         if (boundaries.includes(element)) break;
     }
     return false;
 }
 
-export function readPromptAgentParameterSchema(documentRef, nodeId, node = null) {
+export function readPromptAgentParameterSchema(documentRef, nodeId, node = null, { openAiOutputFormat } = {}) {
     const schema = {};
     for (const [key, suffix] of Object.entries(PROMPT_AGENT_PARAMETER_CONTROLS)) {
         const control = getPromptAgentControl(documentRef, node, `${nodeId}-${suffix}`);
@@ -68,10 +157,12 @@ export function readPromptAgentParameterSchema(documentRef, nodeId, node = null)
     if (!roots.length && documentRef.getElementById(nodeId)) roots.push(documentRef.getElementById(nodeId));
     const controls = new Set(roots.flatMap(root => [...(root.querySelectorAll?.('input[id], select[id], textarea[id]') || [])]));
     for (const control of controls) {
-        if (!control.id.startsWith(prefix) || control.type === 'hidden' || control.hidden
-            || control.disabled || hiddenByCapability(control, node)) continue;
+        if (!control.id.startsWith(prefix) || control.type === 'hidden' || control.hidden || control.disabled) continue;
         const key = control.id.slice(prefix.length);
         if (key === 'negative_prompt' || ['__proto__', 'prototype', 'constructor'].includes(key)) continue;
+        const formatDependent = key === 'output_compression' && openAiOutputFormat !== undefined;
+        if (formatDependent && !supportsOpenAiOutputCompression(openAiOutputFormat)) continue;
+        if (hiddenByCapability(control, node, formatDependent ? `${nodeId}-output_compression-field` : null)) continue;
         protocolProperties[key] = readControlSchema(control, 'string');
     }
     if (Object.keys(protocolProperties).length) schema.protocolParams = { type: 'object', properties: protocolProperties };

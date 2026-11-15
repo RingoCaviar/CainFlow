@@ -1,4 +1,5 @@
 import { parseSizeAnswer } from './prompt-agent-size.js';
+import { mergeAgentSizeAnswer } from './prompt-agent-parameters.js';
 import { createThinkingControl } from '../execution/thinking-control.js';
 import { resolveAgentProvider } from './prompt-agent-provider.js';
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
@@ -40,6 +41,7 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     const thinkingControls = [];
     const modelSelectors = [];
     const focusButtons = new Map();
+    const parameterPreviews = new Map();
     for (const id of plan.order) {
         const step = plan.steps.find(item => item.id === id);
         const row = element('li', '', list);
@@ -54,10 +56,9 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
             const settings = element('details', '', row); settings.className = 'prompt-agent-step-settings';
             const modelLabel = element('summary', '模型与参数', settings);
             const select = element('select', '', settings); select.setAttribute('aria-label', `${step.title}的生图模型`);
-            const parameters = element('pre', Object.entries({ ...step.parameters, ...step.generationPatch,
-                ...(step.negativePrompt ? { negativePrompt: step.negativePrompt } : {}) }).map(([key, value]) => `${key}：${value}`).join('\n'), settings);
+            const parameters = element('pre', '', settings);
             parameters.className = 'prompt-agent-step-prompt';
-            if (step.parameterSources) element('small', Object.entries(step.parameterSources).map(([key,source])=>`${key}：${source}`).join(' · '), settings);
+            parameterPreviews.set(id, parameters);
             select.id = `agent-step-model-${plan.id}-${id}`;
             const providerIdFor = modelId => plan.providerOverrides?.[id]?.[modelId] ?? getProviderId(modelId);
             const inherit = element('option', '使用面板手动选择的模型', select); inherit.value = '';
@@ -145,9 +146,11 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         configurationTarget = null;
         try { adapter.modelsFor(plan, getModelId()); } catch (error) { unavailable = error.message; configurationTarget = error.configurationTarget; }
         sizeIssue = null; sizePrompt.replaceChildren(); sizeSummaries.replaceChildren();
+        let validated = {};
         if (!unavailable) try {
-            const validated = adapter.sizesFor?.(plan, getModelId()) || {};
-            const sizes = plan.runs?.length && plan.appliedSizes ? plan.appliedSizes : validated;
+            validated = adapter.sizesFor?.(plan, getModelId()) || {};
+            const applied = latest();
+            const sizes = applied.runs?.length && applied.appliedSizes ? applied.appliedSizes : validated;
             for (const [id, size] of Object.entries(sizes)) element('p', `${plan.steps.find(step => step.id === id).title} · ${size.summary}${Object.values(size.sources || {}).some(Boolean) ? "（" + [...new Set(Object.values(size.sources).filter(Boolean))].join("、") + "）" : ""}`, sizeSummaries);
         } catch (error) {
             unavailable = error.message;
@@ -155,10 +158,34 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
                 sizeIssue = error; element('p', error.message, sizePrompt);
                 for (const option of error.sizeClarification.choices) {
                     const choice = element('button', option.label, sizePrompt); choice.type = 'button'; choice.disabled = busy;
-                    choice.addEventListener('click', () => answerSize({ resolution: option.value }));
+                    const field = error.sizeClarification.kind === 'aspect' ? 'aspectRatio' : 'resolution';
+                    choice.addEventListener('click', () => answerSize({ [field]: option.value }));
                 }
                 if (error.sizeClarification.kind === 'dimensions') element('p', '可在输入框回复宽×高，例如 1536×1024；或在尺寸设置中填写。', sizePrompt);
+            } else if (error.parameterClarification && !plan.runs?.length) {
+                element('p', error.message, sizePrompt);
+                const step = plan.steps.find(item => item.id === error.stepId);
+                for (const option of error.parameterClarification.choices) {
+                    const choice = element('button', option.label, sizePrompt); choice.type = 'button'; choice.disabled = busy;
+                    choice.addEventListener('click', () => {
+                        if (busy || !isCurrent() || !step) return;
+                        step.parameterAnswers = { ...step.parameterAnswers, [error.parameterClarification.field]: option.value };
+                        confirmedParameters(plan, { [error.parameterClarification.field]: option.value }, step.id);
+                        delete plan.appliedSignature; sync(); changed(plan);
+                    });
+                }
             }
+        }
+        for (const [id, preview] of parameterPreviews) {
+            const step = plan.steps.find(item => item.id === id);
+            const settings = validated[id]?.parameterPatch || { ...step.parameters, ...step.generationPatch };
+            const { count, aspectRatio, ...fields } = settings;
+            preview.textContent = Object.entries({ prompt: step.parameters?.prompt, ...fields,
+                ...(count !== undefined ? { generationCount: count } : {}),
+                ...(aspectRatio !== undefined ? { aspect: aspectRatio } : {}),
+                ...(step.negativePrompt ? { negativePrompt: step.negativePrompt } : {}) })
+                .filter(([, value]) => value !== undefined)
+                .map(([key, value]) => `${key}：${typeof value === 'object' ? JSON.stringify(value) : value}`).join('\n');
         }
         repair.hidden = !configurationTarget; repair.disabled = busy;
         apply.disabled = execute.disabled = busy || adapter.isPreparing?.() || !isCurrent() || Boolean(unavailable);
@@ -188,10 +215,7 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         if (!patch) return false;
         const step = plan.steps.find(item => item.id === sizeIssue.stepId);
         if (!step) return false;
-        if (patch.resolution && patch.resolution !== 'custom') {
-            for (const value of [step.parameters, step.generationPatch, step.sizeAnswer]) if (value) { delete value.customWidth; delete value.customHeight; }
-        }
-        step.sizeAnswer = { ...step.sizeAnswer, ...patch };
+        step.sizeAnswer = mergeAgentSizeAnswer(step.sizeAnswer, patch);
         confirmedParameters(plan, patch, step.id);
         delete plan.appliedSignature; sync(); changed(plan); return true;
     }

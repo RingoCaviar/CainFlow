@@ -518,6 +518,29 @@ test('declared numeric and checkbox protocol controls are validated and applied 
     assert.equal(seed.value, '42');
 });
 
+test('a plan can enable and set OpenAI output compression in the same patch', () => {
+    const { adapter, controls, node, state } = harness();
+    state.models = [{ id: 'format-model', modelId: 'gpt-image-2', protocol: 'openai' }];
+    state.connections = [];
+    node.apiConfigId = 'format-model';
+    const format = { ...control('png'), id: 'image-1-param-output_format',
+        options: ['png', 'webp', 'jpeg'].map(value => ({ value })) };
+    const compression = { ...control(''), id: 'image-1-param-output_compression', type: 'number', min: '0', max: '100',
+        closest: () => format.value === 'png' ? { id: 'image-1-output_compression-field' } : null };
+    controls[format.id] = format;
+    controls[compression.id] = compression;
+    controls[node.id] = { querySelectorAll: () => [format, compression] };
+
+    const apply = (prompt, protocolParams) => adapter.applyPromptPlan({ targetNodeId: node.id, prompt, parameters: { protocolParams } });
+    assert.equal(apply('待生成画面', { output_compression: 60, output_format: 'webp' }), true);
+    assert.equal(format.value, 'webp');
+    assert.equal(compression.value, '60');
+    assert.deepEqual(node.data.protocolParams, { output_format: 'webp', output_compression: 60 });
+    assert.equal(apply('不可应用的画面', { output_format: 'png', output_compression: 40 }), false);
+    assert.equal(controls['image-1-prompt'].value, '待生成画面');
+    assert.equal(format.value, 'webp');
+});
+
 test('scene references include every imported image, cached originals and active URLs without requiring node selection', () => {
     const original = 'data:image/png;base64,ORIGINAL';
     const thumbnail = 'data:image/webp;base64,THUMB';

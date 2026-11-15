@@ -778,8 +778,8 @@ test('a specific attached image edit proceeds when the model asks to start a new
     assert.equal(snapshot.messages.at(-2).referenceImages[0].name, attachedOriginal.name);
     assert.match(snapshot.messages.at(-1).promptPlan.prompt, /小海豹图案和 CAIN 标志/);
     assert.equal(snapshot.messages.at(-1).promptPlan.referenceImages[0].role, 'edit-target');
-    assert.deepEqual(snapshot.messages[1].promptPlan.parameters, { resolution: '2K', aspectRatio: '16:9' });
-    assert.deepEqual(snapshot.messages.at(-1).promptPlan.parameters, {}, 'the separate edit does not inherit unrelated task dimensions');
+    assert.deepEqual(snapshot.messages[1].promptPlan.parameters, { resolution: '2K', aspectRatio: '16:9', count: 1 });
+    assert.deepEqual(snapshot.messages.at(-1).promptPlan.parameters, {}, 'the separate edit does not inherit unrelated task parameters');
     assert.equal(snapshot.messages.at(-1).runs?.length || 0, 0);
 });
 
@@ -1929,16 +1929,17 @@ test('typing the next draft during automatic compaction does not erase it when t
     assert.equal(elements['prompt-agent-input'].value, '下一次草稿');
 });
 
-test('legacy ratio clarification retains the draft, accepts a resolution answer and does not execute automatically', async()=>{
+test('a fixed-size model retains a draft with an unsupported ratio and accepts a supported answer', async()=>{
  let requests=0,applies=0;
- const {controller,elements}=createHarness(async()=>{requests++;return {intent:'generate',message:'横幅',promptPlan:{targetNodeId:'image-1',prompt:'poster',parameters:{aspectRatio:'16:9'}}};},
- {getSelectedContext:()=>null,applyPromptPlan:()=>{applies++;return true;}});
- enterText(elements,'生成横幅');await controller.submit();
+ const {controller,elements}=createHarness(async()=>{requests++;return {intent:'generate',message:'横幅',promptPlan:{targetNodeId:'image-1',prompt:'poster',parameters:{}}};},
+ {getSelectedContext:()=>null,applyPromptPlan:()=>{applies++;return true;}}, null,
+ {getImageModels:()=>[{...TEST_IMAGE_MODEL, protocol:'openai', modelId:'gpt-image-1'}]});
+ enterText(elements,'生成横幅，画幅7:5');await controller.submit();
  assert.equal(applies,0);
- enterText(elements,'用2K');await controller.submit();
+ enterText(elements,'用3:2');await controller.submit();
  assert.equal(requests,1);assert.equal(applies,0);
  const saved=controller.snapshotWorkflow().messages.find(item=>item.promptPlan).promptPlan;
- assert.equal(saved.parameters.aspectRatio,'16:9');assert.equal(saved.parameters.resolution,'2K');
+ assert.equal(saved.sizeAnswer.aspectRatio,'3:2');
  controller.restoreWorkflow({messages:[]});enterText(elements,'用4K');await controller.submit();
  assert.equal(requests,2,'a resolution after workflow activation is not applied to the old draft');
 });

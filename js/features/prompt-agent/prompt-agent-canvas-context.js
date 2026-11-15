@@ -1,7 +1,7 @@
 import { agentNodeDefinition as getNodeDefinition } from './prompt-agent-reference-inputs.js';
 
 export const CANVAS_FIELDS = Object.freeze({
-    ImageImport: [], ImageGenerate: ['prompt', 'aspect', 'resolution', 'customWidth', 'customHeight', 'quality', 'moderation', 'background', 'generationCount'],
+    ImageImport: [], ImageGenerate: ['prompt', 'aspect', 'resolution', 'customWidth', 'customHeight', 'quality', 'moderation', 'background', 'generationCount', 'search', 'protocolParams'],
     ImageResize: ['resizeMode', 'scalePercent', 'targetWidth', 'targetHeight', 'keepAspect', 'quality'],
     ImageMerge: ['inputCount'], ImagePreview: [], ImageCompare: [], Text: ['text']
 });

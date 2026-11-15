@@ -184,13 +184,14 @@ test('a clear standalone creative task drafts a new canvas plan directly without
         const plan = stadium.messages.at(-1).canvasPlan;
         assert.deepEqual(stadium.messages.map(message => message.text), [cupRequest, '白杯方案', stadiumRequest, '足球场方案']);
         assert.notEqual(stadium.creativeTask.id, cup.creativeTask.id);
-        assert.deepEqual(stadium.creativeTask.parameters, { resolution: '4K' });
+        assert.deepEqual(stadium.creativeTask.parameters, { resolution: '4K', count: 1 });
         assert.deepEqual(stadium.messages[1].canvasPlan, cup.messages[1].canvasPlan);
         assert.equal(plan.taskId, stadium.creativeTask.id);
         assert.equal(plan.newCreativeTask, true);
         assert.equal(plan.steps[0].nodeId, undefined);
         assert.equal(plan.steps[0].parameters.prompt, '夜里的足球场');
         assert.equal(plan.steps[0].parameters.resolution, '4K');
+        assert.equal(plan.steps[0].parameters.generationCount, 1);
         assert.equal(plan.steps[0].parameters.aspect, undefined);
         assert.equal(stadium.messages.at(-1).runs?.length || 0, 0);
         assert.deepEqual(await app.evaluate("agentWorkflowRequests.map(request => request.messages && JSON.parse(request.messages.at(-1).content).userRequest)"),

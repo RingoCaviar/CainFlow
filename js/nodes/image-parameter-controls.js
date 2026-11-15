@@ -6,6 +6,10 @@ export function supportsImageWebSearch(protocol, modelId) {
     return !['openai', 'ttapi-openai', 'newapi-image-async'].includes(protocol);
 }
 
+export function supportsOpenAiOutputCompression(format) {
+    return format === 'jpeg' || format === 'webp';
+}
+
 const DEFAULT_VALUES = {
     quality: ['auto', 'low', 'medium', 'high'],
     moderation: ['auto', 'low'],
@@ -25,6 +29,35 @@ export function getImageParameterValues(protocol, modelId) {
         moderation: capabilities.moderations,
         background: capabilities.backgrounds
     } : DEFAULT_VALUES;
+}
+
+const STANDARD_PROTOCOL_FIELDS = new Set([
+    'referenceImages', 'prompt', 'model', 'aspect', 'aspect_ratio', 'resolution', 'image_size',
+    'size', 'quality', 'moderation', 'background', 'search', 'google_search'
+]);
+export function getImageGenerateExtraProtocol(protocol, modelId) {
+    if (!protocol?.parameters) return null;
+    const capabilities = protocol.id === 'openai' ? getOpenAiImageCapabilities(modelId) : null;
+    const openAiOptions = {
+        output_format: capabilities?.outputFormats,
+        input_fidelity: capabilities?.inputFidelities?.length > 1 ? capabilities.inputFidelities : [],
+        style: capabilities?.styles,
+        response_format: capabilities?.responseFormats,
+        complexity: capabilities?.complexities
+    };
+    const parameters = Object.entries(protocol.parameters).reduce((result, [paramId, param]) => {
+        const effectiveId = param.id || paramId;
+        if (param.exposed !== true || param.taskTypes && !param.taskTypes.includes('image')
+            || STANDARD_PROTOCOL_FIELDS.has(paramId) || STANDARD_PROTOCOL_FIELDS.has(effectiveId)) return result;
+        if (protocol.id === 'openai' && Object.hasOwn(openAiOptions, effectiveId)) {
+            const values = openAiOptions[effectiveId];
+            if (values?.length) result[paramId] = { ...param, options: (param.options || []).filter(option => !option.value || values.includes(option.value)) };
+        } else if (protocol.id !== 'openai' || effectiveId !== 'output_compression' || capabilities?.outputFormats.length) {
+            result[paramId] = param;
+        }
+        return result;
+    }, {});
+    return Object.keys(parameters).length ? { ...protocol, parameters } : null;
 }
 
 export function renderImageParameterOptions(name, values, selected = '') {

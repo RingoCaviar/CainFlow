@@ -33,7 +33,73 @@ test('image size options open on a real pointer click and remain selectable insi
   assert.equal(await evaluate("document.getElementById('prompt-agent-size-aspectRatio').value"),'16:9');
  });
 });
-test('Agent asks for resolution without creating nodes, retains ratio, executes confirmed size and restores preferences', {timeout:90000}, async()=>{
+
+test('Agent adapts a reference ratio to the image model and asks only when an exact setting is unsupported', {timeout:60000}, async () => {
+ const banana = { id: 'banana', name: 'Banana', modelId: 'gemini-2.5-flash-image', taskType: 'image', protocol: 'google', providerIds: ['p'] };
+ await withAppBrowser({autoCheckUpdatesOnLoad:false, models:[...models, banana], providers}, async ({evaluate,send,waitFor}) => {
+  await send('Page.addScriptToEvaluateOnNewDocument', {source:`
+   window.chatCalls = [];
+   window.agentReply = {
+    intent:'generate', message:'跌落过程方案',
+    promptPlan:{prompt:'同一张图展现产品跌落的三个状态', imageRoles:[
+     {imageId:'image-1',role:'reference'}, {imageId:'image-2',role:'reference'}]},
+    taskUpdate:{mode:'new', parameters:{count:{value:3,evidence:'三个状态'},
+     aspectRatio:{value:'16:9',evidence:'比例尽可能贴近图1'}}}
+   };
+   const real = fetch;
+   window.fetch = async (url, options={}) => {
+    if (String(url)==='/proxy' && options.body) {
+     const body = JSON.parse(options.body);
+     if (body.messages) {
+      chatCalls.push(body);
+      return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(agentReply)}}]}));
+     }
+    }
+    return real(url, options);
+   };`});
+  await reloadAppBrowser({evaluate,send,waitFor});
+  await waitFor("Boolean(document.querySelector('#prompt-agent-model + button'))");
+  await evaluate("document.getElementById('btn-prompt-agent').click()");
+  const select = async (purpose,id) => evaluate(`document.querySelector('#prompt-agent-${purpose} + button').click();document.querySelector('#prompt-agent-${purpose}-menu [data-model-id="${id}"][data-provider-id="p"]').click()`);
+  await select('model','chat');
+  await select('image-model','image');
+  await evaluate(`(async () => {
+   const transfer = new DataTransfer();
+   for (const [width,height,name] of [[1136,800,'构图.png'],[800,800,'产品.png']]) {
+    const canvas = document.createElement('canvas');
+    canvas.width = width; canvas.height = height;
+    canvas.getContext('2d').fillRect(0,0,width,height);
+    const pixels = await new Promise(resolve => canvas.toBlob(resolve));
+    transfer.items.add(new File([pixels], name, {type:'image/png'}));
+   }
+   const upload = document.getElementById('prompt-agent-reference-upload');
+   upload.files = transfer.files;
+   upload.dispatchEvent(new Event('change',{bubbles:true}));
+  })()`);
+  await waitFor("document.querySelectorAll('#prompt-agent-references img').length === 2 && !document.querySelector('#prompt-agent-references .is-loading')");
+  const submit = async message => evaluate(`
+   document.getElementById('prompt-agent-input').value=${JSON.stringify(message)};
+   document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
+  `);
+  await submit('给图2的产品生成一张类似的图片，比例尽可能贴近图1，同一个画面体现三个状态。');
+  await waitFor("document.querySelector('.prompt-agent-size-summary')?.textContent.includes('1136 × 800')");
+  assert.match(await evaluate("document.querySelector('.prompt-agent-step-prompt').textContent"), /generationCount：1/);
+  assert.equal(await evaluate("document.querySelector('.prompt-agent-size-clarification').textContent"), '');
+  await select('image-model','banana');
+  await waitFor("document.querySelector('.prompt-agent-size-summary')?.textContent.includes('3:2')");
+  assert.equal(await evaluate('chatCalls.length'), 1);
+  assert.equal(await evaluate("document.querySelector('.prompt-agent-size-clarification').textContent"), '');
+
+  await evaluate("window.agentReply={intent:'generate',message:'新海报',taskUpdate:{mode:'new'},promptPlan:{prompt:'banner'}}");
+  await submit('生成一张宽高比7:5的新海报');
+  await waitFor("[...document.querySelectorAll('.prompt-agent-size-clarification')].at(-1)?.textContent.includes('7:5')");
+  assert.equal(await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions')].at(-1).querySelector('.btn-primary').disabled"), true);
+  await evaluate("[...[...document.querySelectorAll('.prompt-agent-size-clarification')].at(-1).querySelectorAll('button')].find(button=>button.textContent==='4:3').click()");
+  assert.equal(await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions')].at(-1).querySelector('.btn-primary').disabled"), false);
+  assert.equal(await evaluate('chatCalls.length'), 2);
+ });
+});
+test('Agent selects a compatible resolution for an explicit ratio and restores size preferences', {timeout:90000}, async()=>{
  await withAppBrowser({autoCheckUpdatesOnLoad:false,models,providers},async({evaluate,send,waitFor})=>{
   await send('Page.addScriptToEvaluateOnNewDocument',{source:`window.calls=[];const real=fetch;window.fetch=async(url,options={})=>{
    if(String(url)==='/proxy'&&options.body){const body=JSON.parse(options.body);calls.push(body);
@@ -71,30 +137,28 @@ test('Agent asks for resolution without creating nodes, retains ratio, executes 
   assert.equal(await evaluate("document.getElementById('prompt-agent-size-aspectRatio').disabled"),true);
   assert.match(await evaluate("document.querySelector('.prompt-agent-size-aspect-hint').textContent"),/自动分辨率/);
   assert.equal(await evaluate("getComputedStyle(document.querySelector('.prompt-agent-thinking-menu .prompt-agent-settings-footer')).display"),'none');
-  await evaluate("window.imageSettings.click();document.getElementById('prompt-agent-input').value='生成16:9横幅';document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
-  await waitFor("document.querySelector('.prompt-agent-size-clarification')?.textContent.includes('请选择需要的分辨率')");
+  await evaluate("window.imageSettings.click();document.getElementById('prompt-agent-input').value='生成16:9横幅，输出JPEG，压缩率75';document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+  await waitFor("document.querySelector('.prompt-agent-size-summary')?.textContent.includes('16:9')");
   assert.equal(await evaluate("document.querySelectorAll('#nodes-layer .node').length"),0);
   assert.equal(await evaluate('calls.length'),1);
   assert.ok(await evaluate("JSON.stringify(calls[0]).includes('imageSizeCapabilities')"));
-  assert.ok(await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='运行').disabled"));
-  // Text answers update the same persisted draft, without another model request or execution.
-  await evaluate("document.getElementById('prompt-agent-input').value='用2K';document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
-  assert.equal(await evaluate('calls.length'),1);
+  assert.equal(await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='运行').disabled"),false);
   assert.equal(await evaluate("document.querySelectorAll('.prompt-agent-canvas-plan').length"),1);
   assert.ok(await evaluate("document.querySelector('.prompt-agent-size-summary').textContent.includes('16:9')"));
   await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='运行').click()");
   await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')");
   assert.equal(await evaluate('calls.length'),2);
-  assert.equal(await evaluate('calls[1].size'),'2048x1152');
+  assert.equal(await evaluate('calls[1].size'),'1536x864');
+  assert.deepEqual(await evaluate('[calls[1].output_format, calls[1].output_compression]'), ['jpeg', 75]);
   const generatedId=await evaluate("document.querySelector('#nodes-layer .node-generate').id");
-  assert.equal(await evaluate(`document.getElementById(${JSON.stringify(generatedId+'-resolution')}).value`),'2K');
+  assert.equal(await evaluate(`document.getElementById(${JSON.stringify(generatedId+'-resolution')}).value`),'1K');
   assert.equal(await evaluate(`document.getElementById(${JSON.stringify(generatedId+'-aspect')}).value`),'16:9');
   await evaluate("window.imageSettings.click();var r=document.getElementById('prompt-agent-size-resolution');r.value='4K';r.dispatchEvent(new Event('change',{bubbles:true}));window.imageSettings.click()");
   assert.match(await evaluate("window.imageSettings.title"),/4K/);
   await delay(800);await reloadAppBrowser({evaluate,send,waitFor});await waitFor("Boolean(document.querySelector('#prompt-agent-model + button'))");
   await evaluate("document.getElementById('btn-prompt-agent').click();document.querySelector('#prompt-agent-image-model').parentElement.querySelector('.thinking-control > summary').click()");
   assert.equal(await evaluate("document.getElementById('prompt-agent-size-resolution').value"),'4K');
-  assert.ok(await evaluate("document.querySelector('.prompt-agent-size-summary').textContent.includes('2K')"),'completed plan retains executed size');
+  assert.ok(await evaluate("document.querySelector('.prompt-agent-size-summary').textContent.includes('1K')"),'completed plan retains executed size');
   await evaluate("var r=document.getElementById('prompt-agent-size-resolution');r.value='custom';r.dispatchEvent(new Event('change',{bubbles:true}))");
   assert.deepEqual(await evaluate(`(()=>{const row=document.querySelector('.prompt-agent-thinking-menu .prompt-agent-size-dimensions');return {
    visible:getComputedStyle(row).display!=='none',divider:getComputedStyle(row).borderTopStyle,

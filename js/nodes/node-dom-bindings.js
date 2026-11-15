@@ -24,7 +24,7 @@ import {
 } from '../features/execution/provider-request-utils.js';
 import { getImageAspectSelectState, normalizeImageSizeControls, resolveImageRequestSize, usesOpenAiImageSize } from '../features/execution/image-generation-size.js';
 import { getOpenAiImageCapabilities } from '../features/execution/openai-image-capabilities.js';
-import { supportsImageWebSearch, syncImageParameterControls } from './image-parameter-controls.js';
+import { getImageGenerateExtraProtocol, supportsImageWebSearch, supportsOpenAiOutputCompression, syncImageParameterControls } from './image-parameter-controls.js';
 import { collectConnectionSnapshotsForNodes } from '../canvas/connection-copy-utils.js';
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 import { getProtocol } from '../features/execution/protocols/index.js';
@@ -51,6 +51,8 @@ import { bindImageMentionPicker } from '../features/ui/image-mention-picker.js';
 import {
     findPromptImageMentionUpstream, normalizePromptImageMentions, registerPromptImageMention, remapCopiedPromptImageMentions
 } from './prompt-image-mentions.js';
+
+const builtInImageProtocols = new Map([[TtapiProtocol.id, TtapiProtocol], [TtapiOpenaiProtocol.id, TtapiOpenaiProtocol]]);
 
 export function createNodeDomBindingsApi({
     state,
@@ -186,26 +188,6 @@ export function createNodeDomBindingsApi({
     const nodeResults = createImageNodeResults({ state, documentRef, createActions: createImageResultActions,
         readAsset: readResultAsset, readSourceImages: readReferenceSourceImages, createThumbnail: createResultThumbnail,
         rememberThumbnail: rememberResultThumbnail, scheduleSave, onLayout: scheduleConnectedInputFieldLayout, showToast });
-    const IMAGE_GENERATE_STANDARD_PROTOCOL_PARAMS = new Set([
-        'referenceImages',
-        'prompt',
-        'model',
-        'aspect',
-        'aspect_ratio',
-        'resolution',
-        'image_size',
-        'size',
-        'quality',
-        'moderation',
-        'background',
-        'search',
-        'google_search'
-    ]);
-    const IMAGE_GENERATE_BUILTIN_PROTOCOLS = new Map([
-        [TtapiProtocol.id, TtapiProtocol],
-        [TtapiOpenaiProtocol.id, TtapiOpenaiProtocol]
-    ]);
-
     function getNodeParameterRoot(root) {
         const node = root?.id ? state.nodes.get(root.id) : null;
         return node?.el === root && node.parameterRoot !== root ? node.parameterRoot : null;
@@ -1628,32 +1610,6 @@ export function createNodeDomBindingsApi({
         defaults.providerId = providerSelect?.value || state.nodes.get(id)?.providerId || '';
     }
 
-    function getImageGenerateExtraProtocol(protocol, modelId) {
-        if (!protocol?.parameters) return null;
-        const capabilities = protocol.id === 'openai' ? getOpenAiImageCapabilities(modelId) : null;
-        const openAiOptions = {
-            output_format: capabilities?.outputFormats,
-            input_fidelity: capabilities?.inputFidelities?.length > 1 ? capabilities.inputFidelities : [],
-            style: capabilities?.styles,
-            response_format: capabilities?.responseFormats,
-            complexity: capabilities?.complexities
-        };
-        const parameters = Object.entries(protocol.parameters).reduce((acc, [paramId, param]) => {
-            const effectiveId = param?.id || paramId;
-            if (param.exposed !== true || param.taskTypes && !param.taskTypes.includes('image')
-                || IMAGE_GENERATE_STANDARD_PROTOCOL_PARAMS.has(paramId) || IMAGE_GENERATE_STANDARD_PROTOCOL_PARAMS.has(effectiveId)) return acc;
-            if (protocol.id === 'openai' && Object.hasOwn(openAiOptions, effectiveId)) {
-                const values = openAiOptions[effectiveId];
-                if (!values?.length) return acc;
-                acc[paramId] = { ...param, options: (param.options || []).filter(option => !option.value || values.includes(option.value)) };
-            } else if (protocol.id !== 'openai' || effectiveId !== 'output_compression' || capabilities?.outputFormats.length) {
-                acc[paramId] = param;
-            }
-            return acc;
-        }, {});
-        return Object.keys(parameters).length > 0 ? { ...protocol, parameters } : null;
-    }
-
     function getImageGenerateSelectedProtocol(id) {
         const modelSelect = documentRef.getElementById(`${id}-apiconfig`);
         const providerSelect = documentRef.getElementById(`${id}-provider`);
@@ -1662,7 +1618,7 @@ export function createNodeDomBindingsApi({
         const providerId = providerSelect?.value || state.nodes.get(id)?.providerId || '';
         const provider = getResolvedProviderForModel(model, state.providers, providerId);
         const protocolId = getEffectiveProtocol(model, provider);
-        return getImageGenerateExtraProtocol(getProtocol(protocolId) || IMAGE_GENERATE_BUILTIN_PROTOCOLS.get(protocolId), model?.modelId);
+        return getImageGenerateExtraProtocol(getProtocol(protocolId) || builtInImageProtocols.get(protocolId), model?.modelId);
     }
 
     function syncImageGenerateProtocolParams(id) {
@@ -2002,7 +1958,7 @@ export function createNodeDomBindingsApi({
         const extra = getImageGenerateSelectedProtocol(id);
         const format = documentRef.getElementById(`${id}-param-output_format`)?.value;
         const compressionField = documentRef.getElementById(`${id}-output_compression-field`);
-        if (extra?.id === 'openai') compressionField?.classList.toggle('hidden', !['jpeg', 'webp'].includes(format));
+        if (extra?.id === 'openai') compressionField?.classList.toggle('hidden', !supportsOpenAiOutputCompression(format));
         for (const [key, parameter] of Object.entries(extra?.parameters || {})) {
             if (!documentRef.getElementById(`${id}-param-${key}`)) continue;
             if (extra.id === 'openai' && key === 'output_compression' && compressionField?.classList.contains('hidden')) continue;

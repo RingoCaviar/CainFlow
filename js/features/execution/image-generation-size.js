@@ -153,6 +153,14 @@ export function normalizeImageSizeControls({ resolution = '', aspect = '', custo
     };
 }
 
+export const OPENAI_IMAGE_DIMENSION_LIMITS = {
+    alignment: 16,
+    maxEdge: 3840,
+    maxAspectRatio: 3,
+    minPixels: 655360,
+    maxPixels: 8294400
+};
+
 export function validateOpenAiImageSize(widthValue, heightValue) {
     const width = Number(widthValue);
     const height = Number(heightValue);
@@ -163,10 +171,11 @@ export function validateOpenAiImageSize(widthValue, heightValue) {
     const longSide = Math.max(width, height);
     const shortSide = Math.min(width, height);
     const totalPixels = width * height;
-    if (longSide > 3840) errors.push('最大边长必须小于或等于 3840px。');
-    if (width % 16 !== 0 || height % 16 !== 0) errors.push('宽度和高度都必须是 16px 的倍数。');
-    if (longSide / shortSide > 3) errors.push('长边与短边之比不得超过 3:1。');
-    if (totalPixels < 655360 || totalPixels > 8294400) errors.push('总像素数必须至少为 655,360，且不得超过 8,294,400。');
+    const { alignment, maxEdge, maxAspectRatio, minPixels, maxPixels } = OPENAI_IMAGE_DIMENSION_LIMITS;
+    if (longSide > maxEdge) errors.push('最大边长必须小于或等于 3840px。');
+    if (width % alignment !== 0 || height % alignment !== 0) errors.push('宽度和高度都必须是 16px 的倍数。');
+    if (longSide / shortSide > maxAspectRatio) errors.push('长边与短边之比不得超过 3:1。');
+    if (totalPixels < minPixels || totalPixels > maxPixels) errors.push('总像素数必须至少为 655,360，且不得超过 8,294,400。');
     return { valid: errors.length === 0, errors, width, height };
 }
 

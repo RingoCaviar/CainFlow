@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createPromptAgentModelReply, getAvailablePromptAgentModels } from '../js/features/prompt-agent/prompt-agent-model.js';
+import { createPromptAgentModelReply, getAvailablePromptAgentModels, imageParameterCapabilities } from '../js/features/prompt-agent/prompt-agent-model.js';
+import '../js/features/execution/protocols/google.js';
+import '../js/features/execution/protocols/openai.js';
 import { createCanvasContext } from '../js/features/prompt-agent/prompt-agent-canvas-context.js';
 import { promptPlanToCanvas } from '../js/features/prompt-agent/prompt-agent-canvas-plan.js';
 import { createPromptAgentConversationStore } from '../js/features/prompt-agent/prompt-agent-conversation-store.js';
@@ -349,6 +351,125 @@ test('visible reference numbers map to media even when equal images are selected
         { referenceNumber: 1, name: '背景', imageId: 'image-2' },
         { referenceNumber: 2, name: '主体', imageId: 'image-1' }
     ]);
+});
+
+test('a reference ratio uses the original dimensions and the ordinal in the current request', async () => {
+    const gif = (width, height) => {
+        const header = Buffer.alloc(13);
+        header.write('GIF89a');
+        header.writeUInt16LE(width, 6);
+        header.writeUInt16LE(height, 8);
+        return `data:image/gif;base64,${header.toString('base64')}`;
+    };
+    const { result, request } = replyHarness({
+        intent: 'generate', promptPlan: { prompt: '商品图', imageRoles: [] },
+        sizeIntent: { referenceImageId: 'image-2', evidence: '画幅比例参考图1' }
+    }, {
+        message: '生成一张商品图，画幅比例参考图1',
+        referenceImages: [{ name: '构图', dataUrl: gif(1400, 1000) }, { name: '主体', dataUrl: gif(1024, 1024) }]
+    });
+    assert.deepEqual((await result).sizeIntent, {
+        referenceSize: { width: 1400, height: 1000 }, referenceLabel: '构图', evidence: '画幅比例参考图1'
+    });
+    const input = JSON.parse(request().messages.at(-1).content[0].text);
+    assert.deepEqual(input.images.map(({ width, height, referenceNumbers }) => [width, height, referenceNumbers]), [
+        [1400, 1000, [1]], [1024, 1024, [2]]
+    ]);
+});
+
+test('direct reference ratio requests recover a draft even without a structured model size intent', async () => {
+    const header = Buffer.from('474946383961c0030004000000', 'hex');
+    const referenceImages = [{ name: '构图图', dataUrl: `data:image/gif;base64,${header.toString('base64')}` }];
+    const draft = { intent: 'generate', promptPlan: { prompt: '商品图', imageRoles: [] } };
+    const { result } = replyHarness(draft, {
+        message: '生成一张商品图，比例尽可能贴近图1，同一张图里呈现三个状态',
+        referenceImages
+    });
+    assert.deepEqual((await result).sizeIntent, {
+        referenceSize: { width: 960, height: 1024 }, referenceLabel: '构图图', evidence: '比例尽可能贴近图1'
+    });
+    const unsupported = await replyHarness({
+        ...draft, sizeIntent: { referenceImageId: 'image-1', evidence: '画幅比例参考图2', width: 100, height: 200 }
+    }, { message: '画幅比例参考图2', referenceImages }).result;
+    assert.deepEqual(unsupported.sizeIntent, { referenceUnavailable: true, evidence: '画幅比例参考图2' });
+    const composition = await replyHarness({
+        ...draft, sizeIntent: { referenceImageId: 'image-1', evidence: '产品的比例贴近图1' }
+    }, { message: '产品的比例贴近图1，画幅保持当前设置', referenceImages }).result;
+    assert.equal(composition.sizeIntent, undefined);
+    for (const text of [
+        '画幅比例不用参考图1',
+        '画幅是16:9，图1只参考构图',
+        '不要做正方形，画幅设成16:9',
+        '生成正方形的桌子，场景参考图1'
+    ]) {
+        const reply = await replyHarness({
+            ...draft, sizeIntent: { referenceImageId: 'image-1', evidence: text }
+        }, { message: text, referenceImages }).result;
+        assert.equal(reply.sizeIntent, undefined, text);
+    }
+});
+
+test('generation parameter requests retain direct search and format requirements through a model omission', async () => {
+    const draft = { intent: 'generate', promptPlan: { prompt: '商品图', imageRoles: [] } };
+    const { result } = replyHarness(draft, {
+        message: '生成两张商品图，关闭联网搜索，输出格式设为 WebP，压缩率 65%'
+    });
+    assert.deepEqual((await result).requestedImageParameters, {
+        search: false, protocolParams: { output_format: 'webp', output_compression: 65 }
+    });
+    const content = await replyHarness(draft, {
+        message: '生成带有“联网搜索”和“PNG”字样的海报，展示三个状态'
+    }).result;
+    assert.equal(content.requestedImageParameters, undefined);
+});
+
+test('a shared aspect covers every image step while an evidenced override affects only its step', async () => {
+    const canvasContext = createCanvasContext({ workflowId: 'aspect-scope', nodes: [], connections: [] });
+    const payload = {
+        intent: 'generate', canvasPlan: {
+            version: 1, steps: ['hero', 'detail'].map(id => ({ id, type: 'ImageGenerate', parameters: { prompt: id } })),
+            connections: []
+        },
+        sizeIntent: {
+            aspectRatio: '16:9', evidence: '两张都用16:9',
+            steps: { detail: { aspectRatio: '4:3', evidence: '详情图用4:3' } }
+        },
+        parameterIntent: { evidence: '两张都关闭联网搜索' }
+    };
+    const reply = await replyHarness(payload, {
+        canvasContext, message: '两张都用16:9，详情图用4:3，两张都关闭联网搜索'
+    }).result;
+    assert.deepEqual(reply.sizeIntent.steps, {
+        hero: { aspectRatio: '16:9', evidence: '两张都用16:9' },
+        detail: { aspectRatio: '4:3', evidence: '详情图用4:3' }
+    });
+    assert.deepEqual(reply.requestedImageParameters, { search: false });
+});
+
+test('the chat request exposes the selected image model request parameters without provider configuration', async () => {
+    const providerConfig = { ...provider, apikey: 'image-provider-secret' };
+    for (const [imageModel, expected] of [
+        [{ protocol: 'openai', modelId: 'gpt-image-2' }, {
+            quality: ['auto', 'low', 'medium', 'high'], format: ['', 'png', 'jpeg', 'webp'], maxReferences: 16
+        }],
+        [{ protocol: 'google', modelId: 'gemini-2.5-flash-image' }, { maxReferences: 3 }],
+        [{ protocol: 'google', modelId: 'gemini-3-pro-image' }, { search: 'boolean', maxReferences: 14 }]
+    ]) {
+        const { result, request } = replyHarness({
+            intent: 'generate', promptPlan: { prompt: '商品图', parameters: { count: '2' } }
+        }, {
+            message: '生成两张商品图',
+            imageParameterCapabilities: imageParameterCapabilities({ id: 'image-model', ...imageModel }, providerConfig)
+        });
+        assert.equal((await result).promptPlan.parameters.count, 2);
+        const input = JSON.parse(request().messages.at(-1).content).imageParameterCapabilities;
+        assert.deepEqual(input.parameters.count, { type: 'integer', minimum: 1, maximum: 20 });
+        assert.equal(input.maxReferences, expected.maxReferences);
+        assert.deepEqual(input.parameters.quality?.enum, expected.quality);
+        assert.deepEqual(input.parameters.protocolParams?.properties.output_format?.enum, expected.format);
+        assert.equal(input.parameters.search?.type, expected.search);
+        assert.doesNotMatch(JSON.stringify(input), /image-provider-secret|example\.test/);
+    }
 });
 
 test('image mentions map to their own source slots even when those slots share pixels', async () => {

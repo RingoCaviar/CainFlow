@@ -1,7 +1,9 @@
 import { batchBaseline, instantiateCanvasPlan, layoutIndependentCanvasNodes } from './prompt-agent-canvas-batches.js';
 import { prepareCanvasPlanRecreation } from './prompt-agent-canvas-recreation.js';
 import { normalizePlanInputs, projectPlanConnections, referenceManifest, assertReferenceInputsPreserved, isReferencePort, assertPromptOnlyReferenceRecipe } from './prompt-agent-reference-inputs.js';
-import { replaceAgentSizeFields, resolveAgentSize, sizeFields } from './prompt-agent-size.js';
+import { replaceAgentSizeFields, resolveDraftImageSize, sizeFields } from './prompt-agent-size.js';
+import { imageParameterCapabilities } from './prompt-agent-model.js';
+import { resolveAgentParameterPatch } from './prompt-agent-parameters.js';
 import { getEffectiveProtocol } from '../execution/provider-request-utils.js';
 import { resolveThinking } from '../execution/thinking-config.js';
 import { createCanvasContext, canvasBaseline, cloneCanvasValue, canvasPlanExecutionNodeIds } from './prompt-agent-canvas-context.js';
@@ -13,7 +15,12 @@ import { nodeBounds, findNearbyNodePosition } from '../execution/node-placement.
 
 const controlFields = { text: 'text', filename: 'filename', resizeMode: 'resize-mode', scalePercent: 'scale-percent',
     targetWidth: 'target-width', targetHeight: 'target-height', keepAspect: 'keep-aspect', quality: 'quality' };
-const generationFields = { aspect: 'aspectRatio', generationCount: 'count', resolution: 'resolution', customWidth: 'customWidth', customHeight: 'customHeight', quality: 'quality', moderation: 'moderation', background: 'background' };
+const generationFields = { aspect: 'aspectRatio', generationCount: 'count', resolution: 'resolution', customWidth: 'customWidth', customHeight: 'customHeight', quality: 'quality', moderation: 'moderation', background: 'background', search: 'search', protocolParams: 'protocolParams' };
+
+function generationParameters(step) {
+    return { ...Object.fromEntries(Object.entries(step.parameters).filter(([key]) => Object.hasOwn(generationFields, key))
+        .map(([key, value]) => [generationFields[key], value])), ...step.generationPatch };
+}
 
 export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNodes, getWorkflowId, addNode, removeNode, onNodesRemoved = () => {},
     nodeAdapter, session, save, graphChanged, origin, getImageAsset, runWorkflow, cancelNode, focusNode }) {
@@ -47,15 +54,26 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
             const targetModel = documentRef?.getElementById(`${targetId}-apiconfig`)?.value || state.nodes?.get(targetId)?.apiConfigId;
             const current = !plan.newCreativeTask && targetModel === config.model.id ? nodeAdapter.getContext(targetId)?.parameters || {} : {};
             try {
-                const parameters = { ...sizeFields(step.parameters), ...sizeFields(step.generationPatch), ...sizeFields(step.sizeAnswer) };
+                const proposed = generationParameters(step);
+                const parameters = sizeFields(proposed);
                 const sources = { ...step.parameterSources };
-                for (const [key, value] of Object.entries(sizeFields(plan.agentSizes?.[config.model.id]))) {
-                    if (sources[key] === '方案建议' && !Object.hasOwn(step.sizeAnswer || {}, key)) { parameters[key] = value; sources[key] = '面板默认'; }
+                if (!step.parameterSources) for (const key of Object.keys(step.generationPatch || {})) {
+                    sources[key] = '沿用任务';
                 }
-                const size = resolveAgentSize({ protocol: getEffectiveProtocol(config.model, config.provider), modelId: config.model.modelId, current,
-                    defaults: plan.agentSizes?.[config.model.id],
-                    parameters });
-                return [step.id, {...size, sources: Object.fromEntries(Object.keys(sizeFields(size.effective)).filter(key=>size.effective[key]!=='' ).map(key=>[key,sources[key] || (Object.hasOwn(plan.agentSizes?.[config.model.id]||{},key)?'面板默认':'节点或接口默认')]))}];
+                const defaults = plan.agentSizes?.[config.model.id];
+                for (const [key, value] of Object.entries(sizeFields(defaults))) {
+                    if (sources[key] === '方案建议') { parameters[key] = value; sources[key] = '面板默认'; }
+                }
+                const size = resolveDraftImageSize({ protocol: getEffectiveProtocol(config.model, config.provider), modelId: config.model.modelId,
+                    current, defaults, parameters, sizeIntent: step.sizeIntent, answer: step.sizeAnswer, sources });
+                if (step.sizeIntent) for (const key of Object.keys(size.patch)) {
+                    if (!Object.hasOwn(step.sizeAnswer || {}, key) && sources[key] !== '本轮设置') sources[key] = step.sizeIntent.referenceSize ? '参考图比例' : 'Agent 设置';
+                }
+                const patch = resolveAgentParameterPatch(proposed, sources,
+                    imageParameterCapabilities(config.model, config.provider).parameters, step.parameterAnswers, current);
+                return [step.id, {...size, parameterPatch: replaceAgentSizeFields(patch, size.patch),
+                    sources: Object.fromEntries(Object.keys(sizeFields(size.effective)).filter(key => size.effective[key] !== '').map(key => [key,
+                        Object.hasOwn(step.sizeAnswer || {}, key) ? '已确认' : sources[key] || (Object.hasOwn(defaults || {}, key) ? '面板默认' : '节点或接口默认')]))}];
             } catch (error) { error.stepId = step.id; error.message = `「${step.title}」${error.message}`; throw error; }
         }));
     }
@@ -155,7 +173,9 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                         const position = gridSteps.has(id) ? { x: start.x, y: start.y } : findNearbyNodePosition({ x: bounds ? bounds.x + bounds.width + 80 : start.x,
                             y: bounds ? bounds.y : start.y, width, occupied });
                         const config = selected[id];
-                        nodeId = addNode(step.type, position.x, position.y, { ...step.parameters, customTitle: step.title,
+                        const parameters = config && step.type === 'ImageGenerate'
+                            ? { prompt: step.parameters.prompt } : step.parameters;
+                        nodeId = addNode(step.type, position.x, position.y, { ...parameters, customTitle: step.title,
                             ...(config ? { apiConfigId: config.model.id, providerId: config.provider.id } : {}),
                             ...(step.assetKey ? { mediaAssetKeys: step.cachedAssetKeys || [step.assetKey], imageImportAssetKey: step.assetKey, imageAssetReady: true } : {}),
                             ...(step.cachedAssetKeys ? { mediaAssetKeys: [...step.cachedAssetKeys], imageAssetKey: step.cachedAssetKeys[0], imageAssetReady: true,
@@ -172,8 +192,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                         const inheritedInput = step.inheritedFields?.includes('prompt') && plan.connections.some(edge => edge.to.ref === id && edge.to.port === 'prompt');
                         const prompt = inheritedInput && !String(step.parameters.prompt || '').trim() ? undefined : step.parameters.prompt ?? nodeAdapter.getContext(nodeId)?.prompt;
                         const patch = { targetNodeId: nodeId, prompt, ...(typeof step.negativePrompt === 'string' ? { negativePrompt: step.negativePrompt } : {}),
-                            parameters: { ...Object.fromEntries(Object.entries(step.parameters).filter(([key]) => generationFields[key]).map(([key, value]) => [generationFields[key], value])), ...step.generationPatch } };
-                        patch.parameters = replaceAgentSizeFields(patch.parameters, sizes[id].patch);
+                            parameters: { ...sizes[id].parameterPatch } };
                         nodeAdapter.ensureTarget(patch, { modelId: selected[id].model.id, providerId: selected[id].provider.id });
                         const schema = nodeAdapter.getContext(nodeId)?.parameterSchema;
                         if (schema) for (const field of step.inheritedFields || []) {

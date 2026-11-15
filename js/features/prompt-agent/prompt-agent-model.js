@@ -1,10 +1,13 @@
 import { orderImageReferenceConnections } from '../../nodes/image-reference-projection.js';
+import { getImageGenerateExtraProtocol, getImageParameterValues, supportsImageWebSearch } from '../../nodes/image-parameter-controls.js';
+import { resolveImageGenerationInputContract } from '../../nodes/universal-input-policy.js';
 import { resolveAgentProvider } from './prompt-agent-provider.js';
 import { trackAgentRequest } from './prompt-agent-request.js';
 import { createChatRequestPlan, requestChatCompletion } from '../execution/chat-request-plan.js';
 import { getOpenAIChatCapabilities } from '../execution/openai-chat-capabilities.js';
-import { getModelsForTask, getModelProviders } from '../execution/provider-request-utils.js';
+import { getEffectiveProtocol, getModelsForTask, getModelProviders } from '../execution/provider-request-utils.js';
 import { getModelProtocolConfig } from '../execution/model-protocol-registry.js';
+import { getProtocol } from '../execution/protocols/index.js';
 import { getPromptAgentInstructions } from './prompt-agent-instructions.js';
 import { normalizePromptAgentChoices } from './prompt-agent-choices.js';
 import { createPromptAgentInput } from './prompt-agent-input.js';
@@ -17,6 +20,168 @@ import { excludesReferenceImages, mayUseCandidate, referenceInputChangePermissio
 import { canvasPlanReferenceImages, assertPromptOnlyReferenceRecipe } from './prompt-agent-reference-inputs.js';
 
 const directCreationRequest = /^(?:(?:请|帮我|给我|我要|我想|现在|这次|本轮)\s*)*(?:生成|画(?:一|个|只|幅|张|出)|创作|制作|设计|generate\b|draw\b|create\b)\s*\S/i;
+const outputAspect = /画幅|画面(?:宽高)?比|宽高比|比例|aspect ratio|canvas size/i;
+const subjectAspect = /(?:产品|商品|物体|主体|人物|桌子|尺寸关系).{0,8}的?(?:相对)?比例|(?:相对|大小|身材)比例/;
+const referenceMatch = /参考|一致|接近|贴近|一样|相同|跟随|沿用|保持|按|照|match|same|follow/i;
+const imageOrdinal = /(?:图(?:片)?\s*([1-9]\d*|[一二三四五六七八九十]+)|第\s*([1-9]\d*|[一二三四五六七八九十]+)\s*张|\bimage\s*#?\s*([1-9]\d*))/gi;
+const literalAspect = /(?:^|[^\d])([1-9]\d{0,3})\s*[:：]\s*([1-9]\d{0,3})(?!\d)/;
+const priorReference = /(?:之前|上次|上一[轮张版]|刚才|历史|刚生成|生成的第)|\b(?:previous|earlier)\b/i;
+const referenceNegation = /(?:不(?:要|用|必|能|会|再|需要|允许)|别|无需|避免|do not|don't|without)[^，,。]{0,8}(?:参考|跟随|照|按|接近|贴近|match|follow)/i;
+const explicitAspect = /画幅|画面(?:宽高)?比|宽高比|aspect ratio|canvas size/i;
+const nonCanvasDirection = /(?:方形|正方形|横向|竖向)(?:的)?(?:桌子|物体|产品|商品|盒子|人物|构图元素)/;
+const namedImageMention = /@[^@\[\]\r\n]+\[([^\]\r\n]+)\]/g;
+const taskWideEvidence = /(?:每|各)(?:一)?张|(?:所有|全部|全都|统一)|(?:两|几|多|[2-9二三四五六七八九十])张都|\b(?:all|every|both)\b/i;
+const aspectDirections = [
+    [/(?:横[版幅图向]|宽屏|landscape)/i, (width, height) => width > height],
+    [/(?:竖[版幅图向]|直[式版幅]|portrait)/i, (width, height) => width < height],
+    [/(?:正方形|方[版幅图]|square)/i, (width, height) => width === height]
+];
+
+// These protocol controls are read by the corresponding ImageGenerate request builders.
+const requestProtocolFields = {
+    openai: ['output_format', 'output_compression', 'input_fidelity', 'style', 'response_format', 'complexity'],
+    ttapi: ['image_search', 'thinking_level'],
+    'ttapi-openai': ['output_format', 'output_compression']
+};
+const proposalFields = new Set(['aspectRatio', 'resolution', 'customWidth', 'customHeight', 'count',
+    'quality', 'moderation', 'background', 'search', 'protocolParams']);
+
+export function imageParameterCapabilities(model, provider) {
+    if (!model) return null;
+    const protocol = getEffectiveProtocol(model, provider);
+    const parameters = { count: { type: 'integer', minimum: 1, maximum: 20 } };
+    for (const [key, values] of Object.entries(getImageParameterValues(protocol, model.modelId))) {
+        if (values.length) parameters[key] = { type: 'string', enum: [...values] };
+    }
+    if (['google', 'ttapi'].includes(protocol) && supportsImageWebSearch(protocol, model.modelId)) {
+        parameters.search = { type: 'boolean' };
+    }
+
+    const protocolParameters = getImageGenerateExtraProtocol(getProtocol(protocol), model.modelId)?.parameters || {};
+    const properties = Object.fromEntries(Object.values(protocolParameters).flatMap(parameter => {
+        if (!(requestProtocolFields[protocol] || []).includes(parameter.id)) return [];
+        const type = { select: 'string', number: 'number', toggle: 'boolean' }[parameter.uiControl];
+        if (!type) return [];
+        const schema = { type };
+        if (parameter.uiControl === 'select') schema.enum = (parameter.options || []).map(option => String(option.value ?? ''));
+        if (Number.isFinite(parameter.min)) schema.minimum = parameter.min;
+        if (Number.isFinite(parameter.max)) schema.maximum = parameter.max;
+        if (protocol === 'openai' && parameter.id === 'output_compression') schema.requiresOutputFormat = ['jpeg', 'webp'];
+        return [[parameter.id, schema]];
+    }));
+    if (Object.keys(properties).length) parameters.protocolParams = { type: 'object', properties };
+    const inputs = resolveImageGenerationInputContract({ models: [{ ...model, protocol }] }, { apiConfigId: model.id });
+    const maxReferences = inputs.supportsReferences ? inputs.maxReferences : 0;
+    return { parameters, ...(!inputs.error && Number.isFinite(maxReferences) ? { maxReferences } : {}) };
+}
+
+function ordinalValue(text) {
+    const digit = value => '一二三四五六七八九'.indexOf(value) + 1;
+    if (/^\d+$/.test(text)) return Number(text);
+    if (text === '十') return 10;
+    const [tens, units] = text.split('十');
+    return units === undefined ? digit(tens) : (tens ? digit(tens) : 1) * 10 + (units ? digit(units) : 0);
+}
+
+function scopeImageIntent(reply, raw, normalize) {
+    const steps = reply.canvasPlan?.steps.filter(step => step.type === 'ImageGenerate');
+    if (!steps || steps.length === 1) return normalize(raw, true) ?? (steps ? normalize(raw?.steps?.[steps[0].id]) : undefined);
+    const scoped = Object.fromEntries(steps.flatMap(step => {
+        const intent = normalize(raw?.steps?.[step.id]);
+        return intent ? [[step.id, intent]] : [];
+    }));
+    const shared = typeof raw?.evidence === 'string' && taskWideEvidence.test(raw.evidence) ? normalize(raw) : undefined;
+    if (Object.keys(scoped).length) {
+        return { steps: Object.fromEntries(steps.flatMap(step => {
+            const intent = scoped[step.id] || shared;
+            return intent ? [[step.id, intent]] : [];
+        })) };
+    }
+    return steps.length ? shared : undefined;
+}
+
+function normalizeSizeIntent(raw, reply, input, message) {
+    if (!reply.promptPlan && !reply.canvasPlan) return undefined;
+    const normalize = (request, allowFallback = false) => {
+        const evidence = typeof request?.evidence === 'string' ? request.evidence.trim() : '';
+        const quoted = evidence && message.includes(evidence);
+        if (quoted && typeof request.aspectRatio === 'string' && !subjectAspect.test(evidence)) {
+            const ratio = evidence.match(literalAspect);
+            if (ratio) return { aspectRatio: `${ratio[1]}:${ratio[2]}`, evidence };
+            const suggested = request.aspectRatio.match(/^([1-9]\d{0,3}):([1-9]\d{0,3})$/);
+            const directionNegated = /(?:不要|别|无需|避免|不做|do not|don't|avoid)/i.test(evidence);
+            if (suggested && !directionNegated && !nonCanvasDirection.test(evidence)
+                && aspectDirections.some(([pattern, accepts]) => pattern.test(evidence) && accepts(Number(suggested[1]), Number(suggested[2])))) {
+                return { aspectRatio: suggested[0], approximate: true, evidence };
+            }
+        }
+        const referenceClause = clause => outputAspect.test(clause) && (explicitAspect.test(clause) || !subjectAspect.test(clause))
+            && referenceMatch.test(clause) && !referenceNegation.test(clause) && !literalAspect.test(clause);
+        const clauses = message.split(/[，。；！？,;!?\n]/).map(clause => clause.trim());
+        const direct = clauses.filter(clause => referenceClause(clause) && (/图|第\s*[1-9一二三四五六七八九十]+\s*张|\bimage\b/i.test(clause)));
+        const clause = quoted && referenceClause(evidence) && typeof request.referenceImageId === 'string' ? evidence
+            : allowFallback && direct.length === 1 ? direct[0] : null;
+        if (!clause) return undefined;
+
+        const ordinals = new Set([...clause.matchAll(imageOrdinal)].map(match => ordinalValue(match[1] || match[2] || match[3])));
+        const tokens = new Set(clause.match(/@图片\d+(?![\d\[])/g));
+        const nodeIds = new Set([...clause.matchAll(namedImageMention)].map(match => match[1]));
+        const mentions = input.images.filter(image => nodeIds.has(image.sourceNodeId) || image.mentionTokens?.some(token => tokens.has(token)));
+        const current = input.images.filter(image => image.referenceNumbers?.length);
+        const named = input.images.filter(image => image.name?.length > 1 && clause.includes(image.name));
+        const modelImage = quoted && input.images.find(image => image.imageId === request?.referenceImageId);
+        let image;
+        if (mentions.length) image = mentions.length === 1 ? mentions[0] : null;
+        else if (ordinals.size && current.length && !priorReference.test(clause)) {
+            const [ordinal] = ordinals;
+            if (ordinals.size === 1) image = current.find(candidate => candidate.referenceNumbers.includes(ordinal));
+        } else if (named.length) image = named.length === 1 ? named[0] : null;
+        else if (modelImage && (priorReference.test(clause) || modelImage.referenceNumbers?.length || current.length === 0)) image = modelImage;
+        else if (!ordinals.size && current.length === 1 && /(?:这|该|原)(?:张|幅)?图/.test(clause)) image = current[0];
+
+        if (!image?.width || !image.height) return { referenceUnavailable: true, evidence: clause,
+            ...(image?.name ? { referenceLabel: image.name } : {}) };
+        return { referenceSize: { width: image.width, height: image.height }, referenceLabel: image.name, evidence: clause };
+    };
+    return scopeImageIntent(reply, raw, normalize);
+}
+
+function explicitImageParameters(text) {
+    // Image captions and quoted text are content rather than control values.
+    const clauses = text.replace(/“[^”]*”|「[^」]*」|『[^』]*』|‘[^’]*’|"[^"]*"/g, '').split(/[，。；！？,;!?\n]/);
+    const parameters = {};
+    const protocolParams = {};
+    for (const clause of clauses) {
+        const search = clause.match(/(不(?:要|用|需要|开启|使用|联网)|别|禁止|无需|关闭|禁用|取消|开启|启用|使用|允许|打开|disable|enable|without|with)\s*(?:生图|图片生成)?\s*(?:联网(?:搜索|检索)?|web search)/i);
+        if (search) parameters.search = !/^(?:不|别|禁止|无需|关闭|禁用|取消|disable|without)/i.test(search[1]);
+        else if (/(?:用|通过|先)(?:生图)?联网(?:搜索|检索).{0,20}(?:生成|制作|画)|(?:生图|生成时|出图时)(?:请)?联网(?:搜索|检索)?/.test(clause)) parameters.search = true;
+
+        const format = clause.match(/(?:输出格式|图片格式|文件格式|图像格式|output.format)\s*(?:设为|设置为|改为|改成|用|是|为|[:：=])?\s*\.?\b(png|webp|jpe?g)\b/i)
+            || clause.match(/(?:输出|保存|导出)(?:为|成)?\s*\.?\b(png|webp|jpe?g)\b/i);
+        if (format) protocolParams.output_format = format[1].toLowerCase().replace(/^jpg$/, 'jpeg');
+        const compression = clause.match(/(?:输出压缩(?:率)?|压缩率|output.compression)\s*(?:设为|设置为|改为|改成|用|为|[:：=])?\s*(\d{1,3})(?:\s*[%％])?(?!\d)/i);
+        if (compression) protocolParams.output_compression = Number(compression[1]);
+        const fidelity = clause.match(/(?:参考图保真度|input.fidelity)\s*(?:设为|设置为|改为|用|为|[:：=])?\s*(high|low|高|低)/i);
+        if (fidelity) protocolParams.input_fidelity = ({ 高: 'high', 低: 'low' })[fidelity[1]] || fidelity[1].toLowerCase();
+        const complexity = clause.match(/(?:构图规划(?:档位)?|complexity)\s*(?:设为|设置为|改为|用|为|[:：=])?\s*(high|medium|low|高|中|低)/i);
+        if (complexity) protocolParams.complexity = ({ 高: 'high', 中: 'medium', 低: 'low' })[complexity[1]] || complexity[1].toLowerCase();
+        const response = clause.match(/(?:返回格式|response.format)\s*(?:设为|设置为|改为|用|为|[:：=])?\s*\b(url|b64_json|base64)\b/i);
+        if (response) protocolParams.response_format = response[1].toLowerCase().replace(/^base64$/, 'b64_json');
+        const style = clause.match(/(?:API\s*风格|(?:^|\s)style)\s*(?:设为|设置为|改为|用|为|[:：=])?\s*\b(vivid|natural)\b/i);
+        if (style) protocolParams.style = style[1].toLowerCase();
+    }
+    if (Object.keys(protocolParams).length) parameters.protocolParams = protocolParams;
+    return Object.keys(parameters).length ? parameters : undefined;
+}
+
+function normalizeImageParameterIntent(raw, reply, message) {
+    if (!reply.promptPlan && !reply.canvasPlan) return undefined;
+    return scopeImageIntent(reply, raw, (request, allowFallback) => {
+        const evidence = typeof request?.evidence === 'string' ? request.evidence.trim() : '';
+        return allowFallback ? explicitImageParameters(message)
+            : evidence && message.includes(evidence) ? explicitImageParameters(evidence) : undefined;
+    });
+}
 
 export function getAvailablePromptAgentModels(models = [], providers = []) {
     return getModelsForTask(models, 'chat').filter((model) => {
@@ -45,7 +210,7 @@ function withOrderedImageGuide(prompt, images) {
     return prompt.startsWith(heading) ? prompt : `${heading}\n${prompt}`;
 }
 
-function normalizeReply(payload, context, images = [], userMessage = '', previousReferences = []) {
+function normalizeReply(payload, context, images = [], userMessage = '', previousReferences = [], parameterCapabilities = null) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('模型返回了无效的 Prompt Plan');
     // Accept older flat plans, while giving conversation-only replies an
     // explicit representation rather than forcing invented image requests.
@@ -71,10 +236,20 @@ function normalizeReply(payload, context, images = [], userMessage = '', previou
         throw new Error('模型没有返回可用的 Prompt');
     }
     if (plan.negativePrompt != null && typeof plan.negativePrompt !== 'string') throw new Error('负面提示词必须是文本');
-    const parameters = normalizePromptAgentParameters(plan.parameters ?? {}, {
-        aspectRatio: { type: 'string' }, resolution: { type: 'string' }, customWidth: { type: 'integer', minimum: 1 }, customHeight: { type: 'integer', minimum: 1 },
-        ...(context?.parameterSchema || {})
-    });
+    let parameters;
+    if (parameterCapabilities && plan.parameters && typeof plan.parameters === 'object' && !Array.isArray(plan.parameters)) {
+        parameters = Object.fromEntries(Object.entries(plan.parameters).flatMap(([key, value]) => {
+            const canonical = key === 'aspect' ? 'aspectRatio' : key === 'generationCount' ? 'count' : key;
+            if (!proposalFields.has(canonical)) return [];
+            const numeric = ['count', 'customWidth', 'customHeight'].includes(canonical);
+            return [[canonical, numeric && typeof value === 'string' && /^\d+$/.test(value.trim()) ? Number(value) : value]];
+        }));
+    } else {
+        parameters = normalizePromptAgentParameters(plan.parameters ?? {}, {
+            aspectRatio: { type: 'string' }, resolution: { type: 'string' }, customWidth: { type: 'integer', minimum: 1 }, customHeight: { type: 'integer', minimum: 1 },
+            ...(context?.parameterSchema || {})
+        });
+    }
     const imageRoles = plan.imageRoles ?? [];
     if (!Array.isArray(imageRoles)) throw new Error('图片角色必须是数组');
     let selectedImages = imageRoles.map((item) => {
@@ -139,7 +314,8 @@ function normalizeReply(payload, context, images = [], userMessage = '', previou
 }
 
 export async function createPromptAgentModelReply({
-    message = '', choiceAnswer = null, confirmedNewTask = false, context = null, conversation = null, workflowMemory = '', sizeSettings = {}, imageSizeCapabilities = null, referenceImages = [], workflowReferenceImages = [],
+    message = '', choiceAnswer = null, confirmedNewTask = false, context = null, conversation = null, workflowMemory = '', sizeSettings = {},
+    imageSizeCapabilities = null, imageParameterCapabilities = null, referenceImages = [], workflowReferenceImages = [],
     autoCompactTokenLimit,
     model, models = [], providers = [], providerId = '', recordRequest, workflowId, fetchRef = fetch, headers = {}, getHeaders = null, signal,
     searchSettings = { mode: 'auto', modelId: '' }, searchRef = searchPromptAgent, onSearchStatus = () => {}, canvasContext = null,
@@ -224,7 +400,8 @@ export async function createPromptAgentModelReply({
                     : await hydrateNode(canvasContext.nodes.find(item => item.id === context.nodeId), 'image', '', false, implicitSelection(context.nodeId)) };
         }
     }
-    const base = { message, choiceAnswer, confirmedNewTask, context, conversation, workflowMemory, sizeSettings, imageSizeCapabilities, referenceImages, workflowReferenceImages, model, canvasContext, autoCompactTokenLimit };
+    const base = { message, choiceAnswer, confirmedNewTask, context, conversation, workflowMemory, sizeSettings, imageSizeCapabilities,
+        imageParameterCapabilities, referenceImages, workflowReferenceImages, model, canvasContext, autoCompactTokenLimit };
     const previousTurn = [...(conversation?.archivedMessages || []), ...(conversation?.messages || [])].findLast(item => item.canvasPlan || item.promptPlan);
     const previousPrompt = previousTurn?.promptPlan || conversation?.previousPromptPlan;
     const differentPromptTarget = context?.nodeId && previousPrompt?.targetNodeId && previousPrompt.targetNodeId !== context.nodeId;
@@ -353,7 +530,7 @@ export async function createPromptAgentModelReply({
                 message: String(payload.message || '已整理画布操作方案，请检查变更清单。'), promptPlan: null,
                 canvasPlan: normalizeCanvasPlan(payload.canvasPlan, canvasContext, { message, mentionedIds: canvasContext.summary.mentionedIds, images: input.images,
                     referencePolicy: { intent: payload.intent, selection: payload.targetSelection, previousAssetKeys } })
-            } : normalizeReply(payload, context, input.images, message, previousReferences);
+            } : normalizeReply(payload, context, input.images, message, previousReferences, imageParameterCapabilities);
             if (reply.canvasPlan && previousCanvas && payload.targetSelection?.mode === 'prompt-only') {
                 const evidence = payload.targetSelection.evidence;
                 if (typeof evidence !== 'string' || !evidence.trim() || !message.includes(evidence.trim())) throw new Error('仅改提示词需要当前用户的明确指令。');
@@ -380,6 +557,12 @@ export async function createPromptAgentModelReply({
         const inputTokens = model.protocol === 'google' ? response.payload?.usageMetadata?.promptTokenCount : response.payload?.usage?.prompt_tokens;
         if (Number.isSafeInteger(inputTokens) && inputTokens > 0) reply.tokenObservation = { inputTokens, measurement: measurePromptAgentContext(request) };
         if (payload.taskUpdate && reply.intent !== 'clarify') reply.taskUpdate = payload.taskUpdate;
+        if (reply.intent !== 'clarify') {
+            const sizeIntent = normalizeSizeIntent(payload.sizeIntent, reply, input, message);
+            if (sizeIntent) reply.sizeIntent = sizeIntent;
+            const parameterIntent = normalizeImageParameterIntent(payload.parameterIntent, reply, message);
+            if (parameterIntent) reply.requestedImageParameters = parameterIntent;
+        }
         if (reply.intent === 'edit' || (reply.intent === 'refine' && payload.targetSelection?.mode === 'explicit')) {
             const targets = reply.promptPlan?.referenceImages.filter(image => image.role === 'edit-target') || [];
             const targetId = targets.length === 1 ? targets[0].imageId : canvasEditTargetId;

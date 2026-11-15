@@ -1,6 +1,8 @@
 import { bindTaskToReply, confirmTaskParameters, CreativeTaskConfirmationRequired, isCreativeTaskConfirmation } from './prompt-agent-task.js';
 import { normalizePromptAgentChoices } from './prompt-agent-choices.js';
-import { sizeCapabilities, replaceAgentSizeFields, resolveAgentSize, parseSizeAnswer } from './prompt-agent-size.js';
+import { sizeCapabilities, replaceAgentSizeFields, resolveDraftImageSize, parseSizeAnswer } from './prompt-agent-size.js';
+import { imageParameterCapabilities } from './prompt-agent-model.js';
+import { mergeAgentSizeAnswer, resolveAgentParameterPatch } from './prompt-agent-parameters.js';
 import { getEffectiveProtocol, getModelProviders } from '../execution/provider-request-utils.js';
 import { getOpenAIChatCapabilities } from '../execution/openai-chat-capabilities.js';
 import { createAgentSizeSettings } from './prompt-agent-size-ui.js';
@@ -387,6 +389,10 @@ export function createPromptAgentController({
         const model = getSelectedImageModel();
         return model ? sizeCapabilities(getEffectiveProtocol(model, selectedProvider(model, 'image')), model.modelId) : null;
     }
+    function selectedImageParameterCapabilities() {
+        const model = getSelectedImageModel();
+        return imageParameterCapabilities(model, model && selectedProvider(model, 'image'));
+    }
     function compressionProgress(message = '', fixedModel = null, operation = null) {
         const models = getChatModels();
         const model = fixedModel || models.find(item => item.id === (getElements().modelSelect?.value || getSelectedModelId())) || models[0];
@@ -397,6 +403,7 @@ export function createPromptAgentController({
         const measurement = measurePromptAgentContext({ model, message, conversation, confirmedNewTask: operation?.confirmedNewTask, choiceAnswer: operation?.choiceAnswer,
             autoCompactTokenLimit: operation ? operation.autoCompactTokenLimit : getAutoCompactTokenLimit(),
             sizeSettings: store.getSize(store.getImageModelId()), imageSizeCapabilities: operation ? operation.imageSizeCapabilities : imageSizeCapabilities(),
+            imageParameterCapabilities: operation ? operation.imageParameterCapabilities : selectedImageParameterCapabilities(),
             canvasContext: operation ? operation.canvasContext : canvasAdapter?.context(canvasMentions?.read().map(item => item.id) || []) || null,
             searchAllowed: store.getSearchSettings().mode !== 'off',
             context: operation ? operation.selectedContext || (!operation.confirmedNewTask ? operation.nodeContexts?.get(previous?.targetNodeId) : null)
@@ -1635,9 +1642,13 @@ export function createPromptAgentController({
         const resolvePlanSize = (model) => {
             const context = nodeAdapter?.getContext?.(plan.targetNodeId);
             const sameModel = !context?.model || context.model.modelId === model.modelId && context.model.protocol === model.protocol;
-            return resolveAgentSize({ protocol: getEffectiveProtocol(model, selectedProvider(model, 'image')), modelId: model.modelId,
-                current: sameModel ? context?.parameters : {}, defaults: conversationStore.getSize(model.id), parameters: plan.parameters });
+            return resolveDraftImageSize({ protocol: getEffectiveProtocol(model, selectedProvider(model, 'image')), modelId: model.modelId,
+                current: sameModel ? context?.parameters : {}, defaults: conversationStore.getSize(model.id), parameters: plan.parameters,
+                sizeIntent: plan.sizeIntent, answer: plan.sizeAnswer, sources: plan.parameterSources });
         };
+        const resolvePlanParameters = model => resolveAgentParameterPatch(plan.parameters, plan.parameterSources,
+            imageParameterCapabilities(model, selectedProvider(model, 'image')).parameters, plan.parameterAnswers,
+            nodeAdapter?.getContext?.(plan.targetNodeId)?.parameters);
         // Target creation is an explicit action, never a side effect of rendering
         // or canvas selection. Persist the binding before a potentially failed run.
         const preparePlan = () => {
@@ -1645,14 +1656,14 @@ export function createPromptAgentController({
             const model = getSelectedImageModel();
             if (!model) throw new Error('请先选择一个可用的生图模型。');
             const size = resolvePlanSize(model);
-            const sizedPlan = { ...plan, parameters: replaceAgentSizeFields(plan.parameters, size.patch) };
+            const sizedPlan = { ...plan, parameters: replaceAgentSizeFields(resolvePlanParameters(model), size.patch) };
             const creatingTarget = !plan.targetNodeId;
             const prepared = nodeAdapter?.ensureTarget ? nodeAdapter.ensureTarget(sizedPlan, { modelId: model.id, providerId: conversationStore.getProvider('image', model.id) }) : sizedPlan;
             if (!prepared?.targetNodeId) throw new Error('无法创建生图节点，请检查生图模型配置。');
             if (!conversationStore.bindPromptPlanTarget(message.promptAgentMessageIndex, prepared.targetNodeId)) {
                 throw new Error('方案已变化，请重新整理方案。');
             }
-            Object.assign(plan, prepared);
+            plan.targetNodeId = prepared.targetNodeId;
             conversationRevision += 1;
             onStateChange();
             if (creatingTarget) {
@@ -1676,8 +1687,8 @@ export function createPromptAgentController({
             answerSize(answer) {
                 if (!this.isCurrent() || this.running || !this.sizeIssue) return false;
                 const patch = typeof answer === 'string' ? parseSizeAnswer(answer) : answer; if (!patch) return false;
-                if (patch.resolution && patch.resolution !== 'custom') { delete plan.parameters?.customWidth; delete plan.parameters?.customHeight; }
-                plan.parameters = { ...plan.parameters, ...patch };
+                plan.sizeAnswer = mergeAgentSizeAnswer(plan.sizeAnswer, patch);
+                if (!plan.sizeIntent) plan.parameters = { ...plan.parameters, ...plan.sizeAnswer };
                 conversationStore.setCreativeTask(confirmTaskParameters(conversationStore.getCreativeTask(), plan, patch));
                 conversationStore.updatePromptPlan(message.promptAgentMessageIndex, plan);
                 this.appliedSelection = ''; planElement.textContent = formatPlan(plan); planElement.appendChild(sizeStatus); this.sync(); onStateChange(); return true;
@@ -1702,13 +1713,26 @@ export function createPromptAgentController({
                 this.sizeIssue = null; clearElement(sizeStatus);
                 if (model) try {
                     const size = resolvePlanSize(model);
+                    resolvePlanParameters(model);
                     sizeStatus.textContent = size.summary;
                 } catch (error) {
                     sizeError = error; this.sizeIssue = error.sizeClarification ? error : null;
                     const text = documentRef.createElement('p'); text.textContent = error.message; sizeStatus.appendChild(text);
                     for (const choice of error.sizeClarification?.choices || []) {
                         const button = documentRef.createElement('button'); button.type = 'button'; button.className = 'btn btn-secondary'; button.textContent = choice.label; button.disabled = this.running;
-                        button.addEventListener('click', () => this.answerSize({ resolution: choice.value })); sizeStatus.appendChild(button);
+                        const field = error.sizeClarification.kind === 'aspect' ? 'aspectRatio' : 'resolution';
+                        button.addEventListener('click', () => this.answerSize({ [field]: choice.value })); sizeStatus.appendChild(button);
+                    }
+                    for (const choice of error.parameterClarification?.choices || []) {
+                        const button = documentRef.createElement('button'); button.type = 'button'; button.textContent = choice.label; button.disabled = this.running;
+                        button.addEventListener('click', () => {
+                            if (!this.isCurrent() || this.running) return;
+                            plan.parameterAnswers = { ...plan.parameterAnswers, [error.parameterClarification.field]: choice.value };
+                            conversationStore.setCreativeTask(confirmTaskParameters(conversationStore.getCreativeTask(), plan,
+                                { [error.parameterClarification.field]: choice.value }));
+                            conversationStore.updatePromptPlan(message.promptAgentMessageIndex, plan); this.sync(); onStateChange();
+                        });
+                        sizeStatus.appendChild(button);
                     }
                 }
                 const applied = Boolean(model && this.appliedSelection === selectionKey());
@@ -2207,6 +2231,7 @@ export function createPromptAgentController({
         operation.searchSettings = conversationStore.getSearchSettings();
         operation.sizeSettings = conversationStore.getSize(conversationStore.getImageModelId());
         operation.imageSizeCapabilities = imageSizeCapabilities();
+        operation.imageParameterCapabilities = selectedImageParameterCapabilities();
         operation.canvasContext = canvasContext;
         operation.selectedContext = selectedContext;
         operation.autoCompactTokenLimit = getAutoCompactTokenLimit();
@@ -2245,7 +2270,8 @@ export function createPromptAgentController({
         const fitContext = ({ conversation, message, referenceImages, workflowReferenceImages, confirmedNewTask, choiceAnswer }) =>
             fitPromptAgentContext({ model: operation.model, message, confirmedNewTask, choiceAnswer, context: resolveContext(conversation),
                 autoCompactTokenLimit: operation.autoCompactTokenLimit, conversation, canvasContext, sizeSettings: operation.sizeSettings,
-                imageSizeCapabilities: operation.imageSizeCapabilities, searchAllowed: operation.searchSettings.mode !== 'off',
+                imageSizeCapabilities: operation.imageSizeCapabilities, imageParameterCapabilities: operation.imageParameterCapabilities,
+                searchAllowed: operation.searchSettings.mode !== 'off',
                 referenceImages, workflowReferenceImages }, resolveContext, operation.observation);
         let completedSearch = null;
         try {
@@ -2352,6 +2378,7 @@ export function createPromptAgentController({
                 autoCompactTokenLimit: operation.autoCompactTokenLimit,
                 sizeSettings: sizeDefaults,
                 imageSizeCapabilities: operation.imageSizeCapabilities,
+                imageParameterCapabilities: operation.imageParameterCapabilities,
                 conversation,
                 referenceImages,
                 workflowReferenceImages,
@@ -2379,7 +2406,9 @@ export function createPromptAgentController({
                 reply.canvasPlan = promptPlanToCanvas({ ...reply.promptPlan, targetNodeId: explicitlyNamed ? reply.promptPlan.targetNodeId : null }, canvasContext, { message: requestText });
                 reply.promptPlan = null;
             }
-            const nextTask = bindTaskToReply(reply, operation.creativeTask, requestText, { confirmedNewTask });
+            const nextTask = bindTaskToReply(reply, operation.creativeTask, requestText, {
+                confirmedNewTask, canSetImageParameters: Boolean(operation.imageParameterCapabilities)
+            });
             operation.processingElement?.remove();
             setOperationStatus(operation, '');
             mutateOperationConversation(operation, store => { store.setCreativeTask(nextTask); return true; });
