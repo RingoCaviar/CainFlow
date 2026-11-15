@@ -50,10 +50,6 @@
     display: block;
     width: 100%;
     height: 100%;
-    padding: 0;
-    border: 0;
-    background: none;
-    cursor: zoom-in;
 }
 
 .product-retouch-card-preview img {
@@ -406,36 +402,156 @@ html:root #canvas-container .node.node-product-retouch.node-media-aspect { borde
 .product-retouch-dialog-panel {
     display: grid;
     grid-template-rows: auto minmax(0, 1fr) auto;
-    width: min(720px, calc(100% - 24px));
-    height: min(760px, calc(100dvh - 24px));
-    padding: 0;
+    width: min(1120px, calc(100% - 32px));
+    height: min(860px, calc(100dvh - 32px));
+    overflow: hidden;
     border: 1px solid var(--border-color);
-    border-radius: 12px;
+    border-radius: var(--radius-node, 12px);
     background: var(--surface-panel-strong);
     color: var(--text-primary);
 }
 
-.product-retouch-compare-dialog :is(header, footer) {
+.product-retouch-dialog-panel header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+}
+
+.product-retouch-dialog-panel h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 650;
+}
+
+.product-retouch-compare-dialog .product-retouch-dialog-close {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    place-items: center;
+    grid-column: 3;
+    justify-self: end;
+    border-color: transparent;
+    background: transparent;
+}
+
+.product-retouch-dialog-switch {
     display: flex;
-    flex-wrap: wrap;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--border-input);
+    border-radius: var(--radius-sm, 6px);
+    background: var(--surface-control);
+}
+
+.product-retouch-compare-dialog .product-retouch-dialog-switch button {
+    min-width: 62px;
+    border-color: transparent;
+    background: transparent;
+    white-space: nowrap;
+}
+
+.product-retouch-compare-dialog .product-retouch-dialog-switch button[aria-pressed="true"] {
+    border-color: var(--border-input);
+    background: var(--surface-panel-strong);
+    color: var(--text-link, var(--text-primary));
+}
+
+.product-retouch-dialog-stage {
+    display: grid;
+    min-width: 0;
+    min-height: 0;
+    padding: clamp(8px, 2vw, 20px);
+    place-items: center;
+    container-type: size;
+    border-block: 1px solid var(--border-color);
+    background: var(--bg-canvas);
+}
+
+.product-retouch-dialog-frame {
+    position: relative;
+    width: min(100%, calc(100cqh * var(--retouch-preview-aspect, 1)));
+    aspect-ratio: var(--retouch-preview-aspect, 1);
+    background: var(--surface-control);
+}
+
+.product-retouch-dialog-frame img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    user-select: none;
+}
+
+.product-retouch-dialog-frame[data-comparison="split"] [data-retouch-dialog-original] {
+    clip-path: inset(0 calc(100% - var(--retouch-original-share)) 0 0);
+}
+
+.product-retouch-dialog-frame[data-comparison="split"] [data-retouch-dialog-image] {
+    clip-path: inset(0 0 0 var(--retouch-original-share));
+}
+
+.product-retouch-dialog-frame .product-retouch-compare-divider {
+    --retouch-visible-original-share: var(--retouch-original-share);
+}
+
+.product-retouch-dialog-frame .product-retouch-compare-divider > span {
+    width: 40px;
+    height: 40px;
+}
+
+.product-retouch-dialog-frame[data-comparison="switch"] :is(.product-retouch-compare-labels, .product-retouch-compare-divider) { display: none; }
+
+.product-retouch-dialog-frame input {
+    appearance: none;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: ew-resize;
+    direction: rtl;
+    touch-action: none;
+}
+
+.product-retouch-dialog-frame input::-webkit-slider-thumb { appearance: none; width: 2px; height: 2px; }
+.product-retouch-dialog-frame input::-moz-range-thumb { width: 2px; height: 2px; border: 0; }
+.product-retouch-dialog-frame:has(input:focus-visible) .product-retouch-compare-divider > span { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.product-retouch-dialog-stage p { margin: 0; color: var(--text-secondary); text-align: center; }
+
+.product-retouch-dialog-panel footer {
+    display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding: 10px 14px;
+    padding: 10px 16px;
 }
 
-.product-retouch-compare-dialog h2 { margin: 0; font-size: 16px; }
-.product-retouch-dialog-stage {
-    display: grid;
-    min-height: 0;
-    place-items: center;
-    padding: 8px;
-    border-block: 1px solid var(--border-color);
-    background: var(--surface-control);
-    overflow: hidden;
+.product-retouch-dialog-detail {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 12px;
+    min-width: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
 }
 
-.product-retouch-dialog-stage img { width: 100%; height: 100%; min-height: 0; object-fit: contain; }
-.product-retouch-dialog-stage p { margin: 0; color: var(--text-secondary); }
-.product-retouch-dialog-switch { display: flex; gap: 6px; }
+.product-retouch-dialog-detail span:last-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.product-retouch-compare-dialog [data-retouch-open-image] { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.product-retouch-compare-dialog [hidden] { display: none; }
 .product-retouch-compare-dialog button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+
+@media (max-width: 600px) {
+    .product-retouch-dialog-panel { width: calc(100% - 16px); height: calc(100dvh - 16px); }
+    .product-retouch-dialog-panel header { grid-template-columns: minmax(0, 1fr) auto; padding: 8px 12px; }
+    .product-retouch-compare-dialog .product-retouch-dialog-close { grid-column: 2; }
+    .product-retouch-dialog-switch { grid-column: 1 / -1; grid-row: 2; justify-self: stretch; }
+    .product-retouch-dialog-switch button { flex: 1 1 0; min-width: 0; }
+    .product-retouch-dialog-panel footer { padding: 8px 12px; }
+}

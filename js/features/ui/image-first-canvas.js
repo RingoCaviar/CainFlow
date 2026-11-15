@@ -90,6 +90,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     let positionFrame = null, gesture = null, expanded = false, expandedRect = null, returnFocusElement = null;
     let ordinaryAnchor = null;
     let preserveOrdinaryAnchor = false;
+    let deferredRetouchDock = null;
     const expandButton = panel.querySelector('[data-parameter-action="expand"]');
     const closeButton = panel.querySelector('[data-parameter-action="close"]');
     const dragHandle = panel.querySelector('.image-parameter-drag-handle');
@@ -110,6 +111,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     function retouchResizeBoundsChanged(previous, current) {
         return previous.layoutWidth !== current.layoutWidth || previous.min !== current.min || previous.max !== current.max;
     }
+    function retouchDockWidth({ min, max }) {
+        const defaultWidth = clamp(windowRef.innerWidth * .34, retouchDockMinWidth, 380);
+        return Math.round(clamp(retouchPreferredWidth ?? defaultWidth, min, max));
+    }
     function positionRetouchDock() {
         const bounds = retouchDockWidthBounds();
         if (gesture?.retouch && retouchResizeBoundsChanged(gesture.retouchBounds, bounds)) {
@@ -117,8 +122,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             return;
         }
         const { min, max } = bounds;
-        const defaultWidth = clamp(windowRef.innerWidth * .34, retouchDockMinWidth, 380);
-        const width = Math.round(clamp(retouchPreferredWidth ?? defaultWidth, min, max));
+        const width = retouchDockWidth(bounds);
         const property = '--product-retouch-dock-width';
         const value = `${width}px`;
         if (documentRef.body.style.getPropertyValue(property) !== value) documentRef.body.style.setProperty(property, value);
@@ -347,6 +351,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         current = null;
     }
     function close({ remember = true } = {}) {
+        cancelDeferredRetouchDock();
         if (remember) closed = current;
         finishGesture(true); expanded = false; expandedRect = null;
         park();
@@ -357,6 +362,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     function remove(node) {
         const view = views.get(node);
         if (!view) return;
+        if (deferredRetouchDock?.node === node) cancelDeferredRetouchDock();
         if (current === node) close({ remember: false });
         view.observer.disconnect();
         view.resizeObserver?.disconnect();
@@ -536,6 +542,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     }
     function open(node, group) {
         if (!views.has(node) || state.nodes.get(node.id) !== node) return;
+        cancelDeferredRetouchDock();
         sweep();
         if (current !== node) { finishGesture(true); setReturnFocus(node); park(); }
         panelManager?.beforeOpen?.('parameters');
@@ -564,9 +571,31 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         position();
         surfaces?.bringToFront?.(panel);
     }
-    function select(node, group) {
+    function selectOnly(node) {
         if (!state.selectedNodes.has(node.id) || state.selectedNodes.size !== 1) selectionApi.setSelection([node.id]);
+    }
+    function select(node, group) {
+        selectOnly(node);
         open(node, group);
+    }
+    function cancelDeferredRetouchDock() {
+        if (!deferredRetouchDock) return;
+        windowRef.clearTimeout(deferredRetouchDock.timer);
+        deferredRetouchDock = null;
+    }
+    function openDeferredRetouchDock(node) {
+        if (deferredRetouchDock?.node !== node) return;
+        cancelDeferredRetouchDock();
+        if (state.dragging || state.marquee || state.nodes.get(node.id) !== node || !node.el.isConnected
+            || state.selectedNodes.size !== 1 || !state.selectedNodes.has(node.id) || surfaces?.topModal?.()) return;
+        open(node);
+    }
+    function deferRetouchDock(node) {
+        cancelDeferredRetouchDock();
+        // Let the next pointer click hit the same image before the new dock covers it.
+        const timer = windowRef.setTimeout(() => openDeferredRetouchDock(node), 650);
+        deferredRetouchDock = { node, timer };
+        selectOnly(node);
     }
     let selectionFrame = null;
     let selectionAllowsOpen = true;
@@ -584,6 +613,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         });
     }
     documentRef.addEventListener('cainflow:node-drag-ended', () => {
+        cancelDeferredRetouchDock();
         if (selectionFrame !== null) windowRef.cancelAnimationFrame(selectionFrame);
         selectionFrame = null;
         refreshSelection({ allowOpen: false });
@@ -592,6 +622,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         sweep();
         const ids = Array.from(state.selectedNodes);
         const node = ids.length === 1 ? state.nodes.get(ids[0]) : null;
+        if (deferredRetouchDock) {
+            if (allowOpen && deferredRetouchDock.node === node) return;
+            cancelDeferredRetouchDock();
+        }
         if (!node || !views.has(node)) { close({ remember: false }); closed = null; return; }
         if (!allowOpen) {
             if (current !== node) close({ remember: false });
@@ -674,9 +708,22 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         node.el.addEventListener('mousedown', event => {
             resizePress = !!event.target.closest('.node-resize-handle');
         }, true);
+        const retouchPreview = node.type === 'ProductRetouch' ? node.el.querySelector('.product-retouch-card-preview') : null;
+        const isRetouchPreviewPointer = event => retouchPreview?.contains(event.target) && event.detail > 0 && event.button === 0
+            && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey;
+        if (retouchPreview) node.el.addEventListener('dblclick', event => {
+            if (isRetouchPreviewPointer(event)) openDeferredRetouchDock(node);
+        }, true);
         node.el.addEventListener('click', event => {
             if (event.target.closest('.node-resize-handle') || (resizePress && event.detail > 0)) return;
             if (event.target.closest('.color-reset-preview.is-picking,.image-compare-divider')) return;
+            if (isRetouchPreviewPointer(event)) {
+                if (deferredRetouchDock?.node === node && event.detail > 1) return;
+                if (event.detail === 1 && (current !== node || panel.hidden)) {
+                    const boundary = dock.getBoundingClientRect().right - retouchDockWidth(retouchDockWidthBounds());
+                    if (event.clientX >= boundary) { deferRetouchDock(node); return; }
+                }
+            }
             if (!event.target.closest('button,input,textarea,select,video,.node-port,.node-select')) select(node);
         });
         if (!Array.isArray(node.el._cleanupFns)) node.el._cleanupFns = [];
@@ -1103,9 +1150,11 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (gesture?.id === event.pointerId) finishGesture();
     });
     windowRef.addEventListener('pointercancel', event => { if (gesture?.id === event.pointerId) finishGesture(true); });
-    windowRef.addEventListener('blur', () => finishGesture(true));
+    windowRef.addEventListener('blur', () => { cancelDeferredRetouchDock(); finishGesture(true); });
     windowRef.addEventListener('keydown', event => {
-        if (!gesture?.retouch || event.key !== 'Escape' || event.isComposing) return;
+        if (event.key !== 'Escape' || event.isComposing) return;
+        cancelDeferredRetouchDock();
+        if (!gesture?.retouch) return;
         if (panel.closest('[inert]')) { finishGesture(true); return; }
         event.preventDefault(); event.stopImmediatePropagation();
         finishGesture(true);

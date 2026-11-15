@@ -92,6 +92,7 @@ test('product retouch stores the sent original beside its result and exposes onl
     assert.equal(references.length, 1);
     assert.deepEqual([...new Uint8Array(await references[0].arrayBuffer())], [0, 0, 0]);
     const prompt = body.get('prompt');
+    assert.match(prompt, /^对所附商品原图进行商业摄影精修/);
     for (const text of ['纯黑', '高反差', '去除', '抛光', '保留杯身刻度', '比例', '标识', '包装文字', '构图']) {
         assert.ok(prompt.includes(text), `expected prompt to include ${text}`);
     }
@@ -127,17 +128,49 @@ test('product retouch can compare identical output and original with one content
     assert.deepEqual(node.data.productRetouchComparison, { originalAssetKey: 'media:asset-1', resultAssetKey: 'media:asset-1' });
 });
 
-test('product retouch sends Gemini the inline original with its background and shadow instructions', async () => {
+test('Gemini retouch sends the inline original first and limits changes to the requested retouch settings', async () => {
     const { node, execute, requests } = createRetouchFixture({ protocol: 'google', modelId: 'gemini-2.5-flash-image' });
     node.data.productRetouch = { ...node.data.productRetouch, background: 'original', lighting: 'balanced', shadow: 'natural' };
     assert.equal((await execute()).image, finished);
     assert.equal(requests.length, 1);
     const [{ body }] = requests;
-    const [prompt, reference] = JSON.parse(body).contents[0].parts;
+    const request = JSON.parse(body);
+    const [reference, prompt] = request.contents[0].parts;
+    assert.deepEqual(reference.inlineData, { mimeType: 'image/png', data: 'AAAA' });
+    assert.match(prompt.text, /原图为唯一依据/);
+    assert.match(prompt.text, /刻度.*包装文字/);
+    assert.match(prompt.text, /位置.*字形.*内容/);
     assert.match(prompt.text, /保留原图的背景内容和颜色/);
     assert.match(prompt.text, /曝光和白平衡/);
     assert.match(prompt.text, /自然的接触阴影/);
-    assert.deepEqual(reference.inlineData, { mimeType: 'image/png', data: 'AAAA' });
+    assert.match(prompt.text, /抛光.*材质/);
+    assert.match(prompt.text, /补充要求.*保留杯身刻度/);
+    assert.deepEqual(request.generationConfig, { responseModalities: ['TEXT', 'IMAGE'] });
+    assert.equal(request.tools, undefined);
+});
+
+test('Gemini retouch explains how to separate a dark product from a black background without recoloring it', async () => {
+    const { execute, requests } = createRetouchFixture({ protocol: 'google', modelId: 'gemini-3.1-flash-image' });
+    await execute();
+    const { contents, generationConfig } = JSON.parse(requests[0].body);
+    const prompt = contents[0].parts[1].text;
+    assert.match(prompt, /#000000/);
+    assert.match(prompt, /轮廓.*保持商品原色/);
+    assert.match(prompt, /高反差/);
+    assert.match(prompt, /去除.*接触阴影.*保留商品自身/);
+    assert.equal(generationConfig.imageConfig, undefined);
+    assert.equal(generationConfig.thinkingConfig, undefined);
+});
+
+test('a recognized Gemini model behind an OpenAI relay uses the Gemini retouch brief with multipart transport', async () => {
+    for (const modelId of ['gemini-3.1-flash-image', 'google/gemini-3.1-flash-image', 'gemini-nano-banana-2.1']) {
+        const { execute, requests } = createRetouchFixture({ modelId });
+        await execute();
+        const { body } = requests[0];
+        assert.ok(body.get('image') instanceof Blob);
+        assert.equal(body.get('model'), modelId);
+        assert.match(body.get('prompt'), /原图为唯一依据/);
+    }
 });
 
 test('product retouch sends TTAPI OpenAI the original at its image edits endpoint', async () => {

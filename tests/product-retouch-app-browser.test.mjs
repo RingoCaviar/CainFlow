@@ -14,8 +14,12 @@ const dockWidthHandle = `${panel} [data-parameter-resize=width]`;
 const closeDock = `${panel} [data-parameter-action=close]`;
 const compareStage = '#retouch .product-retouch-compare-stage';
 const compareSlider = '#retouch [data-retouch-compare-slider]';
+const cardPreview = `${compareStage} .product-retouch-card-preview`;
 const compareDialog = '.product-retouch-compare-dialog[role="dialog"]';
+const dialogFrame = `${compareDialog} [data-retouch-dialog-frame]`;
+const dialogSlider = `${compareDialog} [data-retouch-dialog-slider]`;
 const dialogImage = `${compareDialog} img[data-retouch-dialog-image]`;
+const dialogOriginal = `${compareDialog} img[data-retouch-dialog-original]`;
 const red = [255, 0, 0];
 const blue = [0, 0, 255];
 
@@ -70,25 +74,154 @@ async function openComparison(app) {
     await app.waitFor(`document.querySelector('${inspect}')?.textContent.trim() === '查看对照'
         && document.querySelector('${inspect}').getAttribute('aria-disabled') === 'false'`);
     await nativeClick(app, inspect);
-    await app.waitFor(`document.querySelector('${dialogImage}')?.checkVisibility()
-        && getComputedStyle(document.querySelector('${compareDialog}')).opacity === '1'`);
-    assert.match(await app.evaluate(`document.querySelector('${compareDialog}').textContent`), /原图与精修对照/);
+    await waitForComparison(app);
 }
 
-async function closeComparison(app) {
+async function waitForComparison(app) {
+    await app.waitFor(`document.querySelector('${dialogFrame}')?.checkVisibility()
+        && getComputedStyle(document.querySelector('${compareDialog}')).opacity === '1'`);
+}
+
+async function closeComparison(app, trigger = inspect) {
     await key(app, 'Escape');
-    await app.waitFor(`!document.querySelector('${compareDialog}') && document.activeElement.matches('${inspect}')`);
+    await app.waitFor(`!document.querySelector('${compareDialog}') && document.activeElement.matches('${trigger}')`);
 }
 
 async function comparisonImageColors(app, view) {
+    const image = view === 'original' ? dialogOriginal : dialogImage;
     await nativeClick(app, `${compareDialog} [data-retouch-view=${view}]`);
-    await app.waitFor(`document.querySelector('${dialogImage}')?.complete && document.querySelector('${dialogImage}')?.naturalWidth`);
-    return sampleRenderedImageColors(app, dialogImage);
+    await app.waitFor(`(() => {
+        const image = document.querySelector('${image}');
+        return image?.checkVisibility() && image.complete && image.naturalWidth;
+    })()`);
+    return sampleRenderedImageColors(app, image);
+}
+
+async function dragComparisonDivider(app, slider) {
+    const { x, y, endX } = await app.evaluate(`(() => {
+        const { x, y, width, height } = document.querySelector('${slider}').getBoundingClientRect();
+        return { x: x + width / 2, y: y + height / 2, endX: x + width * 0.72 };
+    })()`);
+    await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: endX, y, button: 'left', buttons: 1 });
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: endX, y, button: 'left', clickCount: 1 });
+    assert.ok(Number(await app.evaluate(`document.querySelector('${slider}').value`)) < 40, 'the divider follows the pointer to the right');
+}
+
+function pointOnCardPreview(app) {
+    return app.evaluate(`(() => {
+        const { x, y, width, height } = document.querySelector('${cardPreview}').getBoundingClientRect();
+        return { x: x + width * 0.4, y: y + height * 0.25 };
+    })()`);
+}
+
+async function clickCardPreview(app, count = 1, point = null) {
+    point ??= await pointOnCardPreview(app);
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+    await app.waitFor(`document.querySelector('${cardPreview}').contains(document.elementFromPoint(${point.x}, ${point.y}))`);
+    await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', buttons: 1, clickCount: count });
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: count });
+}
+
+async function openCardPreview(app) {
+    await clickCardPreview(app);
+    await clickCardPreview(app, 2);
+    await waitForComparison(app);
+}
+
+async function verifyCardPreviewInteraction(app) {
+    await nativeClick(app, closeDock);
+    await app.waitFor(`document.querySelector('${panel}').hidden`);
+    await clickCardPreview(app);
+    await app.waitFor(`document.querySelector('#retouch.selected') && document.querySelector('${panel}:not([hidden])[data-node-id=retouch]')`);
+    assert.equal(await app.evaluate(`Boolean(document.querySelector('${compareDialog}, .fullscreen-overlay'))`), false,
+        'a single click selects the retouch node without opening a preview');
+
+    await openCardPreview(app);
+    assert.equal(await app.evaluate(`document.querySelector('${compareDialog} h2').textContent.trim()`), '产品精修预览');
+    await app.waitFor(`document.querySelector('${dialogFrame}').dataset.comparison === 'split'`);
+    assert.equal(await app.evaluate(`document.querySelector('${dialogSlider}').value`), '50');
+    assert.deepEqual(await sampleRenderedImageColors(app, dialogFrame), [red, blue]);
+    await dragComparisonDivider(app, dialogSlider);
+    await app.evaluate(`document.querySelector('${dialogSlider}').focus()`);
+    await key(app, 'Home');
+    assert.deepEqual(await sampleRenderedImageColors(app, dialogFrame), [red, red]);
+    await key(app, 'End');
+    assert.deepEqual(await sampleRenderedImageColors(app, dialogFrame), [blue, blue]);
+    await resizeViewport(app, 500, 560);
+    await app.waitFor(`document.querySelector('${dialogFrame}').dataset.comparison === 'switch' &&
+        document.activeElement.matches('${compareDialog} [data-retouch-view=result]')`);
+    await resizeViewport(app, 1100, 820);
+    await app.waitFor(`document.querySelector('${dialogFrame}').dataset.comparison === 'split'`);
+    assert.equal(await app.evaluate(`document.querySelector('${dialogSlider}').value`), '100');
+    await closeComparison(app, cardPreview);
+    await key(app, 'Enter');
+    await waitForComparison(app);
+    await closeComparison(app, cardPreview);
+    await app.evaluate(`document.querySelector('${cardPreview}').click()`);
+    await waitForComparison(app);
+    await closeComparison(app, cardPreview);
 }
 
 const widthOfDock = `Math.round(document.querySelector('${panel}').getBoundingClientRect().width)`;
 const comparisonMode = `document.querySelector('${compareStage}').dataset.comparison`;
 const resizeViewport = (app, width, height) => app.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+
+function retouchPosition(app) {
+    return app.evaluate(`(() => {
+        const { left, top } = document.getElementById('retouch').getBoundingClientRect();
+        return { left, top };
+    })()`);
+}
+
+async function moveRetouchNode(app, position) {
+    const original = await retouchPosition(app);
+    const from = await app.evaluate(`(() => {
+        const title = document.querySelector('#retouch .node-title');
+        const { x, y, width, height } = title.getBoundingClientRect();
+        return { x: x + width / 2, y: y + height / 2 };
+    })()`);
+    const to = { x: from.x + position.left - original.left, y: from.y + position.top - original.top };
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...from });
+    await app.waitFor(`document.elementFromPoint(${from.x}, ${from.y})?.closest('#retouch .node-title')`);
+    await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...from, button: 'left', buttons: 1, clickCount: 1 });
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...to, button: 'left', buttons: 1 });
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...to, button: 'left', clickCount: 1 });
+    await app.waitFor(`(() => {
+        const { left, top } = document.getElementById('retouch').getBoundingClientRect();
+        return Math.abs(left - ${position.left}) <= 1 && Math.abs(top - ${position.top}) <= 1;
+    })()`);
+}
+
+async function verifyDoubleClickNearDock(app) {
+    const original = await retouchPosition(app);
+    const dockEdge = await app.evaluate(`document.querySelector('${panel}').getBoundingClientRect().left`);
+    await nativeClick(app, closeDock);
+    await moveRetouchNode(app, { left: 750, top: 455 });
+
+    const point = await pointOnCardPreview(app);
+    assert.ok(point.x > dockEdge, 'opening the dock would cover the click position');
+    await clickCardPreview(app, 1, point);
+    await app.waitFor(`document.querySelector('${panel}:not([hidden])[data-node-id=retouch]')?.getBoundingClientRect().left < ${point.x}`);
+    assert.equal(await app.evaluate(`Boolean(document.querySelector('${compareDialog}'))`), false,
+        'one click alone eventually opens only the dock');
+    await nativeClick(app, closeDock);
+
+    await clickCardPreview(app, 1, point);
+    assert.deepEqual(await app.evaluate(`({
+        selected: document.getElementById('retouch').classList.contains('selected'),
+        dockClosed: document.querySelector('${panel}').hidden,
+        previewClosed: !document.querySelector('${compareDialog}')
+    })`), { selected: true, dockClosed: true, previewClosed: true });
+    await clickCardPreview(app, 2, point);
+    await waitForComparison(app);
+    await app.waitFor(`document.querySelector('${panel}:not([hidden])[data-node-id=retouch]')?.getBoundingClientRect().left < ${point.x}`);
+    await closeComparison(app, inspect);
+
+    await nativeClick(app, closeDock);
+    await moveRetouchNode(app, original);
+    await openParameters(app, 'retouch');
+}
 
 async function assertDockLayout(app) {
     const layout = await app.evaluate(`(() => {
@@ -152,6 +285,7 @@ async function exerciseDockWidth(app) {
     assert.equal(await app.evaluate(`document.querySelector('${compareSlider}').checkVisibility()`), false);
     await assertDockLayout(app);
     await openComparison(app);
+    assert.equal(await app.evaluate(`document.querySelector('${dialogSlider}').value`), sliderValue);
     await closeComparison(app);
 
     await nativeClick(app, closeDock);
@@ -330,15 +464,12 @@ test('product retouch sends the chosen finish and keeps the actual original pair
         await app.waitFor(`document.querySelector('${compareStage}').dataset.comparison === 'split'
             && Array.from(document.querySelectorAll('${compareStage} img')).filter(image => image.complete && image.naturalWidth).length === 2`);
         assert.equal(await app.evaluate(`document.querySelector('${compareSlider}').value`), '50');
+        assert.equal(await app.evaluate(`document.querySelector('${compareStage} .product-retouch-compare-labels span:last-child').textContent.trim()`), '精修');
         assert.deepEqual(await sampleRenderedImageColors(app, compareStage), [red, blue]);
-        const sliderGeometry = await app.evaluate(`(() => {
-            const { x, y, width, height } = document.querySelector('${compareSlider}').getBoundingClientRect();
-            return { x: x + width / 2, y: y + height / 2, endX: x + width * 0.72 };
-        })()`);
-        await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: sliderGeometry.x, y: sliderGeometry.y, button: 'left', buttons: 1, clickCount: 1 });
-        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: sliderGeometry.endX, y: sliderGeometry.y, button: 'left', buttons: 1 });
-        await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: sliderGeometry.endX, y: sliderGeometry.y, button: 'left', clickCount: 1 });
-        assert.ok(Number(await app.evaluate(`document.querySelector('${compareSlider}').value`)) < 40, 'the divider follows the pointer to the right');
+        await verifyCardPreviewInteraction(app);
+        await verifyDoubleClickNearDock(app);
+        await app.waitFor(`${comparisonMode} === 'split'`);
+        await dragComparisonDivider(app, compareSlider);
         await app.evaluate(`document.querySelector('${compareSlider}').focus()`);
         await key(app, 'Home');
         assert.equal(await app.evaluate(`document.querySelector('${compareSlider}').value`), '0');
@@ -385,11 +516,14 @@ test('product retouch sends the chosen finish and keeps the actual original pair
         assert.equal(resultKeys('retouch')?.length, 1, 'the original is a comparison asset outside the node output');
         assert.deepEqual(resultKeys('result'), resultKeys('retouch'), 'the downstream preview receives only the processed result');
 
-        await resizeViewport(app, 620, 560);
+        await resizeViewport(app, 500, 560);
         await openComparison(app);
+        await app.waitFor(`document.querySelector('${dialogFrame}').dataset.comparison === 'switch'
+            && !document.querySelector('${dialogSlider}').checkVisibility()`);
         assert.deepEqual(await comparisonImageColors(app, 'original'), [red, red]);
         assert.deepEqual(await comparisonImageColors(app, 'result'), [blue, blue]);
         await closeComparison(app);
+        await resizeViewport(app, 620, 560);
         await nativeClick(app, `${panel} [data-parameter-action=close]`);
         const originalToggle = '#retouch [data-retouch-card-view=original]';
         const resultToggle = '#retouch [data-retouch-card-view=result]';
@@ -404,8 +538,8 @@ test('product retouch sends the chosen finish and keeps the actual original pair
         const blockedOriginal = [`*/api/storage/assets/${encodeURIComponent(originalAssetKey)}*`];
         await app.send('Network.setCacheDisabled', { cacheDisabled: true });
         await openParameters(app, 'retouch');
-        await openComparison(app);
         await app.send('Network.setBlockedURLs', { urls: blockedOriginal });
+        await openComparison(app);
         const originalTab = `${compareDialog} [data-retouch-view=original]`;
         const dialogError = `document.querySelector('${compareDialog} [role=status]')`;
         const openBigImage = `document.querySelector('${compareDialog} [data-retouch-open-image]')`;
@@ -422,6 +556,10 @@ test('product retouch sends the chosen finish and keeps the actual original pair
         await app.waitFor(`document.querySelector('${comparisonHint}').checkVisibility()`);
         assert.equal(await app.evaluate(`document.querySelector('${inspect}').textContent.trim()`), '查看精修结果');
         assert.deepEqual(await sampleRenderedImageColors(app, compareStage), [blue, blue]);
+        await openCardPreview(app);
+        await app.waitFor(`document.querySelector('${dialogFrame}').dataset.comparison === 'switch'`);
+        assert.deepEqual(await sampleRenderedImageColors(app, dialogImage), [blue, blue]);
+        await closeComparison(app, cardPreview);
         await app.send('Network.setBlockedURLs', { urls: [] });
         await nativeClick(app, `${panel} [data-retouch-retry-original]`);
         await app.waitFor(`document.querySelector('${compareStage}').dataset.comparison === 'split'`);
@@ -454,6 +592,10 @@ test('product retouch sends the chosen finish and keeps the actual original pair
             return [original.naturalWidth / original.naturalHeight, result.naturalWidth / result.naturalHeight,
                 getComputedStyle(original).objectFit, getComputedStyle(result).clipPath];
         })()`), [4 / 3, 2, 'contain', 'inset(0px 0px 0px 100%)']);
+        await openComparison(app);
+        await app.waitFor(`document.querySelector('${dialogFrame}').dataset.comparison === 'switch'
+            && !document.querySelector('${dialogSlider}').checkVisibility()`);
+        await closeComparison(app);
 
         await openParameters(app, 'retouch-clone');
         assert.equal(await app.evaluate(`${background('black')}.checked && ${background('black')}.disabled`), true);

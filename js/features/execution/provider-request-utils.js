@@ -531,7 +531,7 @@ export function countGoogleImageParts(contents) {
     }, 0);
 }
 
-export function buildGoogleImageRequest({ modelId, prompt, inputs = {}, aspect, resolution, searchEnabled }) {
+export function buildGoogleImageRequest({ modelId, prompt, inputs = {}, aspect, resolution, searchEnabled, referenceFirst = false }) {
     const capability = getGoogleImageCapabilities(modelId);
     const inlineImages = getInputInlineParts(inputs);
     const customParams = getCustomRequestParams(inputs);
@@ -548,7 +548,9 @@ export function buildGoogleImageRequest({ modelId, prompt, inputs = {}, aspect, 
             throw new Error(`${modelId} 最多支持 ${capability.maxReferences} 张参考图，当前有 ${totalReferences} 张。`);
         }
     }
-    const parts = [{ text: prompt }, ...inlineImages];
+    const textPart = { text: prompt };
+    const parts = referenceFirst && inlineImages.length === 1
+        ? [...inlineImages, textPart] : [textPart, ...inlineImages];
     if (capability?.imageSizes) {
         const { generationConfig, generation_config: configAlias, tools, ...rest } = customParams;
         for (const tool of Array.isArray(tools) ? tools : []) {

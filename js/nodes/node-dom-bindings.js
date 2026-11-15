@@ -2542,7 +2542,7 @@ export function createNodeDomBindingsApi({
             if (target.closest('.node-delete, .node-bypass-btn')) return;
 
             const interactiveSelector = 'input, textarea, select, button, label, .toggle-switch, .toggle-slider, .node-select, .port, .node-resize-handle, [contenteditable="true"], .chat-response-area, .preview-controls, .workflow-action-btn';
-            const mediaSurfaceSelector = '.preview-container, .save-preview-container, .file-drop-zone, .image-import-url-preview, .image-compare-container';
+            const mediaSurfaceSelector = '.preview-container, .save-preview-container, .file-drop-zone, .image-import-url-preview, .image-compare-container, .product-retouch-compare-stage';
             const isInteractive = target.closest(interactiveSelector);
             const imageResultSurface = state.nodes.get(id)?.parameterRoot ? target.closest('.image-node-result-preview') : null;
             const mediaSurface = target.closest(mediaSurfaceSelector) || imageResultSurface;

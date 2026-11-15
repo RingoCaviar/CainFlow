@@ -2,14 +2,16 @@ import { getSurfaceCoordinator } from '../features/ui/surface-coordinator.js';
 import { createBackdropDismissalGuard } from '../features/settings/backdrop-dismissal.js';
 
 const handleIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 8-4 4 4 4m6-8 4 4-4 4"/></svg>';
+const expandIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 5h5v5m0-5-6 6M10 19H5v-5m0 5 6-6"/></svg>';
+const closeIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>';
 let dialogSequence = 0;
 
 export function renderProductRetouchComparison() {
     return `<div class="product-retouch-compare-stage" hidden>
-        <button type="button" class="product-retouch-card-preview" aria-label="查看大图" data-node-read-action><img data-retouch-result alt="精修结果" draggable="false"></button>
+        <div class="product-retouch-card-preview" tabindex="0" role="button" aria-label="查看产品精修预览" title="双击查看预览"><img data-retouch-result alt="精修结果" draggable="false"></div>
         <p class="product-retouch-preview-unavailable" data-retouch-result-unavailable hidden>暂时无法预览精修结果</p>
         <img class="product-retouch-compare-original" data-retouch-original alt="本次精修使用的原图" decoding="async" draggable="false">
-        <div class="product-retouch-compare-labels" aria-hidden="true"><span>原图</span><span>上次精修</span></div>
+        <div class="product-retouch-compare-labels" aria-hidden="true"><span>原图</span><span>精修</span></div>
         <div class="product-retouch-compare-divider" aria-hidden="true"><span>${handleIcon}</span></div>
         <input type="range" min="0" max="100" value="50" aria-label="调整原图与精修的对照分界" data-retouch-compare-slider data-node-read-action>
     </div>
@@ -33,7 +35,20 @@ function overlapsRect(a, b) {
     return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 }
 
-function openComparisonDialog({ documentRef, originalUrl, resultUrl, trigger, openResultPreview }) {
+const imageReady = image => image.complete && image.naturalWidth > 0;
+
+function matchingImageFrames(original, result) {
+    return imageReady(original) && imageReady(result)
+        && Math.abs(original.naturalWidth / original.naturalHeight / (result.naturalWidth / result.naturalHeight) - 1) <= 0.01;
+}
+
+function updateSplit(slider, frame) {
+    const resultPercent = Number(slider.value);
+    frame.style.setProperty('--retouch-original-share', `${100 - resultPercent}%`);
+    slider.setAttribute('aria-valuetext', `原图 ${100 - resultPercent}%，精修 ${resultPercent}%`);
+}
+
+function openComparisonDialog({ documentRef, originalUrl, resultUrl, startView, splitValue, restoreFocus, openResultPreview }) {
     const dialog = documentRef.createElement('div');
     const headingId = `product-retouch-comparison-${++dialogSequence}`;
     dialog.className = 'modal-overlay product-retouch-compare-dialog';
@@ -41,66 +56,113 @@ function openComparisonDialog({ documentRef, originalUrl, resultUrl, trigger, op
     dialog.setAttribute('aria-modal', 'true');
     dialog.setAttribute('aria-labelledby', headingId);
     dialog.innerHTML = `<div class="product-retouch-dialog-panel">
-        <header><h2 id="${headingId}">原图与精修对照</h2><button type="button" data-action="close">关闭</button></header>
-        <div class="product-retouch-dialog-stage"><img data-retouch-dialog-image><p role="status" hidden></p></div>
-        <footer><div class="product-retouch-dialog-switch" role="group" aria-label="切换对照图片">
-            <button type="button" data-retouch-view="original">原图</button>
-            <button type="button" data-retouch-view="result">精修</button>
+        <header>
+            <h2 id="${headingId}">产品精修预览</h2>
+            <div class="product-retouch-dialog-switch" role="group" aria-label="预览方式"${originalUrl ? '' : ' hidden'}>
+                <button type="button" data-retouch-view="original">原图</button>
+                <button type="button" data-retouch-view="split">对照</button>
+                <button type="button" data-retouch-view="result">精修</button>
+            </div>
+            <button type="button" class="product-retouch-dialog-close" data-action="close" aria-label="关闭预览" title="关闭预览">${closeIcon}</button>
+        </header>
+        <div class="product-retouch-dialog-stage">
+            <div class="product-retouch-dialog-frame" data-retouch-dialog-frame hidden>
+                <img data-retouch-dialog-image alt="精修结果" draggable="false">
+                <img data-retouch-dialog-original alt="本次精修使用的原图" draggable="false">
+                <div class="product-retouch-compare-labels" aria-hidden="true"><span>原图</span><span>精修</span></div>
+                <div class="product-retouch-compare-divider" aria-hidden="true"><span>${handleIcon}</span></div>
+                <input type="range" min="0" max="100" aria-label="调整预览对照分界" data-retouch-dialog-slider>
+            </div>
+            <p role="status" hidden></p>
         </div>
-        <button type="button" data-retouch-open-image>查看大图</button></footer>
+        <footer>
+            <div class="product-retouch-dialog-detail"><span data-retouch-dialog-hint></span><span data-retouch-dialog-size></span></div>
+            <button type="button" data-retouch-open-image>${expandIcon}<span>查看大图</span></button>
+        </footer>
     </div>`;
-    const image = dialog.querySelector('img');
+    const workspace = dialog.querySelector('.product-retouch-dialog-stage');
+    const frame = dialog.querySelector('[data-retouch-dialog-frame]');
+    const result = frame.querySelector('[data-retouch-dialog-image]');
+    const original = frame.querySelector('[data-retouch-dialog-original]');
+    const slider = frame.querySelector('[data-retouch-dialog-slider]');
     const status = dialog.querySelector('[role="status"]');
+    const detail = dialog.querySelector('[data-retouch-dialog-hint]');
+    const size = dialog.querySelector('[data-retouch-dialog-size]');
     const choices = [...dialog.querySelectorAll('[data-retouch-view]')];
+    const splitButton = dialog.querySelector('[data-retouch-view="split"]');
     const openImage = dialog.querySelector('[data-retouch-open-image]');
     const closeButton = dialog.querySelector('[data-action="close"]');
     const backdrop = createBackdropDismissalGuard({ overlay: dialog, panel: dialog.firstElementChild });
     const surfaces = getSurfaceCoordinator(documentRef);
-    let current = '';
-    let currentView = 'result';
-    let openFullscreen = false;
-    const focusTrigger = () => {
-        if (trigger.isConnected && trigger.checkVisibility() && !trigger.closest('[inert]')) trigger.focus({ preventScroll: true });
-    };
-    function updateImageState() {
-        const ready = image.complete && image.naturalWidth > 0;
-        image.hidden = !ready;
+    const windowRef = documentRef.defaultView;
+    let preferredView = originalUrl ? startView : 'result';
+    let currentImage = result;
+
+    function update() {
+        const focus = documentRef.activeElement;
+        const canSplit = Boolean(originalUrl && matchingImageFrames(original, result));
+        const css = windowRef.getComputedStyle(workspace);
+        const width = workspace.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight);
+        const height = workspace.clientHeight - parseFloat(css.paddingTop) - parseFloat(css.paddingBottom);
+        const aspect = result.naturalWidth / result.naturalHeight;
+        const fits = canSplit && width >= 500 && Math.min(width, height * aspect) >= 210
+            && Math.min(height, width / aspect) >= 120;
+        const view = preferredView === 'split' && !fits ? 'result' : preferredView;
+        const split = view === 'split';
+        currentImage = view === 'original' ? original : result;
+        const ready = imageReady(currentImage);
+        frame.hidden = !ready;
+        frame.dataset.comparison = split ? 'split' : 'switch';
+        if (ready) frame.style.setProperty('--retouch-preview-aspect', String(currentImage.naturalWidth / currentImage.naturalHeight));
+        original.hidden = !ready || !split && view !== 'original';
+        result.hidden = !ready || !split && view !== 'result';
+        slider.hidden = !split;
+        splitButton.disabled = !fits;
         status.hidden = ready;
         openImage.disabled = !ready;
-        if (!ready) {
-            status.textContent = !image.complete ? '正在读取图片…'
-                : currentView === 'original' ? '无法读取本次精修的原图' : '无法读取精修结果';
+        if (!ready) status.textContent = !currentImage.complete ? '正在读取图片…'
+            : view === 'original' ? '无法读取本次精修的原图' : '无法读取精修结果';
+        detail.textContent = split ? '拖动分界线查看差异' : view === 'original' ? '原图' : '精修';
+        size.textContent = ready ? `${currentImage.naturalWidth} × ${currentImage.naturalHeight} px` : '';
+        for (const button of choices) button.setAttribute('aria-pressed', String(button.dataset.retouchView === view));
+        if (!fits && (focus === slider || focus === splitButton)) {
+            dialog.querySelector('[data-retouch-view="result"]').focus({ preventScroll: true });
         }
     }
-    function show(view) {
-        currentView = view;
-        current = view === 'original' ? originalUrl : resultUrl;
-        image.alt = view === 'original' ? '本次精修使用的原图' : '精修结果';
-        setImageSource(image, current);
-        updateImageState();
-        for (const button of choices) button.setAttribute('aria-pressed', String(button.dataset.retouchView === view));
+    slider.value = splitValue;
+    updateSplit(slider, frame);
+    slider.addEventListener('input', () => updateSplit(slider, frame));
+    for (const image of [original, result]) {
+        image.addEventListener('load', update);
+        image.addEventListener('error', update);
     }
-    image.addEventListener('load', updateImageState);
-    image.addEventListener('error', updateImageState);
-    for (const button of choices) button.addEventListener('click', () => show(button.dataset.retouchView));
-    const close = () => {
+    for (const button of choices) button.addEventListener('click', () => {
+        preferredView = button.dataset.retouchView;
+        update();
+    });
+    const resizeObserver = new windowRef.ResizeObserver(update);
+    const close = (returnFocus = true) => {
         if (!dialog.isConnected) return;
+        resizeObserver.disconnect();
         releaseEscape?.();
         dialog.remove();
         surfaces?.refresh();
-        if (!openFullscreen) focusTrigger();
+        if (returnFocus) restoreFocus();
     };
-    const releaseEscape = surfaces?.registerEscape(dialog, close);
-    closeButton.addEventListener('click', close);
+    const releaseEscape = surfaces?.registerEscape(dialog, () => close());
+    closeButton.addEventListener('click', () => close());
     dialog.addEventListener('pointerdown', backdrop.recordPointerDown);
     dialog.addEventListener('click', event => { if (backdrop.shouldDismiss(event)) close(); });
     openImage.addEventListener('click', () => {
-        openFullscreen = true;
-        close();
-        openResultPreview([current], 0, focusTrigger);
+        const url = currentImage.src;
+        close(false);
+        openResultPreview([url], 0, restoreFocus);
     });
     documentRef.body.append(dialog);
-    show('result');
+    setImageSource(result, resultUrl);
+    setImageSource(original, originalUrl);
+    update();
+    resizeObserver.observe(workspace);
     closeButton.focus();
     surfaces?.refresh();
     return close;
@@ -189,11 +251,6 @@ export function createProductRetouchComparison({ card, inspect, hint, documentRe
         if (sidebars.some(sidebarOpen)) scheduleLayout();
     }, { signal: events.signal });
 
-    function updateSplit() {
-        const resultPercent = Number(slider.value);
-        stage.style.setProperty('--retouch-original-share', `${100 - resultPercent}%`);
-        slider.setAttribute('aria-valuetext', `原图 ${100 - resultPercent}%，精修 ${resultPercent}%`);
-    }
     function show(next) {
         view = next;
         stage.dataset.retouchView = view;
@@ -201,12 +258,11 @@ export function createProductRetouchComparison({ card, inspect, hint, documentRe
     }
     function sync() {
         const active = documentRef.activeElement;
-        const hasResult = Boolean(resultUrl && result.complete && result.naturalWidth && !resultFailed);
-        const ready = Boolean(hasResult && originalUrl && original.complete && original.naturalWidth && !originalFailed);
+        const hasResult = Boolean(resultUrl && imageReady(result) && !resultFailed);
+        const ready = Boolean(hasResult && originalUrl && imageReady(original) && !originalFailed);
         // A provider can return a different frame. Offer full-image switching
         // whenever the two frames cannot be meaningfully overlaid.
-        matchingFrame = ready && Math.abs(original.naturalWidth / original.naturalHeight
-            / (result.naturalWidth / result.naturalHeight) - 1) <= 0.01;
+        matchingFrame = ready && matchingImageFrames(original, result);
         stage.hidden = !resultUrl;
         preview.hidden = !hasResult;
         unavailable.hidden = !resultUrl || hasResult;
@@ -269,21 +325,31 @@ export function createProductRetouchComparison({ card, inspect, hint, documentRe
     windowRef.addEventListener('blur', endSliderGesture, { signal: events.signal });
     slider.addEventListener('lostpointercapture', endSliderGesture);
     slider.addEventListener('mousedown', event => event.stopPropagation());
-    slider.addEventListener('input', updateSplit);
+    slider.addEventListener('input', () => updateSplit(slider, stage));
     for (const button of buttons) button.addEventListener('click', () => show(button.dataset.retouchCardView));
-    preview.addEventListener('click', () => {
-        const showingOriginal = view === 'original' && stage.dataset.comparison === 'switch';
-        const url = showingOriginal ? original.src : result.src;
-        if (url) openResultPreview([url], 0, () => focusVisible(preview, inspect, retryResultButton));
-    });
-    inspect.addEventListener('click', () => {
+    function inspectResult(trigger) {
         if (inspect.getAttribute('aria-disabled') === 'true') return;
-        if (!originalUrl || originalFailed) {
-            openResultPreview([result.src], 0, () => focusVisible(inspect, retryResultButton));
-            return;
-        }
-        closeDialog = openComparisonDialog({ documentRef, originalUrl: original.src, resultUrl: result.src, trigger: inspect, openResultPreview });
+        const startView = trigger === preview && view === 'original' && stage.dataset.comparison === 'switch' ? 'original' : 'split';
+        closeDialog = openComparisonDialog({ documentRef, originalUrl: originalUrl ? original.src : '', resultUrl: result.src,
+            startView, splitValue: slider.value, restoreFocus: () => focusVisible(trigger, inspect, preview, retryResultButton), openResultPreview });
+    }
+    preview.addEventListener('dblclick', event => {
+        if (event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+        event.stopPropagation();
+        inspectResult(preview);
     });
+    preview.addEventListener('click', event => {
+        if (event.detail !== 0) return;
+        event.stopPropagation();
+        inspectResult(preview);
+    });
+    preview.addEventListener('keydown', event => {
+        if (event.repeat || !['Enter', ' '].includes(event.key)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        inspectResult(preview);
+    });
+    inspect.addEventListener('click', () => inspectResult(inspect));
     return {
         update(nextResult, nextOriginal, retouchCompleted) {
             if (nextResult !== resultUrl || nextOriginal !== originalUrl) {
@@ -294,7 +360,7 @@ export function createProductRetouchComparison({ card, inspect, hint, documentRe
                 if (originalChanged) originalFailed = false;
                 if (resultChanged) resultFailed = false;
                 slider.value = '50';
-                updateSplit();
+                updateSplit(slider, stage);
                 show('result');
                 if (resultChanged) setImageSource(result, resultUrl);
                 if (originalChanged) setImageSource(original, originalUrl);
@@ -310,7 +376,7 @@ export function createProductRetouchComparison({ card, inspect, hint, documentRe
             sync();
         },
         destroy() {
-            closeDialog?.();
+            closeDialog?.(false);
             events.abort();
             resizeObserver?.disconnect();
             intersectionObserver?.disconnect();

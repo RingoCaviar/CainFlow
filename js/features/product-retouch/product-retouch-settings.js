@@ -22,6 +22,27 @@ const finishInstructions = {
     polished: '做细致的商业级抛光修饰，让边缘、材质纹理和反光更干净，保留真实质感。'
 };
 
+const geminiRetouchInstructions = {
+    background: {
+        white: '把商品轮廓外的背景置为纯白色（#FFFFFF），保留细小边缘和透光材质。接触阴影以外的背景保持纯白。',
+        black: '把商品轮廓外的背景置为纯黑色（#000000）。深色商品用原有亮部和轻微轮廓光与黑底分开，保持商品原色。接触阴影以外的背景保持纯黑。',
+        original: '保留原图的背景内容和颜色，包括现有陈设和渐变。只清理背景上的污点。'
+    },
+    lighting: {
+        soft: '用柔和漫射光平顺明暗过渡，压低刺眼反光并保留表面高光和暗部细节。',
+        balanced: '校正商品曝光和白平衡，提亮暗部并恢复高光层次，让商品原色和材质清晰可辨。',
+        dramatic: '用有方向的高反差棚拍光突出商品体积，保留暗部纹理和高光层次。'
+    },
+    shadow: {
+        natural: '在原图的可见接触面保留轻微、自然的接触阴影，方向跟随布光，边缘自然衰减。',
+        none: '去除接触阴影和落在背景上的投影，保留商品自身的立体明暗。'
+    },
+    finish: {
+        natural: '清理浮尘、指纹和表面污迹，保留织纹、颗粒、缝线及其他真实纹理。',
+        polished: '清理浮尘、指纹和表面污迹，做细致的商业抛光修饰，整理已有反光、边缘和纹理。各部位的材质与光泽类型沿用原图。'
+    }
+};
+
 function pickSetting(choices, value, fallback) {
     return typeof value === 'string' && Object.hasOwn(choices, value) ? value : fallback;
 }
@@ -42,8 +63,21 @@ export function normalizeProductRetouchSettings(raw) {
     };
 }
 
-export function buildProductRetouchPrompt(settings) {
+export function buildProductRetouchPrompt(settings, { gemini = false } = {}) {
     const { background, lighting, shadow, finish, notes } = normalizeProductRetouchSettings(settings);
+    if (gemini) {
+        return [
+            '直接在所附商品照片上做摄影后期。以原图为唯一依据，保持商品数量、位置、拍摄角度、画幅、裁切和主体占比。',
+            '保持商品轮廓、零件比例、原色和材质。原有标识、刻度、接缝、印刷图案和包装文字逐处对应原图，保留位置、字形、内容和可读程度。看不清的细节维持原状。',
+            '按下面四项精修，其他画面元素沿用原图。',
+            `背景：${geminiRetouchInstructions.background[background]}`,
+            `布光：${geminiRetouchInstructions.lighting[lighting]}`,
+            `阴影：${geminiRetouchInstructions.shadow[shadow]}`,
+            `表面：${geminiRetouchInstructions.finish[finish]}`,
+            ...(notes ? [`补充要求（在上述设置和商品保真范围内执行）：${notes}`] : []),
+            '以原图核对轮廓、标识和纹理，只输出一张精修成片。'
+        ].join('\n');
+    }
     return [
         '对所附商品原图进行商业摄影精修，输出一张图片。沿用原图拍摄角度、构图、裁切和主体位置。',
         '忠实保留商品的外形、比例、结构、颜色、材质、标识和包装文字。清理灰尘、指纹、污点和临时划痕，保留真实细节。不要添加道具、装饰、文案、水印或原图不存在的零件。',

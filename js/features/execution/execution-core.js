@@ -29,6 +29,7 @@ import {
 } from './provider-request-utils.js';
 import { getImageAspectOptionsForProtocol, resolveImageRequestSize, usesOpenAiImageSize } from './image-generation-size.js';
 import { getOpenAiImageCapabilities } from './openai-image-capabilities.js';
+import { getGoogleImageCapabilities } from './google-image-capabilities.js';
 import { createChatRequestPlan, executeChatRequestPlan } from './chat-request-plan.js';
 import {
     appendReferenceImages,
@@ -2035,11 +2036,14 @@ export function createExecutionCoreApi({
             throw new Error('无法读取商品参考图，请重新连接原图。');
         }
 
-        const prompt = buildProductRetouchPrompt(settings);
+        const relayModelId = model.modelId.split('/').at(-1);
+        const gemini = model.protocol === 'google' || getGoogleImageCapabilities(relayModelId)?.maxReferences > 0;
+        const prompt = buildProductRetouchPrompt(settings, { gemini });
         const inputFidelity = getOpenAiImageCapabilities(model.modelId)?.inputFidelities.includes('high') ? 'high' : undefined;
         const { image } = await nodeHandlers.ImageGenerate(node, { referenceImages: [reference] }, signal, {
             preparedImageRequest: {
                 prompt,
+                referenceFirst: true,
                 settings: {
                     apiConfigId: model.id, providerId: settings.providerId, generationCount: 1,
                     protocolParams: { input_fidelity: inputFidelity }
@@ -2228,7 +2232,10 @@ export function createExecutionCoreApi({
                 const buildRequestBody = () => {
                     if (isTtapi) return buildTtapiImageRequest({ modelCfg, prompt, inputs, aspect, resolution, searchEnabled, protocolParams });
                     if (isTtapiOpenAi) return buildTtapiOpenAiImageRequest({ modelCfg, prompt, resolution, quality, moderation, background, inputs, protocolParams });
-                    if (isGoogle) return buildGoogleImageRequest({ modelId: modelCfg.modelId, prompt, inputs, aspect, resolution, searchEnabled });
+                    if (isGoogle) return buildGoogleImageRequest({
+                        modelId: modelCfg.modelId, prompt, inputs, aspect, resolution, searchEnabled,
+                        referenceFirst: prepared?.referenceFirst
+                    });
                     return buildOpenAiImageRequest({
                         modelCfg, prompt, resolution, quality, moderation, background, mask, inputs, protocolParams,
                         protocol, url, edit: isOpenAiImageEdit
