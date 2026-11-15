@@ -75,7 +75,10 @@ export function createProductRetouchView({
     const actions = documentRef.createElement('div');
     actions.className = 'product-retouch-footer';
     actions.innerHTML = `<p role="status"></p>
-        <p data-retouch-comparison-status hidden>该结果没有可用的对照原图 <button type="button" class="product-retouch-link" data-retouch-retry-original data-node-read-action hidden>重新读取</button></p>
+        <p data-retouch-comparison-status hidden><span></span>
+            <button type="button" class="product-retouch-link" data-retouch-retry-original data-node-read-action hidden>重新读取原图</button>
+            <button type="button" class="product-retouch-link" data-retouch-retry-result data-node-read-action hidden>重新读取结果</button>
+        </p>
         <button type="button" class="product-retouch-link" data-retouch-action="error" data-node-read-action hidden>查看错误详情</button>
         <div class="product-retouch-footer-actions">
             <button type="button" class="product-retouch-inspect" aria-haspopup="dialog" data-retouch-action="preview-result" data-retouch-inspect data-node-read-action hidden>查看精修结果</button>

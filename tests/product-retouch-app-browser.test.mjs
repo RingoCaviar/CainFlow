@@ -10,6 +10,8 @@ const runButton = `document.querySelector('${panel} [data-retouch-action=run]')`
 const field = selector => `document.querySelector('${panel} [data-retouch-field=${selector}]')`;
 const background = value => `document.querySelector('${panel} [data-retouch-field=background][value=${value}]')`;
 const inspect = `${panel} [data-retouch-inspect]`;
+const dockWidthHandle = `${panel} [data-parameter-resize=width]`;
+const closeDock = `${panel} [data-parameter-action=close]`;
 const compareStage = '#retouch .product-retouch-compare-stage';
 const compareSlider = '#retouch [data-retouch-compare-slider]';
 const compareDialog = '.product-retouch-compare-dialog[role="dialog"]';
@@ -65,7 +67,8 @@ function assertRenderedColor(pixels, color) {
 }
 
 async function openComparison(app) {
-    await app.waitFor(`document.querySelector('${inspect}')?.textContent.trim() === '查看对照'`);
+    await app.waitFor(`document.querySelector('${inspect}')?.textContent.trim() === '查看对照'
+        && document.querySelector('${inspect}').getAttribute('aria-disabled') === 'false'`);
     await nativeClick(app, inspect);
     await app.waitFor(`document.querySelector('${dialogImage}')?.checkVisibility()
         && getComputedStyle(document.querySelector('${compareDialog}')).opacity === '1'`);
@@ -81,6 +84,139 @@ async function comparisonImageColors(app, view) {
     await nativeClick(app, `${compareDialog} [data-retouch-view=${view}]`);
     await app.waitFor(`document.querySelector('${dialogImage}')?.complete && document.querySelector('${dialogImage}')?.naturalWidth`);
     return sampleRenderedImageColors(app, dialogImage);
+}
+
+const widthOfDock = `Math.round(document.querySelector('${panel}').getBoundingClientRect().width)`;
+const comparisonMode = `document.querySelector('${compareStage}').dataset.comparison`;
+const resizeViewport = (app, width, height) => app.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+
+async function assertDockLayout(app) {
+    const layout = await app.evaluate(`(() => {
+        const dock = document.querySelector('${panel}');
+        const { left, right } = dock.getBoundingClientRect();
+        const canvas = document.getElementById('canvas-container').getBoundingClientRect();
+        const scroll = dock.querySelector('.image-parameter-scroll');
+        const actions = [document.querySelector('${inspect}'), ${runButton}];
+        return { mode: dock.dataset.mode, touchesCanvas: Math.abs(canvas.right - left) < 1,
+            touchesWindow: Math.abs(right - innerWidth) < 1,
+            footerFits: actions.every(action => {
+                const bounds = action.getBoundingClientRect();
+                return action.checkVisibility() && !scroll.contains(action) && bounds.left >= left && bounds.right <= right && bounds.bottom <= innerHeight;
+            }) };
+    })()`);
+    assert.deepEqual(layout, { mode: 'docked', touchesCanvas: true, touchesWindow: true, footerFits: true });
+}
+
+async function dragDockToCoverPartOfCard(app, beforeRelease) {
+    const { start, end } = await app.evaluate(`(() => {
+        const handle = document.querySelector('${dockWidthHandle}').getBoundingClientRect();
+        const card = document.querySelector('${compareStage}').getBoundingClientRect();
+        return { start: { x: handle.left + handle.width / 2, y: handle.top + handle.height / 2 },
+            end: { x: card.left + card.width * 0.55, y: handle.top + handle.height / 2 } };
+    })()`);
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...start });
+    await app.waitFor(`document.querySelector('${dockWidthHandle}').contains(document.elementFromPoint(${start.x}, ${start.y}))`);
+    await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...start, button: 'left', buttons: 1, clickCount: 1 });
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...end, button: 'left', buttons: 1 });
+    assert.ok(await app.evaluate(`(() => {
+        const card = document.querySelector('${compareStage}').getBoundingClientRect();
+        const dockLeft = document.querySelector('${panel}').getBoundingClientRect().left;
+        return dockLeft > card.left + 40 && dockLeft < card.right - 40;
+    })()`), 'dragging the dock creates real partial occlusion at desktop width');
+    await beforeRelease?.();
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...end, button: 'left', clickCount: 1 });
+}
+
+async function zoomCanvas(app, zoom) {
+    await nativeClick(app, '#canvas-navigation .canvas-zoom-menu summary');
+    await nativeClick(app, `#canvas-navigation [data-zoom="${zoom}"]`);
+    await app.waitFor(`document.querySelector('#zoom-level').textContent.trim() === '${zoom * 100}%'`);
+}
+
+async function exerciseDockWidth(app) {
+    const initialWidth = await app.evaluate(widthOfDock);
+    const sliderValue = await app.evaluate(`document.querySelector('${compareSlider}').value`);
+    await dragDockToCoverPartOfCard(app, () => key(app, 'Escape'));
+    await app.waitFor(`${widthOfDock} === ${initialWidth} && ${comparisonMode} === 'split'`);
+    await dragDockToCoverPartOfCard(app, async () => {
+        await resizeViewport(app, 500, 360);
+        await app.waitFor(`innerWidth === 500 && !document.querySelector('${panel}').classList.contains('is-resizing')`);
+    });
+    await resizeViewport(app, 1100, 820);
+    await app.waitFor(`${widthOfDock} === ${initialWidth} && ${comparisonMode} === 'split'`);
+    await assertDockLayout(app);
+    await dragDockToCoverPartOfCard(app);
+    const draggedWidth = await app.evaluate(widthOfDock);
+    assert.ok(draggedWidth > initialWidth + 80, 'dragging the left edge outward widens the dock');
+    await app.waitFor(`${comparisonMode} === 'switch'`);
+    assert.equal(await app.evaluate(`document.querySelector('${compareSlider}').checkVisibility()`), false);
+    await assertDockLayout(app);
+    await openComparison(app);
+    await closeComparison(app);
+
+    await nativeClick(app, closeDock);
+    await app.waitFor(`${comparisonMode} === 'split'`);
+    await openParameters(app, 'retouch');
+    await app.waitFor(`${widthOfDock} === ${draggedWidth} && ${comparisonMode} === 'switch'`);
+    await app.evaluate(`document.querySelector('${dockWidthHandle}').focus()`);
+    await key(app, 'ArrowRight');
+    const keyboardWidth = draggedWidth - 10;
+    await app.waitFor(`${widthOfDock} === ${keyboardWidth}`);
+    assert.equal(await app.evaluate(`Number(document.querySelector('${dockWidthHandle}').getAttribute('aria-valuenow'))`), keyboardWidth);
+
+    await resizeViewport(app, 620, 560);
+    await app.waitFor(`innerWidth === 620 && ${widthOfDock} < ${keyboardWidth}`);
+    await assertDockLayout(app);
+    await resizeViewport(app, 1100, 820);
+    await app.waitFor(`innerWidth === 1100 && ${widthOfDock} === ${keyboardWidth}`);
+
+    await app.evaluate(`document.querySelector('${dockWidthHandle}').focus()`);
+    await key(app, 'Home');
+    await app.waitFor(`${widthOfDock} < ${initialWidth} && ${comparisonMode} === 'split'`);
+    await app.evaluate(`document.querySelector('${compareSlider}').focus()`);
+    await resizeViewport(app, 500, 360);
+    await app.waitFor(`innerWidth === 500 && ${comparisonMode} === 'switch'
+        && document.querySelector('${dockWidthHandle}').getAttribute('aria-disabled') === 'true'`);
+    assert.equal(await app.evaluate(`document.activeElement.matches('${inspect}')`), true,
+        'when the focused slider is clipped, focus moves to the comparison entry in the dock');
+    await assertDockLayout(app);
+    await resizeViewport(app, 1100, 820);
+    await app.waitFor(`${comparisonMode} === 'split'`);
+    await zoomCanvas(app, 0.25);
+    await app.waitFor(`${comparisonMode} === 'switch'`);
+    assert.ok(await app.evaluate(`document.querySelector('${compareStage}').getBoundingClientRect().width < 180`), 'zoom out actually shrinks the comparison card');
+    await zoomCanvas(app, 1);
+    await app.waitFor(`${comparisonMode} === 'split'`);
+    assert.equal(await app.evaluate(`document.querySelector('${compareSlider}').value`), sliderValue);
+
+    const toggleAgent = () => app.evaluate("document.getElementById('btn-prompt-agent').click()");
+    const agent = "document.getElementById('prompt-agent-panel')";
+    await toggleAgent();
+    await app.waitFor(`${agent}.classList.contains('active') && ${comparisonMode} === 'switch'`);
+    assert.ok(await app.evaluate(`(() => {
+        const stage = document.querySelector('${compareStage}').getBoundingClientRect();
+        const canvas = document.getElementById('canvas-container').getBoundingClientRect();
+        const panel = ${agent}.getBoundingClientRect();
+        return stage.right <= canvas.right && stage.right > panel.left && stage.left < panel.right;
+    })()`), 'Agent hides the comparison even though it still fits inside the canvas');
+    await assertDockLayout(app);
+    await toggleAgent();
+    await app.waitFor(`${comparisonMode} === 'split'`);
+    await resizeViewport(app, 850, 820);
+    await app.waitFor('innerWidth === 850');
+    await app.evaluate(`document.querySelector('${dockWidthHandle}').focus()`);
+    await key(app, 'End');
+    const widest = await app.evaluate(widthOfDock);
+    await toggleAgent();
+    await app.waitFor(`${widthOfDock} < ${widest} && ${agent}.getBoundingClientRect().width >= 320`);
+    await toggleAgent();
+    await app.waitFor(`${widthOfDock} === ${widest}`);
+    await resizeViewport(app, 1100, 820);
+    await app.waitFor('innerWidth === 1100');
+    await app.evaluate(`document.querySelector('${dockWidthHandle}').focus()`);
+    await key(app, 'Home');
+    await app.waitFor(`${comparisonMode} === 'split'`);
+    return app.evaluate(widthOfDock);
 }
 
 test('product retouch sends the chosen finish and keeps the actual original paired with its one downstream result', { timeout: 60000 }, async () => {
@@ -210,6 +346,7 @@ test('product retouch sends the chosen finish and keeps the actual original pair
         await key(app, 'End');
         assert.equal(await app.evaluate(`document.querySelector('${compareSlider}').value`), '100');
         assert.deepEqual(await sampleRenderedImageColors(app, compareStage), [blue, blue]);
+        const savedDockWidth = await exerciseDockWidth(app);
 
         const sourceId = (await saved(app)).connections.find(edge => edge.to.nodeId === 'retouch' && edge.to.port === 'image').from.nodeId;
         await uploadImageOriginal(app, sourceId, `data:image/png;base64,${replacement}`);
@@ -235,6 +372,7 @@ test('product retouch sends the chosen finish and keeps the actual original pair
 
         await reloadAppBrowser(app);
         await openParameters(app, 'retouch');
+        await app.waitFor(`${widthOfDock} === ${savedDockWidth}`);
         assert.equal(await app.evaluate(`${background('black')}.checked`), true);
         assert.equal(await app.evaluate(`${field('finish')}.value`), 'polished');
         assert.equal(await app.evaluate(`${field('modelId')}.value`), 'image');
@@ -247,7 +385,7 @@ test('product retouch sends the chosen finish and keeps the actual original pair
         assert.equal(resultKeys('retouch')?.length, 1, 'the original is a comparison asset outside the node output');
         assert.deepEqual(resultKeys('result'), resultKeys('retouch'), 'the downstream preview receives only the processed result');
 
-        await app.send('Emulation.setDeviceMetricsOverride', { width: 620, height: 560, deviceScaleFactor: 1, mobile: false });
+        await resizeViewport(app, 620, 560);
         await openComparison(app);
         assert.deepEqual(await comparisonImageColors(app, 'original'), [red, red]);
         assert.deepEqual(await comparisonImageColors(app, 'result'), [blue, blue]);
@@ -260,11 +398,24 @@ test('product retouch sends the chosen finish and keeps the actual original pair
         assertRenderedColor(await sampleRenderedImageColors(app, compareStage), red);
         await nativeClick(app, resultToggle);
         assertRenderedColor(await sampleRenderedImageColors(app, compareStage), blue);
-        await app.send('Emulation.setDeviceMetricsOverride', { width: 1100, height: 820, deviceScaleFactor: 1, mobile: false });
+        await resizeViewport(app, 1100, 820);
 
         const originalAssetKey = workflow.nodes.find(node => node.id === 'retouch').productRetouchComparison.originalAssetKey;
+        const blockedOriginal = [`*/api/storage/assets/${encodeURIComponent(originalAssetKey)}*`];
         await app.send('Network.setCacheDisabled', { cacheDisabled: true });
-        await app.send('Network.setBlockedURLs', { urls: [`*/api/storage/assets/${encodeURIComponent(originalAssetKey)}*`] });
+        await openParameters(app, 'retouch');
+        await openComparison(app);
+        await app.send('Network.setBlockedURLs', { urls: blockedOriginal });
+        const originalTab = `${compareDialog} [data-retouch-view=original]`;
+        const dialogError = `document.querySelector('${compareDialog} [role=status]')`;
+        const openBigImage = `document.querySelector('${compareDialog} [data-retouch-open-image]')`;
+        const failedImageState = `${dialogError}.checkVisibility() && ${dialogError}.textContent.includes('无法读取') && ${openBigImage}.disabled`;
+        await nativeClick(app, originalTab);
+        await app.waitFor(failedImageState);
+        await nativeClick(app, originalTab);
+        assert.equal(await app.evaluate(failedImageState), true,
+            'reselecting a failed image must keep the error and prevent a broken fullscreen view');
+        await closeComparison(app);
         await reloadAppBrowser(app);
         await openParameters(app, 'retouch');
         const comparisonHint = `${panel} [data-retouch-comparison-status]`;
@@ -278,6 +429,19 @@ test('product retouch sends the chosen finish and keeps the actual original pair
         await openComparison(app);
         assert.deepEqual(await comparisonImageColors(app, 'original'), [red, red]);
         await closeComparison(app);
+
+        const blockedResult = [`*/api/storage/assets/${encodeURIComponent(resultKeys('retouch')[0])}*`];
+        const retryResult = `${panel} [data-retouch-retry-result]`;
+        await app.send('Network.setBlockedURLs', { urls: blockedResult });
+        await reloadAppBrowser(app);
+        await openParameters(app, 'retouch');
+        await app.waitFor(`document.querySelector('#retouch [data-retouch-result-unavailable]').checkVisibility()
+            && document.querySelector('${retryResult}').checkVisibility()`);
+        assert.equal(await app.evaluate(`document.querySelector('${inspect}').checkVisibility()`), false);
+        await app.send('Network.setBlockedURLs', { urls: [] });
+        await nativeClick(app, retryResult);
+        await app.waitFor(`${comparisonMode} === 'split'`);
+        assert.deepEqual(await sampleRenderedImageColors(app, compareStage), [red, blue]);
 
         await app.evaluate('window.wideRetouch = true');
         await nativeClick(app, `${panel} [data-retouch-action=run]`);

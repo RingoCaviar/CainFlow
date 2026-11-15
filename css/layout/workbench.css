@@ -378,6 +378,11 @@ body:has(#main-layout > .image-parameter-panel.is-docked:not([hidden])) {
     --toast-right-offset: calc(var(--commerce-dock-visible-width) + 16px);
 }
 
+body:has(#main-layout > .image-parameter-panel.is-docked[data-node-type="ProductRetouch"]:not([hidden])) {
+    --commerce-dock-width: var(--product-retouch-dock-width, clamp(300px, 34vw, 380px));
+    --commerce-dock-visible-width: var(--product-retouch-dock-width, min(var(--commerce-dock-width), calc(100vw - 72px)));
+}
+
 body:has(#main-layout > .image-parameter-panel.is-docked:not([hidden])) #toast-container {
     max-width: max(0px, calc(100% - var(--toast-right-offset) - 16px));
 }
@@ -393,6 +398,36 @@ body:has(#main-layout > .image-parameter-panel.is-docked:not([hidden])) #toast-c
     border-inline-start: 1px solid var(--border-color);
     border-radius: 0;
     box-shadow: none;
+}
+
+#main-layout > .image-parameter-panel.is-docked[data-node-type="ProductRetouch"] .image-parameter-resize {
+    z-index: 1;
+    inset: 0 auto 0 0;
+    width: 12px;
+}
+
+#main-layout > .image-parameter-panel.is-docked[data-node-type="ProductRetouch"] .image-parameter-resize::after {
+    content: '';
+    position: absolute;
+    inset: calc(50% - 14px) auto auto 2px;
+    width: 2px;
+    height: 28px;
+    border-radius: var(--radius-sm, 6px);
+    background: var(--text-secondary);
+    pointer-events: none;
+}
+
+#main-layout > .image-parameter-panel.is-docked[data-node-type="ProductRetouch"] .image-parameter-resize[aria-disabled="true"] {
+    cursor: default;
+}
+
+#main-layout > .image-parameter-panel.is-docked[data-node-type="ProductRetouch"] .image-parameter-resize[aria-disabled="true"]::after {
+    opacity: .45;
+}
+
+#main-layout > .image-parameter-panel.is-docked[data-node-type="ProductRetouch"] .image-parameter-resize:not([aria-disabled="true"]):is(:hover, :focus-visible)::after,
+#main-layout > .image-parameter-panel.is-docked[data-node-type="ProductRetouch"].is-resizing .image-parameter-resize::after {
+    background: var(--accent-primary);
 }
 
 #main-layout > .image-parameter-panel.is-docked .image-parameter-header {
