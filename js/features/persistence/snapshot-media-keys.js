@@ -1,3 +1,5 @@
+import { readProductRetouchComparison } from '../product-retouch/product-retouch-comparison.js';
+
 /** Durable media identities retained by a node snapshot, including forwarded video results. */
 export function getSnapshotMediaKeys(node) {
     const keys = [node, node?.data].filter(Boolean).flatMap(holder => [
@@ -6,5 +8,7 @@ export function getSnapshotMediaKeys(node) {
         holder.video?.assetKey,
         ...(Array.isArray(holder.videos) ? holder.videos.map(video => video?.assetKey) : [])
     ]);
+    const comparison = readProductRetouchComparison(node);
+    if (comparison) keys.push(comparison.originalAssetKey);
     return [...new Set(keys.filter(key => typeof key === 'string' && key.startsWith('media:')))];
 }

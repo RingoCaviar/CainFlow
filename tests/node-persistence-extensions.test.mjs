@@ -48,6 +48,25 @@ test('visible and detached node serialization share the same opaque extension bo
     }
 });
 
+test('retouch snapshots keep the original paired with its single output and discard stale comparison fields', () => {
+    const pair = { originalAssetKey: 'media:original', resultAssetKey: 'media:result' };
+    const node = { id: 'retouch', type: 'ProductRetouch', data: { mediaAssetKeys: ['media:result'], imageCount: 1,
+        imageAssetKey: 'media:result', productRetouchComparison: { ...pair, staleExtra: false } } };
+    captureNodePersistenceExtensions(node, { productRetouchComparison: { originalAssetKey: 'media:old', resultAssetKey: 'media:oldresult' },
+        data: { productRetouchComparison: { originalAssetKey: 'media:nested', resultAssetKey: 'media:oldresult' } } });
+    const documentRef = { getElementById: () => null, querySelectorAll: () => [] };
+    const visible = createNodeSerializer({ state: { nodes: new Map([[node.id, node]]) }, documentRef });
+    for (const snapshot of [visible.serializeNodes()[0], serializeRuntimeNode(node, documentRef)]) {
+        assert.deepEqual(snapshot.productRetouchComparison, pair);
+        assert.deepEqual(snapshot.mediaAssetKeys, ['media:result']);
+        assert.equal(snapshot.imageCount, 1);
+        assert.equal(snapshot.data?.productRetouchComparison, undefined);
+    }
+    node.data.mediaAssetKeys = ['media:replaced'];
+    assert.equal(visible.serializeNodes()[0].productRetouchComparison, undefined);
+    assert.equal(serializeRuntimeNode(node, documentRef).productRetouchComparison, undefined);
+});
+
 test('non-JSON runtime objects and accessors never enter opaque persistence', () => {
     const source = { safe: [null, 0, false], runtime: new Map([['large', 'object']]), fn() {}, infinite: Infinity };
     const arrayAccessor = [0];

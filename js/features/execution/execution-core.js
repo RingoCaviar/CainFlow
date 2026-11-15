@@ -2059,17 +2059,20 @@ export function createExecutionCoreApi({
         signal?.throwIfAborted();
         if (!image) throw new Error('供应商未返回精修图片，请重试。');
 
-        const asset = await saveWorkflowNodeMediaAsset(image, workflowId, node.id, node.activeMediaOperationId);
-        const assetKey = asset?.asset_key;
-        if (!assetKey?.startsWith('media:') || state.nodes.get(node.id) !== node || signal?.aborted) {
-            if (assetKey) await releaseWorkflowNodeMediaAssets([asset], workflowId, node.id);
+        const assets = await saveWorkflowNodeMediaAssets([image, reference], workflowId, node.id, node.activeMediaOperationId);
+        const savedAssets = assets.filter(asset => typeof asset?.asset_key === 'string' && asset.asset_key.startsWith('media:'));
+        if (assets.length !== 2 || savedAssets.length !== 2 || state.nodes.get(node.id) !== node || signal?.aborted) {
+            if (savedAssets.length) await releaseWorkflowNodeMediaAssets(savedAssets, workflowId, node.id);
             signal?.throwIfAborted();
             throw new Error('图片已精修，但工作流媒体保存失败。');
         }
 
-        rememberWorkflowMediaOperation(node, [asset]);
-        setCanonicalImageOutput(node, [image], { assetKey, imageCount: 1, assetReady: true });
-        node.data.mediaAssetKeys = [assetKey];
+        const [resultAsset, originalAsset] = savedAssets;
+        const resultAssetKey = resultAsset.asset_key;
+        rememberWorkflowMediaOperation(node, savedAssets);
+        setCanonicalImageOutput(node, [image], { assetKey: resultAssetKey, imageCount: 1, assetReady: true });
+        node.data.mediaAssetKeys = [resultAssetKey];
+        node.data.productRetouchComparison = { originalAssetKey: originalAsset.asset_key, resultAssetKey };
         delete node.data.mediaIntegrity;
         if (node.activeMediaOperationId) node.productRetouchResultCommitted = true;
         try {

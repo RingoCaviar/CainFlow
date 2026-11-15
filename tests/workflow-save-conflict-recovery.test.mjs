@@ -2,6 +2,74 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createWorkflowManagerApi } from '../js/features/workflow/workflow-manager.js';
 
+test('retouch original metadata can be cleaned on save and reopen without dropping its output', async () => {
+    const originalFetch = globalThis.fetch;
+    try {
+        for (const scenario of ['missing', 'lookup-error', 'newly-regenerated', 'same-image']) {
+            const originalAssetKey = scenario === 'same-image' ? 'media:result' : 'media:source';
+            const pair = { originalAssetKey, resultAssetKey: 'media:result' };
+            const live = { id: 'retouch', type: 'ProductRetouch', data: { mediaAssetKeys: ['media:result'], productRetouchComparison: pair } };
+            const snapshots = () => [{ id: live.id, type: live.type, mediaAssetKeys: ['media:result'],
+                imageAssetKey: 'media:result', imageCount: 1, productRetouchComparison: live.data.productRetouchComparison }];
+            const writes = [], lookups = [], owners = [], changes = [], notices = [];
+            let disk = { workflowId: 'workflow-a', mediaOwnershipRevision: 1, nodes: snapshots(), connections: [] };
+            globalThis.fetch = async (url, options = {}) => {
+                if (url === '/api/workflows/Retouch' && options.method === 'POST') {
+                    const body = JSON.parse(options.body);
+                    writes.push(body);
+                    if (writes.length === 1) return { ok: false, status: 409,
+                        json: async () => ({ detail: 'Workflow media ownership revision conflict' }) };
+                    disk = body;
+                    if (scenario === 'newly-regenerated') live.data.productRetouchComparison = { ...pair };
+                    return { ok: true, status: 200, json: async () => ({ mediaOwnershipRevision: body.mediaOwnershipRevision }) };
+                }
+                if (url === '/api/workflows/Retouch') return { ok: true, status: 200, json: async () => structuredClone(disk) };
+                if (url === '/api/workflows') return { ok: true, status: 200, json: async () => ({ workflows: ['Retouch'], folders: [] }) };
+                throw new Error(`Unexpected request: ${url}`);
+            };
+            const state = { workflowTabs: [], workflowOrder: [], workflowFolders: [], nodes: new Map([[live.id, live]]),
+                connections: [], selectedNodes: new Set(), canvas: { x: 0, y: 0, zoom: 1 } };
+            const manager = createWorkflowManagerApi({
+                state, nodeSerializer: { buildStatePayload: () => ({ nodes: snapshots(), connections: [] }), serializeNodes: snapshots },
+                viewportApi: { updateCanvasTransform() {} }, addNode() {}, updateAllConnections() {}, updatePortStyles() {},
+                scheduleSave() {}, showToast: message => notices.push(message), panelManager: {},
+                getStorageSafetyStatus: async () => ({ storageEpoch: 'epoch' }),
+                mediaAssetExists: async key => {
+                    lookups.push(key);
+                    if (scenario === 'lookup-error') throw new Error('Temporary lookup failure');
+                    return false;
+                },
+                recordMediaWorkflowRevision: async (_id, _revision, _epoch, nodes) => (owners.push(nodes), true),
+                replaceMediaOwnerReferenceList: async () => ({ status: 'committed' }),
+                removeMediaReference: async () => true,
+                onRetouchComparisonRemoved: nodeId => changes.push(nodeId),
+                prepareDetachedEditorView: async () => ({ async commit() { return true; } }),
+                documentRef: { getElementById: () => null }, windowRef: { innerWidth: 0, innerHeight: 0 },
+                localStorageRef: { getItem: () => null, setItem() {} }
+            });
+            const restored = { ...disk, mediaOwnershipRevision: 0 };
+            await manager.activateRestoredWorkflowState({ workflowTabs: [{ workflowId: disk.workflowId, name: 'Retouch', data: restored }],
+                activeWorkflowId: disk.workflowId, activeWorkflowName: 'Retouch', workflowData: restored });
+            assert.equal(await manager.saveActiveWorkflow({ silent: true }), true, `${scenario}: ${notices.join(' | ')}`);
+            assert.equal(writes.length, 2);
+            const retainsComparison = scenario === 'lookup-error' || scenario === 'same-image';
+            assert.deepEqual(lookups, scenario === 'same-image' ? [] : [originalAssetKey]);
+            for (const write of writes) {
+                assert.deepEqual(write.nodes[0].mediaAssetKeys, ['media:result']);
+                assert.deepEqual(write.nodes[0].productRetouchComparison, retainsComparison ? pair : undefined);
+            }
+            assert.deepEqual(owners.at(-1)[0].assetKeys, retainsComparison ? ['media:result', originalAssetKey] : ['media:result']);
+            assert.deepEqual(changes, scenario === 'missing' ? [live.id] : []);
+            assert.deepEqual(live.data.productRetouchComparison, scenario === 'missing' ? undefined : pair);
+            const reopened = await manager.loadWorkflowFromFile('Retouch');
+            assert.deepEqual(reopened.nodes[0].productRetouchComparison, retainsComparison ? pair : undefined);
+            assert.deepEqual(reopened.nodes[0].mediaAssetKeys, ['media:result']);
+        }
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
 test('saving retries once with the current disk media ownership revision after a revision conflict', async () => {
     const originalFetch = globalThis.fetch;
     const saves = [];

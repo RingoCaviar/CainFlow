@@ -34,6 +34,21 @@ class MediaSafetyOracle:
         while stack:
             item = stack.pop()
             if isinstance(item, dict):
+                if item.get('type') == 'ProductRetouch':
+                    data = item.get('data') if isinstance(item.get('data'), dict) else {}
+                    output_keys = data.get('mediaAssetKeys')
+                    if not isinstance(output_keys, list):
+                        output_keys = item.get('mediaAssetKeys')
+                    pair = item.get('productRetouchComparison')
+                    if pair is None:
+                        pair = data.get('productRetouchComparison')
+                    if isinstance(pair, dict) and isinstance(output_keys, list) and len(output_keys) == 1:
+                        original, result = pair.get('originalAssetKey'), pair.get('resultAssetKey')
+                        if output_keys[0] == result and all(
+                            isinstance(key, str) and key.startswith('media:') and len(key) > 6
+                            and not any(char.isspace() for char in key) for key in (original, result)
+                        ):
+                            references.append(original)
                 for key, child in item.items():
                     if key in {'assetKey', 'mediaAssetKey'} and isinstance(child, str):
                         references.append(child)

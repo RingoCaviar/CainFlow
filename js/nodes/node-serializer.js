@@ -15,6 +15,7 @@ import { readImageResizeSettings } from './image-resize-settings.js';
 import { applyNodePersistenceExtensions } from './node-persistence-extensions.js';
 import { normalizeCommerceImageSetState } from '../features/ecommerce-image-set/commerce-image-set-plan.js';
 import { normalizeProductRetouchSettings } from '../features/product-retouch/product-retouch-settings.js';
+import { readProductRetouchComparison } from '../features/product-retouch/product-retouch-comparison.js';
 import { readGenerationRevision } from './image-generation-revision.js';
 import { normalizePromptImageMentions } from './prompt-image-mentions.js';
 
@@ -108,6 +109,8 @@ export function createNodeSerializer({ state, documentRef }) {
             }
             if (node.type === 'ProductRetouch') {
                 serialized.productRetouch = normalizeProductRetouchSettings(node.data?.productRetouch);
+                const comparison = readProductRetouchComparison(node);
+                if (comparison) serialized.productRetouchComparison = comparison;
                 if (node.data?.mediaOwnershipTemporaryOwners?.length) {
                     serialized.data = { mediaOwnershipTemporaryOwners: JSON.parse(JSON.stringify(node.data.mediaOwnershipTemporaryOwners)) };
                 }

@@ -7,19 +7,33 @@ import '../js/features/execution/protocols/ttapi-openai.js';
 
 const original = 'data:image/png;base64,AAAA';
 const finished = 'data:image/png;base64,AQAA';
+const remoteOriginal = 'https://fixture.test/product.png';
+const downloadedOriginal = 'data:image/png;base64,AgME';
+const comparison = { originalAssetKey: 'media:asset-2', resultAssetKey: 'media:asset-1' };
 
 function createRetouchFixture({ protocol = 'openai', modelId = 'gpt-image-2', endpoint = 'https://fixture.test', autoComplete = true } = {}) {
     const node = {
         id: 'retouch',
         type: 'ProductRetouch',
+        activeMediaOperationId: 'retouch-operation',
         data: { productRetouch: {
             background: 'black', lighting: 'dramatic', shadow: 'none', finish: 'polished',
             notes: '保留杯身刻度', modelId: 'image-model', providerId: 'provider'
         } }
     };
-    const requests = [], history = [], assets = [], released = [], updates = [];
+    const requests = [], history = [], assets = [], saves = [], released = [], updates = [];
     const noop = () => {};
     let responseData = 'AQAA', onSave;
+    const saveAssets = async (images, workflowId, nodeId, operationId) => {
+        const ownerId = `${workflowId}:${nodeId}:${operationId}`;
+        const batch = images.map(image => {
+            const asset = { asset_key: `media:asset-${assets.length + 1}`, mediaTemporaryOwnerId: ownerId };
+            assets.push({ image, asset });
+            return asset;
+        });
+        saves.push({ images, workflowId, nodeId, operationId });
+        return onSave ? onSave(batch) : batch;
+    };
     const core = createExecutionCoreApi({
         state: {
             nodes: new Map([[node.id, node]]), connections: [],
@@ -39,7 +53,9 @@ function createRetouchFixture({ protocol = 'openai', modelId = 'gpt-image-2', en
         getProxyHeaders: url => ({ 'X-Test-Provider': url }),
         logRequestToPanel: noop,
         dataURLtoBlob: source => new Blob([Buffer.from(source.split(',')[1], 'base64')], { type: 'image/png' }),
+        blobToDataUrl: async blob => `data:${blob.type};base64,${Buffer.from(await blob.arrayBuffer()).toString('base64')}`,
         fetchRef: async (url, { headers, body }) => {
+            if (url === remoteOriginal) return new Response(Uint8Array.of(2, 3, 4), { headers: { 'Content-Type': 'image/png' } });
             assert.equal(url, '/proxy');
             requests.push({ url: headers['X-Test-Provider'], body });
             if (protocol === 'google') {
@@ -53,25 +69,21 @@ function createRetouchFixture({ protocol = 'openai', modelId = 'gpt-image-2', en
             return Response.json({ data: responseData ? [{ b64_json: responseData }] : [] });
         },
         saveHistoryEntry: async entry => { history.push(entry); },
-        saveWorkflowNodeMediaAsset: async (image, workflowId, nodeId) => {
-            const asset = { asset_key: `media:result-${assets.length + 1}` };
-            assets.push({ image, workflowId, nodeId, asset });
-            return onSave ? onSave(asset) : asset;
-        },
+        saveWorkflowNodeMediaAssets: saveAssets,
         releaseWorkflowNodeMediaAssets: async entries => { released.push(...entries); },
         onNodeResultUpdated: (id, details) => { updates.push({ id, details }); }
     });
     const execute = (image = original, signal) => core.executeNode(node, { image }, signal);
     return {
-        node, execute, requests, history, assets, released, updates,
+        node, execute, requests, history, assets, saves, released, updates,
         getOutput: () => core.getCachedOutputValue(node, 'image'),
         setResponseData: data => { responseData = data; },
         setOnSave: callback => { onSave = callback; }
     };
 }
 
-test('product retouch sends the original and the selected edits and stores one downstream image', async () => {
-    const { node, execute, requests, history, assets, updates, getOutput } = createRetouchFixture();
+test('product retouch stores the sent original beside its result and exposes only the result downstream', async () => {
+    const { node, execute, requests, history, saves, updates, getOutput } = createRetouchFixture();
     assert.equal((await execute()).image, finished);
     assert.equal(requests.length, 1);
     const [{ url, body }] = requests;
@@ -84,12 +96,35 @@ test('product retouch sends the original and the selected edits and stores one d
         assert.ok(prompt.includes(text), `expected prompt to include ${text}`);
     }
     assert.equal(getOutput(), finished);
-    assert.deepEqual(node.data.mediaAssetKeys, ['media:result-1']);
-    assert.deepEqual(assets.map(({ image, workflowId, nodeId }) => ({ image, workflowId, nodeId })), [
-        { image: finished, workflowId: 'workflow', nodeId: node.id }
+    assert.deepEqual(node.data.mediaAssetKeys, [comparison.resultAssetKey]);
+    assert.deepEqual(node.data.productRetouchComparison, comparison);
+    assert.deepEqual(saves, [
+        { images: [finished, original], workflowId: 'workflow', nodeId: node.id, operationId: 'retouch-operation' }
+    ]);
+    assert.deepEqual(node.data.mediaOwnershipTemporaryOwners, [
+        { ownerId: 'workflow:retouch:retouch-operation', assetKeys: [comparison.resultAssetKey, comparison.originalAssetKey] }
     ]);
     assert.deepEqual(history.map(entry => entry.image), [finished]);
     assert.ok(updates.some(({ details }) => details.downstreamImageResults));
+});
+
+test('product retouch stores the bytes resolved from its remote source for comparison', async () => {
+    const { node, execute, requests, assets } = createRetouchFixture();
+    await execute(remoteOriginal);
+    const uploaded = requests[0].body.get('image');
+    const saved = assets.find(({ asset }) => asset.asset_key === node.data.productRetouchComparison?.originalAssetKey);
+    assert.equal(saved?.image, downloadedOriginal);
+    assert.equal(Buffer.from(await uploaded.arrayBuffer()).toString('base64'), saved.image.split(',')[1]);
+});
+
+test('product retouch can compare identical output and original with one content-addressed asset key', async () => {
+    const { node, execute, getOutput, setOnSave, setResponseData } = createRetouchFixture();
+    setResponseData('AAAA');
+    setOnSave(([asset]) => [asset, asset]);
+    await execute(original);
+    assert.equal(getOutput(), original);
+    assert.deepEqual(node.data.mediaAssetKeys, ['media:asset-1']);
+    assert.deepEqual(node.data.productRetouchComparison, { originalAssetKey: 'media:asset-1', resultAssetKey: 'media:asset-1' });
 });
 
 test('product retouch sends Gemini the inline original with its background and shadow instructions', async () => {
@@ -133,30 +168,37 @@ test('product retouch requires one intact source and an image editing endpoint b
     assert.equal(generationOnlyEndpoint.requests.length, 0);
 });
 
-test('product retouch keeps its last saved result after a failed request or a canceled replacement', async () => {
+test('product retouch keeps its last comparison after a failed request, partial save or a canceled replacement', async () => {
     const { node, execute, assets, released, getOutput, setOnSave, setResponseData } = createRetouchFixture();
     await execute();
 
     setResponseData('');
     await assert.rejects(execute(), /API 未返回图片数据/);
     assert.equal(getOutput(), finished);
-    assert.deepEqual(node.data.mediaAssetKeys, ['media:result-1']);
-    assert.equal(assets.length, 1);
+    assert.deepEqual(node.data.productRetouchComparison, comparison);
+    assert.equal(assets.length, 2);
 
     setResponseData('YnJva2Vu');
     await assert.rejects(execute(), /模型返回的图片无法打开/);
     assert.equal(getOutput(), finished);
-    assert.deepEqual(node.data.mediaAssetKeys, ['media:result-1']);
-    assert.equal(assets.length, 1);
+    assert.deepEqual(node.data.productRetouchComparison, comparison);
+    assert.equal(assets.length, 2);
+
+    setResponseData('AgAA');
+    setOnSave(batch => batch.slice(0, 1));
+    await assert.rejects(execute(downloadedOriginal), /工作流媒体保存失败/);
+    assert.equal(getOutput(), finished);
+    assert.deepEqual(node.data.productRetouchComparison, comparison);
+    assert.deepEqual(released, [assets[2].asset]);
 
     const abort = new AbortController();
-    setResponseData('AgAA');
-    setOnSave(asset => {
+    setOnSave(batch => {
         abort.abort();
-        return asset;
+        return batch;
     });
-    await assert.rejects(execute(original, abort.signal), { name: 'AbortError' });
+    await assert.rejects(execute(downloadedOriginal, abort.signal), { name: 'AbortError' });
     assert.equal(getOutput(), finished);
-    assert.deepEqual(node.data.mediaAssetKeys, ['media:result-1']);
-    assert.deepEqual(released, [assets[1].asset]);
+    assert.deepEqual(node.data.mediaAssetKeys, [comparison.resultAssetKey]);
+    assert.deepEqual(node.data.productRetouchComparison, comparison);
+    assert.deepEqual(released, [assets[2].asset, assets[4].asset, assets[5].asset]);
 });

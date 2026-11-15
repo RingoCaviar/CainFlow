@@ -24,7 +24,7 @@ from backend.services.undo_media import UndoMediaMixin
 SCHEMA_VERSION = 10
 MEDIA_TRANSITION_INTENTS = {'save', 'delete', 'undo', 'redo'}
 MEDIA_OWNER_NODE_TYPES = {
-    'ImageGenerate', 'ImagePreview', 'ImageImport', 'ImageResize', 'ImageSave', 'ImageCompare', 'ImageMerge'
+    'ImageGenerate', 'ImagePreview', 'ImageImport', 'ImageResize', 'ImageSave', 'ImageCompare', 'ImageMerge', 'ProductRetouch'
 }
 STORAGE_MODE_VERSION = 1
 INTEGRITY_REPORT_VERSION = 1
@@ -342,26 +342,52 @@ class StorageService(UndoMediaMixin):
                 os.remove(temporary_path)
 
     @staticmethod
-    def _workflow_node_media_reference(workflow, node):
+    def _workflow_node_output_and_comparison_keys(node):
+        data = node.get('data') if isinstance(node.get('data'), dict) else {}
+        keys = data.get('mediaAssetKeys') if isinstance(data.get('mediaAssetKeys'), list) else node.get('mediaAssetKeys')
+        if not isinstance(keys, list):
+            return []
+
+        normalized = [key for key in keys if isinstance(key, str) and key.startswith('media:')]
+        if node.get('type') != 'ProductRetouch' or len(keys) != 1:
+            return normalized
+        comparison = node.get('productRetouchComparison')
+        if comparison is None:
+            comparison = data.get('productRetouchComparison')
+        if not isinstance(comparison, dict) or keys[0] != comparison.get('resultAssetKey'):
+            return normalized
+        original, result = comparison.get('originalAssetKey'), comparison.get('resultAssetKey')
+        if all(isinstance(key, str) and key.startswith('media:') and len(key) > 6
+               and not any(char.isspace() for char in key) for key in (original, result)):
+            normalized.append(original)
+        return normalized
+
+    @classmethod
+    def _workflow_node_media_reference(cls, workflow, node):
         workflow_id = str(workflow.get('workflowId') or '').strip() if isinstance(workflow, dict) else ''
         node_id = str(node.get('id') or '').strip() if isinstance(node, dict) else ''
         if not workflow_id or not node_id:
             return None
-        keys = []
-        stack = [node]
-        while stack:
-            value = stack.pop()
-            if isinstance(value, dict):
-                for key, child in value.items():
-                    if key in {'assetKey', 'mediaAssetKey'} and isinstance(child, str) and child:
-                        keys.append(child)
-                    elif key in {'assetKeys', 'mediaAssetKeys'} and isinstance(child, list):
-                        keys.extend(str(item) for item in child if item)
-                    else:
-                        stack.append(child)
-            elif isinstance(value, list):
-                stack.extend(value)
-        ordered = list(node.get('data', {}).get('mediaAssetKeys') or []) if node.get('type') == 'PromptAgentResult' else list(dict.fromkeys(keys))
+        if node.get('type') == 'ProductRetouch':
+            ordered = cls._workflow_node_output_and_comparison_keys(node)
+        elif node.get('type') == 'PromptAgentResult':
+            ordered = list(node.get('data', {}).get('mediaAssetKeys') or [])
+        else:
+            keys = []
+            stack = [node]
+            while stack:
+                value = stack.pop()
+                if isinstance(value, dict):
+                    for key, child in value.items():
+                        if key in {'assetKey', 'mediaAssetKey'} and isinstance(child, str) and child:
+                            keys.append(child)
+                        elif key in {'assetKeys', 'mediaAssetKeys'} and isinstance(child, list):
+                            keys.extend(str(item) for item in child if item)
+                        else:
+                            stack.append(child)
+                elif isinstance(value, list):
+                    stack.extend(value)
+            ordered = list(dict.fromkeys(keys))
         if not ordered:
             return None
         return {
@@ -2456,8 +2482,7 @@ class StorageService(UndoMediaMixin):
                 for node in self._workflow_media_consumers(workflow):
                     node_id = str(node.get('id') or '').strip()
                     data = node.get('data') if isinstance(node.get('data'), dict) else {}
-                    keys = data.get('mediaAssetKeys') if isinstance(data.get('mediaAssetKeys'), list) else node.get('mediaAssetKeys')
-                    keys = [str(key) for key in (keys or []) if str(key).startswith('media:')]
+                    keys = self._workflow_node_output_and_comparison_keys(node)
                     if not node_id or (node.get('type') not in MEDIA_OWNER_NODE_TYPES and node.get('type') != 'PromptAgentResult' and not keys):
                         continue
                     owner_type = ('prompt-agent-result' if node.get('type') == 'PromptAgentResult'
@@ -2511,7 +2536,7 @@ class StorageService(UndoMediaMixin):
                     temporary_owners = [item for item in recoverable
                                         if item[0] == owner_type and item[1] == node_id]
                     for temporary_owner in temporary_owners:
-                        for key in keys:
+                        for key in dict.fromkeys(keys):
                             self.remove_media_reference('workflow-operation', temporary_owner[2], key)
                     result['completed'] += 1
             except (StorageError, ValueError, TypeError, AttributeError, json.JSONDecodeError):

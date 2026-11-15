@@ -6,6 +6,7 @@ import { DEFAULT_THEME_ID } from '../../core/constants.js';
 import { migrateLegacyWorkflowData } from './legacy-node-migration.js';
 import { createSelectionApi } from '../../canvas/selection.js';
 import { getSnapshotMediaKeys } from './snapshot-media-keys.js';
+import { readProductRetouchComparison } from '../product-retouch/product-retouch-comparison.js';
 
 export function createSessionManagerApi({
     state,
@@ -79,8 +80,12 @@ export function createSessionManagerApi({
                 ...(Array.isArray(holder.videos) ? holder.videos.map(video => video?.assetKey) : []),
                 ...(original.type === 'VideoGenerate' && Array.isArray(holder.mediaAssetKeys) ? holder.mediaAssetKeys : [])
             ]));
-            const retained = originalKeys.filter(key => !videoKeys.has(key) && available.has(key));
+            const comparison = readProductRetouchComparison(original);
+            const auxiliaryKey = comparison && comparison.originalAssetKey !== comparison.resultAssetKey ? comparison.originalAssetKey : '';
+            const retained = originalKeys.filter(key => key !== auxiliaryKey && !videoKeys.has(key) && available.has(key));
+            const incompleteComparison = comparison && (!available.has(comparison.originalAssetKey) || !available.has(comparison.resultAssetKey));
             for (const holder of [node, node.data].filter(Boolean)) {
+                if (incompleteComparison) delete holder.productRetouchComparison;
                 if (Array.isArray(holder.mediaAssetKeys)) {
                     holder.mediaAssetKeys = holder.mediaAssetKeys.filter((key) => (
                         typeof key !== 'string' || !key.startsWith('media:') || available.has(key)

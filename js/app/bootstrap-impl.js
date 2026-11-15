@@ -2025,6 +2025,7 @@ const workflowManagerApi = createWorkflowManagerApi({
     putMediaAsset,
     getImageAsset,
     getImageAssetList,
+    mediaAssetExists,
     deleteImageAsset,
     clearUndoStack: () => {
         getSessionManagerApi().clearUndoStack();
@@ -2037,6 +2038,7 @@ const workflowManagerApi = createWorkflowManagerApi({
             ? 'Duplicate Workflow identity repaired'
             : record.error
     }),
+    onRetouchComparisonRemoved: nodeId => registry.imageFirstCanvasApi?.refreshNode(nodeId),
     onWorkflowViewApplied: (workflow) => {
         const batchMode = registry.batchConnectionModeApi;
         if (batchMode?.isActive()) batchMode.exit();

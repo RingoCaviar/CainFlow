@@ -7,6 +7,7 @@ import { createSelectionApi } from '../canvas/selection.js';
 import { appendMappedConnectionSnapshots } from '../canvas/connection-copy-utils.js';
 import { normalizeCommerceImageSetState } from '../features/ecommerce-image-set/commerce-image-set-plan.js';
 import { normalizeProductRetouchSettings } from '../features/product-retouch/product-retouch-settings.js';
+import { readProductRetouchComparison } from '../features/product-retouch/product-retouch-comparison.js';
 import { normalizePromptImageMentions } from './prompt-image-mentions.js';
 import {
     normalizeConcurrentRequestStatusPayload,
@@ -1359,6 +1360,8 @@ export function createNodeLifecycleApi({
         }
         if (normalizedType === 'ProductRetouch') {
             nodeData.data.productRetouch = normalizeProductRetouchSettings(effectiveRestoreData?.productRetouch);
+            const comparison = readProductRetouchComparison({ ...effectiveRestoreData, type: normalizedType });
+            if (comparison) nodeData.data.productRetouchComparison = comparison;
         }
         if (normalizedType === 'ImageGenerate') {
             const revision = readGenerationRevision(effectiveRestoreData?.generationRevision);

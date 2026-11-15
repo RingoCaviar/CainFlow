@@ -27,6 +27,17 @@ test('runtime snapshots protect every video position in generated and saved node
     assert.deepEqual(requests[0]?.assetKeys.sort(),['media:current','media:first','media:forwarded','media:saved','media:second'],'temporary retention covers video batches and forwarded save-node results');
 });
 
+test('retouch snapshot protection retains the saved comparison original for undo and clipboard', () => {
+    const calls = [];
+    const protection = createUndoMediaProtection({ pageId: 'retouch-page', requestSync: body => calls.push(body) });
+    const pair = { originalAssetKey: 'media:original', resultAssetKey: 'media:result' };
+    protection.protect({ historyId: 'retouch', nodes: [
+        { type: 'ProductRetouch', mediaAssetKeys: ['media:result'], productRetouchComparison: pair },
+        { type: 'ProductRetouch', mediaAssetKeys: ['media:next'], productRetouchComparison: { ...pair, originalAssetKey: 'media:stale' } }
+    ] }, 'workflow');
+    assert.deepEqual(calls[0].assetKeys, ['media:result', 'media:original', 'media:next']);
+});
+
 test('exit waits for save before releasing, coalesces close clicks and supports retry after save failure', async () => {
     const order = []; let fail = true;
     const exit = createDesktopExit({ settle: async () => order.push('settle'), save: async () => { order.push('save'); if (fail) throw Error('disk'); },

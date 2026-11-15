@@ -7,6 +7,14 @@
     overflow: hidden;
 }
 
+.product-retouch-compare-stage {
+    --retouch-visible-original-share: var(--retouch-original-share, 50%);
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+    background: var(--surface-panel-strong);
+}
+
 .product-retouch-card-empty {
     display: grid;
     justify-items: center;
@@ -43,8 +51,114 @@
 .product-retouch-card-preview img {
     display: block;
     width: 100%;
-    height: 100%;
+    height: auto;
     object-fit: contain;
+}
+
+.product-retouch-compare-stage.node-media-aspect-surface .product-retouch-card-preview {
+    position: absolute;
+    inset: 0;
+}
+
+.node-media-aspect-surface .product-retouch-card-preview img,
+.product-retouch-compare-original {
+    height: 100%;
+}
+
+.product-retouch-compare-original {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    object-fit: contain;
+    pointer-events: none;
+    clip-path: inset(0 calc(100% - var(--retouch-visible-original-share)) 0 0);
+}
+
+.product-retouch-compare-stage:is([data-comparison="split"], [data-comparison="switch"]) [data-retouch-result] {
+    clip-path: inset(0 0 0 var(--retouch-visible-original-share));
+}
+
+.product-retouch-compare-labels {
+    position: absolute;
+    inset: 9px 9px auto;
+    display: flex;
+    justify-content: space-between;
+    pointer-events: none;
+}
+
+.product-retouch-compare-labels span {
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(21, 25, 29, .88);
+    color: white;
+    font-size: 13px;
+}
+
+.product-retouch-compare-divider {
+    position: absolute;
+    inset: 0 auto 0 var(--retouch-visible-original-share);
+    width: 2px;
+    background: white;
+    pointer-events: none;
+    transform: translateX(-50%);
+}
+
+.product-retouch-compare-divider > span {
+    display: grid;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 32px;
+    height: 32px;
+    place-items: center;
+    transform: translate(-50%, -50%);
+    border: 1px solid var(--node-control-border);
+    border-radius: 50%;
+    color: var(--text-primary);
+    background: var(--surface-panel-strong);
+}
+
+.product-retouch-compare-stage input[type="range"] {
+    position: absolute;
+    inset: 50% 0 auto;
+    width: 100%;
+    height: 44px;
+    margin: 0;
+    padding: 0;
+    opacity: 0;
+    transform: translateY(-50%);
+    cursor: ew-resize;
+    direction: rtl;
+}
+
+.product-retouch-compare-stage:has(input:focus-visible) .product-retouch-compare-divider > span {
+    outline: 3px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
+.product-retouch-compare-stage:not([data-comparison="split"]) :is(.product-retouch-compare-labels, .product-retouch-compare-divider) {
+    display: none;
+}
+
+.product-retouch-compare-stage[data-comparison="switch"] { --retouch-visible-original-share: 0%; }
+.product-retouch-compare-stage[data-comparison="switch"][data-retouch-view="original"] { --retouch-visible-original-share: 100%; }
+
+.product-retouch-compare-switch {
+    display: flex;
+    justify-content: center;
+    gap: 4px;
+    width: 100%;
+    padding: 6px;
+    background: var(--surface-panel);
+}
+
+.product-retouch-compare-switch[data-comparison="split"] { display: none; }
+
+@media (max-width: 800px) {
+    .product-retouch-compare-stage[data-comparison="split"] { --retouch-visible-original-share: 0%; }
+    .product-retouch-compare-stage[data-comparison="split"][data-retouch-view="original"] { --retouch-visible-original-share: 100%; }
+    .product-retouch-compare-stage[data-comparison="split"] :is(.product-retouch-compare-labels, .product-retouch-compare-divider, input[type="range"]) { display: none; }
+    .product-retouch-compare-switch[data-comparison="split"]:not([hidden]) { display: flex; }
 }
 
 html:root #canvas-container .node.node-product-retouch.node-media-aspect { border: 0; }
@@ -129,22 +243,24 @@ html:root #canvas-container .node.node-product-retouch.node-media-aspect { borde
 .product-retouch-swatches {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 6px;
+    gap: 4px;
     margin-top: 7px;
+    padding: 3px;
+    border-radius: 6px;
+    background: var(--node-control-surface);
 }
 
 .product-retouch-swatches label {
     position: relative;
-    display: grid;
-    justify-items: center;
-    align-content: center;
+    display: flex;
+    justify-content: center;
+    align-items: center;
     gap: 5px;
-    min-height: 68px;
+    min-height: 34px;
     min-width: 0;
-    padding: 5px 2px;
-    border: 1px solid var(--node-control-border);
-    border-radius: 6px;
-    background: var(--node-control-surface);
+    padding: 4px 2px;
+    border: 1px solid transparent;
+    border-radius: 4px;
     color: var(--text-primary);
     font-size: 13px;
     cursor: pointer;
@@ -152,8 +268,7 @@ html:root #canvas-container .node.node-product-retouch.node-media-aspect { borde
 
 .product-retouch-swatches label:has(:checked) {
     border-color: var(--accent-primary);
-    background: color-mix(in srgb, var(--accent-primary) 10%, var(--node-control-surface));
-    box-shadow: inset 0 0 0 1px var(--accent-primary);
+    background: var(--surface-panel-strong);
     font-weight: 650;
 }
 
@@ -163,8 +278,9 @@ html:root #canvas-container .node.node-product-retouch.node-media-aspect { borde
 .product-retouch-swatches input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: inherit; }
 .product-retouch-swatch {
     display: block;
-    width: 30px;
-    height: 22px;
+    flex: 0 0 auto;
+    width: 15px;
+    height: 15px;
     border: 1px solid var(--node-control-border);
     border-radius: 4px;
 }
@@ -176,7 +292,7 @@ html:root #canvas-container .node.node-product-retouch.node-media-aspect { borde
     place-items: center;
     color: var(--text-secondary);
 }
-.product-retouch-swatch[data-background="original"] svg { width: 18px; height: 18px; }
+.product-retouch-swatch[data-background="original"] svg { width: 12px; height: 12px; }
 
 .product-retouch-treatment,
 .product-retouch-model-fields {
@@ -243,14 +359,81 @@ html:root #canvas-container .node.node-product-retouch.node-media-aspect { borde
 .product-retouch-footer p { margin: 0; color: var(--text-secondary); font-size: 13px; overflow-wrap: anywhere; }
 .product-retouch-footer p:empty { display: none; }
 .product-retouch-footer p[data-error="true"] { color: var(--text-danger, var(--text-primary)); }
+.product-retouch-footer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: stretch;
+}
 .product-retouch-footer button.product-retouch-run {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 7px;
     min-height: 38px;
-    width: 100%;
+    width: auto;
+    flex: 1 1 115px;
     font-weight: 650;
 }
 
 .product-retouch-footer .product-retouch-run:disabled { opacity: .6; cursor: default; }
+
+.product-retouch-compare-switch button,
+.product-retouch-compare-dialog button,
+.product-retouch-footer .product-retouch-inspect {
+    min-height: 34px;
+    padding: 5px 10px;
+    border: 1px solid var(--node-control-border, var(--border-input));
+    border-radius: 6px;
+    background: var(--surface-control);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.product-retouch-compare-switch button:is(:hover, [aria-pressed="true"]),
+.product-retouch-compare-dialog button:is(:hover, [aria-pressed="true"]),
+.product-retouch-footer .product-retouch-inspect:hover {
+    border-color: var(--accent-primary);
+    background: var(--surface-control-hover);
+}
+
+:is(.product-retouch-compare-switch, .product-retouch-compare-dialog) button[aria-pressed="true"] { font-weight: 650; }
+
+.product-retouch-compare-dialog { background: var(--overlay-backdrop); }
+
+.product-retouch-dialog-panel {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    width: min(720px, calc(100% - 24px));
+    height: min(760px, calc(100dvh - 24px));
+    padding: 0;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--surface-panel-strong);
+    color: var(--text-primary);
+}
+
+.product-retouch-compare-dialog :is(header, footer) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 14px;
+}
+
+.product-retouch-compare-dialog h2 { margin: 0; font-size: 16px; }
+.product-retouch-dialog-stage {
+    display: grid;
+    min-height: 0;
+    place-items: center;
+    padding: 8px;
+    border-block: 1px solid var(--border-color);
+    background: var(--surface-control);
+    overflow: hidden;
+}
+
+.product-retouch-dialog-stage img { width: 100%; height: 100%; min-height: 0; object-fit: contain; }
+.product-retouch-dialog-stage p { margin: 0; color: var(--text-secondary); }
+.product-retouch-dialog-switch { display: flex; gap: 6px; }
+.product-retouch-compare-dialog button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }

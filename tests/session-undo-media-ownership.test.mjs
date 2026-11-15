@@ -272,3 +272,31 @@ test('Undo removes missing video references without using a surviving video as a
     assert.deepEqual(restored.videos,[{assetKey:'media:live-video'}]);
     assert.equal(restored.videoUrl,'');
 });
+
+test('Undo drops an incomplete retouch comparison without confusing the original with the result', async () => {
+    for (const available of ['media:original', 'media:result']) {
+        const pair = { originalAssetKey: 'media:original', resultAssetKey: 'media:result' };
+        const state = { nodes: new Map(), selectedNodes: new Set(), connections: [], redoStack: [],
+            workflowTabs: [], workflowOrder: [], workflowFolders: [], undoStack: [JSON.stringify({ nodes: [{
+                id: 'retouch', type: 'ProductRetouch', x: 0, y: 0, imageCount: 1,
+                imageAssetKey: pair.resultAssetKey, mediaAssetKeys: [pair.resultAssetKey], productRetouchComparison: pair
+            }], connections: [] })] };
+        const manager = createSessionManagerApi({
+            state, storageKey: 'session',
+            nodeSerializer: { buildStatePayload: () => ({ nodes: [], connections: [] }), serializeNodes: () => [] },
+            localStorageRef: { setItem() {}, getItem: () => null, length: 0 },
+            documentRef: { getElementById: () => null }, showToast() {},
+            addNode(_type, _x, _y, data) {
+                state.nodes.set(data.id, { ...data, el: { remove() {}, querySelectorAll: () => [] } });
+            },
+            updateAllConnections() {}, updatePortStyles() {}, mediaAssetExists: async key => key === available
+        });
+        await manager.undo();
+        const restored = state.nodes.get('retouch');
+        const resultAvailable = available === pair.resultAssetKey;
+        assert.equal(restored.productRetouchComparison, undefined);
+        assert.equal(restored.imageAssetKey, resultAvailable ? pair.resultAssetKey : undefined);
+        assert.deepEqual(restored.mediaAssetKeys, resultAvailable ? [pair.resultAssetKey] : []);
+        assert.equal(restored.imageCount, resultAvailable ? 1 : undefined);
+    }
+});

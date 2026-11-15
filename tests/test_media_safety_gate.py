@@ -38,6 +38,15 @@ class MediaSafetyGateTests(unittest.TestCase):
             self.assertEqual(0, report['invariantViolationCount'])
             self.assertEqual({'workflowDocuments', 'ownerRows', 'assetMetadata', 'physicalFiles'}, set(report['sources']))
 
+    def test_retouch_original_is_an_independent_required_document_reference(self):
+        for result_key, expected in (('media:result', {'media:result', 'media:original'}),
+                                     ('media:older-result', {'media:result'})):
+            document = {'workflows': [{'nodes': [{
+                'id': 'retouch', 'type': 'ProductRetouch', 'mediaAssetKeys': ['media:result'],
+                'productRetouchComparison': {'originalAssetKey': 'media:original', 'resultAssetKey': result_key},
+            }]}]}
+            self.assertEqual(expected, MediaSafetyOracle._document_references(document))
+
     def test_oracle_blocks_owned_gc_candidate_and_missing_required_reference(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)

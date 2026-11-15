@@ -39,6 +39,7 @@ import {
 } from '../../nodes/registry.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
 import { normalizeProductRetouchSettings } from '../product-retouch/product-retouch-settings.js';
+import { readProductRetouchComparison } from '../product-retouch/product-retouch-comparison.js';
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
 import { readImageSaveFilename } from '../../nodes/image-save-settings.js';
 import { createImageGenerationRevisionApi, readGenerationRevision } from '../../nodes/image-generation-revision.js';
@@ -407,6 +408,8 @@ export function serializeRuntimeNode(node, doc) {
     }
     if (node.type === 'ProductRetouch') {
         serialized.productRetouch = normalizeProductRetouchSettings(node.data?.productRetouch);
+        const comparison = readProductRetouchComparison(node);
+        if (comparison) serialized.productRetouchComparison = comparison;
         if (node.data?.mediaIntegrity?.state === 'missing') {
             serialized.mediaIntegrity = clonePlainValue(node.data.mediaIntegrity);
         }
@@ -1041,6 +1044,9 @@ export function createWorkflowRuntimeManager({
             }
             node.data.mediaAssetKeys = assetKeys.slice();
             if (runtimeNode.type === 'ProductRetouch') {
+                const comparison = readProductRetouchComparison(runtimeNode);
+                if (comparison) node.data.productRetouchComparison = comparison;
+                else delete node.data.productRetouchComparison;
                 if (runtimeNode.data?.mediaIntegrity) node.data.mediaIntegrity = clonePlainValue(runtimeNode.data.mediaIntegrity);
                 else delete node.data.mediaIntegrity;
             }

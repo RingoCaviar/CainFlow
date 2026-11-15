@@ -1292,6 +1292,32 @@ else:
                 self.assertEqual(0, database.execute('''SELECT COUNT(*) FROM media_asset_refs
                     WHERE owner_type='workflow-operation' AND owner_id=?''', (owner_id,)).fetchone()[0])
 
+    def test_startup_promotes_retouch_comparison_with_exact_order_and_preserves_legacy_output(self):
+        for identical in (False, True):
+            with self.subTest(identical=identical), tempfile.TemporaryDirectory() as root:
+                service = self.make_service(root)
+                owner_id = '["workflow","retouch","operation"]'
+                result = 'data:image/png;base64,cmVzdWx0'
+                original = result if identical else 'data:image/png;base64,b3JpZ2luYWw='
+                keys = [asset['asset_key'] for asset in service.put_media_asset_list(
+                    [result, original], 'workflow-operation', owner_id)]
+                workflow = {'workflowId': 'workflow', 'mediaOwnershipRevision': 1, 'nodes': [{
+                    'id': 'retouch', 'type': 'ProductRetouch', 'mediaAssetKeys': keys[:1],
+                    'productRetouchComparison': {'resultAssetKey': keys[0], 'originalAssetKey': keys[1]},
+                    'data': {'mediaOwnershipTemporaryOwners': [{'ownerId': owner_id, 'assetKeys': keys}]},
+                }]}
+                self.assertEqual({'completed': 1, 'unresolved': 0},
+                                 service.recover_workflow_operation_owners([workflow]))
+                owner = service.get_media_owner_reference_list('workflow', 'workflow-node', 'retouch')
+                self.assertEqual(keys, owner['assetKeys'])
+                self.assertEqual(keys, service._workflow_media_references([workflow])[0]['assetKeys'])
+                with service._connect() as database:
+                    self.assertEqual(0, database.execute('''SELECT COUNT(*) FROM media_asset_refs
+                        WHERE owner_type='workflow-operation' AND owner_id=?''', (owner_id,)).fetchone()[0])
+
+                workflow['nodes'][0]['productRetouchComparison']['resultAssetKey'] = 'media:previous'
+                self.assertEqual(keys[:1], service._workflow_media_references([workflow])[0]['assetKeys'])
+
     def test_startup_retains_unassociated_operation_owner(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)

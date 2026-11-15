@@ -40,6 +40,7 @@ import { serializeConnection } from '../../canvas/connection-snapshot.js';
 import { applyWorkflowPersistenceExtensions } from '../../nodes/node-persistence-extensions.js';
 import { remapCopiedPromptImageMentions } from '../../nodes/prompt-image-mentions.js';
 import { createLegacyMediaMigrationCoordinator } from '../media/legacy-media-migration.js';
+import { readProductRetouchComparison } from '../product-retouch/product-retouch-comparison.js';
 import {
     createMediaOwnershipCoordinator,
     getPromptAgentResultRuns,
@@ -101,11 +102,13 @@ export function createWorkflowManagerApi({
     putMediaAsset = async () => null,
     getImageAsset = async () => null,
     getImageAssetList = async () => [],
+    mediaAssetExists = async () => true,
     deleteImageAsset = async () => false,
     clearUndoStack = () => {},
     updateCacheUsage = () => {},
     recordWorkflowDiagnostic = async () => {},
     onWorkflowViewApplied = () => {},
+    onRetouchComparisonRemoved = () => {},
     onWorkflowReleased = () => {},
     getPromptAgentState = () => null,
     applyPromptAgentState = () => {},
@@ -139,7 +142,9 @@ export function createWorkflowManagerApi({
             const importKey = ownerType === 'workflow-import'
                 ? (node?.imageImportAssetKey || node?.data?.imageImportAssetKey || '')
                 : '';
-            const keys = mediaKeys?.length > 0 ? mediaKeys : [importKey];
+            const comparison = readProductRetouchComparison(node);
+            const keys = comparison ? [comparison.resultAssetKey, comparison.originalAssetKey]
+                : mediaKeys?.length > 0 ? mediaKeys : [importKey];
             for (const key of new Set(keys.filter((key) => typeof key === 'string' && key.startsWith('media:')))) {
                 if (!await referenceMediaAsset(ownerType, `${workflowId}:${node.id}`, key)) {
                     await Promise.all(appliedRefs.map(({ ownerType: appliedOwnerType, ownerId, assetKey }) =>
@@ -680,6 +685,39 @@ export function createWorkflowManagerApi({
         return next;
     }
 
+    async function checkRetouchComparisonOriginals(workflow) {
+        const visible = workflow.workflowId === getActiveWorkflowId();
+        const reads = new Map();
+        const candidates = [];
+        for (const savedNode of workflow.nodes || []) {
+            const pair = readProductRetouchComparison(savedNode);
+            if (!pair || pair.originalAssetKey === pair.resultAssetKey) continue;
+            if (!reads.has(pair.originalAssetKey)) {
+                reads.set(pair.originalAssetKey, Promise.resolve().then(() => mediaAssetExists(pair.originalAssetKey)).catch(() => undefined));
+            }
+            const liveNode = visible ? state.nodes.get(savedNode.id) : null;
+            const livePair = readProductRetouchComparison(liveNode);
+            const liveComparison = livePair?.originalAssetKey === pair.originalAssetKey && livePair.resultAssetKey === pair.resultAssetKey
+                ? liveNode.data?.productRetouchComparison : null;
+            candidates.push({ savedNode, liveNode, liveComparison, pair, read: reads.get(pair.originalAssetKey) });
+        }
+        const missing = await Promise.all(candidates.map(async (candidate) => (await candidate.read === false ? candidate : null)));
+        return new Map(missing.filter(Boolean).map(candidate => [candidate.savedNode, candidate]));
+    }
+
+    function omitMissingRetouchComparisons(nodes, missing) {
+        return nodes.map(node => {
+            if (!missing.has(node)) return node;
+            const clean = { ...node };
+            delete clean.productRetouchComparison;
+            if (Object.hasOwn(clean.data || {}, 'productRetouchComparison')) {
+                clean.data = { ...clean.data };
+                delete clean.data.productRetouchComparison;
+            }
+            return clean;
+        });
+    }
+
     async function persistWorkflowFile(name, data, { returnOutcome = false } = {}) {
         const migrationKey = data?.workflowId || '';
         let migration = pendingLegacyMediaMigrations.get(migrationKey) || null;
@@ -690,7 +728,10 @@ export function createWorkflowManagerApi({
                 throw new Error('媒体存储版本已变化，请重新确认操作');
             }
             migration ||= await legacyMediaMigration.stageWorkflow(data);
-            let preparedWorkflow = prepareWorkflowMediaOwnershipCommit(data);
+            const savedNodes = data.nodes;
+            const missingComparisons = await checkRetouchComparisonOriginals(data);
+            const documentData = missingComparisons.size ? { ...data, nodes: omitMissingRetouchComparisons(savedNodes, missingComparisons) } : data;
+            let preparedWorkflow = prepareWorkflowMediaOwnershipCommit(documentData);
             data.mediaOwnershipRevision = preparedWorkflow.mediaOwnershipRevision;
             let result = await saveWorkflowToFileService(name, stripInlineImagesFromWorkflowData(preparedWorkflow), {
                 expectedMediaOwnershipRevision: Number(previousMediaOwnershipRevision || 0),
@@ -705,7 +746,7 @@ export function createWorkflowManagerApi({
                     && Number.isInteger(persistedRevision) && persistedRevision >= 0) {
                     const attemptedRevision = preparedWorkflow.mediaOwnershipRevision;
                     preparedWorkflow = prepareWorkflowMediaOwnershipCommit({
-                        ...data, mediaOwnershipRevision: persistedRevision
+                        ...documentData, mediaOwnershipRevision: persistedRevision
                     });
                     // Carry only restore intents that belonged to this write onto its retried revision.
                     if (Array.isArray(preparedWorkflow.mediaOwnershipRestoreOwnerIds)) {
@@ -738,6 +779,17 @@ export function createWorkflowManagerApi({
                 return returnOutcome ? { ok: false, documentPersisted: false, error } : false;
             }
             documentPersisted = true;
+            if (missingComparisons.size && data.nodes === savedNodes) data.nodes = documentData.nodes;
+            if (data.workflowId === getActiveWorkflowId()) {
+                for (const { liveNode, liveComparison, pair } of missingComparisons.values()) {
+                    if (!liveComparison || state.nodes.get(liveNode.id) !== liveNode
+                        || liveNode.data?.productRetouchComparison !== liveComparison) continue;
+                    const currentPair = readProductRetouchComparison(liveNode);
+                    if (currentPair?.originalAssetKey !== pair.originalAssetKey || currentPair.resultAssetKey !== pair.resultAssetKey) continue;
+                    delete liveNode.data.productRetouchComparison;
+                    onRetouchComparisonRemoved(liveNode.id);
+                }
+            }
             if (preparedWorkflow.mediaOwnershipRestoreOwnerIds) {
                 data.mediaOwnershipRestoreOwnerIds = preparedWorkflow.mediaOwnershipRestoreOwnerIds;
             }

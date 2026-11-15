@@ -23,6 +23,32 @@ test('mixed Save owners retain ordered image and video assets without duplicatin
     ]);
 });
 
+test('retouch promotes both matching assets while output snapshots retain one image', async () => {
+    for (const originalAssetKey of ['media:original', 'media:result']) {
+        const resultAssetKey = 'media:result', assetKeys = [resultAssetKey, originalAssetKey];
+        const node = { id: 'retouch', type: 'ProductRetouch', mediaAssetKeys: [resultAssetKey],
+            productRetouchComparison: { originalAssetKey, resultAssetKey },
+            data: { mediaOwnershipTemporaryOwners: [{ ownerId: 'operation', assetKeys }] } };
+        const workflow = { workflowId: 'workflow', mediaOwnershipRevision: 1, nodes: [node] };
+        const calls = [];
+        const committer = createWorkflowMediaOwnershipCommitter({
+            getStorageSafetyStatus: async () => ({ storageEpoch: 'epoch' }),
+            recordMediaWorkflowRevision: async (_id, _revision, _epoch, owners) => {
+                assert.deepEqual(owners, [{ ownerType: 'workflow-node', ownerId: 'retouch', assetKeys }]);
+                return true;
+            },
+            getMediaOwnerReferenceList: async () => null,
+            replaceMediaOwnerReferenceList: async (request) => (calls.push(['promote', request.assetKeys]), { status: 'committed' }),
+            removeMediaReference: async (_type, _owner, key) => (calls.push(['release', key]), true)
+        });
+        assert.equal(await committer.commitPersistedWorkflow(workflow), true);
+        assert.deepEqual(calls, [['promote', assetKeys], ...[...new Set(assetKeys)].map(key => ['release', key])]);
+        assert.deepEqual(node.mediaAssetKeys, [resultAssetKey]);
+        node.productRetouchComparison.resultAssetKey = 'media:previous';
+        assert.deepEqual(collectWorkflowMediaOwnerLists(workflow)[0].assetKeys, [resultAssetKey]);
+    }
+});
+
 test('Agent archived and current results retain ordered independent owners after source deletion', async () => {
     const calls = [];
     const old = { runId: 'old', mediaAssetKeys: ['media:a', 'media:a'] };

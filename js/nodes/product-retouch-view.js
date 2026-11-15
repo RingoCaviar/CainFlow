@@ -1,6 +1,8 @@
 import { getProductRetouchModelOptions, normalizeProductRetouchSettings } from '../features/product-retouch/product-retouch-settings.js';
+import { readProductRetouchComparison } from '../features/product-retouch/product-retouch-comparison.js';
 import { getCanonicalImageList } from '../features/execution/execution-data-utils.js';
 import { projectImageReferences } from './image-reference-projection.js';
+import { createProductRetouchComparison, renderProductRetouchComparison } from './product-retouch-comparison-view.js';
 
 const photoIcon = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m3 16 5-5 5 5 3-3 5 5"/><circle cx="16" cy="9" r="1"/></svg>';
 const uploadIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m-4 4 4-4 4 4M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>';
@@ -10,7 +12,7 @@ let viewId = 0;
 
 export function renderProductRetouchBody() {
     return `<div class="product-retouch-card">
-        <button type="button" class="product-retouch-card-preview" aria-label="查看精修结果" data-node-read-action hidden><img alt="精修结果"></button>
+        ${renderProductRetouchComparison()}
         <div class="product-retouch-card-empty"><span>${retouchIcon}</span><strong>产品精修</strong><small>连接或上传商品参考图</small></div>
     </div>`;
 }
@@ -32,7 +34,6 @@ export function createProductRetouchView({
 }) {
     const panelId = `retouch-${++viewId}`;
     const card = node.el.querySelector('.product-retouch-card');
-    const cardPreview = card.querySelector('.product-retouch-card-preview');
     const emptyCard = card.querySelector('.product-retouch-card-empty');
     const element = documentRef.createElement('div');
     element.className = 'product-retouch-settings';
@@ -70,13 +71,19 @@ export function createProductRetouchView({
                 <label>供应商<select data-retouch-field="providerId"></select></label>
             </div>
             <button type="button" class="product-retouch-link" data-retouch-action="configure">打开模型设置</button>
-        </details>
-        <button type="button" class="product-retouch-link product-retouch-result-link" data-retouch-action="preview-result" data-node-read-action hidden>查看精修结果</button>`;
+        </details>`;
     const actions = documentRef.createElement('div');
     actions.className = 'product-retouch-footer';
     actions.innerHTML = `<p role="status"></p>
+        <p data-retouch-comparison-status hidden>该结果没有可用的对照原图 <button type="button" class="product-retouch-link" data-retouch-retry-original data-node-read-action hidden>重新读取</button></p>
         <button type="button" class="product-retouch-link" data-retouch-action="error" data-node-read-action hidden>查看错误详情</button>
-        <button type="button" class="btn btn-primary product-retouch-run" data-retouch-action="run" data-node-read-action>${retouchIcon}<span>开始精修</span></button>`;
+        <div class="product-retouch-footer-actions">
+            <button type="button" class="product-retouch-inspect" aria-haspopup="dialog" data-retouch-action="preview-result" data-retouch-inspect data-node-read-action hidden>查看精修结果</button>
+            <button type="button" class="btn btn-primary product-retouch-run" data-retouch-action="run" data-node-read-action>${retouchIcon}<span>开始精修</span></button>
+        </div>`;
+    const comparison = createProductRetouchComparison({ card, documentRef, openResultPreview,
+        inspect: actions.querySelector('[data-retouch-inspect]'), hint: actions.querySelector('[data-retouch-comparison-status]') });
+    (node.el._cleanupFns ||= []).push(comparison.destroy);
     const controls = [...element.querySelectorAll('[data-retouch-field]')];
     const model = element.querySelector('.product-retouch-model');
     const modelSelect = model.querySelector('[data-retouch-field="modelId"]');
@@ -88,7 +95,6 @@ export function createProductRetouchView({
     const sourceStatus = sourceCopy.querySelector('span');
     const sourceIcon = source.querySelector('.product-retouch-source-icon');
     const sourcePreview = source.querySelector('[data-retouch-action="preview-source"]');
-    const resultPreview = element.querySelector('[data-retouch-action="preview-result"]');
     const fileInput = source.querySelector('[data-retouch-upload]');
     const uploadButton = source.querySelector('[data-retouch-action="upload"]');
     const connections = element.querySelector('.product-retouch-connections');
@@ -98,10 +104,10 @@ export function createProductRetouchView({
     const errorButton = actions.querySelector('[data-retouch-action="error"]');
     const optionKeys = new WeakMap();
     let activeEdge = null;
-    let resultUrl = '';
     let uploading = false;
     let starting = false;
     let localMessage = '';
+    let previousRunStatus = node.runStatus;
     connections.append(inputDetails);
 
     const setText = (target, value) => { if (target.textContent !== value) target.textContent = value; };
@@ -165,10 +171,13 @@ export function createProductRetouchView({
         }
 
         const missingResult = node.data.mediaIntegrity?.state === 'missing' || node.data.mediaIntegrity?.missingItems?.length > 0;
-        resultUrl = missingResult ? '' : imageUrl(getCanonicalImageList(node)[0], node.data.mediaAssetKeys?.[0]);
-        updatePreview(cardPreview, resultUrl);
+        const pair = readProductRetouchComparison(node);
+        const resultUrl = missingResult ? '' : imageUrl(pair ? '' : getCanonicalImageList(node)[0],
+            pair?.resultAssetKey || node.data.mediaAssetKeys?.[0]);
+        const originalUrl = resultUrl && imageUrl('', pair?.originalAssetKey);
+        comparison.update(resultUrl, originalUrl, node.runStatus === 'completed' && previousRunStatus !== 'completed');
+        previousRunStatus = node.runStatus;
         emptyCard.hidden = !!resultUrl;
-        resultPreview.hidden = !resultUrl;
         runButton.disabled = !available || !validSource || !options.ready;
         setText(runLabel, running ? '精修中…' : resultUrl ? '重新精修' : '开始精修');
         const failure = node.runStatus === 'error' || node.isFailed === true;
@@ -213,11 +222,6 @@ export function createProductRetouchView({
     sourcePreview.addEventListener('click', () => {
         if (activeEdge) openReferencePreview(activeEdge, () => sourcePreview.focus({ preventScroll: true }));
     });
-    for (const button of [cardPreview, resultPreview]) {
-        button.addEventListener('click', () => {
-            if (resultUrl) openResultPreview([resultUrl], 0, () => button.focus({ preventScroll: true }));
-        });
-    }
     model.querySelector('[data-retouch-action="configure"]').addEventListener('click', () => {
         const { modelId, providerId } = settings();
         openModelSettings({ taskType: 'image', modelId, providerId, onClose: refresh });

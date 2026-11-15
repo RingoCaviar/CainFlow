@@ -1,6 +1,6 @@
 import { isImageFirstCardNode } from './image-first-presentation.js';
 
-const surfaces = '.image-node-result-preview, .file-drop-zone, .preview-container, .save-preview-container, .image-compare-container, .camera-control-node-preview, .commerce-image-set-card, .product-retouch-card';
+const surfaces = '.image-node-result-preview, .file-drop-zone, .preview-container, .save-preview-container, .image-compare-container, .camera-control-node-preview, .commerce-image-set-card, .product-retouch-compare-stage';
 const mediaSelector = surfaces.split(', ').map(surface => `${surface} img, ${surface} video`).join(', ');
 const mediaEvents = ['load', 'error', 'loadedmetadata', 'resize'];
 const activeSurfaces = new WeakMap();
@@ -15,6 +15,7 @@ export function syncNodeMediaAspect(node) {
     for (const media of candidates) {
         if (!['IMG', 'VIDEO'].includes(media.tagName)) continue;
         if (node.type === 'ImageCompare' && !media.classList.contains('image-compare-b')) continue;
+        if (node.type === 'ProductRetouch' && !media.hasAttribute('data-retouch-result')) continue;
         if (media.error || media.closest('[hidden], .hidden') || !media.getClientRects().length) continue;
         const width = media.videoWidth || media.naturalWidth;
         const height = media.videoHeight || media.naturalHeight;

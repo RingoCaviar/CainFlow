@@ -1,10 +1,11 @@
 import { createMediaOwnershipTransition } from './media-ownership-transition.js';
+import { readProductRetouchComparison } from '../product-retouch/product-retouch-comparison.js';
 
 const MEDIA_OWNER_TYPES = Object.freeze({
     ImageImport: 'workflow-import'
 });
 const MEDIA_OWNER_NODE_TYPES = new Set([
-    'ImageGenerate', 'ImagePreview', 'ImageImport', 'ImageResize', 'ImageSave', 'ImageCompare', 'ImageMerge', 'VideoGenerate'
+    'ImageGenerate', 'ImagePreview', 'ImageImport', 'ImageResize', 'ImageSave', 'ImageCompare', 'ImageMerge', 'VideoGenerate', 'ProductRetouch'
 ]);
 
 function readMediaAssetKeys(node) {
@@ -14,6 +15,8 @@ function readMediaAssetKeys(node) {
     const importKey = node?.imageImportAssetKey || node?.data?.imageImportAssetKey;
     const result = [...keys, ...(keys.length === 0 && importKey ? [importKey] : [])]
         .filter((key) => typeof key === 'string' && key.startsWith('media:'));
+    const comparison = readProductRetouchComparison(node);
+    if (comparison) result.push(comparison.originalAssetKey);
     const videos = node?.data?.videos ?? node?.videos;
     const single = node?.data?.video ?? node?.video;
     const videoKeys = (Array.isArray(videos) && videos.length ? videos.map(video => video?.assetKey)
@@ -82,7 +85,7 @@ export function createWorkflowMediaOwnershipCommitter({
     const transition = createMediaOwnershipTransition({
         replaceOwnerReferenceList: replaceMediaOwnerReferenceList,
         releaseTemporaryOwner: async ({ owner, nextAssetKeys }) => {
-            const results = await Promise.all((nextAssetKeys || []).map((assetKey) => (
+            const results = await Promise.all([...new Set(nextAssetKeys || [])].map((assetKey) => (
                 removeMediaReference(owner.ownerType, owner.ownerId, assetKey)
             )));
             return { status: results.every(Boolean) ? 'committed' : 'needs-reconciliation' };
