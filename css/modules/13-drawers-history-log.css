@@ -1230,16 +1230,34 @@ body:has(#toolbar [aria-expanded="true"]:not(#btn-prompt-agent)) .help-panel {
 
 :is(.history-delete-progress, .history-download-progress) {
     width: min(380px, calc(100vw - 48px));
+    margin: auto;
     padding: 24px;
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--dialog-border);
     border-radius: 12px;
-    background: var(--bg-panel, #18202e);
-    color: var(--text-primary);
-    box-shadow: 0 16px 48px #0006;
+    background: var(--dialog-surface);
+    color: var(--dialog-text);
+    box-shadow: var(--dialog-shadow);
 }
-:is(.history-delete-progress, .history-download-progress)::backdrop { background: #0007; }
+:is(.history-delete-progress, .history-download-progress)::backdrop { background: var(--dialog-backdrop); }
 :is(.history-delete-progress, .history-download-progress) h3 { margin: 0 0 16px; font-size: 16px; }
-:is(.history-delete-progress, .history-download-progress) p { margin: 10px 0; font-size: 13px; }
-:is(.history-delete-progress, .history-download-progress) progress { width: 100%; height: 12px; accent-color: var(--accent-color, #7c83ff); }
-:is(.history-delete-progress, .history-download-progress) button { display: block; margin: 20px 0 0 auto; padding: 7px 20px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-node); color: var(--text-primary); }
+:is(.history-delete-progress, .history-download-progress) p { margin: 10px 0; font-size: 13px; color: var(--dialog-muted-text); }
+:is(.history-delete-progress, .history-download-progress) progress { width: 100%; height: 12px; accent-color: var(--panel-accent-text); }
+:is(.history-delete-progress, .history-download-progress) button {
+    display: block;
+    margin: 20px 0 0 auto;
+    padding: 7px 20px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--button-edge);
+    background: var(--panel-control-bg);
+    color: inherit;
+}
+:is(.history-delete-progress, .history-download-progress) button:hover:not(:disabled) {
+    border-color: var(--button-edge-hover);
+    background: var(--panel-control-hover-bg);
+    cursor: pointer;
+}
+:is(.history-delete-progress, .history-download-progress) button:focus-visible {
+    outline: 2px solid var(--menu-focus-ring);
+    outline-offset: 2px;
+}
 :is(.history-delete-progress, .history-download-progress) button:disabled { opacity: .45; }
