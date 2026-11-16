@@ -9,6 +9,7 @@
 
 .product-retouch-compare-stage {
     --retouch-visible-original-share: var(--retouch-original-share, 50%);
+    --retouch-compare-handle-size: 32px;
     position: relative;
     width: 100%;
     overflow: hidden;
@@ -112,8 +113,8 @@
     position: absolute;
     top: 50%;
     left: 50%;
-    width: 32px;
-    height: 32px;
+    width: var(--retouch-compare-handle-size, 32px);
+    height: var(--retouch-compare-handle-size, 32px);
     place-items: center;
     transform: translate(-50%, -50%);
     border: 1px solid var(--node-control-border);
@@ -122,17 +123,39 @@
     background: var(--surface-panel-strong);
 }
 
-.product-retouch-compare-stage input[type="range"] {
+.product-retouch-compare-stage [data-retouch-compare-slider] {
+    appearance: none;
     position: absolute;
-    inset: 50% 0 auto;
-    width: 100%;
-    height: 44px;
+    /* A half-thumb overhang at each end aligns the native travel with the divider. */
+    inset: 50% auto auto calc(var(--retouch-compare-handle-size) / -2);
+    width: calc(100% + var(--retouch-compare-handle-size));
+    height: var(--retouch-compare-handle-size);
     margin: 0;
     padding: 0;
+    border: 0;
     opacity: 0;
     transform: translateY(-50%);
     cursor: ew-resize;
     direction: rtl;
+    pointer-events: none;
+    touch-action: none;
+}
+
+.product-retouch-compare-stage [data-retouch-compare-slider]::-webkit-slider-thumb {
+    appearance: none;
+    width: var(--retouch-compare-handle-size);
+    height: var(--retouch-compare-handle-size);
+    clip-path: circle(50%);
+    pointer-events: auto;
+}
+
+.product-retouch-compare-stage [data-retouch-compare-slider]::-moz-range-thumb {
+    box-sizing: border-box;
+    width: var(--retouch-compare-handle-size);
+    height: var(--retouch-compare-handle-size);
+    border: 0;
+    clip-path: circle(50%);
+    pointer-events: auto;
 }
 
 .product-retouch-compare-stage:has(input:focus-visible) .product-retouch-compare-divider > span {

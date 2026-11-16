@@ -17,6 +17,7 @@ const analysisPrompt = `${analysisDetails} [data-retouch-analysis-prompt]`;
 const copyAnalysis = `${panel} [data-retouch-action=copy-analysis]`;
 const compareStage = '#retouch .product-retouch-compare-stage';
 const compareSlider = '#retouch [data-retouch-compare-slider]';
+const compareHandle = `${compareStage} .product-retouch-compare-divider > span`;
 const cardPreview = `${compareStage} .product-retouch-card-preview`;
 const compareDialog = '.product-retouch-compare-dialog[role="dialog"]';
 const dialogFrame = `${compareDialog} [data-retouch-dialog-frame]`;
@@ -145,15 +146,16 @@ async function comparisonImageColors(app, view) {
     return sampleRenderedImageColors(app, image);
 }
 
-async function dragComparisonDivider(app, slider) {
+async function dragComparisonDivider(app, slider, { marker = slider, frame = slider, gripOffset = 0, target = 0.72 } = {}) {
     const { x, y, endX } = await app.evaluate(`(() => {
-        const { x, y, width, height } = document.querySelector('${slider}').getBoundingClientRect();
-        return { x: x + width / 2, y: y + height / 2, endX: x + width * 0.72 };
+        const handle = document.querySelector('${marker}').getBoundingClientRect();
+        const { left, width } = document.querySelector('${frame}').getBoundingClientRect();
+        return { x: handle.x + handle.width / 2 + ${gripOffset}, y: handle.y + handle.height / 2, endX: left + width * ${target} };
     })()`);
     await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
     await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: endX, y, button: 'left', buttons: 1 });
     await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: endX, y, button: 'left', clickCount: 1 });
-    assert.ok(Number(await app.evaluate(`document.querySelector('${slider}').value`)) < 40, 'the divider follows the pointer to the right');
+    return Number(await app.evaluate(`document.querySelector('${slider}').value`));
 }
 
 function pointOnCardPreview(app) {
@@ -177,10 +179,23 @@ async function openCardPreview(app) {
     await waitForComparison(app);
 }
 
+async function clickNearCompareHandle(app, horizontalOffset) {
+    const point = await app.evaluate(`(() => {
+        const { x, y, width, height } = document.querySelector('${compareHandle}').getBoundingClientRect();
+        return { x: x + width / 2 + ${horizontalOffset}, y: y + height / 2 };
+    })()`);
+    const before = await app.evaluate(`document.querySelector('${compareSlider}').value`);
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+    await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', buttons: 1, clickCount: 1 });
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
+    assert.equal(await app.evaluate(`document.querySelector('${compareSlider}').value`), before,
+        `a click ${horizontalOffset}px from the handle center does not reposition the divider`);
+}
+
 async function verifyCardPreviewInteraction(app) {
     await nativeClick(app, closeDock);
     await app.waitFor(`document.querySelector('${panel}').hidden`);
-    await clickCardPreview(app);
+    await clickNearCompareHandle(app, 45);
     await app.waitFor(`document.querySelector('#retouch.selected') && document.querySelector('${panel}:not([hidden])[data-node-id=retouch]')`);
     assert.equal(await app.evaluate(`Boolean(document.querySelector('${compareDialog}, .fullscreen-overlay'))`), false,
         'a single click selects the retouch node without opening a preview');
@@ -190,7 +205,7 @@ async function verifyCardPreviewInteraction(app) {
     await app.waitFor(`document.querySelector('${dialogFrame}').dataset.comparison === 'split'`);
     assert.equal(await app.evaluate(`document.querySelector('${dialogSlider}').value`), '50');
     assert.deepEqual(await sampleRenderedImageColors(app, dialogFrame), [red, blue]);
-    await dragComparisonDivider(app, dialogSlider);
+    assert.ok(await dragComparisonDivider(app, dialogSlider) < 40, 'the preview divider follows the pointer to the right');
     await app.evaluate(`document.querySelector('${dialogSlider}').focus()`);
     await key(app, 'Home');
     assert.deepEqual(await sampleRenderedImageColors(app, dialogFrame), [red, red]);
@@ -583,14 +598,31 @@ test('product retouch analyzes and edits the same original in one run and preser
         await verifyCardPreviewInteraction(app);
         await verifyDoubleClickNearDock(app);
         await app.waitFor(`${comparisonMode} === 'split'`);
-        await dragComparisonDivider(app, compareSlider);
+        await clickNearCompareHandle(app, 6);
+        await zoomCanvas(app, 0.75);
+        await app.waitFor(`${comparisonMode} === 'split'`);
+        assert.ok(await app.evaluate(`(() => {
+            const { x, y, width, height } = document.querySelector('${compareHandle}').getBoundingClientRect();
+            const hitCenter = document.elementFromPoint(x + width / 2, y + height / 2);
+            const hitCorner = document.elementFromPoint(x + 1, y + 1);
+            return width >= 23 && width <= 25 && hitCenter.matches('${compareSlider}') && hitCorner.closest('${cardPreview}');
+        })()`), 'at 75% zoom, only the circle intercepts the pointer at its center and bounding-box corner');
+        const canvasDivider = { marker: compareHandle, frame: compareStage };
+        assert.ok(await dragComparisonDivider(app, compareSlider, canvasDivider) < 40, 'the canvas divider follows the visible handle');
+        await zoomCanvas(app, 1);
+        await app.waitFor(`${comparisonMode} === 'split'`);
         await app.evaluate(`document.querySelector('${compareSlider}').focus()`);
         await key(app, 'Home');
         assert.equal(await app.evaluate(`document.querySelector('${compareSlider}').value`), '0');
         assert.deepEqual(await sampleRenderedImageColors(app, compareStage), [red, red]);
+        const fromOriginal = await dragComparisonDivider(app, compareSlider, { ...canvasDivider, gripOffset: -6, target: 0.5 });
+        assert.ok(fromOriginal >= 40 && fromOriginal <= 60, 'the in-frame portion of the original endpoint handle remains draggable');
         await key(app, 'End');
         assert.equal(await app.evaluate(`document.querySelector('${compareSlider}').value`), '100');
         assert.deepEqual(await sampleRenderedImageColors(app, compareStage), [blue, blue]);
+        const fromRetouch = await dragComparisonDivider(app, compareSlider, { ...canvasDivider, gripOffset: 6, target: 0.5 });
+        assert.ok(fromRetouch >= 40 && fromRetouch <= 60, 'the in-frame portion of the retouch endpoint handle remains draggable');
+        await key(app, 'End');
         const savedDockWidth = await exerciseDockWidth(app);
 
         const sourceId = (await saved(app)).connections.find(edge => edge.to.nodeId === 'retouch' && edge.to.port === 'image').from.nodeId;

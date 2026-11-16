@@ -208,7 +208,8 @@ export function createProductRetouchComparison({ card, inspect, hint, documentRe
     function focusVisible(...candidates) {
         for (const candidate of candidates) {
             if (!candidate?.checkVisibility() || candidate.closest('[inert]')) continue;
-            if (card.contains(candidate) && !visibleOnCanvas(candidate.getBoundingClientRect())) continue;
+            const visibleTarget = candidate === slider ? stage : candidate;
+            if (card.contains(candidate) && !visibleOnCanvas(visibleTarget.getBoundingClientRect())) continue;
             candidate.focus({ preventScroll: true });
             return;
         }
