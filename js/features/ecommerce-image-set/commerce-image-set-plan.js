@@ -148,7 +148,7 @@ export function getSelectedCommerceImageSetShots(settings) {
         .map(item => ({ ...item, aspect: aspects[item.group] })) : [];
 }
 
-export function normalizeCommerceImageSetPlan(raw, platformId, selectedShotIds, settings) {
+export function normalizeCommerceImageSetPlan(raw, platformId, selectedShotIds, settings, { allowBlankPrompts = false } = {}) {
     const platform = getCommerceImageSetPreset(platformId);
     if (!platform || (raw?.platformId && raw.platformId !== platform.id) || !Array.isArray(raw?.sellingPoints) || !Array.isArray(raw?.shots)) {
         throw new Error('套图方案格式无效，请重新规划。');
@@ -166,7 +166,9 @@ export function normalizeCommerceImageSetPlan(raw, platformId, selectedShotIds, 
     const shots = selected.map(item => {
         const input = planned.get(item.id);
         const prompt = item.source === 'generate' ? text(input?.prompt, 2000) : '';
-        if (item.source === 'generate' && !prompt) throw new Error(`套图方案缺少「${item.label}」的画面说明。`);
+        if (item.source === 'generate' && !prompt && !(allowBlankPrompts && typeof input?.prompt === 'string')) {
+            throw new Error(`套图方案缺少「${item.label}」的画面说明。`);
+        }
         return { ...item, prompt,
             headline: item.allowCopy ? copyText(input?.headline, COMMERCE_IMAGE_SET_COPY_LIMITS.headline) : '',
             body: item.allowCopy ? copyText(input?.body, COMMERCE_IMAGE_SET_COPY_LIMITS.body) : '' };
@@ -194,7 +196,8 @@ export function normalizeCommerceImageSetState(raw) {
         try {
             const copyLanguage = normalizeCommerceImageSetCopyLanguage(raw.plan.copyLanguage);
             const stale = raw.plan.stale === true || copyLanguage !== settings.copyLanguage;
-            const plan = normalizeCommerceImageSetPlan(raw.plan, settings.platformId, settings.selectedShotIds, { ...settings, copyLanguage });
+            const plan = normalizeCommerceImageSetPlan(raw.plan, settings.platformId, settings.selectedShotIds,
+                { ...settings, copyLanguage }, { allowBlankPrompts: true });
             settings.plan = { ...plan, sourceKey, confirmed: raw.plan.confirmed === true && !stale, ...(stale ? { stale: true } : {}) };
         } catch { /* Invalid stored plans can be replaced by planning again. */ }
     }
@@ -203,6 +206,7 @@ export function normalizeCommerceImageSetState(raw) {
         settings.results = selected.flatMap(({ id }) => {
             const row = results.get(id);
             if (row?.status === 'failed') return [{ shotId: id, status: 'failed', error: text(row.error, 300) }];
+            if (row?.status === 'canceled') return [{ shotId: id, status: 'canceled' }];
             if (row?.status === 'completed' && /^media:[a-zA-Z0-9_-]+$/.test(row.assetKey || '')) {
                 return [{ shotId: id, status: 'completed', assetKey: row.assetKey }];
             }
@@ -210,6 +214,14 @@ export function normalizeCommerceImageSetState(raw) {
         });
     }
     return settings;
+}
+
+export function commerceImageSetPlanningSettingsKey(raw, shotId) {
+    const settings = normalizeCommerceImageSetState(raw);
+    if (!shotId) return JSON.stringify(settings);
+    const { plan, results, ...shared } = settings;
+    const shot = plan?.shots.find(item => item.id === shotId);
+    return JSON.stringify([shared, plan?.sourceKey, plan?.stale, plan?.sellingPoints, shot]);
 }
 
 function normalizeReferences(references) {

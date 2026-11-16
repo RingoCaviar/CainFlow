@@ -305,10 +305,11 @@ test('replanning a commerce shot changes only its draft and preserves existing i
 
 test('replanning validates its target and source and preserves the draft when canceled or when the response is invalid', async () => {
     const controller = new AbortController();
+    let abortRequest = false;
     const { node, execute, apiCalls } = createCommerceExecutionFixture({
-        selectedShotIds: ['main', 'angle', 'detail'], beforePlanRequest(input, signal) {
+        selectedShotIds: ['main', 'angle', 'detail'], beforePlanRequest(input) {
             if (input.shots.length !== 1) return;
-            if (signal === controller.signal) controller.abort();
+            if (abortRequest) controller.abort();
             return { sellingPoints: [], shots: [{ id: 'angle', prompt: '错误图位' }] };
         }
     });
@@ -320,6 +321,7 @@ test('replanning validates its target and source and preserves the draft when ca
     await assert.rejects(execute('replan-shot', nextReference, 'detail'), /参考图.*改变/);
     assert.equal(apiCalls.length, 1);
     await assert.rejects(execute('replan-shot', reference, 'detail'), /未知图位/);
+    abortRequest = true;
     await assert.rejects(execute('replan-shot', reference, 'detail', controller.signal), { name: 'AbortError' });
     assert.deepEqual(node.data.commerceImageSet, prior);
 });
@@ -384,7 +386,10 @@ test('regenerating a completed commerce shot replaces only its own image after a
 });
 
 test('a pending commerce shot can be generated individually and leaves the other slots pending', async () => {
-    const { node, execute, apiCalls, history } = createCommerceExecutionFixture({ selectedShotIds: ['main', 'angle', 'detail'] });
+    const { node, execute, apiCalls, history, normalizeRunOptions } = createCommerceExecutionFixture({ selectedShotIds: ['main', 'angle', 'detail'] });
+    const runOptions = { mode: 'selected-only', selectedNodeIds: [node.id], commerceNodeId: node.id, commerceAction: 'retry' };
+    assert.throws(() => normalizeRunOptions(runOptions), /需要生图的图位/);
+    assert.equal(normalizeRunOptions({ ...runOptions, commerceShotId: 'detail' }).commerceShotId, 'detail');
     await execute('plan');
     const output = await execute('retry', reference, 'detail');
     assert.deepEqual(apiCalls.slice(1).map(call => call.role), ['detail']);
@@ -393,6 +398,19 @@ test('a pending commerce shot can be generated individually and leaves the other
     assert.equal(history.length, 1);
     assert.equal(node.data.commerceImageSet.plan.confirmed, false);
     await assert.rejects(execute('generate'), /确认方案/);
+});
+
+test('an empty commerce prompt blocks only generation that includes that shot', async () => {
+    const { node, execute, apiCalls } = createCommerceExecutionFixture({ selectedShotIds: ['angle', 'detail'] });
+    await execute('plan');
+    const state = node.data.commerceImageSet;
+    state.plan.shots.find(shot => shot.id === 'detail').prompt = '';
+
+    await assert.rejects(execute('retry', reference, 'detail'), /缺少.*生图提示词/);
+    assert.equal(apiCalls.length, 1);
+    await execute('retry', reference, 'angle');
+    assert.deepEqual(apiCalls.slice(1).map(call => call.role), ['angle']);
+    assert.equal(node.data.commerceImageSet.plan.shots.find(shot => shot.id === 'detail').prompt, '');
 });
 
 test('commerce retry reports a missing sibling asset before generating or changing saved results', async () => {
@@ -531,4 +549,96 @@ test('stopping during progressive commerce generation retains the prior workflow
     assert.deepEqual(node.data.commerceImageSet.results, priorResults);
     assert.equal(node.commerceShotPreviews, undefined);
     assert.equal(history.at(-1).image, changedArtwork);
+});
+
+test('commerce shot requests can overlap and completing one preserves the other shot outputs and drafts', async () => {
+    const firstStarted = Promise.withResolvers();
+    const finishFirst = Promise.withResolvers();
+    const { node, execute, apiCalls } = createCommerceExecutionFixture({
+        selectedShotIds: ['angle', 'detail', 'scene'],
+        async beforeImageRequest(role) {
+            if (role !== 'detail') return;
+            firstStarted.resolve();
+            await finishFirst.promise;
+        },
+        beforePlanRequest(input) {
+            if (input.currentShot) return { shots: [{ id: 'scene', prompt: '清晨窗边一杯茶' }] };
+        }
+    });
+    await execute('plan');
+    const first = execute('retry', reference, 'detail');
+    try {
+        await Promise.race([firstStarted.promise, first]);
+        await execute('retry', reference, 'angle');
+        await execute('replan-shot', reference, 'scene');
+        assert.equal(node.commerceShotPreviews.detail.status, 'running');
+    } finally {
+        finishFirst.resolve();
+        await first;
+    }
+    assert.deepEqual(apiCalls.slice(1, 3).map(call => call.role), ['detail', 'angle']);
+    assert.deepEqual(node.data.commerceImageSet.results.map(row => row.shotId), ['angle', 'detail']);
+    assert.equal(node.data.commerceImageSet.plan.shots.find(shot => shot.id === 'scene').prompt, '清晨窗边一杯茶');
+});
+
+test('canceling an individual commerce generation aborts its request and leaves the sibling available', async () => {
+    const started = Promise.withResolvers();
+    let waitForCancellation = true;
+    const { node, execute, requestLogs } = createCommerceExecutionFixture({
+        selectedShotIds: ['angle', 'detail'],
+        beforeImageRequest(role, signal) {
+            if (role !== 'detail' || !waitForCancellation) return;
+            started.resolve();
+            return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+        }
+    });
+    await execute('plan');
+    const controller = new AbortController();
+    const generation = execute('retry', reference, 'detail', controller.signal);
+    try {
+        await Promise.race([started.promise, generation]);
+        await execute('retry', reference, 'angle');
+        assert.equal(node.commerceShotCancelHandlers?.get('detail')?.(), true);
+        await assert.rejects(generation, { name: 'AbortError' });
+        assert.equal(requestLogs.find(log => log.operation === 'retry' && log.shotId === 'detail')?.requestStatus, 'canceled');
+        assert.deepEqual(node.data.commerceImageSet.results.map(({ shotId, status }) => [shotId, status]),
+            [['angle', 'completed'], ['detail', 'canceled']]);
+    } finally {
+        controller.abort();
+        await assert.rejects(generation, { name: 'AbortError' });
+    }
+    waitForCancellation = false;
+    await execute('retry', reference, 'detail');
+    assert.ok(node.data.commerceImageSet.results.every(row => row.status === 'completed'));
+});
+
+test('canceling one batch shot and rerunning a finished shot can leave the remaining batch intact', async () => {
+    const detailStarted = Promise.withResolvers();
+    let angleAttempt = 0;
+    const { node, execute, apiCalls } = createCommerceExecutionFixture({
+        selectedShotIds: ['main', 'angle', 'detail', 'scene'],
+        responseImageData: role => role === 'angle' ? (++angleAttempt === 1 ? 'AgAA' : 'AwAA') : undefined,
+        beforeImageRequest(role, signal) {
+            if (role !== 'detail') return;
+            detailStarted.resolve();
+            return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+        }
+    });
+    await execute('plan');
+    node.data.commerceImageSet.plan.confirmed = true;
+    const controller = new AbortController();
+    const batch = execute('generate', reference, undefined, controller.signal);
+    try {
+        await Promise.race([detailStarted.promise, batch]);
+        await execute('retry', reference, 'angle');
+        assert.equal(node.commerceShotCancelHandlers?.get('detail')?.(), true);
+        await batch;
+        assert.deepEqual(apiCalls.slice(1).map(call => call.role), ['angle', 'detail', 'angle', 'scene']);
+        assert.deepEqual(node.data.commerceImageSet.results.map(({ shotId, status }) => [shotId, status]),
+            [['main', 'completed'], ['angle', 'completed'], ['detail', 'canceled'], ['scene', 'completed']]);
+        assert.equal(node.data.commerceImageSet.results[1].assetKey, 'media:030000');
+    } finally {
+        controller.abort();
+        await batch.catch(() => {});
+    }
 });

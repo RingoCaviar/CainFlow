@@ -259,6 +259,7 @@ const canvasPerformanceMonitor = createCanvasPerformanceMonitor({
     performProjectionStep: () => registry.connectionProjectionApi?.maintenance.runPerformanceWorkload()
 });
 const canvasBenchmarkMode = new URLSearchParams(globalThis.location?.search || '').get('benchmark') === '1';
+const commercePanelRuns = new Set();
 
 state.abortAllWorkflowRuns = (reason) => getWorkflowRuntimeManagerApi().abortAllWorkflowRuns(reason);
 applyGlobalAnimationSettingService({ state, documentRef: document });
@@ -800,11 +801,13 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
     },
     openAgent: () => promptAgentController.open(),
     openModelSettings: target => settingsControllerApi.openModelSettings(target),
-    runCurrentNode: (nodeId, { commerceAction, commerceShotId, imageRetryIndex, imageRetryBatchId } = {}) => runWorkflow({
-        mode: 'selected-only', selectedNodeIds: [nodeId],
-        ...(commerceAction ? { commerceNodeId: nodeId, commerceAction, commerceShotId } : {}),
-        ...(Number.isInteger(imageRetryIndex) ? { imageRetryNodeId: nodeId, imageRetryIndex, imageRetryBatchId } : {})
-    }, { waitForCompletion: Boolean(commerceAction) || Number.isInteger(imageRetryIndex) }),
+    runCurrentNode: (nodeId, { commerceAction, commerceShotId, imageRetryIndex, imageRetryBatchId } = {}) => commerceAction
+        ? runCommerceImageSetAction(nodeId, commerceAction, commerceShotId)
+        : runWorkflow({
+            mode: 'selected-only', selectedNodeIds: [nodeId],
+            ...(Number.isInteger(imageRetryIndex) ? { imageRetryNodeId: nodeId, imageRetryIndex, imageRetryBatchId } : {})
+        }, { waitForCompletion: Number.isInteger(imageRetryIndex) }),
+    cancelCommerceImageSet,
     waitForNodeRun: nodeId => {
         const workflowId = workflowManagerApi.getActiveWorkflowId();
         return !workflowId || getWorkflowRuntimeManagerApi().waitForNodeRun({ workflowId }, nodeId);
@@ -814,8 +817,14 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
     updateInputConnection: (id, change) => connectionsApi.updateInputConnection(id, change),
     swapInputConnections: id => connectionsApi.swapInputConnections(id),
     moveMergeInputConnection: (id, direction) => connectionsApi.moveMergeInputConnection(id, direction),
-    onSettingsChanged: id => {
+    onSettingsChanged: (id, change) => {
         const node = state.nodes.get(id);
+        const workflowId = workflowManagerApi.getActiveWorkflowId();
+        if (node?.type === 'ECommerceImageSet' && workflowId && change?.commerceShotId) {
+            getWorkflowRuntimeManagerApi().updateCommerceShotDraft(
+                { workflowId }, node, change.commerceShotId, change.commerceShotField
+            );
+        }
         if (node?.type === 'ProductRetouch' && !node.isClone) {
             nodeDomBindingsApi.syncClonesFromSource(id, registry.imageFirstCanvasApi.refreshNode);
         }
@@ -1033,36 +1042,89 @@ function resumeWorkflowNode(nodeId) {
     return runWorkflow({ mode: 'target-node', targetNodeId: nodeId }, { waitForCompletion: true, resumeNodeId: nodeId });
 }
 
-async function runWorkflow(runInput = null, { waitForCompletion = false, retainResults, configurationSnapshot, validateBeforeRun, resumeNodeId = null, captureTextResults = false } = {}) {
+function runCommerceImageSetAction(nodeId, commerceAction, commerceShotId) {
+    const node = state.nodes.get(nodeId);
+    if (node?.type !== 'ECommerceImageSet' || node.enabled === false || node.isClone) return false;
+    const controller = new AbortController();
+    const run = { workflowId: workflowManagerApi.getActiveWorkflowId() || '', node, shotId: commerceShotId, controller };
+    commercePanelRuns.add(run);
+    getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();
+    run.promise = runWorkflow({
+        mode: 'selected-only', selectedNodeIds: [nodeId],
+        commerceNodeId: nodeId, commerceAction, commerceShotId
+    }, { waitForCompletion: true, commercePanelRun: run }).finally(() => {
+        commercePanelRuns.delete(run);
+        getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();
+    });
+    return run.promise;
+}
+
+function cancelCommerceImageSet(nodeId, shotId) {
+    const workflowId = workflowManagerApi.getActiveWorkflowId();
+    if (!workflowId) return false;
+    let canceled = getWorkflowRuntimeManagerApi().cancelCommerceImageSet({ workflowId }, nodeId, shotId);
+    for (const run of commercePanelRuns) {
+        if (run.dispatched || run.workflowId !== workflowId || run.node.id !== nodeId || (shotId && shotId !== run.shotId)
+            || run.controller.signal.aborted) continue;
+        run.controller.abort('manual');
+        canceled = true;
+    }
+    if (canceled) getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();
+    return canceled;
+}
+
+async function runWorkflow(runInput = null, {
+    waitForCompletion = false, retainResults, configurationSnapshot, validateBeforeRun, resumeNodeId = null,
+    captureTextResults = false, commercePanelRun
+} = {}) {
     if (state.canvasPlanApplying || state.historyTransitionInProgress) {
         const message = state.canvasPlanApplying ? '画布方案正在应用，请稍后运行' : '画布正在撤销或重做，请稍后运行';
         if (waitForCompletion || validateBeforeRun) throw new Error(message);
         showToast(message, 'warning');
         return false;
     }
-    if (state.isRunStarting) return false;
+    const commercePanelSignal = commercePanelRun?.controller.signal;
+    const stopped = commercePanelSignal ? { started: false, executed: false, outcome: 'stopped' } : false;
+    if (state.isRunStarting && !commercePanelSignal) return false;
     const requestedWorkflowId = workflowManagerApi.getActiveWorkflowId();
-    const runStartController = new AbortController();
-    state.isRunStarting = true;
-    state.runStartController = runStartController;
-    state.runStartingWorkflowId = requestedWorkflowId;
-    getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();
+    const runStartController = commercePanelSignal ? null : new AbortController();
+    const startSignal = commercePanelSignal || runStartController.signal;
+    if (runStartController) {
+        state.isRunStarting = true;
+        state.runStartController = runStartController;
+        state.runStartingWorkflowId = requestedWorkflowId;
+        getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();
+    }
     try {
         await waitForRunStartFrame();
-        if (runStartController.signal.aborted) return false;
+        if (startSignal.aborted) return stopped;
         const workflowOptions = validateBeforeRun ? { expectedWorkflowId: requestedWorkflowId || '' } : undefined;
         if (!(await workflowManagerApi.ensureOpenWorkflow(workflowOptions))) {
             if (validateBeforeRun) throw new Error('当前工作流不可用，请重新打开后运行。');
             return false;
         }
-        if (runStartController.signal.aborted) return false;
+        if (startSignal.aborted) return stopped;
         const effectiveRequestedWorkflowId = requestedWorkflowId || workflowManagerApi.getActiveWorkflowId();
-        state.runStartingWorkflowId = effectiveRequestedWorkflowId;
+        if (runStartController) state.runStartingWorkflowId = effectiveRequestedWorkflowId;
+        if (commercePanelRun) commercePanelRun.workflowId = effectiveRequestedWorkflowId;
         await waitForPendingImageImports();
-        if (runStartController.signal.aborted) return false;
+        if (startSignal.aborted) return stopped;
         if (workflowManagerApi.getActiveWorkflowId() !== effectiveRequestedWorkflowId) {
             showToast('工作流已切换，请在目标工作流重新运行', 'warning');
             return false;
+        }
+        if (commercePanelRun) {
+            const { node } = commercePanelRun;
+            const workflow = { workflowId: effectiveRequestedWorkflowId };
+            const runtime = getWorkflowRuntimeManagerApi();
+            while (true) {
+                if (startSignal.aborted || workflowManagerApi.getActiveWorkflowId() !== workflow.workflowId
+                    || state.nodes.get(node.id) !== node || node.enabled === false) return stopped;
+                // A finished row can become actionable before its owning runtime has finished saving.
+                const settling = runtime.waitForSettlingCommerceRun(workflow, node.id, startSignal);
+                if (!settling) break;
+                if (!await settling) return stopped;
+            }
         }
         const workflowName = workflowManagerApi.getActiveWorkflowName();
         if (!workflowName) {
@@ -1070,29 +1132,37 @@ async function runWorkflow(runInput = null, { waitForCompletion = false, retainR
             return false;
         }
         const preparedWorkflowId = workflowManagerApi.getActiveWorkflowId();
+        if (commercePanelRun && state.canvasPlanApplying) throw new Error('画布方案正在应用，请稍后运行');
         if (state.historyTransitionInProgress) throw new Error('画布正在撤销或重做，请稍后运行');
         validateBeforeRun?.();
-        runInput = prepareGenerationSaveTargets({
-            state, runInput,
-            resolveExecutionPlan: (input) => getExecutionCoreApi().resolveExecutionPlan(input),
-            normalizeRunOptions: (input) => getExecutionCoreApi().normalizeRunOptions(input),
-            isWorkflowCurrent: () => workflowManagerApi.getActiveWorkflowId() === preparedWorkflowId
-        });
+        if (!commercePanelSignal) {
+            runInput = prepareGenerationSaveTargets({
+                state, runInput,
+                resolveExecutionPlan: (input) => getExecutionCoreApi().resolveExecutionPlan(input),
+                normalizeRunOptions: (input) => getExecutionCoreApi().normalizeRunOptions(input),
+                isWorkflowCurrent: () => workflowManagerApi.getActiveWorkflowId() === preparedWorkflowId
+            });
+        }
         const workflowData = workflowManagerApi.getActiveWorkflowRuntimeData?.()
             || workflowManagerApi.getActiveWorkflowSnapshot();
         const workflowId = workflowManagerApi.getActiveWorkflowId?.() || workflowData?.workflowId || '';
+        if (commercePanelRun) commercePanelRun.dispatched = true;
         // Forward the completion promise without holding the launch guard for
         // the full generation; other workflow branches can still be started.
-        return getWorkflowRuntimeManagerApi().runWorkflowInContext({ workflowName, workflowId }, workflowData, runInput, { waitForCompletion, retainResults, configurationSnapshot, resumeNodeId, captureTextResults });
+        return getWorkflowRuntimeManagerApi().runWorkflowInContext({ workflowName, workflowId }, workflowData, runInput, {
+            waitForCompletion, retainResults, configurationSnapshot, resumeNodeId, captureTextResults, commercePanelSignal
+        });
     } catch (error) {
         showToast(error?.message || '无法启动工作流', 'warning');
         if (waitForCompletion || validateBeforeRun) throw error;
         return false;
     } finally {
-        state.isRunStarting = false;
-        state.runStartController = null;
-        state.runStartingWorkflowId = null;
-        getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();
+        if (runStartController) {
+            state.isRunStarting = false;
+            state.runStartController = null;
+            state.runStartingWorkflowId = null;
+            getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();
+        }
     }
 }
 
@@ -1961,6 +2031,7 @@ function getWorkflowRuntimeManagerApi() {
     if (!registry.workflowRuntimeManagerApi) {
         registry.workflowRuntimeManagerApi = createWorkflowRuntimeManager({
             state,
+            commercePanelRuns,
             referenceImageCatalog,
             nodeConfigs: NODE_CONFIGS,
             createNodeMarkup,
@@ -2353,6 +2424,7 @@ installSessionPersistenceOnExit({
 });
 window.cainflowPrepareExit = createDesktopExit({
     hasRunningTasks: () => state.isRunning || state.isRunStarting || state.activeRunCount > 0
+        || commercePanelRuns.size > 0
         || state.runningNodeIds.size > 0 || state.canvasPlanApplying || promptAgentController.hasRunningTasks()
         || registry.conversationExecutionServiceApi?.hasRunningTasks()
         || registry.conversationImageGenerationServiceApi?.hasRunningTasks(),

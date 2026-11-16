@@ -36,7 +36,7 @@ const emptyPreviewMessages = new Set(['无输入图片', '无输入视频', '运
 
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
-    runCurrentNode, waitForNodeRun, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
+    runCurrentNode, waitForNodeRun, cancelCommerceImageSet, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
     panelManager = null, openModelSettings = () => {}, openResultPreview = () => {},
     openShotError = () => {}, openNodeFailureLog = () => false, openReferencePreview = null, bindReferencePrompt = null,
     uploadRetouchReference, onNativeClipboardWrite }) {
@@ -870,8 +870,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const commerce = createCommerceImageSetView({
             node, state, documentRef, openResultPreview, openShotError, bindReferencePrompt,
             run: (commerceAction, commerceShotId) => runCurrentNode(node.id, { commerceAction, commerceShotId }),
-            waitForNodeRun: () => waitForNodeRun(node.id),
-            onChange: () => onSettingsChanged(node.id)
+            cancel: commerceShotId => cancelCommerceImageSet(node.id, commerceShotId),
+            onChange: change => onSettingsChanged(node.id, change)
         });
         (node.el._cleanupFns ||= []).push(commerce.destroy);
         const references = documentRef.createElement('section');

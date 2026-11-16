@@ -149,6 +149,17 @@ test('loading a pre-selection workflow preserves the approved set and its origin
     assert.equal(normalizeCommerceImageSetState({ ...loaded, selectedShotIds }).plan, null);
 });
 
+test('restoring a draft allows a cleared prompt while planner responses and missing shot drafts are rejected', async () => {
+    const selectedShotIds = ['detail', 'feature'];
+    const raw = { sellingPoints: [], shots: [{ id: 'detail', prompt: '' }, { id: 'feature', prompt: '展示杯柄' }] };
+    const saved = { ...settings, selectedShotIds, plan: { ...raw, version: 1, sourceKey: 'saved-key' } };
+    const restored = normalizeCommerceImageSetState(JSON.parse(JSON.stringify(saved)));
+    assert.deepEqual(restored.plan?.shots.map(({ id, prompt }) => [id, prompt]), [['detail', ''], ['feature', '展示杯柄']]);
+    assert.throws(() => normalizeCommerceImageSetPlan(raw, 'amazon', selectedShotIds), /缺少.*画面说明/);
+    assert.equal(normalizeCommerceImageSetState({ ...saved, plan: { ...saved.plan, shots: raw.shots.slice(1) } }).plan, null);
+    assert.equal(normalizeCommerceImageSetState({ ...saved, plan: { ...saved.plan, shots: [{ id: 'detail' }, raw.shots[1]] } }).plan, null);
+});
+
 test('platform slots reject an unexpected AI-generated shot and retain real-product first images', () => {
     for (const id of ['taobao', 'jd', 'pinduoduo', 'douyin', 'amazon']) {
         const platform = COMMERCE_IMAGE_SET_PRESETS[id];

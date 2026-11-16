@@ -527,7 +527,10 @@ export function createWorkflowRunnerApi({
         const selector = 'input, select, textarea, button:not(.node-run-cancel-btn, [data-parameter-group-toggle], [data-node-read-action])';
         const controls = new Set(node.el.querySelectorAll(selector));
         node.parameterRoot?.querySelectorAll(selector).forEach(control => controls.add(control));
-        controls.forEach(control => setControlRunningLock(control, locked));
+        controls.forEach(control => {
+            if (node.type === 'ECommerceImageSet' && control.closest('.commerce-image-set-settings, .commerce-image-set-footer')) return;
+            setControlRunningLock(control, locked);
+        });
     }
 
     function markNodeRunning(nodeId, node) {
@@ -2434,6 +2437,29 @@ export function createWorkflowRunnerApi({
         return resumeMediaNodeBranch(nodeId, 'ImageGenerate', resumeAsyncImageGeneration, '图片', options);
     }
 
+    async function runCommerceShot(plan, { signal } = {}) {
+        const node = state.nodes.get(plan.commerceNodeId);
+        if (node?.type !== 'ECommerceImageSet' || node.enabled === false || node.isClone
+            || !plan.commerceShotId || !['retry', 'replan-shot'].includes(plan.commerceAction)) {
+            return { started: false, executed: false, reason: 'no-plan' };
+        }
+        if (signal?.aborted) return { started: false, executed: false, outcome: 'stopped' };
+        const controller = new AbortController();
+        const linkedAbort = createLinkedAbortSignal([signal, controller.signal]);
+        const timeout = startNodeRunTimeout(node, controller);
+        try {
+            const inputs = await collectInputsForNode(plan, node.id);
+            await executeNodeWithInputBatches(node, inputs, linkedAbort.signal, plan.inputConnectionsByNode[node.id], plan);
+            return { started: true, executed: true, outcome: 'completed' };
+        } catch (error) {
+            if (isAbortLikeError(error) && !timeout.didTimeout()) return { started: true, executed: true, outcome: 'stopped' };
+            return { started: true, executed: true, outcome: 'failed', error: normalizeNodeRunError(error, timeout, node).message };
+        } finally {
+            timeout.clear();
+            linkedAbort.cleanup();
+        }
+    }
+
     async function runWorkflow(runInput = null, { signal } = {}) {
         void globalThis.__cainflowDesktop?.clearTaskbarStatus();
         const stoppedBeforeStart = { started: false, executed: false, reason: 'stopped-before-start', outcome: 'stopped' };
@@ -2813,6 +2839,10 @@ export function createWorkflowRunnerApi({
                                 } catch (caughtError) {
                                     const err = normalizeNodeRunError(caughtError, nodeTimeout, node);
                                     if (isAbortLikeError(err)) {
+                                        if (plan.commerceNodeId === nid && node.commerceShotTasks?.[plan.commerceShotId] === 'canceled') {
+                                            session.abortReason = 'manual';
+                                            session.controller.abort();
+                                        }
                                         if (runInput?.agentSequential) session.stopped = true;
                                         node.runStartedAt = null;
                                         clearNodeRunning(nid, node, { status: 'aborted' });
@@ -3009,6 +3039,7 @@ export function createWorkflowRunnerApi({
     return {
         runWorkflow,
         cancelRunningNode,
+        runCommerceShot,
         resumeVideoNodeBranch,
         resumeImageNodeBranch,
         focusNode: (nodeId) => focusCanvasNode(nodeId)

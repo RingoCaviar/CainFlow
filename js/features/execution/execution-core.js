@@ -58,6 +58,7 @@ import { sanitizeRequestUrl } from '../../services/api-client.js';
 import {
     analyzeCommerceImageSetProduct,
     buildCommerceImageSetImagePrompt,
+    commerceImageSetPlanningSettingsKey,
     commerceImageSetSourceKey,
     createCommerceImageSetPlan,
     normalizeCommerceImageSetState
@@ -119,6 +120,8 @@ export function createExecutionCoreApi({
     getImageHistorySidebarActive = () => false
 }) {
     const sceneReferenceImages = new Map();
+    const commerceBatches = new WeakMap();
+    const commercePublications = new WeakMap();
 
     function canCaptureSceneReference(source) {
         return source.sourceNodeId && !source.connectionId && (!source.workflowId || source.workflowId === getActiveWorkflowId());
@@ -938,6 +941,9 @@ export function createExecutionCoreApi({
         }
         if (commerceAction === 'replan-shot' && (!commerceTargeted || typeof runInput.commerceShotId !== 'string' || !runInput.commerceShotId)) {
             throw new Error('请选择一个需要重新规划的图位。');
+        }
+        if (commerceAction === 'retry' && (!commerceTargeted || typeof runInput.commerceShotId !== 'string' || !runInput.commerceShotId)) {
+            throw new Error('请选择一个需要生图的图位。');
         }
         const { imageRetryNodeId, imageRetryIndex, imageRetryBatchId } = runInput;
         const imageRetry = imageRetryNodeId !== undefined || imageRetryIndex !== undefined || imageRetryBatchId !== undefined;
@@ -1841,194 +1847,343 @@ export function createExecutionCoreApi({
         return entries.flatMap(([, value]) => normalizeImageList(value));
     }
 
-    async function executeCommerceImageSet(node, inputs, signal, { commerceAction = 'generate', commerceShotId } = {}) {
-        signal?.throwIfAborted();
+    async function executeCommerceImageSet(node, inputs, parentSignal, { commerceAction = 'generate', commerceShotId } = {}) {
+        parentSignal?.throwIfAborted();
         const settings = normalizeCommerceImageSetState(node.data?.commerceImageSet);
-        const sourceImages = normalizeImageList(inputs.referenceImages);
-        if (!sourceImages.length || sourceImages.length > 5) throw new Error('请连接 1 至 5 张商品参考图。');
-        const readCommerceImage = async image => {
-            if (isInlineImageData(image)) return image;
-            if (isRemoteImageUrl(image)) return blobToDataUrl(await downloadGeneratedImage(image, signal));
-            throw new Error('无法读取商品参考图，请重新连接原图。');
-        };
-        const references = await Promise.all(sourceImages.map(readCommerceImage));
-        signal?.throwIfAborted();
-        if (['analyze', 'plan', 'replan-shot'].includes(commerceAction)) {
-            const replanningShot = commerceAction === 'replan-shot';
-            if (replanningShot && !commerceShotId) throw new Error('请选择一个需要重新规划的图位。');
-            const operation = commerceAction === 'analyze' ? analyzeCommerceImageSetProduct : createCommerceImageSetPlan;
-            const updated = await operation({ settings, references, models: state.models,
-                providers: state.providers, fetchRef, getProxyHeaders, signal,
-                shotId: replanningShot ? commerceShotId : undefined,
-                runRequest: (request, execute, shot) => {
-                    const onOutcome = startCommerceRequestLog(node, request, { action: commerceAction, shot, signal });
-                    return runTrackedProviderRequest(node, request.provider, request.model, sanitizeRequestUrl(request.url), execute, { onOutcome });
-                } });
-            signal?.throwIfAborted();
-            if (state.nodes.get(node.id) !== node || JSON.stringify(settings) !== JSON.stringify(normalizeCommerceImageSetState(node.data?.commerceImageSet))) {
-                throw new Error('商品设置已改变，请根据当前设置重新执行。');
-            }
-            assertCommercePlanningCurrent(node.id);
-            node.data.commerceImageSet = updated;
-            onNodeResultUpdated(node.id);
-            return;
-        }
-
-        const { plan } = settings;
+        const replanningShot = commerceAction === 'replan-shot';
         const retryingShot = commerceAction === 'retry';
-        if (plan?.stale) throw new Error('商品资料、参考图或生成设置已改变，请重新规划并确认。');
-        if (!plan || (!plan.confirmed && !retryingShot)) throw new Error('请先规划电商套图并确认方案。');
-        const target = plan.shots.find(shot => shot.id === commerceShotId);
-        if (commerceShotId && !target) throw new Error('找不到所选图位。');
-        if (retryingShot && target?.source !== 'generate') throw new Error('请选择一个需要生图的图位。');
-        if (plan.sourceKey !== await commerceImageSetSourceKey({ settings, references })) {
-            throw new Error('商品资料、参考图或生成设置已改变，请重新规划并确认。');
-        }
-        const workflowId = getActiveWorkflowId();
-        if (!workflowId) throw new Error('套图结果需要保存到当前工作流。');
-        const generationInputs = { referenceImages: references };
-        const generatedShots = plan.shots.filter(shot => shot.source === 'generate' && (!commerceShotId || shot.id === commerceShotId));
-        let imageSettings;
-        if (generatedShots.length) {
-            const imageModel = getModelsForTask(state.models, 'image').find(model => model.id === settings.imageModelId);
-            const providerId = settings.imageProviderId;
-            const imageProvider = imageModel && providerId && getResolvedProviderIdForModel(imageModel, state.providers, providerId) === providerId
-                ? getResolvedProviderForModel(imageModel, state.providers, providerId) : null;
-            if (!imageModel || !imageProvider?.apikey) throw new Error('请选择绑定且已配置密钥的生图模型与供应商。');
-            const protocol = getEffectiveProtocol(imageModel, imageProvider);
-            if (!['openai', 'google', 'ttapi', 'ttapi-openai'].includes(protocol)) {
-                throw new Error('电商套图需要支持商品参考图的同步生图模型。');
-            }
-            const sizeProtocol = protocol === 'ttapi-openai' ? 'openai' : protocol;
-            const aspectOptions = getImageAspectOptionsForProtocol(sizeProtocol, imageModel.modelId);
-            const unsupportedShot = generatedShots.find(shot => !aspectOptions.some(option => option.value === shot.aspect));
-            if (unsupportedShot) {
-                throw new Error(`当前生图模型不支持直接生成「${unsupportedShot.label}」的 ${unsupportedShot.aspect} 比例。请更换生图模型，或调整该组比例并重新规划。`);
-            }
-            imageSettings = { apiConfigId: imageModel.id, providerId, generationCount: 1,
-                resolution: usesOpenAiImageSize(protocol) ? '1K' : '', protocolParams: {} };
-            assertImageInputCompatibility(node, generationInputs, imageSettings);
-        }
+        const shotTask = replanningShot || retryingShot;
+        const planning = replanningShot || ['analyze', 'plan'].includes(commerceAction);
+        const target = settings.plan?.shots.find(shot => shot.id === commerceShotId);
+        if (shotTask && target?.source !== 'generate') throw new Error('请选择一个需要生图的图位。');
+        if (!planning && commerceShotId && !target) throw new Error('找不到所选图位。');
 
-        const previous = new Map(retryingShot ? settings.results.map(row => [row.shotId, row]) : []);
-        const retainedImages = new Map();
-        if (retryingShot) {
-            for (const shot of plan.shots) {
-                const assetKey = previous.get(shot.id)?.assetKey;
-                if (!assetKey || shot === target) continue;
-                const message = `无法读取已保存的「${shot.label}」图片，请恢复该图片后重试。`;
-                let image;
-                try {
-                    image = await getImageAsset(assetKey);
-                } catch (cause) {
-                    if (isAbortLikeError(cause, signal)) throw cause;
-                    throw new Error(message, { cause });
-                }
-                if (!image) throw new Error(message);
-                retainedImages.set(shot.id, image);
+        const shots = planning ? [] : settings.plan?.shots.filter(shot => !commerceShotId || shot.id === commerceShotId) || [];
+        const claimedIds = shotTask ? [commerceShotId] : shots.map(shot => shot.id);
+        const handlers = node.commerceShotCancelHandlers ??= new Map();
+        if (claimedIds.some(id => handlers.has(id))) throw new Error('所选图位有任务正在运行。');
+        if (!shotTask && (commerceBatches.has(node) || handlers.size)) throw new Error('电商套图有任务正在运行。');
+
+        const controller = shotTask ? new AbortController() : null;
+        const signal = controller ? AbortSignal.any([controller.signal, parentSignal].filter(Boolean)) : parentSignal;
+        const batch = !planning && !shotTask
+            ? { replacedShotIds: new Set(), previews: new Map(), controllers: new Map(shots.map(shot => [shot.id, new AbortController()])) }
+            : null;
+        const previews = batch?.previews || new Map();
+        function reportProgress(shotId, preview) {
+            if (shotId) {
+                previews.set(shotId, preview);
+                (node.commerceShotPreviews ??= {})[shotId] = preview;
             }
-            signal?.throwIfAborted();
-        }
-        const images = [];
-        const results = [];
-        let firstError;
-        const previews = Object.fromEntries(plan.shots
-            .filter(shot => !commerceShotId || commerceShotId === shot.id)
-            .map(shot => [shot.id, { status: 'pending' }]));
-        node.commerceShotPreviews = previews;
-        const reportProgress = (shotId, preview) => {
-            if (shotId) previews[shotId] = preview;
-            node.apiGenerationProgress = retryingShot
-                ? { completed: Number(previews[commerceShotId].status === 'completed'), total: 1 }
-                : { completed: images.length, total: plan.shots.length };
+            if (batch || !commerceBatches.has(node)) {
+                node.apiGenerationProgress = {
+                    completed: [...previews.values()].filter(row => row.status === 'completed').length,
+                    total: shots.length
+                };
+            }
             onNodeResultUpdated(node.id, { progressOnly: true });
-        };
-        try {
-            reportProgress();
-            for (const shot of plan.shots) {
-                signal?.throwIfAborted();
-                const last = previous.get(shot.id);
-                try {
-                    let image = retainedImages.get(shot.id) || '';
-                    const reused = !!image;
-                    if (!image && (!commerceShotId || commerceShotId === shot.id)) {
-                        reportProgress(shot.id, { status: 'running' });
-                        if (shot.source === 'reference') {
-                            image = references[0];
-                            await saveImageGenerationHistoryEntry({ nodeId: node.id, image, prompt: shot.label,
-                                model: '商品原图', generationDurationSeconds: getNodeGenerationDurationSeconds(node) });
-                        } else {
-                            const shotPrompt = buildCommerceImageSetImagePrompt({ shot, plan, productInfo: settings.productInfo });
-                            const resolved = await resolveRequestMentions(node, { referenceImages: sourceImages }, [shotPrompt], { signal });
-                            const extraImages = resolved.inputs.referenceImages.slice(sourceImages.length);
-                            if (references.length + extraImages.length > 5) throw new Error('每个图位最多使用 5 张参考图，请减少提示词引用或上游输入。');
-                            const shotInputs = extraImages.length ? { referenceImages: [...references, ...await Promise.all(extraImages.map(readCommerceImage))] } : generationInputs;
-                            assertImageInputCompatibility(node, shotInputs, imageSettings);
-                            // Keep 4:5 exact at roughly 1K, using dimensions aligned to 16 pixels.
-                            const size = imageSettings.resolution === '1K' && shot.aspect === '4:5'
-                                ? { resolution: 'custom', customWidth: '832', customHeight: '1040' }
-                                : { aspect: shot.aspect };
-                            const { image: generated } = await nodeHandlers.ImageGenerate(node, shotInputs, signal, {
-                                preparedImageRequest: {
-                                    prompt: resolved.prompts[0],
-                                    settings: { ...imageSettings, ...size },
-                                    startRequestLog: request => startCommerceRequestLog(node, request, { action: commerceAction, shot, signal })
-                                }
-                            });
-                            if (!generated) throw new Error('供应商未返回图片，请重试。');
-                            image = generated;
-                        }
+        }
+        const ownHandlers = new Map();
+        if (shotTask) {
+            (node.commerceShotTasks ??= {})[commerceShotId] = replanningShot ? 'planning' : 'running';
+            ownHandlers.set(commerceShotId, () => {
+                if (controller.signal.aborted) return false;
+                controller.abort();
+                return true;
+            });
+        } else if (batch) {
+            commerceBatches.set(node, batch);
+            for (const [id, shotController] of batch.controllers) {
+                if (node.commerceShotTasks) delete node.commerceShotTasks[id];
+                const preview = { status: 'pending' };
+                previews.set(id, preview);
+                (node.commerceShotPreviews ??= {})[id] = preview;
+                ownHandlers.set(id, () => {
+                    if (shotController.signal.aborted) return false;
+                    shotController.abort();
+                    if (previews.get(id)?.status !== 'running') {
+                        handlers.delete(id);
+                        reportProgress(id, { status: 'canceled' });
                     }
-                    signal?.throwIfAborted();
-                    if (image) {
-                        images.push(image);
-                        results.push({ shotId: shot.id, status: 'completed' });
-                        if (reused) reportProgress();
-                        else reportProgress(shot.id, { status: 'completed', image });
-                    } else if (last) results.push(last);
+                    return true;
+                });
+            }
+        }
+        for (const [id, cancel] of ownHandlers) handlers.set(id, cancel);
+        if (batch) reportProgress();
+        else if (shotTask) onNodeResultUpdated(node.id, { progressOnly: true });
+
+        try {
+            const sourceImages = normalizeImageList(inputs.referenceImages);
+            if (!sourceImages.length || sourceImages.length > 5) throw new Error('请连接 1 至 5 张商品参考图。');
+            const readCommerceImage = async (image, requestSignal) => {
+                if (isInlineImageData(image)) return image;
+                if (isRemoteImageUrl(image)) return blobToDataUrl(await downloadGeneratedImage(image, requestSignal));
+                throw new Error('无法读取商品参考图，请重新连接原图。');
+            };
+            const references = await Promise.all(sourceImages.map(image => readCommerceImage(image, signal)));
+            signal?.throwIfAborted();
+            if (planning) {
+                const operation = commerceAction === 'analyze' ? analyzeCommerceImageSetProduct : createCommerceImageSetPlan;
+                const updated = await operation({ settings, references, models: state.models,
+                    providers: state.providers, fetchRef, getProxyHeaders, signal,
+                    shotId: replanningShot ? commerceShotId : undefined,
+                    runRequest: (request, execute, shot) => {
+                        const onOutcome = startCommerceRequestLog(node, request, { action: commerceAction, shot, signal });
+                        return runTrackedProviderRequest(node, request.provider, request.model, sanitizeRequestUrl(request.url), execute, { onOutcome });
+                    } });
+                signal?.throwIfAborted();
+                const current = normalizeCommerceImageSetState(node.data?.commerceImageSet);
+                if (state.nodes.get(node.id) !== node ||
+                    commerceImageSetPlanningSettingsKey(settings, commerceShotId) !== commerceImageSetPlanningSettingsKey(current, commerceShotId)) {
+                    throw new Error('商品设置已改变，请根据当前设置重新执行。');
+                }
+                assertCommercePlanningCurrent(node.id, commerceShotId);
+                if (replanningShot) {
+                    const replacement = updated.plan.shots.find(shot => shot.id === commerceShotId);
+                    node.data.commerceImageSet = { ...current, plan: { ...current.plan, confirmed: false,
+                        shots: current.plan.shots.map(shot => shot.id === commerceShotId ? replacement : shot) } };
+                } else {
+                    node.data.commerceImageSet = updated;
+                }
+                onNodeResultUpdated(node.id);
+                return;
+            }
+
+            const { plan } = settings;
+            if (plan?.stale) throw new Error('商品资料、参考图或生成设置已改变，请重新规划并确认。');
+            if (!plan || (!plan.confirmed && !retryingShot)) throw new Error('请先规划电商套图并确认方案。');
+            if (plan.sourceKey !== await commerceImageSetSourceKey({ settings, references })) {
+                throw new Error('商品资料、参考图或生成设置已改变，请重新规划并确认。');
+            }
+            signal?.throwIfAborted();
+            const workflowId = getActiveWorkflowId();
+            if (!workflowId) throw new Error('套图结果需要保存到当前工作流。');
+            assertCommercePlanningCurrent(node.id, commerceShotId);
+
+            const generationInputs = { referenceImages: references };
+            const generatedShots = shots.filter(shot => shot.source === 'generate');
+            const missingPrompt = generatedShots.find(shot => !shot.prompt);
+            if (missingPrompt) throw new Error(`「${missingPrompt.label}」缺少生图提示词，请补充后重试。`);
+            let imageSettings;
+            if (generatedShots.length) {
+                const imageModel = getModelsForTask(state.models, 'image').find(model => model.id === settings.imageModelId);
+                const providerId = settings.imageProviderId;
+                const imageProvider = imageModel && providerId && getResolvedProviderIdForModel(imageModel, state.providers, providerId) === providerId
+                    ? getResolvedProviderForModel(imageModel, state.providers, providerId) : null;
+                if (!imageModel || !imageProvider?.apikey) throw new Error('请选择绑定且已配置密钥的生图模型与供应商。');
+                const protocol = getEffectiveProtocol(imageModel, imageProvider);
+                if (!['openai', 'google', 'ttapi', 'ttapi-openai'].includes(protocol)) {
+                    throw new Error('电商套图需要支持商品参考图的同步生图模型。');
+                }
+                const sizeProtocol = protocol === 'ttapi-openai' ? 'openai' : protocol;
+                const aspectOptions = getImageAspectOptionsForProtocol(sizeProtocol, imageModel.modelId);
+                const unsupportedShot = generatedShots.find(shot => !aspectOptions.some(option => option.value === shot.aspect));
+                if (unsupportedShot) {
+                    throw new Error(`当前生图模型不支持直接生成「${unsupportedShot.label}」的 ${unsupportedShot.aspect} 比例。请更换生图模型，或调整该组比例并重新规划。`);
+                }
+                imageSettings = { apiConfigId: imageModel.id, providerId, generationCount: 1,
+                    resolution: usesOpenAiImageSize(protocol) ? '1K' : '', protocolParams: {} };
+                assertImageInputCompatibility(node, generationInputs, imageSettings);
+            }
+
+            if (retryingShot) await readRetainedCommerceImages(settings, commerceShotId, signal);
+            const attempts = new Map();
+            let firstError;
+            for (const shot of shots) {
+                signal?.throwIfAborted();
+                const shotController = batch?.controllers.get(shot.id);
+                const shotSignal = shotController ? AbortSignal.any([shotController.signal, signal].filter(Boolean)) : signal;
+                try {
+                    shotSignal?.throwIfAborted();
+                    reportProgress(shot.id, { status: 'running' });
+                    let image;
+                    if (shot.source === 'reference') {
+                        image = references[0];
+                        await saveImageGenerationHistoryEntry({ nodeId: node.id, image, prompt: shot.label,
+                            model: '商品原图', generationDurationSeconds: getNodeGenerationDurationSeconds(node) });
+                    } else {
+                        const shotPrompt = buildCommerceImageSetImagePrompt({ shot, plan, productInfo: settings.productInfo });
+                        const resolved = await resolveRequestMentions(node, { referenceImages: sourceImages }, [shotPrompt], { signal: shotSignal });
+                        const extraImages = resolved.inputs.referenceImages.slice(sourceImages.length);
+                        if (references.length + extraImages.length > 5) throw new Error('每个图位最多使用 5 张参考图，请减少提示词引用或上游输入。');
+                        const shotInputs = extraImages.length
+                            ? { referenceImages: [...references, ...await Promise.all(extraImages.map(image => readCommerceImage(image, shotSignal)))] }
+                            : generationInputs;
+                        assertImageInputCompatibility(node, shotInputs, imageSettings);
+                        // Keep 4:5 exact at roughly 1K, using dimensions aligned to 16 pixels.
+                        const size = imageSettings.resolution === '1K' && shot.aspect === '4:5'
+                            ? { resolution: 'custom', customWidth: '832', customHeight: '1040' } : { aspect: shot.aspect };
+                        const { image: generated } = await nodeHandlers.ImageGenerate(node, shotInputs, shotSignal, {
+                            preparedImageRequest: {
+                                prompt: resolved.prompts[0],
+                                settings: { ...imageSettings, ...size },
+                                startRequestLog: request => startCommerceRequestLog(node, request, { action: commerceAction, shot, signal: shotSignal })
+                            }
+                        });
+                        if (!generated) throw new Error('供应商未返回图片，请重试。');
+                        image = generated;
+                    }
+                    shotSignal?.throwIfAborted();
+                    const result = { status: 'completed', image };
+                    attempts.set(shot.id, result);
+                    reportProgress(shot.id, result);
                 } catch (error) {
-                    // The saved result remains usable until a replacement has been generated and stored.
-                    if (isAbortLikeError(error, signal) || (retryingShot && shot === target && last?.status === 'completed')) throw error;
-                    firstError ||= error;
-                    const preview = { status: 'failed', error: String(error?.message || '生成失败').slice(0, 300) };
-                    results.push({ shotId: shot.id, ...preview });
-                    reportProgress(shot.id, preview);
+                    if (isAbortLikeError(error, signal)) {
+                        if (!batch || signal?.aborted || !shotController.signal.aborted) throw error;
+                    }
+                    if (shotController?.signal.aborted) {
+                        const result = { status: 'canceled' };
+                        attempts.set(shot.id, result);
+                        if (handlers.get(shot.id) === ownHandlers.get(shot.id)) reportProgress(shot.id, result);
+                    } else {
+                        if (retryingShot && settings.results.some(row => row.shotId === shot.id && row.status === 'completed')) throw error;
+                        firstError ||= error;
+                        const result = { status: 'failed', error: String(error?.message || '生成失败').slice(0, 300) };
+                        attempts.set(shot.id, result);
+                        reportProgress(shot.id, result);
+                    }
+                } finally {
+                    if (batch && handlers.get(shot.id) === ownHandlers.get(shot.id)) handlers.delete(shot.id);
                 }
             }
 
-            if (!images.length) {
-                if (!settings.results.some(row => row.status === 'completed')) {
-                    node.data.commerceImageSet = { ...settings, results };
-                    onNodeResultUpdated(node.id);
+            return await publishCommerceShots(node, { attempts, batch, firstError, workflowId, signal, commerceShotId });
+        } catch (error) {
+            if (shotTask && controller.signal.aborted) {
+                if (retryingShot && !parentSignal?.aborted) {
+                    await publishCommerceShots(node, {
+                        attempts: new Map([[commerceShotId, { status: 'canceled' }]]),
+                        workflowId: getActiveWorkflowId(), commerceShotId
+                    });
                 }
-                throw firstError || new Error('没有可保存的套图结果。');
+                // Use a typed abort even when the provider mapped it to a generic network failure.
+                throw controller.signal.reason;
             }
             signal?.throwIfAborted();
-            const assets = await saveWorkflowNodeMediaAssets(images, workflowId, node.id, node.activeMediaOperationId);
-            const keys = assets.map(asset => asset?.asset_key);
-            if (keys.length !== images.length || keys.some(key => !key?.startsWith('media:')) || state.nodes.get(node.id) !== node || signal?.aborted) {
-                if (assets.length) await releaseWorkflowNodeMediaAssets(assets, workflowId, node.id);
-                signal?.throwIfAborted();
-                throw new Error('套图生成完成，但工作流媒体保存失败。');
-            }
-            rememberWorkflowMediaOperation(node, assets);
-            let keyIndex = 0;
-            for (const row of results) if (row.status === 'completed') row.assetKey = keys[keyIndex++];
-            setCanonicalImageOutput(node, images, { defaultToFirst: true, assetKey: keys[0], imageCount: images.length, assetReady: true });
-            node.data.mediaAssetKeys = keys;
-            node.data.commerceImageSet = { ...settings, results };
-            node.generationAttemptIncomplete = images.length !== plan.shots.length;
-            try {
-                await propagateImagesToDownstreamPreview(node.id, images);
-            } finally {
-                onNodeResultUpdated(node.id, { downstreamImageResults: true });
-            }
-            if (getImageHistorySidebarActive()) renderHistoryList();
-            return { image: images, images };
+            throw error;
         } finally {
-            delete node.commerceShotPreviews;
-            delete node.apiGenerationProgress;
-            onNodeResultUpdated(node.id, { progressOnly: true });
+            for (const [id, cancel] of ownHandlers) if (handlers.get(id) === cancel) handlers.delete(id);
+            if (batch) commerceBatches.delete(node);
+            if (shotTask && controller.signal.aborted) node.commerceShotTasks[commerceShotId] = 'canceled';
+            else if (shotTask) delete node.commerceShotTasks[commerceShotId];
+            for (const [id, preview] of previews) {
+                if (node.commerceShotPreviews?.[id] !== preview) continue;
+                const activeBatch = commerceBatches.get(node);
+                const batchPreview = activeBatch?.previews.get(id);
+                if (batchPreview && !activeBatch.replacedShotIds.has(id)) node.commerceShotPreviews[id] = batchPreview;
+                else delete node.commerceShotPreviews[id];
+            }
+            if (node.commerceShotPreviews && !Object.keys(node.commerceShotPreviews).length) delete node.commerceShotPreviews;
+            if (!commerceBatches.has(node) && !node.commerceShotPreviews) delete node.apiGenerationProgress;
+            if (ownHandlers.size) onNodeResultUpdated(node.id, { progressOnly: true });
+        }
+    }
+
+    async function readRetainedCommerceImages(settings, excludedShotId, signal) {
+        const images = new Map();
+        for (const row of settings.results) {
+            if (!row.assetKey || row.shotId === excludedShotId) continue;
+            const label = settings.plan?.shots.find(shot => shot.id === row.shotId)?.label || row.shotId;
+            const message = `无法读取已保存的「${label}」图片，请恢复该图片后重试。`;
+            let image;
+            try {
+                image = await getImageAsset(row.assetKey);
+            } catch (cause) {
+                if (isAbortLikeError(cause, signal)) throw cause;
+                throw new Error(message, { cause });
+            }
+            if (!image) throw new Error(message);
+            images.set(row.shotId, image);
+        }
+        signal?.throwIfAborted();
+        return images;
+    }
+
+    async function publishCommerceShots(node, { attempts, batch, firstError, workflowId, signal, commerceShotId }) {
+        // Serializing only publication lets the provider requests proceed independently.
+        const previous = commercePublications.get(node) || Promise.resolve();
+        const publication = previous.catch(() => {}).then(async () => {
+            signal?.throwIfAborted();
+            const latest = normalizeCommerceImageSetState(node.data?.commerceImageSet);
+            const priorRows = new Map(latest.results.map(row => [row.shotId, row]));
+            if (commerceShotId && attempts.get(commerceShotId)?.status === 'canceled') {
+                if (state.nodes.get(node.id) !== node || priorRows.get(commerceShotId)?.assetKey) return;
+                priorRows.set(commerceShotId, { shotId: commerceShotId, status: 'canceled' });
+                const results = latest.selectedShotIds.flatMap(id => priorRows.has(id) ? [priorRows.get(id)] : []);
+                node.data.commerceImageSet = { ...latest, results };
+                onNodeResultUpdated(node.id);
+                return;
+            }
+            const rows = batch ? new Map() : new Map(priorRows);
+            const superseded = batch?.replacedShotIds || new Set();
+            const successful = [];
+            const retained = [];
+            for (const id of latest.selectedShotIds) {
+                const result = attempts.get(id);
+                if (superseded.has(id) || !result || (result.status === 'canceled' && priorRows.get(id)?.assetKey)) {
+                    const priorRow = priorRows.get(id);
+                    if (priorRow) {
+                        rows.set(id, priorRow);
+                        retained.push(priorRow);
+                    }
+                    continue;
+                }
+                rows.set(id, { shotId: id, status: result.status, ...(result.error ? { error: result.error } : {}) });
+                if (result.image) successful.push([id, result.image]);
+            }
+
+            if (!successful.length && batch && firstError && !retained.some(row => row.assetKey) && latest.results.some(row => row.assetKey)) {
+                throw firstError;
+            }
+            const retainedImages = await readRetainedCommerceImages({ ...latest, results: retained }, undefined, signal);
+            const imagesToStore = successful.map(([, image]) => image);
+            const assets = imagesToStore.length ? await saveWorkflowNodeMediaAssets(imagesToStore, workflowId, node.id,
+                batch ? node.activeMediaOperationId : undefined) : [];
+            const keys = assets.map(asset => asset?.asset_key);
+            try {
+                signal?.throwIfAborted();
+                if (keys.length !== imagesToStore.length || keys.some(key => !key?.startsWith('media:')) || state.nodes.get(node.id) !== node) {
+                    throw new Error('套图生成完成，但工作流媒体保存失败。');
+                }
+                if (commerceShotId) assertCommercePlanningCurrent(node.id, commerceShotId);
+            } catch (error) {
+                if (assets.length) await releaseWorkflowNodeMediaAssets(assets, workflowId, node.id);
+                throw error;
+            }
+
+            successful.forEach(([id, image], index) => {
+                rows.get(id).assetKey = keys[index];
+                retainedImages.set(id, image);
+            });
+            const results = latest.selectedShotIds.flatMap(id => rows.has(id) ? [rows.get(id)] : []);
+            const images = results.flatMap(row => row.assetKey ? [retainedImages.get(row.shotId)] : []);
+            // A rerun of a finished slot supersedes that slot's still-unpublished batch result.
+            if (commerceShotId && successful.length) commerceBatches.get(node)?.replacedShotIds.add(commerceShotId);
+            node.data.commerceImageSet = { ...normalizeCommerceImageSetState(node.data?.commerceImageSet), results };
+            rememberWorkflowMediaOperation(node, assets);
+            if (images.length) {
+                const assetKeys = results.filter(row => row.assetKey).map(row => row.assetKey);
+                setCanonicalImageOutput(node, images, { defaultToFirst: true, assetKey: assetKeys[0], imageCount: images.length, assetReady: true });
+                node.data.mediaAssetKeys = assetKeys;
+                node.generationAttemptIncomplete = images.length !== latest.selectedShotIds.length;
+                try {
+                    await propagateImagesToDownstreamPreview(node.id, images);
+                } finally {
+                    onNodeResultUpdated(node.id, { downstreamImageResults: true });
+                }
+                if (getImageHistorySidebarActive()) renderHistoryList();
+                return { image: images, images };
+            }
+            onNodeResultUpdated(node.id);
+            if (firstError) throw firstError;
+            if (![...attempts.values()].some(row => row.status === 'canceled')) throw new Error('没有可保存的套图结果。');
+        });
+        commercePublications.set(node, publication);
+        try {
+            return await publication;
+        } finally {
+            if (commercePublications.get(node) === publication) commercePublications.delete(node);
         }
     }
 

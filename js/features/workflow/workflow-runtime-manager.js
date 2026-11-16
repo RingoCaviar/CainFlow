@@ -40,7 +40,7 @@ import {
 } from '../../nodes/registry.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
 import { normalizeProductRetouchSettings, readProductRetouchAnalysis } from '../product-retouch/product-retouch-settings.js';
-import { normalizeCommerceImageSetState } from '../ecommerce-image-set/commerce-image-set-plan.js';
+import { commerceImageSetPlanningSettingsKey, normalizeCommerceImageSetState } from '../ecommerce-image-set/commerce-image-set-plan.js';
 import { readProductRetouchComparison } from '../product-retouch/product-retouch-comparison.js';
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
 import { readImageSaveFilename } from '../../nodes/image-save-settings.js';
@@ -147,7 +147,7 @@ function cloneWorkflowData(data = {}) {
     };
 }
 
-export function commercePlanningPublicationKey(nodeId, connections, getNode) {
+export function commercePlanningPublicationKey(nodeId, connections, getNode, shotId) {
     const target = getNode(nodeId);
     if (target?.type !== 'ECommerceImageSet' || target.enabled === false) return null;
     const links = orderInputConnections(target.type, connections.filter(connection =>
@@ -160,7 +160,11 @@ export function commercePlanningPublicationKey(nodeId, connections, getNode) {
         const output = projectImageOutput(node, getCanonicalImageList(node));
         return [[from.nodeId, from.port, output.assets.length ? output.assets : output.images, output.missingPositions]];
     });
-    return JSON.stringify([normalizeCommerceImageSetState(target.commerceImageSet ?? target.data?.commerceImageSet), references]);
+    const commerce = target.commerceImageSet ?? target.data?.commerceImageSet;
+    return JSON.stringify([
+        shotId ? commerceImageSetPlanningSettingsKey(commerce, shotId) : normalizeCommerceImageSetState(commerce),
+        references
+    ]);
 }
 
 function escapeHtml(value) {
@@ -563,6 +567,7 @@ export function createRuntimeAutoSaveToDir({
 
 export function createWorkflowRuntimeManager({
     state,
+    commercePanelRuns = new Set(),
     referenceImageCatalog = null,
     nodeConfigs,
     createNodeMarkup,
@@ -656,6 +661,10 @@ export function createWorkflowRuntimeManager({
         }
     }
 
+    function getPendingCommerceStarts(workflowId) {
+        return [...commercePanelRuns].filter(run => !run.dispatched && (workflowId === undefined || run.workflowId === workflowId));
+    }
+
     function syncGlobalRunToolbarState() {
         let activeRunCount = workflowRunContexts.size;
         workflowRunContexts.forEach((context) => {
@@ -670,14 +679,17 @@ export function createWorkflowRuntimeManager({
         const contexts = [...workflowRunContexts.values()].filter(context => context.workflowId === activeId);
         const starting = state.isRunStarting === true && (!state.runStartingWorkflowId || state.runStartingWorkflowId === activeId);
         const pendingStart = starting ? state.runStartController : null;
-        const stopping = (contexts.length > 0 || !!pendingStart)
+        const pendingStarts = getPendingCommerceStarts(activeId).map(run => run.controller);
+        if (pendingStart) pendingStarts.push(pendingStart);
+        const stopping = (contexts.length > 0 || pendingStarts.length > 0)
             && contexts.every(context => context.stopController?.signal.aborted)
-            && (!pendingStart || pendingStart.signal.aborted);
+            && pendingStarts.every(controller => controller.signal.aborted);
         renderWorkflowRunControls({ documentRef,
-            starting: (starting && !pendingStart?.signal.aborted) || contexts.some(context => !context.executionStarted && !context.stopController?.signal.aborted),
+            starting: (starting && !pendingStart?.signal.aborted) || pendingStarts.some(controller => !controller.signal.aborted)
+                || contexts.some(context => !context.executionStarted && !context.stopController?.signal.aborted),
             runCount: contexts.reduce((count, context) => count + Math.max(1, context.state?.activeRunCount || 0), 0),
             stopping,
-            canStopStarting: !!activeId && !!pendingStart && !pendingStart.signal.aborted,
+            canStopStarting: !!activeId && pendingStarts.some(controller => !controller.signal.aborted),
             launchPending: state.isRunStarting === true
         });
     }
@@ -711,6 +723,21 @@ export function createWorkflowRuntimeManager({
         return !context.stopController.signal.aborted && runtimeNode?.runStatus !== 'aborted';
     }
 
+    function waitForSettlingCommerceRun(workflow, nodeId, signal) {
+        const owner = getWorkflowRunContexts(workflow).find(context => context.activePlanNodeIds.has(nodeId));
+        if (!owner?.promise || (!owner.commerceClosing && !owner.stopController.signal.aborted)) return null;
+        if (signal.aborted) return Promise.resolve(false);
+        return new Promise((resolve, reject) => {
+            const finish = (callback, value) => {
+                signal.removeEventListener('abort', abort);
+                callback(value);
+            };
+            const abort = () => finish(resolve, false);
+            signal.addEventListener('abort', abort, { once: true });
+            owner.promise.then(() => finish(resolve, true), error => finish(reject, error));
+        });
+    }
+
     function getActivePlanNodeIds(workflowReference) {
         const nodeIds = new Set();
         getWorkflowRunContexts(workflowReference).forEach((context) => {
@@ -741,6 +768,9 @@ export function createWorkflowRuntimeManager({
             if (runtimeNode.commerceShotPreviews && state.runningNodeIds.has(node.id)) {
                 node.commerceShotPreviews = { ...runtimeNode.commerceShotPreviews };
             } else delete node.commerceShotPreviews;
+            if (runtimeNode.commerceShotTasks && state.runningNodeIds.has(node.id)) {
+                node.commerceShotTasks = { ...runtimeNode.commerceShotTasks };
+            } else delete node.commerceShotTasks;
             if (typeof documentRef.defaultView?.CustomEvent === 'function') {
                 documentRef.dispatchEvent(new documentRef.defaultView.CustomEvent('cainflow:commerce-image-set-updated', { detail: { nodeId: node.id } }));
             }
@@ -1237,6 +1267,7 @@ export function createWorkflowRuntimeManager({
         const controls = new Set(node.el.querySelectorAll(selector));
         node.parameterRoot?.querySelectorAll(selector).forEach(control => controls.add(control));
         controls.forEach((control) => {
+            if (node.type === 'ECommerceImageSet' && control.closest('.commerce-image-set-settings, .commerce-image-set-footer')) return;
             if (locked) {
                 if (control.dataset.runningLockApplied !== '1') {
                     control.dataset.runningLockApplied = '1';
@@ -1373,6 +1404,7 @@ export function createWorkflowRuntimeManager({
             workflowRunViewNodeIds.add(nodeId);
             state.runningNodeIds.add(nodeId);
             state.runningNodeCancelHandlers.set(nodeId, () => {
+                if (node.type === 'ECommerceImageSet') return cancelCommerceImageSet(reference, nodeId, undefined, { stopBranch: true });
                 const context = getWorkflowRunContextForNode(reference, nodeId);
                 return context?.runner?.cancelRunningNode?.(nodeId) || false;
             });
@@ -1437,7 +1469,9 @@ export function createWorkflowRuntimeManager({
                     nodeId, status: 'waiting', preserveImageBatch: runtimeNode.imageGenerationRetryActive === true
                 });
             });
-            context.state.runningNodeIds?.forEach((nodeId) => {
+            const runningNodeIds = new Set(context.state.runningNodeIds || []);
+            for (const { nodeId } of context.commerceShotRuns?.values() || []) runningNodeIds.add(nodeId);
+            runningNodeIds.forEach((nodeId) => {
                 const runtimeNode = context.state.nodes.get(nodeId);
                 if (runtimeNode?.runStatus === 'waiting') return;
                 applyVisibleNodeRunState(workflowReference, {
@@ -1900,6 +1934,7 @@ export function createWorkflowRuntimeManager({
         });
         disposalResources.nodeLifecycle = runtimeNodeLifecycleApi;
         const data = cloneWorkflowData(workflowData);
+        const publishedCommerceSettings = new Map();
         const runtimeExecutionCoreApi = createExecutionCoreApi({
             state: runtimeState,
             referenceImageCatalog,
@@ -1941,23 +1976,27 @@ export function createWorkflowRuntimeManager({
             fitNodeToContent: () => {},
             scheduleSave: () => syncRuntimeWorkflowSnapshot(context),
             getActiveWorkflowId: () => workflowId,
-            assertCommercePlanningCurrent(nodeId) {
+            assertCommercePlanningCurrent(nodeId, shotId) {
+                if (!shotId && context.commercePrimaryPlan?.commerceNodeId !== nodeId) return;
                 const original = commercePlanningPublicationKey(nodeId, data.connections,
-                    id => data.nodes.find(node => node.id === id));
+                    id => {
+                        const node = data.nodes.find(item => item.id === id);
+                        return publishedCommerceSettings.has(id) ? { ...node, commerceImageSet: publishedCommerceSettings.get(id) } : node;
+                    }, shotId);
                 const isActive = isActiveWorkflow({ workflowId, workflowName });
                 const tabData = isActive ? null : state.workflowTabs.find(tab => tab.workflowId === workflowId)?.data;
                 const current = commercePlanningPublicationKey(nodeId, isActive ? state.connections : tabData?.connections || [], id => {
                     if (!isActive) return tabData?.nodes?.find(node => node.id === id);
                     const node = state.nodes.get(id);
                     return node ? serializeRuntimeNode(node, documentRef) : null;
-                });
+                }, shotId);
                 if (current === null || current !== original) {
                     throw new Error('商品参考图已改变，或节点设置已更新，请根据当前画布重新执行。');
                 }
             },
             onNodeResultUpdated: (nodeId, { progressOnly = false, downstreamImageResults = false } = {}) => {
+                const runtimeNode = runtimeState.nodes.get(nodeId);
                 if (progressOnly) {
-                    const runtimeNode = runtimeState.nodes.get(nodeId);
                     const visibleNode = state.nodes.get(nodeId);
                     if (['ECommerceImageSet', 'ProductRetouch'].includes(runtimeNode?.type) && !context.activePlanNodeIds.has(nodeId)) return;
                     if (runtimeNode && visibleNode && isActiveWorkflow({ workflowId, workflowName })) {
@@ -1965,6 +2004,9 @@ export function createWorkflowRuntimeManager({
                         onVisibleNodeChanged(nodeId);
                     }
                     return;
+                }
+                if (runtimeNode?.type === 'ECommerceImageSet') {
+                    publishedCommerceSettings.set(nodeId, clonePlainValue(runtimeNode.data?.commerceImageSet));
                 }
                 syncRuntimeNodeSnapshot(context, nodeId, { applyToCanvas: false });
                 void syncVisibleNodeResult({ workflowId, workflowName }, nodeId, context);
@@ -2010,6 +2052,18 @@ export function createWorkflowRuntimeManager({
             captureSceneReferenceImages: runtimeExecutionCoreApi.captureSceneReferenceImages,
             waitForPendingImageAssetSaves() {
                 return runtimeExecutionCoreApi.waitForPendingImageAssetSaves();
+            },
+            updateCommerceShotDraft(visibleCommerce, node, shotId, field) {
+                const visible = normalizeCommerceImageSetState(visibleCommerce);
+                const current = normalizeCommerceImageSetState(node.data?.commerceImageSet);
+                if (!current.plan || visible.plan?.sourceKey !== current.plan.sourceKey) return;
+                const edited = visible.plan.shots.find(shot => shot.id === shotId);
+                const target = current.plan.shots.find(shot => shot.id === shotId);
+                if (target?.source !== 'generate' || !edited || target[field] === edited[field]) return;
+                target[field] = edited[field];
+                current.plan.confirmed = false;
+                node.data.commerceImageSet = current;
+                publishedCommerceSettings.set(node.id, clonePlainValue(current));
             },
             captureConnectionProjectionHandoff() {
                 return runtimeConnectionProjection.maintenance.captureViewHandoff();
@@ -2060,7 +2114,15 @@ export function createWorkflowRuntimeManager({
             onRunStateChanged: () => syncGlobalRunToolbarState(),
             onNodeRunStateChange: (payload) => {
                 recordRuntimeNodeRunState(context, payload);
-                applyVisibleNodeRunState({ workflowId, workflowName }, payload);
+                const commerce = context.state.nodes.get(payload?.nodeId)?.type === 'ECommerceImageSet';
+                if (commerce && payload.status === 'running') {
+                    context.commerceReadyNodeIds?.add(payload.nodeId);
+                    context.notifyCommerceReady?.(payload.nodeId, true);
+                }
+                if (commerce && ['completed', 'aborted', 'error', 'idle'].includes(payload.status)
+                    && hasAttachedCommerceRuns(context, payload.nodeId)) {
+                    context.commerceTerminalStates.set(payload.nodeId, payload);
+                } else applyVisibleNodeRunState({ workflowId, workflowName }, payload);
                 if (payload?.status === 'completed' && payload.nodeId) {
                     syncRuntimeNodeSnapshot(context, payload.nodeId, {
                         dirty: true,
@@ -2112,12 +2174,97 @@ export function createWorkflowRuntimeManager({
         }
     }
 
-    async function runWorkflowInContext(workflow, workflowData, runInput = null, { waitForCompletion = false, retainResults, configurationSnapshot, resumeNodeId = null, captureTextResults = false } = {}) {
+    function hasAttachedCommerceRuns(context, nodeId) {
+        return [...(context.commerceShotRuns?.values() || [])].some(run => run.nodeId === nodeId);
+    }
+
+    function primaryCanStillRunCommerceNode(context, nodeId) {
+        return !context.commercePrimaryDone
+            && (!context.commerceReadyNodeIds.has(nodeId) || context.state.runningNodeIds?.has(nodeId));
+    }
+
+    function waitForCommerceNode(context, nodeId, signal) {
+        if (context.commerceReadyNodeIds.has(nodeId)) return Promise.resolve(true);
+        if (signal.aborted || context.commercePrimaryDone) return Promise.resolve(false);
+        return new Promise(resolve => {
+            const waiters = context.commerceReadyWaiters.get(nodeId) || new Set();
+            const finish = ready => {
+                waiters.delete(finish);
+                signal.removeEventListener('abort', abort);
+                resolve(ready);
+            };
+            const abort = () => finish(false);
+            waiters.add(finish);
+            context.commerceReadyWaiters.set(nodeId, waiters);
+            signal.addEventListener('abort', abort, { once: true });
+        });
+    }
+
+    function startAttachedCommerceShot(context, plan, panelSignal) {
+        const { commerceNodeId: nodeId, commerceShotId: shotId } = plan;
+        const primary = context.commercePrimaryPlan;
+        const key = JSON.stringify([nodeId, shotId]);
+        const node = context.state.nodes.get(nodeId);
+        if (context.commerceClosing || context.stopController.signal.aborted || context.commerceShotRuns.has(key)
+            || node?.commerceShotCancelHandlers?.has(shotId) || (primary?.commerceNodeId === nodeId && primaryCanStillRunCommerceNode(context, nodeId)
+                && (primary.commerceShotId === shotId || ['analyze', 'plan'].includes(primary.commerceAction)))) {
+            return { started: false, executed: false, reason: 'already-running' };
+        }
+        const controller = new AbortController();
+        const signal = AbortSignal.any([panelSignal, controller.signal, context.stopController.signal]);
+        const run = { nodeId, shotId, controller };
+        context.commerceShotRuns.set(key, run);
+        run.promise = (async () => {
+            try {
+                const ready = await waitForCommerceNode(context, nodeId, signal);
+                if (!ready || signal.aborted) {
+                    return { started: false, executed: false, outcome: signal.aborted ? 'stopped' : 'no-execution' };
+                }
+                return await context.runner.runCommerceShot(plan, { signal });
+            } finally {
+                context.commerceShotRuns.delete(key);
+                if (!hasAttachedCommerceRuns(context, nodeId)) {
+                    const terminal = context.commerceTerminalStates.get(nodeId);
+                    if (terminal) {
+                        context.commerceTerminalStates.delete(nodeId);
+                        applyVisibleNodeRunState(context, terminal);
+                    }
+                }
+            }
+        })();
+        return run.promise;
+    }
+
+    async function runWorkflowInContext(workflow, workflowData, runInput = null, {
+        waitForCompletion = false, retainResults, configurationSnapshot, resumeNodeId = null,
+        captureTextResults = false, commercePanelSignal
+    } = {}) {
         const { workflowName, workflowId } = requireStableWorkflowReference(workflow);
+        const stoppedBeforeStart = { started: false, executed: false, reason: 'stopped-before-start', outcome: 'stopped' };
+        if (commercePanelSignal?.aborted) return stoppedBeforeStart;
+        if (commercePanelSignal && ['retry', 'replan-shot'].includes(runInput?.commerceAction)) {
+            const owner = getWorkflowRunContexts(workflow).find(context => context.activePlanNodeIds.has(runInput.commerceNodeId));
+            if (owner) {
+                const shotPlan = owner.resolveExecutionPlan(runInput);
+                if (shotPlan?.commerceShotId && shotPlan.commerceNodeId && owner.runner.runCommerceShot) {
+                    return startAttachedCommerceShot(owner, shotPlan, commercePanelSignal);
+                }
+            }
+        }
         const context = typeof createRunContext === 'function'
             ? createRunContext({ workflowName, workflowId }, workflowData)
             : createWorkflowRuntimeContext({ workflowName, workflowId }, workflowData, { configurationSnapshot });
         context.stopController = new AbortController();
+        context.commercePrimaryController = commercePanelSignal ? new AbortController() : null;
+        context.commerceShotRuns = new Map();
+        context.commerceReadyNodeIds = new Set();
+        context.commerceReadyWaiters = new Map();
+        context.commerceTerminalStates = new Map();
+        context.notifyCommerceReady = (nodeId, ready) => {
+            const waiters = context.commerceReadyWaiters.get(nodeId);
+            context.commerceReadyWaiters.delete(nodeId);
+            waiters?.forEach(finish => finish(ready));
+        };
         context.executionStarted = false;
         context.workflowHandle = getWorkflowDesk?.().workflow(context.workflowId);
         context.state.requestSource = runInput?.requestSource === 'agent' || runInput?.agentSequential ? 'agent' : 'canvas';
@@ -2143,6 +2290,7 @@ export function createWorkflowRuntimeManager({
             syncGlobalRunToolbarState();
             return waitForCompletion ? { started: false, executed: false, reason: 'no-plan' } : false;
         }
+        context.commercePrimaryPlan = plan;
         const runnableNodeIds = (plan.executionOrder || plan.nodeIds || [])
             .filter((nodeId) => context.state.nodes.get(nodeId)?.enabled !== false);
         const workflowReference = { workflowName, workflowId: context.workflowId };
@@ -2170,21 +2318,26 @@ export function createWorkflowRuntimeManager({
         }
         syncGlobalRunToolbarState();
 
+        let resolvePanelCompletion;
+        const panelCompletion = commercePanelSignal && new Promise(resolve => { resolvePanelCompletion = resolve; });
         context.promise = (async () => {
             let runError = null;
             let executionResult = null;
             let completionResult;
+            const signal = context.commercePrimaryController
+                ? AbortSignal.any([context.stopController.signal, context.commercePrimaryController.signal, commercePanelSignal])
+                : context.stopController.signal;
             try {
                 await context.waitForImageRestores(getPlanImageRestoreNodeIds(plan, context.state));
-                if (!context.stopController.signal.aborted) {
-                    const capture = context.captureSceneReferenceImages?.(plan, context.stopController.signal);
+                if (!signal.aborted) {
+                    const capture = context.captureSceneReferenceImages?.(plan, signal);
                     if (capture) await capture;
                 }
-                if (context.stopController.signal.aborted) {
-                    executionResult = { started: false, executed: false, reason: 'stopped-before-start', outcome: 'stopped' };
+                if (signal.aborted) {
+                    executionResult = stoppedBeforeStart;
                 } else {
                     let execution;
-                    const options = { signal: context.stopController.signal };
+                    const options = { signal };
                     if (resumeNodeId) {
                         const node = context.state.nodes.get(resumeNodeId);
                         if (node?.type === 'ImageGenerate') execution = context.runner.resumeImageNodeBranch(resumeNodeId, options);
@@ -2195,14 +2348,32 @@ export function createWorkflowRuntimeManager({
                     executionResult = await execution;
                 }
             } catch (error) {
-                runError = error;
-                const currentWorkflowName = getWorkflowManagerApi()?.getWorkflowNameById?.(workflowId) || workflowName;
-                addLog('error', `工作流运行异常: ${currentWorkflowName}`, error?.message || String(error), {
-                    workflowName: currentWorkflowName,
-                    workflowId,
-                    error: error?.stack || error
-                }, { suppressErrorModal: error?.suppressErrorModal === true });
+                if (signal.aborted) executionResult = stoppedBeforeStart;
+                else {
+                    runError = error;
+                    const currentWorkflowName = getWorkflowManagerApi()?.getWorkflowNameById?.(workflowId) || workflowName;
+                    addLog('error', `工作流运行异常: ${currentWorkflowName}`, error?.message || String(error), {
+                        workflowName: currentWorkflowName,
+                        workflowId,
+                        error: error?.stack || error
+                    }, { suppressErrorModal: error?.suppressErrorModal === true });
+                }
             } finally {
+                context.commercePrimaryDone = true;
+                if (resolvePanelCompletion && context.commerceShotRuns.size) {
+                    const node = context.state.nodes.get(plan.commerceNodeId);
+                    resolvePanelCompletion({
+                        ...executionResult,
+                        workflowId,
+                        ...(runError ? { reason: 'error', outcome: 'failed', error: runError.message || String(runError) } : {}),
+                        nodeResults: node ? [{ nodeId: node.id, error: node.executionFailure?.message }] : []
+                    });
+                }
+                for (const nodeId of context.commerceReadyWaiters.keys()) context.notifyCommerceReady(nodeId, false);
+                while (context.commerceShotRuns.size) {
+                    await Promise.allSettled([...context.commerceShotRuns.values()].map(run => run.promise));
+                }
+                context.commerceClosing = true;
                 await context.waitForPendingImageAssetSaves?.();
                 if (isActiveWorkflow(workflowReference)) {
                     const imageNodes = [...context.activePlanNodeIds]
@@ -2268,7 +2439,8 @@ export function createWorkflowRuntimeManager({
         })();
         // Toolbar callers only need launch acceptance; result consumers must
         // await the exact context they started, including result persistence.
-        return waitForCompletion ? context.promise : true;
+        if (!waitForCompletion) return true;
+        return panelCompletion ? Promise.race([context.promise, panelCompletion]) : context.promise;
     }
 
     function getRunConflictInfo(workflow, workflowData, runInput = null) {
@@ -2335,20 +2507,66 @@ export function createWorkflowRuntimeManager({
         const contexts = getWorkflowRunContexts(reference);
         const preparing = state.isRunStarting && (!state.runStartingWorkflowId || state.runStartingWorkflowId === reference.workflowId) && state.runStartController;
         if (preparing) state.runStartController.abort(reason);
+        const commerceStarts = getPendingCommerceStarts(reference.workflowId);
+        commerceStarts.forEach(run => run.controller.abort(reason));
         contexts.forEach(context => requestContextStop(context, reason));
         syncGlobalRunToolbarState();
-        return contexts.length + (preparing ? 1 : 0);
+        return contexts.length + commerceStarts.length + (preparing ? 1 : 0);
     }
 
     function abortAllWorkflowRuns(reason = 'manual') {
         state.abortReason = reason;
         state.runStartController?.abort(reason);
+        getPendingCommerceStarts().forEach(run => run.controller.abort(reason));
         workflowRunContexts.forEach(context => requestContextStop(context, reason));
         syncGlobalRunToolbarState();
     }
 
+    function cancelCommerceImageSet(workflow, nodeId, shotId, { stopBranch = false } = {}) {
+        const context = getWorkflowRunContexts(workflow).find(entry => entry.activePlanNodeIds.has(nodeId));
+        const node = context?.state.nodes.get(nodeId);
+        if (node?.type !== 'ECommerceImageSet') return false;
+        const handlers = node.commerceShotCancelHandlers;
+        const batchGenerating = [...(handlers?.keys() || [])]
+            .some(id => !['planning', 'running'].includes(node.commerceShotTasks?.[id]));
+        const cancelHandlers = new Map([...(handlers || [])].filter(([id]) => !shotId || id === shotId));
+        let canceled = false;
+        for (const cancel of cancelHandlers.values()) canceled = cancel() || canceled;
+
+        for (const run of context.commerceShotRuns.values()) {
+            if (run.nodeId !== nodeId || (shotId && run.shotId !== shotId) || run.controller.signal.aborted) continue;
+            if (!stopBranch && cancelHandlers.has(run.shotId)) continue;
+            run.controller.abort('manual');
+            canceled = true;
+        }
+        if (primaryCanStillRunCommerceNode(context, nodeId)) {
+            const primary = context.commercePrimaryPlan;
+            const controller = context.commercePrimaryController;
+            const coreOwnsPrimaryCancellation = primary?.commerceShotId ? cancelHandlers.has(primary.commerceShotId) : batchGenerating;
+            if (primary?.commerceNodeId === nodeId && (!shotId || shotId === primary.commerceShotId)
+                && (stopBranch || !coreOwnsPrimaryCancellation) && controller && !controller.signal.aborted) {
+                controller.abort('manual');
+                canceled = true;
+            }
+            if (!shotId && (stopBranch || (!controller && !batchGenerating))) {
+                canceled = context.runner.cancelRunningNode(nodeId) || canceled;
+            }
+        }
+        return canceled;
+    }
+
+    function updateCommerceShotDraft(workflow, visibleNode, shotId, field) {
+        if (!['prompt', 'headline', 'body'].includes(field)) return;
+        const context = getWorkflowRunContexts(workflow).find(entry => entry.activePlanNodeIds.has(visibleNode.id));
+        if (!context) return;
+        const runtimeNode = context.state.nodes.get(visibleNode.id);
+        if (runtimeNode?.type !== 'ECommerceImageSet' || runtimeNode.commerceShotCancelHandlers?.has(shotId)) return;
+        context.updateCommerceShotDraft?.(visibleNode.data?.commerceImageSet, runtimeNode, shotId, field);
+    }
+
     function cancelRunningNode(workflow, nodeId) {
         const reference = requireStableWorkflowReference(workflow);
+        if (cancelCommerceImageSet(reference, nodeId, undefined, { stopBranch: true })) return true;
         const visibleHandler = state.runningNodeCancelHandlers?.get(nodeId);
         if (isActiveWorkflow(reference) && typeof visibleHandler === 'function') {
             visibleHandler();
@@ -2367,10 +2585,12 @@ export function createWorkflowRuntimeManager({
         abortWorkflowRuns,
         async settleForExit() {
             const pending = [...workflowRunContexts.values()].map(context => context.promise).filter(Boolean);
+            pending.push(...getPendingCommerceStarts().map(run => run.promise).filter(Boolean));
             abortAllWorkflowRuns('软件正在退出');
             await Promise.allSettled(pending);
         },
         applyVisibleNodeRunState,
+        cancelCommerceImageSet,
         cancelRunningNode,
         getRunConflictInfo,
         prepareEditorView,
@@ -2378,7 +2598,9 @@ export function createWorkflowRuntimeManager({
         refreshVisibleWorkflowRunState,
         runWorkflowInContext,
         syncGlobalRunToolbarState,
-        waitForNodeRun
+        updateCommerceShotDraft,
+        waitForNodeRun,
+        waitForSettlingCommerceRun
     };
 }
 import { serializeConnection } from '../../canvas/connection-snapshot.js';
