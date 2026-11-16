@@ -337,6 +337,65 @@ async function zoomCanvas(app, zoom) {
     await app.waitFor(`document.querySelector('#zoom-level').textContent.trim() === '${zoom * 100}%'`);
 }
 
+async function panCanvasVertically(app, distance) {
+    const origin = await app.evaluate(`(() => {
+        const { x, y, height } = document.getElementById('canvas-container').getBoundingClientRect();
+        return { x: x + 28, y: y + height / 2 };
+    })()`);
+    const destination = { x: origin.x, y: origin.y + distance };
+    await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...origin, button: 'middle', buttons: 4, clickCount: 1 });
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...destination, button: 'middle', buttons: 4 });
+    await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...destination, button: 'middle', buttons: 0, clickCount: 1 });
+}
+
+async function verifyClippedCanvasComparison(app) {
+    await zoomCanvas(app, 1.5);
+    assert.ok(await app.evaluate(`(() => {
+        const frame = document.querySelector('${compareStage}').getBoundingClientRect();
+        const canvas = document.getElementById('canvas-container').getBoundingClientRect();
+        const centerY = frame.top + frame.height / 2;
+        return frame.right > canvas.right && frame.left + frame.width * 0.5 > canvas.left
+            && frame.left + frame.width * 0.61 < canvas.right && centerY > canvas.top && centerY < canvas.bottom;
+    })()`), 'at 150% zoom the canvas clips the card while the comparison handle and drag destination stay visible');
+    await app.waitFor(`${comparisonMode} === 'split'`);
+    assert.equal(await app.evaluate("Boolean(document.querySelector('#retouch [data-retouch-card-view]'))"), false);
+
+    const panDistance = await app.evaluate(`(() => {
+        const frame = document.querySelector('${compareStage}').getBoundingClientRect();
+        const canvas = document.getElementById('canvas-container').getBoundingClientRect();
+        return Math.round(canvas.top - 24 - (frame.top + frame.height / 2));
+    })()`);
+    await panCanvasVertically(app, panDistance);
+    await app.waitFor(`(() => {
+        const frame = document.querySelector('${compareStage}').getBoundingClientRect();
+        const canvas = document.getElementById('canvas-container').getBoundingClientRect();
+        return frame.top + frame.height / 2 < canvas.top && frame.bottom - canvas.top >= 96;
+    })()`);
+    await app.waitFor(`(() => {
+        if (${comparisonMode} !== 'split') return false;
+        const frame = document.querySelector('${compareStage}').getBoundingClientRect();
+        const canvas = document.getElementById('canvas-container').getBoundingClientRect();
+        const handle = document.querySelector('${compareHandle}').getBoundingClientRect();
+        const centerX = handle.left + handle.width / 2, centerY = handle.top + handle.height / 2;
+        return centerY > canvas.top && centerY < frame.bottom
+            && document.elementFromPoint(centerX, centerY)?.matches('${compareSlider}');
+    })()`);
+
+    const draggedValue = await dragComparisonDivider(app, compareSlider, { marker: compareHandle, frame: compareStage, target: 0.61 });
+    assert.ok(draggedValue >= 35 && draggedValue <= 43, 'the partially clipped card still supports dragging its visible comparison handle');
+    await panCanvasVertically(app, -panDistance);
+    assert.equal(Number(await app.evaluate(`document.querySelector('${compareSlider}').value`)), draggedValue);
+    await app.evaluate(`document.querySelector('${compareSlider}').focus()`);
+    await key(app, 'Home');
+    await assertCanvasResultOnly(app);
+    assert.equal(await app.evaluate(`document.activeElement.matches('${inspect}')`), true,
+        'moving the divider beyond the clipped edge passes focus to the visible inspector action');
+    await zoomCanvas(app, 1);
+    await app.waitFor(`${comparisonMode} === 'split'`);
+    assert.equal(await app.evaluate(`document.querySelector('${compareSlider}').value`), '0', 'resetting zoom restores the selected endpoint');
+    assert.ok(await dragComparisonDivider(app, compareSlider, { marker: compareHandle, frame: compareStage, gripOffset: -6, target: 0.61 }) > 30);
+}
+
 async function exerciseDockWidth(app) {
     const initialWidth = await app.evaluate(widthOfDock);
     const initialCardHeight = await app.evaluate(retouchCardHeight);
@@ -628,6 +687,7 @@ test('product retouch analyzes and edits the same original in one run and preser
         await verifyDoubleClickNearDock(app);
         await app.waitFor(`${comparisonMode} === 'split'`);
         await clickNearCompareHandle(app, 6);
+        await verifyClippedCanvasComparison(app);
         await zoomCanvas(app, 0.75);
         await app.waitFor(`${comparisonMode} === 'split'`);
         assert.ok(await app.evaluate(`(() => {

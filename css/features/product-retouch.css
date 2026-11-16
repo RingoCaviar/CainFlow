@@ -111,7 +111,7 @@
 .product-retouch-compare-divider > span {
     display: grid;
     position: absolute;
-    top: 50%;
+    top: var(--retouch-compare-handle-top, 50%);
     left: 50%;
     width: var(--retouch-compare-handle-size, 32px);
     height: var(--retouch-compare-handle-size, 32px);
@@ -127,7 +127,7 @@
     appearance: none;
     position: absolute;
     /* A half-thumb overhang at each end aligns the native travel with the divider. */
-    inset: 50% auto auto calc(var(--retouch-compare-handle-size) / -2);
+    inset: var(--retouch-compare-handle-top, 50%) auto auto calc(var(--retouch-compare-handle-size) / -2);
     width: calc(100% + var(--retouch-compare-handle-size));
     height: var(--retouch-compare-handle-size);
     margin: 0;

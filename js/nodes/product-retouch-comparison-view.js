@@ -183,6 +183,7 @@ export function createProductRetouchComparison({ card, inspect, hint, documentRe
     let retryCount = 0;
     let closeDialog = null;
     let matchingFrame = false;
+    let stageIntersectsCanvas = true;
     let frameRequest = null;
     let sliderPointer = null;
 
@@ -194,9 +195,9 @@ export function createProductRetouchComparison({ card, inspect, hint, documentRe
         };
     }
     const sidebarOpen = sidebar => sidebar.classList.contains('active') && !sidebar.hidden;
+    const coveredBySidebar = rect => sidebars.some(sidebar => sidebarOpen(sidebar) && overlapsRect(sidebar.getBoundingClientRect(), rect));
     function visibleOnCanvas(rect) {
-        return containsRect(visibleBounds(), rect)
-            && !sidebars.some(sidebar => sidebarOpen(sidebar) && overlapsRect(sidebar.getBoundingClientRect(), rect));
+        return containsRect(visibleBounds(), rect) && !coveredBySidebar(rect);
     }
     function focusVisible(...candidates) {
         for (const candidate of candidates) {
@@ -224,24 +225,37 @@ export function createProductRetouchComparison({ card, inspect, hint, documentRe
             frameRequest = null;
             if (!matchingFrame || sliderPointer !== null) return;
             const rect = stage.getBoundingClientRect();
-            // Measure the transformed card in the clipped canvas. Window width
-            // alone cannot account for the dock or for zooming the node.
-            const fits = windowRef.innerWidth > 800 && rect.width >= 180 && rect.height >= 96 && visibleOnCanvas(rect);
-            setSplitEnabled(fits);
+            const bounds = visibleBounds();
+            const visible = {
+                left: Math.max(rect.left, bounds.left), right: Math.min(rect.right, bounds.right),
+                top: Math.max(rect.top, bounds.top), bottom: Math.min(rect.bottom, bounds.bottom)
+            };
+            const dividerX = rect.left + rect.width * (1 - Number(slider.value) / 100);
+            const canCompare = windowRef.innerWidth > 800
+                && visible.right - visible.left >= 180 && visible.bottom - visible.top >= 96
+                && dividerX >= visible.left && dividerX <= visible.right && !coveredBySidebar(visible);
+            if (canCompare) {
+                // Keep the visual grip and native thumb together when the card is clipped vertically.
+                const gripY = (visible.top + visible.bottom) / 2;
+                stage.style.setProperty('--retouch-compare-handle-top', `${(gripY - rect.top) / rect.height * 100}%`);
+            }
+            setSplitEnabled(canCompare);
         });
     }
     const resizeObserver = windowRef.ResizeObserver ? new windowRef.ResizeObserver(scheduleLayout) : null;
     resizeObserver?.observe(stage);
     if (canvas) resizeObserver?.observe(canvas);
-    const intersectionObserver = windowRef.IntersectionObserver
-        ? new windowRef.IntersectionObserver(scheduleLayout, { root: canvas, threshold: [0, 1] }) : null;
+    const intersectionObserver = windowRef.IntersectionObserver ? new windowRef.IntersectionObserver(entries => {
+        stageIntersectsCanvas = entries.at(-1).isIntersecting;
+        scheduleLayout();
+    }, { root: canvas, threshold: [0, 1] }) : null;
     intersectionObserver?.observe(stage);
     windowRef.addEventListener('resize', scheduleLayout, { signal: events.signal });
     for (const event of ['cainflow:canvas-transform', 'cainflow:canvas-sidebar-changed', 'cainflow:node-drag-ended']) {
         documentRef.addEventListener(event, scheduleLayout, { signal: events.signal });
     }
     documentRef.addEventListener('cainflow:canvas-pan-frame', () => {
-        if (sidebars.some(sidebarOpen)) scheduleLayout();
+        if (stageIntersectsCanvas) scheduleLayout();
     }, { signal: events.signal });
 
     function sync() {
@@ -310,7 +324,10 @@ export function createProductRetouchComparison({ card, inspect, hint, documentRe
     windowRef.addEventListener('blur', endSliderGesture, { signal: events.signal });
     slider.addEventListener('lostpointercapture', endSliderGesture);
     slider.addEventListener('mousedown', event => event.stopPropagation());
-    slider.addEventListener('input', () => updateSplit(slider, stage));
+    slider.addEventListener('input', () => {
+        updateSplit(slider, stage);
+        scheduleLayout();
+    });
     function inspectResult(trigger) {
         if (inspect.getAttribute('aria-disabled') === 'true') return;
         closeDialog = openComparisonDialog({ documentRef, originalUrl: originalUrl ? original.src : '', resultUrl: result.src,
