@@ -6,14 +6,15 @@ async function point(app,selector){return app.evaluate(`(()=>{const p=document.q
 async function drag(app,from,to){const start=await point(app,from),end=await point(app,to);for(const event of [{type:'mouseMoved',...start},{type:'mousePressed',...start,button:'left',clickCount:1},{type:'mouseMoved',x:start.x+30,y:start.y+20,button:'left',buttons:1},{type:'mouseMoved',...end,button:'left',buttons:1},{type:'mouseReleased',...end,button:'left',clickCount:1}])await app.send('Input.dispatchMouseEvent',event)}
 async function graph(app){return app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value)")}
 
-test('releasing near a port that moved during a drag uses its current position', { timeout: 30000 }, async () => {
+test('releasing near a moved port uses its current position ahead of an already nearby target', { timeout: 30000 }, async () => {
     const sourcePort = '#source .node-port[data-direction=output] .port-dot';
     const targetPort = '#target .universal-input .port-dot';
     await withAppBrowser({
         ...session,
         nodes: [
             { id: 'source', type: 'ImageImport', x: 60, y: 160 },
-            { id: 'target', type: 'ImageGenerate', x: 540, y: 160, apiConfigId: 'image', providerId: 'p' }
+            { id: 'target', type: 'ImageGenerate', x: 540, y: 160, apiConfigId: 'image', providerId: 'p' },
+            { id: 'other', type: 'ImageGenerate', x: 568, y: 286, apiConfigId: 'image', providerId: 'p' }
         ],
         connections: []
     }, async app => {
@@ -23,14 +24,18 @@ test('releasing near a port that moved during a drag uses its current position',
         await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...oldTarget, buttons: 1 });
         await app.waitFor("Boolean(document.querySelector('#target .connection-target-nearest'))");
 
-        await app.evaluate(`(() => {
+        const otherDistance = await app.evaluate(`(() => {
             const target = document.getElementById('target');
             target.style.top = '260px';
             const { x, y, width, height } = document.querySelector(${JSON.stringify(targetPort)}).getBoundingClientRect();
+            const clientX = x + width / 2 + 16, clientY = y + height / 2;
+            const other = document.querySelector('#other .universal-input .port-dot').getBoundingClientRect();
             document.getElementById('canvas-container').dispatchEvent(new MouseEvent('mouseup', {
-                bubbles: true, cancelable: true, button: 0, clientX: x + width / 2 + 16, clientY: y + height / 2
+                bubbles: true, cancelable: true, button: 0, clientX, clientY
             }));
+            return Math.hypot(clientX - other.left - other.width / 2, clientY - other.top - other.height / 2);
         })()`);
+        assert.ok(otherDistance > 16 && otherDistance <= 32, 'the stationary port remains a valid fallback within the snap radius');
 
         await app.waitFor("fetch('/api/storage/documents/session').then(r => r.json()).then(r => r.value.connections.length === 1)");
         const [edge] = (await graph(app)).connections;

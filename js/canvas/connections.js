@@ -75,6 +75,7 @@ export function createConnectionsApi({
     const connectionsByPortKey = new Map();
     const dirtyConnectionIds = new Set();
     const dirtyNodeIds = new Set();
+    const translatedNodeIds = new Set();
     const flowDecorationById = new Map();
     const curveGeometryById = new Map();
     const connectionHitSamples = new Map();
@@ -84,9 +85,13 @@ export function createConnectionsApi({
     let highlightedInsertNode = null;
     let flowAnimationFrame = null;
     let connectionIndexSignature = '';
+    let indexedConnections = state.connections;
+    let indexedConnectionCount = 0;
+    const checkedDrags = new WeakSet();
     let laneMapCacheRevision = 0;
     let laneMapBuiltRevision = -1;
     let laneMapCache = new Map();
+    let laneGroupsByConnectionId = new Map();
     const portOrderCache = new Map();
     const view = documentRef.defaultView || window;
     const observedEndpoints = new Map();
@@ -128,7 +133,9 @@ export function createConnectionsApi({
     const TARGET_FEEDBACK_CLASSES = [
         'connection-target-available', 'connection-target-unavailable', 'connection-target-nearest'
     ];
+    const TARGET_LAYOUT_EVENTS = ['scroll', 'load', 'error', 'loadedmetadata', 'resize'];
     let targetLayout = null;
+    let targetLayoutNeedsReleaseMeasurement = false;
     let targetFeedback = null;
     let nearestTargetPort = null;
     let batchDragPreview = null;
@@ -160,12 +167,11 @@ export function createConnectionsApi({
 
     function invalidateConnectionLaneCache() {
         laneMapCacheRevision += 1;
-        laneMapCache = new Map();
         laneMapBuiltRevision = -1;
         portOrderCache.clear();
     }
 
-    function rebuildConnectionIndex() {
+    function rebuildConnectionIndex(signature = getConnectionSignature()) {
         targetFeedback = null;
         for (const [id, observed] of observedEndpoints) {
             if (getNodeById(id)?.el === observed.el) continue;
@@ -186,7 +192,9 @@ export function createConnectionsApi({
             addToSetMap(connectionsByPortKey, getPortKey(connection.to?.nodeId, connection.to?.port, 'input'), connection.id);
         });
 
-        connectionIndexSignature = getConnectionSignature();
+        connectionIndexSignature = signature;
+        indexedConnections = state.connections;
+        indexedConnectionCount = indexedConnections.length;
         invalidateConnectionLaneCache();
     }
 
@@ -266,11 +274,18 @@ export function createConnectionsApi({
         ));
     }
 
-    function ensureConnectionIndex() {
+    function ensureConnectionIndex(nodeDrag = false) {
+        const current = state.connections;
+        const sameArray = current === indexedConnections && current.length === indexedConnectionCount;
+        const drag = nodeDrag ? state.dragging : null;
+        // Only a verified position-only gesture may reuse the topology without a scan.
+        // Topology notifications and legacy geometry refreshes invalidate this shortcut.
+        if (drag && checkedDrags.has(drag) && sameArray) return;
         const nextSignature = getConnectionSignature();
-        if (nextSignature !== connectionIndexSignature) {
-            rebuildConnectionIndex();
+        if (!sameArray || nextSignature !== connectionIndexSignature) {
+            rebuildConnectionIndex(nextSignature);
         }
+        if (drag) checkedDrags.add(drag);
     }
 
     function getConnectionById(connId) {
@@ -280,6 +295,7 @@ export function createConnectionsApi({
 
     function markConnectionDirty(connId) {
         if (connId) {
+            checkedDrags.delete(state.dragging);
             targetFeedback = null;
             dirtyConnectionIds.add(connId);
         }
@@ -348,24 +364,30 @@ export function createConnectionsApi({
             String(a.id || '').localeCompare(String(b.id || ''));
     }
 
-    function addCenteredLaneOffsets(laneById, group, gap, weight = 1) {
-        if (!Array.isArray(group) || group.length <= 1) return;
-        const sorted = group.slice().sort(compareConnectionsForLane);
+    function measureLaneOffsets(group) {
+        const offsets = new Map();
+        const sorted = group.connections.slice().sort(compareConnectionsForLane);
         const center = (sorted.length - 1) / 2;
         sorted.forEach((connection, index) => {
-            const current = laneById.get(connection.id) || 0;
-            const offset = (index - center) * gap * weight;
-            laneById.set(connection.id, clampLaneOffset(current + offset));
+            offsets.set(connection.id, (index - center) * group.gap * group.weight);
         });
+        return offsets;
     }
 
-    function buildConnectionLaneMap(connections = state.connections) {
-        const laneById = new Map();
+    function getLaneOffset(connectionId, groups) {
+        let lane = 0;
+        for (const group of groups) {
+            lane = clampLaneOffset(lane + group.offsets.get(connectionId));
+        }
+        return lane;
+    }
+
+    function buildConnectionLaneMap() {
         const pairGroups = new Map();
         const outputGroups = new Map();
         const targetGroups = new Map();
 
-        connections.forEach((connection) => {
+        state.connections.forEach((connection) => {
             if (!connection?.id || !getNodeById(connection.from?.nodeId) || !getNodeById(connection.to?.nodeId)) return;
 
             const pairKey = `${connection.from.nodeId}->${connection.to.nodeId}`;
@@ -379,17 +401,67 @@ export function createConnectionsApi({
             targetGroups.get(targetKey).push(connection);
         });
 
-        pairGroups.forEach((group) => addCenteredLaneOffsets(laneById, group, PAIR_LANE_GAP, 1));
-        outputGroups.forEach((group) => addCenteredLaneOffsets(laneById, group, PORT_LANE_GAP, 0.7));
-        targetGroups.forEach((group) => addCenteredLaneOffsets(laneById, group, NODE_LANE_GAP, 0.55));
+        laneGroupsByConnectionId = new Map();
+        function addGroups(groups, gap, weight) {
+            for (const connections of groups.values()) {
+                if (connections.length < 2) continue;
+                const group = { connections, gap, weight };
+                group.offsets = measureLaneOffsets(group);
+                for (const connection of connections) {
+                    const existing = laneGroupsByConnectionId.get(connection.id) || [];
+                    existing.push(group);
+                    laneGroupsByConnectionId.set(connection.id, existing);
+                }
+            }
+        }
+        addGroups(pairGroups, PAIR_LANE_GAP, 1);
+        addGroups(outputGroups, PORT_LANE_GAP, 0.7);
+        addGroups(targetGroups, NODE_LANE_GAP, 0.55);
+        const laneById = new Map();
+        for (const [id, groups] of laneGroupsByConnectionId) laneById.set(id, getLaneOffset(id, groups));
         return laneById;
+    }
+
+    function updateTranslatedLaneOffsets() {
+        const affectedGroups = new Set();
+        for (const nodeId of translatedNodeIds) {
+            for (const id of connectionsByNodeId.get(nodeId) || []) {
+                for (const group of laneGroupsByConnectionId.get(id) || []) affectedGroups.add(group);
+            }
+        }
+        const affectedConnections = new Set();
+        for (const group of affectedGroups) {
+            group.offsets = measureLaneOffsets(group);
+            for (const connection of group.connections) affectedConnections.add(connection.id);
+        }
+        for (const id of affectedConnections) {
+            const lane = getLaneOffset(id, laneGroupsByConnectionId.get(id));
+            if (lane !== laneMapCache.get(id)) {
+                laneMapCache.set(id, lane);
+                dirtyConnectionIds.add(id);
+            }
+        }
     }
 
     function getConnectionLaneMap() {
         if (laneMapBuiltRevision !== laneMapCacheRevision) {
-            laneMapCache = buildConnectionLaneMap(state.connections);
+            const previous = laneMapCache;
+            laneMapCache = buildConnectionLaneMap();
             laneMapBuiltRevision = laneMapCacheRevision;
+            // A concurrent edit can remove an edge from a lane group during the drag.
+            // Compare the rebuilt group offsets so stationary peers also redraw.
+            if (translatedNodeIds.size) {
+                for (const [id, oldLane] of previous) {
+                    if (oldLane !== (laneMapCache.get(id) || 0)) dirtyConnectionIds.add(id);
+                }
+                for (const [id, lane] of laneMapCache) {
+                    if (!previous.has(id) && lane) dirtyConnectionIds.add(id);
+                }
+            }
+        } else if (translatedNodeIds.size) {
+            updateTranslatedLaneOffsets();
         }
+        translatedNodeIds.clear();
         return laneMapCache;
     }
 
@@ -448,9 +520,14 @@ export function createConnectionsApi({
     function invalidateNodePortCache(nodeId = null, { markDirty = true, translationOnly = false, measurementOnly = false } = {}) {
         if (!measurementOnly) invalidateTargetLayout();
         if (translationOnly && nodeId && state.dragging) {
-            if (markDirty) markNodeConnectionsDirty(nodeId);
+            if (markDirty) {
+                dirtyNodeIds.add(nodeId);
+                translatedNodeIds.add(nodeId);
+                if (connectionsByNodeId.has(nodeId)) connectionHitIndex = null;
+            }
             return;
         }
+        if (!measurementOnly) checkedDrags.delete(state.dragging);
         // Drag-start offsets are valid only until actual size/port geometry changes.
         state.dragging?.portOffsets?.clear();
         if (nodeId) {
@@ -1083,15 +1160,15 @@ export function createConnectionsApi({
         return Number.isFinite(bestScore) ? bestScore : null;
     }
 
-    function findConnectionInsertPreview(draggingState) {
+    function findConnectionInsertPreview(draggingState, { validateTopology = false } = {}) {
         if (!draggingState?.nodes || draggingState.nodes.length !== 1) return null;
         if (draggingState.connectionShakeDetached || typeof getConnectionSamplePoints !== 'function') return null;
 
         const nodeId = draggingState.nodes[0];
         const node = getNodeById(nodeId);
-        if (isNodeRunning(nodeId)) return null;
-        ensureConnectionIndex();
-        if (!node || connectionsByNodeId.has(nodeId)) return null;
+        if (!node || isNodeRunning(nodeId)) return null;
+        if (validateTopology) ensureConnectionIndex();
+        if (connectionsByNodeId.has(nodeId)) return null;
 
         const nodeBounds = getNodeBounds(node);
         const bounds = expandBounds(nodeBounds, INSERTION_PREVIEW_PADDING);
@@ -1569,7 +1646,7 @@ export function createConnectionsApi({
     }
 
     function updateDirtyConnections(options = {}) {
-        ensureConnectionIndex();
+        ensureConnectionIndex(options.nodeDrag === true);
         dirtyNodeIds.forEach((nodeId) => {
             connectionsByNodeId.get(nodeId)?.forEach((connId) => dirtyConnectionIds.add(connId));
         });
@@ -1707,6 +1784,7 @@ export function createConnectionsApi({
             return;
         }
 
+        ensureConnectionIndex();
         const { x, y, zoom } = state.canvas;
         setSvgAttribute(connectionsGroup, 'transform', `translate(${x}, ${y}) scale(${zoom})`);
         setSvgAttribute(originAxes, 'transform', `translate(${x}, ${y}) scale(${zoom})`);
@@ -1731,7 +1809,7 @@ export function createConnectionsApi({
 
     function commitConnectionInsertPreview({ refresh = false } = {}) {
         if (refresh) {
-            state.connectionInsertPreview = findConnectionInsertPreview(state.dragging);
+            state.connectionInsertPreview = findConnectionInsertPreview(state.dragging, { validateTopology: true });
             if (!state.connectionInsertPreview) {
                 clearConnectionInsertPreview();
                 return false;
@@ -1931,38 +2009,55 @@ export function createConnectionsApi({
 
     function invalidateTargetLayout() {
         targetLayout = null;
+        targetLayoutNeedsReleaseMeasurement = false;
     }
 
-    function isTargetLayoutMutation(record) {
+    function isTargetLayoutMutation(record, target) {
         if (record.type === 'attributes' && record.attributeName === 'class' && record.target.matches('.node-port')) {
             // Feedback classes change only opacity and shadows. Do not invalidate our own writes.
             const withoutFeedback = (value) => (value || '').split(/\s+/)
                 .filter((name) => name && !TARGET_FEEDBACK_CLASSES.includes(name)).join(' ');
             return withoutFeedback(record.oldValue) !== withoutFeedback(record.target.getAttribute('class'));
         }
-        if (record.type === 'characterData') return record.target.parentElement?.closest?.('.node-port');
+        if (target?.closest?.('.node-port, .node-header, .node-ports-row')) return true;
         if (record.type === 'childList') {
-            return record.target.closest?.('.node-port') ||
-                [...record.addedNodes, ...record.removedNodes].some((node) =>
-                    node.matches?.('.node-port') || node.querySelector?.('.node-port'));
+            return [...record.addedNodes, ...record.removedNodes].some((node) =>
+                node.matches?.('.node-port, .node-header') || node.querySelector?.('.node-port, .node-header'));
         }
-        return record.target.closest?.('.node-port') ||
-            (record.target.matches?.('.node, .node-ports-row, .node-inputs-section, .node-outputs-section') &&
-                record.target.querySelector?.('.node-port'));
+        return target === targetLayoutLayer ||
+            (target?.matches?.('.node') && target.querySelector?.('.node-port'));
+    }
+
+    function handleTargetLayoutMutations(records) {
+        if (!targetLayout) return;
+        for (const record of records) {
+            const target = record.type === 'characterData' ? record.target.parentElement : record.target;
+            // The elapsed label lives in a fixed-height badge. Its text and color do not move ports.
+            if (target?.id?.endsWith('-time') && target.parentElement?.matches?.('.node-time-badge') &&
+                (record.type !== 'attributes' || record.attributeName === 'style')) continue;
+            if (isTargetLayoutMutation(record, target)) {
+                invalidateTargetLayout();
+                return;
+            }
+            // Body changes can move a centered port into a different cell. Defer the
+            // conservative remeasure until release to keep preview frames cheap.
+            if (target?.closest?.('.node-body') && !target.closest('.node-port')) {
+                targetLayoutNeedsReleaseMeasurement = true;
+            }
+        }
     }
 
     function observeTargetLayout() {
         const layer = canvasContainer.querySelector?.('#nodes-layer');
         if (targetLayoutObserver || !view.MutationObserver || !layer) return;
-        targetLayoutObserver = new view.MutationObserver((records) => {
-            if (records.some(isTargetLayoutMutation)) invalidateTargetLayout();
-        });
+        targetLayoutObserver = new view.MutationObserver(handleTargetLayoutMutations);
         targetLayoutObserver.observe(layer, {
             subtree: true, childList: true, characterData: true, attributes: true, attributeOldValue: true,
-            attributeFilter: ['class', 'style', 'hidden', 'data-type', 'data-direction', 'data-node-id', 'data-port']
+            attributeFilter: ['class', 'style', 'hidden', 'data-type', 'data-direction', 'data-node-id', 'data-port',
+                'width', 'height', 'open', 'src', 'srcset']
         });
         targetLayoutLayer = layer;
-        layer.addEventListener('scroll', invalidateTargetLayout, true);
+        TARGET_LAYOUT_EVENTS.forEach(type => layer.addEventListener(type, invalidateTargetLayout, true));
     }
 
     function readConnectionTarget(portEl) {
@@ -2036,6 +2131,7 @@ export function createConnectionsApi({
             highlightedTargetPorts.delete(portEl);
         }
         targetLayout = { viewport, containerRect, cells, entries };
+        targetLayoutNeedsReleaseMeasurement = false;
         return targetLayout;
     }
 
@@ -2083,10 +2179,25 @@ export function createConnectionsApi({
 
     function getNearestConnectionTarget(src, clientX, clientY, radius = TARGET_SNAP_RADIUS) {
         if (![clientX, clientY, radius].every(Number.isFinite) || radius < 0) return null;
-        // The mouseup coordinates and layout can both have changed since the last feedback frame.
-        invalidateTargetLayout();
+        // A port may have moved before the observer callback can run, even into a different cell.
+        const records = targetLayoutObserver?.takeRecords?.();
+        if (records) handleTargetLayoutMutations(records);
+        if (!records || targetLayoutNeedsReleaseMeasurement || targetLayoutLayer?.isConnected === false) {
+            invalidateTargetLayout();
+        }
+        const cachedLayout = targetLayout;
+        let layout = getTargetLayout();
+        if (layout === cachedLayout) {
+            for (const { portEl, center } of nearbyTargetPorts(layout, clientX, clientY, radius)) {
+                const current = measureConnectionTarget(portEl);
+                if (current?.x === center?.x && current?.y === center?.y) continue;
+                invalidateTargetLayout();
+                layout = getTargetLayout();
+                break;
+            }
+        }
         const { canConnect } = createConnectionTargetCheck(src);
-        const nearest = findNearestConnectionTarget(clientX, clientY, radius, getTargetLayout(), canConnect);
+        const nearest = findNearestConnectionTarget(clientX, clientY, radius, layout, canConnect);
         if (!nearest) return null;
         return { target: nearest.target, position: nearest.position };
     }
@@ -2197,7 +2308,7 @@ export function createConnectionsApi({
     }
 
     function clearConnectionTargetFeedback() {
-        targetLayoutLayer?.removeEventListener('scroll', invalidateTargetLayout, true);
+        TARGET_LAYOUT_EVENTS.forEach(type => targetLayoutLayer?.removeEventListener(type, invalidateTargetLayout, true));
         targetLayoutLayer = null;
         targetLayoutObserver?.disconnect();
         targetLayoutObserver = null;

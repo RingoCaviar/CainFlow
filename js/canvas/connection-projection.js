@@ -76,7 +76,7 @@ export function createConnectionProjection({
         pendingConnectionIds.clear();
     }
 
-    function commit({ rematerializeTargets = false } = {}) {
+    function commit({ rematerializeTargets = false, nodeDrag = false } = {}) {
         if (destroyed || restorationTransaction.inProgress) return false;
         if (frameId) {
             cancelAnimationFrameRef?.(frameId);
@@ -92,7 +92,7 @@ export function createConnectionProjection({
                 nodeIds.forEach((nodeId) => markNodeConnectionsDirty?.(nodeId));
                 connectionIds.forEach((connectionId) => markConnectionDirty?.(connectionId));
             }
-            return updateDirtyConnections();
+            return nodeDrag ? updateDirtyConnections({ nodeDrag }) : updateDirtyConnections();
         }
         if (renderWholeProjection) {
             updateAllConnections?.();
@@ -313,7 +313,7 @@ export function createConnectionProjection({
                     if (destroyed || closed) return;
                     if (kind !== CANVAS_INTERACTION_KIND.NODE_DRAG) throw new Error('Canvas interaction does not move nodes');
                     markGeometry([...targets], { translationOnly: true });
-                    commit();
+                    commit({ nodeDrag: true });
                 },
                 finish() {
                     if (destroyed) return Promise.resolve({ inspected: 0, corrected: 0 });

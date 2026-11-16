@@ -28,7 +28,15 @@ function harness(ports = [
     port('near', 'in', 'image', 'input', 100, 100),
     port('far', 'in', 'image', 'input', 115, 100),
     port('running', 'in', 'image', 'input', 96, 100)
-]) {
+], { observeLayout = false } = {}) {
+    const mutations = [];
+    let notifyLayout;
+    const layer = { addEventListener() {} };
+    const MutationObserver = observeLayout ? class {
+        constructor(callback) { notifyLayout = callback; }
+        observe() {}
+        takeRecords() { return mutations.splice(0); }
+    } : undefined;
     const nodes = new Map();
     for (const p of ports) {
         const id = p.dataset.nodeId;
@@ -48,17 +56,21 @@ function harness(ports = [
     };
     const api = createConnectionsApi({
         state,
-        canvasContainer: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 500 }) },
+        canvasContainer: {
+            getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 500 }),
+            querySelector: selector => observeLayout && selector === '#nodes-layer' ? layer : null
+        },
         connectionsGroup: {}, tempConnection: {}, originAxes: {},
         getNodeById: (id) => nodes.get(id),
         createBezierPath: () => '', getConnectionSamplePoints: () => [],
         pushHistory() {}, showToast() {}, scheduleSave() {},
         documentRef: {
-            defaultView: {},
+            defaultView: { MutationObserver },
             querySelectorAll: (selector) => selector === '.node-port' ? ports : []
         }
     });
-    return { api, ports, state, source: {
+    const deliverMutations = () => notifyLayout(mutations.splice(0));
+    return { api, ports, state, mutations, deliverMutations, source: {
         nodeId: 'source', portName: 'out', dataType: 'image', isOutput: true
     } };
 }
@@ -112,6 +124,56 @@ test('feedback shares one port measurement pass and skips unchanged class writes
     api.updateConnectionTargetFeedback(source, NaN, NaN);
     assert.equal(rectReads, ports.length, 'unchanged port geometry survives subsequent feedback frames');
     assert.equal(writes, 0);
+});
+
+test('releasing a wire measures the nearby ports at the final coordinates and leaves distant ports alone', () => {
+    const distant = port('distant', 'in', 'image', 'input', 450, 100);
+    const final = port('final', 'in', 'image', 'input', 250, 100);
+    const { api, source, state, mutations, deliverMutations } = harness([
+        port('source', 'out', 'image', 'output', 0, 0),
+        port('near', 'in', 'image', 'input', 100, 100), final, distant
+    ], { observeLayout: true });
+    assert.equal(api.updateConnectionTargetFeedback(source, 100, 100)?.target.nodeId, 'near');
+
+    const dot = final.querySelector();
+    const measure = dot.getBoundingClientRect;
+    let finalMeasurements = 0;
+    dot.getBoundingClientRect = () => { finalMeasurements += 1; return measure(); };
+    distant.querySelector().getBoundingClientRect = () => assert.fail('distant port was remeasured at release');
+
+    mutations.push({ type: 'childList', target: {
+        id: 'running-time',
+        parentElement: { matches: selector => selector === '.node-time-badge' },
+        closest: selector => selector.includes('.node-header') ? distant : null
+    }, addedNodes: [], removedNodes: [] });
+    deliverMutations();
+    assert.equal(api.updateConnectionTargetFeedback(source, 100, 100)?.target.nodeId, 'near');
+
+    assert.equal(api.getNearestConnectionTarget(source, 247, 100)?.target.nodeId, 'final');
+    assert.equal(finalMeasurements, 1);
+    state.runningNodeIds.add('final');
+    assert.equal(api.getNearestConnectionTarget(source, 247, 100), null, 'the cached geometry does not preserve an obsolete validation');
+});
+
+for (const change of ['position', 'content']) test(`a pending ${change} change can bring a distant port into the release radius`, () => {
+    const moved = port('moved', 'in', 'image', 'input', 450, 100);
+    const { api, source, mutations } = harness([
+        port('source', 'out', 'image', 'output', 0, 0),
+        port('near', 'in', 'image', 'input', 100, 100), moved
+    ], { observeLayout: true });
+    assert.equal(api.updateConnectionTargetFeedback(source, 100, 100)?.target.nodeId, 'near');
+
+    moved.querySelector().getBoundingClientRect = () => ({ left: 96, top: 94, width: 12, height: 12 });
+    mutations.push({
+        type: 'attributes', attributeName: 'style',
+        target: change === 'position'
+            ? { matches: selector => selector === '.node', querySelector: () => moved }
+            : { matches: () => false, closest: selector => selector === '.node-body' ? moved : null }
+    });
+
+    assert.deepEqual(api.getNearestConnectionTarget(source, 102, 100), {
+        target: { nodeId: 'moved', port: 'in', type: 'image', dir: 'input' }, position: { x: 102, y: 100 }
+    });
 });
 
 test('snapping uses fresh geometry after a node changes and drop checks current compatibility', () => {

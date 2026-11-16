@@ -396,6 +396,127 @@ function createRestorationProjection(connections, overrides = {}) {
     });
 }
 
+test('moving nodes reuses the connection index and updates only their lane groups', () => {
+    let pathsComputed = 0;
+    const { api, state, paths, getConnectionForEachReadCount } = createHarness(3, {
+        distinctTargets: true,
+        createBezierPathImpl(x, y, tx, ty, options) {
+            pathsComputed += 1;
+            return `M ${x} ${y} L ${tx} ${ty} lane=${options.laneOffset.toFixed(1)}`;
+        }
+    });
+    const separateSource = createNode('separate', 400, createPort('text', 'output', 520), createPort('text', 'input', 400));
+    state.nodes.set(separateSource.id, separateSource);
+    state.connections[2].from.nodeId = separateSource.id;
+    const checked = state.connections.map.bind(state.connections);
+    let topologyScans = 0;
+    state.connections.map = (...args) => { topologyScans += 1; return checked(...args); };
+    const projection = createRestorationProjection(api, {
+        requestAnimationFrameRef: () => 1,
+        cancelAnimationFrameRef() {}
+    });
+    api.updateAllConnections();
+    const moved = state.nodes.get('to-1');
+    state.dragging = { nodes: [moved.id], portOffsets: new Map() };
+    const drag = projection.interactions.beginInteraction('node-drag', [moved.id]);
+    const before = paths.map(path => path.getAttribute('d'));
+    moved.x += 1;
+    drag.nodePositionsApplied();
+    const scansAfterFirstFrame = topologyScans;
+    const graphWalksAfterFirstFrame = getConnectionForEachReadCount();
+    pathsComputed = 0;
+
+    moved.y = 8;
+    drag.nodePositionsApplied();
+
+    assert.equal(topologyScans, scansAfterFirstFrame, 'geometry frames must not validate every connection');
+    assert.equal(getConnectionForEachReadCount(), graphWalksAfterFirstFrame, 'geometry frames must not rebuild lane groups across the graph');
+    assert.equal(pathsComputed, 2, 'only the incident edge and its changed lane peer regenerate geometry');
+    assert.match(paths[0].getAttribute('d'), /lane=2\.1$/);
+    assert.notEqual(paths[0].getAttribute('d'), before[0]);
+    assert.notEqual(paths[1].getAttribute('d'), before[1], 'the stationary peer follows the new vertical lane order');
+    assert.equal(paths[2].getAttribute('d'), before[2]);
+});
+
+test('node drag projection detects same-array topology mutations reported during a drag', () => {
+    const { api, state, paths, frames } = createHarness(2, { distinctTargets: true });
+    const projection = createRestorationProjection(api, {
+        requestAnimationFrameRef(callback) { frames.push(callback); return frames.length; },
+        cancelAnimationFrameRef() {}
+    });
+    api.updateAllConnections();
+    const moved = state.nodes.get('to-1');
+    state.dragging = { nodes: [moved.id], portOffsets: new Map() };
+    const drag = projection.interactions.beginInteraction('node-drag', [moved.id]);
+    moved.x += 1;
+    drag.nodePositionsApplied();
+
+    const previousPath = paths[1].getAttribute('d');
+    const oldEdge = state.connections[1];
+    state.connections[1] = { ...oldEdge, to: { ...oldEdge.to, nodeId: moved.id } };
+    projection.interactions.topologyChanged({ nodeIds: [moved.id], connectionIds: [oldEdge.id] });
+    state.dragging.portOffsets.set('to-1-text-input', { dx: 24, dy: 24 });
+    drag.nodePositionsApplied();
+    assert.notEqual(paths[1].getAttribute('d'), previousPath);
+
+    const changedPath = paths[1].getAttribute('d');
+    moved.x += 10;
+    state.dragging.portOffsets.set('to-1-text-input', { dx: 24, dy: 24 });
+    drag.nodePositionsApplied();
+    assert.notEqual(paths[1].getAttribute('d'), changedPath, 'subsequent movement follows the new incidence');
+});
+
+test('the first drag frame redraws a stationary peer when an in-place topology edit removes its lane group', () => {
+    const { api, state, paths, frames } = createHarness(2, {
+        distinctTargets: true,
+        createBezierPathImpl: (x, y, tx, ty, options) => `M ${x} ${y} L ${tx} ${ty} lane=${options.laneOffset.toFixed(1)}`
+    });
+    const moved = createNode('moved', 50, createPort('text', 'output', 170), createPort('text', 'input', 50));
+    state.nodes.set(moved.id, moved);
+    const projection = createRestorationProjection(api, {
+        requestAnimationFrameRef(callback) { frames.push(callback); return frames.length; },
+        cancelAnimationFrameRef() {}
+    });
+    api.updateAllConnections();
+    assert.match(paths[0].getAttribute('d'), /lane=-2\.1$/);
+    state.dragging = { nodes: [moved.id], portOffsets: new Map() };
+    const drag = projection.interactions.beginInteraction('node-drag', [moved.id]);
+
+    const edge = state.connections[1];
+    state.connections[1] = { ...edge, from: { ...edge.from, nodeId: moved.id } };
+    projection.interactions.topologyChanged({ nodeIds: [moved.id], connectionIds: [edge.id] });
+    moved.x += 5;
+    drag.nodePositionsApplied();
+
+    assert.match(paths[0].getAttribute('d'), /lane=0\.0$/);
+});
+
+test('local lane updates preserve group order and clamp each contribution', () => {
+    const { api, state, paths } = createHarness(30, {
+        distinctTargets: true,
+        createBezierPathImpl: (x, y, tx, ty, options) => `M ${x} ${y} L ${tx} ${ty} lane=${options.laneOffset.toFixed(1)}`
+    });
+    for (const edge of state.connections.slice(0, 10)) edge.to.nodeId = 'to-1';
+    state.nodes.get('to-1').y = 50;
+    const projection = createRestorationProjection(api, {
+        requestAnimationFrameRef: () => 1,
+        cancelAnimationFrameRef() {}
+    });
+    api.updateAllConnections();
+    assert.match(paths[0].getAttribute('d'), /lane=-28\.8$/);
+    const moved = state.nodes.get('to-11');
+    state.dragging = { nodes: [moved.id], portOffsets: new Map() };
+    const drag = projection.interactions.beginInteraction('node-drag', [moved.id]);
+    moved.y = 60;
+    drag.nodePositionsApplied();
+
+    assert.match(paths[0].getAttribute('d'), /lane=-33\.0$/);
+    const projected = paths.map(path => path.getAttribute('d'));
+    state.dragging = null;
+    api.updateAllConnections();
+    assert.deepEqual(paths.map(path => path.getAttribute('d')), projected);
+});
+
 test('internal drag paths translate without geometry reads while external edges redraw and real geometry invalidates reuse', () => {
     let draws = 0;
     const { api, state, paths, setOutputPortLeft, getPortRectReadCount } = createHarness(2, { distinctTargets: true,
