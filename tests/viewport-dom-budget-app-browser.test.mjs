@@ -64,6 +64,37 @@ test('zooming out to ten percent keeps onscreen node content visible', { timeout
     });
 });
 
+test('panning a distant node into view restores its content while the mouse is still held', { timeout: 30000 }, async () => {
+    await withAppBrowser({
+        autoCheckUpdatesOnLoad: false,
+        nodes: [{ id: 'pan-reentry', type: 'Text', x: 4000, y: 100, text: '平移时恢复' }],
+        connections: []
+    }, async app => {
+        await app.waitFor("document.getElementById('pan-reentry')?.dataset.renderProjection === 'shell'");
+        await app.evaluate(`(() => {
+            const canvas = document.getElementById('canvas-container');
+            const area = canvas.getBoundingClientRect();
+            const node = document.getElementById('pan-reentry').getBoundingClientRect();
+            const clientX = area.left + area.width / 2, clientY = area.top + area.height / 2;
+            canvas.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 1, buttons: 4, clientX, clientY }));
+            canvas.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, buttons: 4,
+                clientX: clientX + area.left + area.width / 4 - node.left,
+                clientY: clientY + area.top + area.height / 4 - node.top }));
+        })()`);
+        try {
+            await app.waitFor(`(() => {
+                const node = document.getElementById('pan-reentry');
+                return document.getElementById('canvas-container').classList.contains('is-panning') &&
+                    node.dataset.renderProjection === 'full' &&
+                    getComputedStyle(node.querySelector('.node-body')).contentVisibility === 'visible';
+            })()`);
+        } finally {
+            await app.evaluate(`document.getElementById('canvas-container').dispatchEvent(
+                new MouseEvent('mouseup', { bubbles: true, button: 1, buttons: 0 }))`);
+        }
+    });
+});
+
 test('the public viewport preserves identical DOM while real transforms, theme metrics and projection intents still update', { timeout: 45000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes: [], connections: [],
         models: [{ id: 'chat', modelId: 'chat', protocol: 'openai', taskType: 'chat', providerIds: ['p'] }],

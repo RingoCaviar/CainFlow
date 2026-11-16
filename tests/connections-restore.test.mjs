@@ -867,6 +867,74 @@ test('restoration renders a long connection crossing the viewport with both endp
     assert.equal(paths[0]?.getAttribute('d'), 'M -476 24 L 1304 24');
 });
 
+function trackStraightPathSamples(path) {
+    let samples = 0;
+    path.getTotalLength = () => { samples += 1; return 1; };
+    path.getPointAtLength = (length) => {
+        const [, fromX, fromY, , toX, toY] = path.getAttribute('d').split(' ');
+        return length === 0 ? { x: Number(fromX), y: Number(fromY) } : { x: Number(toX), y: Number(toY) };
+    };
+    return () => samples;
+}
+
+test('viewport alignment reuses unchanged path geometry and still checks real ports across the viewport', () => {
+    const { api, state, paths } = createHarness(1);
+    let outputLeft = -480;
+    const output = createPort('text', 'output', () => outputLeft + state.canvas.x);
+    const input = createPort('text', 'input', () => 1300 + state.canvas.x);
+    state.nodes.set('from', createNode('from', -600, output, input));
+    state.nodes.set('to', createNode('to', 1300, output, input));
+    api.updateAllConnections();
+    const [path] = paths;
+    const samples = trackStraightPathSamples(path);
+
+    assert.deepEqual(api.detectMisalignedConnections({ viewportOnly: true }), []);
+    state.canvas.x -= 60;
+    assert.deepEqual(api.detectMisalignedConnections({ viewportOnly: true }), []);
+    assert.equal(samples(), 1, 'pan should not resample unchanged SVG endpoints');
+
+    outputLeft += 10;
+    const [misalignedPort] = api.detectMisalignedConnections({ viewportOnly: true });
+    assert.equal(misalignedPort.expected.from.x, -466);
+    assert.equal(misalignedPort.actual.from.x, -476);
+    assert.equal(samples(), 1, 'the live port read is independent of the SVG endpoints');
+
+    path.setAttribute('d', 'M -465 24 L 1304 24');
+    const [misalignedPath] = api.detectMisalignedConnections({ viewportOnly: true });
+    assert.equal(misalignedPath.actual.from.x, -465);
+    assert.equal(samples(), 2, 'changed path data provides fresh SVG endpoints');
+
+    path.setAttribute('d', '');
+    const [missingPath] = api.detectMisalignedConnections({ viewportOnly: true });
+    assert.deepEqual(missingPath.actual, { from: null, to: null });
+    assert.equal(samples(), 2);
+});
+
+test('viewport alignment applies current drag translation to a reused path sample', () => {
+    const { api, state, paths } = createHarness(1);
+    const output = createPort('text', 'output', () => state.nodes.get('from').x + 120);
+    const input = createPort('text', 'input', () => state.nodes.get('to').x + 20);
+    state.nodes.set('from', createNode('from', 0, output, input));
+    state.nodes.set('to', createNode('to', 200, output, input));
+    api.updateAllConnections();
+    const [path] = paths;
+    const initialPathData = path.getAttribute('d');
+    const samples = trackStraightPathSamples(path);
+    assert.deepEqual(api.detectMisalignedConnections({ viewportOnly: true }), []);
+
+    const ids = ['from', 'to'];
+    state.dragging = { nodes: ids, portOffsets: new Map() };
+    for (const id of ids) {
+        state.nodes.get(id).x += 20;
+        api.invalidateNodePortCache(id, { translationOnly: true });
+    }
+    api.updateDirtyConnections();
+    assert.equal(path.getAttribute('d'), initialPathData);
+    assert.equal(path.getAttribute('transform'), 'translate(20, 0)');
+    assert.deepEqual(api.detectMisalignedConnections({ viewportOnly: true }), []);
+    assert.equal(samples(), 1);
+});
+
 test('pan and zoom settlement measure newly visible connections and defer distant ones', async () => {
     const { api, state, frames, paths } = createHarness(3, { distinctTargets: true });
     let visiblePortReads = 0;

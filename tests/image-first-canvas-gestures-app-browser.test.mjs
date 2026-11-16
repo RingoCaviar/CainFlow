@@ -206,12 +206,31 @@ test('parameter overlay follows a held canvas pan and clamps before release with
         const snapshot = () => app.evaluate(`(()=>{
             const panel=document.getElementById('image-parameter-panel'), rect=panel.getBoundingClientRect();
             const node=document.getElementById('gesture-image').getBoundingClientRect();
-            return {left:rect.left,top:rect.top,right:rect.right,bottom:rect.bottom,nodeLeft:node.left,
+            return {left:rect.left,top:rect.top,right:rect.right,bottom:rect.bottom,panelHeight:rect.height,nodeLeft:node.left,
                 width:innerWidth,height:innerHeight};
         })()`);
         await app.evaluate(`window.panPrompt=document.getElementById('gesture-image-prompt');
             panPrompt.value='retained draft';panPrompt.focus();panPrompt.setSelectionRange(2,5);`);
         const before = await snapshot();
+        await app.evaluate(`(() => {
+            const layoutElements = '#gesture-image, #gesture-image .image-result-actions, #gesture-image .node-run-cancel-btn,' +
+                '#canvas-container, #canvas-navigation, #workflow-sidebar, #prompt-agent-panel, #prompt-agent-form,' +
+                '#image-parameter-panel, #image-parameter-panel .image-parameter-footer, #gesture-image-prompt';
+            let reads = null;
+            window.panFrameLayoutReads = [];
+            document.addEventListener('cainflow:canvas-pan-frame', () => { reads = 0; }, true);
+            document.addEventListener('cainflow:canvas-pan-frame', () => {
+                panFrameLayoutReads.push(reads);
+                reads = null;
+            });
+            for (const method of ['getBoundingClientRect', 'getClientRects']) {
+                const readRect = Element.prototype[method];
+                Element.prototype[method] = function () {
+                    if (reads !== null && this.matches(layoutElements)) reads++;
+                    return readRect.call(this);
+                };
+            }
+        })()`);
         const start = { x: 850, y: 180 };
         const pan = async (type, x, y) => app.send('Input.dispatchMouseEvent', {
             type, x, y, button: type === 'mouseMoved' ? 'none' : 'middle',
@@ -224,11 +243,28 @@ test('parameter overlay follows a held canvas pan and clamps before release with
             await delay(80);
             const during = await snapshot();
             assert.ok(Math.abs(during.left - before.left - 60) < 2, 'overlay moves while middle button remains held');
+            const stableReads = [];
+            for (const offset of [80, 100, 120]) {
+                const count = await app.evaluate('panFrameLayoutReads.length');
+                await pan('mouseMoved', start.x + offset, start.y + 40);
+                await app.waitFor(`panFrameLayoutReads.length > ${count}`);
+                stableReads.push(await app.evaluate(`panFrameLayoutReads[${count}]`));
+            }
+            assert.deepEqual(stableReads, [0, 0, 0],
+                'each warm pan frame reuses the measured node, viewport and overlay rectangles');
             await pan('mouseMoved', start.x + 300, start.y + 1000);
             await delay(80);
             const edge = await snapshot();
             assert.ok(edge.left >= 0 && edge.right <= edge.width && edge.bottom <= edge.height,
                 'overlay stays in the viewport before releasing the mouse');
+            await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-footer').style.paddingBottom='56px'");
+            await app.waitFor(`(() => {
+                const rect = document.getElementById('image-parameter-panel').getBoundingClientRect();
+                return rect.height > ${edge.panelHeight + 20} && rect.top < ${edge.top - 20};
+            })()`);
+            const grown = await snapshot();
+            assert.ok(Math.abs(grown.bottom - edge.bottom) < 2,
+                'a taller overlay recomputes its clamp while the middle button remains held');
             assert.deepEqual(await app.evaluate(`({same:panPrompt===document.getElementById('gesture-image-prompt'),
                 value:panPrompt.value,start:panPrompt.selectionStart,end:panPrompt.selectionEnd})`),
                 { same: true, value: 'retained draft', start: 2, end: 5 });

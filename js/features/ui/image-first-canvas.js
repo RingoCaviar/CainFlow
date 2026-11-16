@@ -41,8 +41,9 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     openShotError = () => {}, openNodeFailureLog = () => false, openReferencePreview = null, bindReferencePrompt = null,
     uploadRetouchReference, onNativeClipboardWrite }) {
     const views = new Map();
-    const dragClasses = new Set(['selected', 'is-interacting', 'connection-insert-candidate', 'connection-shake-armed']);
-    const presentationClasses = value => (value || '').split(/\s+/).filter(name => name && !dragClasses.has(name)).sort().join(' ');
+    const geometryClasses = new Set(['selected', 'is-interacting', 'connection-insert-candidate', 'connection-shake-armed',
+        'is-virtualized', 'render-refresh']);
+    const presentationClasses = value => (value || '').split(/\s+/).filter(name => name && !geometryClasses.has(name)).sort().join(' ');
     const surfaces = getSurfaceCoordinator(documentRef);
     const panel = documentRef.createElement('section');
     panel.id = 'image-parameter-panel';
@@ -61,6 +62,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     documentRef.body.append(store, panel);
     const dock = documentRef.getElementById('main-layout') || documentRef.body;
     const agent = documentRef.getElementById('prompt-agent-panel');
+    const canvasContainer = documentRef.getElementById('canvas-container');
     const header = panel.querySelector('.image-parameter-header');
     const scroll = panel.querySelector('.image-parameter-scroll');
     const targetContext = documentRef.createElement('div');
@@ -100,6 +102,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     const persistWidthPreference = () => storage?.setItem(current?.type === 'ImageImport' ? 'cainflow_image_import_parameter_width' : 'cainflow_node_parameter_width', String(Math.round(currentWidthPreference())));
     let positionFrame = null, gesture = null, expanded = false, expandedRect = null, returnFocusElement = null;
     let ordinaryAnchor = null;
+    let panLayout = null;
+    let workflowSidebarMoving = false;
     let preserveOrdinaryAnchor = false;
     let deferredRetouchDock = null;
     const expandButton = panel.querySelector('[data-parameter-action="expand"]');
@@ -152,7 +156,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             || toolbar.querySelector('details[open], .btn.active:not(#btn-prompt-agent), [aria-expanded="true"]:not(#btn-prompt-agent)'));
         const top = toolbarActive
             ? Math.min(toolbar.offsetHeight + 12, Math.max(12, windowRef.innerHeight - 12)) : 12;
-        const canvas = documentRef.getElementById('canvas-container')?.getBoundingClientRect();
+        const canvas = canvasContainer?.getBoundingClientRect();
         let left = Math.max(12, (canvas?.left || 0) + 12);
         const workflowPanel = documentRef.getElementById('workflow-sidebar');
         if (workflowPanel?.classList.contains('active') && !workflowPanel.hidden) {
@@ -248,8 +252,9 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         prompt.style.overflowY = prompt.scrollHeight > prompt.clientHeight ? 'auto' : 'hidden';
     }
 
-    function position() {
-        positionPanel();
+    function position({ rememberPanLayout = false } = {}) {
+        panLayout = null;
+        positionPanel(rememberPanLayout);
         positionSettingsPopup();
     }
     function positionSettingsPopup() {
@@ -267,7 +272,20 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         popup.style.left = `${clamp(anchorLeft, 12, Math.max(12, windowRef.innerWidth - popup.offsetWidth - 12))}px`;
         popup.style.top = `${Math.max(12, bottom - popup.offsetHeight)}px`;
     }
-    function positionPanel() {
+    function anchorGeometry(rect, bounds, preferredTop) {
+        return [rect.left, rect.top, rect.width, rect.height, bounds.left, bounds.top, bounds.right, bounds.bottom, preferredTop];
+    }
+    function ordinaryPanelLeft(rect, bounds, width) {
+        return clamp(rect.left + rect.width / 2 - width / 2, bounds.left, Math.max(bounds.left, bounds.right - width));
+    }
+    function placeOrdinaryPanel(left, preferredTop, bounds, height, geometry, hasCancel) {
+        // Follow below the card and stay at the bottom boundary instead of flipping above it.
+        const top = clamp(preferredTop, bounds.top, Math.max(bounds.top, bounds.bottom - height));
+        if (panel.style.left !== `${left}px`) panel.style.left = `${left}px`;
+        if (panel.style.top !== `${top}px`) panel.style.top = `${top}px`;
+        ordinaryAnchor = { node: current, geometry, hasCancel, left, top, maxHeight: bounds.height };
+    }
+    function positionPanel(rememberPanLayout) {
         if (panel.hidden || !current?.el?.isConnected) return;
         const name = current.customTitle || current.el.dataset.nodeTitle || nodeLabels[current.type] || current.type;
         const panelTitle = panel.querySelector('.image-parameter-title');
@@ -315,9 +333,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const hasCancel = !!current.el.querySelector('.node-run-cancel-btn')?.getClientRects().length;
         // Content changes must not move the controls under the pointer. Only
         // changes to the node or available canvas invalidate the opening anchor.
-        const anchorKey = [rect.left, rect.top, rect.width, rect.height,
-            bounds.left, bounds.top, bounds.right, bounds.bottom, preferredTop, hasCancel].join(',');
-        if (preserveOrdinaryAnchor && ordinaryAnchor?.node === current && ordinaryAnchor.key === anchorKey) {
+        const geometry = anchorGeometry(rect, bounds, preferredTop);
+        // A measured rectangle may round a translated edge to a slightly different subpixel.
+        if (preserveOrdinaryAnchor && ordinaryAnchor?.node === current && ordinaryAnchor.hasCancel === hasCancel &&
+            geometry.every((value, index) => Math.abs(value - ordinaryAnchor.geometry[index]) < 0.02)) {
             panel.style.left = `${clamp(ordinaryAnchor.left, bounds.left, Math.max(bounds.left, bounds.right - width))}px`;
             panel.style.top = `${ordinaryAnchor.top}px`;
             panel.style.maxHeight = `${Math.max(1, Math.min(ordinaryAnchor.maxHeight, bounds.bottom - ordinaryAnchor.top))}px`;
@@ -327,25 +346,52 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             return;
         }
         preserveOrdinaryAnchor = false;
-        panel.style.left = `${clamp(rect.left + rect.width / 2 - width / 2, bounds.left, Math.max(bounds.left, bounds.right - width))}px`;
+        const left = ordinaryPanelLeft(rect, bounds, width);
+        panel.style.left = `${left}px`;
         panel.style.top = `${preferredTop}px`;
         widthHandle.setAttribute('aria-valuenow', String(Math.round(width)));
         sizePrompt();
         const height = panel.getBoundingClientRect().height;
-        // Follow below the card until the bottom boundary is reached, then
-        // stay at that boundary instead of flipping above the card.
-        panel.style.top = `${clamp(preferredTop, bounds.top, Math.max(bounds.top, bounds.bottom - height))}px`;
-        ordinaryAnchor = { node: current, key: anchorKey, left: parseFloat(panel.style.left), top: parseFloat(panel.style.top), maxHeight: parseFloat(panel.style.maxHeight) };
+        placeOrdinaryPanel(left, preferredTop, bounds, height, geometry, hasCancel);
+        // Some locate actions scroll the viewport natively. That offset can also
+        // clamp as the transform changes, so keep measuring while it is nonzero.
+        if (rememberPanLayout && state.canvas && !canvasContainer?.scrollLeft && !canvasContainer?.scrollTop) {
+            const { x, y, zoom } = state.canvas;
+            panLayout = { node: current, rect, bounds, preferredTop, hasCancel, width, height, x, y, zoom };
+        }
         // Measuring at the viewport limit can temporarily remove overflow and
         // clamp the browser's scroll offset. Restore it after final layout.
         scroll.scrollTop = scrollTop;
     }
     function schedulePosition() {
+        panLayout = null;
         if (positionFrame !== null || panel.hidden) return;
         positionFrame = windowRef.requestAnimationFrame(() => { positionFrame = null; position(); });
     }
+    function positionDuringCanvasPan() {
+        if (expanded || panel.hidden || isDocked() || !current?.el?.isConnected) return;
+        const { x, y, zoom } = state.canvas || {};
+        const canReuseLayout = !workflowSidebarMoving && !views.get(current)?.settingsPopup?.matches(':popover-open');
+        if (!canReuseLayout || panLayout?.node !== current || panLayout.zoom !== zoom ||
+            ![x, y, zoom].every(Number.isFinite)) {
+            if (positionFrame !== null) {
+                windowRef.cancelAnimationFrame(positionFrame);
+                positionFrame = null;
+            }
+            position({ rememberPanLayout: canReuseLayout });
+            return;
+        }
+        const { rect, bounds, width, height, hasCancel } = panLayout;
+        const offsetX = x - panLayout.x, offsetY = y - panLayout.y;
+        const translated = { left: rect.left + offsetX, top: rect.top + offsetY, width: rect.width, height: rect.height };
+        const preferredTop = panLayout.preferredTop + offsetY;
+        if (x !== panLayout.x || y !== panLayout.y) preserveOrdinaryAnchor = false;
+        placeOrdinaryPanel(ordinaryPanelLeft(translated, bounds, width), preferredTop, bounds, height,
+            anchorGeometry(translated, bounds, preferredTop), hasCancel);
+    }
     function park() {
         ordinaryAnchor = null;
+        panLayout = null;
         preserveOrdinaryAnchor = false;
         if (header.parentNode !== panel) panel.prepend(header);
         if (current?.parameterRoot) {
@@ -1065,11 +1111,31 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         schedulePosition();
         documentRef.dispatchEvent(new windowRef.Event('cainflow:canvas-sidebar-changed'));
     }
-    for (const sidebar of [agent, documentRef.getElementById('workflow-sidebar')]) {
+    const workflowSidebar = documentRef.getElementById('workflow-sidebar');
+    for (const sidebar of [agent, workflowSidebar]) {
         if (!sidebar) continue;
         new windowRef.MutationObserver(sidebarChanged).observe(sidebar, { attributes: true, attributeFilter: ['class', 'hidden', 'style'] });
         if (windowRef.ResizeObserver) new windowRef.ResizeObserver(sidebarChanged).observe(sidebar);
         sidebar.addEventListener('transitionend', sidebarChanged);
+    }
+    // The workflow drawer can slide without resizing or mutating another attribute.
+    const trackWorkflowSidebar = event => {
+        if (event.target !== workflowSidebar || event.propertyName !== 'left') return;
+        workflowSidebarMoving = event.type === 'transitionrun';
+        schedulePosition();
+    };
+    for (const type of ['transitionrun', 'transitionend', 'transitioncancel']) {
+        workflowSidebar?.addEventListener(type, trackWorkflowSidebar);
+    }
+    canvasContainer?.addEventListener('scroll', schedulePosition, { passive: true });
+    if (windowRef.ResizeObserver) {
+        const observePanelBounds = new windowRef.ResizeObserver(() => {
+            if (!expanded && !isDocked()) schedulePosition();
+        });
+        for (const element of [panel, toolbar, canvasContainer,
+            documentRef.getElementById('canvas-navigation'), documentRef.getElementById('prompt-agent-form')]) {
+            if (element) observePanelBounds.observe(element);
+        }
     }
     if (windowRef.ResizeObserver) new windowRef.ResizeObserver(() => {
         if (isDocked()) schedulePosition();
@@ -1195,11 +1261,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     documentRef.addEventListener('cainflow:canvas-transform', () => {
         if (!isDocked()) schedulePosition();
     });
-    documentRef.addEventListener('cainflow:canvas-pan-frame', () => {
-        // The canvas transform has already been applied in its animation frame.
-        // Do not queue another frame or move the independently placed expanded view.
-        if (!expanded && !panel.hidden && !isDocked()) position();
-    });
+    // The canvas transform has already been applied in this animation frame.
+    documentRef.addEventListener('cainflow:canvas-pan-frame', positionDuringCanvasPan);
     windowRef.addEventListener('resize', () => { schedulePosition(); });
     return { install, selectionChanged, close, refreshNode,
         refreshSource: sourceId => {

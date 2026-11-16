@@ -10,16 +10,18 @@ function classList() {
     };
 }
 
-function createHarness({ zoom = 1, nodes = [], performanceMonitor } = {}) {
+function createHarness({ zoom = 1, nodes = [], performanceMonitor, windowRef = {} } = {}) {
     const documentRef = { addEventListener() {}, removeEventListener() {} };
-    const canvasContainer = { classList: classList(), getBoundingClientRect() { return { width: 800, height: 600 }; } };
+    const canvasContainer = {
+        classList: classList(), addEventListener() {}, getBoundingClientRect() { return { width: 800, height: 600 }; }
+    };
     const nodesLayer = { addEventListener() {} };
     const state = {
         canvas: { x: 0, y: 0, zoom }, nodes: new Map(nodes), runningNodeIds: new Set(),
         canvasRender: { denseModeOverride: 'auto' }
     };
     const api = createRenderProjectionManager({
-        state, canvasContainer, nodesLayer, documentRef, windowRef: {}, performanceMonitor,
+        state, canvasContainer, nodesLayer, documentRef, windowRef, performanceMonitor,
         requestAnimationFrameRef: (callback) => { callback(); return 1; }
     });
     return { api, state, canvasContainer };
@@ -64,6 +66,41 @@ test('offscreen projection preserves the node shell and workflow model', () => {
     api.refreshNow();
     assert.equal(el.classList.contains('is-virtualized'), true);
     assert.equal(state.nodes.get('n1').data.prompt, 'keep me');
+});
+
+test('a shell entering the canvas is revealed during movement without refreshing every node', () => {
+    let notify;
+    const observed = new Set();
+    const windowRef = { IntersectionObserver: class {
+        constructor(callback) { notify = callback; }
+        observe(el) { observed.add(el); }
+        unobserve(el) { observed.delete(el); }
+        disconnect() { observed.clear(); }
+    } };
+    const entering = { classList: classList(), setAttribute() {} };
+    const distant = { classList: classList(), setAttribute() {} };
+    const { api, state, canvasContainer } = createHarness({ windowRef, nodes: [
+        ['entering', { x: 5000, y: 0, width: 240, height: 180, el: entering }],
+        ['distant', { x: 9000, y: 0, width: 240, height: 180, el: distant }]
+    ] });
+    api.init();
+    assert.deepEqual([...observed], [entering, distant]);
+    assert.equal(entering.classList.contains('is-virtualized'), true);
+
+    state.canvas.x = -4900;
+    canvasContainer.getBoundingClientRect = () => assert.fail('entering shells must not trigger a viewport scan');
+    notify([{ target: entering, isIntersecting: true }, { target: distant, isIntersecting: false }]);
+    assert.equal(entering.classList.contains('is-virtualized'), false);
+    assert.equal(distant.classList.contains('is-virtualized'), true);
+    assert.deepEqual([...observed], [distant]);
+
+    state.canvas.x = 0;
+    canvasContainer.getBoundingClientRect = () => ({ width: 800, height: 600 });
+    api.refreshNow();
+    assert.equal(entering.classList.contains('is-virtualized'), true);
+    assert.equal(observed.has(entering), true);
+    api.destroy();
+    assert.equal(observed.size, 0);
 });
 
 test('panning measures only the ambiguous edges before applying projections', () => {

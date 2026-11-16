@@ -109,6 +109,11 @@ test('the public image-first view ignores identical classes and positions its ed
         await app.evaluate('budgetView.node.el.classList.remove("selected","is-interacting","connection-insert-candidate");budgetView.settle()');
         assert.equal(await app.evaluate('budgetView.graphReads'), 0, 'settling a drag must not rebuild media presentation');
 
+        await app.evaluate('budgetView.reset();budgetView.node.el.classList.add("is-virtualized");budgetView.settle()');
+        assert.equal(await app.evaluate('budgetView.graphReads'), 0, 'offscreen rendering does not reread image inputs');
+        await app.evaluate('budgetView.node.el.classList.remove("is-virtualized");budgetView.node.el.classList.add("render-refresh");budgetView.settle()');
+        assert.equal(await app.evaluate('budgetView.graphReads'), 0, 'reentry and zoom repaint do not reread image inputs');
+
         assert.equal(await app.evaluate('budgetView.reset();budgetView.api.selectionChanged();budgetView.api.selectionChanged();budgetView.graphReads'), 0,
             'selection notifications must not synchronously rebuild the parameter layer on pointer down');
         await app.evaluate('budgetView.settle()');

@@ -45,6 +45,7 @@ export function createConnectionsApi({
 }) {
     const pathById = new Map();
     const renderedPathGeometry = new WeakMap();
+    const viewportPathEndpointSamples = new WeakMap();
     const translatedPaths = new Set();
     const nodeGeometryRevisions = new WeakMap();
     let portGeometryRevision = 0;
@@ -1694,26 +1695,37 @@ export function createConnectionsApi({
 
     const CONNECTION_ENDPOINT_TOLERANCE = 0.5;
 
-    function getRenderedPathEndpoints(path) {
-        if (!path) return null;
-        const translation = translatedPaths.has(path) ? renderedPathGeometry.get(path)?.translation : null;
-        const point = (x, y) => ({ x: Number(x) + (translation?.x || 0), y: Number(y) + (translation?.y || 0) });
+    function readLocalPathEndpoints(path, pathData, reuseSample) {
+        // SVG length queries return path-local points. A viewport transform leaves them unchanged.
+        const cached = reuseSample ? viewportPathEndpointSamples.get(path) : null;
+        if (cached?.pathData === pathData) return cached.endpoints;
         try {
             const length = path.getTotalLength();
             const start = path.getPointAtLength(0);
             const end = path.getPointAtLength(length);
-            return {
-                from: point(start.x, start.y),
-                to: point(end.x, end.y)
+            const endpoints = {
+                from: { x: Number(start.x), y: Number(start.y) },
+                to: { x: Number(end.x), y: Number(end.y) }
             };
+            if (reuseSample && [endpoints.from.x, endpoints.from.y, endpoints.to.x, endpoints.to.y].every(Number.isFinite)) {
+                viewportPathEndpointSamples.set(path, { pathData, endpoints });
+            }
+            return endpoints;
         } catch {
-            const values = (path.getAttribute('d') || '').match(/[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/gi)?.map(Number) || [];
+            const values = pathData.match(/[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/gi)?.map(Number) || [];
             if (values.length < 4) return { from: null, to: null };
             return {
-                from: point(values[0], values[1]),
-                to: point(values.at(-2), values.at(-1))
+                from: { x: values[0], y: values[1] },
+                to: { x: values.at(-2), y: values.at(-1) }
             };
         }
+    }
+
+    function getRenderedPathEndpoints(path, pathData, reuseSample) {
+        const { from, to } = readLocalPathEndpoints(path, pathData, reuseSample);
+        const translation = translatedPaths.has(path) ? renderedPathGeometry.get(path)?.translation : null;
+        const point = (local) => local && { x: local.x + (translation?.x || 0), y: local.y + (translation?.y || 0) };
+        return { from: point(from), to: point(to) };
     }
 
     function areEndpointsAligned(expected, actual) {
@@ -1757,7 +1769,7 @@ export function createConnectionsApi({
             const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output', containerRect);
             const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input', containerRect);
             const expected = { from: { x: from.x, y: from.y }, to: { x: to.x, y: to.y } };
-            const actual = pathData ? getRenderedPathEndpoints(path) : { from: null, to: null };
+            const actual = pathData ? getRenderedPathEndpoints(path, pathData, viewportOnly) : { from: null, to: null };
             if (areEndpointsAligned(expected, actual)) return false;
             if (path) renderedPathGeometry.delete(path);
             return {

@@ -1,3 +1,5 @@
+import { getViewportWorldBounds } from './viewport.js';
+
 /**
  * Keeps Canvas rendering cheap without making rendering state authoritative.
  * Node DOM and the workflow model remain intact; this module only assigns
@@ -18,6 +20,8 @@ export function createRenderProjectionManager({
     let frame = null;
     let dense = false;
     let observer = null;
+    let shellObserver = null;
+    const observedShells = new Map();
     const focusedNodeIds = new Set();
     const projectionByElement = new WeakMap();
 
@@ -25,20 +29,43 @@ export function createRenderProjectionManager({
         if (el?.classList.contains(name) !== enabled) el?.classList.toggle(name, enabled);
     }
 
+    function unobserveShell(el) {
+        if (observedShells.delete(el)) shellObserver?.unobserve(el);
+    }
+
+    function applyProjection(nodeId, el, projection) {
+        const shell = projection === 'shell';
+        if (projectionByElement.get(el) !== projection) {
+            setClass(el, 'is-virtualized', shell);
+            el.setAttribute('data-render-projection', projection);
+            projectionByElement.set(el, projection);
+        }
+        if (!shell) unobserveShell(el);
+        else if (shellObserver && !observedShells.has(el)) {
+            observedShells.set(el, nodeId);
+            shellObserver.observe(el);
+        }
+    }
+
+    function revealEnteringShells(entries) {
+        // Continuous transforms already update the browser's intersections. Reveal
+        // entering shells without broadcasting a full projection refresh each frame.
+        for (const { target, isIntersecting } of entries) {
+            if (!isIntersecting || !observedShells.has(target)) continue;
+            const nodeId = observedShells.get(target);
+            if (state.nodes.get(nodeId)?.el === target) applyProjection(nodeId, target, 'full');
+            else unobserveShell(target);
+        }
+    }
+
     function getViewport() {
         const rect = canvasContainer?.getBoundingClientRect?.();
-        const zoom = Number(state?.canvas?.zoom) || 1;
-        if (!rect || zoom <= 0) return null;
-        const x = Number(state.canvas.x) || 0;
-        const y = Number(state.canvas.y) || 0;
-        const padX = rect.width * VIEWPORT_BUFFER_SCREENS / zoom;
-        const padY = rect.height * VIEWPORT_BUFFER_SCREENS / zoom;
-        return {
-            left: -x / zoom - padX,
-            top: -y / zoom - padY,
-            right: (rect.width - x) / zoom + padX,
-            bottom: (rect.height - y) / zoom + padY
-        };
+        if (!rect) return null;
+        return getViewportWorldBounds({
+            x: Number(state.canvas.x) || 0,
+            y: Number(state.canvas.y) || 0,
+            zoom: Number(state.canvas.zoom) || 1
+        }, rect, VIEWPORT_BUFFER_SCREENS, canvasContainer);
     }
 
     function isOutsideViewport(node, viewport) {
@@ -75,6 +102,9 @@ export function createRenderProjectionManager({
     function refreshNowImpl() {
         frame = null;
         if (!state?.nodes) return;
+        for (const [el, nodeId] of observedShells) {
+            if (state.nodes.get(nodeId)?.el !== el) unobserveShell(el);
+        }
         updateDenseMode();
         const viewport = getViewport();
         const activeElement = documentRef.activeElement;
@@ -86,15 +116,14 @@ export function createRenderProjectionManager({
             const forceFull = focusedNodeIds.has(nodeId) || hasFocusedControl || state.runningNodeIds?.has(nodeId);
             const virtualized = !forceFull && isOutsideViewport(node, viewport);
             const projection = virtualized ? 'shell' : 'full';
-            if (projectionByElement.get(el) !== projection) {
-                changes.push({ el, projection });
+            if (projectionByElement.get(el) !== projection ||
+                (virtualized && shellObserver && !observedShells.has(el))) {
+                changes.push({ nodeId, el, projection });
             }
         });
         // Projection classes can change layout. Finish all geometry reads first.
-        for (const { el, projection } of changes) {
-            setClass(el, 'is-virtualized', projection === 'shell');
-            el.setAttribute('data-render-projection', projection);
-            projectionByElement.set(el, projection);
+        for (const { nodeId, el, projection } of changes) {
+            applyProjection(nodeId, el, projection);
         }
     }
 
@@ -127,12 +156,18 @@ export function createRenderProjectionManager({
             observer = new windowRef.MutationObserver(scheduleRefresh);
             observer.observe(nodesLayer, { childList: true });
         }
+        if (windowRef.IntersectionObserver && canvasContainer) {
+            shellObserver = new windowRef.IntersectionObserver(revealEnteringShells, { root: canvasContainer });
+        }
         scheduleRefresh();
     }
 
     function destroy() {
         if (frame !== null) windowRef.cancelAnimationFrame?.(frame);
         observer?.disconnect();
+        shellObserver?.disconnect();
+        shellObserver = null;
+        observedShells.clear();
         documentRef.removeEventListener('cainflow:canvas-transform', scheduleRefresh);
     }
 

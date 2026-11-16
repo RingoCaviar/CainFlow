@@ -1,6 +1,20 @@
 /**
  * 管理画布视口的平移、缩放与坐标换算，负责把世界坐标映射到屏幕空间。
  */
+export function getViewportWorldBounds({ x, y, zoom }, { width, height }, bufferScreens, { scrollLeft = 0, scrollTop = 0 }) {
+    if (![x, y, zoom, width, height].every(Number.isFinite) || zoom <= 0) return null;
+    const paddingX = width * bufferScreens;
+    const paddingY = height * bufferScreens;
+    const left = scrollLeft - x;
+    const top = scrollTop - y;
+    return {
+        left: (left - paddingX) / zoom,
+        top: (top - paddingY) / zoom,
+        right: (left + width + paddingX) / zoom,
+        bottom: (top + height + paddingY) / zoom
+    };
+}
+
 export function createViewportApi({
     state,
     elements,
@@ -9,8 +23,10 @@ export function createViewportApi({
     requestAnimationFrameRef = requestAnimationFrame
 }) {
     const DEFAULT_CANVAS_DOT_SPACING = 22;
+    const TEXT_REFRESH_BUFFER_SCREENS = 0.5;
     let canvasDotSpacing = null;
     const canvasGrid = elements.canvasGrid || elements.canvasContainer;
+    const refreshingTextNodes = new Set();
 
     function getCanvasDotSpacing() {
         if (canvasDotSpacing !== null) return canvasDotSpacing;
@@ -89,11 +105,26 @@ export function createViewportApi({
         return { x: (sx - rect.left - x) / zoom, y: (sy - rect.top - y) / zoom };
     }
 
+    function isOutsideTextRefreshArea(nodeEl, area) {
+        if (!area) return false;
+        const node = state.nodes?.get(nodeEl.id);
+        if (!node || node.el !== nodeEl || !Number.isFinite(node.x) || !Number.isFinite(node.y)) return false;
+        if (node.x > area.right || node.y > area.bottom) return true;
+
+        // Treat missing sizes as uncertain and keep a margin around the last observed bounds.
+        const width = Math.max(Number(node.width) || 0, Number(node.observedWidth) || 0);
+        const height = Math.max(Number(node.height) || 0, Number(node.observedHeight) || 0);
+        return (width > 0 && node.x + width < area.left) || (height > 0 && node.y + height < area.top);
+    }
+
     function refreshNodeTextRendering() {
         const nodes = elements.nodesLayer.querySelectorAll('.node');
         if (!nodes.length) return;
-        const containerRect = elements.canvasContainer.getBoundingClientRect();
+        const container = elements.canvasContainer;
+        const containerRect = container.getBoundingClientRect();
+        const area = getViewportWorldBounds(state.canvas, containerRect, TEXT_REFRESH_BUFFER_SCREENS, container);
         const visibleNodes = Array.from(nodes).filter((nodeEl) => {
+            if (refreshingTextNodes.has(nodeEl) || isOutsideTextRefreshArea(nodeEl, area)) return false;
             const rect = nodeEl.getBoundingClientRect();
             return !(
                 rect.right < containerRect.left ||
@@ -104,9 +135,14 @@ export function createViewportApi({
         });
         if (!visibleNodes.length) return;
 
-        visibleNodes.forEach((nodeEl) => nodeEl.classList.add('render-refresh'));
-        requestAnimationFrameRef(() => {
-            visibleNodes.forEach((nodeEl) => nodeEl.classList.remove('render-refresh'));
+        const needsCleanup = refreshingTextNodes.size === 0;
+        for (const nodeEl of visibleNodes) {
+            nodeEl.classList.add('render-refresh');
+            refreshingTextNodes.add(nodeEl);
+        }
+        if (needsCleanup) requestAnimationFrameRef(() => {
+            for (const nodeEl of refreshingTextNodes) nodeEl.classList.remove('render-refresh');
+            refreshingTextNodes.clear();
         });
     }
 
