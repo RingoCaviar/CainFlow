@@ -871,7 +871,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             onChange: () => refreshNode(node.id) });
         const retouch = createProductRetouchView({ node, state, documentRef, inputDetails: inputs.element,
             run: runCurrentNode, waitForNodeRun, uploadReference: uploadRetouchReference,
-            openReferencePreview, openResultPreview, openModelSettings, openNodeFailureLog, onNativeClipboardWrite });
+            openReferencePreview, openModelSettings, openNodeFailureLog, onNativeClipboardWrite });
         form.append(retouch.element, retouch.actions);
         registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections: [], inputs, retouch,
             footerTools: retouch.actions }, []);

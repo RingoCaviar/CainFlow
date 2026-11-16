@@ -2,7 +2,6 @@ import { getSurfaceCoordinator } from '../features/ui/surface-coordinator.js';
 import { createBackdropDismissalGuard } from '../features/settings/backdrop-dismissal.js';
 
 const handleIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 8-4 4 4 4m6-8 4 4-4 4"/></svg>';
-const expandIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 5h5v5m0-5-6 6M10 19H5v-5m0 5 6-6"/></svg>';
 const closeIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>';
 let dialogSequence = 0;
 
@@ -44,7 +43,7 @@ function updateSplit(slider, frame) {
     slider.setAttribute('aria-valuetext', `原图 ${100 - resultPercent}%，精修 ${resultPercent}%`);
 }
 
-function openComparisonDialog({ documentRef, originalUrl, resultUrl, splitValue, restoreFocus, openResultPreview }) {
+function openComparisonDialog({ documentRef, originalUrl, resultUrl, splitValue, restoreFocus }) {
     const dialog = documentRef.createElement('div');
     const headingId = `product-retouch-comparison-${++dialogSequence}`;
     dialog.className = 'modal-overlay product-retouch-compare-dialog';
@@ -63,36 +62,61 @@ function openComparisonDialog({ documentRef, originalUrl, resultUrl, splitValue,
         </header>
         <div class="product-retouch-dialog-stage">
             <div class="product-retouch-dialog-frame" data-retouch-dialog-frame hidden>
-                <img data-retouch-dialog-image alt="精修结果" draggable="false">
-                <img data-retouch-dialog-original alt="本次精修使用的原图" draggable="false">
+                <div class="product-retouch-dialog-layer" data-retouch-result-layer><img data-retouch-dialog-image alt="精修结果" draggable="false"></div>
+                <div class="product-retouch-dialog-layer" data-retouch-original-layer><img data-retouch-dialog-original alt="本次精修使用的原图" draggable="false"></div>
                 <div class="product-retouch-compare-labels" aria-hidden="true"><span>原图</span><span>精修</span></div>
                 <div class="product-retouch-compare-divider" aria-hidden="true"><span>${handleIcon}</span></div>
                 <input type="range" min="0" max="100" aria-label="调整预览对照分界" data-retouch-dialog-slider>
             </div>
             <p role="status" hidden></p>
         </div>
-        <footer>
-            <div class="product-retouch-dialog-detail"><span data-retouch-dialog-hint></span><span data-retouch-dialog-size></span></div>
-            <button type="button" data-retouch-open-image>${expandIcon}<span>查看大图</span></button>
-        </footer>
     </div>`;
     const workspace = dialog.querySelector('.product-retouch-dialog-stage');
     const frame = dialog.querySelector('[data-retouch-dialog-frame]');
-    const result = frame.querySelector('[data-retouch-dialog-image]');
-    const original = frame.querySelector('[data-retouch-dialog-original]');
+    const resultLayer = frame.querySelector('[data-retouch-result-layer]');
+    const originalLayer = frame.querySelector('[data-retouch-original-layer]');
+    const result = resultLayer.firstElementChild;
+    const original = originalLayer.firstElementChild;
     const slider = frame.querySelector('[data-retouch-dialog-slider]');
     const status = dialog.querySelector('[role="status"]');
-    const detail = dialog.querySelector('[data-retouch-dialog-hint]');
-    const size = dialog.querySelector('[data-retouch-dialog-size]');
     const choices = [...dialog.querySelectorAll('[data-retouch-view]')];
     const splitButton = dialog.querySelector('[data-retouch-view="split"]');
-    const openImage = dialog.querySelector('[data-retouch-open-image]');
     const closeButton = dialog.querySelector('[data-action="close"]');
     const backdrop = createBackdropDismissalGuard({ overlay: dialog, panel: dialog.firstElementChild });
     const surfaces = getSurfaceCoordinator(documentRef);
     const windowRef = documentRef.defaultView;
     let preferredView = originalUrl ? 'split' : 'result';
-    let currentImage = result;
+    let zoom = 1, offsetX = 0, offsetY = 0;
+
+    function resetZoom() {
+        zoom = 1;
+        offsetX = offsetY = 0;
+        frame.style.removeProperty('--retouch-preview-transform');
+    }
+
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    workspace.addEventListener('wheel', event => {
+        if (!event.deltaY || event.ctrlKey || event.metaKey || frame.hidden) return;
+        event.preventDefault();
+        const step = 1.1;
+        const nextZoom = clamp(zoom * (event.deltaY < 0 ? step : 1 / step), 1, 12);
+        if (nextZoom === zoom) return;
+        if (nextZoom === 1) {
+            resetZoom();
+            return;
+        }
+
+        const rect = frame.getBoundingClientRect();
+        const cursorX = clamp(event.clientX, rect.left, rect.right) - rect.left - rect.width / 2;
+        const cursorY = clamp(event.clientY, rect.top, rect.bottom) - rect.top - rect.height / 2;
+        const ratio = nextZoom / zoom;
+        const maxX = rect.width * (nextZoom - 1) / 2;
+        const maxY = rect.height * (nextZoom - 1) / 2;
+        offsetX = clamp(cursorX - (cursorX - offsetX) * ratio, -maxX, maxX);
+        offsetY = clamp(cursorY - (cursorY - offsetY) * ratio, -maxY, maxY);
+        zoom = nextZoom;
+        frame.style.setProperty('--retouch-preview-transform', `translate(${offsetX}px, ${offsetY}px) scale(${zoom})`);
+    }, { passive: false });
 
     function update() {
         const focus = documentRef.activeElement;
@@ -105,21 +129,22 @@ function openComparisonDialog({ documentRef, originalUrl, resultUrl, splitValue,
             && Math.min(height, width / aspect) >= 120;
         const view = preferredView === 'split' && !fits ? 'result' : preferredView;
         const split = view === 'split';
-        currentImage = view === 'original' ? original : result;
+        const currentImage = view === 'original' ? original : result;
         const ready = imageReady(currentImage);
         frame.hidden = !ready;
         frame.dataset.comparison = split ? 'split' : 'switch';
-        if (ready) frame.style.setProperty('--retouch-preview-aspect', String(currentImage.naturalWidth / currentImage.naturalHeight));
-        original.hidden = !ready || !split && view !== 'original';
-        result.hidden = !ready || !split && view !== 'result';
+        if (ready) {
+            const nextAspect = String(currentImage.naturalWidth / currentImage.naturalHeight);
+            if (frame.style.getPropertyValue('--retouch-preview-aspect') !== nextAspect) resetZoom();
+            frame.style.setProperty('--retouch-preview-aspect', nextAspect);
+        }
+        originalLayer.hidden = !ready || !split && view !== 'original';
+        resultLayer.hidden = !ready || !split && view !== 'result';
         slider.hidden = !split;
         splitButton.disabled = !fits;
         status.hidden = ready;
-        openImage.disabled = !ready;
         if (!ready) status.textContent = !currentImage.complete ? '正在读取图片…'
             : view === 'original' ? '无法读取本次精修的原图' : '无法读取精修结果';
-        detail.textContent = split ? '拖动分界线查看差异' : view === 'original' ? '原图' : '精修';
-        size.textContent = ready ? `${currentImage.naturalWidth} × ${currentImage.naturalHeight} px` : '';
         for (const button of choices) button.setAttribute('aria-pressed', String(button.dataset.retouchView === view));
         if (!fits && (focus === slider || focus === splitButton)) {
             dialog.querySelector('[data-retouch-view="result"]').focus({ preventScroll: true });
@@ -136,7 +161,10 @@ function openComparisonDialog({ documentRef, originalUrl, resultUrl, splitValue,
         preferredView = button.dataset.retouchView;
         update();
     });
-    const resizeObserver = new windowRef.ResizeObserver(update);
+    const resizeObserver = new windowRef.ResizeObserver(() => {
+        resetZoom();
+        update();
+    });
     const close = (returnFocus = true) => {
         if (!dialog.isConnected) return;
         resizeObserver.disconnect();
@@ -149,11 +177,6 @@ function openComparisonDialog({ documentRef, originalUrl, resultUrl, splitValue,
     closeButton.addEventListener('click', () => close());
     dialog.addEventListener('pointerdown', backdrop.recordPointerDown);
     dialog.addEventListener('click', event => { if (backdrop.shouldDismiss(event)) close(); });
-    openImage.addEventListener('click', () => {
-        const url = currentImage.src;
-        close(false);
-        openResultPreview([url], 0, restoreFocus);
-    });
     documentRef.body.append(dialog);
     setImageSource(result, resultUrl);
     setImageSource(original, originalUrl);
@@ -164,7 +187,7 @@ function openComparisonDialog({ documentRef, originalUrl, resultUrl, splitValue,
     return close;
 }
 
-export function createProductRetouchComparison({ card, inspect, hint, documentRef, openResultPreview }) {
+export function createProductRetouchComparison({ card, inspect, hint, documentRef }) {
     const windowRef = documentRef.defaultView;
     const canvas = documentRef.getElementById('canvas-container');
     const sidebars = ['workflow-sidebar', 'prompt-agent-panel'].map(id => documentRef.getElementById(id)).filter(Boolean);
@@ -331,7 +354,7 @@ export function createProductRetouchComparison({ card, inspect, hint, documentRe
     function inspectResult(trigger) {
         if (inspect.getAttribute('aria-disabled') === 'true') return;
         closeDialog = openComparisonDialog({ documentRef, originalUrl: originalUrl ? original.src : '', resultUrl: result.src,
-            splitValue: slider.value, restoreFocus: () => focusVisible(trigger, inspect, preview, retryResultButton), openResultPreview });
+            splitValue: slider.value, restoreFocus: () => focusVisible(trigger, inspect, preview, retryResultButton) });
     }
     preview.addEventListener('dblclick', event => {
         if (event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;

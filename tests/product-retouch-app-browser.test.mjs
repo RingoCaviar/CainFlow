@@ -146,6 +146,50 @@ async function comparisonImageColors(app, view) {
     return sampleRenderedImageColors(app, image);
 }
 
+async function verifyPreviewWheelZoom(app, image, pairedImage = null) {
+    const bounds = selector => `document.querySelector('${selector}').getBoundingClientRect()`;
+    const readBounds = selector => app.evaluate(`${bounds(selector)}.toJSON()`);
+    const fitted = await readBounds(image);
+    const frame = await readBounds(dialogFrame);
+    const anchorX = 0.36, anchorY = 0.38;
+    const pointer = { x: fitted.left + fitted.width * anchorX, y: fitted.top + fitted.height * anchorY };
+    const canvasZoom = await app.evaluate("document.getElementById('zoom-level').textContent");
+    const wheel = deltaY => app.send('Input.dispatchMouseEvent', { type: 'mouseWheel', ...pointer, deltaX: 0, deltaY });
+
+    if (!pairedImage) {
+        assert.equal(await app.evaluate(`document.elementFromPoint(${pointer.x}, ${pointer.y}).matches('${image}')`), true,
+            'single-image previews retain native image pointer actions');
+    }
+    await wheel(-120);
+    await app.waitFor(`${bounds(image)}.width > ${fitted.width + 5}`);
+    const enlarged = await readBounds(image);
+    assert.ok(Math.abs((pointer.x - enlarged.left) / enlarged.width - anchorX) < 0.02
+        && Math.abs((pointer.y - enlarged.top) / enlarged.height - anchorY) < 0.02,
+        'the point under the pointer stays anchored while the preview grows');
+    assert.ok(Math.abs(enlarged.width / enlarged.height - fitted.width / fitted.height) < 0.01,
+        'wheel zoom preserves the image aspect ratio');
+    assert.deepEqual(await readBounds(dialogFrame), frame, 'zoom retains the preview frame size and position');
+    if (pairedImage) {
+        assert.deepEqual(await readBounds(pairedImage), enlarged, 'both halves share the same enlarged bounds');
+        assert.equal(await app.evaluate(`document.querySelector('${dialogSlider}').value`), '50', 'zoom preserves the split position');
+        assert.deepEqual(await sampleRenderedImageColors(app, dialogFrame), [red, blue]);
+        assert.ok(await dragComparisonDivider(app, dialogSlider) < 40, 'the divider remains draggable while the images are enlarged');
+        assert.deepEqual(await readBounds(image), enlarged, 'moving the divider keeps the image zoom and position');
+        await app.evaluate(`(() => {
+            const slider = document.querySelector('${dialogSlider}');
+            slider.value = '50';
+            slider.dispatchEvent(new Event('input', { bubbles: true }));
+        })()`);
+    }
+    assert.equal(await app.evaluate("document.getElementById('zoom-level').textContent"), canvasZoom, 'the wheel only zooms inside the preview');
+
+    await wheel(120);
+    await app.waitFor(`Math.abs(${bounds(image)}.width - ${fitted.width}) <= 1`);
+    const restored = await readBounds(image);
+    assert.ok(Math.abs(restored.left - fitted.left) <= 1 && Math.abs(restored.top - fitted.top) <= 1,
+        'zooming out returns to the centered fit');
+}
+
 async function dragComparisonDivider(app, slider, { marker = slider, frame = slider, gripOffset = 0, target = 0.72 } = {}) {
     const { x, y, endX } = await app.evaluate(`(() => {
         const handle = document.querySelector('${marker}').getBoundingClientRect();
@@ -205,6 +249,15 @@ async function verifyCardPreviewInteraction(app) {
     await app.waitFor(`document.querySelector('${dialogFrame}').dataset.comparison === 'split'`);
     assert.equal(await app.evaluate(`document.querySelector('${dialogSlider}').value`), '50');
     assert.deepEqual(await sampleRenderedImageColors(app, dialogFrame), [red, blue]);
+    await verifyPreviewWheelZoom(app, dialogImage, dialogOriginal);
+    assert.equal(await app.evaluate(`Boolean(document.querySelector('${compareDialog} footer, ${compareDialog} [data-retouch-open-image]'))`), false,
+        'the preview has no footer or separate large-image action');
+    assert.deepEqual(await comparisonImageColors(app, 'original'), [red, red]);
+    await verifyPreviewWheelZoom(app, dialogOriginal);
+    assert.deepEqual(await comparisonImageColors(app, 'result'), [blue, blue]);
+    await verifyPreviewWheelZoom(app, dialogImage);
+    await nativeClick(app, `${compareDialog} [data-retouch-view=split]`);
+    await app.waitFor(`document.querySelector('${dialogFrame}').dataset.comparison === 'split'`);
     assert.ok(await dragComparisonDivider(app, dialogSlider) < 40, 'the preview divider follows the pointer to the right');
     await app.evaluate(`document.querySelector('${dialogSlider}').focus()`);
     await key(app, 'Home');
@@ -788,13 +841,13 @@ test('product retouch analyzes and edits the same original in one run and preser
         await openComparison(app);
         const originalTab = `${compareDialog} [data-retouch-view=original]`;
         const dialogError = `document.querySelector('${compareDialog} [role=status]')`;
-        const openBigImage = `document.querySelector('${compareDialog} [data-retouch-open-image]')`;
-        const failedImageState = `${dialogError}.checkVisibility() && ${dialogError}.textContent.includes('无法读取') && ${openBigImage}.disabled`;
+        const failedImageState = `${dialogError}.checkVisibility() && ${dialogError}.textContent.includes('无法读取')
+            && !document.querySelector('${dialogFrame}').checkVisibility()`;
         await nativeClick(app, originalTab);
         await app.waitFor(failedImageState);
         await nativeClick(app, originalTab);
         assert.equal(await app.evaluate(failedImageState), true,
-            'reselecting a failed image must keep the error and prevent a broken fullscreen view');
+            'reselecting a failed image must keep the error visible without showing a broken image');
         await closeComparison(app);
         await reloadAppBrowser(app);
         await openParameters(app, 'retouch');

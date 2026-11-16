@@ -71,7 +71,7 @@ async function copyPrompt(documentRef, content) {
 
 export function createProductRetouchView({
     node, state, documentRef, inputDetails, run, waitForNodeRun, uploadReference, openReferencePreview,
-    openResultPreview, openModelSettings, openNodeFailureLog, onNativeClipboardWrite = () => {}
+    openModelSettings, openNodeFailureLog, onNativeClipboardWrite = () => {}
 }) {
     const panelId = `retouch-${++viewId}`;
     const card = node.el.querySelector('.product-retouch-card');
@@ -142,7 +142,7 @@ export function createProductRetouchView({
             <button type="button" class="product-retouch-inspect" aria-haspopup="dialog" data-retouch-action="preview-result" data-retouch-inspect data-node-read-action hidden>查看精修结果</button>
             <button type="button" class="btn btn-primary product-retouch-run" data-retouch-action="run" data-node-read-action>${retouchIcon}<span>开始精修</span></button>
         </div>`;
-    const comparison = createProductRetouchComparison({ card, documentRef, openResultPreview,
+    const comparison = createProductRetouchComparison({ card, documentRef,
         inspect: actions.querySelector('[data-retouch-inspect]'), hint: actions.querySelector('[data-retouch-comparison-status]') });
     (node.el._cleanupFns ||= []).push(comparison.destroy);
     const controls = [...element.querySelectorAll('[data-retouch-field]')].filter(control => !modelFields.has(control.dataset.retouchField));
