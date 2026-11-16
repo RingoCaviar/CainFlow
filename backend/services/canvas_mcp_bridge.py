@@ -15,7 +15,27 @@ MAX_PENDING_COMMANDS = 8
 MAX_CALL_BYTES = 1024 * 1024
 MAX_EDITOR_BYTES = 6_100_000
 MAX_IMAGE_CHARS = 6_000_000
-METHODS = frozenset({'read_canvas', 'edit_canvas', 'run_workflow', 'get_workflow_run', 'get_run_image'})
+REVISION_SCOPE = frozenset({'editorId', 'workflowId', 'revision'})
+RUN_SCOPE = frozenset({'editorId', 'workflowId', 'runId'})
+METHOD_ARGUMENTS = {
+    'read_canvas': {'editorId', 'workflowId', 'nodeIds', 'offset', 'connectionOffset', 'textOffset', 'assetOffset'},
+    'list_models': {'editorId'},
+    'create_workflow': {'editorId', 'name'},
+    'list_history': {'editorId', 'id', 'offset', 'limit'},
+    'annotate_history': {'editorId', 'id', 'fileVersion', 'note'},
+    'list_prompts': {'editorId', 'query', 'offset', 'limit'},
+    'save_prompt': {'editorId', 'name', 'content'},
+    'edit_canvas': REVISION_SCOPE | {'plan'},
+    'generate_image_batch': REVISION_SCOPE | {'prompt', 'sourceNodeIds', 'parameters', 'modelId', 'providerId', 'run'},
+    'run_workflow': REVISION_SCOPE | {'nodeIds'},
+    'get_workflow_run': RUN_SCOPE | {'offset'},
+    'get_run_image': RUN_SCOPE | {'nodeId', 'index'},
+}
+CURRENT_EDITOR_METHODS = frozenset({
+    'read_canvas', 'list_models', 'create_workflow', 'list_history', 'annotate_history', 'list_prompts', 'save_prompt',
+})
+REVISION_METHODS = frozenset({'edit_canvas', 'generate_image_batch', 'run_workflow'})
+IMAGE_MIME_TYPES = frozenset({'image/png', 'image/jpeg', 'image/webp', 'image/gif'})
 EDITOR_ID_PATTERN = re.compile(r'[a-zA-Z0-9_-]{1,128}')
 
 
@@ -92,11 +112,18 @@ class CanvasMcpBridge:
             raise CanvasMcpError(409, 'This CainFlow editor is no longer current.')
 
     def call(self, method, args):
-        if not isinstance(method, str) or method not in METHODS or not isinstance(args, dict):
+        if (not isinstance(method, str) or method not in METHOD_ARGUMENTS or not isinstance(args, dict)
+                or args.keys() - METHOD_ARGUMENTS[method]):
             raise CanvasMcpError(400, 'Unknown canvas method or invalid arguments.')
         editor_id = args.get('editorId')
-        if (method != 'read_canvas' or 'editorId' in args) and not is_editor_id(editor_id):
+        if (method not in CURRENT_EDITOR_METHODS or 'editorId' in args) and not is_editor_id(editor_id):
             raise CanvasMcpError(400, 'A valid editorId from read_canvas is required.')
+        if method in REVISION_METHODS and not all(isinstance(args.get(key), str) and args[key].strip()
+                                                  for key in ('workflowId', 'revision')):
+            raise CanvasMcpError(400, 'A workflowId and revision from read_canvas are required.')
+        if method in ('get_workflow_run', 'get_run_image') and not all(
+                isinstance(args.get(key), str) and args[key].strip() for key in ('workflowId', 'runId')):
+            raise CanvasMcpError(400, 'A workflowId and runId are required.')
 
         with self._condition:
             self._require_open()
@@ -159,13 +186,13 @@ class CanvasMcpBridge:
             result = response.get('result')
             if command.method == 'get_run_image' and 'result' in response and not (
                     isinstance(result, dict) and isinstance(result.get('mimeType'), str)
-                    and result['mimeType'].startswith('image/') and isinstance(result.get('data'), str)
+                    and result['mimeType'] in IMAGE_MIME_TYPES and isinstance(result.get('data'), str)
                     and 0 < len(result['data']) <= MAX_IMAGE_CHARS):
                 self._fail(command, 502, 'The CainFlow editor returned an invalid or oversized run image.')
             elif command.method != 'get_run_image' and response_bytes > MAX_CALL_BYTES:
                 self._fail(command, 413, 'The canvas command response exceeded the size limit.')
-            elif command.method == 'read_canvas' and 'result' in response and not isinstance(result, dict):
-                self._fail(command, 502, 'The CainFlow editor returned an invalid canvas snapshot.')
+            elif 'result' in response and not isinstance(result, dict):
+                self._fail(command, 502, 'The CainFlow editor returned an invalid canvas result.')
             else:
                 if command.method == 'read_canvas' and 'result' in response:
                     response = {'result': {**result, 'editorId': editor_id}}

@@ -1,5 +1,13 @@
 import { supportsOpenAiOutputCompression } from '../../nodes/image-parameter-controls.js';
 
+// Only parameter controls consumed by the corresponding generation request are public.
+export const imageRequestProtocolFields = {
+    openai: ['output_format', 'output_compression', 'input_fidelity', 'style', 'response_format', 'complexity'],
+    ttapi: ['image_search', 'thinking_level'],
+    'ttapi-openai': ['output_format', 'output_compression']
+};
+export const publicImageProtocolFields = new Set(['systemPrompt', ...Object.values(imageRequestProtocolFields).flat()]);
+
 const PROMPT_AGENT_PARAMETER_CONTROLS = {
     aspectRatio: 'aspect',
     resolution: 'resolution',

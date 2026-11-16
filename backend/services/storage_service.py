@@ -49,6 +49,10 @@ class StorageError(Exception):
     pass
 
 
+class StorageDocumentConflict(StorageError):
+    pass
+
+
 class StorageService(UndoMediaMixin):
     _initialization_locks = weakref.WeakValueDictionary()
     _initialization_locks_guard = threading.Lock()
@@ -1415,14 +1419,24 @@ class StorageService(UndoMediaMixin):
             return {'value': default, 'updatedAt': 0}
         return {'value': json.loads(row['value_json']), 'updatedAt': row['updated_at']}
 
-    def put_document(self, name, value):
+    def put_document(self, name, value, *, expected_updated_at=None):
         self.initialize()
         self.assert_storage_writable()
         self._ensure_document_name(name)
+        if expected_updated_at is not None and (
+            name != 'prompt_library' or type(expected_updated_at) is not int or expected_updated_at < 0
+        ):
+            raise StorageError('Invalid prompt library revision')
         serialized = json.dumps(value, ensure_ascii=False, separators=(',', ':'))
         updated_at = int(time.time() * 1000)
         with self._lock, self._connect() as db:
             db.execute('BEGIN IMMEDIATE')
+            if name == 'prompt_library':
+                previous = db.execute('SELECT updated_at FROM documents WHERE name=?', (name,)).fetchone()
+                previous_revision = previous['updated_at'] if previous else 0
+                if expected_updated_at is not None and previous_revision != expected_updated_at:
+                    raise StorageDocumentConflict('The prompt library changed before it could be saved')
+                updated_at = max(updated_at, previous_revision + 1)
             if name == 'session':
                 desired = set()
                 for reference in self._session_agent_references(value):

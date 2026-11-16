@@ -2,6 +2,73 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 
+test('the shared new-workflow action creates a persisted blank graph and preserves the old unsaved canvas', { timeout: 45000 }, async () => {
+    await withAppBrowser({
+        autoCheckUpdatesOnLoad: false,
+        nodes: [{ id: 'text', type: 'Text', x: 100, y: 100, text: 'before' }],
+        connections: []
+    }, async app => {
+        const result = await app.evaluate(`(async () => {
+            const { bootstrapCainFlowApp } = await import('/js/app/bootstrap.js');
+            const manager = (await bootstrapCainFlowApp()).workflowManagerApi;
+            const original = manager.getActiveWorkflow();
+            const input = document.getElementById('text-text');
+            input.value = 'still here';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+
+            const creation = manager.createEmptyWorkflow();
+            let busy;
+            try { await manager.createEmptyWorkflow({ name: 'Second in flight' }); }
+            catch (error) { busy = error.message; }
+            const created = await creation;
+            const persisted = await fetch('/api/workflows/' + encodeURIComponent(created.name)).then(response => response.json());
+            const visible = manager.getActiveWorkflow();
+            const activeGraph = manager.getActiveWorkflowSnapshot();
+            const reject = async name => {
+                try { await manager.createEmptyWorkflow({ name }); return ''; }
+                catch (error) { return error.message; }
+            };
+            const duplicate = await reject(created.name);
+            const invalid = await reject('../outside');
+            const reserved = await reject('NUL');
+            await manager.openWorkflow(original.label);
+            const preserved = manager.getActiveWorkflowSnapshot();
+            let current = true;
+            let abandoned;
+            const nativeFetch = window.fetch;
+            window.fetch = async (url, options) => {
+                const response = await nativeFetch(url, options);
+                if (url === '/api/workflows/Saved%20without%20switching' && options?.method === 'POST') current = false;
+                return response;
+            };
+            try {
+                await manager.createEmptyWorkflow({ name: 'Saved without switching', isCurrent: () => current });
+            } catch (error) { abandoned = error.message; }
+            finally { window.fetch = nativeFetch; }
+            const stillVisible = manager.getActiveWorkflow();
+            const abandonedFile = await fetch('/api/workflows/Saved%20without%20switching').then(response => response.json());
+            return { original, created, persisted, activeGraph, visible, duplicate, invalid, reserved, busy, preserved,
+                abandoned, stillVisible, abandonedFile };
+        })()`);
+        assert.match(result.created.name, /^未命名工作流(?: \d+)?$/);
+        assert.notEqual(result.created.workflowId, result.original.workflowId);
+        assert.equal(result.visible.workflowId, result.created.workflowId);
+        assert.equal(result.persisted.workflowId, result.created.workflowId);
+        assert.deepEqual(result.persisted.nodes, []);
+        assert.deepEqual(result.persisted.connections, []);
+        assert.deepEqual(result.activeGraph.nodes, []);
+        assert.equal(result.preserved.nodes[0].text, 'still here');
+        assert.match(result.duplicate, /已存在/);
+        assert.match(result.invalid, /有效/);
+        assert.match(result.reserved, /有效/);
+        assert.match(result.busy, /正在/);
+        assert.match(result.abandoned, /已保存/);
+        assert.deepEqual(result.abandonedFile.nodes, []);
+        assert.equal(result.stillVisible.workflowId, result.original.workflowId);
+    });
+});
+
 test('canvas edits autosave, new workflows require a name, copies activate and closing the last workflow creates no file', { timeout: 60000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false,
         models: [{ id: 'chat', modelId: 'chat', protocol: 'openai', taskType: 'chat', providerIds: ['p'] }],

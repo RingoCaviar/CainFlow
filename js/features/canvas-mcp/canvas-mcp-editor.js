@@ -17,6 +17,7 @@ export function startCanvasMcpEditor({ dispatch, fetchImpl = globalThis.fetch, w
     let stopped = false;
     let paused = false;
     let generation = 0;
+    let visibilityGeneration = 0;
     let frozen = false;
     let seenVisible = false;
     let activate = false;
@@ -42,10 +43,10 @@ export function startCanvasMcpEditor({ dispatch, fetchImpl = globalThis.fetch, w
 
     const errorBody = (id, error) => JSON.stringify({ action: 'complete', editorId, id, error });
 
-    async function dispatchCommand({ id, method, args }) {
+    async function dispatchCommand({ id, method, args }, isCurrent) {
         let body;
         try {
-            const result = await dispatch(method, args);
+            const result = await dispatch(method, args, { isCurrent });
             body = JSON.stringify({ action: 'complete', editorId, id, result: result ?? null });
             if (body.length > MAX_EDITOR_BYTES || new TextEncoder().encode(body).byteLength > MAX_EDITOR_BYTES) {
                 body = errorBody(id, RESULT_TOO_LARGE);
@@ -119,7 +120,9 @@ export function startCanvasMcpEditor({ dispatch, fetchImpl = globalThis.fetch, w
             if (!command) return;
             request = null;
             const commandGeneration = generation;
-            const result = await dispatchCommand(command);
+            const commandVisibility = visibilityGeneration;
+            const result = await dispatchCommand(command, () => !stopped && !paused && isVisible()
+                && commandGeneration === generation && commandVisibility === visibilityGeneration);
             if (!stopped && commandGeneration === generation) completion = result;
             delay = 0;
         } catch {
@@ -175,6 +178,8 @@ export function startCanvasMcpEditor({ dispatch, fetchImpl = globalThis.fetch, w
             wake();
             return;
         }
+        // A command started before hiding the editor cannot regain write access when it becomes visible again.
+        visibilityGeneration++;
         activate = false;
         if (!completion) clearTimer();
         if (request && !request.completing) request.controller.abort();
@@ -186,6 +191,7 @@ export function startCanvasMcpEditor({ dispatch, fetchImpl = globalThis.fetch, w
             return;
         }
         frozen = true;
+        visibilityGeneration++;
         seenVisible = false;
         activate = false;
         clearTimer();

@@ -70,8 +70,9 @@ def handle_post(handler):
     try:
         expected_revision = handler.headers.get('x-cainflow-expected-media-ownership-revision')
         expected_epoch = handler.headers.get('x-cainflow-expected-storage-epoch')
+        create_only = handler.headers.get('x-cainflow-create-workflow') == 'true'
         revision = storage_service.run_at_storage_epoch(
-            expected_epoch, lambda: save_workflow(name, body, expected_revision))
+            expected_epoch, lambda: save_workflow(name, body, expected_revision, create_only=create_only))
         write_json(handler, {'success': True, 'mediaOwnershipRevision': revision})
     except FileExistsError as exc:
         write_error(handler, 409, 'Workflow already exists', exc)

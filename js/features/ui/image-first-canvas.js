@@ -80,12 +80,13 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     const promptSizing = new WeakMap();
     const emptyPreviewLabels = new WeakMap();
     const storedWidth = Number(storage?.getItem('cainflow_node_parameter_width'));
-    let current = null, closed = null, preferredWidth = storedWidth >= 280 && storedWidth <= 960 ? storedWidth : 560;
+    let current = null, closed = null, preferredWidth = storedWidth >= 280 && storedWidth <= 960 ? storedWidth : null;
     const storedImportWidth = Number(storage?.getItem('cainflow_image_import_parameter_width'));
     let importPreferredWidth = storedImportWidth >= 280 && storedImportWidth <= 960 ? storedImportWidth : 280;
     const storedRetouchWidth = Number(storage?.getItem(retouchDockWidthKey));
     let retouchPreferredWidth = storedRetouchWidth >= retouchDockMinWidth && storedRetouchWidth <= retouchDockMaxWidth ? storedRetouchWidth : null;
-    const currentWidthPreference = () => current?.type === 'ImageImport' ? importPreferredWidth : preferredWidth;
+    const currentWidthPreference = () => current?.type === 'ImageImport' ? importPreferredWidth
+        : preferredWidth ?? (current?.type === 'ImageMerge' ? 440 : 560);
     const setWidthPreference = width => { if (current?.type === 'ImageImport') importPreferredWidth = width; else preferredWidth = width; };
     const persistWidthPreference = () => storage?.setItem(current?.type === 'ImageImport' ? 'cainflow_image_import_parameter_width' : 'cainflow_node_parameter_width', String(Math.round(currentWidthPreference())));
     let positionFrame = null, gesture = null, expanded = false, expandedRect = null, returnFocusElement = null;
@@ -418,6 +419,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     function refreshNode(nodeId) {
         const node = state.nodes.get(nodeId), view = views.get(node);
         if (!view) return;
+        let mergeSourceCount = 0, mergeHasEnabledSource = false, mergeFeedback = '';
         view.commerce?.refresh();
         view.retouch?.refresh();
         if (view.referenceDetails) {
@@ -468,12 +470,23 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             if (view.urlFields.hidden !== (mode !== 'url')) view.urlFields.hidden = mode !== 'url';
             view.urlFields.classList.toggle('hidden', mode !== 'url');
             setText(view.model, mode === 'url' ? 'URL 来源' : '本地素材');
-        } else if (node.type === 'ImagePreview' || node.type === 'ImageMerge') {
+        } else if (node.type === 'ImagePreview') {
             const { count } = projectImageOutput(node, getCanonicalImageList(node));
             const index = getCanonicalImageIndex(node, new Array(count));
-            const message = node.type === 'ImageMerge' ? node.el.querySelector('.image-merge-preview')?.dataset.mergeMessage : '';
-            setText(view.model, `${nodeLabels[node.type]}${count ? ` · ${index + 1} / ${count}` : ''}${message ? ` · ${message}` : ''}`);
+            setText(view.model, `${nodeLabels[node.type]}${count ? ` · ${index + 1} / ${count}` : ''}`);
             setText(view.references, `输入 ${state.connections.filter(edge => edge.to.nodeId === node.id).length}`);
+        } else if (node.type === 'ImageMerge' && current === node) {
+            const { count } = projectImageOutput(node, getCanonicalImageList(node));
+            const { mergeState, mergeMessage } = node.el.querySelector('.image-merge-preview')?.dataset || {};
+            const imageConnections = state.connections.filter(edge => edge.to.nodeId === node.id && /^image_\d+$/.test(edge.to.port));
+            mergeSourceCount = imageConnections.length;
+            mergeHasEnabledSource = imageConnections.some(edge => {
+                const source = state.nodes.get(edge.from.nodeId);
+                return source && source.enabled !== false;
+            });
+            if (mergeMessage && mergeMessage !== '等待图片输入') mergeFeedback = mergeMessage;
+            else if (count && mergeState === 'current') mergeFeedback = `输出 ${count} 张`;
+            else if (mergeSourceCount) mergeFeedback = mergeHasEnabledSource ? '等待来源输出' : '没有可用的图片来源';
         } else if (node.type === 'ImageResize' || node.type === 'ColorReset') {
             const message = node.el.querySelector('.preview-container')?.dataset.processingMessage;
             setText(view.model, `${nodeLabels[node.type]}${message ? ` · ${message}` : ''}`);
@@ -503,7 +516,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             widthHandle.hidden = (dockedNodeTypes.has(node.type) && !isRetouchDock()) || node.type === 'ImageImport' && panel.dataset.importMode === 'upload';
             const running = state.runningNodeIds?.has(node.id) || ['waiting', 'running'].includes(node.runStatus) || node.el.classList.contains('running');
             const generationCount = node.type === 'ImageGenerate' ? readImageGenerationSettings(node, documentRef).generationCount : 1;
-            generate.hidden = ['ImageImport', 'ImageSave'].includes(node.type) || dockedNodeTypes.has(node.type);
+            generate.hidden = ['ImageImport', 'ImageSave'].includes(node.type) || dockedNodeTypes.has(node.type)
+                || (node.type === 'ImageMerge' && !mergeSourceCount);
             setText(generate, node.type === 'ImagePreview' ? (running ? '更新中' : '更新预览')
                 : node.type === 'ImageCompare' ? (running ? '更新中' : '更新对比')
                 : node.type === 'ImageMerge' ? (running ? '合并中' : '更新合并')
@@ -520,24 +534,26 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             if (configuration.parentNode !== footer.parentNode) footer.before(configuration);
             configuration.hidden = !issue;
             setText(configurationMessage, issue?.message || '');
-            generate.disabled = !!issue || running || node.enabled === false || (node.type === 'CameraControl' && (node.isClone || view.cameraOpen?.disabled));
+            generate.disabled = !!issue || running || node.enabled === false
+                || (node.type === 'ImageMerge' && !mergeHasEnabledSource)
+                || (node.type === 'CameraControl' && (node.isClone || view.cameraOpen?.disabled));
             setText(feedback, node.type === 'ImageImport' ? '在卡片选择文件，或切换 URL 输入链接。'
                 : node.type === 'ImagePreview' ? (node.previewInputState === 'stale' ? '未更新 · 当前无输入' : node.previewInputState === 'empty' ? '当前无输入' : '预览当前连接的图片')
                     : node.type === 'ImageCompare' ? node.el.querySelector('.image-compare-container')?.dataset.compareMessage || 'B 为必需输入；A 可选，移动指针调整分界。'
-                    : node.type === 'ImageMerge' ? node.el.querySelector('.image-merge-preview')?.dataset.mergeMessage || '按图片输入的数字顺序合并每个来源的完整批次。'
+                    : node.type === 'ImageMerge' ? mergeFeedback
                     : node.type === 'ImageSave' ? node.el.querySelector('.save-preview-container')?.dataset.saveMessage || '修改文件名后，使用卡片上的保存按钮保存媒体。'
                     : node.type === 'CameraControl' ? '在独立编辑器调整相机；参数即时保存，输出为相机提示词。'
                     : node.type === 'ImageResize' || node.type === 'ColorReset' ? '修改即时预览；点击按钮执行当前节点。'
                     : documentRef.getElementById(`${node.id}-run-status`)?.textContent || '修改不会自动生成');
             const passiveFeedback = ['修改不会自动生成', '待运行', '已完成', '当前无输入', '预览当前连接的图片',
-                'B 为必需输入；A 可选，移动指针调整分界。', '按图片输入的数字顺序合并每个来源的完整批次。',
+                'B 为必需输入；A 可选，移动指针调整分界。',
                 '修改文件名后，使用卡片上的保存按钮保存媒体。', '在独立编辑器调整相机；参数即时保存，输出为相机提示词。',
                 '修改即时预览；点击按钮执行当前节点。'];
             const hasFeedback = node.type !== 'ImageGenerate' && node.type !== 'ProductRetouch'
                 && !!feedback.textContent && !passiveFeedback.includes(feedback.textContent);
             feedback.hidden = !hasFeedback;
             panel.dataset.hasFeedback = String(hasFeedback);
-            footer.hidden = node.type === 'ImageImport' || node.type === 'ImageSave' && !hasFeedback;
+            footer.hidden = node.type === 'ImageImport' || (generate.hidden && !hasFeedback && ['ImageSave', 'ImageMerge'].includes(node.type));
             schedulePosition();
         }
     }
@@ -563,6 +579,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         }
         footer.insertBefore(countSlot, generate);
         panel.dataset.nodeType = node.type;
+        if (node.type === 'ImageMerge') feedback.setAttribute('role', 'status');
+        else feedback.removeAttribute('role');
         panel.hidden = false;
         panel.setAttribute('aria-hidden', 'false'); panel.inert = false;
         panel.dataset.nodeId = node.id;
@@ -739,9 +757,11 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const form = documentRef.createElement('div');
         form.className = 'node-body image-first-parameter-content'; form.dataset.nodeId = node.id;
         const sections = [], observed = [];
-        const summary = documentRef.createElement('div'); summary.className = 'image-first-summary';
-        const model = documentRef.createElement('span'); summary.append(model);
-        let inputs = null, references = null, urlFields = null, cameraOpen = null, cameraPrompt = null;
+        let summary = null, model = null, inputs = null, references = null, urlFields = null, cameraOpen = null, cameraPrompt = null;
+        if (node.type !== 'ImageMerge') {
+            summary = documentRef.createElement('div'); summary.className = 'image-first-summary';
+            model = documentRef.createElement('span'); summary.append(model);
+        }
         node.el.classList.add('image-first-media');
         if (node.type === 'ImageImport') {
             const mode = body.querySelector('.image-import-mode-shell');
@@ -780,13 +800,17 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, swapInputConnections, moveMergeInputConnection,
                 openReferencePreview, onChange: () => refreshNode(node.id) });
             inputs.element.dataset.parameterGroup = 'input'; sections.push(inputs.element); form.append(inputs.element);
-            references = documentRef.createElement('button'); references.type = 'button';
-            references.addEventListener('click', () => select(node, 'input')); summary.append(references);
+            if (summary) {
+                references = documentRef.createElement('button'); references.type = 'button';
+                references.addEventListener('click', () => select(node, 'input')); summary.append(references);
+            }
             const suffix = { ImageCompare: 'compare', ImageMerge: 'merge-preview', ImageSave: 'save-preview', CameraControl: 'camera-preview' }[node.type] || 'preview';
             observed.push(body.querySelector(`[id="${node.id}-${suffix}"]`));
         }
-        if (['ImageImport', 'ImageSave', 'CameraControl'].includes(node.type)) form.append(summary);
-        else body.append(summary);
+        if (summary) {
+            if (['ImageImport', 'ImageSave', 'CameraControl'].includes(node.type)) form.append(summary);
+            else body.append(summary);
+        }
         if (node.type === 'ImageSave') {
             const tools = body.querySelector('.image-save-preview-tools');
             if (tools) form.append(tools);

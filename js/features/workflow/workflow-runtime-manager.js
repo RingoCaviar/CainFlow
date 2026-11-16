@@ -1533,8 +1533,6 @@ export function createWorkflowRuntimeManager({
                 if (node.mergeMessage) preview.dataset.mergeMessage = node.mergeMessage;
                 else delete preview.dataset.mergeMessage;
             }
-            const summary = doc.getElementById(`${nodeId}-merge-summary`);
-            if (summary) summary.textContent = node.mergeMessage || (count ? `已合并 ${count} 张图片` : '等待图片输入');
         };
         const syncImageMergeNode = async (nodeId, images) => {
             const node = getRuntimeNode(nodeId);
@@ -2091,7 +2089,7 @@ export function createWorkflowRuntimeManager({
         context.executionStarted = false;
         context.workflowHandle = getWorkflowDesk?.().workflow(context.workflowId);
         context.state.requestSource = runInput?.requestSource === 'agent' || runInput?.agentSequential ? 'agent' : 'canvas';
-        if (runInput?.agentSequential) context.state.autoRetry = false;
+        if (runInput?.agentSequential || runInput?.imageBatch) context.state.autoRetry = false;
         if (typeof createRunContext === 'function') {
             const dispose = context.dispose?.bind(context) || (() => {});
             context.dispose = () => {
@@ -2196,7 +2194,7 @@ export function createWorkflowRuntimeManager({
                         workflowId,
                         ...(runError ? { reason: 'error', outcome: 'failed', error: runError.message || String(runError) } : {}),
                         nodeResults: await Promise.all(getWorkflowRunResultNodes(context).map((node) => captureWorkflowNodeResult(
-                            node, runInput?.agentSequential ? node.isSucceeded === true : !runError && executionResult?.outcome === 'completed',
+                            node, runInput?.agentSequential || runInput?.imageBatch ? node.isSucceeded === true : !runError && executionResult?.outcome === 'completed',
                             captureTextResults
                         )))
                     };

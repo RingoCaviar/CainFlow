@@ -947,6 +947,7 @@ export function createExecutionCoreApi({
             targetNodeId,
             selectedNodeIds,
             ...(runInput.agentSequential === true ? { agentSequential: true } : {}),
+            ...(mode === 'selected-only' && runInput.imageBatch === true ? { imageBatch: true } : {}),
             ...(runInput.requestSource === 'agent' ? { requestSource: 'agent' } : {}),
             ...(commerceTargeted ? {
                 commerceNodeId, commerceAction,
@@ -2898,8 +2899,6 @@ export function createExecutionCoreApi({
             });
             await saveNodeImageAssetNow(node, images, node.id);
             await syncImageMergeNode(node.id, images);
-            const summary = documentRef.getElementById(`${node.id}-merge-summary`);
-            if (summary) summary.textContent = `已合并 ${images.length} 张图片`;
             await refreshDependentImageResizePreviews(node.id);
             connectionProjection?.nodeGeometryChanged(node.id);
         },

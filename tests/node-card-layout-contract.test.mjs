@@ -42,7 +42,7 @@ test('node cards use compact headers and edge-aligned ports with stable hit area
 
 test('resizing honors the measured content height at the final width', () => {
     assert.match(bindings, /minHeight:\s*Math\.max\(60, Math\.min\(defaultMinimum\.minHeight, resizeTargetMinHeight\)\)/);
-    assert.match(interactions, /getNodeMinimumSize\(node, \{ width: adjustedWidth, normalizeFlexibleHeights: true \}\)/);
+    assert.match(interactions, /getNodeMinimumSize\(node, \{ width: adjustedWidth, normalizeFlexibleHeights: true, manualResize: true \}\)/);
     assert.match(interactions, /minimumHeight = Number\(minimum\?\.minHeight\) \|\| 0/);
     assert.match(interactions, /finalHeight = node\.el\.classList\.contains\('node-media-aspect'\) \? minimum\.minHeight : Math\.max\(finalHeight, Number\(minimum\?\.minHeight\) \|\| 0\)/);
 });

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { createCanvasInteractionsApi } from '../js/canvas/canvas-interactions.js';
 import { createConnectionProjection } from '../js/canvas/connection-projection.js';
 
-function createClassList() {
-    return { add() {}, remove() {}, contains() { return false; } };
+function createClassList(...classes) {
+    return { add() {}, remove() {}, contains(name) { return classes.includes(name); } };
 }
 
 test('shake detach upgrades drag history before topology changes and leaves edges alone if protection fails',()=>{
@@ -742,6 +742,36 @@ test('each node edge resizes on its axis and preserves the opposite edge at canv
         assert.equal(legacyRefreshCalls.at(-1).force, true, edge);
         assert.equal(saveCalls.length, 1, edge);
     }
+});
+
+test('a media corner resizes continuously when an opposing-axis drag crosses the aspect diagonal', () => {
+    const { windowListeners, state } = createHarness({
+        getNodeMinimumSize(_node, { width }) {
+            return { minWidth: 180, minHeight: width / 2 };
+        }
+    });
+    const style = { width: '320px', height: '160px' };
+    const node = { x: 50, y: 60, el: { style, classList: createClassList('node-media-aspect') } };
+    state.nodes.set('node-1', node);
+    state.resizing = {
+        nodeId: 'node-1', edge: 'bottom-right', startX: 100, startY: 100,
+        startNodeX: 50, startNodeY: 60, startWidth: 320, startHeight: 160,
+        mediaAspectRatio: 2, minWidth: 180, minHeight: 90, textareaResizeTargets: []
+    };
+    const move = windowListeners.find(({ type }) => type === 'mousemove').listener;
+    const up = windowListeners.find(({ type, options }) => type === 'mouseup' && !options).listener;
+    const widths = [];
+    for (const clientY of [81, 80, 79]) {
+        move({ clientX: 140, clientY });
+        widths.push(parseFloat(style.width));
+    }
+
+    assert.ok(widths[0] > widths[1] && widths[1] > widths[2] && widths[0] - widths[2] < 2,
+        `a 2px pointer move should shrink the card smoothly: ${widths.join(' → ')}`);
+    assert.equal(parseFloat(style.height), widths[2] / 2);
+
+    up({ clientX: 140, clientY: 79, target: { closest() { return null; } } });
+    assert.ok(Math.abs(node.width - widths[2]) <= 0.5, 'release keeps the last visible size');
 });
 
 test('left and top resize clamp to content minimum without moving the opposite edge', () => {

@@ -41,9 +41,10 @@ function describeSource(state, edge, referenceGroup, allowPreview) {
 
 /** Presentation of the authoritative edges; edits are delegated to the graph API. */
 export function createImageInputDetail({ state, node, documentRef, updateInputConnection, swapInputConnections, moveMergeInputConnection, openReferencePreview = null, onChange = () => {} }) {
+    const isMerge = node.type === 'ImageMerge';
     const element = documentRef.createElement('section');
     element.className = 'image-input-detail';
-    element.setAttribute('aria-label', '输入明细');
+    element.setAttribute('aria-label', isMerge ? '合并顺序' : '输入明细');
     const surfaces = getSurfaceCoordinator(documentRef);
     let closeMore = null;
     let signature = '', replacing = null, pending = false, statusMessage = '';
@@ -101,14 +102,15 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
         });
         return { element: more, actions, close };
     }
-    function focusRowControl(edgeId, selector = '.image-source-more-trigger') {
+    function focusRowControl(edgeId, selector = '.image-source-more-trigger', fallback = '.image-source-more-trigger') {
         if (!element.isConnected || !element.getClientRects().length || element.closest('[inert]')) return;
         const rows = [...element.querySelectorAll('.image-input-row')];
         const row = rows.find(item => item.dataset.inputConnectionId === edgeId);
-        const control = row?.querySelector(selector) || row?.querySelector('.image-source-more-trigger')
-            || rows[0]?.querySelector('.image-source-more-trigger');
-        if (control) control.focus({ preventScroll: true });
-        else { element.tabIndex = -1; element.focus({ preventScroll: true }); }
+        const control = row?.querySelector(selector) || row?.querySelector(fallback) || rows[0]?.querySelector(fallback);
+        if (control) {
+            control.focus({ preventScroll: true });
+            if (isMerge) control.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        } else { element.tabIndex = -1; element.focus({ preventScroll: true }); }
     }
     async function edit(edgeId, changes) {
         if (!updateInputConnection || pending) return;
@@ -137,6 +139,9 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
     }
     async function move(edgeId, direction) {
         if (!moveMergeInputConnection || pending) return;
+        const active = documentRef.activeElement;
+        const action = active?.dataset.inputAction;
+        const restoreFocus = active?.dataset.inputEdgeId === edgeId;
         pending = true; statusMessage = ''; refresh(true);
         try {
             const result = await moveMergeInputConnection(edgeId, direction);
@@ -144,11 +149,16 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
             if (result?.changed) { replacing = null; onChange(node.id); }
         } catch (error) {
             statusMessage = error?.message || '排序失败，请重试。';
-        } finally { pending = false; refresh(true); }
+        } finally {
+            pending = false; refresh(true);
+            if (restoreFocus && documentRef.activeElement === documentRef.body) {
+                focusRowControl(edgeId, `[data-input-action="${action}"]:not(:disabled)`, '[data-input-action^="move-"]:not(:disabled)');
+            }
+        }
     }
     function refresh(force = false) {
         const edges = state.connections.filter(edge => edge.to.nodeId === node.id);
-        if (node.type === 'ImageMerge') edges.sort((left, right) => (
+        if (isMerge) edges.sort((left, right) => (
             (Number(left.to.port.match(/^image_(\d+)$/)?.[1]) || Infinity)
             - (Number(right.to.port.match(/^image_(\d+)$/)?.[1]) || Infinity)
         ));
@@ -167,6 +177,16 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
         signature = nextSignature;
         closeMore?.();
         element.replaceChildren();
+        if (isMerge && edges.length) {
+            const heading = documentRef.createElement('div');
+            heading.className = 'image-merge-order-heading';
+            const title = documentRef.createElement('strong'); title.textContent = '合并顺序';
+            const count = documentRef.createElement('span'); count.textContent = `${edges.length} 个来源`;
+            heading.append(title, count);
+            const hint = documentRef.createElement('p'); hint.className = 'image-input-empty';
+            hint.textContent = '按槽位顺序合并各来源的完整批次。';
+            element.append(heading, hint);
+        }
         if (node.type === 'ImageCompare') {
             const actions = documentRef.createElement('div'); actions.className = 'image-input-compare-actions';
             const description = documentRef.createElement('span'); description.className = 'image-input-empty'; description.textContent = 'A 可选 · B 为必需输入';
@@ -188,9 +208,13 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
                 : node.type === 'ImageCompare' ? '将图片接到输入口，依次分配空闲 A、B。'
                     : node.type === 'ImageSave' ? '将图片或视频接到输入口，分别保留图片和视频用途。'
                         : node.type === 'CameraControl' ? '将图片接到输入口，用作视角编辑的参考。'
-                    : '将图片接到输入口，保留来源的完整批次。';
+                            : isMerge ? '将上游图片节点连到输入口，即可合并各来源的完整批次。'
+                                : '将图片接到输入口，保留来源的完整批次。';
             element.append(empty); return;
         }
+        const roles = getUniversalInputRoles(node, state, edges);
+        const orderLocked = isMerge && (running || editing || pending || !moveMergeInputConnection
+            || descriptions.some(({ source }) => state.runningNodeIds?.has(source?.id) || ['waiting', 'running'].includes(source?.runStatus)));
         edges.forEach((edge, index) => {
             const description = descriptions[index];
             const row = documentRef.createElement('article'); row.className = 'image-input-row';
@@ -199,15 +223,24 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
             const title = documentRef.createElement('span'); title.className = 'image-input-source-title';
             title.textContent = description.title; title.title = `${description.title} · ${edge.from.nodeId} / ${edge.from.port}`;
             const facts = documentRef.createElement('span'); facts.className = 'image-input-facts';
-            facts.textContent = `${typeLabels[description.type] || description.type || '未知类型'}${description.type === 'image' ? ` · ${description.count} 张` : description.type === 'video' ? ` · ${description.count} 个` : ''} · ${description.status}`;
+            if (isMerge && description.type === 'image') {
+                facts.textContent = [
+                    description.count ? `${description.count} 张` : '',
+                    description.status === '已连接' ? '' : description.status
+                ].filter(Boolean).join(' · ');
+            } else {
+                facts.textContent = `${typeLabels[description.type] || description.type || '未知类型'}${description.type === 'image' ? ` · ${description.count} 张` : description.type === 'video' ? ` · ${description.count} 个` : ''} · ${description.status}`;
+            }
+            if (isMerge && ['来源缺失', '原图缺失'].includes(description.status)) facts.dataset.status = 'missing';
             top.append(title, facts); row.append(top);
             const controls = documentRef.createElement('div'); controls.className = 'image-input-controls';
             const select = documentRef.createElement('select'); select.dataset.inputRole = '';
-            select.setAttribute('aria-label', `${description.title}的输入用途`);
-            const availableRoles = getUniversalInputRoles(node, state).filter(([role, , type]) => type === description.type || role === edge.to.port);
+            select.setAttribute('aria-label', `${description.title}的${isMerge ? '输入槽位' : '输入用途'}`);
+            const availableRoles = roles.filter(([role, , type]) => type === description.type || role === edge.to.port);
             if (!availableRoles.some(([role]) => role === edge.to.port)) availableRoles.push([edge.to.port, edge.to.port]);
             for (const [role, label] of availableRoles) {
-                const option = documentRef.createElement('option'); option.value = role; option.textContent = label;
+                const option = documentRef.createElement('option'); option.value = role;
+                option.textContent = isMerge && /^image_\d+$/.test(role) ? `槽位 ${Number(role.slice(6))}` : label;
                 if (role !== edge.to.port) {
                     const result = resolveUniversalInput({ state, sourceNode: description.source,
                         sourcePort: edge.from.port, sourceType: description.type, targetNode: node,
@@ -249,13 +282,15 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
                 });
                 controls.append(preview);
             }
-            if (node.type === 'ImageMerge') {
+            if (isMerge) {
                 const ordering = documentRef.createElement('div'); ordering.className = 'image-input-order-controls';
-                const locked = running || editing || pending || !moveMergeInputConnection
-                    || descriptions.some(({ source }) => state.runningNodeIds?.has(source?.id) || ['waiting', 'running'].includes(source?.runStatus));
                 const up = button('前移', 'move-up', edge.id), down = button('后移', 'move-down', edge.id);
-                up.disabled = locked || index === 0; down.disabled = locked || index === edges.length - 1;
-                up.setAttribute('aria-label', `前移${description.title}`); down.setAttribute('aria-label', `后移${description.title}`);
+                up.disabled = orderLocked || index === 0; down.disabled = orderLocked || index === edges.length - 1;
+                for (const [control, label, path] of [[up, '前移', 'm4 10 4-4 4 4'], [down, '后移', 'm4 6 4 4 4-4']]) {
+                    control.setAttribute('aria-label', `${label}${description.title}（第 ${index + 1} 个来源）`);
+                    control.title = label;
+                    control.innerHTML = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${path}"/></svg>`;
+                }
                 up.addEventListener('click', () => { void move(edge.id, -1); });
                 down.addEventListener('click', () => { void move(edge.id, 1); });
                 ordering.append(up, down); controls.append(ordering);

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
+import { uploadImageOriginal } from './helpers/image-upload.mjs';
 
 const session = {
     autoCheckUpdatesOnLoad: false,
@@ -29,6 +31,71 @@ async function request(app, text, plan) {
 async function prepareAgent(app) {
     await app.evaluate(`window.selectionRequests=[];window.selectionReply=null;window.failSelectionSave=false;const originalFetch=window.fetch;window.fetch=async(url,options={})=>{if(failSelectionSave&&String(url).startsWith('/api/workflows/')&&options.method==='POST'){failSelectionSave=false;return new Response(JSON.stringify({error:'controlled save failure'}),{status:500,headers:{'Content-Type':'application/json'}})}if(String(url)==='/proxy'&&options.body){const body=JSON.parse(options.body);if(body.messages){selectionRequests.push(body);return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(selectionReply)}}]}),{headers:{'Content-Type':'application/json'}})}}return originalFetch(url,options)};document.getElementById('btn-prompt-agent').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-provider-id=p]').click()`);
 }
+
+test('Agent applies and runs an explicit shared-prompt image batch using the selection captured at Send', { timeout: 60000 }, async () => {
+    const workflowId = 'agent-shared-image-batch';
+    const sources = ['red', 'blue'];
+    const images = await Promise.all(sources.map(async color =>
+        (await readFile(new URL(`./fixtures/reference-${color}.png`, import.meta.url))).toString('base64')));
+    const nodes = [...sources.map((id, index) => ({ id, type: 'ImageImport', x: 100, y: 100 + index * 300 })),
+        { id: 'example', type: 'Text', text: '保持商品细节，换成中性背景', x: 400, y: 100 },
+        { id: 'old-generation', type: 'ImageGenerate', prompt: '旧生成', x: 700, y: 100 }];
+    const data = { workflowId, nodes, connections: [] };
+    const fixture = { ...session, ...data, activeWorkflowName: 'Batch', activeWorkflowId: workflowId,
+        workflowTabs: [{ name: 'Batch', workflowId, data }],
+        models: [...session.models, { id: 'gemini', modelId: 'gemini-3-pro-image-preview', name: '受控生图',
+            taskType: 'image', protocol: 'google', providerIds: ['p'] }] };
+    const prompt = '保持商品细节，换成中性背景';
+    const initScript = `window.batchChat=[];window.batchImages=[];const originalFetch=window.fetch;
+            window.fetch=async (url,options={})=>{
+                if(String(url)==='/proxy'&&options.body){
+                    const body=JSON.parse(options.body);
+                    if(body.messages){
+                        batchChat.push(body);
+                        if(batchChat.length===1)await new Promise(resolve=>window.resumeBatchChat=resolve);
+                        const reply=batchChat.length===1?{intent:'clarify',message:'请明确指定方案使用的画布参考图'}:
+                            {intent:'generate',canvasBatch:{prompt:${JSON.stringify(prompt)}}};
+                        return Response.json({choices:[{message:{content:JSON.stringify(reply)}}]});
+                    }
+                    batchImages.push(body);
+                    return Response.json({candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:${JSON.stringify(images[0])}}}]}}]});
+                }
+                return originalFetch(url,options);
+            };`;
+    await withAppBrowser(fixture, async app => {
+        for (const [index, id] of sources.entries()) await uploadImageOriginal(app, id, `data:image/png;base64,${images[index]}`);
+        await app.evaluate(`
+            document.getElementById('btn-prompt-agent').click();
+            document.querySelector('#prompt-agent-model + button').click();
+            document.querySelector('#prompt-agent-model-menu [data-provider-id=p]').click();
+            document.querySelector('#prompt-agent-image-model + button').click();
+            document.querySelector('#prompt-agent-image-model-menu [data-provider-id=p]').click();`);
+        await select(app, 'red');
+        await select(app, 'blue', true);
+        await select(app, 'example', true);
+        await select(app, 'old-generation', true);
+        await app.evaluate(`document.getElementById('prompt-agent-input').value='按选中的配置自己写一个提示词，逐张处理选中的原图，统一16:9和2K，连好后直接跑批处理';document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));`);
+        await app.waitFor('Boolean(window.resumeBatchChat)');
+        await app.evaluate("(async()=>{const { state }=await import('/js/app/bootstrap.js').then(m=>m.bootstrapCainFlowApp());(await import('/js/canvas/selection.js')).createSelectionApi({state}).clearSelection()})()");
+        assert.equal(await app.evaluate("document.getElementById('blue').classList.contains('selected')"), false);
+        await app.evaluate('window.resumeBatchChat()');
+        await app.waitFor(`(${lastCard})?.querySelector('[role=status]')?.textContent.includes('执行结束')`);
+        assert.equal(await app.evaluate('batchChat.length'), 2);
+        const requests = await app.evaluate('batchImages');
+        assert.equal(requests.length, 2, 'run starts without a second user action');
+        assert.deepEqual(requests.map(request => request.contents[0].parts.filter(part => part.inlineData).map(part => part.inlineData.data)).flat().sort(), [...images].sort());
+        for (const request of requests) {
+            assert.ok(request.contents[0].parts.some(part => part.text?.includes(prompt)));
+            assert.equal(request.generationConfig.imageConfig.aspectRatio, '16:9');
+            assert.equal(request.generationConfig.imageConfig.imageSize, '2K');
+        }
+        const applied = await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value)");
+        assert.equal(applied.nodes.filter(node => node.type === 'Text' && node.text === prompt).length, 2);
+        assert.equal(applied.connections.filter(link => link.to.port === 'prompt').length, 2);
+        assert.deepEqual(applied.connections.filter(link => link.to.port === 'referenceImages').map(link => link.from.nodeId).sort(), sources.slice().sort());
+        assert.ok(applied.nodes.some(node => node.id === 'old-generation' && node.prompt === '旧生成'));
+    }, { initScript });
+});
 
 test('Agent uses send-time selection to revise, create or delete through reversible previewed actions without an insert button', { timeout: 45000 }, async () => {
     await withAppBrowser(session, async app => {

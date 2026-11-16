@@ -36,10 +36,17 @@ test('merge shows numeric dynamic-source order in the lower editor and keeps one
     await withAppBrowser(session, async app => {
         await app.waitFor("!!document.getElementById('merge-card')");
         assert.equal(await app.evaluate("document.getElementById('merge-card').classList.contains('image-first-card')"), true);
-        await open(app);
+        await app.evaluate("document.getElementById('merge-card-merge-preview').focus({preventScroll:true})");
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+        await app.waitFor("document.getElementById('image-parameter-panel')?.dataset.nodeId==='merge-card' && !document.getElementById('image-parameter-panel').hidden");
         assert.deepEqual(await inputOrder(app), ['edge-second', 'edge-tenth']);
+        assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#image-parameter-panel .image-merge-order-heading > *')].map(item=>item.textContent)"), ['合并顺序', '2 个来源']);
+        assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#image-parameter-panel [data-input-role]')].map(select=>select.selectedOptions[0].textContent)"), ['槽位 2', '槽位 10']);
+        assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#image-parameter-panel .image-input-facts')].map(item=>item.textContent)"), ['尚无输出', '尚无输出']);
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#merge-card .node-port[data-direction=input]')].filter(port=>port.getClientRects().length).map(port=>port.dataset.port)"), ['auto']);
-        assert.equal(await app.evaluate("document.getElementById('merge-card').contains(document.getElementById('merge-card-merge-preview')) && document.getElementById('merge-card').contains(document.getElementById('merge-card-merge-summary'))"), true);
+        assert.ok(await app.evaluate("document.querySelector('#merge-card .node-body > .image-merge-panel > .image-merge-preview').checkVisibility()"));
+        assert.equal(await app.evaluate("document.querySelector('#merge-card .image-merge-stale').checkVisibility()"), false);
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=generate]').textContent"), '更新合并');
         assert.deepEqual(await geometry(app), ['620px', '40px', 400, 350]);
         assert.ok(await app.evaluate("document.getElementById('merge-card-merge-preview').offsetHeight>220"));
@@ -49,14 +56,20 @@ test('merge shows numeric dynamic-source order in the lower editor and keeps one
         await app.evaluate("document.querySelector('#canvas-navigation .canvas-zoom-menu>summary').click();document.querySelector('#canvas-navigation [data-zoom=\"0.5\"]').click()");
         await app.waitFor("document.getElementById('zoom-level').textContent==='50%'");
         assert.deepEqual(await editorMetrics(), readable, 'numeric source ordering stays readable at low canvas zoom');
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-input-connection-id=edge-second] [data-input-action=move-down]').click()");
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-input-connection-id=edge-second] [data-input-action=move-down]').focus()");
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
         await app.waitFor("document.querySelector('#image-parameter-panel [data-input-connection-id]')?.dataset.inputConnectionId==='edge-tenth'");
+        await app.waitFor("document.activeElement.matches('[data-input-edge-id=edge-second][data-input-action=move-up]:enabled')");
         assert.deepEqual(await inputOrder(app), ['edge-tenth', 'edge-second']);
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#merge-card .node-port[data-direction=input]')].filter(port=>port.getClientRects().length).map(port=>port.dataset.port)"), ['auto']);
         await reloadAppBrowser(app);
         await open(app);
         assert.deepEqual(await inputOrder(app), ['edge-tenth', 'edge-second']);
         assert.deepEqual(await geometry(app), ['620px', '40px', 400, 350]);
+        await app.evaluate("document.querySelector('#source-a .node-bypass-btn').click();document.querySelector('#source-b .node-bypass-btn').click()");
+        await app.waitFor("document.querySelector('#image-parameter-panel .image-parameter-feedback').textContent==='没有可用的图片来源'");
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=generate]').disabled"), true);
     });
 });
 
@@ -69,6 +82,13 @@ test('merge result browsing keeps the complete output while picture clicks and o
         await open(app);
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=generate]').click()");
         await app.waitFor("document.querySelector('#merge-card-merge-preview img')?.naturalWidth>0");
+        await app.waitFor("document.querySelector('#image-parameter-panel .image-parameter-feedback[role=status]')?.textContent==='输出 2 张'");
+        assert.ok(await app.evaluate(`(() => {
+            const body = document.querySelector('#merge-card > .node-body');
+            const preview = document.getElementById('merge-card-merge-preview');
+            return Math.abs(body.getBoundingClientRect().bottom - preview.getBoundingClientRect().bottom) < 1
+                && !body.querySelector('.image-merge-stale').checkVisibility();
+        })()`), 'the current card ends at the preview without a status strip');
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='merge-card')?.mediaAssetKeys?.length===2)");
         const original = await app.evaluate("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value.nodes.find(node=>node.id==='merge-card').mediaAssetKeys)");
         const before = await geometry(app);

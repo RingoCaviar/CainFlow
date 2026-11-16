@@ -25,6 +25,7 @@ import { createPromptAgentInput } from './prompt-agent-input.js';
 import { renderAgentBody } from './prompt-agent-body.js';
 import { createImageResultReferenceIdentity } from './prompt-agent-result-reference.js';
 import { createUserMessageActions } from './prompt-agent-message-actions.js';
+import { parseAgentAppRequest, runAgentAppRequest } from './prompt-agent-app-actions.js';
 
 const COMMANDS = [
     { name: '/clear', title: '清空上下文', description: '清除本场景的聊天、摘要、参考图和生成记录，重新开始。' },
@@ -92,6 +93,8 @@ function readImageFile(file) {
 
 export function createPromptAgentController({
     canvasAdapter = null,
+    appActions = null,
+    notifyAppAction = () => {},
     documentRef = document,
     createReply = async (request) => buildDefaultReply(request),
     createCompaction = async () => { throw new Error('上下文压缩服务尚未配置。'); },
@@ -281,7 +284,8 @@ export function createPromptAgentController({
             if (button.disabled !== disabled) button.disabled = disabled;
         });
         if (!sendButton) return;
-        sendButton.disabled = !input?.value?.trim().startsWith('/')
+        const localAction = appActions && parseAgentAppRequest(input?.value);
+        sendButton.disabled = localAction ? requestPending : !input?.value?.trim().startsWith('/')
             && (requestPending || mentionReplacementOperations.size > 0 || models.length === 0
                 || pendingReferenceImages.some((image) => image.loading || image.error));
     }
@@ -2154,6 +2158,27 @@ export function createPromptAgentController({
             }
         });
         canvasViews.add(view); runs.forEach(run => addRunView(run));
+        return view;
+    }
+
+    async function runLocalAppAction(action, input) {
+        if (requestPending) return;
+        const operation = beginOperation('app');
+        if (input) input.value = '';
+        captureDraft(true);
+        setOperationStatus(operation, '正在执行 CainFlow 操作…');
+        try {
+            const message = await runAgentAppRequest(action, appActions, { isCurrent: () => isCurrentOperation(operation) });
+            // App operations are local. Their inputs and results stay out of the
+            // conversation passed to a Provider, including on later chat turns.
+            if (isCurrentOperation(operation)) appendMessage('agent', message, [], { record: false });
+            else if (action.method === 'create_workflow') notifyAppAction(message);
+        } catch (error) {
+            if (isCurrentOperation(operation)) appendMessage('agent', error?.message || 'CainFlow 操作失败。', [], { record: false });
+        } finally {
+            setOperationStatus(operation, '');
+            finishOperation(operation);
+        }
     }
 
     async function submit({ resendMessage = null, resendMessageIndex, choice = null } = {}) {
@@ -2164,6 +2189,8 @@ export function createPromptAgentController({
             return;
         }
         if (!choice && !resendMessage && mentionReplacementOperations.size) return;
+        const localAction = !choice && !resendMessage && appActions && parseAgentAppRequest(text);
+        if (localAction) return runLocalAppAction(localAction, input);
         const attachments = choice ? [] : resendMessage ? resendMessage.referenceImages || [] : pendingReferenceImages;
         const latestIndex = conversationStore.getLatestMessageIndex();
         const questionIndex = resendMessage ? (resendMessageIndex ?? 0) - 1 : latestIndex;
@@ -2226,6 +2253,11 @@ export function createPromptAgentController({
         const selectedContext = canvasContext ? (selectedIds.length === 1 ? nodeAdapter?.getContext?.(selectedIds[0]) : null)
             : includeSelection ? nodeAdapter?.getSelectedContext?.() : null;
         const operation = beginOperation('reply');
+        const imageChoice = () => {
+            const id = conversationStore.getImageModelId();
+            return JSON.stringify([id, conversationStore.getProvider('image', id), conversationStore.getSize(id)]);
+        };
+        const imageChoiceAtSend = imageChoice();
         operation.model = JSON.parse(JSON.stringify(replyModel || {}));
         operation.config = replyConfig;
         operation.searchSettings = conversationStore.getSearchSettings();
@@ -2419,7 +2451,12 @@ export function createPromptAgentController({
                 promptPlan: reply?.promptPlan || null, canvasPlan: reply?.canvasPlan, intent: reply?.intent, search: reply?.search, choices: reply?.choices
             }).element;
             if (agentMessage) {
-                if (reply?.canvasPlan) appendCanvasPlan(agentMessage, reply.canvasPlan);
+                if (reply?.canvasPlan) {
+                    const view = appendCanvasPlan(agentMessage, reply.canvasPlan);
+                    if (reply.canvasExecution && !resendMessage && !choiceAnswer) {
+                        await view?.start(reply.canvasExecution, () => isCurrentOperation(operation) && imageChoice() === imageChoiceAtSend);
+                    }
+                }
                 appendPromptPlan(agentMessage, reply?.promptPlan);
                 setCommandStatus();
             }

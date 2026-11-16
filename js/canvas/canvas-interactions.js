@@ -379,20 +379,25 @@ export function createCanvasInteractionsApi({
         const movesTop = edge.includes('top');
         let targetWidth = r.startWidth + (movesLeft ? -dx : edge.includes('right') ? dx : 0);
         const targetHeight = r.startHeight + (movesTop ? -dy : edge.includes('bottom') ? dy : 0);
-        if (r.mediaAspectRatio > 0 && (movesTop || edge.includes('bottom'))
-            && (edge === 'top' || edge === 'bottom' || Math.abs(dy * r.mediaAspectRatio) > Math.abs(dx))) {
-            targetWidth = r.startWidth + (movesTop ? -dy : dy) * r.mediaAspectRatio;
+        if (r.mediaAspectRatio > 0) {
+            if (edge === 'top' || edge === 'bottom') {
+                targetWidth = r.startWidth + (movesTop ? -dy : dy) * r.mediaAspectRatio;
+            } else if (edge === 'bottom-right') {
+                // Project onto the aspect diagonal so small pointer moves cannot flip the resize direction.
+                const heightPerWidth = 1 / r.mediaAspectRatio;
+                targetWidth = r.startWidth + (dx + dy * heightPerWidth) / (1 + heightPerWidth ** 2);
+            }
         }
         const maxWidth = Number.isFinite(r.maxWidth) && r.maxWidth > 0 ? r.maxWidth : Infinity;
         const maxHeight = Number.isFinite(r.maxHeight) && r.maxHeight > 0 ? r.maxHeight : Infinity;
         let minimumHeight = r.minHeight;
         let width = Math.min(maxWidth, Math.max(targetWidth, r.minWidth));
         if (typeof getNodeMinimumSize === 'function') {
-            let minimum = getNodeMinimumSize(node, { width, normalizeFlexibleHeights: true });
+            let minimum = getNodeMinimumSize(node, { width, normalizeFlexibleHeights: true, manualResize: true });
             const minimumWidth = Math.max(r.minWidth, Number(minimum?.minWidth) || 0);
             const adjustedWidth = Math.min(maxWidth, Math.max(targetWidth, minimumWidth));
             if (adjustedWidth !== width) {
-                minimum = getNodeMinimumSize(node, { width: adjustedWidth, normalizeFlexibleHeights: true });
+                minimum = getNodeMinimumSize(node, { width: adjustedWidth, normalizeFlexibleHeights: true, manualResize: true });
             }
             width = Math.min(maxWidth, Math.max(adjustedWidth, Number(minimum?.minWidth) || 0));
             minimumHeight = Number(minimum?.minHeight) || 0;
@@ -430,19 +435,17 @@ export function createCanvasInteractionsApi({
         if (r.hasPointerMovement && pointer) applyNodeResizePointer(r, pointer, { settling: true });
         const node = state.nodes.get(r.nodeId);
         if (node) {
-            let finalWidth = parseInt(node.el.style.width, 10) || r.startWidth;
-            let finalHeight = parseInt(node.el.style.height, 10) || r.startHeight;
+            let finalWidth = parseFloat(node.el.style.width) || r.startWidth;
+            let finalHeight = parseFloat(node.el.style.height) || r.startHeight;
             distributeNodeTextareaResize(r, finalHeight);
             if (typeof getNodeMinimumSize === 'function') {
                 const measuredWidth = finalWidth;
-                let minimum = getNodeMinimumSize(node, {
-                    width: finalWidth,
-                    normalizeFlexibleHeights: true
-                });
+                const measureOptions = { normalizeFlexibleHeights: true, manualResize: r.hasPointerMovement === true };
+                let minimum = getNodeMinimumSize(node, { ...measureOptions, width: finalWidth });
                 const configuredMaxWidth = Number.isFinite(r.maxWidth) && r.maxWidth > 0 ? r.maxWidth : Infinity;
                 finalWidth = Math.min(configuredMaxWidth, Math.max(finalWidth, Number(minimum?.minWidth) || 0));
                 if (finalWidth !== measuredWidth) {
-                    minimum = getNodeMinimumSize(node, { width: finalWidth, normalizeFlexibleHeights: true });
+                    minimum = getNodeMinimumSize(node, { ...measureOptions, width: finalWidth });
                 }
                 finalHeight = node.el.classList.contains('node-media-aspect') ? minimum.minHeight : Math.max(finalHeight, Number(minimum?.minHeight) || 0);
                 node.el.style.width = `${Math.round(finalWidth)}px`;

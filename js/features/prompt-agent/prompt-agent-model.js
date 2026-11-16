@@ -11,11 +11,12 @@ import { getProtocol } from '../execution/protocols/index.js';
 import { getPromptAgentInstructions } from './prompt-agent-instructions.js';
 import { normalizePromptAgentChoices } from './prompt-agent-choices.js';
 import { createPromptAgentInput } from './prompt-agent-input.js';
-import { normalizePromptAgentParameters } from './prompt-agent-parameters.js';
+import { imageRequestProtocolFields, normalizePromptAgentParameters } from './prompt-agent-parameters.js';
 import { measurePromptAgentContext } from './prompt-agent-token-budget.js';
 import { getAgentSearchAvailability, normalizeAgentSearch, getConversationSearchSources } from './prompt-agent-search-data.js';
 import { searchPromptAgent } from './prompt-agent-search.js';
 import { normalizeCanvasPlan } from './prompt-agent-canvas-plan.js';
+import { buildCanvasImageBatch, selectedCanvasImageBatchSources } from './prompt-agent-canvas-image-batch.js';
 import { excludesReferenceImages, mayUseCandidate, referenceInputChangePermission } from './prompt-agent-reference-policy.js';
 import { canvasPlanReferenceImages, assertPromptOnlyReferenceRecipe } from './prompt-agent-reference-inputs.js';
 
@@ -37,12 +38,88 @@ const aspectDirections = [
     [/(?:正方形|方[版幅图]|square)/i, (width, height) => width === height]
 ];
 
-// These protocol controls are read by the corresponding ImageGenerate request builders.
-const requestProtocolFields = {
-    openai: ['output_format', 'output_compression', 'input_fidelity', 'style', 'response_format', 'complexity'],
-    ttapi: ['image_search', 'thinking_level'],
-    'ttapi-openai': ['output_format', 'output_compression']
-};
+function canvasInstructionText(message) {
+    // Only the current user message can select a batch or authorize running it.
+    // Ignore quoted prompts and labels inside the stable @node token.
+    return message.replaceAll(namedImageMention, ' ')
+        .replace(/“[^”]*”|「[^」]*」|『[^』]*』|"[^"]*"|\x60[^\x60]*\x60/g, ' ');
+}
+
+const refersToCanvasSelection = text => /选中|所选|(?:这些|这批)(?:图|节点|素材)|\bselected\b/i.test(text);
+
+function requestedCanvasAction(text, batch = false) {
+    const hypothetical = /(?:如何|怎么|怎样|假设|假如|举个例|\bhow (?:to|do|does)\b|\bwhat if\b)/i;
+    const preview = /(?:先|只|仅)(?:帮我)?(?:看|看看|列|给|说|规划|设计|预览).{0,8}(?:方案|流程|步骤)|先(?:看看|讨论|聊聊)|(?:不想|不希望|先不|别|不要|暂不|不用|禁止)[^，,。！？；;\n]{0,12}(?:新建|创建|搭建|添加|应用|连线|建图|改图|改画布)|\b(?:preview only|discuss first)\b|\b(?:do not|don't|without|avoid)\b[^.,;!?]{0,25}\b(?:build|apply|create|add)\b/i;
+    const requiresApproval = /(?:等(?:待)?|先(?:让|给|由))(?:我(?:们)?|用户)?(?:先|再)?(?:确认|审批|批准|审核|同意)|(?:我(?:们)?|用户)(?:确认|批准|同意)(?:之?后|了再|再)|\b(?:wait for|until|after|once|pending)\s+(?:my\s+(?:confirmation|approval)|(?:i|we)\s+(?:confirm|approve))\b/i;
+    if (hypothetical.test(text) || preview.test(text) || requiresApproval.test(text)) return undefined;
+    const hold = /(?:不要|不用|不必|不许|不需要|别|无需|禁止|停止|取消|暂停|暂缓|暂不|等.{0,12}再|我来|我自己|由我|手动)[^。！？；;，,\n]{0,14}(?:运行|执行|跑|出图|生图|生成)|不\s*(?:运行|执行|跑)|(?:只|仅)(?:帮我)?(?:建(?:节点|图|工作流)|搭建|连(?:线|好)|编写提示词)|\b(?:do not|don't|without|before|i will|i'll|manually)\b[^.,;!?]{0,25}\b(?:run|running|execute|executing)\b/i;
+    const run = /(?:^|[。！，,;；\n]|然后|并且?|接着|完成后|连好后)\s*(?:(?:请|帮我|再|直接|自动|立即|马上|批量|逐张)\s*)*(?:运行(?!状态|说明|日志|能力|模式|原理|方法|设置)|执行(?!状态|说明|日志|原理|方法)|开跑|跑(?=一下|批处理|整批|完|起来|这批|$|[。！，,;；\n]))|(?:^|[.!;,]|\band\b|\bthen\b)\s*(?:(?:please|automatically|immediately|also)\s+)*(?:run|execute)\b/i.test(text);
+    const generate = batch && /(?:^|[。！，,;；\n]|然后|并且?|接着)\s*(?:(?:请|帮我|直接|自动|立即|马上)\s*)*(?:批量|逐张)(?:生图|出图|生成)(?!方案|配置|设置|流程|方法|要怎么)/.test(text);
+    const build = /(?:建(?:图|立|节点|工作流)|搭建|去配就行|连(?:线|接|好))|\b(?:build|connect|apply)\b/i.test(text);
+    const createNow = /(?:直接|自动|立即|马上)\s*(?:新建|创建|搭建|添加|应用|连线)|\b(?:automatically|immediately)\s+(?:build|apply|create|add)\b/i.test(text);
+    if (!batch && !createNow) return undefined;
+    if ((run || generate) && !hold.test(text)) return 'run';
+    return build || createNow ? 'apply' : undefined;
+}
+
+function canvasImageBatchRequest(context, message, referenceImages) {
+    if (!context || referenceImages.length || excludesReferenceImages(message)) return null;
+    const text = canvasInstructionText(message);
+    if (!/(?:批量|批处理|逐张|逐图|每(?:一)?张|每个都|分别|给.{0,12}张.{0,4}(?:图|图片)|\bbatch\b|\beach image\b)/i.test(text)
+        || !/(?:提示词|出图|生图|图生图|生成|\bprompt\b|\bgenerate\b)/i.test(text)
+        || /(?:如何|怎么|怎样|假设|举个例|除了|排除|跳过|(?:只|仅)(?:处理|选|取|限|对)?\s*[前后第]|(?:不同|独立|单独).{0,6}提示词|\bhow (?:to|do|does)\b|\bwhat if\b|\bexcept\b|\bdifferent prompts\b)/i.test(text)) return null;
+    if (/(?:运行|执行|重跑|重试)[^，,。！？；;\n]{0,12}(?:生图|生成)节点|\b(?:run|rerun|execute)\b[^.,;!?]{0,35}\bnodes?\b/i.test(text)
+        && !/(?:逐张|逐图|每(?:一)?张|每个都|(?:同|共用|共享|一个).{0,6}提示词|\beach image\b)/i.test(text)) return null;
+
+    const imageNodes = context.nodes.filter(node => node.outputs.some(port => port.type === 'image'));
+    const configMention = (request, start, end) => /^(?:\s*的)?\s*(?:配置|参数|提示词|设置|模板)/.test(request.slice(end))
+        || /(?:配置|参数|提示词|设置|模板)\s*(?:用|沿用|来自|按|取自|参考|套用|为|是)\s*$/.test(request.slice(0, start));
+    const configIds = new Set([...message.matchAll(namedImageMention)].filter(match =>
+        configMention(message, match.index, match.index + match[0].length)).map(match => match[1]));
+    const namedNodes = imageNodes.filter(node => node.name?.length > 1 && text.includes(node.name)
+        && context.nodes.filter(candidate => candidate.name === node.name).length === 1)
+        .sort((a, b) => text.indexOf(a.name) - text.indexOf(b.name));
+    for (const node of namedNodes) {
+        const index = text.indexOf(node.name);
+        if (configMention(text, index, index + node.name.length)) configIds.add(node.id);
+    }
+    const mentioned = (context.summary?.mentionedIds || []).filter(id => !configIds.has(id) && imageNodes.some(node => node.id === id));
+    const named = refersToCanvasSelection(text) ? [] : namedNodes.map(node => node.id).filter(id => !configIds.has(id));
+    const sourceNodeIds = mentioned.length ? mentioned : named.length ? named : selectedCanvasImageBatchSources(context)
+        .filter(id => !configIds.has(id));
+    if (!sourceNodeIds.length) return null;
+
+    return { sourceNodeIds, mode: requestedCanvasAction(text, true) };
+}
+
+function normalizeCanvasBatch(raw, batch, context, message) {
+    if (!batch || !raw || typeof raw !== 'object' || Array.isArray(raw)
+        || Object.keys(raw).some(key => key !== 'prompt' && key !== 'parameters')) {
+        throw new Error('批处理方案只能提供共享提示词和参数，图片范围由用户请求和画布选择确定。');
+    }
+    const { prompt, parameters } = raw;
+    const recipe = buildCanvasImageBatch(context, { sourceNodeIds: batch.sourceNodeIds, prompt, parameters });
+    const plan = normalizeCanvasPlan(recipe, context, { message, batchSourceNodeIds: batch.sourceNodeIds,
+        referencePolicy: { intent: 'generate' } });
+    plan.imageBatch = true;
+    return plan;
+}
+
+function canApplyAdditiveCanvasPlan(plan, context, text, images) {
+    if (!plan || plan.imageBatch || plan.deletes.length || plan.disconnects.length || plan.steps.some(step => step.nodeId)) return false;
+    const selectedIds = refersToCanvasSelection(text) ? context.summary.selectedIds : [];
+    const allowed = new Set([...selectedIds, ...context.summary.mentionedIds]);
+    for (const node of context.nodes) {
+        if (node.name?.length > 1 && text.includes(node.name) && context.nodes.filter(candidate => candidate.name === node.name).length === 1) {
+            allowed.add(node.id);
+        }
+    }
+    const attached = new Set(images.filter(image => image.origins.includes('本轮附件'))
+        .map(image => image.reference.assetKey || image.reference.assetKeys?.[image.sourceImageIndex ?? 0]).filter(Boolean));
+    return plan.dependencies.every(id => allowed.has(id))
+        && plan.steps.every(step => !step.assetKey || allowed.has(step.assetSourceNodeId) || attached.has(step.assetKey));
+}
+
 const proposalFields = new Set(['aspectRatio', 'resolution', 'customWidth', 'customHeight', 'count',
     'quality', 'moderation', 'background', 'search', 'protocolParams']);
 
@@ -51,7 +128,7 @@ export function imageParameterCapabilities(model, provider) {
     const protocol = getEffectiveProtocol(model, provider);
     const parameters = { count: { type: 'integer', minimum: 1, maximum: 20 } };
     for (const [key, values] of Object.entries(getImageParameterValues(protocol, model.modelId))) {
-        if (values.length) parameters[key] = { type: 'string', enum: [...values] };
+        if (values.length) parameters[key] = { type: 'string', enum: ['', ...values] };
     }
     if (['google', 'ttapi'].includes(protocol) && supportsImageWebSearch(protocol, model.modelId)) {
         parameters.search = { type: 'boolean' };
@@ -59,8 +136,8 @@ export function imageParameterCapabilities(model, provider) {
 
     const protocolParameters = getImageGenerateExtraProtocol(getProtocol(protocol), model.modelId)?.parameters || {};
     const properties = Object.fromEntries(Object.values(protocolParameters).flatMap(parameter => {
-        if (!(requestProtocolFields[protocol] || []).includes(parameter.id)) return [];
-        const type = { select: 'string', number: 'number', toggle: 'boolean' }[parameter.uiControl];
+        if (parameter.id !== 'systemPrompt' && !(imageRequestProtocolFields[protocol] || []).includes(parameter.id)) return [];
+        const type = { select: 'string', textarea: 'string', number: 'number', toggle: 'boolean' }[parameter.uiControl];
         if (!type) return [];
         const schema = { type };
         if (parameter.uiControl === 'select') schema.enum = (parameter.options || []).map(option => String(option.value ?? ''));
@@ -331,6 +408,10 @@ export async function createPromptAgentModelReply({
     if (getOpenAIChatCapabilities({ model, provider })?.imageInput === false) {
         model.capabilities = { ...model.capabilities, imageInput: false };
     }
+    const batch = canvasImageBatchRequest(canvasContext, message, referenceImages);
+    // A batch targets the selected original assets, independent of any earlier
+    // generation or prompt-edit target. No pixel reads are needed for planning it.
+    if (batch) context = null;
     const originalReads = new Map();
     const readOriginal = async (assetKey, name) => {
         if (!originalReads.has(assetKey)) originalReads.set(assetKey, Promise.resolve(getCanvasImage(assetKey)));
@@ -346,7 +427,7 @@ export async function createPromptAgentModelReply({
     const implicitSelection = id => !explicitMentions.has(id) && canvasContext?.summary.selectedIds?.includes(id);
     const mentioned = [...new Set([...explicitMentions,
         ...(context?.nodeId && canvasContext?.nodes.some(node => node.id === context.nodeId) ? [context.nodeId] : [])])];
-    if (mentioned.length) {
+    if (!batch && mentioned.length) {
         const hydrateNode = async (node, sourcePort = 'image', targetPort = '', requireAssets = false, allowUnavailable = false) => {
             if (!node) {
                 if (requireAssets) throw new Error('参考图来源已删除，请刷新后重试');
@@ -411,7 +492,7 @@ export async function createPromptAgentModelReply({
         : previousPrompt.referenceImages || [];
     const previousCanvas = previousTurn?.canvasPlan;
     let previousReferenceTarget = null;
-    if (previousCanvas) {
+    if (previousCanvas && !batch) {
         const requestedTargets = (canvasContext?.nodes || []).filter(node => node.type === 'ImageGenerate'
             && (canvasContext.summary.mentionedIds.includes(node.id) || canvasContext.summary.selectedIds.includes(node.id) || (message.includes(node.name)
                 && canvasContext.nodes.filter(item => item.name === node.name).length === 1))).map(node => node.id);
@@ -440,10 +521,12 @@ export async function createPromptAgentModelReply({
     const canRetryTaskConfirmation = confirmedNewTask || Boolean(requestText
         && (referenceImages.length || directCreationRequest.test(requestText)));
     let taskConfirmationRetry = false;
+    let batchRetry = false;
     for (let round = 0; round < 10; round++) {
         assertActive();
-        const request = { ...base, canvasReads, taskConfirmationRetry, searchAllowed: !searchUsed && searchSettings.mode !== 'off', searchContext: search };
-        if (canvasReads.length && measurePromptAgentContext(request).reached) throw new Error('画布详情达到本轮上下文预算，未读取部分无法确认；请用 @节点 缩小范围或先压缩上下文');
+        const request = { ...base, canvasReads, taskConfirmationRetry, searchAllowed: !searchUsed && searchSettings.mode !== 'off', searchContext: search,
+            ...(batch ? { canvasBatchScope: { sourceCount: batch.sourceNodeIds.length, sourceNodeIds: batch.sourceNodeIds, retry: batchRetry } } : {}) };
+        if ((canvasReads.length || batchRetry) && measurePromptAgentContext(request).reached) throw new Error('画布详情达到本轮上下文预算，未读取部分无法确认；请用 @节点 缩小范围或先压缩上下文');
         const input = createPromptAgentInput(request);
         if (round === 0) onContextImages(input.images.filter(image => image.reference.dataUrl && image.origins.some(origin =>
             ['节点输入', '节点生成结果', '本轮 @节点原图'].includes(origin))).map(image => image.reference));
@@ -501,6 +584,17 @@ export async function createPromptAgentModelReply({
             onSearchStatus('正在整理检索结果…');
             continue;
         }
+        if (batch && !payload?.canvasBatch && !batchRetry) {
+            batchRetry = true;
+            onSearchStatus('正在为已选图片整理共用提示词…');
+            continue;
+        }
+        if (batch && !payload?.canvasBatch) {
+            if (payload?.intent === 'clarify' && !/(?:哪|指定|选择|确认).{0,10}(?:图|素材)|参考图|选中节点/.test(payload.message || '') && payload.taskUpdate?.mode !== 'new') {
+                return normalizeReply(payload, null, input.images, message, [], imageParameterCapabilities);
+            }
+            return { intent: 'clarify', message: '已识别画布图片来源。请补充本批图片要做的处理，或重试生成共用提示词。', promptPlan: null, workSummary: [] };
+        }
         if (canRetryTaskConfirmation && payload?.intent === 'clarify' && payload.taskUpdate?.mode === 'new') {
             if (taskConfirmationRetry) {
                 return { intent: 'chat', message: '模型未能整理出本轮方案，请重新发送这条请求。', promptPlan: null, ...(search ? { search } : {}) };
@@ -512,7 +606,7 @@ export async function createPromptAgentModelReply({
         let reply;
         let canvasEditTargetId;
         try {
-            if (payload.canvasPlan && ['edit', 'refine'].includes(payload.intent) && payload.targetSelection?.mode !== 'prompt-only') {
+            if (!payload.canvasBatch && payload.canvasPlan && ['edit', 'refine'].includes(payload.intent) && payload.targetSelection?.mode !== 'prompt-only') {
                 // Reuse the established latest-result selection gate before accepting a graph.
                 const targetReply = normalizeReply({ ...payload, canvasPlan: undefined, promptPlan: {
                     prompt: '画布续改目标检查', imageRoles: (payload.canvasPlan.steps || []).filter(step => step.imageId).map(step => ({ imageId: step.imageId, role: 'edit-target' }))
@@ -524,20 +618,30 @@ export async function createPromptAgentModelReply({
                 }
                 canvasEditTargetId = selected?.imageId;
             }
-            reply = payload.canvasPlan && canvasContext && payload.intent !== 'clarify' ? {
+            reply = payload.canvasBatch && payload.intent !== 'clarify' ? {
+                intent: 'generate', promptPlan: null,
+                canvasPlan: normalizeCanvasBatch(payload.canvasBatch, batch, canvasContext, message),
+                message: '已整理共用提示词与逐张生图方案。',
+                canvasExecution: batch.mode
+            } : payload.canvasPlan && canvasContext && payload.intent !== 'clarify' ? {
                 intent: ['edit', 'refine', 'chat'].includes(payload.intent) ? payload.intent
                     : payload.targetSelection?.mode === 'prompt-only' ? 'refine' : 'generate',
                 message: String(payload.message || '已整理画布操作方案，请检查变更清单。'), promptPlan: null,
                 canvasPlan: normalizeCanvasPlan(payload.canvasPlan, canvasContext, { message, mentionedIds: canvasContext.summary.mentionedIds, images: input.images,
                     referencePolicy: { intent: payload.intent, selection: payload.targetSelection, previousAssetKeys } })
             } : normalizeReply(payload, context, input.images, message, previousReferences, imageParameterCapabilities);
-            if (reply.canvasPlan && previousCanvas && payload.targetSelection?.mode === 'prompt-only') {
+            if (reply.canvasPlan && !reply.canvasPlan.imageBatch && previousCanvas && payload.targetSelection?.mode === 'prompt-only') {
                 const evidence = payload.targetSelection.evidence;
                 if (typeof evidence !== 'string' || !evidence.trim() || !message.includes(evidence.trim())) throw new Error('仅改提示词需要当前用户的明确指令。');
                 if (previousReferences.some(reference => reference.referenceUnavailable === true)) throw new Error('上一方案参考原图不可用，请恢复原图后再沿用。');
                 assertPromptOnlyReferenceRecipe(previousCanvas, reply.canvasPlan, canvasContext, previousReferenceTarget);
             }
 
+            const canvasText = canvasInstructionText(message);
+            const explicitAction = payload.intent !== 'chat' && requestedCanvasAction(canvasText);
+            if (explicitAction && canApplyAdditiveCanvasPlan(reply.canvasPlan, canvasContext, canvasText, input.images)) {
+                reply.canvasExecution = explicitAction;
+            }
         }
         catch (error) {
             if (!search) throw error;
@@ -556,7 +660,7 @@ export async function createPromptAgentModelReply({
         else if (cited.length) reply.search = normalizeAgentSearch({ sources: sources.filter(source => cited.includes(source.id)), notice: '引用此前检索来源，本轮未重新联网。' });
         const inputTokens = model.protocol === 'google' ? response.payload?.usageMetadata?.promptTokenCount : response.payload?.usage?.prompt_tokens;
         if (Number.isSafeInteger(inputTokens) && inputTokens > 0) reply.tokenObservation = { inputTokens, measurement: measurePromptAgentContext(request) };
-        if (payload.taskUpdate && reply.intent !== 'clarify') reply.taskUpdate = payload.taskUpdate;
+        if (payload.taskUpdate && reply.intent !== 'clarify' && !reply.canvasPlan?.imageBatch) reply.taskUpdate = payload.taskUpdate;
         if (reply.intent !== 'clarify') {
             const sizeIntent = normalizeSizeIntent(payload.sizeIntent, reply, input, message);
             if (sizeIntent) reply.sizeIntent = sizeIntent;

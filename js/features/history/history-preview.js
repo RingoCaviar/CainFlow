@@ -17,6 +17,7 @@ export function createHistoryPreviewApi({
     getHistoryEntry = async (id) => (await getHistory()).find((entry) => entry.id === id) || null,
     getHistoryImageBlob = async () => null,
     deleteHistoryEntry,
+    annotateHistoryImage,
     getImageResolution,
     downloadImage,
     copyToClipboard,
@@ -52,10 +53,62 @@ export function createHistoryPreviewApi({
     const imageContextMenu = createHistoryImageContextMenu({ documentRef, windowRef });
     const infoContent = documentRef.getElementById('history-preview-info-content');
     const infoToggle = documentRef.getElementById('btn-toggle-history-preview-info');
+    const noteForm = annotateHistoryImage && infoContent ? documentRef.createElement('form') : null;
+    if (noteForm) {
+        noteForm.className = 'preview-note-row';
+        noteForm.hidden = true;
+        noteForm.innerHTML = `
+            <label for="preview-note">备注</label>
+            <input id="preview-note" type="text" maxlength="160" placeholder="最多 80 字" autocomplete="off" />
+            <button id="btn-save-note" class="btn" type="submit">保存备注</button>
+        `;
+        documentRef.getElementById('preview-meta').after(noteForm);
+    }
+    const noteInput = noteForm?.querySelector('input');
+    const noteSubmit = noteForm?.querySelector('button');
     let imageInfoCollapsed = localStorageRef?.getItem(IMAGE_INFO_COLLAPSED_KEY) === 'true';
 
     function isVideoHistoryItem(item) {
         return item?.mediaType === 'video' || item?.hasVideo || item?.videoBlob instanceof Blob;
+    }
+
+    function syncNoteForm(item) {
+        if (!noteForm || !noteInput || !noteSubmit) return;
+        noteForm.hidden = !item?.fileVersion || isVideoHistoryItem(item);
+        noteInput.value = typeof item?.note === 'string' ? item.note : '';
+        noteSubmit.disabled = false;
+    }
+
+    function applyHistoryNote({ id, fileVersion, note }) {
+        const matches = item => item?.id === id && item.fileVersion === fileVersion;
+        const current = previewState.currentItem;
+        if (matches(current)) {
+            const clean = noteInput?.value === (current.note || '');
+            current.note = note;
+            if (clean) noteInput.value = note;
+        }
+        for (const item of previewState.items.filter(matches)) item.note = note;
+    }
+
+    async function savePreviewNote(event) {
+        event.preventDefault();
+        const item = previewState.currentItem;
+        if (!item || !noteInput || !noteSubmit || !annotateHistoryImage || noteSubmit.disabled) return;
+        const token = previewState.loadToken;
+        const draft = noteInput.value;
+        const isCurrent = () => token === previewState.loadToken;
+        noteSubmit.disabled = true;
+        try {
+            const saved = await annotateHistoryImage({ id: item.id, fileVersion: item.fileVersion, note: draft }, { isCurrent });
+            if (isCurrent() && noteInput.value === draft) noteInput.value = saved.note;
+            applyHistoryNote(saved);
+            showToast(saved.note ? '备注已保存' : '备注已清除', 'success');
+            void renderHistoryList().catch(error => console.warn('刷新历史列表失败', error));
+        } catch (error) {
+            showToast(error.message || '备注保存失败', 'error');
+        } finally {
+            if (isCurrent()) noteSubmit.disabled = false;
+        }
     }
 
     function syncPreviewInfo(isVideo) {
@@ -289,6 +342,7 @@ export function createHistoryPreviewApi({
         const isVideo = isVideoHistoryItem(item);
         setPreviewMode(isVideo ? 'video' : 'image');
         syncPreviewInfo(isVideo);
+        syncNoteForm(item);
         const actionHost = documentRef.getElementById('history-image-result-actions');
         actionHost?.replaceChildren();
         btnDownload?.classList.toggle('hidden', !isVideo && Boolean(createImageResultActions));
@@ -502,6 +556,7 @@ export function createHistoryPreviewApi({
     function onPreviewKeyDown(e) {
         const top = getSurfaceCoordinator(documentRef)?.topModal();
         if (top && top !== documentRef.getElementById('history-preview-modal')) return;
+        if (noteForm?.contains(e.target) && e.key !== 'Escape') return;
         if (e.key === 'Escape') {
             closeHistoryPreview();
         } else if (e.key === 'ArrowLeft') {
@@ -549,6 +604,7 @@ export function createHistoryPreviewApi({
     }
 
     function initHistoryPreview() {
+        noteForm?.addEventListener('submit', savePreviewNote);
         infoToggle?.addEventListener('click', () => {
             imageInfoCollapsed = !imageInfoCollapsed;
             syncPreviewInfo(false);
@@ -638,6 +694,7 @@ export function createHistoryPreviewApi({
 
     return {
         openHistoryPreview,
+        applyHistoryNote,
         deleteHistoryItems,
         initHistoryPreview
     };

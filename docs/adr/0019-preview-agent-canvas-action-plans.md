@@ -2,6 +2,8 @@
 
 Local issue: `prompt-agent#044`.
 
+[ADR-0025](0025-scoped-canvas-automation.md) updates the preview and execution rules for an explicitly requested image batch.
+
 The Prompt Agent can inspect the active workflow and propose a versioned Canvas action plan. The original selection-only target restriction and deletion exclusion below are superseded by [ADR-0021](0021-agent-selection-action-plans.md), following the user's request to infer canvas actions from current selection. References and model-generated text cannot authorize arbitrary scripts or node fields.
 
 ## Context and plan contract

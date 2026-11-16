@@ -60,14 +60,14 @@ def _authorize(handler, bridge, editor_role):
         raise CanvasMcpError(403, 'The canvas bridge is available only through the local CainFlow address.')
 
     origins = _header_values(handler, 'Origin')
+    authorization = _header_values(handler, 'Authorization')
     if editor_role is not None:
-        if (origins != ['http://' + origin_host] or _header_values(handler, EDITOR_HEADER) != [editor_role]
+        if (authorization or origins != ['http://' + origin_host] or _header_values(handler, EDITOR_HEADER) != [editor_role]
                 or not desktop_security.is_api_request_authorized(handler)):
             raise CanvasMcpError(403, 'A same-origin CainFlow editor is required.')
     else:
         if origins:
             raise CanvasMcpError(403, 'Browser origins cannot call the external canvas bridge.')
-        authorization = _header_values(handler, 'Authorization')
         if len(authorization) != 1 or not bridge.is_authorized(authorization[0]):
             raise CanvasMcpError(401, 'A valid canvas bridge bearer token is required.')
 

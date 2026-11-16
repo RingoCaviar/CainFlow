@@ -129,6 +129,15 @@
         ],
         "createdAt": "2026-11-13T08:10:10.682Z",
         "reason": "Codex verified against e311d29: the two matches are .workflow-item::before, overridden by themes.css to a 2px active workflow indicator, and .update-changelog-body blockquote, a quotation marker for release notes."
+      },
+      {
+        "rule": "dark-glow",
+        "value": "*",
+        "files": [
+          "tests/fixtures/prompt-library-search.html"
+        ],
+        "createdAt": "2026-11-16T02:51:22.300Z",
+        "reason": "Codex verified that the prompt library search fixture defines no shadows and imports existing production panel/theme styles. This edit only waits for durable storage before assertions."
       }
     ]
   }

@@ -572,6 +572,33 @@ body:has(#toolbar [aria-expanded="true"]:not(#btn-prompt-agent)) .help-panel {
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.24);
 }
 
+.history-card-note {
+    position: absolute;
+    left: 6px;
+    bottom: 6px;
+    z-index: 9;
+    max-width: calc(100% - 12px);
+    padding: 3px 7px;
+    border-radius: var(--radius-sm);
+    background: rgba(0, 0, 0, 0.72);
+    color: #fff;
+    font-size: 12px;
+    line-height: 1.35;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.history-card:not(.history-card-compact) .history-card-note {
+    bottom: auto;
+    top: 6px;
+    max-width: calc(100% - 42px);
+}
+
+.history-card:not(.history-card-compact) .history-card-duration + .history-card-note {
+    top: 30px;
+}
+
 /* Removed info-overlay styles for cleaner thumbnails */
 
 .preview-viewport {
@@ -713,6 +740,29 @@ body:has(#toolbar [aria-expanded="true"]:not(#btn-prompt-agent)) .help-panel {
     align-items: flex-start;
     gap: 12px;
     width: 100%;
+}
+
+.preview-note-row:not([hidden]) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.preview-note-row input {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 5px 8px;
+    color: var(--text-primary);
+    background: var(--bg-node);
+    border: 1px solid var(--history-preview-border);
+    border-radius: var(--radius-sm);
+    font: inherit;
+}
+
+.preview-note-row button {
+    flex: none;
 }
 
 .preview-prompt-text {

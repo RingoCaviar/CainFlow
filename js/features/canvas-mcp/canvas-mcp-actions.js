@@ -1,4 +1,6 @@
 import { normalizeCanvasPlan } from '../prompt-agent/prompt-agent-canvas-plan.js';
+import { canvasPlanExecutionNodeIds } from '../prompt-agent/prompt-agent-canvas-context.js';
+import { buildCanvasImageBatch } from '../prompt-agent/prompt-agent-canvas-image-batch.js';
 
 const MAX_RUNS = 32;
 const MAX_STATUS_NODES = 100;
@@ -19,7 +21,7 @@ function asciiJsonSize(value) {
     return json.length + 5 * (json.match(/[^\x00-\x7e]/g)?.length || 0);
 }
 
-export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () => ({}), runWorkflow }) {
+export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () => ({}), getImageModels = () => [], runWorkflow, appActions = null }) {
     let revisionState;
     const runs = new Map();
     const runImages = new Map();
@@ -32,14 +34,15 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
             throw actionError('wrong_workflow', '指定的工作流当前未显示，请重新读取画布。');
         }
         const nodes = context.nodes.map(({ running, ...node }) => node);
-        const fingerprint = JSON.stringify([context.workflowId, nodes, context.connections]);
+        const fingerprint = JSON.stringify([context.workflowId, nodes, context.connections, context.summary.selectedIds]);
         if (revisionState?.fingerprint !== fingerprint) {
             revisionState = { fingerprint, revision: crypto.randomUUID() };
         }
         return { context, revision: revisionState.revision };
     }
 
-    function requireRevision({ workflowId, revision }) {
+    function requireRevision({ workflowId, revision }, isCurrent = () => true) {
+        if (!isCurrent()) throw actionError('stale_editor', 'CainFlow 编辑器已变化，请重新读取画布。');
         if (typeof workflowId !== 'string' || !workflowId || typeof revision !== 'string' || !revision) {
             throw actionError('invalid_arguments', '此操作需要读取画布取得的工作流 ID 与版本。');
         }
@@ -50,9 +53,48 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
         return current.context;
     }
 
-    async function edit(args) {
-        const context = requireRevision(args);
-        const raw = args.plan;
+    function listModels() {
+        return getImageModels().map(({ id, modelId, name, providers }) => ({
+            id, modelId, name, providers: providers.map(({ id, name, maxReferences, parameters }) => ({
+                id, name, ...(Number.isInteger(maxReferences) ? { maxReferences } : {}), ...(parameters ? { parameters } : {})
+            }))
+        }));
+    }
+
+    function resolveImageChoices(plan, context, choices) {
+        const generators = plan.steps.filter(step => step.type === 'ImageGenerate');
+        const { modelId: defaultModelId = '', providerIds = {} } = generators.some(step => !step.nodeId) ? getImageDefaults() : {};
+        const models = choices.size ? listModels() : [];
+        plan.agentProviders = providerIds;
+        plan.providerOverrides = {};
+        plan.thinkingOverrides = {};
+        for (const step of generators) {
+            const node = context.nodes.find(node => node.id === step.nodeId);
+            const choice = choices.get(step.id);
+            const modelId = choice?.modelId ?? (node ? node.modelId : defaultModelId);
+            let providerId = node ? node.providerId : providerIds[modelId];
+            if (choice) {
+                const model = models.find(model => model.id === modelId);
+                if (!model) throw actionError('invalid_arguments', '请选择 list_models 返回的生图模型 ID。');
+                providerId = choice.providerId ?? (node?.modelId === modelId ? node.providerId : undefined)
+                    ?? (model.providers.length === 1 ? model.providers[0].id : undefined);
+                if (!model.providers.some(provider => provider.id === providerId)) {
+                    throw actionError('invalid_arguments', '请明确指定 list_models 中绑定到该模型的供应商 ID。');
+                }
+            }
+            if (!modelId || !providerId) {
+                const message = node ? '请先在画布上为目标生图节点选择模型和供应商。'
+                    : '请先在 CainFlow 选择新建生图节点使用的模型和供应商。';
+                throw actionError('edit_failed', message);
+            }
+            plan.modelOverrides[step.id] = modelId;
+            plan.providerOverrides[step.id] = { [modelId]: providerId };
+            if (node?.modelId === modelId && node.thinking) plan.thinkingOverrides[step.id] = { [modelId]: node.thinking };
+        }
+        return defaultModelId;
+    }
+
+    async function applyEdit(raw, context, args, { imageBatch = false, isCurrent } = {}) {
         if (!raw || !Array.isArray(raw.steps) || (raw.deletes !== undefined && !Array.isArray(raw.deletes))
             || (raw.connections !== undefined && !Array.isArray(raw.connections))
             || (raw.disconnects !== undefined && !Array.isArray(raw.disconnects))) {
@@ -63,39 +105,65 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
             throw actionError('invalid_arguments', '一个画布方案中同一节点只能对应一个步骤。');
         }
         const mentionedIds = [...targets, ...(raw.deletes || []).map(item => item?.nodeId).filter(Boolean)];
+        const choices = new Map();
         let plan;
         try {
-            plan = normalizeCanvasPlan(raw, context, { mentionedIds, explicitInputChanges: true });
+            const steps = raw.steps.map(step => {
+                if (!step || typeof step !== 'object') return step;
+                const { modelId, providerId, ...fields } = step;
+                if (modelId === undefined && providerId === undefined) return fields;
+                if (step.type !== 'ImageGenerate' || [modelId, providerId].some(value =>
+                    value !== undefined && (typeof value !== 'string' || !value))) {
+                    throw new Error('模型和供应商 ID 只能用于生图步骤。');
+                }
+                choices.set(step.id, { modelId, providerId });
+                return fields;
+            });
+            plan = normalizeCanvasPlan({ ...raw, steps }, context, { mentionedIds, explicitInputChanges: true });
         } catch (error) {
             throw actionError('invalid_arguments', error.message);
         }
 
-        const addsImageGenerator = plan.steps.some(step => step.type === 'ImageGenerate' && !step.nodeId);
-        const { modelId = '', providerIds = {} } = addsImageGenerator ? getImageDefaults() : {};
-        if (addsImageGenerator && (!modelId || !providerIds[modelId])) {
-            throw actionError('edit_failed', '请先在 CainFlow 选择新建生图节点使用的模型和供应商。');
-        }
-        plan.agentProviders = providerIds;
-        plan.providerOverrides = {};
-        plan.thinkingOverrides = {};
-        for (const step of plan.steps.filter(step => step.type === 'ImageGenerate' && step.nodeId)) {
-            const node = context.nodes.find(node => node.id === step.nodeId);
-            if (!node.modelId || !node.providerId) {
-                throw actionError('edit_failed', '请先在画布上为目标生图节点选择模型和供应商。');
-            }
-            plan.modelOverrides[step.id] = node.modelId;
-            plan.providerOverrides[step.id] = { [node.modelId]: node.providerId };
-            if (node.thinking) plan.thinkingOverrides[step.id] = { [node.modelId]: node.thinking };
-        }
+        const defaultModelId = resolveImageChoices(plan, context, choices);
+        plan.explicitImageParameters = true;
+        if (imageBatch) plan.imageBatch = true;
 
         try {
-            const applied = await canvasAdapter.apply(plan, modelId, undefined, () => Boolean(requireRevision(args)));
-            return { workflowId: args.workflowId, revision: snapshot(args.workflowId).revision, bindings: applied.bindings };
+            return await canvasAdapter.apply(plan, defaultModelId, undefined, () => Boolean(requireRevision(args, isCurrent)));
         } catch (error) {
-            if (error.code === 'stale_revision' || error.code === 'wrong_workflow') throw error;
+            if (['stale_editor', 'stale_revision', 'wrong_workflow'].includes(error.code)) throw error;
             throw actionError('edit_failed', '无法应用画布方案。请检查编辑器中的运行状态、模型配置或保存状态。');
         } finally {
             canvasAdapter.discardExecutionConfig?.(plan);
+        }
+    }
+
+    function editResult(workflowId, applied) {
+        return { workflowId, revision: snapshot(workflowId).revision, bindings: applied.bindings };
+    }
+
+    async function generateImageBatch(args, { isCurrent } = {}) {
+        const context = requireRevision(args, isCurrent);
+        const { modelId, providerId, run = false } = args;
+        if (typeof run !== 'boolean') throw actionError('invalid_arguments', 'run 必须是布尔值。');
+        let raw;
+        try {
+            raw = buildCanvasImageBatch(context, args);
+        } catch (error) {
+            throw actionError('invalid_arguments', error.message);
+        }
+        if (modelId !== undefined || providerId !== undefined) {
+            raw.steps = raw.steps.map(step => step.type === 'ImageGenerate' ? { ...step, modelId, providerId } : step);
+        }
+        const applied = await applyEdit(raw, context, args, { imageBatch: true, isCurrent });
+        const edit = editResult(args.workflowId, applied);
+        const nodeIds = canvasPlanExecutionNodeIds(applied);
+        if (!run) return { ...edit, nodeIds };
+        try {
+            return { ...edit, nodeIds, run: startRun({ ...edit, nodeIds }, { imageBatch: true, isCurrent }) };
+        } catch (error) {
+            // The graph is already saved. Return its bindings so callers can retry only execution.
+            return { ...edit, nodeIds, runError: error.message };
         }
     }
 
@@ -196,8 +264,8 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
         record.status = RUN_OUTCOMES.has(completion.outcome) ? completion.outcome : 'failed';
     }
 
-    function startRun(args) {
-        const context = requireRevision(args);
+    function startRun(args, { imageBatch = false, isCurrent } = {}) {
+        const context = requireRevision(args, isCurrent);
         const { workflowId, nodeIds } = args;
         if (nodeIds !== undefined && (!Array.isArray(nodeIds) || !nodeIds.length || nodeIds.length > 100
             || new Set(nodeIds).size !== nodeIds.length
@@ -212,16 +280,20 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
         }
         const record = { workflowId, runId: crypto.randomUUID(), status: 'running' };
         runs.set(record.runId, record);
-        const input = nodeIds ? { mode: 'selected-only', selectedNodeIds: nodeIds } : null;
+        const input = nodeIds ? { mode: 'selected-only', selectedNodeIds: nodeIds, ...(imageBatch ? { imageBatch } : {}) } : null;
         void Promise.resolve().then(() => runWorkflow(input, {
             waitForCompletion: true,
             captureTextResults: true,
-            validateBeforeRun: () => requireRevision(args)
+            validateBeforeRun: () => requireRevision(args, isCurrent)
         })).then(completion => finishRun(record, completion)).catch(() => { record.status = 'failed'; });
         return { ...record };
     }
 
-    async function dispatch(method, args = {}) {
+    async function dispatch(method, args = {}, scope) {
+        if (appActions?.supports(method)) {
+            const { editorId, ...parameters } = args;
+            return appActions.dispatch(method, parameters, scope);
+        }
         if (method === 'read_canvas') {
             const { context, revision } = snapshot(args.workflowId);
             return {
@@ -231,11 +303,17 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
                 totalNodes: context.summary.totalNodes,
                 totalConnections: context.summary.totalConnections,
                 editableTypes: context.summary.editableTypes.slice(),
+                editableFields: context.summary.editableFields,
                 ...context.read(args)
             };
         }
-        if (method === 'edit_canvas') return edit(args);
-        if (method === 'run_workflow') return startRun(args);
+        if (method === 'list_models') return { models: listModels() };
+        if (method === 'edit_canvas') {
+            const applied = await applyEdit(args.plan, requireRevision(args, scope?.isCurrent), args, scope);
+            return editResult(args.workflowId, applied);
+        }
+        if (method === 'generate_image_batch') return generateImageBatch(args, scope);
+        if (method === 'run_workflow') return startRun(args, scope);
         if (method === 'get_workflow_run') return getRunPage(args);
         if (method === 'get_run_image') return getRunImage(args);
         throw actionError('unknown_method', '未知的画布操作。');

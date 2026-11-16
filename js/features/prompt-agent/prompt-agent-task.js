@@ -108,7 +108,7 @@ export function explicitTaskParameters(message) {
  if (counts.size === 1) values.count = counts.values().next().value;
  return values;
 }
-export function updateCreativeTask(previous,message,update={},scopeCount=1,{confirmedNewTask=false,independentGeneration=false,recoverParameterUpdates=false,scopedAspect=false}={}) {
+export function updateCreativeTask(previous,message,update={},scopeCount=1,{confirmedNewTask=false,independentGeneration=false,recoverParameterUpdates=false,scopedAspect=false,sharedImageBatch=false}={}) {
  const newTask=confirmedNewTask||independentGeneration||/(?:开始|做|生成|画).{0,5}(?:全新|新的一|另一个|另一张)|新任务|重新开始|\bnew (?:task|project)\b/i.test(message);
  if(update.mode==='new'&&!newTask)throw new CreativeTaskConfirmationRequired();
  const task=(!newTask&&restoreCreativeTask(previous))||{version:1,id:crypto.randomUUID(),parameters:{},steps:{}};
@@ -128,8 +128,14 @@ export function updateCreativeTask(previous,message,update={},scopeCount=1,{conf
     }
     return result;
  };
- const explicit={...read(update.parameters),...(scopeCount<=1?explicitTaskParameters(message):{})};
- if (scopeCount > 1 && explicit.count === scopeCount && !/(?:每|各)(?:个步骤|张|种|组)|分别(?:生成|输出)|each/i.test(update.parameters?.count?.evidence || '')) delete explicit.count;
+ const batchParameters = sharedImageBatch ? explicitTaskParameters(message) : null;
+ if (batchParameters) {
+    // A total such as “批量生成12张” is not a request for 12 results per source.
+    const perImage = message.match(/(?:每(?:一)?张(?:图(?:片)?)?|每个(?:来源|节点)|各自|each image).{0,20}?(?:生成|输出|出图|生图)\s*[一二两三四五六七八九十\d]+\s*张/i);
+    batchParameters.count = (perImage && explicitTaskParameters(perImage[0]).count) || 1;
+ }
+ const explicit={...read(update.parameters),...(batchParameters || (scopeCount<=1?explicitTaskParameters(message):{}))};
+ if (!sharedImageBatch && scopeCount > 1 && explicit.count === scopeCount && !/(?:每|各)(?:个步骤|张|种|组)|分别(?:生成|输出)|each/i.test(update.parameters?.count?.evidence || '')) delete explicit.count;
  if(scopeCount>1&&Object.keys(explicitTaskParameters(message)).some(key=>key!=='count'&&!(key==='aspectRatio'&&scopedAspect))&&!Object.keys(explicit).length&&!Object.keys(update.steps||{}).length)throw new Error('请确认这些尺寸参数适用于所有生图步骤，还是某个具体步骤。');
  task.parameters={...task.parameters,...explicit};
  for(const [id,fields] of Object.entries(update.steps||{}).filter(([id])=>!['__proto__','constructor','prototype'].includes(id))) {
@@ -177,15 +183,17 @@ export function bindTaskToReply(reply,previous,message,{confirmedNewTask=false,c
  const count=reply.canvasPlan?.steps.filter(s=>s.type==='ImageGenerate').length||1;
  for(const id of Object.keys(reply.taskUpdate?.steps||{})) if(['__proto__','constructor','prototype'].includes(id)||!reply.canvasPlan?.steps.some(s=>s.id===id&&s.type==='ImageGenerate')) throw new Error('步骤参数无法对应当前方案，请确认修改对象。');
  const request = message.trim();
- const independentGeneration = reply.taskUpdate?.mode === 'new' && Boolean(request) && !confirmsNewTask(request)
-     && !requestsContinuation(request, reply.editsCurrentAttachment === true) && hasIndependentImagePlan(reply);
+ const sharedImageBatch = reply.canvasPlan?.imageBatch === true;
+ const independentGeneration = sharedImageBatch || (reply.taskUpdate?.mode === 'new' && Boolean(request) && !confirmsNewTask(request)
+     && !requestsContinuation(request, reply.editsCurrentAttachment === true) && hasIndependentImagePlan(reply));
  const taskUpdate = reply.editsCurrentAttachment === true && reply.taskUpdate?.mode === 'new' && !independentGeneration
      ? { ...reply.taskUpdate, mode: 'continue' } : reply.taskUpdate;
  const generation = Boolean(reply.promptPlan || reply.canvasPlan?.steps.some(step => step.type === 'ImageGenerate'));
  if (!generation) return restoreCreativeTask(previous);
  const sizeIntent = reply.sizeIntent;
  const {task,explicit,newTask,rejected,stepUpdates}=updateCreativeTask(previous,message,taskUpdate,count,{
-    confirmedNewTask,independentGeneration,recoverParameterUpdates:true,scopedAspect:Boolean(sizeIntent?.aspectRatio || sizeIntent?.steps)
+    confirmedNewTask,independentGeneration,recoverParameterUpdates:true,scopedAspect:Boolean(sizeIntent?.aspectRatio || sizeIntent?.steps),
+    sharedImageBatch
  });
  updateSizeIntent(task, 'sizeIntent', task.parameters, explicit, sizeIntent?.steps ? null : sizeIntent);
  if (sizeIntent?.steps || task.stepSizeIntents || stepUpdates.size) {

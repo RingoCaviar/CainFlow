@@ -219,14 +219,15 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         confirmedParameters(plan, patch, step.id);
         delete plan.appliedSignature; sync(); changed(plan); return true;
     }
-    async function act(generate, retryOnly = false) {
-        if (busy || !isCurrent()) return;
+    async function act(generate, retryOnly = false, authorized = isCurrent) {
+        const canApply = () => isCurrent() && authorized();
+        if (busy || !canApply()) return;
         busy = true; sync(); status.textContent = '正在校验与应用…';
         let instance;
         try {
             instance = retryOnly ? latest() : plan.steps.length ? adapter.instantiate(plan) : plan;
             if (!retryOnly && instance !== plan) (plan.instances ||= []).push(instance);
-            await adapter.apply(instance, getModelId(), () => changed(instance), isCurrent); changed(instance);
+            await adapter.apply(instance, getModelId(), () => changed(instance), canApply); changed(instance);
         } catch (error) {
             if (instance?.templateId && !instance.bindings?.[instance.order[0]]) {
                 plan.instances = (plan.instances || []).filter(item => item.id !== instance.id);
@@ -235,17 +236,21 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
             if (isCurrent()) status.textContent = error.message;
             return;
         } finally { busy = false; if (isCurrent()) sync(); }
-        if (!isCurrent()) { adapter.discardExecutionConfig?.(instance); return; }
+        if (!canApply()) { adapter.discardExecutionConfig?.(instance); return; }
         status.textContent = '画布方案已应用并保存';
         if (!generate) { adapter.discardExecutionConfig?.(instance); return; }
-        try {
-            status.textContent = '新批次执行中，可继续运行或仅应用';
-            const completion = run(instance, retryOnly);
-            sync();
-            await completion;
-            if (isCurrent()) status.textContent = running().length ? '其他批次执行中，可继续创建' : '执行结束，结果见下方';
-        } catch (error) { if (isCurrent()) status.textContent = error.message; }
-        finally { adapter.discardExecutionConfig?.(instance); changed(instance); if (isCurrent()) sync(); }
+        const complete = async () => {
+            try {
+                status.textContent = '新批次执行中，可继续运行或仅应用';
+                const completion = run(instance, retryOnly);
+                sync();
+                await completion;
+                if (isCurrent()) status.textContent = running().length ? '其他批次执行中，可继续创建' : '执行结束，结果见下方';
+            } catch (error) { if (isCurrent()) status.textContent = error.message; }
+            finally { adapter.discardExecutionConfig?.(instance); changed(instance); if (isCurrent()) sync(); }
+        };
+        const completion = complete();
+        if (authorized === isCurrent) await completion;
     }
     apply.addEventListener('click', () => act(false)); execute.addEventListener('click', () => act(true)); retry.addEventListener('click', () => act(true, true));
     refresh.addEventListener('click', () => { try {
@@ -256,6 +261,11 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     sync();
     return {
         planId: plan.id, setInstances: instances => { plan.instances = instances; sync(); }, answerSize, sync,
+        start: (mode, authorized) => {
+            sync();
+            if ((mode === 'run' ? execute : apply).disabled) return;
+            return act(mode === 'run' && !execute.hidden, false, authorized);
+        },
         close: () => { closeMoreActions(); modelMenus.close(); thinkingControls.forEach(control => control.close()); },
         destroy: () => { destroyed = true; closeMoreActions(); clearInterval(refreshTimer); thinkingControls.forEach(control => control.destroy()); modelMenus.destroy(); }
     };

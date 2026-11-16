@@ -1388,17 +1388,6 @@ export function createNodeDomBindingsApi({
         node.data = node.data || {};
         node.data.inputCount = nextPorts.length;
 
-        const summary = documentRef.getElementById(`${nodeId}-merge-summary`);
-        const connectedCount = state.connections.filter((connection) => (
-            connection.to.nodeId === nodeId &&
-            nextPorts.includes(connection.to.port)
-        )).length;
-        if (summary) {
-            summary.textContent = connectedCount > 0
-                ? `已接入 ${connectedCount} 路图片，输出为 ${connectedCount} 路合并后的多图数据`
-                : '连接多个图片输入后，输出合并后的多图数据';
-        }
-
         const universal = isUniversalInputNode(node);
         const current = Array.from(inputsSection.querySelectorAll('.node-port.input'));
         const canonical = current.filter(port => port.dataset.port !== 'auto');

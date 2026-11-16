@@ -100,16 +100,18 @@ import { createPromptLibraryApi } from '../features/prompts/prompt-library.js';
 import { createPromptAgentController } from '../features/prompt-agent/prompt-agent-controller.js';
 import { createPromptAgentCanvasAdapter } from '../features/prompt-agent/prompt-agent-canvas-adapter.js';
 import { createCanvasMcpActions } from '../features/canvas-mcp/canvas-mcp-actions.js';
+import { createCainflowAppActions } from '../features/canvas-mcp/cainflow-app-actions.js';
 import { startCanvasMcpEditor } from '../features/canvas-mcp/canvas-mcp-editor.js';
 import { createPromptAgentReferenceSource } from '../features/prompt-agent/prompt-agent-reference-source.js';
 import { createPromptAgentNodeAdapter, getAvailablePromptAgentImageModels } from '../features/prompt-agent/prompt-agent-node-adapter.js';
 import { createPromptAgentExecutionAdapter } from '../features/prompt-agent/prompt-agent-execution-adapter.js';
 import { createPromptAgentResultPersistence } from '../features/prompt-agent/prompt-agent-result-persistence.js';
 import { createPromptAgentResultMediaAdapter } from '../features/prompt-agent/prompt-agent-result-media.js';
-import { createPromptAgentModelReply, getAvailablePromptAgentModels } from '../features/prompt-agent/prompt-agent-model.js';
+import { createPromptAgentModelReply, getAvailablePromptAgentModels, imageParameterCapabilities } from '../features/prompt-agent/prompt-agent-model.js';
 import { createAgentWebImageReader } from '../features/prompt-agent/prompt-agent-web-image.js';
 import { createPromptAgentCompaction } from '../features/prompt-agent/prompt-agent-compaction.js';
-import { getModelProviders, getResolvedProviderForModel } from '../features/execution/provider-request-utils.js';
+import { getEffectiveProtocol, getModelProviders, getResolvedProviderForModel } from '../features/execution/provider-request-utils.js';
+import { getImageAspectOptionsForProtocol, getImageResolutionOptionsForProtocol } from '../features/execution/image-generation-size.js';
 import { createHistoryFeature } from './bootstrap/history-bootstrap.js';
 import { createProjectIoFeature } from './bootstrap/project-io-bootstrap.js';
 import { createSettingsFeature } from './bootstrap/settings-bootstrap.js';
@@ -319,6 +321,8 @@ const {
     saveHistoryEntry,
     getHistory,
     getHistoryMetadata,
+    listHistoryImages,
+    annotateHistoryImage,
     getHistoryCount,
     getHistoryPage,
     getHistoryEntry,
@@ -1191,7 +1195,17 @@ const promptAgentCanvasAdapter = createPromptAgentCanvasAdapter({
     getImageAsset, runWorkflow: (input, options) => runWorkflow(input, { ...options, waitForCompletion: true }),
     cancelNode: cancelRunningNode, focusNode: (nodeId) => focusCanvasNode(nodeId, { avoidAgentPanel: true, selectOnFocus: false })
 });
+const cainflowAppActions = createCainflowAppActions({
+    createEmptyWorkflow: options => workflowManagerApi.createEmptyWorkflow(options),
+    listHistoryImages: options => listHistoryImages(options),
+    annotateHistoryImage: (args, scope) => annotateHistoryImage(args, scope),
+    onHistoryNote: result => historyFeature.refreshHistoryAfterNote(result),
+    promptLibrary: getPromptLibraryApi
+});
+
 const promptAgentController = createPromptAgentController({
+    appActions: cainflowAppActions,
+    notifyAppAction: message => showToast(message, 'success'),
     onNativeClipboardWrite: () => getClipboardControllerApi().markNativeClipboardWrite(),
     onDraftChange: () => workflowManagerApi.markActiveWorkflowDirty({ capture: false }),
     canvasAdapter: promptAgentCanvasAdapter,
@@ -2162,6 +2176,7 @@ historyFeature = createHistoryFeature({
     state,
     getHistory,
     getHistoryMetadata,
+    annotateHistoryImage,
     getHistoryCount,
     getHistoryPage,
     getHistoryEntry,
@@ -2376,7 +2391,23 @@ await getConversationWorkbenchControllerApi().init().catch((error) => {
 });
 getConversationToolbarControllerApi().init();
 const canvasMcpActions = createCanvasMcpActions({
+    appActions: cainflowAppActions,
     canvasAdapter: promptAgentCanvasAdapter,
+    getImageModels: () => getAvailablePromptAgentImageModels(state.models, state.providers)
+        .map(model => ({
+            id: model.id, name: model.name, modelId: model.modelId,
+            providers: getModelProviders(model, state.providers)
+                .filter(provider => String(provider.endpoint || '').trim() && String(provider.apikey || '').trim())
+                .map(provider => {
+                    const protocol = getEffectiveProtocol(model, provider);
+                    const { parameters: { count, ...parameters }, maxReferences } = imageParameterCapabilities(model, provider);
+                    return { id: provider.id, name: provider.name, maxReferences, parameters: {
+                        ...parameters, generationCount: count,
+                        aspect: { type: 'string', enum: getImageAspectOptionsForProtocol(protocol, model.modelId).map(option => option.value) },
+                        resolution: { type: 'string', enum: getImageResolutionOptionsForProtocol(protocol, model.modelId).map(option => option.value) }
+                    } };
+                })
+        })).filter(model => model.providers.length),
     getImageDefaults: () => {
         const { imageModelId, providerSettings } = promptAgentController.snapshotWorkflow();
         const models = getAvailablePromptAgentImageModels(state.models, state.providers);

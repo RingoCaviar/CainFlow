@@ -43,6 +43,7 @@ class DiskStorageFacade {
         this.documentVersions = new Map();
         this.savedVersions = new Map();
         this.documentErrors = new Map();
+        this.promptLibraryWrite = Promise.resolve();
     }
 
     async hydrate() {
@@ -175,8 +176,42 @@ class DiskStorageFacade {
         }
     }
 
-    async writeDocument(name, value) {
-        const json = value instanceof SerializedDocument ? `{"value":${value.json}}` : JSON.stringify({ value });
+    async readCurrentDocument(key) {
+        const name = DIRECT_KEY_DOCUMENTS.get(key);
+        if (!name) throw new Error('未知硬盘存储文档');
+        if ((this.savedVersions.get(name) || 0) < (this.documentVersions.get(name) || 0)) await this.waitForKey(key);
+        const response = await fetch(`/api/storage/documents/${encodeURIComponent(name)}`, { cache: 'no-store' });
+        if (!response.ok) throw new Error(`读取 ${name} 失败: HTTP ${response.status}`);
+        return response.json();
+    }
+
+    async updateCurrentDocument(key, update, { isCurrent = () => true } = {}) {
+        const name = DIRECT_KEY_DOCUMENTS.get(key);
+        if (name !== 'prompt_library') throw new Error('此文档不支持按版本保存');
+        const write = this.promptLibraryWrite.then(() => this.commitCurrentDocument(key, name, update, isCurrent));
+        // A delayed reply must not replace the local view of a newer save.
+        this.promptLibraryWrite = write.catch(() => {});
+        return write;
+    }
+
+    async commitCurrentDocument(key, name, update, isCurrent) {
+        for (let attempt = 0; attempt < 5; attempt++) {
+            if (!isCurrent()) throw new Error('请求所属会话已变化');
+            const { value, updatedAt } = await this.readCurrentDocument(key);
+            if (!Number.isSafeInteger(updatedAt) || updatedAt < 0) throw new Error('读取到无效的文档版本');
+            const next = update(value);
+            if (!isCurrent()) throw new Error('请求所属会话已变化');
+            const saved = await this.writeDocument(name, next, { expectedUpdatedAt: updatedAt, isCurrent });
+            if (saved) {
+                this.values.set(key, JSON.stringify(next));
+                return next;
+            }
+        }
+        throw new Error('文档在其他窗口更新过，请重试');
+    }
+
+    async writeDocument(name, value, { expectedUpdatedAt, isCurrent = () => true } = {}) {
+        const json = value instanceof SerializedDocument ? `{"value":${value.json}}` : JSON.stringify({ value, expectedUpdatedAt });
         // UTF-8 cannot be shorter than this string's UTF-16 code-unit count.
         // Only measure small bodies for the shared keepalive budget. Large
         // bodies use Blob transport, avoiding fetch's costly string conversion.
@@ -185,6 +220,7 @@ class DiskStorageFacade {
         const keepalive = !large && this.keepaliveBytes + bytes <= KEEPALIVE_BODY_LIMIT;
         const body = large || bytes > KEEPALIVE_BODY_LIMIT ? await createLargeJsonBody(json) : json;
         const options = { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body, keepalive };
+        if (!isCurrent()) throw new Error('请求所属会话已变化');
         if (keepalive) this.keepaliveBytes += bytes;
         try {
             let response;
@@ -194,9 +230,12 @@ class DiskStorageFacade {
                 // Other fetch consumers also share the browser quota. A PUT of
                 // this same snapshot is idempotent; retry without keepalive.
                 if (!keepalive || !(error instanceof TypeError)) throw error;
+                if (!isCurrent()) throw new Error('请求所属会话已变化');
                 response = await fetch(`/api/storage/documents/${encodeURIComponent(name)}`, { ...options, keepalive: false });
             }
+            if (expectedUpdatedAt !== undefined && response.status === 409) return false;
             if (!response.ok) throw new Error(`保存 ${name} 失败: HTTP ${response.status}`);
+            return true;
         } finally {
             if (keepalive) this.keepaliveBytes -= bytes;
         }

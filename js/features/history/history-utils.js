@@ -110,6 +110,7 @@ export function buildHistoryCardMarkup({
     const exactDate = escapeHistoryHtml(formatHistoryExactDate(item.timestamp));
     const durationText = escapeHistoryHtml(formatHistoryGenerationDuration(item.generationDurationSeconds ?? item.generationDuration));
     const isVideo = item.mediaType === 'video' || item.hasVideo;
+    const note = !isVideo && typeof item.note === 'string' ? escapeHistoryHtml(item.note) : '';
     const videoSizeText = escapeHistoryHtml(formatHistoryVideoSize(item.videoSizeBytes));
     // Directory originals remain usable while thumbnail work waits for idle time.
     const originalPreview = !isVideo && item.fileUrl ? item.fileUrl : '';
@@ -121,6 +122,7 @@ export function buildHistoryCardMarkup({
             <img class="${imageClass}" src="${escapeHistoryHtml(previewSource)}" loading="lazy" decoding="async" draggable="false" alt="${prompt}" />
             ${isVideo ? '<span class="history-card-video-badge" title="视频">VIDEO</span>' : ''}
             ${durationText ? `<span class="history-card-duration" title="${isVideo ? '视频生成耗时' : '生图耗时'} ${durationText}">${durationText}</span>` : ''}
+            ${note ? `<span class="history-card-note" title="${note}">${note}</span>` : ''}
             <div class="selection-checkbox"></div>
             <button class="delete-btn" data-id="${item.id}" title="删除记录">×</button>
             ${compact ? '' : `

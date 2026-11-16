@@ -718,7 +718,7 @@ export function createWorkflowManagerApi({
         });
     }
 
-    async function persistWorkflowFile(name, data, { returnOutcome = false } = {}) {
+    async function persistWorkflowFile(name, data, { returnOutcome = false, createOnly = false, isCurrent = () => true } = {}) {
         const migrationKey = data?.workflowId || '';
         let migration = pendingLegacyMediaMigrations.get(migrationKey) || null;
         let documentPersisted = false;
@@ -732,12 +732,14 @@ export function createWorkflowManagerApi({
             const missingComparisons = await checkRetouchComparisonOriginals(data);
             const documentData = missingComparisons.size ? { ...data, nodes: omitMissingRetouchComparisons(savedNodes, missingComparisons) } : data;
             let preparedWorkflow = prepareWorkflowMediaOwnershipCommit(documentData);
+            if (!isCurrent()) throw new Error('画布状态已变化，请重新发起操作。');
             data.mediaOwnershipRevision = preparedWorkflow.mediaOwnershipRevision;
             let result = await saveWorkflowToFileService(name, stripInlineImagesFromWorkflowData(preparedWorkflow), {
+                createOnly,
                 expectedMediaOwnershipRevision: Number(previousMediaOwnershipRevision || 0),
                 expectedStorageEpoch: mediaOwnership.getExpectedStorageEpoch(data?.workflowId || '')
             });
-            const isMediaOwnershipRevisionConflict = result?.status === 409
+            const isMediaOwnershipRevisionConflict = !createOnly && result?.status === 409
                 && result?.detail === 'Workflow media ownership revision conflict';
             if (isMediaOwnershipRevisionConflict) {
                 const persistedWorkflow = await loadWorkflowFromFileService(name);
@@ -776,7 +778,7 @@ export function createWorkflowManagerApi({
                 pendingLegacyMediaMigrations.delete(migrationKey);
                 const error = new Error(result?.message || result?.detail || '工作流文件写入失败');
                 if (!returnOutcome) showToast(error.message, 'error');
-                return returnOutcome ? { ok: false, documentPersisted: false, error } : false;
+                return returnOutcome ? { ok: false, documentPersisted: false, error, status: result?.status } : false;
             }
             documentPersisted = true;
             if (missingComparisons.size && data.nodes === savedNodes) data.nodes = documentData.nodes;
@@ -2804,9 +2806,9 @@ export function createWorkflowManagerApi({
         return true;
     }
 
-    async function openWorkflow(name, { reloadFromFile = false } = {}) {
+    async function openWorkflow(name, { reloadFromFile = false, isCurrent, expectedWorkflowId } = {}) {
         if (state.canvasPlanApplying || state.historyTransitionInProgress) return false;
-        return workflowTargetActivator.activate(name, { reloadFromFile });
+        return workflowTargetActivator.activate(name, { reloadFromFile, isCurrent, expectedWorkflowId });
     }
 
     async function saveActiveWorkflow() {
@@ -3043,9 +3045,6 @@ export function createWorkflowManagerApi({
         if (result?.actionId !== 'confirm') return null;
         const name = result.value.trim();
         if (!name || /[\\/:*?"<>|]/.test(name)) { showToast('请输入有效的工作流名称', 'warning'); return null; }
-        if (hasWorkflowBaseName(await fetchWorkflows(), name)) {
-            showToast(`已存在名为「${name}」的工作流`, 'warning'); return null;
-        }
         return name;
     }
 
@@ -3053,29 +3052,75 @@ export function createWorkflowManagerApi({
         if (!getWorkflowTab(name) && !await openWorkflow(name)) return false;
         const label = await requestWorkflowName('创建工作流副本', `${getWorkflowBaseName(name)} 副本`);
         if (!label) return false;
+        if (hasWorkflowBaseName(await fetchWorkflows(), label)) {
+            showToast(`已存在名为「${label}」的工作流`, 'warning'); return false;
+        }
         const copied = await copyWorkflowById(getWorkflowTab(name).workflowId, label);
         return copied ? openWorkflow(label) : false;
+    }
+
+    let creatingEmptyWorkflow = false;
+
+    function isWorkflowCreationBusy() {
+        return state.canvasPlanApplying || state.historyTransitionInProgress || closingWorkflows
+            || state.isRunStarting || state.dragging || state.resizing;
+    }
+
+    async function createEmptyWorkflow({ name, isCurrent = () => true } = {}) {
+        const requestedName = typeof name === 'string' ? name.trim() : '';
+        if (name !== undefined && (!requestedName || requestedName.length > 120
+            || /[\\/:*?"<>|\x00-\x1F\x7F]|\.$/.test(requestedName)
+            || /^(?:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\.|$)/i.test(requestedName))) {
+            throw new Error('请输入有效的工作流名称，最多 120 个字符。');
+        }
+        if (creatingEmptyWorkflow || isWorkflowCreationBusy()) throw new Error('画布正在处理其他操作，请稍后新建。');
+        const sourceWorkflowId = getActiveWorkflowId();
+        const canContinue = () => isCurrent() && getActiveWorkflowId() === sourceWorkflowId && !isWorkflowCreationBusy();
+        if (!canContinue()) throw new Error('画布状态已变化，请重新发起操作。');
+
+        creatingEmptyWorkflow = true;
+        try {
+            const persisted = await fetchWorkflows({ fallback: null }).catch(() => null);
+            if (!persisted) throw new Error('读取工作流列表失败，请稍后重试。');
+            if (!canContinue()) throw new Error('画布状态已变化，请重新发起操作。');
+            const names = [...persisted, ...(state.workflowTabs || []).map(tab => tab.name)];
+            const label = requestedName || findNextUntitledName(names);
+            if (hasWorkflowBaseName(names.map(value => value.toLowerCase()), label.toLowerCase())) {
+                throw new Error(`已存在名为「${label}」的工作流。`);
+            }
+            const source = getActiveWorkflowTab();
+            if (source && (source.dirty || !persisted.includes(source.name)) && !await saveActiveWorkflow()) {
+                throw new Error('当前工作流的修改尚未保存，请保存后再新建。');
+            }
+            if (!canContinue()) throw new Error('画布状态已变化，请重新发起操作。');
+            const data = getNewWorkflowData({ inheritCurrentCanvas: false });
+            const workflowId = ensureWorkflowDocumentIdentity({ data }, createWorkflowId);
+            const saved = await saveWorkflowToFile(label, data, {
+                returnOutcome: true, createOnly: true, isCurrent: canContinue
+            });
+            if (!saved.documentPersisted) {
+                if (saved.status === 409) throw new Error('工作流名称或存储状态已变化，请重新发起操作。');
+                if (!canContinue()) throw new Error('画布状态已变化，请重新发起操作。');
+                throw new Error('保存空白工作流失败，请稍后重试。');
+            }
+            if (!canContinue() || !await openWorkflow(label, { isCurrent: canContinue, expectedWorkflowId: workflowId })) {
+                void renderWorkflowList();
+                throw new Error(`空白工作流「${label}」已保存，请从工作流列表打开。`);
+            }
+            return { workflowId, name: label };
+        } finally { creatingEmptyWorkflow = false; }
     }
 
     async function createNewWorkflow() {
         const name = await requestWorkflowName('新建工作流');
         if (!name) return false;
-        const shouldInheritCanvas = false;
-        const data = getNewWorkflowData({ inheritCurrentCanvas: shouldInheritCanvas });
-        const tab = {
-            name,
-            data,
-            dirty: false,
-            colorIndex: (state.workflowTabs || []).length % TAB_COLORS
-        };
-        ensureWorkflowDocumentIdentity(tab, createWorkflowId);
-        if (!(await saveWorkflowToFile(name, data))) return false;
-        state.workflowTabs.push(tab);
-        await openWorkflow(name);
-        showToast(`已新建工作流「${name}」`, 'success');
-        renderWorkflowList();
-        scheduleSave({ dirty: false });
-        return true;
+        try {
+            await createEmptyWorkflow({ name });
+            return true;
+        } catch (error) {
+            showToast(error.message, 'warning');
+            return false;
+        }
     }
 
     async function ensureOpenWorkflow({ useCurrentCanvas = true } = {}) {
@@ -3299,6 +3344,7 @@ export function createWorkflowManagerApi({
             return result;
         },
         initWorkflow,
+        createEmptyWorkflow,
         loadWorkflowFromFile,
         openWorkflow,
         saveActiveWorkflow,

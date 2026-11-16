@@ -1898,7 +1898,6 @@ export function createMediaControllerApi({
 
     function setImageMergeInputState(node, inputState, message = '') {
         node.mergeInputState = inputState;
-        const count = Math.max(getStoredImageCount(node), getNodeMediaAssetKeys(node).length);
         const text = message || (inputState === 'stale' ? '无有效输入，保留上次结果，未更新' : inputState === 'empty' ? '等待图片输入' : '');
         node.mergeMessage = text;
         const preview = getProcessingNodeElement(node.id, 'merge-preview');
@@ -1907,8 +1906,6 @@ export function createMediaControllerApi({
             if (text) preview.dataset.mergeMessage = text;
             else delete preview.dataset.mergeMessage;
         }
-        const summary = getProcessingNodeElement(node.id, 'merge-summary');
-        if (summary) summary.textContent = text || `已合并 ${count} 张图片`;
     }
 
     function renderImageMergePreview(nodeId, images, emptyMessage = '等待图片输入') {
@@ -3067,6 +3064,20 @@ export function createMediaControllerApi({
             },
             { preserveSlots: true }
         );
+
+        if (nodeType === 'ImageMerge') {
+            previewContainer.setAttribute('role', 'group');
+            previewContainer.setAttribute('aria-label', '多图合一预览，按 Enter 或空格打开节点参数');
+            previewContainer.setAttribute('aria-keyshortcuts', 'Enter Space');
+            previewContainer.addEventListener('keydown', event => {
+                if (event.target !== previewContainer || !['Enter', ' '].includes(event.key) || hasBlockingImmersiveOverlay()) return;
+                const select = getNodeById(id)?.onImageFirstSelect;
+                if (!select) return;
+                event.preventDefault();
+                event.stopPropagation();
+                if (!event.repeat) select();
+            });
+        }
 
         previewContainer.addEventListener('click', event => {
             const counter = event.target.closest('.image-save-preview-counter');

@@ -4,6 +4,7 @@ from unittest import mock
 
 from backend.routes import storage_routes
 from backend.routes.storage_routes import _is_authorized_local_request
+from backend.services.storage_service import StorageDocumentConflict
 
 
 def make_handler(client='127.0.0.1', origin='http://127.0.0.1:8767'):
@@ -11,6 +12,19 @@ def make_handler(client='127.0.0.1', origin='http://127.0.0.1:8767'):
 
 
 class StorageRouteSecurityTests(unittest.TestCase):
+    def test_prompt_library_conflict_requests_a_fresh_document_instead_of_overwriting(self):
+        handler = make_handler()
+        handler.path = '/api/storage/documents/prompt_library'
+        request = {'value': [], 'expectedUpdatedAt': 12}
+        with mock.patch.object(storage_routes, 'read_json_body', return_value=request), \
+                mock.patch.object(storage_routes.storage_service, 'assert_storage_writable'), \
+                mock.patch.object(storage_routes.storage_service, 'put_document',
+                                  side_effect=StorageDocumentConflict('The prompt library changed')) as put, \
+                mock.patch.object(storage_routes, 'write_error') as error:
+            self.assertTrue(storage_routes.handle_put(handler))
+            put.assert_called_once_with('prompt_library', [], expected_updated_at=12)
+            error.assert_called_once_with(handler, 409, 'The prompt library changed')
+
     def test_directory_thumbnail_request_reads_the_requested_version(self):
         handler = make_handler()
         handler.path = '/api/storage/library/-8/thumbnail?v=4%3A123'
@@ -20,6 +34,30 @@ class StorageRouteSecurityTests(unittest.TestCase):
             self.assertTrue(storage_routes.handle_get(handler))
             library.return_value.read_thumbnail.assert_called_once_with(-8, '4:123')
             write_bytes.assert_called_once_with(handler, b'thumbnail', content_type='image/webp', headers={'Cache-Control': 'no-store'})
+
+    def test_history_image_tool_errors_do_not_expose_directory_paths(self):
+        handler = make_handler()
+        handler.path = '/api/storage/library?imagesOnly=1&limit=1'
+        private_error = PermissionError(13, 'Permission denied', 'private/directory/history.png')
+        with (
+            mock.patch.object(storage_routes, 'MediaLibrary') as library,
+            mock.patch.object(storage_routes, 'write_error') as error,
+        ):
+            library.return_value.list_page.side_effect = private_error
+            self.assertTrue(storage_routes.handle_get(handler))
+            error.assert_called_once_with(handler, 400, '读取历史图片失败，请检查 CainFlow 的保存目录')
+
+        handler.path = '/api/storage/library/123/note'
+        handler.headers['Content-Length'] = '100'
+        with (
+            mock.patch.object(storage_routes, 'MediaLibrary') as library,
+            mock.patch.object(storage_routes.storage_service, 'assert_storage_writable'),
+            mock.patch.object(storage_routes, 'read_json_body', return_value={'note': '备注', 'fileVersion': '1:123'}),
+            mock.patch.object(storage_routes, 'write_error') as error,
+        ):
+            library.return_value.set_note.side_effect = private_error
+            self.assertTrue(storage_routes.handle_post(handler))
+            error.assert_called_once_with(handler, 400, '无法保存历史图片备注，请检查 CainFlow 的保存目录')
 
     def test_integrity_report_endpoint_returns_the_published_report(self):
         handler = make_handler()

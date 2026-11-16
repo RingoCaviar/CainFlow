@@ -18,6 +18,7 @@ export function createHistoryFeature({
     createThumbnail,
     createVideoThumbnail,
     updateHistoryThumb,
+    annotateHistoryImage,
     clearHistory,
     deleteHistoryEntry,
     getImageResolution,
@@ -95,6 +96,11 @@ export function createHistoryFeature({
         }
     }
 
+    async function refreshHistoryAfterNote(item) {
+        historyPreviewApi.applyHistoryNote(item);
+        await renderHistoryList();
+    }
+
     function applyHistoryGridCols(cols) {
         getHistoryPanelApi().applyHistoryGridCols(cols);
     }
@@ -105,6 +111,7 @@ export function createHistoryFeature({
         getHistoryEntry,
         getHistoryImageBlob,
         deleteHistoryEntry,
+        annotateHistoryImage,
         getImageResolution,
         downloadImage,
         copyToClipboard,
@@ -126,6 +133,7 @@ export function createHistoryFeature({
         getHistoryPanelApi,
         getHistoryFullscreenApi,
         renderHistoryList,
+        refreshHistoryAfterNote,
         applyHistoryGridCols,
         initHistoryFeature
     };

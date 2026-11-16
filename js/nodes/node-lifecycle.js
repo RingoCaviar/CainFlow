@@ -929,8 +929,10 @@ export function createNodeLifecycleApi({
                     mediaHeight = body.offsetHeight + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
                 }
             } finally { node.el.style.width = originalWidth; }
+            const manuallySized = options.manualResize === true || node.userResized === true;
+            const placeholderHeight = manuallySized ? (generation ? 248 : 200) : (generation ? 348 : 300);
             return { minWidth: Math.min(Number(config?.minWidth) || getDefaultNodeWidth(config), restored?.width || Infinity),
-                minHeight: mediaHeight || Math.min(node.userResized === true ? (generation ? 248 : 200) : (generation ? 348 : 300), restored?.height || Infinity) };
+                minHeight: mediaHeight || Math.min(placeholderHeight, restored?.height || Infinity) };
         }
         if (isImageImportUrlMode(node)) {
             return {
@@ -971,6 +973,8 @@ export function createNodeLifecycleApi({
 
     function applyNodeSize(node, width, height, options = {}) {
         if (!node?.el) return false;
+        // The active gesture owns geometry through release, even if a delayed fit runs.
+        if (state.resizing?.node === node) return false;
         const currentWidth = node.el.offsetWidth || Number(node.width) || 0;
         const currentHeight = node.el.offsetHeight || Number(node.height) || 0;
         const nextWidth = Math.round(width);

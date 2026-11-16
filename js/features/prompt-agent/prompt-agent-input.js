@@ -59,7 +59,7 @@ function projectHistory(conversation, images) {
 
 export function createPromptAgentInput({
     message = '', confirmedNewTask = false, taskConfirmationRetry = false, choiceAnswer = null, context = null, conversation = null, workflowMemory = '', sizeSettings = {}, imageSizeCapabilities = null,
-    imageParameterCapabilities = null, referenceImages = [], workflowReferenceImages = [], model, searchAllowed = true, searchContext = null, canvasContext = null, canvasReads = []
+    imageParameterCapabilities = null, referenceImages = [], workflowReferenceImages = [], model, searchAllowed = true, searchContext = null, canvasContext = null, canvasReads = [], canvasBatchScope = null
 } = {}) {
     const images = [];
     const bySource = new Map();
@@ -144,6 +144,7 @@ export function createPromptAgentInput({
         ...(taskConfirmationRetry ? { taskConfirmationRetry: true } : {}),
         ...(choiceAnswer ? { choiceAnswer } : {}),
         canvasReads,
+        ...(canvasBatchScope ? { canvasBatchScope } : {}),
         previousCanvasPlan: conversation?.messages?.some(turn => turn.canvasPlan) ? null : projectCanvasPlan((conversation?.archivedMessages || []).findLast(turn => turn.canvasPlan)?.canvasPlan),
         searchAllowed,
         searchContext: projectAgentSearch(searchContext),

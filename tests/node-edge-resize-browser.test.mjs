@@ -87,3 +87,37 @@ test('a connected node uses the final pointer on quick resize release and stays 
         assert.ok(after.startOffset < 1 && after.endOffset < 1, JSON.stringify(after));
     });
 });
+
+test('an empty image card can shrink on its first drag and stops at its manual minimum', { timeout: 30000 }, async () => {
+    await withAppBrowser({
+        autoCheckUpdatesOnLoad: false,
+        nodes: [{ id: 'empty-image', type: 'ImageGenerate', x: 160, y: 110 }]
+    }, async app => {
+        const card = 'document.getElementById("empty-image")';
+        const readHeight = `${card}.offsetHeight`;
+        const before = await app.evaluate(readHeight);
+        assert.equal(before, 348, 'the unresized placeholder starts at its automatic height');
+        const handle = await app.evaluate(`(() => {
+            const rect = ${card}.querySelector('[data-resize-edge=bottom]').getBoundingClientRect();
+            return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        })()`);
+        assert.equal(await app.evaluate(`document.elementFromPoint(${handle.x}, ${handle.y})?.dataset.resizeEdge`), 'bottom');
+        await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...handle, button: 'left', clickCount: 1 });
+        for (const [dy, expectedHeight] of [[-32, 316], [-142, 248]]) {
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: handle.x, y: handle.y + dy, buttons: 1 });
+            await app.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+            assert.equal(await app.evaluate(readHeight), expectedHeight, 'the first drag already uses the manual height range');
+            if (dy === -32) {
+                // Startup content checks can request a fit while the pointer is held.
+                await app.evaluate(`(async () => {
+                    const { bootstrapCainFlowApp } = await import('/js/app/bootstrap.js');
+                    const { registry } = await bootstrapCainFlowApp();
+                    registry.nodeLifecycleApi.fitNodeToContent('empty-image', { save: false });
+                })()`);
+                assert.equal(await app.evaluate(readHeight), expectedHeight, 'automatic fit does not interrupt manual resizing');
+            }
+        }
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: handle.x, y: handle.y - 142, button: 'left', clickCount: 1 });
+        assert.equal(await app.evaluate(readHeight), 248, 'release keeps the manual minimum');
+    });
+});

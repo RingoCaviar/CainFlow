@@ -1,7 +1,7 @@
-/**
- * 管理提示词预设的本地存储、全屏编辑界面，以及导入画布时的空位查找。
- */
-const PROMPT_LIBRARY_STORAGE_KEY = 'cainflow_prompt_library';
+import { readPromptLibrary, updatePromptLibrary } from './prompt-library-store.js';
+
+// Keep a page comfortably below the MCP bridge limit, including Unicode JSON escaping.
+const PROMPT_PAGE_CHARACTERS = 100_000;
 const TEXT_NODE_WIDTH = 260;
 const TEXT_NODE_HEIGHT = 190;
 const NODE_MARGIN = 36;
@@ -20,7 +20,9 @@ export function createPromptLibraryApi({
     confirmRef = confirm
 }) {
     let prompts = [];
-    let editingId = null;
+    let editingPrompt = null;
+    let editorRevision = 0;
+    let libraryRevision = 0;
     let selectionMode = false;
     let searchQuery = '';
     const selectedPromptIds = new Set();
@@ -64,32 +66,77 @@ export function createPromptLibraryApi({
         return `prompt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
     }
 
-    function normalizePrompt(raw) {
+    function normalizePrompt(raw, index) {
         if (!raw || typeof raw !== 'object') return null;
         const content = typeof raw.content === 'string' ? raw.content : '';
         const name = typeof raw.name === 'string' ? raw.name.trim() : '';
         if (!name && !content.trim()) return null;
         return {
-            id: typeof raw.id === 'string' && raw.id ? raw.id : createId(),
+            id: typeof raw.id === 'string' && raw.id ? raw.id : `legacy-prompt-${index}`,
             name: name || buildFallbackName(content),
             content,
-            createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : new Date().toISOString(),
-            updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : new Date().toISOString()
+            createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
+            updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : ''
         };
     }
 
-    function loadPrompts() {
-        try {
-            const parsed = JSON.parse(localStorageRef.getItem(PROMPT_LIBRARY_STORAGE_KEY) || '[]');
-            prompts = Array.isArray(parsed) ? parsed.map(normalizePrompt).filter(Boolean) : [];
-        } catch (error) {
-            prompts = [];
-            console.warn('Load prompt library failed:', error);
-        }
+    async function loadPrompts() {
+        const revision = ++libraryRevision;
+        const loaded = await readPromptLibrary(localStorageRef);
+        if (revision === libraryRevision) prompts = loaded.map(normalizePrompt).filter(Boolean);
     }
 
-    function persistPrompts() {
-        localStorageRef.setItem(PROMPT_LIBRARY_STORAGE_KEY, JSON.stringify(prompts));
+    async function commitPrompts(update, options) {
+        const stored = await updatePromptLibrary(localStorageRef, current => update(current.map(normalizePrompt).filter(Boolean)), options);
+        libraryRevision++;
+        prompts = stored;
+        const retainedIds = new Set(prompts.map(({ id }) => id));
+        selectedPromptIds.forEach(id => { if (!retainedIds.has(id)) selectedPromptIds.delete(id); });
+        renderPromptGrid();
+    }
+
+    async function listPrompts({ query = '', offset = 0, limit = 20 } = {}) {
+        if (typeof query !== 'string' || query.length > 200
+            || !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 50) {
+            throw new Error('请提供有效的搜索词、起始位置和 1 至 50 的返回数量');
+        }
+        const needle = query.trim().toLocaleLowerCase();
+        const entries = (await readPromptLibrary(localStorageRef)).map(normalizePrompt).filter(prompt =>
+            prompt && (!needle || `${prompt.name}\n${prompt.content}`.toLocaleLowerCase().includes(needle)));
+        const page = [];
+        let characters = 0;
+        for (const prompt of entries.slice(offset, offset + limit)) {
+            const exposed = {
+                id: prompt.id.slice(0, 200), name: prompt.name.slice(0, 200),
+                content: prompt.content.slice(0, 20_000),
+                createdAt: prompt.createdAt.slice(0, 100), updatedAt: prompt.updatedAt.slice(0, 100),
+                ...(prompt.content.length > 20_000 ? { contentOmitted: true } : {})
+            };
+            characters += JSON.stringify(exposed).length;
+            if (characters > PROMPT_PAGE_CHARACTERS) break;
+            page.push(exposed);
+        }
+        const end = offset + page.length;
+        return { prompts: page, total: entries.length, nextOffset: end < entries.length ? end : null };
+    }
+
+    async function upsertPrompt({ name, content }, options = {}) {
+        if (typeof name !== 'string' || !name.trim() || name.trim().length > 80
+            || typeof content !== 'string' || !content.trim() || content.length > 20_000) {
+            throw new Error('请提供 1 至 80 字的名称和 1 至 20000 字的提示词内容');
+        }
+        name = name.trim();
+        const now = new Date().toISOString();
+        const id = createId();
+        let saved;
+        await commitPrompts(current => {
+            const matches = current.filter(prompt => prompt.name === name);
+            if (matches.length > 1) throw new Error('提示词库中有多条同名预设，请使用唯一名称');
+            const existing = matches[0];
+            saved = { id, createdAt: now, ...existing, name, content, updatedAt: now };
+            return existing ? current.map(prompt => prompt.id === existing.id ? saved : prompt) : [saved, ...current];
+        }, options);
+        return { ...saved };
     }
 
     function escapeHtml(value) {
@@ -208,14 +255,18 @@ export function createPromptLibraryApi({
         updateSelectionControls();
     }
 
-    function openLibrary() {
+    async function openLibrary() {
         const { modal, button, search } = getEls();
         searchQuery = '';
         if (search) search.value = '';
-        loadPrompts();
-        renderPromptGrid();
         modal?.classList.remove('hidden');
         button?.classList.add('active');
+        try {
+            await loadPrompts();
+            renderPromptGrid();
+        } catch (error) {
+            showToast(`读取提示词库失败：${error.message}`, 'error');
+        }
     }
 
     function updateSelectionControls() {
@@ -274,17 +325,21 @@ export function createPromptLibraryApi({
         renderPromptGrid();
     }
 
-    function deleteSelectedPrompts() {
+    async function deleteSelectedPrompts() {
         if (!selectionMode || selectedPromptIds.size === 0) {
             showToast('请先选择要删除的提示词', 'warning');
             return;
         }
         const count = selectedPromptIds.size;
         if (!confirmRef(`确定要删除选中的 ${count} 条提示词吗？此操作无法撤销。`)) return;
-        prompts = prompts.filter((item) => !selectedPromptIds.has(item.id));
-        persistPrompts();
-        exitSelectionMode();
-        showToast(`已删除 ${count} 条提示词`, 'info');
+        const ids = new Set(selectedPromptIds);
+        try {
+            await commitPrompts(current => current.filter(item => !ids.has(item.id)));
+            exitSelectionMode();
+            showToast(`已删除 ${count} 条提示词`, 'info');
+        } catch (error) {
+            showToast(`删除提示词失败：${error.message}`, 'error');
+        }
     }
 
     function renderImportDialog() {
@@ -316,7 +371,8 @@ export function createPromptLibraryApi({
 
     function closeEditor() {
         const { body, editor, nameInput, contentInput } = getEls();
-        editingId = null;
+        editingPrompt = null;
+        editorRevision++;
         body?.classList.remove('editor-open');
         editor?.classList.add('hidden');
         if (nameInput) nameInput.value = '';
@@ -338,8 +394,9 @@ export function createPromptLibraryApi({
 
     function openEditor(prompt = null) {
         const { body, editor, editorTitle, nameInput, contentInput } = getEls();
-        editingId = prompt?.id || null;
-        if (editorTitle) editorTitle.textContent = editingId ? '编辑提示词' : '新建提示词';
+        editingPrompt = prompt;
+        editorRevision++;
+        if (editorTitle) editorTitle.textContent = prompt ? '编辑提示词' : '新建提示词';
         if (nameInput) nameInput.value = prompt?.name || '';
         if (contentInput) contentInput.value = prompt?.content || '';
         body?.classList.add('editor-open');
@@ -347,8 +404,8 @@ export function createPromptLibraryApi({
         setTimeout(() => (nameInput || contentInput)?.focus(), 0);
     }
 
-    function savePrompt() {
-        const { nameInput, contentInput } = getEls();
+    async function savePrompt() {
+        const { nameInput, contentInput, saveButton } = getEls();
         const rawName = nameInput?.value.trim() || '';
         const content = contentInput?.value || '';
         if (!rawName && !content.trim()) {
@@ -356,26 +413,35 @@ export function createPromptLibraryApi({
             return;
         }
 
+        const expected = editingPrompt;
+        const revision = editorRevision;
         const now = new Date().toISOString();
         const nextPrompt = {
-            id: editingId || createId(),
+            id: expected?.id || createId(),
             name: rawName || buildFallbackName(content),
             content,
-            createdAt: prompts.find((item) => item.id === editingId)?.createdAt || now,
+            createdAt: expected?.createdAt || now,
             updatedAt: now
         };
 
-        if (editingId) {
-            prompts = prompts.map((item) => item.id === editingId ? nextPrompt : item);
-        } else {
-            prompts = [nextPrompt, ...prompts];
+        if (saveButton) saveButton.disabled = true;
+        try {
+            await commitPrompts(current => {
+                if (!expected) return [nextPrompt, ...current.filter(prompt => prompt.id !== nextPrompt.id)];
+                const latest = current.find(prompt => prompt.id === expected.id);
+                if (latest?.updatedAt === nextPrompt.updatedAt && latest.name === nextPrompt.name && latest.content === nextPrompt.content) return current;
+                if (!latest || latest.name !== expected.name || latest.content !== expected.content || latest.updatedAt !== expected.updatedAt) {
+                    throw new Error('此提示词已更新或删除，请重新打开后编辑');
+                }
+                return current.map(prompt => prompt.id === expected.id ? nextPrompt : prompt);
+            });
+            if (revision === editorRevision) closeEditor();
+            showToast(expected ? '提示词已更新' : '提示词已保存', 'success');
+        } catch (error) {
+            showToast(`保存提示词失败：${error.message}`, 'error');
+        } finally {
+            if (saveButton) saveButton.disabled = false;
         }
-
-        const wasEditing = Boolean(editingId);
-        persistPrompts();
-        renderPromptGrid();
-        closeEditor();
-        showToast(wasEditing ? '提示词已更新' : '提示词已保存', 'success');
     }
 
     function getPromptById(id) {
@@ -456,7 +522,7 @@ export function createPromptLibraryApi({
         showToast(`已导入「${prompt.name}」到画布`, 'success');
     }
 
-    function handleGridClick(event) {
+    async function handleGridClick(event) {
         const actionButton = event.target.closest('[data-action]');
         const card = event.target.closest('.prompt-card');
         if (!card) return;
@@ -480,12 +546,13 @@ export function createPromptLibraryApi({
             openEditor(prompt);
         } else if (action === 'delete') {
             if (!confirmRef(`确定要删除「${prompt.name}」吗？`)) return;
-            prompts = prompts.filter((item) => item.id !== prompt.id);
-            persistPrompts();
-            renderPromptGrid();
-            if (editingId === prompt.id) closeEditor();
-            selectedPromptIds.delete(prompt.id);
-            showToast('提示词已删除', 'info');
+            try {
+                await commitPrompts(current => current.filter(item => item.id !== prompt.id));
+                if (editingPrompt?.id === prompt.id) closeEditor();
+                showToast('提示词已删除', 'info');
+            } catch (error) {
+                showToast(`删除提示词失败：${error.message}`, 'error');
+            }
         }
     }
 
@@ -549,6 +616,8 @@ export function createPromptLibraryApi({
     return {
         initPromptLibrary,
         openLibrary,
-        closeLibrary
+        closeLibrary,
+        listPrompts,
+        upsertPrompt
     };
 }

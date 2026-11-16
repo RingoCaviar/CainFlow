@@ -49,6 +49,86 @@ test('edits the live graph in place and rejects stale and wrong-workflow writes'
     await assert.rejects(dispatch('edit_canvas', { workflowId: 'wf-a', revision: edited.revision, plan }), { code: 'wrong_workflow' });
 });
 
+test('uses only listed model and provider identities for typed generation edits', async () => {
+    const workflowId = 'wf-a';
+    const models = [{ id: 'other-model', modelId: 'gemini-image', name: 'Image model', apikey: 'hidden',
+        providers: [{ id: 'other-provider', name: 'Alternate', endpoint: 'https://private.test/v1' }, { id: 'second-provider', name: 'Second' }] }];
+    let applied;
+    const { dispatch } = createCanvasMcpActions({
+        getImageModels: () => models,
+        canvasAdapter: {
+            context: () => createCanvasContext({ workflowId, nodes: [], connections: [] }),
+            async apply(plan) { applied = plan; return plan; }
+        }
+    });
+    assert.deepEqual(await dispatch('list_models'), { models: [{
+        id: 'other-model', modelId: 'gemini-image', name: 'Image model',
+        providers: [{ id: 'other-provider', name: 'Alternate' }, { id: 'second-provider', name: 'Second' }]
+    }] });
+    const { revision } = await dispatch('read_canvas');
+    const edit = (choices) => dispatch('edit_canvas', { workflowId, revision, plan: { version: 1, steps: [{
+        id: 'generate', type: 'ImageGenerate', parameters: { prompt: 'Retouch' }, ...choices
+    }] } });
+    await assert.rejects(edit({ modelId: 'other-model' }), { code: 'invalid_arguments' });
+    await assert.rejects(edit({ modelId: 'other-model', providerId: 'unbound' }), { code: 'invalid_arguments' });
+    await assert.rejects(edit({ modelId: 'custom-url', providerId: 'other-provider' }), { code: 'invalid_arguments' });
+    assert.equal(applied, undefined);
+    await edit({ modelId: 'other-model', providerId: 'other-provider' });
+    assert.deepEqual(applied.modelOverrides, { generate: 'other-model' });
+    assert.deepEqual(applied.providerOverrides, { generate: { 'other-model': 'other-provider' } });
+});
+
+test('applies a selected image batch once and starts only its newly bound generation and preview nodes', async () => {
+    const workflowId = 'wf-a';
+    const nodes = Array.from({ length: 12 }, (_, index) => ({
+        id: `source-${index}`, type: 'ImageImport', mediaAssetKeys: [`media:source-${index}`]
+    }));
+    let selectedIds = nodes.map(node => node.id);
+    let applied;
+    let runInput;
+    const { dispatch } = createCanvasMcpActions({
+        getImageDefaults: () => ({ modelId: 'model', providerIds: { model: 'provider' } }),
+        canvasAdapter: {
+            context: () => createCanvasContext({ workflowId, nodes, connections: [], selectedIds }),
+            async apply(plan, modelId, _onPlanChange, isCurrent) {
+                assert.equal(applied, undefined);
+                assert.equal(modelId, 'model');
+                assert.ok(isCurrent());
+                applied = plan;
+                for (const step of plan.steps) {
+                    const id = `new-${step.id}`;
+                    plan.bindings[step.id] = id;
+                    nodes.push({ id, type: step.type });
+                }
+                return plan;
+            }
+        },
+        async runWorkflow(input, options) {
+            options.validateBeforeRun();
+            runInput = input;
+            return { workflowId, outcome: 'completed' };
+        }
+    });
+    const prompt = '统一成自然棚拍风格';
+    const original = await dispatch('read_canvas');
+    selectedIds = selectedIds.slice(1);
+    await assert.rejects(dispatch('generate_image_batch', { workflowId, revision: original.revision, prompt, run: true }),
+        { code: 'stale_revision' });
+    assert.equal(applied, undefined);
+    selectedIds = original.selectedIds;
+    const canvas = await dispatch('read_canvas');
+    const batch = await dispatch('generate_image_batch', { workflowId, revision: canvas.revision, prompt, run: true });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(applied.steps.filter(step => step.type === 'Text').length, 1);
+    assert.equal(applied.steps.filter(step => step.type === 'ImageGenerate').length, 12);
+    assert.equal(applied.steps.filter(step => step.type === 'ImagePreview').length, 12);
+    assert.deepEqual(applied.connections.filter(edge => edge.to.port === 'referenceImages').map(edge => edge.from.ref), original.selectedIds);
+    assert.notEqual(batch.revision, canvas.revision);
+    assert.equal(batch.nodeIds.length, 24);
+    assert.deepEqual(runInput, { mode: 'selected-only', selectedNodeIds: batch.nodeIds, imageBatch: true });
+    assert.equal((await dispatch('get_workflow_run', batch.run)).status, 'completed');
+});
+
 test('an explicit typed connection can replace an existing prompt input', async () => {
     const nodes = [
         { id: 'old-text', type: 'Text', text: 'Original prompt' },

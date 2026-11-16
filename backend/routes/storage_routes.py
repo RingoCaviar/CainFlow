@@ -1,12 +1,13 @@
 import ipaddress
 import json
+import re
 
 from backend.services.media_library import MediaLibrary
 from urllib.parse import parse_qs, unquote, urlparse
 
 from backend import config
 from backend.services.http_helpers import read_json_body, read_request_body, write_bytes, write_error, write_json
-from backend.services.storage_service import DOCUMENT_NAMES, StorageError, storage_service
+from backend.services.storage_service import DOCUMENT_NAMES, StorageDocumentConflict, StorageError, storage_service
 
 
 def _document_name(path):
@@ -47,15 +48,21 @@ def handle_get(handler):
     if not _authorize_storage_path(handler, path):
         return True
     if path == '/api/storage/library' or path.startswith('/api/storage/library/'):
+        query = parse_qs(parsed.query)
+        image_only = path == '/api/storage/library' and query.get('imagesOnly') == ['1']
         try:
             library = MediaLibrary(storage_service)
-            query = parse_qs(parsed.query)
             version = (query.get('v') or [None])[0]
             if path == '/api/storage/library':
                 migration_errors = library.migrate_legacy()
                 limit = max(0, int((query.get('limit') or ['0'])[0]))
+                offset = max(0, int((query.get('offset') or ['0'])[0]))
                 thumbnail_urls = query.get('thumbnailUrls') == ['1']
-                write_json(handler, {**library.list_page(limit, thumbnail_urls), 'migrationErrors': migration_errors})
+                filter_id = int(query['id'][0]) if 'id' in query else None
+                if filter_id is not None and not 0 < abs(filter_id) <= 2**53 - 1:
+                    raise ValueError('历史图片 ID 无效')
+                write_json(handler, {**library.list_page(limit, thumbnail_urls, offset=offset,
+                    image_only=image_only, filter_id=filter_id), 'migrationErrors': migration_errors})
             elif path.endswith(('/file', '/thumbnail')):
                 identifier = int(path.split('/')[-2])
                 media = library.read_thumbnail(identifier, version) if path.endswith('/thumbnail') \
@@ -68,7 +75,8 @@ def handle_get(handler):
                 item = library.get(int(path.rsplit('/', 1)[-1]))
                 write_json(handler, {'item': item}, status=200 if item else 404)
         except (OSError, ValueError, StorageError) as error:
-            write_error(handler, 400, str(error))
+            message = '读取历史图片失败，请检查 CainFlow 的保存目录' if image_only and isinstance(error, OSError) else str(error)
+            write_error(handler, 400, message)
         return True
     if path.startswith('/api/storage/documents/'):
         name = _document_name(path)
@@ -146,7 +154,7 @@ def handle_put(handler):
         if path.startswith('/api/storage/documents/'):
             name = _document_name(path)
             data = read_json_body(handler)
-            updated_at = storage_service.put_document(name, data.get('value'))
+            updated_at = storage_service.put_document(name, data.get('value'), expected_updated_at=data.get('expectedUpdatedAt'))
             write_json(handler, {'success': True, 'updatedAt': updated_at})
             return True
         if path.startswith('/api/storage/assets/'):
@@ -172,6 +180,9 @@ def handle_put(handler):
             )
             write_json(handler, {'success': True, 'asset': info})
             return True
+    except StorageDocumentConflict as error:
+        write_error(handler, 409, str(error))
+        return True
     except StorageError as error:
         write_error(handler, 400, str(error))
         return True
@@ -182,10 +193,21 @@ def handle_post(handler):
     path = urlparse(handler.path).path
     if not _authorize_storage_path(handler, path):
         return True
+    note_path = re.fullmatch(r'/api/storage/library/(-?[0-9]{1,16})/note', path)
     try:
         storage_service.assert_storage_writable()
         if path == '/api/storage/undo-session':
             write_json(handler, storage_service.undo_media_request(read_json_body(handler)))
+            return True
+        if note_path:
+            length = handler.headers.get('Content-Length', '')
+            if not re.fullmatch(r'[0-9]{1,4}', length) or int(length) > 4096:
+                raise ValueError('备注请求无效')
+            payload = read_json_body(handler)
+            if not isinstance(payload, dict) or set(payload) != {'note', 'fileVersion'}:
+                raise ValueError('请提供备注和历史图片版本')
+            item = MediaLibrary(storage_service).set_note(int(note_path[1]), payload['note'], payload['fileVersion'])
+            write_json(handler, {'item': item})
             return True
         if path.startswith('/api/storage/library/') and path.endswith('/thumbnail'):
             payload = read_json_body(handler)
@@ -314,7 +336,8 @@ def handle_post(handler):
             write_json(handler, {'success': True, 'filename': destination.rsplit('\\', 1)[-1].rsplit('/', 1)[-1]})
             return True
     except (StorageError, ValueError, OSError) as error:
-        write_error(handler, 400, str(error))
+        message = '无法保存历史图片备注，请检查 CainFlow 的保存目录' if note_path and isinstance(error, OSError) else str(error)
+        write_error(handler, 400, message)
         return True
     return False
 

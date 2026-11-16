@@ -4,6 +4,23 @@ import {bindTaskToReply,confirmTaskParameters,updateCreativeTask} from '../js/fe
 import {createPromptAgentConversationStore} from '../js/features/prompt-agent/prompt-agent-conversation-store.js';
 import {createPromptAgentInput} from '../js/features/prompt-agent/prompt-agent-input.js';
 const reply=parameters=>({promptPlan:{prompt:'海报',parameters}});
+
+test('a shared image batch uses one output per input unless the user explicitly requests a per-image count', () => {
+    const proposal = () => ({
+        intent: 'generate', canvasPlan: { imageBatch: true, steps: ['first', 'second'].map(id => ({
+            id, type: 'ImageGenerate', parameters: { prompt: '中性背景', generationCount: 99 }
+        })) }
+    });
+    for (const [message, count] of [
+        ['用同一提示词批量生成2张，全部用16:9', 1],
+        ['用同一提示词逐张处理，每张生成2张，全部用16:9', 2]
+    ]) {
+        const draft = proposal();
+        bindTaskToReply(draft, null, message);
+        assert.deepEqual(draft.canvasPlan.steps.map(step => [step.parameters.generationCount, step.parameters.aspect]),
+            [[count, '16:9'], [count, '16:9']]);
+    }
+});
 test('explicit size survives omitted or conflicting model suggestions, compaction and reconstruction',()=>{
  const a=reply({});const task=bindTaskToReply(a,null,'生成2K、16:9海报');
  assert.deepEqual(a.promptPlan.parameters,{resolution:'2K',aspectRatio:'16:9'});

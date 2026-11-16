@@ -50,7 +50,7 @@ export function instantiateCanvasPlan(template, current) {
     const instance = normalizePlanInputs({ version: 1, id: crypto.randomUUID(), templateId: template.id, workflowId: template.workflowId,
         steps, connections: instanceConnections, order: [...template.order], dependencies, disconnects: [], deletes: [], bindings: {}, runs: [],
         retainedDisabledSources: dependencies.filter(id => saved.nodes.find(node => node.id === id)?.enabled === false),
-        ...Object.fromEntries(['modelOverrides','providerOverrides','thinkingOverrides','agentSizes','agentProviders','newCreativeTask'].filter(key => template[key] !== undefined).map(key => [key, cloneCanvasValue(template[key])])) });
+        ...Object.fromEntries(['modelOverrides','providerOverrides','thinkingOverrides','agentSizes','agentProviders','newCreativeTask','imageBatch','explicitImageParameters'].filter(key => template[key] !== undefined).map(key => [key, cloneCanvasValue(template[key])])) });
     instance.baseline = batchBaseline(instance, current);
     return instance;
 }

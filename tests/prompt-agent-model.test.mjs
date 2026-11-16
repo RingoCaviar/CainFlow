@@ -191,6 +191,109 @@ function replyHarness(payload, options = {}) {
     return { result, request: () => request };
 }
 
+test('a shared-prompt batch repairs source clarification using the captured selected image inputs', async () => {
+    const sources = Array.from({ length: 15 }, (_, index) => ({
+        id: `source-${index}`, type: 'ImageImport', imageImportAssetKey: `media:original-${index}`
+    }));
+    const incidental = [{ id: 'text', type: 'Text', text: '冷色，保留商品细节' },
+        { id: 'old-image', type: 'ImageGenerate', mediaAssetKeys: ['media:old'] }];
+    const canvasContext = createCanvasContext({ workflowId: 'batch', nodes: [...sources, ...incidental],
+        selectedIds: [...sources, ...incidental].map(node => node.id), connections: [] });
+    const requests = [];
+    const reply = await createPromptAgentModelReply({
+        model, providers: [provider], providerId: provider.id, message: '一个提示词给选中的十五张图用，保留商品细节，换成冷色背景，然后跑批处理',
+        canvasContext, getCanvasImage: async () => assert.fail('图像结构规划不需要上传全部原图供对话模型查看'),
+        fetchRef: async (_url, init) => {
+            const { messages } = JSON.parse(init.body);
+            const content = messages.at(-1).content;
+            requests.push(JSON.parse(typeof content === 'string' ? content : content[0].text));
+            const payload = requests.length === 1
+                ? { intent: 'clarify', message: '请明确指定方案使用的画布参考图' }
+                : { intent: 'edit', canvasBatch: { prompt: '将背景改为冷色，保持商品细节。' } };
+            return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(payload) } }] }) };
+        }
+    });
+    assert.equal(requests.length, 2);
+    assert.equal(requests[1].canvasBatchScope.sourceCount, 15);
+    assert.equal(reply.canvasExecution, 'run');
+    assert.equal(reply.canvasPlan.steps.filter(step => step.type === 'Text').length, 1);
+    assert.equal(reply.canvasPlan.steps.filter(step => step.type === 'ImageGenerate').length, 15);
+    assert.deepEqual(reply.canvasPlan.connections.filter(link => link.to.port === 'referenceImages').map(link => link.from.ref),
+        sources.map(node => node.id));
+});
+
+test('a structured batch reply cannot authorize a run or substitute model-chosen source IDs', async () => {
+    const canvasContext = createCanvasContext({ workflowId: 'batch', nodes: [
+        { id: 'first', type: 'ImageImport', imageImportAssetKey: 'media:first' },
+        { id: 'second', type: 'ImageImport', imageImportAssetKey: 'media:second' },
+        { id: 'unselected', type: 'ImageImport', imageImportAssetKey: 'media:unselected' }
+    ], selectedIds: ['first', 'second'], connections: [] });
+    const proposal = { intent: 'generate', canvasBatch: { prompt: '保留商品，换成冷色背景' } };
+    const preview = await replyHarness(proposal, { canvasContext, message: '先给选中的每张图做一套共用提示词的批处理方案，不要运行' }).result;
+    assert.ok(preview.canvasPlan);
+    assert.equal(preview.canvasExecution, undefined);
+    for (const message of [
+        '这批图片用同一个提示词逐张处理，但不要批量运行',
+        '每张图片用同一个提示词生图，不要立刻运行',
+        '请帮我逐张生成选中的图片，等我确认，然后直接执行',
+        '选中的图片用同一个提示词逐张生图，等我确认再搭建，然后运行',
+        'Generate each image using a shared prompt. Wait for my approval, then execute.'
+    ]) {
+        const reply = await replyHarness(proposal, { canvasContext, message }).result;
+        assert.ok(reply.canvasPlan, message);
+        assert.equal(reply.canvasExecution, undefined, message);
+    }
+    await assert.rejects(replyHarness({ ...proposal, canvasBatch: { ...proposal.canvasBatch, sourceNodeIds: ['unselected'] } },
+        { canvasContext, message: '为选中的每张图写共用提示词，然后直接批量运行' }).result, /批处理方案/);
+    await assert.rejects(replyHarness(proposal, { canvasContext, message: '这个应用支持什么功能？' }).result, /批处理方案/);
+});
+
+test('an additive canvas plan runs only when the current user expressly directs execution', async () => {
+    const canvasContext = createCanvasContext({ workflowId: 'new', nodes: [], connections: [] });
+    const proposal = { intent: 'generate', canvasPlan: { version: 1, steps: [{ id: 'new', type: 'ImageGenerate',
+        parameters: { prompt: '白底商品图' } }] } };
+    const mode = async message => (await replyHarness(proposal, { canvasContext, message }).result).canvasExecution;
+    assert.equal(await mode('直接创建生图节点，然后自动运行'), 'run');
+    assert.equal(await mode('直接创建生图节点，完成后我来运行'), 'apply');
+    assert.equal(await mode('直接创建生图节点并写上运行状态说明'), 'apply');
+    assert.equal(await mode('先看看直接创建生图节点的方案'), undefined);
+    assert.equal(await mode('我不想直接创建并运行，先讨论一下'), undefined);
+    assert.equal(await mode('等我确认，然后直接创建生图节点并运行'), undefined);
+    const withExternalText = { ...proposal, canvasPlan: { ...proposal.canvasPlan,
+        connections: [{ from: { ref: 'sensitive', port: 'text' }, to: { ref: 'new', port: 'prompt' } }] } };
+    const textContext = createCanvasContext({ workflowId: 'new', nodes: [
+        { id: 'sensitive', type: 'Text', customTitle: '原有方案文本', text: '已有工作流内容' }
+    ], selectedIds: ['sensitive'], connections: [] });
+    assert.equal((await replyHarness(withExternalText, { canvasContext: textContext, message: '直接创建生图节点，然后自动运行' }).result).canvasExecution, undefined);
+    assert.equal((await replyHarness(withExternalText, { canvasContext: textContext, message: '使用原有方案文本，直接创建生图节点，然后自动运行' }).result).canvasExecution, 'run');
+});
+
+test('asking to run existing generation nodes does not authorize new branches', async () => {
+    const canvasContext = createCanvasContext({ workflowId: 'new', nodes: [
+        { id: 'one', type: 'ImageGenerate', mediaAssetKeys: ['media:first'] },
+        { id: 'two', type: 'ImageGenerate', mediaAssetKeys: ['media:second'] }
+    ], selectedIds: ['one', 'two'], connections: [] });
+    const runExisting = replyHarness({ intent: 'chat', message: '当前已有生图节点' },
+        { canvasContext, message: '批量运行这些生图节点' });
+    const reply = await runExisting.result;
+    assert.equal(reply.canvasPlan, undefined);
+    const content = runExisting.request().messages.at(-1).content;
+    assert.equal(JSON.parse(typeof content === 'string' ? content : content[0].text).canvasBatchScope, undefined);
+});
+
+test('an explicitly mentioned generation configuration is not reused as a batch image source', async () => {
+    const canvasContext = createCanvasContext({ workflowId: 'mixed', nodes: [
+        { id: 'config', type: 'ImageGenerate', customTitle: '生图配置', mediaAssetKeys: ['media:unrelated'] },
+        { id: 'first', type: 'ImageImport', imageImportAssetKey: 'media:first' },
+        { id: 'second', type: 'ImageImport', imageImportAssetKey: 'media:second' }
+    ], selectedIds: ['first', 'second'], mentionedIds: ['config'], connections: [] });
+    const reply = await replyHarness({ intent: 'generate', canvasBatch: { prompt: '保留商品主体，换成中性背景' } }, {
+        canvasContext, message: '沿用 @生图配置[config] 的配置，把选中的图用同一个提示词逐张处理，然后运行'
+    }).result;
+    assert.equal(reply.canvasExecution, 'run');
+    assert.deepEqual(reply.canvasPlan.connections.filter(link => link.to.port === 'referenceImages').map(link => link.from.ref), ['first', 'second']);
+});
+
 test('discussion and clarification replies do not require or expose an applicable plan', async () => {
     for (const intent of ['chat', 'clarify']) {
         const { result } = replyHarness({
@@ -450,7 +553,7 @@ test('the chat request exposes the selected image model request parameters witho
     const providerConfig = { ...provider, apikey: 'image-provider-secret' };
     for (const [imageModel, expected] of [
         [{ protocol: 'openai', modelId: 'gpt-image-2' }, {
-            quality: ['auto', 'low', 'medium', 'high'], format: ['', 'png', 'jpeg', 'webp'], maxReferences: 16
+            quality: ['', 'auto', 'low', 'medium', 'high'], format: ['', 'png', 'jpeg', 'webp'], maxReferences: 16
         }],
         [{ protocol: 'google', modelId: 'gemini-2.5-flash-image' }, { maxReferences: 3 }],
         [{ protocol: 'google', modelId: 'gemini-3-pro-image' }, { search: 'boolean', maxReferences: 14 }]
@@ -467,6 +570,7 @@ test('the chat request exposes the selected image model request parameters witho
         assert.equal(input.maxReferences, expected.maxReferences);
         assert.deepEqual(input.parameters.quality?.enum, expected.quality);
         assert.deepEqual(input.parameters.protocolParams?.properties.output_format?.enum, expected.format);
+        assert.equal(input.parameters.protocolParams?.properties.systemPrompt?.type, 'string');
         assert.equal(input.parameters.search?.type, expected.search);
         assert.doesNotMatch(JSON.stringify(input), /image-provider-secret|example\.test/);
     }

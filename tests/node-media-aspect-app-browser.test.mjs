@@ -21,16 +21,22 @@ function proportional(value, expectedWidth = 320) {
     assert.equal(value.width, expectedWidth); assert.equal(value.left, '400px'); assert.equal(value.top, '30px');
 }
 
-async function resize(app, edge, dx, dy) {
+async function resize(app, edge, ...moves) {
     await app.evaluate("document.getElementById('aspect-1').click()");
     await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]').click()");
     const handle = await app.evaluate(`(()=>{const h=document.querySelector('#aspect-1 [data-resize-edge=${edge}]'),r=h.getBoundingClientRect();return {x:r.left+r.width/2,y:'${edge}'==='right'?Math.max(80,r.top+35):r.top+r.height/2}})()`);
     assert.ok(await app.evaluate(`document.elementFromPoint(${handle.x},${handle.y})?.closest('[data-resize-edge=${edge}]')?.closest('.node')?.id==='aspect-1'`), 'the visible resize edge is reachable: '+await app.evaluate(`document.elementFromPoint(${handle.x},${handle.y})?.outerHTML`));
     await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...handle });
     await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...handle, button: 'left', clickCount: 1 });
-    await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: handle.x + dx, y: handle.y + dy, buttons: 1 });
+    const widths = [];
+    for (const [dx, dy] of moves) {
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: handle.x + dx, y: handle.y + dy, buttons: 1 });
+        widths.push(await app.evaluate("new Promise(resolve=>requestAnimationFrame(()=>resolve(document.getElementById('aspect-1').offsetWidth)))"));
+    }
+    const [dx, dy] = moves.at(-1);
     await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: handle.x + dx, y: handle.y + dy, button: 'left', clickCount: 1 });
     await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+    return widths;
 }
 
 test('loaded image cards follow natural aspect at fixed node width, including batch changes and reload', { timeout: 60000 }, async () => {
@@ -55,15 +61,18 @@ test('loaded image cards follow natural aspect at fixed node width, including ba
         await app.evaluate("document.querySelector('#aspect-1 [data-result-step=\"-1\"]').click()");
         await app.waitFor("document.querySelector('#aspect-1 .node-media-aspect-surface')?.style.getPropertyValue('--node-media-aspect')==='64 / 32'");
         const before = await metrics(app, 'aspect-1'); proportional(before);
-        await resize(app, 'bottom', 0, 40);
+        await resize(app, 'bottom', [0, 40]);
         proportional(await metrics(app, 'aspect-1'), 400);
-        await resize(app, 'right', 0, 40);
+        await resize(app, 'right', [0, 40]);
+        proportional(await metrics(app, 'aspect-1'), 400);
+        const [first, second] = await resize(app, 'bottom-right', [60, -26], [60, -34], [0, 0]);
+        assert.ok(first > second && first - second <= 8, `an 8px pointer move changes width smoothly: ${first} → ${second}`);
         proportional(await metrics(app, 'aspect-1'), 400);
         await app.evaluate("document.querySelector('#aspect-1 [data-result-step=\"1\"]').click()");
         await app.waitFor("document.querySelector('#aspect-1 .node-media-aspect-surface')?.style.getPropertyValue('--node-media-aspect')==='32 / 64'");
         const portrait = await metrics(app, 'aspect-1'); proportional(portrait, 400);
         assert.ok(portrait.height > before.height * 2, JSON.stringify({ before, portrait }));
-        await resize(app, 'right', 80, 0);
+        await resize(app, 'right', [80, 0]);
         proportional(await metrics(app, 'aspect-1'), 480);
         await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value?.nodes.find(n=>n.id==='aspect-1')?.imagePreviewIndex===1)");
         await reloadAppBrowser(app);

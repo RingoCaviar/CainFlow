@@ -59,7 +59,7 @@ export function assertCanvasPlanPromptInputs(plan, context) {
         }
     }
 }
-export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds = [], images = [], referencePolicy, explicitInputChanges = false } = {}) {
+export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds = [], images = [], referencePolicy, explicitInputChanges = false, batchSourceNodeIds = [] } = {}) {
     if (!object(raw) || raw.version !== 1 || !Array.isArray(raw.steps) || !Array.isArray(raw.deletes || [])
         || raw.steps.length + (raw.deletes?.length || 0) < 1 || raw.steps.length + (raw.deletes?.length || 0) > 100) fail('画布方案必须为 v1，包含 1 至 100 个操作');
     const deletedIds = new Set();
@@ -79,6 +79,8 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         const retained = key => Boolean(key && referencePolicy.previousAssetKeys?.includes(key));
         for (const step of raw.steps.filter(item => item.type === 'ImageImport' && !item.nodeId)) {
             if (step.execute === false && !step.assetKey && !step.imageId) continue;
+            if (batchSourceNodeIds.includes(step.assetSourceNodeId)
+                && context.nodes.some(node => node.id === step.assetSourceNodeId && node.assets.includes(step.assetKey))) continue;
             const image = images.find(item => item.imageId === step.imageId || item.reference.assetKey === step.assetKey);
             const used = (raw.connections || []).some(link => link.from?.ref === step.id);
             const explicitImport = typeof step.evidence === 'string' && message.includes(step.evidence)
@@ -97,7 +99,8 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
             if (promptOnly && !node?.assets.some(retained)) fail('仅改提示词不能改用其他画布素材');
             const named = node && (mentionedIds.includes(node.id) || (message.includes(node.name)
                 && context.nodes.filter(item => item.name === node.name).length === 1));
-            if (referencePolicy.intent === 'generate' && !named && !mayUseCandidate(image, { ...referencePolicy, message, evidence: link.evidence })) {
+            if (referencePolicy.intent === 'generate' && !named && !batchSourceNodeIds.includes(node?.id)
+                && !mayUseCandidate(image, { ...referencePolicy, message, evidence: link.evidence })) {
                 fail('请明确指定方案使用的画布参考图，选中节点或旧连线不能自动成为本次输入');
             }
         }
@@ -147,11 +150,14 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         if (step.type === 'ImageImport' && !existing && !(step.execute === false && !step.assetKey && !step.imageId) && !/^media:/.test(step.assetKey || '')) fail('图片导入必须引用已登记的本地原图资产');
         if (step.assetKey && !context.nodes.some(node => node.assets.includes(step.assetKey))
             && !images.some(image => image.reference.assetKey === step.assetKey || image.reference.assetKeys?.includes(step.assetKey))) fail('图片资产未登记在当前画布或对话中');
+        const assetSource = step.assetSourceNodeId && context.nodes.find(node => node.id === step.assetSourceNodeId
+            && node.enabled && !node.running && !node.missing && node.assets.includes(step.assetKey));
+        if (step.assetSourceNodeId && !assetSource) fail('图片资产不属于指定的可用画布来源');
         return { id: step.id, type: step.type, title: String(existing?.name || step.title || getNodeDefinition(step.type).title).slice(0, 100),
             ...(existing ? { nodeId: existing.id } : {}), parameters: { ...parameters },
             ...(step.assetKey ? { assetKey: step.assetKey,
                 ...(images.find(image => image.imageId === step.imageId)?.reference.runId ? {} : {
-                    assetSourceNodeId: context.nodes.find(node => node.assets.includes(step.assetKey))?.id || null
+                    assetSourceNodeId: assetSource?.id || context.nodes.find(node => node.assets.includes(step.assetKey))?.id || null
                 }) } : {}), execute: step.execute !== false };
     });
     const lookup = ref => steps.find(step => step.id === ref)?.type || context.nodes.find(node => node.id === ref)?.type;

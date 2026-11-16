@@ -9,7 +9,7 @@ import {createPromptLibraryApi} from '../../js/features/prompts/prompt-library.j
 try{
  let stored=JSON.stringify([{id:'a',name:'产品白底',content:'摄影白底'},{id:'b',name:'海报',content:'产品灯光'},{id:'c',name:'人像',content:'portrait studio'}]);
  const api=createPromptLibraryApi({state:{nodes:new Map()},canvasContainer:document.getElementById('canvas'),viewportApi:{},addNode:()=>{},saveState:()=>{},showToast:()=>{},copyToClipboard:()=>{},localStorageRef:{getItem:()=>stored,setItem:(_,value)=>stored=value},confirmRef:()=>true});
- api.initPromptLibrary();api.openLibrary();
+ api.initPromptLibrary();await api.openLibrary();
  const input=document.getElementById('prompt-library-search');
  const search=(value)=>{input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));};
  const ids=()=>[...document.querySelectorAll('.prompt-card')].map(x=>x.dataset.id);
@@ -22,12 +22,12 @@ try{
  const selected=ids().filter(id=>document.querySelector(`[data-id="${id}"]`).classList.contains('selected'));
  const selectLabel=document.getElementById('btn-select-all-prompts').textContent;
  search('人像');const resetSelection=document.getElementById('btn-delete-selected-prompts').disabled;
- document.getElementById('btn-select-all-prompts').click();document.getElementById('btn-delete-selected-prompts').click();const remaining=JSON.parse(stored).map(x=>x.id);
+ document.getElementById('btn-select-all-prompts').click();document.getElementById('btn-delete-selected-prompts').click();await new Promise(resolve=>setTimeout(resolve,0));const remaining=JSON.parse(stored).map(x=>x.id);
  document.getElementById('btn-clear-prompt-search').click();
  document.querySelector('[data-id="a"] [data-action="edit"]').click();
  const body=document.querySelector('.prompt-library-body').getBoundingClientRect(),editor=document.getElementById('prompt-editor').getBoundingClientRect();
  const editorInside=editor.bottom<=body.bottom+1 && editor.height>50;
- document.getElementById('prompt-name-input').value='已修改';document.getElementById('btn-save-prompt').click();
+ document.getElementById('prompt-name-input').value='已修改';document.getElementById('btn-save-prompt').click();await new Promise(resolve=>setTimeout(resolve,0));
  const edited=JSON.parse(stored).find(x=>x.id==='a').name;
  search('产品');input.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));const escapedSearch=input.value==='';
  document.getElementById('surface-result').textContent=JSON.stringify({matches,summary,unmodified,contentMatch,empty,clear,selected,selectLabel,resetSelection,remaining,editorInside,edited,escapedSearch});

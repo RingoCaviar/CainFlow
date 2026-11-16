@@ -15,6 +15,21 @@ from backend.services.storage_service import StorageError, StorageService
 
 
 class StorageServiceTests(unittest.TestCase):
+    def test_prompt_library_conditional_write_survives_reopen_and_rejects_an_older_snapshot(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            self.assertEqual({'value': None, 'updatedAt': 0}, service.get_document('prompt_library'))
+            original = [{'id': 'one', 'name': 'Original', 'content': 'preserve me'}]
+            first = service.put_document('prompt_library', original, expected_updated_at=0)
+            reopened = self.make_service(root)
+            self.assertEqual({'value': original, 'updatedAt': first}, reopened.get_document('prompt_library'))
+            revised = [*original, {'id': 'two', 'name': 'New', 'content': 'persist me'}]
+            second = reopened.put_document('prompt_library', revised, expected_updated_at=first)
+            self.assertGreater(second, first)
+            with self.assertRaisesRegex(StorageError, 'changed'):
+                service.put_document('prompt_library', [], expected_updated_at=first)
+            self.assertEqual({'value': revised, 'updatedAt': second}, service.get_document('prompt_library'))
+
     def test_concurrent_service_initialization_does_not_overlap_safety_file_updates(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)

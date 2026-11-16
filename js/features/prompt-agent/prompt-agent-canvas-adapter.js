@@ -55,8 +55,14 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
             const current = !plan.newCreativeTask && targetModel === config.model.id ? nodeAdapter.getContext(targetId)?.parameters || {} : {};
             try {
                 const proposed = generationParameters(step);
+                const capabilities = imageParameterCapabilities(config.model, config.provider);
+                if (plan.imageBatch && capabilities.maxReferences === 0) throw new Error('当前生图模型不支持参考图输入，请选择支持图生图的模型。');
                 const parameters = sizeFields(proposed);
                 const sources = { ...step.parameterSources };
+                if (plan.explicitImageParameters) {
+                    for (const key of Object.keys(proposed)) sources[key] = '本轮设置';
+                    for (const key of Object.keys(proposed.protocolParams || {})) sources[`protocolParams.${key}`] = '本轮设置';
+                }
                 if (!step.parameterSources) for (const key of Object.keys(step.generationPatch || {})) {
                     sources[key] = '沿用任务';
                 }
@@ -70,7 +76,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                     if (!Object.hasOwn(step.sizeAnswer || {}, key) && sources[key] !== '本轮设置') sources[key] = step.sizeIntent.referenceSize ? '参考图比例' : 'Agent 设置';
                 }
                 const patch = resolveAgentParameterPatch(proposed, sources,
-                    imageParameterCapabilities(config.model, config.provider).parameters, step.parameterAnswers, current);
+                    capabilities.parameters, step.parameterAnswers, current);
                 return [step.id, {...size, parameterPatch: replaceAgentSizeFields(patch, size.patch),
                     sources: Object.fromEntries(Object.keys(sizeFields(size.effective)).filter(key => size.effective[key] !== '').map(key => [key,
                         Object.hasOwn(step.sizeAnswer || {}, key) ? '已确认' : sources[key] || (Object.hasOwn(defaults || {}, key) ? '面板默认' : '节点或接口默认')]))}];
@@ -304,7 +310,8 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         if (!selectedNodeIds.length) throw new Error('没有待执行步骤');
         if (!retry) plan.completedReferenceOutputs = {};
         activePlans.set(plan.id, plan);
-            const completion = await runWorkflow({ mode: 'selected-only', selectedNodeIds, agentSequential: true }, { retainResults, configurationSnapshot: executionConfigs.get(plan.id), validateBeforeRun: validateInputs });
+            const runMode = plan.imageBatch ? { imageBatch: true, requestSource: 'agent' } : { agentSequential: true };
+            const completion = await runWorkflow({ mode: 'selected-only', selectedNodeIds, ...runMode }, { retainResults, configurationSnapshot: executionConfigs.get(plan.id), validateBeforeRun: validateInputs });
             plan.completedReferenceOutputs ||= {};
             const completed = (completion?.nodeResults || []).filter(entry => entry.succeeded);
             for (const entry of completed) {

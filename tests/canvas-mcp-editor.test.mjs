@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
+import { createCanvasMcpActions } from '../js/features/canvas-mcp/canvas-mcp-actions.js';
 import { startCanvasMcpEditor } from '../js/features/canvas-mcp/canvas-mcp-editor.js';
+import { createCanvasContext } from '../js/features/prompt-agent/prompt-agent-canvas-context.js';
 
 function browserWindow(url = 'http://127.0.0.1:8767/') {
     const windowRef = Object.assign(new EventTarget(), { location: new URL(url), crypto: webcrypto, setTimeout, clearTimeout });
@@ -80,6 +82,55 @@ test('a poll from before the tab was hidden cannot apply a queued command when t
         queuedResponse.resolve(Response.json({ command: { id: 'stale', method: 'edit_canvas', args: {} } }));
         assert.equal((await nextPoll.promise).activate, false, 'visibility alone does not retake ownership');
         assert.deepEqual(dispatched, []);
+    } finally {
+        stop();
+    }
+});
+
+test('hiding the editor during batch preparation prevents the edit and run after returning', { timeout: 2000 }, async () => {
+    const windowRef = browserWindow();
+    const documentRef = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+    const preparing = Promise.withResolvers();
+    const assetsReady = Promise.withResolvers();
+    const completed = Promise.withResolvers();
+    let edited = false;
+    let ran = false;
+    const nodes = [{ id: 'source', type: 'ImageGenerate', mediaAssetKeys: ['media:first', 'media:second'] }];
+    const { dispatch } = createCanvasMcpActions({
+        getImageDefaults: () => ({ modelId: 'model', providerIds: { model: 'provider' } }),
+        canvasAdapter: {
+            context: () => createCanvasContext({ workflowId: 'wf-a', nodes, connections: [], selectedIds: ['source'] }),
+            async apply(plan, _modelId, _onPlanChange, isCurrent) {
+                isCurrent();
+                preparing.resolve();
+                await assetsReady.promise;
+                isCurrent();
+                edited = true;
+                return plan;
+            }
+        },
+        runWorkflow: () => { ran = true; }
+    });
+    const { workflowId, revision } = await dispatch('read_canvas');
+    const command = { id: 'batch-1', method: 'generate_image_batch', args: { workflowId, revision, prompt: 'Retouch', run: true } };
+    const stop = startCanvasMcpEditor({ windowRef, documentRef, dispatch, fetchImpl: async (_url, { body }) => {
+        const request = JSON.parse(body);
+        if (request.action === 'poll') return Response.json({ command });
+        completed.resolve(request);
+        return Response.json({ ok: true });
+    } });
+    try {
+        await preparing.promise;
+        for (const visibility of ['hidden', 'visible']) {
+            documentRef.visibilityState = visibility;
+            documentRef.dispatchEvent(new Event('visibilitychange'));
+        }
+        assetsReady.resolve();
+        const result = await completed.promise;
+        assert.equal(result.id, command.id);
+        assert.match(result.error, /编辑器已变化/);
+        assert.equal(edited, false);
+        assert.equal(ran, false);
     } finally {
         stop();
     }

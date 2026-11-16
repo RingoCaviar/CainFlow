@@ -77,7 +77,7 @@ A Conversation request that continues while another Conversation or the canvas e
 _Avoid_: Hidden chat request, parallel replies in one conversation
 
 **Canvas action plan**:
-The complete preview of AI-proposed changes to one workflow, confirmed by the user and applied atomically as one undoable action. A rejected or failed plan leaves the workflow unchanged.
+The complete set of proposed changes to one workflow, applied atomically as one undoable action. A user can authorize creation in the request or confirm the presented plan. A rejected or failed application leaves the workflow unchanged.
 _Avoid_: Direct AI canvas mutation, sequence of unrelated undo steps
 
 **电商套图方案**:

@@ -469,6 +469,9 @@ export function createDiskStorageApi(getState) {
         const limit = Number.isFinite(options.limit) ? options.limit : 0;
         const query = new URLSearchParams({ limit: Math.max(0, limit || 0) });
         if (options.thumbnailUrls) query.set('thumbnailUrls', '1');
+        if (options.imagesOnly) query.set('imagesOnly', '1');
+        if (options.offset) query.set('offset', String(options.offset));
+        if (options.id !== undefined) query.set('id', String(options.id));
         const response = await requestLibrary(`/api/storage/library?${query}`, { cache: 'no-store' });
         if (!response.ok) {
             const message = (await response.json().catch(() => ({}))).error || `读取保存目录失败：HTTP ${response.status}`;
@@ -484,6 +487,44 @@ export function createDiskStorageApi(getState) {
         return { items: options.includeThumbs === false ? items.map(({ thumb, ...item }) => item) : items, count: result.count ?? items.length };
     }
     async function getHistoryMetadata(options = {}) { return (await getHistoryPage(options)).items; }
+
+    async function listHistoryImages({ id, offset = 0, limit = 20 } = {}) {
+        if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 40
+            || (id !== undefined && (!Number.isSafeInteger(id) || id === 0))) throw new Error('历史图片读取参数无效');
+        const page = await getHistoryPage({ id, offset, limit, imagesOnly: true, includeThumbs: false, thumbnailUrls: true, throwOnError: true });
+        const text = (value, max) => typeof value === 'string' ? value.slice(0, max) : '';
+        const items = page.items.map(item => ({
+            id: item.id,
+            fileVersion: item.fileVersion,
+            note: text(item.note, 160),
+            prompt: text(item.prompt, 1000),
+            model: text(item.model, 200),
+            timestamp: Number.isFinite(item.timestamp) ? item.timestamp : null,
+            filename: text(item.relativePath?.split(/[\\/]/).at(-1), 240),
+            nodeId: text(item.nodeId, 200),
+            generationDurationSeconds: Number.isFinite(item.generationDurationSeconds ?? item.generationDuration)
+                ? (item.generationDurationSeconds ?? item.generationDuration) : null
+        }));
+        return { items, total: page.count, nextOffset: offset + items.length < page.count ? offset + items.length : null };
+    }
+
+    async function annotateHistoryImage({ id, fileVersion, note }, { isCurrent = () => true } = {}) {
+        if (!Number.isSafeInteger(id) || id === 0) throw new Error('历史图片 ID 无效');
+        if (typeof fileVersion !== 'string' || !/^[0-9]{1,20}:-?[0-9]{1,20}$/.test(fileVersion)) {
+            throw new Error('请提供本次读取的历史图片版本');
+        }
+        if (typeof note !== 'string' || [...note.trim()].length > 80 || /[\x00-\x1f\x7f]/.test(note)) {
+            throw new Error('备注必须是 80 字以内的单行文字');
+        }
+        if (!isCurrent()) throw new Error('操作范围已变化，请重新选择历史图片');
+        const response = await requestLibrary(`/api/storage/library/${encodeURIComponent(id)}/note`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note, fileVersion })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.item) throw new Error(result.error || '备注保存失败，请刷新历史后重试');
+        return result.item;
+    }
+
     async function hydrateHistory(entry, { fileVersion } = {}) {
         if (!entry) return null;
         if (fileVersion && (!entry.fileUrl || entry.fileVersion !== fileVersion)) return null;
@@ -551,6 +592,6 @@ export function createDiskStorageApi(getState) {
         clearOrphanedNodeAssets: (_keepKeys, options = {}) => postMaintenance('clear-assets', { mode: 'node-orphans' }, options),
         trimHistoryCache: () => getHistoryMetadata({ includeThumbs: false }), createThumbnail, createVideoThumbnail,
         saveHistoryEntry, getHistory, getHistoryMetadata, getHistoryPage, getHistoryCount, getHistoryEntry, getHistoryImageBlob,
-        updateHistoryThumb, clearHistory: clearDirectoryHistory, deleteHistoryEntry
+        updateHistoryThumb, listHistoryImages, annotateHistoryImage, clearHistory: clearDirectoryHistory, deleteHistoryEntry
     };
 }

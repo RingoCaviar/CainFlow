@@ -165,6 +165,11 @@ test('the universal merge input appends numbered slots, rejects duplicates, and 
         { id: 'merge', type: 'ImageMerge', x: 550, y: 180, width: 350, height: 360, userResized: true }
     ], connections: [] }, async app => {
         await app.waitFor("Boolean(document.querySelector('#merge .universal-input'))");
+        await openInputs(app);
+        assert.match(await app.evaluate("document.querySelector('#image-parameter-panel .image-input-empty').textContent"), /将上游图片节点连到输入口/);
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-footer').hidden"), true);
+        assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-resize').getBoundingClientRect().height >= 24"));
+        await closeInputs(app);
         await upload(app, 'first', 'red'); await upload(app, 'second', 'blue'); await upload(app, 'replacement', 'orange');
         await connect(app, 'first');
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.connections.length===1)");
@@ -193,10 +198,13 @@ test('the universal merge input appends numbered slots, rejects duplicates, and 
         await expectConnections(app, [replaced[0]]); await expectKeys(app, sourceKeys(full, 'replacement'));
         await app.evaluate(`document.querySelector('[data-input-connection-id="${first.id}"] [data-input-action=disconnect]').click()`);
         await expectConnections(app, []);
-        await app.waitFor("document.getElementById('merge-merge-preview').dataset.mergeState==='stale' && document.getElementById('merge').innerText.includes('未更新')");
+        await app.waitFor("document.querySelector('#merge .image-merge-stale[role=status]').checkVisibility()");
+        await app.waitFor("document.querySelector('#image-parameter-panel .image-parameter-feedback')?.textContent.includes('保留上次结果')");
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=generate]').hidden"), true);
         await expectKeys(app, sourceKeys(full, 'replacement'));
         assert.ok(await app.evaluate("document.querySelector('#merge-merge-preview img')?.naturalWidth>0"), 'disconnecting all sources retains the readable previous original');
         await history(app, 'z', '已撤回'); await expectConnections(app, [replaced[0]]);
+        await app.waitFor("!document.querySelector('#merge .image-merge-stale').checkVisibility()");
         await history(app, 'y', '已重做'); await expectConnections(app, []);
         const after = await saved(app);
         assert.ok(after.nodes.find(node => node.id === 'merge').inputCount >= 2);

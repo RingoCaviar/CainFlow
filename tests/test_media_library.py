@@ -57,6 +57,40 @@ class MediaLibraryTests(unittest.TestCase):
             self.assertTrue(external.exists())
             self.assertIsNone(library.get(123))
 
+    def test_image_note_roundtrip_clear_and_stale_original_are_scoped(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = self.make_store(root)
+            library = MediaLibrary(store)
+            image = library.save({'mimeType': 'image/png', 'prompt': 'original prompt'}, b'original bytes')
+            second = library.save({'mimeType': 'image/jpeg', 'prompt': 'second image'}, b'second bytes')
+            video = library.save({'mimeType': 'video/mp4'}, b'video bytes')
+            image_id, version = image['id'], image['fileVersion']
+            self.assertEqual({'id': image_id, 'fileVersion': version, 'note': '成品 A'},
+                             library.set_note(image_id, ' 成品 A ', version))
+            restarted = MediaLibrary(self.make_store(root))
+            first_page = restarted.list_page(1, image_only=True)
+            second_page = restarted.list_page(1, image_only=True, offset=1)
+            self.assertEqual({image_id, second['id']}, {page['items'][0]['id'] for page in (first_page, second_page)})
+            noted = restarted.get(image_id)
+            self.assertEqual('成品 A', noted['note'])
+            self.assertEqual(image['relativePath'], noted['relativePath'])
+            self.assertEqual('original prompt', noted['prompt'])
+            self.assertEqual(b'original bytes', restarted.read(image_id, version)[1])
+            self.assertEqual('', restarted.set_note(image_id, ' ', version)['note'])
+            self.assertEqual('', restarted.get(image_id).get('note', ''))
+            with self.assertRaisesRegex(ValueError, '80'):
+                restarted.set_note(image_id, '标' * 81, version)
+            with self.assertRaisesRegex(ValueError, '历史图片'):
+                restarted.set_note(video['id'], '禁止写入视频', video['fileVersion'])
+            with self.assertRaisesRegex(ValueError, '文件已变化'):
+                Path(image['directory'], image['relativePath']).write_bytes(b'replaced original bytes')
+                restarted.set_note(image_id, '过期备注', version)
+            current = next(item for item in restarted.list() if item['id'] == image_id)
+            self.assertFalse(current.get('note'))
+            store.set_export_directory(os.path.join(root, 'another-history'))
+            with self.assertRaisesRegex(ValueError, '历史图片'):
+                library.set_note(image_id, '旧保存目录', current['fileVersion'])
+
     def make_store(self, root):
         return StorageService(database_path=os.path.join(root, 'db.sqlite'), assets_dir=os.path.join(root, 'assets'), temp_dir=os.path.join(root, 'tmp'), exports_dir=os.path.join(root, 'exports'))
 

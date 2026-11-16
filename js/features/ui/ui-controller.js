@@ -19,7 +19,7 @@ import {
 import { openDialogStyle1 } from './dialog-style-1.js';
 import { downloadHistoryBatch } from '../history/history-download.js';
 import { createMediaIntegrityDrawerController, renderMediaIntegrityDrawer } from '../media/media-integrity-drawer.js';
-const PROMPT_LIBRARY_STORAGE_KEY = 'cainflow_prompt_library';
+import { PROMPT_LIBRARY_STORAGE_KEY, readPromptLibrary, updatePromptLibrary } from '../prompts/prompt-library-store.js';
 
 export function createUiControllerApi({
     state,
@@ -299,19 +299,6 @@ export function createUiControllerApi({
         return merged;
     }
 
-    function getStoredPromptLibrary() {
-        try {
-            const parsed = JSON.parse(localStorageRef.getItem(PROMPT_LIBRARY_STORAGE_KEY) || '[]');
-            return Array.isArray(parsed) ? parsed : [];
-        } catch {
-            return [];
-        }
-    }
-
-    function setStoredPromptLibrary(prompts) {
-        localStorageRef.setItem(PROMPT_LIBRARY_STORAGE_KEY, JSON.stringify(prompts));
-    }
-
     function normalizePromptRecord(raw, index) {
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
             throw new Error(`第 ${index + 1} 条提示词不是有效对象`);
@@ -487,7 +474,7 @@ export function createUiControllerApi({
         settingsControllerApi?.syncProxyToServer();
     }
 
-    function buildConfigPayload(selection = normalizeConfigSelection()) {
+    async function buildConfigPayload(selection = normalizeConfigSelection()) {
         const payload = {
             type: 'cainflow-config',
             version: '1.0',
@@ -540,7 +527,7 @@ export function createUiControllerApi({
         if (selection.prompts) {
             payload.promptLibrary = {
                 storageKey: PROMPT_LIBRARY_STORAGE_KEY,
-                prompts: getStoredPromptLibrary()
+                prompts: await readPromptLibrary(localStorageRef)
             };
         }
 
@@ -596,13 +583,14 @@ export function createUiControllerApi({
         }
         if (selection.settings) {
             includedSections.push('settings');
-            entries.push(jsonEntry('settings/settings.json', buildConfigPayload({ providers: false, models: false, settings: true, prompts: false, workflows: false }).settings || {}));
+            const payload = await buildConfigPayload({ providers: false, models: false, settings: true, prompts: false, workflows: false });
+            entries.push(jsonEntry('settings/settings.json', payload.settings || {}));
         }
         if (selection.prompts) {
             includedSections.push('prompts');
             entries.push(jsonEntry('prompts/prompt-library.json', {
                 storageKey: PROMPT_LIBRARY_STORAGE_KEY,
-                prompts: getStoredPromptLibrary()
+                prompts: await readPromptLibrary(localStorageRef)
             }));
         }
         if (selection.workflows) {
@@ -665,7 +653,7 @@ export function createUiControllerApi({
         });
     }
 
-    function applyImportedConfig(configData, { selection, importMode } = {}) {
+    async function applyImportedConfig(configData, { selection, importMode } = {}) {
         if (!configData || typeof configData !== 'object') {
             throw new Error('配置文件格式无效');
         }
@@ -716,17 +704,16 @@ export function createUiControllerApi({
             }
         }
 
+        if (finalSelection.prompts) {
+            await updatePromptLibrary(localStorageRef, current => importMode === CONFIG_IMPORT_MODES.append
+                ? mergePromptsById(current, importedPromptLibrary)
+                : importedPromptLibrary);
+        }
         if (finalSelection.providers) {
             state.providers = nextProviders;
         }
         if (finalSelection.models) {
             state.models = nextModels;
-        }
-        if (finalSelection.prompts) {
-            const nextPrompts = importMode === CONFIG_IMPORT_MODES.append
-                ? mergePromptsById(getStoredPromptLibrary(), importedPromptLibrary)
-                : importedPromptLibrary;
-            setStoredPromptLibrary(nextPrompts);
         }
         applyImportedSettings(settings);
 
@@ -786,7 +773,7 @@ export function createUiControllerApi({
         };
 
         if (hasAnySelectedConfigDataSection(nonWorkflowSelection)) {
-            applyImportedConfig(configData, {
+            await applyImportedConfig(configData, {
                 selection: nonWorkflowSelection,
                 importMode
             });
@@ -850,10 +837,10 @@ export function createUiControllerApi({
         }
 
         const reader = new FileReader();
-        reader.onload = () => {
+        reader.onload = async () => {
             try {
                 const data = JSON.parse(reader.result);
-                applyImportedConfig(data, {
+                await applyImportedConfig(data, {
                     selection: {
                         ...selection,
                         workflows: false

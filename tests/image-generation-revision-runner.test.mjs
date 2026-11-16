@@ -55,6 +55,33 @@ test('public generation completes the captured recipe, and records a minimal tru
     assert.equal(f.node.data.mediaAssetKeys.length, 1);
 });
 
+test('a delegated image batch bounds concurrency and finishes independent branches after a provider rejects one', async () => {
+    let inFlight = 0, peak = 0;
+    const started = [];
+    const f = fixture({ autoRetry: true, fetchRef: async (_url, { body }) => {
+        const { prompt } = JSON.parse(body);
+        started.push(prompt);
+        peak = Math.max(peak, ++inFlight);
+        await new Promise(resolve => setTimeout(resolve, prompt === 'reject' ? 15 : 130));
+        inFlight--;
+        return prompt === 'reject' ? Response.json({ error: { message: 'controlled rejection' } }, { status: 400 })
+            : Response.json({ data: [{ b64_json: png }] });
+    } });
+    f.node.data.prompt = 'reject';
+    for (let index = 1; index <= 5; index++) {
+        const id = `batch-${index}`;
+        f.state.nodes.set(id, { ...f.node, id, el: element(), data: { ...f.node.data, prompt: id } });
+        f.revision.initializeNode(id);
+    }
+    const status = await f.runner.runWorkflow({ mode: 'selected-only', imageBatch: true, selectedNodeIds: [...f.state.nodes.keys()] });
+    assert.equal(status.outcome, 'failed');
+    assert.equal(inFlight, 0);
+    assert.equal(peak, 4);
+    assert.deepEqual(started.sort(), ['batch-1', 'batch-2', 'batch-3', 'batch-4', 'batch-5', 'reject']);
+    assert.equal(f.node.isSucceeded, false);
+    assert.ok([...f.state.nodes.values()].slice(1).every(node => node.isSucceeded && node.data.mediaAssetKeys?.length === 1));
+});
+
 for (const concurrent of [false, true]) {
     for (const throws of [false, true]) {
         test(`media persistence failure rejects completion and a later run recovers (concurrent=${concurrent}, throws=${throws})`, async () => {

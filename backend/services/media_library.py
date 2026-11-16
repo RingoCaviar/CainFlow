@@ -195,13 +195,13 @@ class MediaLibrary:
                     elif stat.S_ISREG(info.st_mode) and os.path.splitext(entry.name)[1].lower() in IMAGE_EXTENSIONS | VIDEO_EXTENSIONS:
                         yield os.path.relpath(entry.path, root), info
 
-    def list_page(self, limit=0, thumbnail_urls=False):
+    def list_page(self, limit=0, thumbnail_urls=False, *, offset=0, image_only=False, filter_id=None):
         root = self._root()
         if not os.path.isdir(root):
             raise FileNotFoundError('保存目录不存在或暂时不可访问')
         with self.storage._lock, self._db() as db:
             known = {row['path']: row for row in db.execute(
-                "SELECT id,path,status,size,mtime,json_extract(metadata,'$.timestamp') AS timestamp FROM files WHERE root=?", (root,))}
+                "SELECT id,path,status,size,mtime,mime,json_extract(metadata,'$.timestamp') AS timestamp FROM files WHERE root=?", (root,))}
             inserts, updates, tombstones, visible = [], [], [], []
             for relative, info in self._scan_files(root):
                 row = known.get(relative)
@@ -217,16 +217,18 @@ class MediaLibrary:
                     timestamp = info.st_mtime_ns // 1000000
                 else:
                     identifier = row['id']
+                    mime = row['mime']
                     changed = row['size'] != info.st_size or row['mtime'] != info.st_mtime_ns
                     if changed:
                         updates.append(('{}', info.st_size, info.st_mtime_ns, identifier))
                     timestamp = (row['timestamp'] if not changed else None) or info.st_mtime_ns // 1000000
-                visible.append((timestamp, identifier))
+                if (not image_only or mime.startswith('image/')) and (filter_id is None or identifier == filter_id):
+                    visible.append((timestamp, identifier))
             db.executemany('UPDATE files SET path=? WHERE id=?', tombstones)
             db.executemany("INSERT INTO files(id,root,path,metadata,mime,size,mtime,status) VALUES(?,?,?,?,?,?,?,'ready')", inserts)
             db.executemany('UPDATE files SET metadata=?,size=?,mtime=?,digest=NULL WHERE id=?', updates)
             visible.sort(reverse=True)
-            selected = visible[:limit] if limit > 0 else visible
+            selected = visible[offset:offset + limit] if limit > 0 else visible[offset:]
             ids = [identifier for _, identifier in selected]
             rows = {}
             for offset in range(0, len(ids), 500):
@@ -293,10 +295,37 @@ class MediaLibrary:
             info = os.stat(self._path(row))
             if version != f"{row['size']}:{row['mtime']}" or (info.st_size, info.st_mtime_ns) != (row['size'], row['mtime']):
                 raise ValueError('文件已变化，请刷新历史')
-            metadata = json.loads(row['metadata'])
-            metadata.update(thumb=thumb, thumbSizeBytes=len(body))
             with self._db() as db:
-                db.execute('UPDATE files SET metadata=? WHERE id=?', (json.dumps(metadata, ensure_ascii=False), int(identifier)))
+                db.execute("UPDATE files SET metadata=json_set(metadata,'$.thumb',?,'$.thumbSizeBytes',?) "
+                           "WHERE id=? AND status='ready' AND size=? AND mtime=?",
+                           (thumb, len(body), int(identifier), row['size'], row['mtime']))
+
+    def set_note(self, identifier, note, version):
+        self.storage.assert_storage_writable()
+        if type(identifier) is not int or not 0 < abs(identifier) <= 2**53 - 1:
+            raise ValueError('历史图片 ID 无效')
+        if not isinstance(note, str) or len(note.strip()) > 80 or any(ord(char) < 32 or ord(char) == 127 for char in note):
+            raise ValueError('备注必须是 80 字以内的单行文字')
+        note = note.strip()
+        if not isinstance(version, str) or not re.fullmatch(r'[0-9]{1,20}:-?[0-9]{1,20}', version):
+            raise ValueError('请提供本次读取的历史图片版本')
+        with self.storage._lock:
+            row = self._current_row(identifier)
+            if not row or not row['mime'].startswith('image/'):
+                raise ValueError('当前保存目录中找不到这张历史图片')
+            try:
+                info = os.stat(self._path(row))
+            except OSError as error:
+                raise ValueError('历史图片不可用，请刷新历史后重试') from error
+            if version != f"{row['size']}:{row['mtime']}" or (info.st_size, info.st_mtime_ns) != (row['size'], row['mtime']):
+                raise ValueError('文件已变化，请刷新历史后重新选择图片')
+            with self._db() as db:
+                result = db.execute("UPDATE files SET metadata=json_set(metadata,'$.note',?) "
+                                    "WHERE id=? AND root=? AND status='ready' AND size=? AND mtime=?",
+                                    (note, identifier, row['root'], row['size'], row['mtime']))
+                if result.rowcount != 1:
+                    raise ValueError('文件已变化，请刷新历史后重新选择图片')
+            return {'id': identifier, 'fileVersion': version, 'note': note}
 
     def delete(self, identifier, version=None):
         with self.storage._lock:

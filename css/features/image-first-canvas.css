@@ -929,8 +929,22 @@ html:root #canvas-container .node.image-first-media > .node-body {
 .node.image-first-media .image-compare-img { width: 100%; height: 100%; object-fit: contain; }
 .image-input-compare-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
 .image-input-feedback { margin: 0; color: var(--accent-warning, var(--text-secondary)); font-size: 12px; overflow-wrap: anywhere; }
-.node.image-first-media .image-merge-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; gap: 7px; }
-.node.image-first-media .image-merge-summary { flex: 0 0 auto; margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.node.image-first-media .image-merge-panel { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.image-merge-preview:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
+.image-merge-stale { display: none; }
+.image-merge-preview[data-merge-state="stale"] + .image-merge-stale {
+    display: block;
+    position: absolute;
+    inset: 8px auto auto 8px;
+    z-index: 2;
+    padding: 3px 7px;
+    border-radius: 5px;
+    background: rgb(15 23 42 / 86%);
+    color: #fff;
+    font-size: 12px;
+    line-height: 1.4;
+    pointer-events: none;
+}
 .node.image-first-media .camera-control-compact { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; gap: 7px; }
 .node.image-first-media .camera-control-node-preview { order: 1; flex: 1 1 auto; height: 0; min-height: 100px; aspect-ratio: auto; border-color: var(--node-control-border); background: var(--node-control-surface); }
 .node.image-first-media .camera-control-node-preview img { object-fit: contain; }
@@ -1171,6 +1185,63 @@ html:root #canvas-container .node.node-media-aspect .node-media-aspect-surface {
 .image-parameter-panel .image-input-row:last-child { padding-bottom: 0; border-bottom: 0; }
 
 .image-parameter-panel:not([data-node-type="CameraControl"], [data-node-type="ECommerceImageSet"]) .image-input-more { display: none; }
+
+.image-parameter-panel[data-node-type="ImageMerge"] .image-parameter-scroll { padding: 10px 12px; }
+.image-parameter-panel[data-node-type="ImageMerge"]:not(.is-expanded) .image-parameter-resize { top: 8px; bottom: 8px; }
+.image-parameter-panel[data-node-type="ImageMerge"] .image-input-detail { padding-top: 0; gap: 4px; }
+.image-merge-order-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+.image-merge-order-heading strong { color: var(--text-primary); font-size: 13px; font-weight: 600; }
+.image-parameter-panel[data-node-type="ImageMerge"] .image-input-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+}
+.image-parameter-panel[data-node-type="ImageMerge"] .image-input-row:last-child { padding-bottom: 0; }
+.image-parameter-panel[data-node-type="ImageMerge"] .image-input-source { justify-content: flex-start; min-width: 0; }
+.image-parameter-panel[data-node-type="ImageMerge"] .image-input-facts[data-status="missing"] { color: var(--text-danger, var(--text-secondary)); }
+.image-parameter-panel[data-node-type="ImageMerge"] .image-input-controls { flex-wrap: nowrap; }
+.image-parameter-panel[data-node-type="ImageMerge"] [data-input-role] {
+    min-height: 30px;
+    max-width: 92px;
+    font-variant-numeric: tabular-nums;
+}
+.image-parameter-panel[data-node-type="ImageMerge"] .image-input-order-controls button {
+    display: inline-grid;
+    place-items: center;
+    width: 30px;
+    min-height: 30px;
+    padding: 0;
+}
+.image-parameter-panel[data-node-type="ImageMerge"] .image-input-order-controls button:active:not(:disabled) { background: var(--panel-active-bg); }
+.image-parameter-panel[data-node-type="ImageMerge"] .image-parameter-footer { padding: 8px 12px; }
+.image-parameter-panel[data-node-type="ImageMerge"] .image-parameter-footer .save-btn {
+    min-height: 32px;
+    border-color: transparent;
+    background: var(--panel-primary-action-bg);
+    color: var(--panel-primary-action-text);
+}
+.image-parameter-panel[data-node-type="ImageMerge"] .image-parameter-footer .save-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--panel-primary-action-bg) 90%, #000);
+}
+.image-parameter-panel[data-node-type="ImageMerge"] .image-parameter-footer .save-btn:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
+@container (max-width: 232px) {
+    .image-parameter-panel[data-node-type="ImageMerge"] .image-input-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+    .image-parameter-panel[data-node-type="ImageMerge"] .image-input-controls { justify-content: space-between; }
+}
 
 .image-parameter-panel[data-node-type="ImageSave"] .image-input-controls { display: none; }
 .image-parameter-panel .image-save-preview-tools[hidden] { display: none; }

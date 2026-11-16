@@ -113,14 +113,16 @@ def _media_ownership_revision(body):
         raise ValueError('Invalid workflow payload')
 
 
-def save_workflow(name, body, expected_media_ownership_revision=None):
+def save_workflow(name, body, expected_media_ownership_revision=None, *, create_only=False):
     filepath = get_safe_path(name)
     if not filepath:
         raise ValueError('Invalid workflow name')
-    if _workflow_base_exists(_workflow_base_name(name), exclude_names={name}):
-        raise FileExistsError('Workflow name already exists')
     next_revision = _media_ownership_revision(body)
     with _workflow_write_lock, _workflow_cross_process_lock():
+        if create_only and os.path.lexists(filepath):
+            raise FileExistsError('Workflow name already exists')
+        if _workflow_base_exists(_workflow_base_name(name), exclude_names={name}):
+            raise FileExistsError('Workflow name already exists')
         current_revision = 0
         if os.path.exists(filepath):
             with open(filepath, 'rb') as file:

@@ -97,7 +97,7 @@ export function createWorkflowSelectionAdapter({
 }) {
     const isWorkflowRunning = (workflowId) => workflowDesk.snapshot().open
         .some((record) => record.workflowId === workflowId && record.running === true);
-    async function activate(name, { reloadFromFile = false, closeToken = null } = {}) {
+    async function activate(name, { reloadFromFile = false, closeToken = null, isCurrent = () => true, expectedWorkflowId } = {}) {
         if (state.canvasPlanApplying || state.historyTransitionInProgress) return false;
         if (!name) return false;
         const existingTab = getWorkflowTab(name);
@@ -108,6 +108,7 @@ export function createWorkflowSelectionAdapter({
         try {
             const result = await workflowDesk.show({
                 async resolve() {
+                if (!isCurrent()) return null;
                 let tab = getWorkflowTab(name);
                 let createdTab = false;
                 let reloadedData = null;
@@ -129,6 +130,7 @@ export function createWorkflowSelectionAdapter({
                     ensureWorkflowIdentity(tab);
                 }
                 const stableWorkflowId = ensureWorkflowIdentity(tab);
+                if (expectedWorkflowId !== undefined && expectedWorkflowId !== stableWorkflowId) return null;
                 const identityOwners = (state.workflowTabs || []).filter((candidate) => (
                     candidate?.workflowId === stableWorkflowId || candidate?.data?.workflowId === stableWorkflowId
                 ));
@@ -144,9 +146,7 @@ export function createWorkflowSelectionAdapter({
                         .find((candidate) => candidate.workflowId === workflowId) || null,
                     allowDetached: createdTab
                 });
-                const preparedView = await prepareWorkflowView(targetData, {
-                    isCurrent: () => true
-                });
+                const preparedView = await prepareWorkflowView(targetData, { isCurrent });
                 if (!preparedView) return null;
                 if (typeof prepareEditorView !== 'function') {
                     throw new Error('Detached workflow editor preparation is unavailable');
@@ -161,7 +161,7 @@ export function createWorkflowSelectionAdapter({
                 const prepared = { tab, createdTab, reloadedData, targetRevision, preparedView, editorView };
                 const transactionalView = {
                     async commit() {
-                        if (state.canvasPlanApplying || state.historyTransitionInProgress) return false;
+                        if (!isCurrent() || state.canvasPlanApplying || state.historyTransitionInProgress) return false;
                         const currentTab = (state.workflowTabs || [])
                             .find((candidate) => candidate.workflowId === tab.workflowId) || tab;
                         if ((reloadedData && isWorkflowRunning(currentTab?.workflowId)) || !targetRevision.isCurrent()) return false;

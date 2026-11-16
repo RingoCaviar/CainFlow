@@ -1221,7 +1221,8 @@ export function createWorkflowRunnerApi({
                 if (fromNode?.enabled === false) continue;
                 const toNode = state.nodes.get(nodeId);
                 const outputValue = await getEnabledNodeOutputValue(fromNode, toNode, connection.from.port);
-                if (plan.agentSequential && (outputValue === undefined || outputValue === null || outputValue === '' || (Array.isArray(outputValue) && outputValue.length === 0))) {
+                if ((plan.agentSequential || plan.imageBatch)
+                    && (outputValue === undefined || outputValue === null || outputValue === '' || (Array.isArray(outputValue) && outputValue.length === 0))) {
                     throw new Error('方案引用的外部节点没有可用输出，请先生成或导入素材');
                 }
                 if (outputValue === undefined) continue;
@@ -2747,7 +2748,8 @@ export function createWorkflowRunnerApi({
                     if (readyNodes.length === 0 && runningNodes.size === 0) break;
 
                     if (readyNodes.length > 0) {
-                        (runInput?.agentSequential ? (runningNodes.size ? [] : readyNodes.slice(0, 1)) : readyNodes).forEach((nid) => {
+                        const capacity = plan.agentSequential ? 1 : plan.imageBatch ? 4 : Infinity;
+                        readyNodes.slice(0, Math.max(0, capacity - runningNodes.size)).forEach((nid) => {
                             if (session.canceledBranchNodeIds.has(nid) || runningNodes.has(nid) || completedNodes.has(nid)) return;
                             runningNodes.add(nid);
                             const node = state.nodes.get(nid);
@@ -2837,10 +2839,10 @@ export function createWorkflowRunnerApi({
 
                                     failedNodes.add(nid);
 
-                                    if (!state.autoRetry || runInput?.agentSequential || plan.imageRetryNodeId) {
+                                    if (plan.imageBatch || !state.autoRetry || plan.agentSequential || plan.imageRetryNodeId) {
                                         showToast(`「${nodeTitle}」出错: ${errorMsg}`, 'error', 5000);
                                         terminatedByError = true;
-                                        session.stopped = true;
+                                        if (!plan.imageBatch) session.stopped = true;
                                     }
                                 } finally {
                                     if (timerId) clearInterval(timerId);
@@ -2877,7 +2879,7 @@ export function createWorkflowRunnerApi({
                     break;
                 }
 
-                if (!state.autoRetry || runInput?.agentSequential || plan.imageRetryNodeId) break;
+                if (plan.imageBatch || !state.autoRetry || plan.agentSequential || plan.imageRetryNodeId) break;
 
                 retryAttempt++;
                 if (retryAttempt > maxRetries) {
@@ -2939,10 +2941,10 @@ export function createWorkflowRunnerApi({
                     };
                 }));
                 dispatchWorkflowCompletionNotice({
-                    toastMessage: `工作流运行停止，耗时 ${totalDuration}s`,
+                    toastMessage: plan.imageBatch ? `批处理结束，部分分支失败，耗时 ${totalDuration}s` : `工作流运行停止，耗时 ${totalDuration}s`,
                     toastType: 'error',
                     notificationTitle: 'CainFlow 运行出错',
-                    notificationBody: `工作流已停止，部分节点执行失败。耗时 ${totalDuration}s`,
+                    notificationBody: plan.imageBatch ? `批处理已结束，部分分支执行失败。耗时 ${totalDuration}s` : `工作流已停止，部分节点执行失败。耗时 ${totalDuration}s`,
                     playSound: true,
                     taskbarStatus: 'failed'
                 });
