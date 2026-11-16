@@ -3,7 +3,6 @@ import { createBackdropDismissalGuard } from '../features/settings/backdrop-dism
 
 const handleIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 8-4 4 4 4m6-8 4 4-4 4"/></svg>';
 const closeIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>';
-let dialogSequence = 0;
 
 export function renderProductRetouchComparison() {
     return `<div class="product-retouch-compare-stage" hidden>
@@ -45,21 +44,17 @@ function updateSplit(slider, frame) {
 
 function openComparisonDialog({ documentRef, originalUrl, resultUrl, splitValue, restoreFocus }) {
     const dialog = documentRef.createElement('div');
-    const headingId = `product-retouch-comparison-${++dialogSequence}`;
     dialog.className = 'modal-overlay product-retouch-compare-dialog';
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
-    dialog.setAttribute('aria-labelledby', headingId);
+    dialog.setAttribute('aria-label', '产品精修预览');
     dialog.innerHTML = `<div class="product-retouch-dialog-panel">
-        <header>
-            <h2 id="${headingId}">产品精修预览</h2>
-            <div class="product-retouch-dialog-switch" role="group" aria-label="预览方式"${originalUrl ? '' : ' hidden'}>
-                <button type="button" data-retouch-view="original">原图</button>
-                <button type="button" data-retouch-view="split">对照</button>
-                <button type="button" data-retouch-view="result">精修</button>
-            </div>
-            <button type="button" class="product-retouch-dialog-close" data-action="close" aria-label="关闭预览" title="关闭预览">${closeIcon}</button>
-        </header>
+        <div class="product-retouch-dialog-switch" role="group" aria-label="预览方式"${originalUrl ? '' : ' hidden'}>
+            <button type="button" data-retouch-view="original">原图</button>
+            <button type="button" data-retouch-view="split">对照</button>
+            <button type="button" data-retouch-view="result">精修</button>
+        </div>
+        <button type="button" class="product-retouch-dialog-close" data-action="close" aria-label="关闭预览" title="关闭预览">${closeIcon}</button>
         <div class="product-retouch-dialog-stage">
             <div class="product-retouch-dialog-frame" data-retouch-dialog-frame hidden>
                 <div class="product-retouch-dialog-layer" data-retouch-result-layer><img data-retouch-dialog-image alt="精修结果" draggable="false"></div>

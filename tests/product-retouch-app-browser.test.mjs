@@ -24,6 +24,7 @@ const dialogFrame = `${compareDialog} [data-retouch-dialog-frame]`;
 const dialogSlider = `${compareDialog} [data-retouch-dialog-slider]`;
 const dialogImage = `${compareDialog} img[data-retouch-dialog-image]`;
 const dialogOriginal = `${compareDialog} img[data-retouch-dialog-original]`;
+const dialogClose = `${compareDialog} .product-retouch-dialog-close`;
 const red = [255, 0, 0];
 const blue = [0, 0, 255];
 
@@ -134,6 +135,39 @@ async function waitForComparison(app) {
 async function closeComparison(app, trigger = inspect) {
     await key(app, 'Escape');
     await app.waitFor(`!document.querySelector('${compareDialog}') && document.activeElement.matches('${trigger}')`);
+}
+
+async function assertPreviewOverlayLayout(app, { centered = false } = {}) {
+    const { panel, stage, modes, close, visibleTitle } = await app.evaluate(`(() => {
+        const dialog = document.querySelector('${compareDialog}');
+        const bounds = selector => dialog.querySelector(selector).getBoundingClientRect().toJSON();
+        return {
+            panel: bounds('.product-retouch-dialog-panel'),
+            stage: bounds('.product-retouch-dialog-stage'),
+            modes: bounds('.product-retouch-dialog-switch'),
+            close: bounds('.product-retouch-dialog-close'),
+            visibleTitle: Array.from(dialog.querySelectorAll('header, h2')).some(element => element.checkVisibility())
+        };
+    })()`);
+    assert.ok(Math.abs(stage.top - panel.top) <= 2 && Math.abs(stage.bottom - panel.bottom) <= 2,
+        `the image stage fills the panel height without a dedicated header row (top gap ${stage.top - panel.top}px)`);
+    assert.equal(visibleTitle, false, 'the preview shows no header or title');
+    assert.ok(modes.width > 0 && modes.left >= stage.left && modes.right + 4 <= close.left,
+        'the mode switch fits with a gap before the Close button');
+    assert.ok(close.width > 0 && close.right <= stage.right && stage.right - close.right <= 24,
+        'the Close button remains within the upper-right corner');
+    for (const control of [modes, close]) {
+        assert.ok(control.top >= stage.top && control.top - stage.top <= 24, 'each control overlays the upper edge of the stage');
+    }
+    if (centered) {
+        assert.ok(Math.abs((modes.left + modes.right) / 2 - (stage.left + stage.right) / 2) <= 2,
+            'the desktop mode switch is centered');
+    }
+
+    const { root } = await app.send('DOM.getDocument', {});
+    const { nodeId } = await app.send('DOM.querySelector', { nodeId: root.nodeId, selector: compareDialog });
+    const { nodes } = await app.send('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false });
+    assert.equal(nodes[0]?.name?.value, '产品精修预览', 'the dialog keeps its accessible name without the title');
 }
 
 async function comparisonImageColors(app, view) {
@@ -282,7 +316,7 @@ async function verifyCardPreviewInteraction(app) {
         'a single click selects the retouch node without opening a preview');
 
     await openCardPreview(app, besideInput);
-    assert.equal(await app.evaluate(`document.querySelector('${compareDialog} h2').textContent.trim()`), '产品精修预览');
+    await assertPreviewOverlayLayout(app, { centered: true });
     await app.waitFor(`document.querySelector('${dialogFrame}').dataset.comparison === 'split'`);
     assert.equal(await app.evaluate(`document.querySelector('${dialogSlider}').value`), '50');
     assert.deepEqual(await sampleRenderedImageColors(app, dialogFrame), [red, blue]);
@@ -313,7 +347,8 @@ async function verifyCardPreviewInteraction(app) {
     await closeComparison(app, cardPreview);
     await app.evaluate(`document.querySelector('${cardPreview}').click()`);
     await waitForComparison(app);
-    await closeComparison(app, cardPreview);
+    await nativeClick(app, dialogClose);
+    await app.waitFor(`!document.querySelector('${compareDialog}') && document.activeElement.matches('${cardPreview}')`);
 }
 
 const widthOfDock = `Math.round(document.querySelector('${panel}').getBoundingClientRect().width)`;
@@ -857,9 +892,13 @@ test('product retouch analyzes and edits the same original in one run and preser
         await openComparison(app);
         await app.waitFor(`document.querySelector('${dialogFrame}').dataset.comparison === 'switch'
             && !document.querySelector('${dialogSlider}').checkVisibility()`);
+        await resizeViewport(app, 320, 560);
+        await app.waitFor('innerWidth === 320');
+        await assertPreviewOverlayLayout(app);
         assert.deepEqual(await comparisonImageColors(app, 'original'), [red, red]);
         assert.deepEqual(await comparisonImageColors(app, 'result'), [blue, blue]);
-        await closeComparison(app);
+        await nativeClick(app, dialogClose);
+        await app.waitFor(`!document.querySelector('${compareDialog}') && document.activeElement.matches('${inspect}')`);
         await resizeViewport(app, 620, 560);
         await nativeClick(app, closeDock);
         await assertCanvasResultOnly(app);

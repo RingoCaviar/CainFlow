@@ -442,7 +442,7 @@ html:root #canvas-container .node.node-product-retouch.node-media-aspect { borde
     cursor: pointer;
 }
 
-.product-retouch-compare-dialog button:not(:disabled):is(:hover, [aria-pressed="true"]),
+.product-retouch-dialog-switch button:not(:disabled):hover,
 .product-retouch-footer .product-retouch-inspect:not([aria-disabled="true"]):hover {
     border-color: var(--accent-primary);
     background: var(--surface-control-hover);
@@ -456,8 +456,11 @@ html:root #canvas-container .node.node-product-retouch.node-media-aspect { borde
 .product-retouch-compare-dialog { background: var(--overlay-backdrop); }
 
 .product-retouch-dialog-panel {
+    --retouch-preview-control-inset: clamp(8px, 2vw, 16px);
+    --retouch-preview-close-size: 42px;
+    position: relative;
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     width: min(1120px, calc(100% - 32px));
     height: min(860px, calc(100dvh - 32px));
     overflow: hidden;
@@ -467,39 +470,34 @@ html:root #canvas-container .node.node-product-retouch.node-media-aspect { borde
     color: var(--text-primary);
 }
 
-.product-retouch-dialog-panel header {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-    align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
-}
-
-.product-retouch-dialog-panel h2 {
-    margin: 0;
-    font-size: 16px;
-    font-weight: 650;
+.product-retouch-compare-dialog :is(.product-retouch-dialog-switch, .product-retouch-dialog-close) {
+    position: absolute;
+    z-index: 1;
+    top: var(--retouch-preview-control-inset);
+    background: var(--surface-panel-strong);
+    box-shadow: var(--shadow-node);
 }
 
 .product-retouch-compare-dialog .product-retouch-dialog-close {
     display: grid;
-    width: 36px;
-    height: 36px;
+    right: var(--retouch-preview-control-inset);
+    width: var(--retouch-preview-close-size);
+    height: var(--retouch-preview-close-size);
     padding: 0;
     place-items: center;
-    grid-column: 3;
-    justify-self: end;
-    border-color: transparent;
-    background: transparent;
+    border-color: var(--border-input);
 }
+
+.product-retouch-compare-dialog .product-retouch-dialog-close:hover { border-color: var(--accent-primary); }
 
 .product-retouch-dialog-switch {
     display: flex;
+    left: 50%;
+    transform: translateX(-50%);
     gap: 2px;
     padding: 3px;
     border: 1px solid var(--border-input);
     border-radius: var(--radius-sm, 6px);
-    background: var(--surface-control);
 }
 
 .product-retouch-compare-dialog .product-retouch-dialog-switch button {
@@ -511,7 +509,7 @@ html:root #canvas-container .node.node-product-retouch.node-media-aspect { borde
 
 .product-retouch-compare-dialog .product-retouch-dialog-switch button[aria-pressed="true"] {
     border-color: var(--border-input);
-    background: var(--surface-panel-strong);
+    background: var(--surface-control-hover);
     color: var(--text-link, var(--text-primary));
 }
 
@@ -522,7 +520,6 @@ html:root #canvas-container .node.node-product-retouch.node-media-aspect { borde
     padding: clamp(8px, 2vw, 20px);
     place-items: center;
     container-type: size;
-    border-top: 1px solid var(--border-color);
     background: var(--bg-canvas);
 }
 
@@ -561,6 +558,8 @@ html:root #canvas-container .node.node-product-retouch.node-media-aspect { borde
     --retouch-visible-original-share: var(--retouch-original-share);
 }
 
+.product-retouch-dialog-frame .product-retouch-compare-labels { inset: auto 9px 9px; }
+
 .product-retouch-dialog-frame .product-retouch-compare-divider > span {
     width: 40px;
     height: 40px;
@@ -589,11 +588,17 @@ html:root #canvas-container .node.node-product-retouch.node-media-aspect { borde
 
 .product-retouch-compare-dialog [hidden] { display: none; }
 .product-retouch-compare-dialog button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.product-retouch-compare-dialog .product-retouch-dialog-close:focus-visible { outline-offset: -3px; }
 
 @media (max-width: 600px) {
     .product-retouch-dialog-panel { width: calc(100% - 16px); height: calc(100dvh - 16px); }
-    .product-retouch-dialog-panel header { grid-template-columns: minmax(0, 1fr) auto; padding: 8px 12px; }
-    .product-retouch-compare-dialog .product-retouch-dialog-close { grid-column: 2; }
-    .product-retouch-dialog-switch { grid-column: 1 / -1; grid-row: 2; justify-self: stretch; }
-    .product-retouch-dialog-switch button { flex: 1 1 0; min-width: 0; }
+}
+
+@media (max-width: 360px) {
+    .product-retouch-dialog-switch {
+        left: var(--retouch-preview-control-inset);
+        max-width: calc(100% - 2 * var(--retouch-preview-control-inset) - var(--retouch-preview-close-size) - 8px);
+        transform: none;
+    }
+    .product-retouch-compare-dialog .product-retouch-dialog-switch button { min-width: 0; padding-inline: 8px; }
 }
