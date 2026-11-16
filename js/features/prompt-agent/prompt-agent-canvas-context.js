@@ -1,12 +1,28 @@
 import { agentNodeDefinition as getNodeDefinition } from './prompt-agent-reference-inputs.js';
 import { publicImageProtocolFields } from './prompt-agent-parameters.js';
+import { listNodeDefinitions } from '../../nodes/registry.js';
+import { getDynamicNodePorts } from '../../nodes/node-view-factory.js';
+import { DOUBAO_VIDEO_RATIO_OPTIONS } from '../execution/provider-request-utils.js';
+
+const colorAdjustment = { type: 'integer', min: -100, max: 100 };
+export const CANVAS_SCALAR_RULES = Object.freeze({
+    TextChat: { prompt: { type: 'string' }, sysprompt: { type: 'string' }, fixed: { type: 'boolean' } },
+    VideoGenerate: { prompt: { type: 'string' }, aspect: { enum: DOUBAO_VIDEO_RATIO_OPTIONS.map(option => option.value) },
+        generationCount: { type: 'integer', min: 1 } },
+    ColorReset: { whiteBalanceMode: { enum: ['original', 'auto'] }, temperature: colorAdjustment, tint: colorAdjustment,
+        vibrance: colorAdjustment, saturation: colorAdjustment },
+    TextSplit: { previewEnabled: { type: 'boolean' } }
+});
 
 export const CANVAS_FIELDS = Object.freeze({
     ImageImport: [], ImageGenerate: ['prompt', 'aspect', 'resolution', 'customWidth', 'customHeight', 'quality', 'moderation', 'background', 'generationCount', 'search', 'protocolParams'],
     ImageResize: ['resizeMode', 'scalePercent', 'targetWidth', 'targetHeight', 'keepAspect', 'quality'],
-    ImageMerge: ['inputCount'], ImagePreview: [], ImageCompare: [], Text: ['text']
+    ImageMerge: ['inputCount'], ImagePreview: [], ImageCompare: [], Text: ['text'],
+    ...Object.fromEntries(Object.entries(CANVAS_SCALAR_RULES).map(([type, fields]) => [type, Object.keys(fields)]))
 });
 export const CANVAS_TYPES = Object.keys(CANVAS_FIELDS);
+export const CANVAS_CREATABLE_TYPES = listNodeDefinitions().map(node => node.type);
+export const CANVAS_NODE_PATCH_FIELDS = Object.freeze(['title', 'x', 'y', 'enabled']);
 export const cloneCanvasValue = value => JSON.parse(JSON.stringify(value));
 const isParameterValue = value => ['string', 'number', 'boolean'].includes(typeof value);
 const generationAliases = { aspect: 'aspectRatio', generationCount: 'count' };
@@ -14,7 +30,9 @@ const generationAliases = { aspect: 'aspectRatio', generationCount: 'count' };
 // Explicit field projection: never serialize providers, arbitrary node data or URLs.
 export function projectCanvasNode(node, running = false) {
     const definition = getNodeDefinition(node.type);
-    const parameters = Object.fromEntries((CANVAS_FIELDS[node.type] || ['prompt', 'text']).filter(key =>
+    const fields = Object.hasOwn(CANVAS_FIELDS, node.type) ? CANVAS_FIELDS[node.type] : ['prompt', 'text'];
+    const readableFields = node.type === 'TextSplit' ? [...fields, 'text'] : fields;
+    const parameters = Object.fromEntries(readableFields.filter(key =>
         isParameterValue(node[key])).map(key => [key, node[key]]));
     // URL mode may retain old upload keys for switching back, but those are not its current output.
     const assetKeys = node.type === 'ImageImport' && node.importMode === 'url' ? []
@@ -22,23 +40,39 @@ export function projectCanvasNode(node, running = false) {
     return {
         id: node.id, type: node.type, name: node.customTitle || definition?.title || node.type,
         position: { x: Number(node.x) || 0, y: Number(node.y) || 0, width: Number(node.width) || definition?.defaultWidth || 0, height: Number(node.height) || definition?.defaultHeight || 0 },
-        enabled: node.enabled !== false, running, editable: CANVAS_TYPES.includes(node.type) && node.isClone !== true, parameters,
+        enabled: node.enabled !== false, running, editable: CANVAS_TYPES.includes(node.type) && node.isClone !== true,
+        patchable: definition?.type === node.type && node.isClone !== true, parameters,
         ...(node.type === 'ImageImport' && node.data?.imageDescription ? { imageDescription: String(node.data.imageDescription).slice(0, 2000) } : {}),
-        inputs: definition?.inputs || [], outputs: definition?.outputs || [],
+        ...(node.type === 'TextChat' && node.isClone !== true ? { supportsSystemPrompt: true } : {}),
+        inputs: getDynamicNodePorts(node.type, 'inputs', node) || definition?.inputs || [],
+        outputs: getDynamicNodePorts(node.type, 'outputs', node) || definition?.outputs || [],
         assets: (node.mediaAssetKeys?.length ? assetKeys : [...new Set(assetKeys)])
             .filter(key => typeof key === 'string' && key.startsWith('media:')),
+        ...(Number.isSafeInteger(node.imageCount) && node.imageCount > 0 ? { imageCount: node.imageCount } : {}),
         thinking: node.thinking ? cloneCanvasValue(node.thinking) : null,
         providerId: node.providerId || null,
         missing: node.mediaIntegrity?.state === 'missing', modelId: node.apiConfigId || null
     };
 }
 
-export function createCanvasContext({ workflowId, nodes, connections, selectedIds = [], mentionedIds = [], runningIds = [], getGenerationContext = null }) {
+export function createCanvasContext({ workflowId, nodes, connections, selectedIds = [], mentionedIds = [], runningIds = [], getGenerationContext = null,
+    getVideoAspects = null }) {
     const projected = nodes.map(node => projectCanvasNode(node, runningIds.includes(node.id)));
     const links = connections.map(link => ({ id: link.id, ...(Number.isInteger(link.order)?{order:link.order}:{}), from: { nodeId: link.from?.nodeId, port: link.from?.port }, to: { nodeId: link.to?.nodeId, port: link.to?.port } }));
+    for (const node of projected) {
+        const fields = CANVAS_SCALAR_RULES[node.type];
+        const options = Object.fromEntries(Object.entries(fields || {}).filter(([, rule]) => rule.enum)
+            .map(([field, rule]) => [field, rule.enum]));
+        if (node.type === 'VideoGenerate') {
+            const aspects = getVideoAspects?.(node.id);
+            if (aspects?.length) options.aspect = aspects;
+        }
+        if (Object.keys(options).length) node.parameterOptions = options;
+    }
     for (const node of projected.filter(node => node.type === 'ImageGenerate')) {
         const actual = getGenerationContext?.(node.id);
         const protocolSchema = actual?.parameterSchema?.protocolParams?.properties || {};
+        if (protocolSchema.systemPrompt?.type === 'string') node.supportsSystemPrompt = true;
         const protocolParams = Object.fromEntries(Object.entries(actual?.parameters?.protocolParams || {}).filter(([key, value]) =>
             publicImageProtocolFields.has(key) && Object.hasOwn(protocolSchema, key) && isParameterValue(value)));
         if (Object.keys(protocolParams).length) node.parameters.protocolParams = protocolParams;
@@ -95,15 +129,20 @@ export function createCanvasContext({ workflowId, nodes, connections, selectedId
         summary: { workflowId, totalNodes: projected.length, totalConnections: links.length,
             types: projected.reduce((counts, node) => ({ ...counts, [node.type]: (counts[node.type] || 0) + 1 }), {}),
             selectedIds, mentionedIds, page: read(), readOnlyTool: 'canvasRead: {offset?:number,nodeIds?:string[],connectionOffset?:number,textOffset?:number,assetOffset?:number,images?:{nodeId:string,index:number}[]}',
-            editableTypes: CANVAS_TYPES, editableFields: CANVAS_FIELDS, unread: read().nextOffset !== null || read().connectionsOmitted > 0 } };
+            editableTypes: CANVAS_TYPES, editableFields: CANVAS_FIELDS, creatableTypes: CANVAS_CREATABLE_TYPES,
+            nodePatchFields: CANVAS_NODE_PATCH_FIELDS, unread: read().nextOffset !== null || read().connectionsOmitted > 0 } };
 }
 
 export function canvasBaseline(context, ids, ignoreOutputIds = []) {
     const relevant = new Set(ids);
-    return JSON.stringify({ nodes: context.nodes.filter(node => relevant.has(node.id)).map(({ running, position, effectivePrompt, promptSource, parameterOptions, ...node }) => {
+    return JSON.stringify({ nodes: context.nodes.filter(node => relevant.has(node.id)).map(({ running, position, effectivePrompt, promptSource, parameterOptions, supportsSystemPrompt, patchable, imageCount, ...node }) => {
         // Keep the persisted v1 baseline independent of protocol controls projected from the live UI.
         const { protocolParams, ...parameters } = node.parameters;
-        return { ...node, parameters, ...(ignoreOutputIds.includes(node.id) ? { assets: [], missing: false } : {}) };
+        // Stored v1 baselines use the registry's static declarations. A new plan that
+        // edits custom sockets checks their live shape separately.
+        const defaults = getNodeDefinition(node.type);
+        return { ...node, parameters, inputs: defaults?.inputs || [], outputs: defaults?.outputs || [],
+            ...(ignoreOutputIds.includes(node.id) ? { assets: [], missing: false } : {}) };
     }),
         connections: context.connections.filter(link => relevant.has(link.to.nodeId) || relevant.has(link.from.nodeId)) });
 }

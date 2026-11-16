@@ -119,6 +119,36 @@ test('a commit blocked by a later canvas plan releases its pending protection wi
     assert.equal(state.redoStack.length, 1);
 });
 
+test('scoped history waits for workflow startup and rolls back when persistence fails', async () => {
+    const saveAttempts = [];
+    const { state, manager, add } = harness({ persistHistoryTransition: async options => {
+        saveAttempts.push(options.strictRevision);
+        return saveAttempts.length > 1;
+    } });
+    add('old');
+    manager.pushHistory();
+    add('new');
+    const history = state.undoStack.slice();
+
+    state.isRunStarting = true;
+    assert.equal(await manager.undo({ strictRevision: true }), undefined);
+    assert.equal(state.historyTransitionInProgress, undefined);
+    assert.deepEqual(saveAttempts, []);
+
+    state.isRunStarting = false;
+    assert.equal(await manager.undo({ strictRevision: true }), undefined);
+    assert.deepEqual([...state.nodes.keys()], ['old', 'new']);
+    assert.deepEqual(state.undoStack, history);
+    assert.equal(state.redoStack.length, 0);
+    assert.deepEqual(saveAttempts, [true]);
+
+    assert.equal(await manager.undo({ strictRevision: true }), true);
+    assert.deepEqual([...state.nodes.keys()], ['old']);
+    assert.equal(await manager.redo({ strictRevision: true }), true);
+    assert.deepEqual([...state.nodes.keys()], ['old', 'new']);
+    assert.deepEqual(saveAttempts, [true, true, true]);
+});
+
 test('a snapshot protection failure rejects preparation before touching either history branch', () => {
     const { state, manager, add } = harness({ undoMedia: { protect() { throw Error('media protection offline'); }, release() { throw Error('unexpected release'); } } });
     add('old', { mediaAssetKeys: ['media:old'] });

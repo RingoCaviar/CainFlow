@@ -92,6 +92,45 @@ test('binary node media is encoded for atomic owner materialization with its MIM
     }
 });
 
+test('an explicit image history version reads original bytes from only the registered local file endpoint', async t => {
+    const calls = [];
+    t.mock.method(globalThis, 'fetch', async (url, options) => {
+        calls.push({ url, options });
+        return new Response('original-history-image', { headers: { 'Content-Type': 'image/avif' } });
+    });
+    const storage = createDiskStorageApi(() => ({}));
+    assert.equal(await storage.getHistoryImageBlob('relative-file', { fileVersion: '17:999' }), null);
+    assert.equal(await storage.getHistoryImageBlob(-42, { fileVersion: 'invalid' }), null);
+    const blob = await storage.getHistoryImageBlob(-42, { fileVersion: '17:999' });
+    assert.equal(blob.type, 'image/avif');
+    assert.equal(await blob.text(), 'original-history-image');
+    assert.deepEqual(calls, [{
+        url: '/api/storage/library/-42/file',
+        options: { cache: 'no-store', redirect: 'error', headers: { 'X-Media-Version': '17:999' } }
+    }]);
+});
+
+test('history import ownership does not write after scope closes during blob conversion', async t => {
+    let current = true;
+    t.mock.method(globalThis, 'fetch', async () => assert.fail('obsolete owner should never write'));
+    const originalReader = globalThis.FileReader;
+    globalThis.FileReader = class {
+        readAsDataURL() {
+            current = false;
+            this.result = 'data:image/png;base64,aGVsbG8=';
+            this.onload?.();
+        }
+    };
+    try {
+        const storage = createDiskStorageApi(() => ({}));
+        const image = new Blob(['hello'], { type: 'image/png' });
+        assert.equal(await storage.saveWorkflowNodeMediaAsset(image, 'workflow', 'node', 'operation', { isCurrent: () => current }), null);
+    } finally {
+        if (originalReader === undefined) delete globalThis.FileReader;
+        else globalThis.FileReader = originalReader;
+    }
+});
+
 test('history restore checks media metadata and treats transport errors as unknown', async () => {
     const originalFetch = globalThis.fetch;
     const requests = [];

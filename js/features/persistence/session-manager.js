@@ -577,8 +577,9 @@ export function createSessionManagerApi({
         };
     }
 
-    async function applyNodePositions(snapshot, sourceStack, destinationStack, label) {
+    async function applyNodePositions(snapshot, sourceStack, destinationStack, { label, strictRevision }) {
         const current = captureNodePositions(snapshot.positions.map(item => item.id));
+        const saveOptions = strictRevision ? { skipWorkflowAutosave: true } : { dirty: true };
         const apply = positions => {
             for (const { id, x, y } of positions) {
                 const node = state.nodes.get(id);
@@ -589,12 +590,12 @@ export function createSessionManagerApi({
         };
         apply(snapshot.positions);
         try {
-            onBeforeSave({ dirty: true });
-            const saved = await persistHistoryTransition();
+            onBeforeSave(saveOptions);
+            const saved = await persistHistoryTransition({ strictRevision });
             if (saved !== true && !saved?.committed) throw new Error('位置保存失败');
         } catch {
             apply(current.positions);
-            onBeforeSave({ dirty: true });
+            onBeforeSave(saveOptions);
             showToast(`工作流已被并发修改或保存失败，未${label}操作`, 'error');
             return;
         }
@@ -603,6 +604,7 @@ export function createSessionManagerApi({
         updateHistoryButtons();
         saveState();
         showToast(`已${label}节点移动`, 'info');
+        return true;
     }
 
     function assertPreparedHistoryEditAllowed() {
@@ -683,16 +685,16 @@ export function createSessionManagerApi({
         }
     }
 
-    async function applyHistorySnapshot(sourceStack, destinationStack, { intent, label }) {
-        if (sourceStack.length === 0) return;
-        if (state.runningNodeIds?.size > 0) {
-            showToast(`有节点正在运行，暂不能${label}会修改运行中节点的操作`, 'warning');
+    async function applyHistorySnapshot(sourceStack, destinationStack, { intent, label, strictRevision = false, isCurrent = () => true }) {
+        if (sourceStack.length === 0 || !isCurrent()) return;
+        if (state.isRunStarting || state.runningNodeIds?.size > 0) {
+            showToast(`工作流正在启动或运行，请稍后${label}`, 'warning');
             return;
         }
 
         const positionSnapshot = JSON.parse(sourceStack.at(-1));
         if (positionSnapshot?.kind === 'node-positions') {
-            return applyNodePositions(positionSnapshot, sourceStack, destinationStack, label);
+            return applyNodePositions(positionSnapshot, sourceStack, destinationStack, { label, strictRevision });
         }
         const currentSnapshot = captureHistorySnapshot();
         const raw = sourceStack.at(-1);
@@ -710,10 +712,18 @@ export function createSessionManagerApi({
             showToast(`媒体状态检查失败，未${label}操作`, 'error');
             return;
         }
+        try {
+            if (!isCurrent()) throw new Error('画布会话已变化，请重新发起操作。');
+            if (state.isRunStarting || state.runningNodeIds?.size > 0) throw new Error(`工作流正在启动或运行，请稍后${label}`);
+        } catch (error) {
+            await undoMedia.release(currentSnapshot);
+            throw error;
+        }
+        const saveOptions = strictRevision ? { skipWorkflowAutosave: true } : { dirty: true };
         const currentNodeIds = new Set([...state.nodes.keys()].map(String));
         await applySnapshotGraph(snapshot);
         onBeforeSave({
-            dirty: true,
+            ...saveOptions,
             mediaOwnershipRestoreIntent: intent,
             mediaOwnershipRestoreOwnerIds: (snapshot.nodes || [])
                 .filter((node) => !currentNodeIds.has(String(node.id)))
@@ -721,10 +731,15 @@ export function createSessionManagerApi({
                 `${node.type === 'ImageImport' ? 'workflow-import' : 'workflow-node'}:${node.id}`
                 ))
         });
-        const persistence = await persistHistoryTransition();
+        let persistence;
+        try {
+            persistence = await persistHistoryTransition({ strictRevision });
+        } catch (error) {
+            console.warn('History transition could not be saved:', error);
+        }
         if (!persistence?.committed && persistence !== true) {
             await applySnapshotGraph(currentSnapshot);
-            onBeforeSave({ dirty: true, mediaOwnershipClearRestoreMarkers: true });
+            onBeforeSave({ ...saveOptions, mediaOwnershipClearRestoreMarkers: true });
             await undoMedia.release(currentSnapshot);
             showToast(`工作流已被并发修改或保存失败，未${label}操作`, 'error');
             return;
@@ -739,6 +754,7 @@ export function createSessionManagerApi({
         showToast(missingCount > 0
             ? `已${label}节点和连线；${missingCount} 项本地媒体无法恢复`
             : `已${label}上一步操作`, missingCount > 0 ? 'warning' : 'info');
+        return true;
     }
 
     function transitionHistory(source, destination, options) {
@@ -750,25 +766,26 @@ export function createSessionManagerApi({
         return historyTransition;
     }
 
-    async function undo() {
-        if (state.canvasPlanApplying) return;
-        return transitionHistory(state.undoStack, getRedoStack(), { intent: 'undo', label: '撤回' });
+    async function undo({ strictRevision = false, isCurrent } = {}) {
+        if (state.canvasPlanApplying || state.isRunStarting || strictRevision && historyTransition) return;
+        return transitionHistory(state.undoStack, getRedoStack(), { intent: 'undo', label: '撤回', strictRevision, isCurrent });
     }
 
-    async function redo() {
-        if (state.canvasPlanApplying) return;
-        return transitionHistory(getRedoStack(), state.undoStack, { intent: 'redo', label: '重做' });
+    async function redo({ strictRevision = false, isCurrent } = {}) {
+        if (state.canvasPlanApplying || state.isRunStarting || strictRevision && historyTransition) return;
+        return transitionHistory(getRedoStack(), state.undoStack, { intent: 'redo', label: '重做', strictRevision, isCurrent });
     }
 
-    async function applyCanvasBatch(mutate, persist, { rollbackAdditions } = {}) {
+    async function applyCanvasBatch(mutate, persist, { rollbackAdditions, persistCapturesWorkflow = false } = {}) {
         if (historyTransition || state.canvasPlanApplying || (!rollbackAdditions && (state.runningNodeIds?.size || state.isRunStarting))) throw new Error('画布正在修改或运行，请稍后再应用');
         clearTimeout(saveTimer);
         const before = captureHistorySnapshot();
         state.canvasPlanApplying = true;
         try {
             const result = await mutate();
-            onBeforeSave({ dirty: true });
+            if (!persistCapturesWorkflow) onBeforeSave({ dirty: true });
             const saved = await persist();
+            if (saved?.publicationUnknown) throw new Error('无法确认画布保存结果，请重新打开工作流查看后再重试。');
             if (saved === false || saved?.committed === false) throw new Error('方案保存失败，请重试应用');
             const redo = getRedoStack().splice(0);
             void releaseLegacySnapshotMediaOwners(redo.flatMap(raw => { try { return [JSON.parse(raw)]; } catch { return []; } }));
@@ -778,7 +795,7 @@ export function createSessionManagerApi({
         } catch (error) {
             if (rollbackAdditions) await rollbackAdditions();
             else await applySnapshotGraph(before);
-            onBeforeSave({ dirty: true });
+            onBeforeSave(persistCapturesWorkflow ? { skipWorkflowAutosave: true } : { dirty: true });
             await undoMedia.release(before);
             throw error;
         } finally {

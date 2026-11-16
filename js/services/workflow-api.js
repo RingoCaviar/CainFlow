@@ -46,7 +46,9 @@ export async function fetchWorkflowEntries() {
         };
 }
 
-export async function saveWorkflowToFile(name, data, { expectedMediaOwnershipRevision, expectedStorageEpoch, createOnly = false } = {}) {
+export async function saveWorkflowToFile(name, data, {
+    expectedMediaOwnershipRevision, expectedStorageEpoch, createOnly = false, strictRevision = false
+} = {}) {
     const json = JSON.stringify(data);
     const result = await requestWorkflow(
         `/api/workflows/${encodeURIComponent(name)}`,
@@ -55,6 +57,7 @@ export async function saveWorkflowToFile(name, data, { expectedMediaOwnershipRev
             headers: {
                 'Content-Type': 'application/json',
                 ...(createOnly ? { 'X-CainFlow-Create-Workflow': 'true' } : {}),
+                ...(strictRevision ? { 'X-CainFlow-Strict-Workflow-Revision': 'true' } : {}),
                 ...(expectedMediaOwnershipRevision === undefined ? {} : {
                     'X-CainFlow-Expected-Media-Ownership-Revision': String(expectedMediaOwnershipRevision)
                 }),
@@ -69,10 +72,10 @@ export async function saveWorkflowToFile(name, data, { expectedMediaOwnershipRev
     return result?.ok === false ? result : true;
 }
 
-export async function loadWorkflowFromFile(name) {
+export async function loadWorkflowFromFile(name, { fresh = false } = {}) {
     const result = await requestWorkflow(
         `/api/workflows/${encodeURIComponent(name)}`,
-        undefined,
+        fresh ? { cache: 'no-store' } : undefined,
         '读取工作流文件失败'
     );
     return result?.ok === false ? result : result.json();

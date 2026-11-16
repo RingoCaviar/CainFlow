@@ -3,6 +3,17 @@ import { orderImageReferenceConnections } from '../../nodes/image-reference-proj
 import { getNodeDefinition } from '../../nodes/registry.js';
 export const isReferencePort = port => port === 'referenceImages' || /^image(?:_\d+)?$/.test(port);
 export const agentNodeDefinition = type => applyReferenceImagePorts(getNodeDefinition(type), {type});
+export function matchesDisconnectPort(type, expected, actual) {
+    return expected === actual || type === 'ImageGenerate' && isReferencePort(expected) && isReferencePort(actual);
+}
+
+export function isAuthorizedExactDisconnect(plan, edge, identity) {
+    return Boolean(edge?.id && plan.exactDisconnectAuthorization?.version === 1
+        && Array.isArray(plan.exactDisconnectAuthorization.ids) && plan.exactDisconnectAuthorization.ids.includes(edge.id)
+        && plan.disconnects?.some(item => item.connectionId === edge.id
+            && identity(item.ref) === edge.to.nodeId
+            && matchesDisconnectPort(plan.steps.find(step => step.id === item.ref)?.type, item.port, edge.to.port)));
+}
 // Legacy plans are accepted, but all new graph mutations use the visible multi-input socket.
 export function normalizePlanInputs(plan) {
     const targets = new Set(plan.steps.filter(s=>s.type==='ImageGenerate').map(s=>s.id));
@@ -19,12 +30,15 @@ export function normalizePlanInputs(plan) {
 }
 export function projectPlanConnections(plan, connections, identity) {
     const deletedIds = new Set((plan.deletes || []).map(item => item.nodeId));
-    connections = connections.filter(link => !deletedIds.has(link.from.nodeId) && !deletedIds.has(link.to.nodeId));
+    connections = connections.filter(link => !deletedIds.has(link.from.nodeId) && !deletedIds.has(link.to.nodeId)
+        && !isAuthorizedExactDisconnect(plan, link, identity));
     const targets=new Set(plan.steps.filter(s=>s.type==='ImageGenerate').map(s=>identity(s.id)));
     const port=(id,name)=>targets.has(id)&&isReferencePort(name)?'referenceImages':name;
     const key = (id, name) => JSON.stringify([id, port(id, name)]);
     const replacements = new Map();
-    for (const item of plan.disconnects || []) replacements.set(key(identity(item.ref), item.port), []);
+    for (const item of plan.disconnects || []) {
+        if (item.connectionId === undefined) replacements.set(key(identity(item.ref), item.port), []);
+    }
     for (const link of plan.connections) {
         const target = identity(link.to.ref), group = key(target, link.to.port);
         if (!replacements.has(group)) replacements.set(group, []);
@@ -78,7 +92,8 @@ export function assertReferenceInputsPreserved(plan, connections, identity) {
         if (['clear', 'replace'].includes(permission?.mode) && permission.targetNodeIds?.includes(target)) continue;
         const inputs = links => orderImageReferenceConnections( links.filter(link => link.to.nodeId === target && isReferencePort(link.to.port)));
         const deletedIds = new Set((plan.deletes || []).map(item => item.nodeId));
-        const previous = inputs(connections).filter(link => !deletedIds.has(link.from.nodeId)), next = inputs(projected);
+        const previous = inputs(connections).filter(link => !deletedIds.has(link.from.nodeId)
+            && !isAuthorizedExactDisconnect(plan, link, identity)), next = inputs(projected);
         if (!previous.every((link, index) => next[index]?.from.nodeId === link.from.nodeId && next[index]?.from.port === link.from.port)) {
             throw new Error('方案试图断开已有参考图或改变输入顺序，但本轮没有明确要求；请重新生成保留参考图的方案。');
         }

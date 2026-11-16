@@ -16,6 +16,7 @@ import { measurePromptAgentContext } from './prompt-agent-token-budget.js';
 import { getAgentSearchAvailability, normalizeAgentSearch, getConversationSearchSources } from './prompt-agent-search-data.js';
 import { searchPromptAgent } from './prompt-agent-search.js';
 import { normalizeCanvasPlan } from './prompt-agent-canvas-plan.js';
+import { CANVAS_CREATABLE_TYPES } from './prompt-agent-canvas-context.js';
 import { buildCanvasImageBatch, selectedCanvasImageBatchSources } from './prompt-agent-canvas-image-batch.js';
 import { excludesReferenceImages, mayUseCandidate, referenceInputChangePermission } from './prompt-agent-reference-policy.js';
 import { canvasPlanReferenceImages, assertPromptOnlyReferenceRecipe } from './prompt-agent-reference-inputs.js';
@@ -47,7 +48,31 @@ function canvasInstructionText(message) {
 
 const refersToCanvasSelection = text => /选中|所选|(?:这些|这批)(?:图|节点|素材)|\bselected\b/i.test(text);
 
-function requestedCanvasAction(text, batch = false) {
+function requestsCanvasCopy(text) {
+    const copy = /(?:创建|新建|生成|另建).{0,20}副本|(?:复制|克隆)(?![^，。；\n]{0,18}节点(?:上)?的(?:普通|系统)?(?:提示词|文本|参数|设置))[^，。；\n]{0,18}节点|节点\s*(?:复制|克隆)(?:[一两二三\d]+[份个])?|\b(?:make|create)\b[^.,;!?]{0,20}\bcopy\b|\b(?:copy|duplicate|clone)\b[^.,;!?]{0,30}\bnodes?\b/i;
+    const transfer = /(?:提示词|参数|设置|文本)\s*(?:复制|克隆)(?:到|给|进|至)/;
+    const keepOriginal = /(?:不要|别|不必|无需|不希望|不能|禁止).{0,8}(?:复制|克隆|副本)|\b(?:do not|don't|never)\s+(?:copy|duplicate|clone)\b/i;
+    return copy.test(text) && !transfer.test(text) && !keepOriginal.test(text);
+}
+
+export function setAgentCanvasApplicationMode(plan, message) {
+    if (!plan?.steps?.some(step => step.nodeId) || plan.applyInPlace
+        || requestsCanvasCopy(canvasInstructionText(String(message || '')))) return plan;
+    plan.applyInPlace = true;
+    if (!plan.deletes?.length && !plan.disconnects?.length
+        && plan.steps.every(step => !step.patch && CANVAS_CREATABLE_TYPES.includes(step.type))) plan.offerCopy = true;
+    return plan;
+}
+
+function canvasPlanFeedback(error) {
+    const reason = error?.message || '';
+    if (/画布方案必须为 v1|步骤身份无效或重复/.test(reason) || error instanceof TypeError) {
+        return { reason: '原方案没有有效的画布操作', message: '没能整理出可应用的画布操作。请补充要改的节点、输入或具体值，再重新发送。' };
+    }
+    return { reason: reason.slice(0, 500) || '原方案未通过画布校验', message: reason || '画布操作暂时无法应用，请重新发送请求。' };
+}
+
+function requestedCanvasAction(text, batch = false, existing = false) {
     const hypothetical = /(?:如何|怎么|怎样|假设|假如|举个例|\bhow (?:to|do|does)\b|\bwhat if\b)/i;
     const preview = /(?:先|只|仅)(?:帮我)?(?:看|看看|列|给|说|规划|设计|预览).{0,8}(?:方案|流程|步骤)|先(?:看看|讨论|聊聊)|(?:不想|不希望|先不|别|不要|暂不|不用|禁止)[^，,。！？；;\n]{0,12}(?:新建|创建|搭建|添加|应用|连线|建图|改图|改画布)|\b(?:preview only|discuss first)\b|\b(?:do not|don't|without|avoid)\b[^.,;!?]{0,25}\b(?:build|apply|create|add)\b/i;
     const requiresApproval = /(?:等(?:待)?|先(?:让|给|由))(?:我(?:们)?|用户)?(?:先|再)?(?:确认|审批|批准|审核|同意)|(?:我(?:们)?|用户)(?:确认|批准|同意)(?:之?后|了再|再)|\b(?:wait for|until|after|once|pending)\s+(?:my\s+(?:confirmation|approval)|(?:i|we)\s+(?:confirm|approve))\b/i;
@@ -57,9 +82,14 @@ function requestedCanvasAction(text, batch = false) {
     const generate = batch && /(?:^|[。！，,;；\n]|然后|并且?|接着)\s*(?:(?:请|帮我|直接|自动|立即|马上)\s*)*(?:批量|逐张)(?:生图|出图|生成)(?!方案|配置|设置|流程|方法|要怎么)/.test(text);
     const build = /(?:建(?:图|立|节点|工作流)|搭建|去配就行|连(?:线|接|好))|\b(?:build|connect|apply)\b/i.test(text);
     const createNow = /(?:直接|自动|立即|马上)\s*(?:新建|创建|搭建|添加|应用|连线)|\b(?:automatically|immediately)\s+(?:build|apply|create|add)\b/i.test(text);
-    if (!batch && !createNow) return undefined;
+    if (!batch && !createNow && !existing) return undefined;
     if ((run || generate) && !hold.test(text)) return 'run';
     return build || createNow ? 'apply' : undefined;
+}
+
+function agentCanvasDraft(plan, text) {
+    if (!Array.isArray(plan?.steps) || requestsCanvasCopy(text) || requestedCanvasAction(text, false, true) === 'run') return plan;
+    return { ...plan, steps: plan.steps.map(step => step?.nodeId && step.execute === undefined ? { ...step, execute: false } : step) };
 }
 
 function canvasImageBatchRequest(context, message, referenceImages) {
@@ -522,9 +552,10 @@ export async function createPromptAgentModelReply({
         && (referenceImages.length || directCreationRequest.test(requestText)));
     let taskConfirmationRetry = false;
     let batchRetry = false;
+    let canvasPlanRetry = null;
     for (let round = 0; round < 10; round++) {
         assertActive();
-        const request = { ...base, canvasReads, taskConfirmationRetry, searchAllowed: !searchUsed && searchSettings.mode !== 'off', searchContext: search,
+        const request = { ...base, canvasReads, taskConfirmationRetry, canvasPlanRetry, searchAllowed: !searchUsed && searchSettings.mode !== 'off', searchContext: search,
             ...(batch ? { canvasBatchScope: { sourceCount: batch.sourceNodeIds.length, sourceNodeIds: batch.sourceNodeIds, retry: batchRetry } } : {}) };
         if ((canvasReads.length || batchRetry) && measurePromptAgentContext(request).reached) throw new Error('画布详情达到本轮上下文预算，未读取部分无法确认；请用 @节点 缩小范围或先压缩上下文');
         const input = createPromptAgentInput(request);
@@ -605,15 +636,29 @@ export async function createPromptAgentModelReply({
         }
         let reply;
         let canvasEditTargetId;
+        const canvasDraft = canvasContext && payload?.intent !== 'clarify' && payload?.intent !== 'chat'
+            && (payload?.canvasPlan != null || Object.hasOwn(payload || {}, 'canvasPlan') && !payload?.promptPlan);
+        const canvasText = canvasInstructionText(message);
+        const canvasOperations = canvasDraft ? agentCanvasDraft(payload.canvasPlan, canvasText) : null;
+        const selectionMode = payload?.targetSelection?.mode;
+        const visualEdit = Array.isArray(canvasOperations?.steps) && canvasOperations.steps.some(step =>
+            step?.type === 'ImageGenerate' && step.execute !== false
+            && (!step.nodeId || step.imageId || selectionMode === 'latest' || selectionMode === 'explicit'));
         try {
-            if (!payload.canvasBatch && payload.canvasPlan && ['edit', 'refine'].includes(payload.intent) && payload.targetSelection?.mode !== 'prompt-only') {
+            if (canvasPlanRetry && !canvasDraft && !['clarify', 'chat'].includes(payload?.intent)) throw new Error(canvasPlanRetry.message);
+            if (Array.isArray(canvasOperations?.steps) && requestsCanvasCopy(canvasText)
+                && canvasOperations.steps.some(step => step?.nodeId)
+                && (canvasOperations.steps.some(step => step?.patch) || canvasOperations.deletes?.length || canvasOperations.disconnects?.length)) {
+                throw new Error('此复制方案同时改动原节点。请用新步骤表示副本，并明确列出需要更改的原节点。');
+            }
+            if (!payload.canvasBatch && visualEdit && ['edit', 'refine'].includes(payload.intent) && payload.targetSelection?.mode !== 'prompt-only') {
                 // Reuse the established latest-result selection gate before accepting a graph.
                 const targetReply = normalizeReply({ ...payload, canvasPlan: undefined, promptPlan: {
-                    prompt: '画布续改目标检查', imageRoles: (payload.canvasPlan.steps || []).filter(step => step.imageId).map(step => ({ imageId: step.imageId, role: 'edit-target' }))
+                    prompt: '画布续改目标检查', imageRoles: canvasOperations.steps.filter(step => step?.imageId).map(step => ({ imageId: step.imageId, role: 'edit-target' }))
                 } }, null, input.images, message, previousReferences);
                 if (targetReply.intent === 'clarify') return targetReply;
                 const selected = targetReply.promptPlan.referenceImages.find(image => image.role === 'edit-target');
-                if (selected && !(payload.canvasPlan.steps || []).some(step => step.imageId === selected.imageId)) {
+                if (selected && !canvasOperations.steps.some(step => step?.imageId === selected.imageId)) {
                     throw new Error('多步骤续改未引用正确的最新结果，请指定要编辑的图片后重新整理方案');
                 }
                 canvasEditTargetId = selected?.imageId;
@@ -623,12 +668,14 @@ export async function createPromptAgentModelReply({
                 canvasPlan: normalizeCanvasBatch(payload.canvasBatch, batch, canvasContext, message),
                 message: '已整理共用提示词与逐张生图方案。',
                 canvasExecution: batch.mode
-            } : payload.canvasPlan && canvasContext && payload.intent !== 'clarify' ? {
-                intent: ['edit', 'refine', 'chat'].includes(payload.intent) ? payload.intent
+            } : canvasDraft ? {
+                intent: ['edit', 'refine'].includes(payload.intent) ? payload.intent
                     : payload.targetSelection?.mode === 'prompt-only' ? 'refine' : 'generate',
                 message: String(payload.message || '已整理画布操作方案，请检查变更清单。'), promptPlan: null,
-                canvasPlan: normalizeCanvasPlan(payload.canvasPlan, canvasContext, { message, mentionedIds: canvasContext.summary.mentionedIds, images: input.images,
-                    referencePolicy: { intent: payload.intent, selection: payload.targetSelection, previousAssetKeys } })
+                canvasPlan: setAgentCanvasApplicationMode(normalizeCanvasPlan(canvasOperations, canvasContext, {
+                    message, mentionedIds: canvasContext.summary.mentionedIds, images: input.images,
+                    referencePolicy: { intent: visualEdit ? payload.intent : 'generate', selection: payload.targetSelection, previousAssetKeys }
+                }), message)
             } : normalizeReply(payload, context, input.images, message, previousReferences, imageParameterCapabilities);
             if (reply.canvasPlan && !reply.canvasPlan.imageBatch && previousCanvas && payload.targetSelection?.mode === 'prompt-only') {
                 const evidence = payload.targetSelection.evidence;
@@ -637,13 +684,18 @@ export async function createPromptAgentModelReply({
                 assertPromptOnlyReferenceRecipe(previousCanvas, reply.canvasPlan, canvasContext, previousReferenceTarget);
             }
 
-            const canvasText = canvasInstructionText(message);
             const explicitAction = payload.intent !== 'chat' && requestedCanvasAction(canvasText);
             if (explicitAction && canApplyAdditiveCanvasPlan(reply.canvasPlan, canvasContext, canvasText, input.images)) {
                 reply.canvasExecution = explicitAction;
             }
         }
         catch (error) {
+            if (canvasDraft && !canvasPlanRetry && round < 9) {
+                canvasPlanRetry = canvasPlanFeedback(error);
+                onSearchStatus('正在重新校验画布方案…');
+                continue;
+            }
+            if (canvasDraft) error = new Error(canvasPlanFeedback(error).message, { cause: error });
             if (!search) throw error;
             return { intent: 'chat', message: `检索结果已保留，但方案无效：${error.message}`, promptPlan: null, search };
         }

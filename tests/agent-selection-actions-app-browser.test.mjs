@@ -102,13 +102,16 @@ test('Agent uses send-time selection to revise, create or delete through reversi
         await prepareAgent(app);
         assert.equal(await app.evaluate("document.getElementById('prompt-agent-insert-node-context')"), null);
         await select(app, 'target');
-        const first = await request(app, '优化选中画面的提示词', { version: 1, steps: [{ id: 'revise', nodeId: 'source', type: 'Text', parameters: { text: 'optimized' }, execute: false }], connections: [] });
+        const first = await request(app, '优化选中画面的提示词', { version: 1, steps: [{ id: 'revise', nodeId: 'source', type: 'Text', parameters: { text: 'optimized' } }], connections: [] });
         assert.deepEqual(first.canvas.selectedIds, ['target']);
         assert.deepEqual(first.canvas.mentionedIds, []);
         assert.equal((await graph(app)).nodes.find(node => node.id === 'source').text, 'before', 'a model reply only previews');
+        assert.equal(await app.evaluate(`[...(${lastCard}).querySelectorAll('button')].find(b=>b.textContent==='运行').hidden`), true);
         await action(app, '仅应用');
         await app.waitFor(`(${lastCard}).querySelector('[role=status]').textContent.includes('已应用并保存')`);
-        assert.equal(await app.evaluate("document.getElementById('source-text').value"), 'before');
+        assert.equal(await app.evaluate("document.getElementById('source-text').value"), 'optimized');
+        assert.equal((await graph(app)).nodes.length, 3);
+        assert.equal((await graph(app)).nodes.find(node => node.id === 'other').text, 'unchanged');
         assert.deepEqual((await graph(app)).connections, session.connections);
 
         await select(app, 'target');
@@ -116,8 +119,8 @@ test('Agent uses send-time selection to revise, create or delete through reversi
         assert.deepEqual(second.canvas.selectedIds, ['target']);
         await action(app, '仅应用');
         await app.waitFor(`(${lastCard}).querySelector('[role=status]').textContent.includes('已应用并保存')`);
-        assert.equal(await app.evaluate("document.querySelectorAll('#nodes-layer>.node').length"), 5);
-        await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.nodes.length===5)");
+        assert.equal(await app.evaluate("document.querySelectorAll('#nodes-layer>.node').length"), 4);
+        await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.nodes.length===4)");
         const created = (await graph(app)).nodes.find(node => node.text === 'independent').id;
         assert.equal((await graph(app)).nodes.find(node => node.id === 'target').prompt, 'local draft');
         await select(app, 'source');
@@ -125,29 +128,29 @@ test('Agent uses send-time selection to revise, create or delete through reversi
         const deletion = await request(app, '删除选中的这两个节点', { version: 1, steps: [], deletes: [{ nodeId: 'source' }, { nodeId: created }], connections: [] });
         assert.deepEqual(new Set(deletion.canvas.selectedIds), new Set(['source', created]));
         const beforeDelete = await graph(app);
-        assert.equal(beforeDelete.nodes.length, 5);
+        assert.equal(beforeDelete.nodes.length, 4);
         assert.match(await app.evaluate(`(${lastCard}).textContent`), /删除 真实提示词 \[source\]/);
         assert.match(await app.evaluate(`(${lastCard}).textContent`), /移除连线/);
         assert.equal(await app.evaluate(`[...(${lastCard}).querySelectorAll('button')].find(b=>b.textContent==='运行').hidden`), true);
         await app.evaluate('failSelectionSave=true');
         await action(app, '仅应用');
         await app.waitFor(`(${lastCard}).querySelector('[role=status]').textContent.includes('保存失败')`);
-        assert.equal(await app.evaluate("document.querySelectorAll('#nodes-layer>.node').length"), 5, 'failed persistence restores every deleted node');
+        assert.equal(await app.evaluate("document.querySelectorAll('#nodes-layer>.node').length"), 4, 'failed persistence restores every deleted node');
         assert.deepEqual((await graph(app)).connections, session.connections, 'failed persistence restores the existing edge');
         await action(app, '仅应用');
-        await app.waitFor("!document.getElementById('source')&&document.querySelectorAll('#nodes-layer>.node').length===3");
+        await app.waitFor("!document.getElementById('source')&&document.querySelectorAll('#nodes-layer>.node').length===2");
         await app.waitFor(`(${lastCard}).querySelector('[role=status]').textContent.includes('已应用并保存')`);
-        await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.nodes.length===3)");
+        await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.nodes.length===2)");
         assert.deepEqual((await graph(app)).connections, []);
         await action(app, '仅应用');
         await app.waitFor(`(${lastCard}).querySelector('[role=status]').textContent.includes('已应用并保存')`);
         await action(app, '撤销本次画布操作');
-        await app.waitFor("document.querySelectorAll('#nodes-layer>.node').length===5");
-        await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.nodes.length===5)");
+        await app.waitFor("document.querySelectorAll('#nodes-layer>.node').length===4");
+        await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.nodes.length===4)");
         assert.deepEqual((await graph(app)).connections, session.connections);
-        assert.equal((await graph(app)).nodes.find(node => node.id === 'source').text, 'before', 'one undo restores the deletion, not the preceding edit');
+        assert.equal((await graph(app)).nodes.find(node => node.id === 'source').text, 'optimized');
         await app.evaluate("document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'y',ctrlKey:true,bubbles:true,cancelable:true}))");
-        await app.waitFor("document.querySelectorAll('#nodes-layer>.node').length===3");
+        await app.waitFor("document.querySelectorAll('#nodes-layer>.node').length===2");
         assert.equal(await app.evaluate('selectionRequests.length'), 3, 'redo does not call a model');
         // Clearing the canvas selection must reach the next request as none.
         await app.evaluate("document.getElementById('canvas-container').dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,clientX:1000,clientY:650}));document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0}))");
@@ -178,5 +181,51 @@ test('an empty selected generation node can be deleted without reference pixels'
         await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.connections.length===1)");
         assert.deepEqual((await graph(app)).connections, connections);
         assert.equal(await app.evaluate('selectionRequests.length'), 1);
+    });
+});
+
+test('Agent previews clearing the selected reference inputs in place and undo restores just those edges', { timeout: 45000 }, async () => {
+    const nodes = [
+        ...session.nodes,
+        { id: 'original', type: 'ImageImport', x: 40, y: 280 },
+        { id: 'second', type: 'ImageGenerate', customTitle: '第二个目标', prompt: 'second draft', x: 750, y: 100 },
+        { id: 'untouched', type: 'ImageGenerate', customTitle: '选区外目标', prompt: 'leave me', x: 750, y: 390 }
+    ];
+    const connections = [...session.connections, ...['target', 'second', 'untouched'].map(nodeId => ({
+        id: `reference-${nodeId}`, type: 'image', order: 0,
+        from: { nodeId: 'original', port: 'image' }, to: { nodeId, port: 'referenceImages' }
+    }))];
+    const data = { workflowId: session.activeWorkflowId, nodes, connections };
+    const fixture = { ...session, ...data, workflowTabs: [{ name: 'Selection', workflowId: data.workflowId, data }] };
+    await withAppBrowser(fixture, async app => {
+        const liveGraph = () => app.evaluate("import('/js/app/bootstrap.js').then(m=>m.bootstrapCainFlowApp()).then(a=>a.workflowManagerApi.getActiveWorkflowSnapshot())");
+        await prepareAgent(app);
+        await select(app, 'target');
+        await select(app, 'second', true);
+        const before = await liveGraph();
+        assert.deepEqual(before.connections.map(link => link.id), connections.map(link => link.id));
+        await app.evaluate(`selectionReply={intent:'generate',canvasPlan:{version:1,steps:[],connections:[]}};
+            document.getElementById('prompt-agent-input').value='把我选中节点的参考图都移除';
+            document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));`);
+        await app.waitFor(`Boolean(${lastCard}) || document.getElementById('prompt-agent-messages').textContent.includes('画布方案必须为 v1')`);
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-messages').textContent.includes('画布方案必须为 v1')"), false);
+        assert.equal(await app.evaluate('selectionRequests.length'), 0);
+        assert.deepEqual((await liveGraph()).connections, before.connections);
+
+        const preview = await app.evaluate(`(${lastCard}).textContent`);
+        assert.match(preview, /移除连线.+当前画面/);
+        assert.match(preview, /移除连线.+第二个目标/);
+        assert.doesNotMatch(preview, /选区外目标|选择可用的生图模型/);
+        assert.equal(await app.evaluate(`[...(${lastCard}).querySelectorAll('button')].find(b=>b.textContent==='运行').hidden`), true);
+        await select(app, 'untouched');
+        await action(app, '仅应用');
+        await app.waitFor(`(${lastCard}).querySelector('[role=status]').textContent.includes('已应用并保存')`);
+        const after = await app.evaluate("fetch('/api/workflows/Selection').then(r=>r.json())");
+        const promptsByNode = graph => Object.fromEntries(graph.nodes.map(({ id, prompt }) => [id, prompt]));
+        assert.deepEqual(promptsByNode(after), promptsByNode(before));
+        assert.deepEqual(after.connections, before.connections.filter(link => ['prompt-edge', 'reference-untouched'].includes(link.id)));
+        await action(app, '撤销本次画布操作');
+        await app.waitFor(async () => (await liveGraph()).connections.length === 4);
+        assert.deepEqual((await liveGraph()).connections, before.connections);
     });
 });

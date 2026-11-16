@@ -1311,7 +1311,7 @@ export function createNodeLifecycleApi({
             isClone: effectiveRestoreData?.isClone === true && typeof effectiveRestoreData?.cloneSourceId === 'string' && !!effectiveRestoreData.cloneSourceId,
             cloneSourceId: typeof effectiveRestoreData?.cloneSourceId === 'string' ? effectiveRestoreData.cloneSourceId : ''
         };
-        if (normalizedType === 'ProductRetouch' && effectiveRestoreData?.data?.mediaOwnershipTemporaryOwners) {
+        if (['ProductRetouch', 'ImageImport'].includes(normalizedType) && effectiveRestoreData?.data?.mediaOwnershipTemporaryOwners) {
             // Operation owners stay with their original workflow and node when copied.
             const { mediaOwnershipTemporaryOwners, ...otherFields } = effectiveRestoreData.data;
             const workflowId = getActiveWorkflowId();
@@ -2196,29 +2196,32 @@ export function createNodeLifecycleApi({
         const refNode = state.nodes.get(refId);
         if (!refNode) return;
 
-        const targetState = !refNode.enabled;
-
-        editableIds.forEach((nid) => {
-            const nodeData = state.nodes.get(nid);
-            if (nodeData) {
-                nodeData.enabled = targetState;
-                nodeData.el.classList.toggle('disabled', !targetState);
-                if (targetState) {
-                    nodeData.el.classList.remove('completed', 'error', 'running');
-                    const timeBadge = documentRef.getElementById(`${nid}-time`);
-                    if (timeBadge && timeBadge.textContent === 'Skip') timeBadge.textContent = '';
-                }
-            }
-        });
-
-        showToast(targetState ? `已启用 ${editableIds.length} 个节点` : `已禁用 ${editableIds.length} 个节点`, 'info');
-        updateAllConnections();
-        updatePortStyles();
-        onConnectionsChanged();
-        scheduleSave();
+        setNodesEnabled(editableIds, !refNode.enabled);
     }
 
-    function renameNode(nodeId, nextTitle) {
+    function setNodesEnabled(nodeIds, enabled, { inBatch = false } = {}) {
+        const nodes = nodeIds.map(id => state.nodes.get(id)).filter(Boolean);
+        if (!nodes.length || nodes.some(node => isNodeRunning(node.id))) return false;
+        for (const node of nodes) {
+            node.enabled = enabled;
+            node.el.classList.toggle('disabled', !enabled);
+            if (enabled) {
+                node.el.classList.remove('completed', 'error', 'running');
+                const timeBadge = documentRef.getElementById(`${node.id}-time`);
+                if (timeBadge?.textContent === 'Skip') timeBadge.textContent = '';
+            }
+        }
+        if (!inBatch) {
+            showToast(enabled ? `已启用 ${nodes.length} 个节点` : `已禁用 ${nodes.length} 个节点`, 'info');
+            updateAllConnections();
+            updatePortStyles();
+            onConnectionsChanged();
+            scheduleSave();
+        }
+        return true;
+    }
+
+    function renameNode(nodeId, nextTitle, { inBatch = false } = {}) {
         const nodeData = state.nodes.get(nodeId);
         if (!nodeData) return false;
         if (nodeData.isClone) {
@@ -2233,7 +2236,7 @@ export function createNodeLifecycleApi({
         const customTitle = normalizeCustomNodeTitle(nextTitle);
         if (customTitle === (nodeData.customTitle || '')) return false;
 
-        pushHistory();
+        if (!inBatch) pushHistory();
         if (customTitle) {
             nodeData.customTitle = customTitle;
             nodeData.data.customTitle = customTitle;
@@ -2250,8 +2253,10 @@ export function createNodeLifecycleApi({
         });
         scheduleEnsureNodeContentVisible(nodeId, { save: false });
         connectionProjection?.nodeGeometryChanged(nodeId);
-        scheduleSave();
-        showToast(customTitle ? `节点已重命名为「${customTitle}」` : '节点名称已还原', 'success');
+        if (!inBatch) {
+            scheduleSave();
+            showToast(customTitle ? `节点已重命名为「${customTitle}」` : '节点名称已还原', 'success');
+        }
         return true;
     }
 
@@ -2363,6 +2368,7 @@ export function createNodeLifecycleApi({
         selectNode,
         refreshNodeRelationCache,
         toggleNodesEnabled,
+        setNodesEnabled,
         renameNode,
         cloneNode,
         detachCloneNode,

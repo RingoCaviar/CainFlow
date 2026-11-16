@@ -329,12 +329,12 @@ export function createDiskStorageApi(getState) {
         return response.ok;
     }
     async function deleteHandle(key) { return key === 'GLOBAL_SAVE_DIR' ? saveHandle(key, '') : true; }
-    async function saveWorkflowNodeMediaAsset(value, workflowId, nodeId, requestedOperationId = '') {
+    async function saveWorkflowNodeMediaAsset(value, workflowId, nodeId, requestedOperationId = '', { isCurrent = () => true } = {}) {
         const operationId = normalizeOrCreateWorkflowMediaOperationId(requestedOperationId);
         const ownerId = workflowOperationOwnerId(workflowId || '', nodeId || '', operationId);
         if (!workflowId || !nodeId) return null;
         const encoded = value instanceof Blob ? await blobToDataUrl(value) : value;
-        if (!encoded) return null;
+        if (!encoded || !isCurrent()) return null;
         const result = await postMediaAssetAction('materialize-owner-list', {
             ownerType: 'workflow-operation', ownerId, values: [encoded]
         });
@@ -563,7 +563,21 @@ export function createDiskStorageApi(getState) {
         for (const entry of entries) await deleteHistoryEntry(entry.id, entry);
         return { historyDeleted: entries.length };
     }
-    async function getHistoryImageBlob(id) {
+    async function getHistoryImageBlob(id, { fileVersion } = {}) {
+        if (fileVersion !== undefined) {
+            if (!Number.isSafeInteger(id) || id === 0 || typeof fileVersion !== 'string'
+                || !/^[0-9]{1,20}:-?[0-9]{1,20}$/.test(fileVersion)) return null;
+            try {
+                const response = await requestLibrary('/api/storage/library/' + encodeURIComponent(id) + '/file', {
+                    cache: 'no-store', redirect: 'error', headers: { 'X-Media-Version': fileVersion }
+                });
+                const mime = (response.headers.get('Content-Type') || '').split(';')[0];
+                if (!response.ok || !/^image\/(?:png|jpeg|webp|gif|bmp|avif)$/.test(mime)) return null;
+                return await response.blob();
+            } catch {
+                return null;
+            }
+        }
         const entry = await getHistoryEntry(id);
         return entry?.mediaType === 'image' ? dataUrlToBlob(entry.image) : null;
     }

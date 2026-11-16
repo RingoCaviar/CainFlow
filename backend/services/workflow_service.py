@@ -113,11 +113,19 @@ def _media_ownership_revision(body):
         raise ValueError('Invalid workflow payload')
 
 
-def save_workflow(name, body, expected_media_ownership_revision=None, *, create_only=False):
+def _workflow_identity(body):
+    identity = json.loads(body.decode('utf-8')).get('workflowId')
+    return identity if isinstance(identity, str) else ''
+
+
+def save_workflow(name, body, expected_media_ownership_revision=None, *, create_only=False, strict_revision=False):
     filepath = get_safe_path(name)
     if not filepath:
         raise ValueError('Invalid workflow name')
     next_revision = _media_ownership_revision(body)
+    identity = _workflow_identity(body) if strict_revision else ''
+    if strict_revision and (not identity or expected_media_ownership_revision is None):
+        raise ValueError('Workflow identity and revision are required')
     with _workflow_write_lock, _workflow_cross_process_lock():
         if create_only and os.path.lexists(filepath):
             raise FileExistsError('Workflow name already exists')
@@ -126,7 +134,10 @@ def save_workflow(name, body, expected_media_ownership_revision=None, *, create_
         current_revision = 0
         if os.path.exists(filepath):
             with open(filepath, 'rb') as file:
-                current_revision = _media_ownership_revision(file.read())
+                previous = file.read()
+            current_revision = _media_ownership_revision(previous)
+            if strict_revision and _workflow_identity(previous) != identity:
+                raise RuntimeError('Workflow identity conflict')
         if expected_media_ownership_revision is not None:
             expected = int(expected_media_ownership_revision)
             if current_revision != expected or next_revision != expected + 1:

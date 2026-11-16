@@ -35,3 +35,53 @@ test('cancellation and arbitrary paths or operations cannot become application c
     await assert.rejects(actions.dispatch('shell', { command: 'invalid' }), /应用操作/);
     assert.deepEqual(calls, []);
 });
+
+test('local history and preset commands resolve exact app identities before reaching the shared edit', async () => {
+    const calls = [];
+    const context = { workflowId: 'w', summary: { selectedIds: ['hero'] }, nodes: [{ id: 'hero', name: '主图' }] };
+    const options = { context, isCurrent: () => true };
+    const actions = createCainflowAppActions({
+        listHistoryImages: async ({ id }) => ({ items: [{ id, fileVersion: '100:200' }] }),
+        importHistory: async args => { calls.push(args); return { imported: args.items }; },
+        prepareApplyPrompt: async args => { calls.push(args); return { plan: { workflowId: 'w' }, promptName: args.name }; }
+    });
+    const imported = parseAgentAppRequest('把历史图片 ID 42、-53 导入当前画布');
+    assert.match(await runAgentAppRequest(imported, actions, options), /已导入 2 张/);
+    const preset = parseAgentAppRequest('把库里的「白底规则」套用到选中节点的系统提示词');
+    assert.deepEqual((await runAgentAppRequest(preset, actions, options)).canvasPlan, { workflowId: 'w' });
+    const namedPreset = parseAgentAppRequest('把库里的「白底规则」套用到节点「主图」的普通提示词');
+    assert.deepEqual((await runAgentAppRequest(namedPreset, actions, options)).canvasPlan, { workflowId: 'w' });
+    assert.deepEqual(calls, [
+        { items: [{ id: 42, fileVersion: '100:200' }, { id: -53, fileVersion: '100:200' }] },
+        { name: '白底规则', nodeId: 'hero', target: 'system' },
+        { name: '白底规则', nodeId: 'hero', target: 'prompt' }
+    ]);
+    const duplicate = { ...context, nodes: [...context.nodes, { id: 'second', name: '主图' }] };
+    await assert.rejects(runAgentAppRequest(parseAgentAppRequest('把库里的「白底规则」套用到「主图」的提示词'),
+        actions, { ...options, context: duplicate }), /同名/);
+    await assert.rejects(runAgentAppRequest(namedPreset, actions, { ...options, context: duplicate }), /同名/);
+});
+
+test('execution and history commands act on the captured workflow and selected node IDs', async () => {
+    const calls = [];
+    const options = { context: { workflowId: 'scene-one', summary: { selectedIds: ['b'] },
+        nodes: [{ id: 'a', name: '接收提示词' }, { id: 'b', name: '出图' }] } };
+    const actions = createCainflowAppActions({
+        runCanvas: async (input, scope) => { calls.push([scope.context.workflowId, input]); return true; },
+        stopCanvas: async (nodeIds, scope) => { calls.push([scope.context.workflowId, nodeIds]); return 1; },
+        changeCanvasHistory: async (method, scope) => { calls.push([scope.context.workflowId, method]); return true; }
+    });
+    assert.match(await runAgentAppRequest(parseAgentAppRequest('运行选中的节点'), actions, options), /已启动/);
+    assert.match(await runAgentAppRequest(parseAgentAppRequest('运行到「接收提示词」'), actions, options), /已启动/);
+    assert.match(await runAgentAppRequest(parseAgentAppRequest('停止选中节点'), actions, options), /停止/);
+    assert.match(await runAgentAppRequest(parseAgentAppRequest('运行节点「出图」'), actions, options), /已启动/);
+    assert.match(await runAgentAppRequest(parseAgentAppRequest('停止 @接收提示词[a]'), actions, options), /停止/);
+    assert.match(await runAgentAppRequest(parseAgentAppRequest('撤销上一步'), actions, options), /已撤销/);
+    assert.deepEqual(calls, [
+        ['scene-one', { mode: 'selected-only', selectedNodeIds: ['b'] }],
+        ['scene-one', { mode: 'target-node', targetNodeId: 'a' }],
+        ['scene-one', ['b']], ['scene-one', { mode: 'selected-only', selectedNodeIds: ['b'] }],
+        ['scene-one', ['a']], ['scene-one', 'undo']
+    ]);
+    await assert.rejects(actions.dispatch('stop_workflow', { nodeIds: ['elsewhere'] }, options), /当前工作流/);
+});

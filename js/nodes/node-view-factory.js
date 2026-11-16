@@ -150,6 +150,13 @@ function getTextMergeInputPorts(restoreData = {}) {
     }));
 }
 
+export function getDynamicNodePorts(type, direction, restoreData) {
+    if (type === 'TextSplit' && direction === 'outputs') return getTextSplitOutputPorts(restoreData);
+    if (type === 'TextMerge' && direction === 'inputs') return getTextMergeInputPorts(restoreData);
+    if (type === 'ImageMerge' && direction === 'inputs') return getImageMergeInputPorts(restoreData);
+    return null;
+}
+
 function renderPortSections(id, config) {
     const inputPorts = renderPorts(id, config.inputs || [], 'input');
     const outputPorts = renderPorts(id, config.outputs || [], 'output');
@@ -1271,12 +1278,10 @@ function renderNodeBody(type, id, restoreData, state) {
 
 export function createNodeMarkup({ type, id, config, restoreData, state }) {
     let effectiveConfig = config;
-    if (type === 'TextSplit') {
-        effectiveConfig = { ...config, outputs: getTextSplitOutputPorts(restoreData) };
-    } else if (type === 'TextMerge') {
-        effectiveConfig = { ...config, inputs: getTextMergeInputPorts(restoreData) };
-    } else if (type === 'ImageMerge') {
-        effectiveConfig = { ...config, inputs: getImageMergeInputPorts(restoreData) };
+    const inputs = getDynamicNodePorts(type, 'inputs', restoreData);
+    const outputs = getDynamicNodePorts(type, 'outputs', restoreData);
+    if (inputs || outputs) {
+        effectiveConfig = { ...config, inputs: inputs || config.inputs, outputs: outputs || config.outputs };
     } else if (type === 'ImageGenerate' || type === 'VideoGenerate' || type === 'TextChat') {
         effectiveConfig = applyReferenceImagePorts(config, restoreData);
     } else if (type === 'CustomParams') {

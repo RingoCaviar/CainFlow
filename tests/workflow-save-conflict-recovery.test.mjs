@@ -2,6 +2,63 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createWorkflowManagerApi } from '../js/features/workflow/workflow-manager.js';
 
+test('strict canvas persistence refuses conflict rebase and reconciles an uncertain publication', async t => {
+    const staged = { id: 'imported', type: 'ImageImport', mediaAssetKeys: ['media:original'], data: {
+        mediaOwnershipTemporaryOwners: [{ ownerId: '["workflow-a","imported","pending"]', assetKeys: ['media:original'] }]
+    } };
+    const restored = { workflowId: 'workflow-a', mediaOwnershipRevision: 1, nodes: [], connections: [] };
+    for (const scenario of ['conflict', 'published', 'unknown']) {
+        let disk = restored, readbacks = 0, writes = 0, committed = 0;
+        const fetchMock = t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+            if (url === '/api/workflows') return Response.json({ workflows: ['History'], folders: [] });
+            assert.equal(url, '/api/workflows/History');
+            if (options.method === 'POST') {
+                writes++;
+                const document = JSON.parse(options.body);
+                if (scenario === 'conflict') {
+                    return Response.json({ error: 'Conflict', detail: 'Workflow media ownership revision conflict' }, { status: 409 });
+                }
+                if (scenario === 'published') disk = document;
+                throw new TypeError('controlled lost response');
+            }
+            if (options.cache === 'no-store') readbacks++;
+            if (scenario === 'unknown') throw new TypeError('controlled readback unavailable');
+            return Response.json(disk);
+        });
+        try {
+            const state = { workflowTabs: [], workflowOrder: [], workflowFolders: [], nodes: new Map(),
+                connections: [], selectedNodes: new Set(), canvas: { x: 0, y: 0, zoom: 1 } };
+            const manager = createWorkflowManagerApi({
+                state, nodeSerializer: { buildStatePayload: () => ({ nodes: [...state.nodes.values()], connections: [] }),
+                    serializeNodes: () => [...state.nodes.values()] },
+                viewportApi: { updateCanvasTransform() {} }, addNode() {}, updateAllConnections() {}, updatePortStyles() {},
+                scheduleSave() {}, showToast() {}, panelManager: {}, prepareDetachedEditorView: async () => ({ async commit() { return true; } }),
+                getStorageSafetyStatus: async () => ({ storageEpoch: 'epoch' }),
+                recordMediaWorkflowRevision: async () => { committed++; return true; },
+                getMediaOwnerReferenceList: async () => null,
+                replaceMediaOwnerReferenceList: async () => ({ status: 'committed' }),
+                removeMediaReference: async () => true,
+                documentRef: { getElementById: () => null }, windowRef: { innerWidth: 0, innerHeight: 0 },
+                localStorageRef: { getItem: () => null, setItem() {} }
+            });
+            await manager.activateRestoredWorkflowState({
+                workflowTabs: [{ workflowId: 'workflow-a', name: 'History', data: structuredClone(restored) }],
+                activeWorkflowId: 'workflow-a', activeWorkflowName: 'History', workflowData: structuredClone(restored)
+            });
+            state.nodes.set(staged.id, structuredClone(staged));
+            const result = await manager.persistActiveHistoryTransition({ strictRevision: true });
+            assert.equal(writes, 1, scenario);
+            assert.equal(readbacks, scenario === 'conflict' ? 0 : 1, scenario);
+            assert.equal(result.committed, scenario === 'published', scenario);
+            assert.equal(Boolean(result.publicationUnknown), scenario === 'unknown', scenario);
+            assert.equal(committed, scenario === 'published' ? 1 : 0, scenario);
+            assert.equal(manager.hasPendingAutosave(), false, scenario);
+        } finally {
+            fetchMock.mock.restore();
+        }
+    }
+});
+
 test('retouch original metadata can be cleaned on save and reopen without dropping its output', async () => {
     const originalFetch = globalThis.fetch;
     try {

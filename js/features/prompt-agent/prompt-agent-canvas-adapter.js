@@ -3,18 +3,24 @@ import { prepareCanvasPlanRecreation } from './prompt-agent-canvas-recreation.js
 import { normalizePlanInputs, projectPlanConnections, referenceManifest, assertReferenceInputsPreserved, isReferencePort, assertPromptOnlyReferenceRecipe } from './prompt-agent-reference-inputs.js';
 import { replaceAgentSizeFields, resolveDraftImageSize, sizeFields } from './prompt-agent-size.js';
 import { imageParameterCapabilities } from './prompt-agent-model.js';
-import { resolveAgentParameterPatch } from './prompt-agent-parameters.js';
+import { getPromptAgentControl, resolveAgentParameterPatch } from './prompt-agent-parameters.js';
 import { getEffectiveProtocol } from '../execution/provider-request-utils.js';
 import { resolveThinking } from '../execution/thinking-config.js';
 import { createCanvasContext, canvasBaseline, cloneCanvasValue, canvasPlanExecutionNodeIds } from './prompt-agent-canvas-context.js';
-import { assertCanvasPlanCurrent, assertCanvasPlanPromptInputs, describeCanvasPlan } from './prompt-agent-canvas-plan.js';
+import { assertCanvasPlanCurrent, assertCanvasPlanPromptInputs, assertCanvasMergeResize, canvasPlanDynamicPorts, canvasPlanPatchPositions,
+    describeCanvasPlan, isCanvasGraphOnlyStep } from './prompt-agent-canvas-plan.js';
 import { getAvailablePromptAgentImageModels } from './prompt-agent-node-adapter.js';
 import { resolveAgentProvider } from './prompt-agent-provider.js';
 import { getNodeDefinition } from '../../nodes/registry.js';
 import { nodeBounds, findNearbyNodePosition } from '../execution/node-placement.js';
+import { isPromptLibraryWrite, validatePromptLibraryWrite } from './prompt-agent-apply-library-prompt.js';
+import { rememberWorkflowMediaOperation } from '../media/workflow-media-operation.js';
 
 const controlFields = { text: 'text', filename: 'filename', resizeMode: 'resize-mode', scalePercent: 'scale-percent',
-    targetWidth: 'target-width', targetHeight: 'target-height', keepAspect: 'keep-aspect', quality: 'quality' };
+    targetWidth: 'target-width', targetHeight: 'target-height', keepAspect: 'keep-aspect', quality: 'quality',
+    prompt: 'prompt', sysprompt: 'sysprompt', fixed: 'fixed', aspect: 'aspect', generationCount: 'generation-count',
+    whiteBalanceMode: 'white-balance', temperature: 'temperature', tint: 'tint', vibrance: 'vibrance',
+    saturation: 'saturation', previewEnabled: 'preview-enabled' };
 const generationFields = { aspect: 'aspectRatio', generationCount: 'count', resolution: 'resolution', customWidth: 'customWidth', customHeight: 'customHeight', quality: 'quality', moderation: 'moderation', background: 'background', search: 'search', protocolParams: 'protocolParams' };
 
 function generationParameters(step) {
@@ -22,33 +28,51 @@ function generationParameters(step) {
         .map(([key, value]) => [generationFields[key], value])), ...step.generationPatch };
 }
 
+function generationReferenceTargetIds(plan, recorded = []) {
+    const previouslyRecorded = new Set(recorded.map(item => item.nodeId));
+    return plan.steps.filter(step => step.type === 'ImageGenerate' && !isPromptLibraryWrite(plan, step)
+        // Older plans also recorded nonexecuting generation nodes. Recheck every
+        // recorded target during retry while keeping structural edits model-free.
+        && (!isCanvasGraphOnlyStep(plan, step) || previouslyRecorded.has(plan.bindings[step.id])))
+        .map(step => plan.bindings[step.id]);
+}
+
 export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNodes, getWorkflowId, addNode, removeNode, onNodesRemoved = () => {},
-    nodeAdapter, session, save, graphChanged, origin, getImageAsset, runWorkflow, cancelNode, focusNode }) {
+    nodeAdapter, session, save, persistInPlace = save, graphChanged, origin, getImageAsset, runWorkflow, cancelNode, focusNode,
+    renameNode, setNodesEnabled }) {
     const activePlans = new Map();
     const executionConfigs = new Map();
     const context = (mentionedIds = [], { includeSelection = true } = {}) => createCanvasContext({ workflowId: getWorkflowId(), nodes: serializeNodes(), connections: state.connections,
         selectedIds: includeSelection ? [...state.selectedNodes] : [], mentionedIds, runningIds: [...(state.runningNodeIds || [])],
-        getGenerationContext: id => nodeAdapter?.getContext(id) });
+        getGenerationContext: id => nodeAdapter?.getContext(id),
+        getVideoAspects: id => Array.from((documentRef ? getPromptAgentControl(documentRef, state.nodes.get(id), `${id}-aspect`) : null)?.options || [])
+            .filter(option => !option.disabled && !option.hidden).map(option => option.value) });
     function prepare(plan) {
         normalizePlanInputs(plan);
         return plan;
     }
     function modelsFor(plan, defaultModelId) {
         const models = getAvailablePromptAgentImageModels(state.models, state.providers);
-        return Object.fromEntries(plan.steps.filter(step => step.type === 'ImageGenerate' && !step.cachedAssetKeys).map(step => {
-            const id = plan.modelOverrides?.[step.id] || defaultModelId;
+        const existingNodes = plan.applyInPlace && plan.steps.some(step => step.type === 'ImageGenerate' && step.nodeId
+            && !isCanvasGraphOnlyStep(plan, step) && !isPromptLibraryWrite(plan, step)) ? context().nodes : [];
+        return Object.fromEntries(plan.steps.filter(step => step.type === 'ImageGenerate' && !step.cachedAssetKeys
+            && !isCanvasGraphOnlyStep(plan, step) && !isPromptLibraryWrite(plan, step)).map(step => {
+            const existing = existingNodes.find(node => node.id === step.nodeId);
+            const id = plan.modelOverrides?.[step.id] || (existing ? existing.modelId : defaultModelId);
             const model = models.find(item => item.id === id);
             if (!model) throw new Error(`请为「${step.title}」手动选择可用的生图模型`);
-            const provider = resolveAgentProvider(model, state.providers, plan.providerOverrides?.[step.id]?.[id] ?? plan.agentProviders?.[id]);
+            const providerId = plan.providerOverrides?.[step.id]?.[id] ?? (existing?.modelId === id ? existing.providerId : plan.agentProviders?.[id]);
+            const provider = resolveAgentProvider(model, state.providers, providerId);
             if (!provider?.endpoint) throw new Error(`「${step.title}」的 Provider 不可用`);
             // Agent-level image thinking preferences are retired; only explicit per-step
             // overrides and the model/Provider defaults remain applicable.
-            const thinking = resolveThinking({ model, provider, task: 'image', protocol: model.protocol }, plan.thinkingOverrides?.[step.id]?.[id]).setting;
+            const thinking = resolveThinking({ model, provider, task: 'image', protocol: model.protocol },
+                plan.thinkingOverrides?.[step.id]?.[id] ?? (existing?.modelId === id ? existing.thinking : undefined)).setting;
             return [step.id, { model, provider, thinking }];
         }));
     }
     function sizesFor(plan, defaultModelId, selected = modelsFor(plan, defaultModelId)) {
-        return Object.fromEntries(plan.steps.filter(step => step.type === 'ImageGenerate' && !step.cachedAssetKeys).map(step => {
+        return Object.fromEntries(plan.steps.filter(step => Object.hasOwn(selected, step.id)).map(step => {
             const config = selected[step.id];
             const targetId = step.nodeId || plan.bindings?.[step.id];
             const targetModel = documentRef?.getElementById(`${targetId}-apiconfig`)?.value || state.nodes?.get(targetId)?.apiConfigId;
@@ -87,10 +111,13 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         const ids = new Map(plan.steps.map(step => [step.id, step.nodeId || plan.bindings?.[step.id] || `new:${step.id}`]));
         assertReferenceInputsPreserved(plan, connections, ref => ids.get(ref) || ref);
         const links = projectPlanConnections(plan, connections, ref => ids.get(ref) || ref);
+        assertCanvasMergeResize(plan.steps, links, ref => ids.get(ref) || ref);
+        const enabledPatches = new Map(plan.steps.filter(step => step.patch?.enabled !== undefined)
+            .map(step => [ids.get(step.id), step.patch.enabled]));
         for (const edge of links) {
             const source = state.nodes.get(edge.from.nodeId);
-            if (source?.enabled === false && !state.connections.includes(edge)
-                && !(plan.templateId && plan.retainedDisabledSources?.includes(source.id))) throw new Error('不能新增或改写已禁用来源的输入关系。');
+            if ((enabledPatches.get(edge.from.nodeId) ?? source?.enabled) === false && !state.connections.includes(edge)
+                && !(plan.templateId && plan.retainedDisabledSources?.includes(edge.from.nodeId))) throw new Error('不能新增或改写已禁用来源的输入关系。');
         }
         const visited = new Set(), visiting = new Set();
         const visit = id => {
@@ -101,7 +128,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         };
         for (const id of ids.values()) visit(id);
         for (const step of plan.steps) {
-            if (!['ImageResize', 'ImagePreview', 'ImageCompare', 'ImageMerge', 'ImageSave'].includes(step.type)) continue;
+            if (step.execute === false || !['ImageResize', 'ImagePreview', 'ImageCompare', 'ImageMerge', 'ImageSave'].includes(step.type)) continue;
             const inputs = links.filter(link => link.to.nodeId === ids.get(step.id));
             const hasRequiredInput = step.type === 'ImageCompare' ? inputs.some(link => link.to.port === 'imageB')
                 : step.type === 'ImageSave' ? inputs.some(link => ['image', 'video'].includes(link.to.port))
@@ -112,12 +139,48 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
     }
     const liveRecreationConnections = recreation => recreation.missingIds.size ? recreation.connections.map(edge =>
         state.connections.find(current => current.id && current.id === edge.id) || edge) : state.connections;
-    async function apply(plan, defaultModelId, onPlanChange = () => {}, isCurrent = () => true) {
+    function applyNodePatch(node, patch) {
+        if (!node || node.isClone || state.runningNodeIds?.has(node.id)) throw new Error('目标节点已变化，无法修改');
+        const { title, enabled, x, y } = patch;
+        if (title !== undefined && title !== (node.customTitle || '') && !renameNode?.(node.id, title)) {
+            throw new Error('无法修改节点名称');
+        }
+        if (enabled !== undefined && enabled !== (node.enabled !== false) && !setNodesEnabled?.([node.id], enabled)) {
+            throw new Error('无法修改节点启用状态');
+        }
+        if (x !== undefined) {
+            node.x = x;
+            node.el.style.left = `${x}px`;
+        }
+        if (y !== undefined) {
+            node.y = y;
+            node.el.style.top = `${y}px`;
+        }
+    }
+    function applyPromptLibraryField(plan, step) {
+        const { control, content } = validatePromptLibraryWrite(plan, step, context());
+        const node = state.nodes.get(step.nodeId);
+        const field = getPromptAgentControl(documentRef, node, `${node.id}-${control}`);
+        if (field?.tagName !== 'TEXTAREA' || field.disabled || control !== 'text' && field.readOnly) {
+            throw new Error('目标提示词当前不可编辑');
+        }
+        // Some old workflows stored a second value in the protocol parameters.
+        // The normal prompt textarea becomes the effective source after this edit.
+        if (control === 'prompt' && node.type === 'ImageGenerate' && node.data?.protocolParams) delete node.data.protocolParams.prompt;
+        field.value = content;
+        field.dispatchEvent(new documentRef.defaultView.Event('input', { bubbles: true }));
+        field.dispatchEvent(new documentRef.defaultView.Event('change', { bubbles: true }));
+    }
+    async function apply(plan, defaultModelId, onPlanChange = () => {}, isCurrent = () => true, {
+        stagedImports = new Map(), persist = plan.applyInPlace ? persistInPlace : save
+    } = {}) {
         if (!isCurrent()) throw new Error('方案所属会话已变化');
         if (activePlans.size && !plan.templateId) throw new Error('另一个画布方案正在执行');
         const recreation = prepareCanvasPlanRecreation(plan, context());
         const connectionBase = liveRecreationConnections(recreation);
         assertCanvasPlanPromptInputs(plan, context());
+        const libraryStep = plan.steps.find(step => isPromptLibraryWrite(plan, step));
+        if (plan.libraryPrompt && !libraryStep) throw new Error('提示词库操作缺少有效目标');
         const selected = modelsFor(plan, defaultModelId);
         const sizes = sizesFor(plan, defaultModelId, selected);
         const configurationSnapshot = cloneCanvasValue({ models: state.models, providers: state.providers });
@@ -125,12 +188,21 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         const signature = JSON.stringify({ sizes, steps: plan.steps, connections: plan.connections, disconnects: plan.disconnects || [], deletes: plan.deletes || [],
             models: Object.fromEntries(Object.entries(selected).map(([id, config]) => [id, { modelId: config.model.id, providerId: config.provider.id, thinking: config.thinking }])) });
         if (plan.appliedSignature === signature && plan.steps.every(step => state.nodes.has(plan.bindings?.[step.id]))) {
-            if (await save() === false) throw new Error('方案保存失败，请重试');
+            const saved = await persist();
+            if (saved?.publicationUnknown) throw new Error('无法确认画布保存结果，请重新打开工作流查看后再重试。');
+            if (saved === false || saved?.committed === false) throw new Error('方案保存失败，请重试');
             executionConfigs.set(plan.id, configurationSnapshot);
             return plan;
         }
+        if (libraryStep) validatePromptLibraryWrite(plan, libraryStep, context());
         const workflowId = getWorkflowId();
-        for (const step of plan.steps) if (step.assetKey && !await getImageAsset(step.assetKey)) throw new Error('本地原图缺失，不能应用方案');
+        for (const step of plan.steps) {
+            const staged = stagedImports.get(step.id);
+            if (staged && (step.nodeId || step.type !== 'ImageImport' || step.assetKey !== staged.asset.asset_key || state.nodes.has(staged.nodeId))) {
+                throw new Error('历史原图暂存与导入节点不匹配，请重新导入。');
+            }
+            if (step.assetKey && !staged && !await getImageAsset(step.assetKey)) throw new Error('本地原图缺失，不能应用方案');
+        }
         if (!isCurrent()) throw new Error('读取素材期间会话已变化，未创建节点');
         if (getWorkflowId() !== workflowId) throw new Error('工作流已切换');
         if (JSON.stringify(configurationSnapshot) !== JSON.stringify({ models: state.models, providers: state.providers })) throw new Error('模型配置已变化，请检查模型后重新应用');
@@ -179,22 +251,32 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                         const position = gridSteps.has(id) ? { x: start.x, y: start.y } : findNearbyNodePosition({ x: bounds ? bounds.x + bounds.width + 80 : start.x,
                             y: bounds ? bounds.y : start.y, width, occupied });
                         const config = selected[id];
+                        const staged = stagedImports.get(id);
                         const parameters = config && step.type === 'ImageGenerate'
                             ? { prompt: step.parameters.prompt } : step.parameters;
                         nodeId = addNode(step.type, position.x, position.y, { ...parameters, customTitle: step.title,
+                            ...(staged ? { id: staged.nodeId, agentReferenceSource: {
+                                historyId: staged.id, historyVersion: staged.fileVersion, assetKey: step.assetKey
+                            } } : {}),
                             ...(config ? { apiConfigId: config.model.id, providerId: config.provider.id } : {}),
                             ...(step.assetKey ? { mediaAssetKeys: step.cachedAssetKeys || [step.assetKey], imageImportAssetKey: step.assetKey, imageAssetReady: true } : {}),
                             ...(step.cachedAssetKeys ? { mediaAssetKeys: [...step.cachedAssetKeys], imageAssetKey: step.cachedAssetKeys[0], imageAssetReady: true,
                                 imageCount: step.cachedAssetKeys.length, apiConfigId: step.cachedModelId || '', providerId: step.cachedProviderId || '' } : {}),
                             ...(step.autoAddedForGeneration ? { autoAddedForGeneration: true } : {}) }, true);
                         if (!nodeId || !state.nodes.has(nodeId)) throw new Error('节点创建失败');
+                        if (staged && (nodeId !== staged.nodeId || !rememberWorkflowMediaOperation(state.nodes.get(nodeId), [staged.asset]))) {
+                            throw new Error('无法登记历史原图的保存记录，请重新导入。');
+                        }
                         createdNodes.push({ nodeId, type: step.type, autoAdded: step.autoAddedForGeneration });
                         occupied.push(nodeBounds(state.nodes.get(nodeId), state.canvas?.zoom || 1));
                     }
                     if (!state.nodes.has(nodeId)) throw new Error('方案绑定节点已删除，请刷新方案');
                     bindings[id] = nodeId;
-                    if (step.cachedAssetKeys) continue;
-                    if (step.type === 'ImageGenerate') {
+                    if (step.patch) applyNodePatch(state.nodes.get(nodeId), step.patch);
+                    if (step.cachedAssetKeys || isCanvasGraphOnlyStep(plan, step)) continue;
+                    if (isPromptLibraryWrite(plan, step)) {
+                        applyPromptLibraryField(plan, step);
+                    } else if (step.type === 'ImageGenerate') {
                         const inheritedInput = step.inheritedFields?.includes('prompt') && plan.connections.some(edge => edge.to.ref === id && edge.to.port === 'prompt');
                         const prompt = inheritedInput && !String(step.parameters.prompt || '').trim() ? undefined : step.parameters.prompt ?? nodeAdapter.getContext(nodeId)?.prompt;
                         const patch = { targetNodeId: nodeId, prompt, ...(typeof step.negativePrompt === 'string' ? { negativePrompt: step.negativePrompt } : {}),
@@ -212,11 +294,12 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                         if (!nodeAdapter.applyPromptPlan(patch)) throw new Error('生图参数不兼容');
                     } else for (const [field, value] of Object.entries(step.parameters)) {
                         if (field === 'inputCount') {
-                            if (step.nodeId && value !== state.nodes.get(nodeId)?.data?.inputCount) throw new Error('已有合并节点的输入数量请在节点上调整');
+                            if (step.nodeId) state.nodes.get(nodeId).data.inputCount = value;
                             continue;
                         }
-                        const control = documentRef.getElementById(`${nodeId}-${controlFields[field]}`);
-                        if (!control) throw new Error(`节点不支持参数 ${field}`);
+                        const control = getPromptAgentControl(documentRef, state.nodes.get(nodeId), `${nodeId}-${controlFields[field]}`);
+                        // A Text card stays read-only until direct keyboard editing begins.
+                        if (!control || control.disabled || field !== 'text' && control.readOnly) throw new Error(`节点当前不可编辑参数 ${field}`);
                         if (control.options && ![...control.options].some(option => option.value === String(value) && !option.disabled)) throw new Error(`参数 ${field} 的值不受支持`);
                         if (control.type === 'checkbox') {
                             if (typeof value !== 'boolean') throw new Error(`${field} 必须是布尔值`);
@@ -239,7 +322,10 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                     from: { ...edge.from, nodeId: replacementIds.get(edge.from.nodeId) || edge.from.nodeId },
                     to: { ...edge.to, nodeId: replacementIds.get(edge.to.nodeId) || edge.to.nodeId }
                 })) : state.connections;
-                state.connections = projectPlanConnections(plan, restoredConnections, ref => bindings[ref] || ref).map(link => ({...link,id:link.id || `conn_${crypto.randomUUID()}`}));
+                if (!libraryStep) {
+                    state.connections = projectPlanConnections(plan, restoredConnections, ref => bindings[ref] || ref)
+                        .map(link => ({ ...link, id: link.id || `conn_${crypto.randomUUID()}` }));
+                }
                 const gridNodes = [...gridSteps].map(id => state.nodes.get(bindings[id]));
                 const gridIds = new Set(gridNodes.map(node => node.id));
                 const gridObstacles = [...state.nodes.values()].filter(node => !gridIds.has(node.id))
@@ -253,15 +339,23 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                 plan.dependencies = plan.dependencies.filter(id => !recreation.missingIds.has(id));
                 plan.bindings = bindings; plan.appliedSignature = signature; plan.appliedSizes = cloneCanvasValue(sizes);
                 plan.completedDeletions = (plan.deletes || []).map(item => item.nodeId);
-                plan.referenceManifest = referenceManifest(context().nodes, state.connections, plan.steps.filter(s=>s.type==='ImageGenerate').map(s=>bindings[s.id]),canvasPlanExecutionNodeIds(plan));
+                const appliedContext = context();
+                const executionIds = canvasPlanExecutionNodeIds(plan);
+                plan.referenceManifest = referenceManifest(appliedContext.nodes, state.connections, generationReferenceTargetIds(plan), executionIds);
                 plan.dependencies = [...new Set([...plan.dependencies, ...Object.values(bindings)])];
-                plan.baseline = batchBaseline(plan, context(), canvasPlanExecutionNodeIds(plan));
+                plan.baseline = batchBaseline(plan, appliedContext, executionIds);
+                if (plan.patchPositions) plan.patchPositions = canvasPlanPatchPositions(plan.steps, appliedContext);
+                const dynamicPorts = canvasPlanDynamicPorts(plan, appliedContext);
+                if (dynamicPorts.length) plan.dynamicPorts = dynamicPorts;
                 onPlanChange();
                 return {};
-            }, save, additive ? { rollbackAdditions: async () => {
-                for (const item of createdNodes) await removeNode(item.nodeId, { onlyId: true, skipHistory: true, showToast: false, notifyReferences: false });
-                graphChanged();
-            } } : {});
+            }, persist, {
+                persistCapturesWorkflow: persist !== save,
+                ...(additive ? { rollbackAdditions: async () => {
+                    for (const item of createdNodes) await removeNode(item.nodeId, { onlyId: true, skipHistory: true, showToast: false, notifyReferences: false });
+                    graphChanged();
+                } } : {})
+            });
             plan.bindings = bindings; plan.historyId = result.historyId; plan.appliedSignature = signature;
             plan.dependencies = [...new Set([...plan.dependencies, ...Object.values(bindings)])];
             plan.baseline = batchBaseline(plan, context(), canvasPlanExecutionNodeIds(plan));
@@ -289,8 +383,11 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         assertCanvasPlanCurrent(plan, context());
         const validateInputs = () => {
             assertCanvasPlanCurrent(plan, context());
-            const actual = referenceManifest(context().nodes, state.connections, plan.steps.filter(s=>s.type==='ImageGenerate').map(s=>plan.bindings[s.id]),canvasPlanExecutionNodeIds(plan));
-            if (!plan.referenceManifest || JSON.stringify(actual)!==JSON.stringify(plan.referenceManifest)) throw new Error('参考图输入与已确认方案不一致，请重新应用方案。');
+            const recorded = plan.referenceManifest;
+            if (!Array.isArray(recorded)) throw new Error('缺少已确认方案的参考图快照，请重新应用方案。');
+            const targets = generationReferenceTargetIds(plan, recorded);
+            const actual = referenceManifest(context().nodes, state.connections, targets, canvasPlanExecutionNodeIds(plan));
+            if (JSON.stringify(actual) !== JSON.stringify(recorded)) throw new Error('参考图输入与已确认方案不一致，请重新应用方案。');
             if (retry) {
                 const skipped = new Set((plan.completedSteps || []).map(id => plan.bindings[id]));
                 for (const input of actual.flatMap(target => target.inputs).filter(input => input.upstream && skipped.has(input.nodeId))) {
@@ -330,7 +427,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
             if (defaultModelId) try {
                 const selected = modelsFor(plan, defaultModelId);
                 const label = value => !value || value.mode === 'default' ? '接口默认' : String(value.value ?? value.mode);
-                for (const step of plan.steps.filter(item => item.type === 'ImageGenerate')) {
+                for (const step of plan.steps.filter(item => Object.hasOwn(selected, item.id))) {
                     const before = state.nodes.get(step.nodeId || plan.bindings?.[step.id])?.data?.thinking;
                     const node = state.nodes.get(step.nodeId || plan.bindings?.[step.id]);
                     const oldProvider = state.providers.find(provider => provider.id === node?.data?.providerId);

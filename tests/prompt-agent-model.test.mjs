@@ -268,6 +268,93 @@ test('an additive canvas plan runs only when the current user expressly directs 
     assert.equal((await replyHarness(withExternalText, { canvasContext: textContext, message: '使用原有方案文本，直接创建生图节点，然后自动运行' }).result).canvasExecution, 'run');
 });
 
+test('the Agent repairs an empty canvas plan once and targets the captured node even with unrelated latest results', async () => {
+    const canvasContext = createCanvasContext({ workflowId: 'edit', nodes: [
+        { id: 'selected', type: 'Text', text: '原文' }, { id: 'other', type: 'Text', text: '保留' }
+    ], selectedIds: ['selected'], connections: [] });
+    const requests = [];
+    const message = '修改选中节点的文本为新内容，只应用';
+    const reply = await createPromptAgentModelReply({
+        model, providers: [provider], providerId: provider.id, message, canvasContext,
+        workflowReferenceImages: [1, 2].map(resultNumber => ({ referenceId: `result:${resultNumber}`, runId: 'latest',
+            latestResult: true, resultNumber, dataUrl: `data:image/png;base64,LATEST${resultNumber}` })),
+        fetchRef: async (_url, { body }) => {
+            const content = JSON.parse(body).messages.at(-1).content;
+            requests.push(JSON.parse(typeof content === 'string' ? content : content[0].text));
+            const steps = requests.length === 1 ? [] : [{ id: 'revise', nodeId: 'selected', type: 'Text',
+                parameters: { text: '新内容' }, execute: false }];
+            return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({
+                intent: 'edit', canvasPlan: { version: 1, steps }
+            }) } }] }) };
+        }
+    });
+    assert.equal(requests.length, 2);
+    assert.match(requests[1].canvasPlanRetry.reason, /操作/);
+    assert.equal(requests[1].userRequest, message);
+    assert.deepEqual(requests[1].canvas.selectedIds, ['selected']);
+    assert.equal(reply.canvasPlan.steps[0].nodeId, 'selected');
+    assert.equal(reply.canvasPlan.applyInPlace, true);
+    assert.equal(reply.canvasExecution, undefined);
+});
+
+test('the Agent keeps a requested copy in the reusable creation path and rejects persistently empty drafts', async () => {
+    const canvasContext = createCanvasContext({ workflowId: 'edit', nodes: [
+        { id: 'source', type: 'Text', text: '原文' }
+    ], selectedIds: ['source'], connections: [] });
+    const plan = { version: 1, steps: [{ id: 'copy', nodeId: 'source', type: 'Text',
+        parameters: { text: '新内容' }, execute: false }] };
+    const copy = await replyHarness({ intent: 'generate', canvasPlan: plan },
+        { canvasContext, message: '复制选中的文本节点并修改副本' }).result;
+    assert.equal(copy.canvasPlan.applyInPlace, undefined);
+    const original = await replyHarness({ intent: 'generate', canvasPlan: plan },
+        { canvasContext, message: '别复制，把选中的节点内容直接改掉' }).result;
+    assert.equal(original.canvasPlan.applyInPlace, true);
+    const transfer = await replyHarness({ intent: 'generate', canvasPlan: plan },
+        { canvasContext, message: '把提示词复制给选中的节点' }).result;
+    assert.equal(transfer.canvasPlan.applyInPlace, true);
+    await assert.rejects(replyHarness({ intent: 'generate', canvasPlan: { version: 1, steps: [] } },
+        { canvasContext, message: '调整所选节点' }).result, /请补充要改的节点、输入或具体值/);
+});
+
+test('the Agent can append a named reference without requesting authorization for retained reference links', async () => {
+    const canvasContext = createCanvasContext({ workflowId: 'edit', selectedIds: ['generation'], nodes: [
+        { id: 'existing', type: 'ImageImport', customTitle: '原有图', mediaAssetKeys: ['media:existing'] },
+        { id: 'additional', type: 'ImageImport', customTitle: '侧面图', mediaAssetKeys: ['media:additional'] },
+        { id: 'generation', type: 'ImageGenerate', customTitle: '现有生图' }
+    ], connections: [{ id: 'original-link', from: { nodeId: 'existing', port: 'image' },
+        to: { nodeId: 'generation', port: 'referenceImages' }, type: 'image', order: 2 }] });
+    const steps = [{ id: 'target', type: 'ImageGenerate', nodeId: 'generation', parameters: {} }];
+    const connections = ['existing', 'additional'].map((ref, order) => ({ from: { ref, port: 'image' },
+        to: { ref: 'target', port: 'referenceImages' }, order }));
+    const reply = await replyHarness({ intent: 'edit', canvasPlan: { version: 1, steps, connections } },
+        { canvasContext, message: '把侧面图追加到选中节点的参考图' }).result;
+    assert.equal(reply.canvasPlan.applyInPlace, true);
+    assert.equal(reply.canvasPlan.steps[0].execute, false);
+    assert.deepEqual(reply.canvasPlan.connections.map(link => link.from.ref), ['existing', 'additional']);
+    await assert.rejects(replyHarness({ intent: 'edit', canvasPlan: { version: 1, steps, connections } },
+        { canvasContext, message: '把选中节点的提示词改成红色' }).result, /明确指定/);
+});
+
+test('editing and running an existing node stays a canvas edit instead of selecting an unrelated result image', async () => {
+    const canvasContext = createCanvasContext({ workflowId: 'edit', selectedIds: ['generation'], nodes: [
+        { id: 'generation', type: 'ImageGenerate', customTitle: '现有生图', prompt: '旧提示词' }
+    ], connections: [] });
+    const steps = [{ id: 'target', type: 'ImageGenerate', nodeId: 'generation', parameters: { prompt: '新提示词' } }];
+    const workflowReferenceImages = [1, 2].map(resultNumber => ({ referenceId: `result:${resultNumber}`, runId: 'latest',
+        latestResult: true, resultNumber, assetKey: `media:result-${resultNumber}` }));
+    const result = await replyHarness({ intent: 'edit', canvasPlan: { version: 1, steps } },
+        { message: '把选中节点的提示词换成新提示词，然后运行', canvasContext, workflowReferenceImages }).result;
+    assert.equal(result.intent, 'edit');
+    assert.equal(result.canvasPlan.applyInPlace, true);
+    assert.equal(result.canvasPlan.steps[0].execute, true);
+    assert.equal(result.canvasExecution, undefined);
+
+    const newImageSteps = [{ id: 'target', type: 'ImageGenerate', parameters: { prompt: '修改背景为蓝色' } }];
+    const continuation = await replyHarness({ intent: 'edit', canvasPlan: { version: 1, steps: newImageSteps } },
+        { message: '把刚才的背景改成蓝色', canvasContext, workflowReferenceImages }).result;
+    assert.equal(continuation.intent, 'clarify');
+});
+
 test('asking to run existing generation nodes does not authorize new branches', async () => {
     const canvasContext = createCanvasContext({ workflowId: 'new', nodes: [
         { id: 'one', type: 'ImageGenerate', mediaAssetKeys: ['media:first'] },

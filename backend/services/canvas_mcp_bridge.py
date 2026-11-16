@@ -23,18 +23,25 @@ METHOD_ARGUMENTS = {
     'create_workflow': {'editorId', 'name'},
     'list_history': {'editorId', 'id', 'offset', 'limit'},
     'annotate_history': {'editorId', 'id', 'fileVersion', 'note'},
+    'import_history': REVISION_SCOPE | {'items'},
     'list_prompts': {'editorId', 'query', 'offset', 'limit'},
     'save_prompt': {'editorId', 'name', 'content'},
+    'apply_prompt': REVISION_SCOPE | {'nodeId', 'promptId', 'name', 'target'},
     'edit_canvas': REVISION_SCOPE | {'plan'},
     'generate_image_batch': REVISION_SCOPE | {'prompt', 'sourceNodeIds', 'parameters', 'modelId', 'providerId', 'run'},
-    'run_workflow': REVISION_SCOPE | {'nodeIds'},
+    'run_workflow': REVISION_SCOPE | {'nodeIds', 'targetNodeId'},
+    'stop_workflow': REVISION_SCOPE | {'nodeIds'},
+    'undo_canvas': REVISION_SCOPE,
+    'redo_canvas': REVISION_SCOPE,
     'get_workflow_run': RUN_SCOPE | {'offset'},
     'get_run_image': RUN_SCOPE | {'nodeId', 'index'},
 }
 CURRENT_EDITOR_METHODS = frozenset({
     'read_canvas', 'list_models', 'create_workflow', 'list_history', 'annotate_history', 'list_prompts', 'save_prompt',
 })
-REVISION_METHODS = frozenset({'edit_canvas', 'generate_image_batch', 'run_workflow'})
+REVISION_METHODS = frozenset({
+    'edit_canvas', 'generate_image_batch', 'run_workflow', 'stop_workflow', 'undo_canvas', 'redo_canvas', 'import_history', 'apply_prompt',
+})
 IMAGE_MIME_TYPES = frozenset({'image/png', 'image/jpeg', 'image/webp', 'image/gif'})
 EDITOR_ID_PATTERN = re.compile(r'[a-zA-Z0-9_-]{1,128}')
 
@@ -167,7 +174,9 @@ class CanvasMcpBridge:
                 if command and not command.delivered:
                     command.delivered = True
                     self._lease_deadline = max(self._lease_deadline, command.deadline)
-                    return {'command': {'id': command.id, 'method': command.method, 'args': command.args}}
+                    expires_at = int((time.time() + command.deadline - now) * 1000)
+                    return {'command': {'id': command.id, 'method': command.method, 'args': command.args,
+                                        'expiresAt': expires_at}}
                 remaining = deadline - now
                 if remaining <= 0:
                     return {'command': None}

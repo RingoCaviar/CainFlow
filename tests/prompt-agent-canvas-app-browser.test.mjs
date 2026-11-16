@@ -254,7 +254,7 @@ test('applying an existing-node proposal repeatedly creates editable copies and 
     await withAppBrowser({autoCheckUpdatesOnLoad:false,nodes:[{id:'original-text',type:'Text',x:60,y:100,width:250,text:'原始文本',customTitle:'原始节点'}],connections:[],models:[{id:'chat',modelId:'chat',name:'对话',protocol:'openai',taskType:'chat',providerIds:['p']}],providers:[{id:'p',endpoint:'https://controlled.test/v1',apikey:'test'}]},async app=>{
         await app.send('Page.addScriptToEvaluateOnNewDocument',{source:`window.originalCopyFetch=window.fetch;window.copyRequests=0;window.fetch=async(url,options={})=>{if(String(url)==='/proxy'){copyRequests++;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({intent:'generate',message:'编辑文本副本',canvasPlan:{version:1,steps:[{id:'edit',type:'Text',nodeId:'original-text',parameters:{text:'新的文本'}}],connections:[]}})}}]}));}return originalCopyFetch(url,options)};`});
         await reloadAppBrowser(app);
-        await app.evaluate(`document.getElementById('original-text').dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,clientX:100,clientY:150}));document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0,clientX:100,clientY:150}));document.getElementById('btn-prompt-agent').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.getElementById('prompt-agent-input').value='修改选中的原始节点文本';document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));`);
+        await app.evaluate(`document.getElementById('original-text').dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,clientX:100,clientY:150}));document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0,clientX:100,clientY:150}));document.getElementById('btn-prompt-agent').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.getElementById('prompt-agent-input').value='复制选中的文本节点并修改副本';document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));`);
         await app.waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
         for(const count of [2,3]){
             await app.evaluate("[...document.querySelectorAll('.prompt-agent-actions-primary button')].find(b=>b.textContent==='仅应用').click()");
@@ -264,6 +264,19 @@ test('applying an existing-node proposal repeatedly creates editable copies and 
         assert.equal(await app.evaluate("document.getElementById('original-text-text').value"),'原始文本');
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#nodes-layer .node:not(#original-text) textarea')].map(input=>input.value)"),['新的文本','新的文本']);
         assert.equal(await app.evaluate('copyRequests'),1);
+
+        await app.evaluate(`document.getElementById('original-text').dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,clientX:100,clientY:150}));document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0,clientX:100,clientY:150}));document.getElementById('prompt-agent-input').value='修改选中节点的文本';document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));`);
+        await app.waitFor("document.querySelectorAll('.prompt-agent-canvas-plan').length===2");
+        const last = "[...document.querySelectorAll('.prompt-agent-canvas-plan')].at(-1)";
+        for (const count of [4, 5]) {
+            await app.evaluate(`(${last}).querySelector('.prompt-agent-actions-more > summary').click();[...(${last}).querySelectorAll('.prompt-agent-actions-secondary button')].find(b=>b.textContent==='创建副本').click()`);
+            await app.waitFor(`document.querySelectorAll('#nodes-layer .node').length===${count}&&(${last}).querySelector('[role=status]').textContent.includes('已应用并保存')`);
+        }
+        assert.equal(await app.evaluate("document.getElementById('original-text-text').value"), '原始文本');
+        await app.evaluate(`[...(${last}).querySelectorAll('.prompt-agent-actions-primary button')].find(b=>b.textContent==='仅应用').click()`);
+        await app.waitFor("document.getElementById('original-text-text').value==='新的文本'");
+        assert.equal(await app.evaluate("document.querySelectorAll('#nodes-layer .node').length"), 5);
+        assert.equal(await app.evaluate('copyRequests'), 2);
     });
 });
 

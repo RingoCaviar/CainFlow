@@ -9,6 +9,20 @@ from backend.services import workflow_service
 
 
 class WorkflowMediaRevisionTests(unittest.TestCase):
+    def test_strict_save_binds_existing_workflow_identity_under_the_revision_lock(self):
+        with (
+            tempfile.TemporaryDirectory() as root,
+            mock.patch.object(workflow_service.config, 'WORKFLOWS_DIR', root)
+        ):
+            first = b'{"workflowId":"original","mediaOwnershipRevision":1}'
+            wrong = b'{"workflowId":"other","mediaOwnershipRevision":2}'
+            second = b'{"workflowId":"original","mediaOwnershipRevision":2}'
+            workflow_service.save_workflow('flow', first, 0)
+            with self.assertRaisesRegex(RuntimeError, 'identity conflict'):
+                workflow_service.save_workflow('flow', wrong, 1, strict_revision=True)
+            self.assertEqual(first, workflow_service.load_workflow('flow'))
+            self.assertEqual(2, workflow_service.save_workflow('flow', second, 1, strict_revision=True))
+
     def test_create_only_preserves_existing_legacy_document_and_prevents_racing_creates(self):
         with (
             tempfile.TemporaryDirectory() as root,

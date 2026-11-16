@@ -3,7 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { prepareCanvasPlanRecreation } from '../js/features/prompt-agent/prompt-agent-canvas-recreation.js';
 import { createCanvasContext, canvasBaseline } from '../js/features/prompt-agent/prompt-agent-canvas-context.js';
-import { normalizeCanvasPlan, assertCanvasPlanCurrent, promptPlanToCanvas, describeCanvasPlan } from '../js/features/prompt-agent/prompt-agent-canvas-plan.js';
+import { normalizeCanvasPlan, assertCanvasPlanCurrent, promptPlanToCanvas, describeCanvasPlan, isSelectedReferenceClearRequest,
+    createSelectedReferenceClearReply } from '../js/features/prompt-agent/prompt-agent-canvas-plan.js';
 import { createPromptAgentConversationStore } from '../js/features/prompt-agent/prompt-agent-conversation-store.js';
 import { createPromptAgentInput } from '../js/features/prompt-agent/prompt-agent-input.js';
 import { createPromptAgentModelReply } from '../js/features/prompt-agent/prompt-agent-model.js';
@@ -33,6 +34,27 @@ test('the current selection can be revised or deleted while new work remains ind
     assert.deepEqual(deletion.deletes.map(item => item.nodeId), ['target']);
     assert.ok(describeCanvasPlan(deletion, context).some(line => line.includes('删除') && line.includes('target')));
     assert.throws(() => normalizeCanvasPlan({ version: 1, steps: [], deletes: [{ nodeId: 'source' }] }, context), /选中|@节点/);
+});
+
+test('clearing references needs an explicit selected-node command and preserves other inputs, including masks', () => {
+    assert.equal(isSelectedReferenceClearRequest('把我选中节点的参考图都移除'), true);
+    assert.equal(isSelectedReferenceClearRequest('请断开当前选中的生图节点的所有参考图连线。'), true);
+    for (const message of ['不要把选中节点的参考图都移除', '怎么清空选中节点的参考图', '移除选中节点的第1张参考图', '移除选中节点的参考图后运行']) {
+        assert.equal(isSelectedReferenceClearRequest(message), false, message);
+    }
+    const edges = ['image_1', 'referenceImages', 'mask'].map((port, index) => ({ id: `edge-${index}`, order: index,
+        from: { nodeId: 'source', port: 'image' }, to: { nodeId: 'target', port } }));
+    assert.match(createSelectedReferenceClearReply(graph({ selectedIds: ['source'] })).message, /选中.*生图节点/);
+    assert.match(createSelectedReferenceClearReply(graph({ selectedIds: ['target'] })).message, /没有已连接的参考图/);
+    const running = graph({ selectedIds: ['target'], connections: edges, runningIds: ['target'] });
+    assert.match(createSelectedReferenceClearReply(running).message, /正在运行/);
+    const context = graph({ selectedIds: ['source', 'target'], connections: edges });
+    const { canvasPlan: plan } = createSelectedReferenceClearReply(context);
+    assert.equal(plan.applyInPlace, true);
+    assert.deepEqual(plan.steps.map(step => [step.nodeId, step.execute]), [['target', false]]);
+    assert.deepEqual(projectPlanConnections(plan, context.connections, ref => plan.steps.find(step => step.id === ref)?.nodeId || ref), [context.connections[2]]);
+    assert.equal(describeCanvasPlan(plan, context).filter(line => line.includes('移除连线')).length, 2);
+    assert.throws(() => assertCanvasPlanCurrent(plan, graph({ selectedIds: ['target'], connections: edges.slice(1) })), /重新发送原指令/);
 });
 
 test('deletions preview their edge impact, preserve other reference order, and reject conflicts or running neighbors', () => {
@@ -90,15 +112,129 @@ test('change list preserves real line breaks and quotes instead of displaying JS
     assert.equal(JSON.stringify({ context, plan }), snapshot);
 });
 
+test('node patches validate precise existing targets and preserve the send-time position', () => {
+    const node = { id: 'video', type: 'VideoGenerate', customTitle: '原节点', x: 100, y: 200, enabled: false };
+    const context = graph({ nodes: [node], selectedIds: ['video'] });
+    const step = { id: 'patch', type: 'VideoGenerate', nodeId: 'video', patch: { title: '新版', x: -25, y: 60, enabled: true } };
+    const proposal = { version: 1, steps: [step] };
+    const plan = normalizeCanvasPlan(proposal, context);
+    assert.deepEqual(plan.steps[0].patch, step.patch);
+    assert.equal(plan.steps[0].execute, false);
+    assert.equal(plan.applyInPlace, true);
+    assert.equal(context.nodes[0].patchable, true);
+    assert.match(describeCanvasPlan(plan, context).join('\n'), /原节点 → 新版/);
+    assert.match(describeCanvasPlan(plan, context).join('\n'), /100, 200 → -25, 60/);
+    assert.match(describeCanvasPlan(plan, context).join('\n'), /停用 → 启用/);
+    assert.throws(() => assertCanvasPlanCurrent(plan, graph({ nodes: [{ ...node, x: 111 }] })), /变化/);
+    for (const bad of [{ ...step, patch: { enabled: 'true' } }, { ...step, patch: { filePath: 'C:/anything' } },
+        { ...step, patch: { x: Infinity } }, { ...step, patch: { title: 'x'.repeat(101) } },
+        { ...step, nodeId: undefined }, { ...step, patch: { ...step.patch, enabled: false }, execute: true }]) {
+        assert.throws(() => normalizeCanvasPlan({ ...proposal, steps: [bad] }, context));
+    }
+    assert.throws(() => normalizeCanvasPlan(proposal, graph({ nodes: [node] })), /@节点/);
+    assert.throws(() => normalizeCanvasPlan(proposal, graph({ nodes: [node], selectedIds: ['video'], runningIds: ['video'] })), /正在运行/);
+    assert.throws(() => normalizeCanvasPlan(proposal, graph({ nodes: [{ ...node, isClone: true }], selectedIds: ['video'] })), /只读/);
+    assert.throws(() => normalizeCanvasPlan({ version: 1, steps: [step, { ...step, id: 'another' }] }, context), /重复/);
+});
+
+test('registered node shells can be created without running or accepting arbitrary settings', () => {
+    const context = graph();
+    for (const type of ['ImageGenerate', 'ImageCompare', 'VideoGenerate', 'TextChat', 'ProductRetouch', 'CustomParams']) {
+        const plan = normalizeCanvasPlan({ version: 1, steps: [{ id: 'shell', type, execute: false }] }, context);
+        assert.equal(plan.steps[0].execute, false);
+        assert.ok(context.summary.creatableTypes.includes(type));
+    }
+    assert.throws(() => normalizeCanvasPlan({ version: 1, steps: [{ id: 'shell', type: 'ProductRetouch' }] }, context));
+    assert.throws(() => normalizeCanvasPlan({ version: 1, steps: [{ id: 'shell', type: 'VideoGenerate', execute: false,
+        parameters: { endpoint: 'https://example.test' } }] }, context));
+    assert.throws(() => normalizeCanvasPlan({ version: 1, steps: [{ id: 'shell', type: 'ImageSave', execute: false }] }, context));
+});
+
+test('a stopped node can be edited without implicitly enabling or running it', () => {
+    const node = { id: 'text', type: 'Text', text: 'before', enabled: false };
+    const context = graph({ nodes: [node], selectedIds: [node.id] });
+    const step = { id: 'revise', type: 'Text', nodeId: node.id, parameters: { text: 'after' }, execute: false };
+    const plan = normalizeCanvasPlan({ version: 1, steps: [step] }, context);
+    assert.equal(plan.steps[0].execute, false);
+    assert.equal(plan.steps[0].patch, undefined);
+    assert.throws(() => normalizeCanvasPlan({ version: 1, steps: [{ ...step, execute: true }] }, context), /停用/);
+});
+
 test('canvas context projects public fields and pages large mixed graphs with explicit omission', () => {
     const context = graph(); const json = JSON.stringify(context.summary);
     assert.ok(!json.includes('secret')); assert.ok(!json.includes('private.test'));
-    const large = graph({ nodes: Array.from({ length: 101 }, (_, i) => ({ id: `node-${i}`, type: i % 2 ? 'VideoGenerate' : 'Text', text: 'x'.repeat(3000) })) });
+    const large = graph({ nodes: Array.from({ length: 101 }, (_, i) => ({ id: `node-${i}`, type: i % 2 ? 'ProductRetouch' : 'Text', text: 'x'.repeat(3000) })) });
     const seen = []; let offset = 0;
     do { const page = large.read({ offset }); seen.push(...page.nodes); offset = page.nextOffset; } while (offset !== null);
     assert.equal(seen.length, 101); assert.equal(seen[0].parameterTextOmitted, true);
     assert.equal(seen[1].editable, false); assert.equal(large.summary.unread, true);
     assert.throws(() => large.read({ offset: -1 }));
+});
+
+test('ordinary canvas fields validate native values and preserve a wired prompt source', () => {
+    const nodes = [
+        { id: 'chat', type: 'TextChat', prompt: 'local fallback', sysprompt: 'system', fixed: false },
+        { id: 'video', type: 'VideoGenerate', prompt: 'scene', aspect: '16:9', generationCount: 1 },
+        { id: 'color', type: 'ColorReset', whiteBalanceMode: 'original', temperature: 0 },
+        { id: 'split', type: 'TextSplit', previewEnabled: true },
+        { id: 'source', type: 'Text', text: 'wired prompt' }
+    ];
+    const context = createCanvasContext({ workflowId: 'scoped-scalars', nodes,
+        selectedIds: nodes.map(node => node.id), getVideoAspects: () => ['16:9', '9:16'],
+        connections: [{ id: 'wired', from: { nodeId: 'source', port: 'text' }, to: { nodeId: 'chat', port: 'prompt' } }]
+    });
+    const propose = (nodeId, parameters) => normalizeCanvasPlan({ version: 1, steps: [{
+        id: 'edit', nodeId, type: nodes.find(node => node.id === nodeId).type, execute: false, parameters
+    }] }, context);
+    const readings = context.read().nodes;
+    assert.equal(readings.find(node => node.id === 'chat').supportsSystemPrompt, true);
+    assert.deepEqual(readings.find(node => node.id === 'video').parameterOptions.aspect, ['16:9', '9:16']);
+    for (const [id, parameters] of [
+        ['chat', { sysprompt: 'revision', fixed: true }],
+        ['video', { prompt: 'new scene', aspect: '9:16', generationCount: 3 }],
+        ['color', { whiteBalanceMode: 'auto', temperature: -100, tint: 30, vibrance: -5, saturation: 100 }],
+        ['split', { previewEnabled: false }]
+    ]) assert.deepEqual(propose(id, parameters).steps[0].parameters, parameters);
+    for (const [id, parameters] of [
+        ['chat', { fixed: 'true' }], ['chat', { search: true }],
+        ['video', { aspect: '4:3' }], ['video', { generationCount: 1.5 }], ['video', { endpoint: 'https://provider.test' }],
+        ['color', { temperature: -101 }], ['color', { whiteBalanceMode: 'custom' }],
+        ['split', { previewEnabled: 1 }], ['split', { outputCount: 2 }]
+    ]) assert.throws(() => propose(id, parameters));
+    assert.throws(() => propose('chat', { prompt: 'not used' }), /已接入上游/);
+});
+
+test('registered dynamic text sockets are projected, writable and checked against the current layout', () => {
+    const split = { id: 'split', type: 'TextSplit', outputCount: 3 };
+    const merge = { id: 'merge', type: 'TextMerge', inputCount: 2 };
+    const context = graph({ nodes: [split, merge], selectedIds: [merge.id] });
+    assert.deepEqual(context.read().nodes.map(node => [node.inputs.map(port => port.name), node.outputs.map(port => port.name)]), [
+        [['text'], ['part_1', 'part_2', 'part_3']], [['text_1', 'text_2'], ['text']]
+    ]);
+    const wiring = (from, to) => ({ version: 1, steps: [{ id: 'target', type: merge.type, nodeId: merge.id }],
+        connections: [{ from: { ref: split.id, port: from }, to: { ref: 'target', port: to } }] });
+    const plan = normalizeCanvasPlan(wiring('part_3', 'text_2'), context);
+    assert.equal(plan.steps[0].execute, false);
+    assertCanvasPlanCurrent(plan, context);
+    assert.throws(() => normalizeCanvasPlan(wiring('part_4', 'text_2'), context), /端口/);
+    assert.throws(() => normalizeCanvasPlan(wiring('part_3', 'text_3'), context), /端口/);
+    const combined = graph({ nodes: [{ ...split, mergeOutputEnabled: true }, merge], selectedIds: [merge.id] });
+    assert.throws(() => assertCanvasPlanCurrent(plan, combined), /已变化/);
+    assert.doesNotThrow(() => normalizeCanvasPlan(wiring('text', 'text_2'), combined));
+});
+
+test('changing an existing merge count preserves present wires or requires their explicit removal', () => {
+    const nodes = [{ id: 'source', type: 'ImageImport' }, { id: 'merge', type: 'ImageMerge', inputCount: 4 }];
+    const connections = [1, 3].map(index => ({ id: `wire${index}`,
+        from: { nodeId: 'source', port: 'image' }, to: { nodeId: 'merge', port: `image_${index}` } }));
+    const context = graph({ nodes, connections, selectedIds: ['merge'] });
+    const resized = count => ({ version: 1, steps: [{ id: 'resize-ports', type: 'ImageMerge', nodeId: 'merge',
+        parameters: { inputCount: count }, execute: false }] });
+    assert.doesNotThrow(() => normalizeCanvasPlan(resized(5), context));
+    assert.throws(() => normalizeCanvasPlan(resized(2), context), /保留现有连线/);
+    const plan = normalizeCanvasPlan({ ...resized(2), disconnects: [{ ref: 'resize-ports', port: 'image_3', connectionId: 'wire3' }] },
+        context, { explicitInputChanges: true });
+    assert.deepEqual(projectPlanConnections(plan, connections, ref => ref === 'resize-ports' ? 'merge' : ref).map(edge => edge.id), ['wire1']);
 });
 
 test('graph plan orders dependencies, rejects unknown fields/models/ports/cycles, and requires explicit existing targets', () => {
@@ -198,6 +334,25 @@ test('retired Agent image thinking preferences are ignored while model defaults 
     assert.deepEqual(adapter.modelsFor(plan, 'gem').generate.thinking, { mode: 'level', value: 'minimal' });
     plan.thinkingOverrides = { generate: { gem: { mode: 'level', value: 'high' } } };
     assert.deepEqual(adapter.modelsFor(plan, 'gem').generate.thinking, { mode: 'level', value: 'high' });
+});
+
+test('in-place image edits inherit the actual model, provider and thinking until explicitly overridden', () => {
+    const configured = { id: 'configured', modelId: 'gemini-3.1-flash-image-preview', taskType: 'image', protocol: 'google', providerIds: ['existing-provider', 'panel-provider'],
+        thinking: { profile: 'google-image', default: { mode: 'level', value: 'minimal' } } };
+    const panel = { ...configured, id: 'panel', providerIds: ['panel-provider'] };
+    const providers = ['existing-provider', 'panel-provider'].map(id => ({ id, endpoint: 'https://generativelanguage.googleapis.com', apikey: 'test-key' }));
+    const node = { id: 'target', type: 'ImageGenerate', prompt: 'old', apiConfigId: configured.id,
+        providerId: providers[0].id, thinking: { mode: 'level', value: 'high' } };
+    const state = { models: [configured, panel], providers, connections: [], selectedNodes: new Set([node.id]) };
+    const adapter = createPromptAgentCanvasAdapter({ state, serializeNodes: () => [node], getWorkflowId: () => 'workflow-a' });
+    const plan = normalizeCanvasPlan({ version: 1, steps: [
+        { id: 'edit', type: 'ImageGenerate', nodeId: node.id, parameters: { prompt: 'updated' }, execute: false }
+    ] }, adapter.context());
+    plan.applyInPlace = true;
+    plan.agentProviders = { [configured.id]: providers[1].id, [panel.id]: providers[1].id };
+    assert.deepEqual(adapter.modelsFor(plan, panel.id).edit, { model: configured, provider: providers[0], thinking: node.thinking });
+    plan.modelOverrides.edit = panel.id;
+    assert.deepEqual(adapter.modelsFor(plan, panel.id).edit, { model: panel, provider: providers[1], thinking: panel.thinking.default });
 });
 
 test('historical pixels become fixed import assets and legacy plans retain generation patches', () => {

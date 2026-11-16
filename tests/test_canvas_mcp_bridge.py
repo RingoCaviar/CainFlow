@@ -320,6 +320,31 @@ class CanvasMcpBridgeTests(unittest.TestCase):
                     self.assertEqual(editor(port, 'editor-one', 'complete', id=command['id'], result=result)[0], 200)
                     self.assertEqual(pending.result(timeout=2), (200, {'result': result}))
 
+    def test_history_import_and_preset_application_require_editor_workflow_and_revision(self):
+        cases = {
+            'import_history': {'items': [{'id': -42, 'fileVersion': '123:42'}]},
+            'apply_prompt': {'nodeId': 'image', 'name': '清晰包装', 'target': 'system'},
+            'stop_workflow': {'nodeIds': ['image']},
+            'undo_canvas': {},
+            'redo_canvas': {},
+        }
+        with running_server() as port, ThreadPoolExecutor(max_workers=1) as calls, \
+                patch('backend.services.canvas_mcp_bridge.POLL_SECONDS', 0.05):
+            self.assertEqual(editor(port, 'editor-one', activate=True)[0], 200)
+            scope = {'editorId': 'editor-one', 'workflowId': 'workflow-one', 'revision': 'revision-one'}
+            for method, fields in cases.items():
+                with self.subTest(method=method):
+                    self.assertEqual(external(port, method, fields)[0], 400)
+                    args = {**scope, **fields}
+                    self.assertEqual(external(port, method, {**args, 'path': 'outside-canvas'})[0], 400)
+                    self.assertEqual(external(port, method, {**args, 'editorId': 'other-editor'})[0], 409)
+                    pending = calls.submit(external, port, method, args)
+                    command = self.poll_command(port, 'editor-one')
+                    self.assertEqual((command['method'], command['args']), (method, args))
+                    result = {'workflowId': 'workflow-one', 'revision': 'revision-two'}
+                    self.assertEqual(editor(port, 'editor-one', 'complete', id=command['id'], result=result)[0], 200)
+                    self.assertEqual(pending.result(timeout=2), (200, {'result': result}))
+
     def test_timed_out_delivered_command_cannot_replay_or_complete(self):
         with patch('backend.services.canvas_mcp_bridge.POLL_SECONDS', 0.05), \
                 patch('backend.services.canvas_mcp_bridge.COMMAND_SECONDS', 0.5):

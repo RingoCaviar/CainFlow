@@ -51,9 +51,10 @@ test('startup keeps every restored open workflow when the file-list refresh is t
 
 test('startup removes stale restored Open Workflow records together with their missing documents', async () => {
     const originalFetch = globalThis.fetch;
+    let names = ['Default', 'Unsaved'];
     globalThis.fetch = async () => ({
         ok: true,
-        json: async () => ({ workflows: ['Default', 'Unsaved'], folders: [] })
+        json: async () => ({ workflows: names, folders: [] })
     });
     try {
         const state = {
@@ -82,6 +83,14 @@ test('startup removes stale restored Open Workflow records together with their m
             activeWorkflowName: 'Default',
             workflowData: { workflowId: 'workflow-default', nodes: [], connections: [] }
         });
+
+        assert.equal(await manager.ensureOpenWorkflow({ expectedWorkflowId: 'workflow-default' }), true);
+        assert.equal(await manager.ensureOpenWorkflow({ expectedWorkflowId: 'workflow-stale' }), false);
+        names = ['Unsaved'];
+        assert.equal(await manager.ensureOpenWorkflow({ expectedWorkflowId: 'workflow-default' }), true);
+        assert.equal(manager.getActiveWorkflowId(), 'workflow-default');
+        assert.deepEqual(state.workflowTabs.map(({ name }) => name), ['Unsaved 1', 'Default']);
+        names = ['Default', 'Unsaved'];
 
         assert.equal(await manager.ensureOpenWorkflow(), true);
         assert.deepEqual(state.workflowTabs.map(({ name }) => name), ['Default']);

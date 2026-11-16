@@ -313,6 +313,8 @@
     "tests/canvas-edit-reference-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes", "canvas"]},
     "tests/canvas-image-mentions-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes", "canvas"], "sources": ["js/nodes/prompt-image-mentions.js", "js/nodes/node-dom-bindings.js", "js/features/ui/image-mention-picker.js", "js/features/media/reference-image-catalog.js"]},
     "tests/cainflow-app-actions.test.mjs": {"tier": "fast", "groups": ["agent", "canvas", "workflow"]},
+    "tests/canvas-apply-library-prompt.test.mjs": {"tier": "fast", "groups": ["agent", "canvas", "workflow"]},
+    "tests/canvas-history-import.test.mjs": {"tier": "fast", "groups": ["canvas", "workflow", "history"]},
     "tests/canvas-image-batch.test.mjs": {"tier": "fast", "groups": ["agent", "canvas", "workflow"]},
     "tests/canvas-mcp-actions.test.mjs": {"tier": "fast", "groups": ["canvas", "workflow"]},
     "tests/canvas-mcp-app-browser.test.mjs": {"tier": "browser", "groups": ["canvas", "workflow", "backend"]},

@@ -100,7 +100,9 @@ import { createPromptLibraryApi } from '../features/prompts/prompt-library.js';
 import { createPromptAgentController } from '../features/prompt-agent/prompt-agent-controller.js';
 import { createPromptAgentCanvasAdapter } from '../features/prompt-agent/prompt-agent-canvas-adapter.js';
 import { createCanvasMcpActions } from '../features/canvas-mcp/canvas-mcp-actions.js';
-import { createCainflowAppActions } from '../features/canvas-mcp/cainflow-app-actions.js';
+import { canvasRevisionFingerprint, createCainflowAppActions } from '../features/canvas-mcp/cainflow-app-actions.js';
+import { createHistoryCanvasImporter } from '../features/canvas-mcp/canvas-history-import.js';
+import { createPrepareApplyPrompt } from '../features/prompt-agent/prompt-agent-apply-library-prompt.js';
 import { startCanvasMcpEditor } from '../features/canvas-mcp/canvas-mcp-editor.js';
 import { createPromptAgentReferenceSource } from '../features/prompt-agent/prompt-agent-reference-source.js';
 import { createPromptAgentNodeAdapter, getAvailablePromptAgentImageModels } from '../features/prompt-agent/prompt-agent-node-adapter.js';
@@ -1032,7 +1034,12 @@ function resumeWorkflowNode(nodeId) {
 }
 
 async function runWorkflow(runInput = null, { waitForCompletion = false, retainResults, configurationSnapshot, validateBeforeRun, resumeNodeId = null, captureTextResults = false } = {}) {
-    if (state.canvasPlanApplying) throw new Error('画布方案正在应用，请稍后运行');
+    if (state.canvasPlanApplying || state.historyTransitionInProgress) {
+        const message = state.canvasPlanApplying ? '画布方案正在应用，请稍后运行' : '画布正在撤销或重做，请稍后运行';
+        if (waitForCompletion || validateBeforeRun) throw new Error(message);
+        showToast(message, 'warning');
+        return false;
+    }
     if (state.isRunStarting) return false;
     const requestedWorkflowId = workflowManagerApi.getActiveWorkflowId();
     const runStartController = new AbortController();
@@ -1043,7 +1050,11 @@ async function runWorkflow(runInput = null, { waitForCompletion = false, retainR
     try {
         await waitForRunStartFrame();
         if (runStartController.signal.aborted) return false;
-        if (!(await workflowManagerApi.ensureOpenWorkflow())) return false;
+        const workflowOptions = validateBeforeRun ? { expectedWorkflowId: requestedWorkflowId || '' } : undefined;
+        if (!(await workflowManagerApi.ensureOpenWorkflow(workflowOptions))) {
+            if (validateBeforeRun) throw new Error('当前工作流不可用，请重新打开后运行。');
+            return false;
+        }
         if (runStartController.signal.aborted) return false;
         const effectiveRequestedWorkflowId = requestedWorkflowId || workflowManagerApi.getActiveWorkflowId();
         state.runStartingWorkflowId = effectiveRequestedWorkflowId;
@@ -1059,6 +1070,7 @@ async function runWorkflow(runInput = null, { waitForCompletion = false, retainR
             return false;
         }
         const preparedWorkflowId = workflowManagerApi.getActiveWorkflowId();
+        if (state.historyTransitionInProgress) throw new Error('画布正在撤销或重做，请稍后运行');
         validateBeforeRun?.();
         runInput = prepareGenerationSaveTargets({
             state, runInput,
@@ -1074,7 +1086,7 @@ async function runWorkflow(runInput = null, { waitForCompletion = false, retainR
         return getWorkflowRuntimeManagerApi().runWorkflowInContext({ workflowName, workflowId }, workflowData, runInput, { waitForCompletion, retainResults, configurationSnapshot, resumeNodeId, captureTextResults });
     } catch (error) {
         showToast(error?.message || '无法启动工作流', 'warning');
-        if (waitForCompletion) throw error;
+        if (waitForCompletion || validateBeforeRun) throw error;
         return false;
     } finally {
         state.isRunStarting = false;
@@ -1090,6 +1102,12 @@ function cancelRunningNode(nodeId) {
         workflowId: workflowManagerApi.getActiveWorkflowId()
     }, nodeId)
         || getWorkflowRunnerApi().cancelRunningNode(nodeId);
+}
+
+function stopCurrentWorkflow() {
+    const workflowId = workflowManagerApi.getActiveWorkflowId();
+    if (!workflowId) return 0;
+    return getWorkflowRuntimeManagerApi().abortWorkflowRuns({ workflowId, workflowName: workflowManagerApi.getActiveWorkflowName() });
 }
 
 // ===== 持久化 =====
@@ -1181,8 +1199,11 @@ new MutationObserver(records => {
 const promptAgentCanvasAdapter = createPromptAgentCanvasAdapter({
     state, documentRef: document, serializeNodes: () => nodeSerializer.serializeNodes(),
     getWorkflowId: () => workflowManagerApi.getActiveWorkflowId(), addNode, removeNode, onNodesRemoved: handleNodesRemoved,
+    renameNode: (id, title) => getNodeLifecycleApi().renameNode(id, title, { inBatch: true }),
+    setNodesEnabled: (ids, enabled) => getNodeLifecycleApi().setNodesEnabled(ids, enabled, { inBatch: true }),
     nodeAdapter: promptAgentNodeAdapter, session: getSessionManagerApi,
     save: () => workflowManagerApi.saveActiveWorkflow({ silent: true }),
+    persistInPlace: () => workflowManagerApi.persistActiveHistoryTransition({ strictRevision: true }),
     graphChanged: () => { connectionsApi.updateAllConnections(); connectionsApi.updatePortStyles(); handleNodeGraphChanged(); },
     origin: () => {
         const rect = canvasContainer.getBoundingClientRect();
@@ -1200,7 +1221,35 @@ const cainflowAppActions = createCainflowAppActions({
     listHistoryImages: options => listHistoryImages(options),
     annotateHistoryImage: (args, scope) => annotateHistoryImage(args, scope),
     onHistoryNote: result => historyFeature.refreshHistoryAfterNote(result),
-    promptLibrary: getPromptLibraryApi
+    promptLibrary: getPromptLibraryApi,
+    importHistory: createHistoryCanvasImporter({
+        canvasAdapter: promptAgentCanvasAdapter, listHistoryImages, getHistoryImageBlob,
+        saveWorkflowNodeMediaAsset, cancelWorkflowNodeMediaOperation,
+        persist: () => workflowManagerApi.persistActiveHistoryTransition({ strictRevision: true })
+    }),
+    prepareApplyPrompt: createPrepareApplyPrompt({ promptLibrary: getPromptLibraryApi }),
+    runCanvas: (input, { context, isCurrent }) => {
+        const fingerprint = canvasRevisionFingerprint(context);
+        return runWorkflow(input, {
+            validateBeforeRun: () => {
+                if (!isCurrent() || canvasRevisionFingerprint(promptAgentCanvasAdapter.context()) !== fingerprint) {
+                    throw new Error('画布已变化，请重新发起运行。');
+                }
+            }
+        });
+    },
+    stopCanvas: (nodeIds, { context }) => {
+        const workflowId = workflowManagerApi.getActiveWorkflowId();
+        if (workflowId !== context.workflowId) throw new Error('工作流已切换，请重新发起停止。');
+        if (!nodeIds) return stopCurrentWorkflow();
+        const workflow = { workflowId, workflowName: workflowManagerApi.getActiveWorkflowName() };
+        return nodeIds.filter(id => getWorkflowRuntimeManagerApi().cancelRunningNode(workflow, id)).length;
+    },
+    changeCanvasHistory: (method, { isCurrent }) => getSessionManagerApi()[method]({ strictRevision: true, isCurrent }),
+    applyCanvasPlan: async (plan, isCurrent) => {
+        try { return await promptAgentCanvasAdapter.apply(plan, '', undefined, isCurrent); }
+        finally { promptAgentCanvasAdapter.discardExecutionConfig(plan); }
+    }
 });
 
 const promptAgentController = createPromptAgentController({
@@ -1331,7 +1380,7 @@ function getSessionManagerApi() {
             updateAllConnections,
             updatePortStyles,
             onConnectionsChanged: () => handleNodeGraphChanged(),
-            persistHistoryTransition: () => workflowManagerApi?.persistActiveHistoryTransition?.(),
+            persistHistoryTransition: options => workflowManagerApi?.persistActiveHistoryTransition?.(options),
             getWorkflowSnapshot: () => workflowManagerApi?.workflowDesk?.snapshot?.()
                 || Object.freeze({ active: null, open: Object.freeze([]) }),
             removeMediaReference,
@@ -1440,11 +1489,7 @@ function getToolbarControllerApi() {
             canvasContainer,
             viewportApi,
             runWorkflow,
-            stopCurrentWorkflow: () => {
-                const workflowId = workflowManagerApi.getActiveWorkflowId();
-                if (!workflowId) return false;
-                return getWorkflowRuntimeManagerApi().abortWorkflowRuns({ workflowId, workflowName: workflowManagerApi.getActiveWorkflowName() });
-            },
+            stopCurrentWorkflow,
             saveState,
             undo,
             redo,

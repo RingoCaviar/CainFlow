@@ -158,13 +158,17 @@ export function createPromptAgentNodeAdapter({
         const output = getReferenceImageDescriptor(state, { from: { nodeId: node.id, port: 'image' }, to: { port: '' } });
         const localPrompt = readValue(controlDocument, `${node.id}-prompt`, node.data?.prompt ?? '');
         const promptSource = getPromptSource(node);
+        const parameterSchema = readPromptAgentParameterSchema(documentRef, node.id, node);
+        if (parameterSchema.protocolParams?.properties.systemPrompt) {
+            protocolParams.systemPrompt = readValue(controlDocument, `${node.id}-param-systemPrompt`, protocolParams.systemPrompt ?? '');
+        }
         return {
             nodeId: node.id,
             prompt: promptSource?.active ? promptSource.text : protocolParams.prompt || localPrompt,
             localPrompt,
             promptSource,
             negativePrompt: readValue(controlDocument, `${node.id}-param-negative_prompt`, protocolParams.negative_prompt || node.data?.promptAgentNegativePrompt || ''),
-            parameterSchema: readPromptAgentParameterSchema(documentRef, node.id, node),
+            parameterSchema,
             model: model ? { modelId: model.modelId, protocol: model.protocol } : null,
             parameters: {
                 aspectRatio: readValue(controlDocument, `${node.id}-aspect`, node.data?.aspect || ''),

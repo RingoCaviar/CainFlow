@@ -718,7 +718,9 @@ export function createWorkflowManagerApi({
         });
     }
 
-    async function persistWorkflowFile(name, data, { returnOutcome = false, createOnly = false, isCurrent = () => true } = {}) {
+    async function persistWorkflowFile(name, data, {
+        returnOutcome = false, createOnly = false, strictRevision = false, isCurrent = () => true
+    } = {}) {
         const migrationKey = data?.workflowId || '';
         let migration = pendingLegacyMediaMigrations.get(migrationKey) || null;
         let documentPersisted = false;
@@ -734,12 +736,21 @@ export function createWorkflowManagerApi({
             let preparedWorkflow = prepareWorkflowMediaOwnershipCommit(documentData);
             if (!isCurrent()) throw new Error('画布状态已变化，请重新发起操作。');
             data.mediaOwnershipRevision = preparedWorkflow.mediaOwnershipRevision;
-            let result = await saveWorkflowToFileService(name, stripInlineImagesFromWorkflowData(preparedWorkflow), {
+            const writeDocument = stripInlineImagesFromWorkflowData(preparedWorkflow);
+            let result = await saveWorkflowToFileService(name, writeDocument, {
                 createOnly,
+                strictRevision,
                 expectedMediaOwnershipRevision: Number(previousMediaOwnershipRevision || 0),
                 expectedStorageEpoch: mediaOwnership.getExpectedStorageEpoch(data?.workflowId || '')
             });
-            const isMediaOwnershipRevisionConflict = !createOnly && result?.status === 409
+            let publicationUnknown = false;
+            if (strictRevision && result?.ok === false && result.status === undefined) {
+                // A lost response can follow an atomic file replacement. Confirm only the exact document.
+                const persisted = await loadWorkflowFromFileService(name, { fresh: true }).catch(() => null);
+                if (JSON.stringify(persisted) === JSON.stringify(writeDocument)) result = true;
+                else publicationUnknown = true;
+            }
+            const isMediaOwnershipRevisionConflict = !createOnly && !strictRevision && result?.status === 409
                 && result?.detail === 'Workflow media ownership revision conflict';
             if (isMediaOwnershipRevisionConflict) {
                 const persistedWorkflow = await loadWorkflowFromFileService(name);
@@ -774,11 +785,15 @@ export function createWorkflowManagerApi({
             if (result !== true) {
                 if (previousMediaOwnershipRevision === undefined) delete data.mediaOwnershipRevision;
                 else data.mediaOwnershipRevision = previousMediaOwnershipRevision;
-                await migration?.rollback();
-                pendingLegacyMediaMigrations.delete(migrationKey);
+                if (publicationUnknown) {
+                    if (migration) pendingLegacyMediaMigrations.set(migrationKey, migration);
+                } else {
+                    await migration?.rollback();
+                    pendingLegacyMediaMigrations.delete(migrationKey);
+                }
                 const error = new Error(result?.message || result?.detail || '工作流文件写入失败');
                 if (!returnOutcome) showToast(error.message, 'error');
-                return returnOutcome ? { ok: false, documentPersisted: false, error, status: result?.status } : false;
+                return returnOutcome ? { ok: false, documentPersisted: false, publicationUnknown, error, status: result?.status } : false;
             }
             documentPersisted = true;
             if (missingComparisons.size && data.nodes === savedNodes) data.nodes = documentData.nodes;
@@ -795,14 +810,14 @@ export function createWorkflowManagerApi({
             if (preparedWorkflow.mediaOwnershipRestoreOwnerIds) {
                 data.mediaOwnershipRestoreOwnerIds = preparedWorkflow.mediaOwnershipRestoreOwnerIds;
             }
-            const committedRetouchOwners = (data.workflowId === getActiveWorkflowId() ? preparedWorkflow.nodes || [] : [])
-                .filter(node => node.type === 'ProductRetouch' && node.data?.mediaOwnershipTemporaryOwners?.length)
+            const committedTemporaryOwners = (data.workflowId === getActiveWorkflowId() ? preparedWorkflow.nodes || [] : [])
+                .filter(node => node.data?.mediaOwnershipTemporaryOwners?.length)
                 .map(node => [node.id, new Set(node.data.mediaOwnershipTemporaryOwners.map(owner => owner.ownerId))]);
             if (!await mediaOwnership.commitPersistentWorkflow(preparedWorkflow)) {
                 throw new Error('工作流已保存，但媒体引用交接尚未完成；将于下次保存或重新打开时重试');
             }
             if (data.workflowId === getActiveWorkflowId()) {
-                for (const [nodeId, committed] of committedRetouchOwners) {
+                for (const [nodeId, committed] of committedTemporaryOwners) {
                     const liveData = state.nodes.get(nodeId)?.data;
                     if (!liveData?.mediaOwnershipTemporaryOwners) continue;
                     const remaining = liveData.mediaOwnershipTemporaryOwners.filter(owner => !committed.has(owner.ownerId));
@@ -1832,11 +1847,12 @@ export function createWorkflowManagerApi({
 
     function syncActiveWorkflowBeforeSessionSave({
         dirty = false,
+        skipWorkflowAutosave = false,
         mediaOwnershipRestoreOwnerIds = [],
         mediaOwnershipRestoreIntent = 'undo',
         mediaOwnershipClearRestoreMarkers = false
     } = {}) {
-        const tab = snapshotActiveWorkflow({ markDirty: dirty });
+        const tab = snapshotActiveWorkflow({ markDirty: dirty && !skipWorkflowAutosave });
         if (tab && mediaOwnershipClearRestoreMarkers) delete tab.data.mediaOwnershipRestoreOwnerIds;
         if (tab && mediaOwnershipRestoreOwnerIds.length > 0) {
             const documentRevision = Number(tab.data.mediaOwnershipRevision || 0) + 1;
@@ -1847,7 +1863,7 @@ export function createWorkflowManagerApi({
             }));
         }
         if (tab && dirty) refreshWorkflowCardState(tab.name);
-        queuePendingWorkflowSaves();
+        if (!skipWorkflowAutosave) queuePendingWorkflowSaves();
     }
 
     function queuePendingWorkflowSaves() {
@@ -2819,15 +2835,15 @@ export function createWorkflowManagerApi({
         return result.results.every(item => item.status === 'committed');
     }
 
-    async function persistActiveHistoryTransition() {
+    async function persistActiveHistoryTransition({ strictRevision = false } = {}) {
         const tab = snapshotActiveWorkflow();
         if (!tab) return { committed: false };
-        const outcome = await saveWorkflowToFile(tab.name, tab.data, { returnOutcome: true });
+        const outcome = await saveWorkflowToFile(tab.name, tab.data, { returnOutcome: true, strictRevision });
         if (outcome.ok || outcome.documentPersisted) {
             tab.dirty = !outcome.ok;
             return { committed: true, ownershipPending: !outcome.ok };
         }
-        return { committed: false };
+        return { committed: false, ...(outcome.publicationUnknown ? { publicationUnknown: true } : {}) };
     }
 
     async function saveAllOpenWorkflows({ workflowIds: requestedIds, dirtyOnly = false } = {}) {
@@ -3123,7 +3139,11 @@ export function createWorkflowManagerApi({
         }
     }
 
-    async function ensureOpenWorkflow({ useCurrentCanvas = true } = {}) {
+    async function ensureOpenWorkflow({ useCurrentCanvas = true, expectedWorkflowId } = {}) {
+        if (expectedWorkflowId !== undefined) {
+            const activeTab = getActiveWorkflowTab();
+            return Boolean(expectedWorkflowId && activeTab?.workflowId === expectedWorkflowId);
+        }
         const names = await fetchWorkflows({ fallback: null });
         if (!Array.isArray(names)) {
             if (getActiveWorkflowTab()) return true;

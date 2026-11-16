@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createCanvasMcpActions } from '../js/features/canvas-mcp/canvas-mcp-actions.js';
 import { createCanvasContext } from '../js/features/prompt-agent/prompt-agent-canvas-context.js';
+import { createPromptAgentCanvasAdapter } from '../js/features/prompt-agent/prompt-agent-canvas-adapter.js';
 import { projectPlanConnections } from '../js/features/prompt-agent/prompt-agent-reference-inputs.js';
 
 test('reads a page of the live workflow with a stable revision and projected node fields', async () => {
@@ -47,6 +48,63 @@ test('edits the live graph in place and rejects stale and wrong-workflow writes'
     await assert.rejects(dispatch('edit_canvas', { workflowId, revision, plan }), { code: 'stale_revision' });
     workflowId = 'wf-b';
     await assert.rejects(dispatch('edit_canvas', { workflowId: 'wf-a', revision: edited.revision, plan }), { code: 'wrong_workflow' });
+});
+
+test('MCP applies ordinary scalar edits through the native controls and preserves node identity', async () => {
+    const workflowId = 'scalar-edit';
+    const edits = [
+        ['chat', 'TextChat', [
+            ['prompt', 'prompt', 'new question'], ['sysprompt', 'sysprompt', 'private instruction'],
+            ['fixed', 'fixed', true, 'checkbox']
+        ]],
+        ['video', 'VideoGenerate', [
+            ['prompt', 'prompt', 'new scene'], ['aspect', 'aspect', '9:16', 'select'],
+            ['generationCount', 'generation-count', 3, 'number']
+        ]],
+        ['color', 'ColorReset', [
+            ['whiteBalanceMode', 'white-balance', 'auto', 'select'], ['temperature', 'temperature', -30, 'range']
+        ]],
+        ['split', 'TextSplit', [
+            ['previewEnabled', 'preview-enabled', false, 'checkbox']
+        ]]
+    ];
+    const state = { nodes: new Map(), connections: [], selectedNodes: new Set(), models: [], providers: [] };
+    const controls = new Map();
+    const changes = [];
+    for (const [id, type, fields] of edits) {
+        const node = { id, type };
+        state.nodes.set(id, node);
+        for (const [field, suffix, value, inputType] of fields) {
+            const options = field === 'aspect' ? ['16:9', '9:16'] : ['original', 'auto'];
+            const control = {
+                type: inputType,
+                ...(inputType === 'select' ? { options: options.map(value => ({ value })) } : {}),
+                ...(inputType === 'number' ? { min: '1' } : {}),
+                dispatchEvent(event) {
+                    if (event.type !== 'change') return;
+                    node[field] = typeof value === 'boolean' ? this.checked : typeof value === 'number' ? Number(this.value) : this.value;
+                    changes.push([id, field]);
+                }
+            };
+            controls.set(`${id}-${suffix}`, control);
+        }
+    }
+    const documentRef = { body: { children: [] }, defaultView: { Event }, getElementById: id => controls.get(id) };
+    let saves = 0;
+    const canvasAdapter = createPromptAgentCanvasAdapter({ state, documentRef, getWorkflowId: () => workflowId,
+        serializeNodes: () => [...state.nodes.values()], origin: () => ({ x: 0, y: 0 }), graphChanged: () => {},
+        session: () => ({ applyCanvasBatch: async (mutate, persist) => { await mutate(); await persist(); return { historyId: 'edit' }; } }),
+        save: async () => { saves++; return true; }
+    });
+    const { dispatch } = createCanvasMcpActions({ canvasAdapter });
+    const { revision } = await dispatch('read_canvas');
+    const steps = edits.map(([id, type, fields]) => ({ id: `edit-${id}`, type, nodeId: id,
+        parameters: Object.fromEntries(fields.map(([field, , value]) => [field, value])) }));
+    await dispatch('edit_canvas', { workflowId, revision, plan: { version: 1, steps } });
+    const edited = await dispatch('read_canvas');
+    assert.deepEqual(edited.nodes.map(node => [node.id, node.parameters]), steps.map(step => [step.nodeId, step.parameters]));
+    assert.deepEqual(changes, edits.flatMap(([id, , fields]) => fields.map(([field]) => [id, field])));
+    assert.equal(saves, 1);
 });
 
 test('uses only listed model and provider identities for typed generation edits', async () => {

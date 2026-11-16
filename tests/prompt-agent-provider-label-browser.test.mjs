@@ -39,12 +39,28 @@ test('Agent chat, image, search and step menus expose Provider names and keep ma
             const before = [...select.options].map(o => o.textContent);
             providers[1].name = '更名供应商'; view.sync();
             const after = [...select.options].map(o => o.textContent);
-            const value = select.value; view.destroy(); host.remove();
-            return { before, after, value };
+            const value = select.value; view.destroy(); host.replaceChildren();
+
+            const existingPlan = { id: 'existing-provider-test', applyInPlace: true, order: ['image'],
+                steps: [{ id: 'image', type: 'ImageGenerate', nodeId: 'existing', title: '生成', execute: false,
+                    parameters: { aspect: '1:1' } }] };
+            const existingView = renderCanvasPlan({ documentRef: document, parent: host, plan: existingPlan,
+                adapter: { describe: () => [], stepStatus: () => 'draft', modelsFor: () => [], canUndo: () => '',
+                    context: () => ({ nodes: [{ id: 'existing', modelId: 'image', providerId: 'a' }] }) },
+                getModels: () => [models[1]], getProviders: () => providers, getModelId: () => 'image', getProviderId: () => 'b', changed: () => {}, isCurrent: () => true });
+            const inherited = host.querySelector('select').options[0].textContent;
+            existingPlan.modelOverrides = { image: 'image' };
+            existingPlan.providerOverrides = { image: { image: 'b' } };
+            existingView.sync();
+            const override = host.querySelector('select').selectedOptions[0].textContent;
+            existingView.destroy(); host.remove();
+            return { before, after, value, inherited, override };
         })()`);
         assert.ok(step.before.every(label => label.includes('供应商乙')));
         assert.ok(step.after.every(label => label.includes('更名供应商')));
         assert.equal(step.value, '');
+        assert.match(step.inherited, /节点模型：.*供应商甲/);
+        assert.match(step.override, /更名供应商/);
         await delay(50);
     });
 });

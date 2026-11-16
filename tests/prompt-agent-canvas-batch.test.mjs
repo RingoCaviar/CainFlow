@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createSessionManagerApi } from '../js/features/persistence/session-manager.js';
+import { createPromptAgentCanvasAdapter } from '../js/features/prompt-agent/prompt-agent-canvas-adapter.js';
+import { normalizeCanvasPlan } from '../js/features/prompt-agent/prompt-agent-canvas-plan.js';
 
 function harness(options = {}) {
     const state = { nodes: new Map(), connections: [], selectedNodes: new Set(), undoStack: [], redoStack: [], runningNodeIds: new Set(), workflowTabs: [], workflowOrder: [], workflowFolders: [] };
-    const element = () => ({ remove() {}, querySelectorAll: () => [] });
+    const element = () => ({ style: {}, remove() {}, querySelectorAll: () => [] });
     const add = (id, text) => state.nodes.set(id, { id, type: 'Text', text, x: 0, y: 0, data: {}, el: element() });
     const serialize = () => [...state.nodes.values()].map(({ el, ...node }) => structuredClone(node));
     const manager = createSessionManagerApi({ state, storageKey: 'test',
@@ -36,6 +38,57 @@ test('mutation failure or failed durable save restores old graph and does not co
         await assert.rejects(manager.applyCanvasBatch(() => { add('partial', 'oops'); manager.pushHistory(); if (failure === 'mutation') throw Error('creation failed'); }, async () => false));
         assert.deepEqual(serialize(), original); assert.equal(state.undoStack.length, 0); assert.equal(state.redoStack.length, 1); assert.equal(state.canvasPlanApplying, false);
     }
+});
+
+test('a strict failed save restores the pre-edit graph without queueing an ordinary autosave', async () => {
+    const { state, manager, add } = harness();
+    add('old', 'before');
+    const saves = [];
+    manager.setBeforeSave(options => saves.push(options));
+    await assert.rejects(manager.applyCanvasBatch(() => add('partial', 'pending'),
+        async () => ({ committed: false, publicationUnknown: true }), { persistCapturesWorkflow: true }), /无法确认.*请/);
+    assert.deepEqual([...state.nodes.keys()], ['old']);
+    assert.deepEqual(saves, [{ skipWorkflowAutosave: true }]);
+    assert.equal(state.undoStack.length, 0);
+});
+
+test('adapter applies metadata in place, saves once, and rolls back or undoes it as a group', async () => {
+    const { state, manager, add, serialize } = harness();
+    Object.assign(state, { models: [], providers: [], canvas: { zoom: 1 } });
+    add('target', 'retained text');
+    add('other', 'unaffected');
+    Object.assign(state.nodes.get('target'), { type: 'ImageGenerate', prompt: 'keep', customTitle: 'old', apiConfigId: 'configured', providerId: 'bound' });
+    state.selectedNodes.add('target');
+    const original = serialize();
+    let commits = 0, saveResult = { committed: false };
+    const adapter = createPromptAgentCanvasAdapter({ state, documentRef: { body: { children: [] } },
+        serializeNodes: serialize, getWorkflowId: () => 'w', session: () => manager,
+        renameNode: (id, title) => { state.nodes.get(id).customTitle = title; return true; },
+        setNodesEnabled: ([id], enabled) => { state.nodes.get(id).enabled = enabled; return true; },
+        save: async () => assert.fail('metadata edits use scoped persistence'),
+        persistInPlace: async () => { commits++; return saveResult; },
+        origin: () => ({ x: 0, y: 0 }), graphChanged() {}
+    });
+    const plan = normalizeCanvasPlan({ version: 1, steps: [
+        { id: 'update', nodeId: 'target', type: 'ImageGenerate', patch: { title: '新标题', x: -20.5, y: 150, enabled: false } }
+    ] }, adapter.context());
+    assert.deepEqual(adapter.modelsFor(plan, ''), {}, 'a pure patch needs no image model or provider');
+    await assert.rejects(adapter.apply(plan, ''), /保存失败/);
+    assert.deepEqual(serialize(), original);
+    assert.deepEqual(plan.bindings, {});
+    assert.equal(state.undoStack.length, 0);
+    saveResult = { committed: true };
+    await adapter.apply(plan, '');
+    const node = state.nodes.get('target');
+    assert.equal(commits, 2, 'one save attempt per application');
+    assert.deepEqual([node.customTitle, node.x, node.y, node.enabled], ['新标题', -20.5, 150, false]);
+    assert.deepEqual(node.el.style, { left: '-20.5px', top: '150px' });
+    assert.deepEqual([node.prompt, node.apiConfigId, node.providerId], ['keep', 'configured', 'bound']);
+    assert.equal(state.undoStack.length, 1);
+    await manager.undo();
+    assert.deepEqual(serialize(), original);
+    await manager.redo();
+    assert.deepEqual([state.nodes.get('target').customTitle, state.nodes.get('target').x], ['新标题', -20.5]);
 });
 
 test('batch locks nested operations and running graphs; subsequent manual edit remains a separate undo step', async () => {

@@ -4,26 +4,32 @@ import { createThinkingControl } from '../execution/thinking-control.js';
 import { resolveAgentProvider } from './prompt-agent-provider.js';
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 import { createPromptAgentModelMenus, getAgentModelLabel } from './prompt-agent-model-menu.js';
+import { isCanvasGraphOnlyStep } from './prompt-agent-canvas-plan.js';
+import { isPromptLibraryWrite } from './prompt-agent-apply-library-prompt.js';
 
 export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, parent, plan, adapter, getModels, getProviders = () => [], getSize = () => ({}), getProviderId = () => '', getModelId, changed, run, isCurrent, preview = () => {}, configure = () => {} }) {
     const card = documentRef.createElement('section'); card.className = 'prompt-agent-canvas-plan';
     parent.appendChild(card);
     let busy = false;
     let refreshTimer = null;
+    let lastAppliedId = null;
     const element = (tag, text, owner = card) => { const node = documentRef.createElement(tag); node.textContent = text;
         if (tag === 'button') node.className = 'btn btn-secondary'; owner.appendChild(node); return node; };
     const header = element('header', ''); header.className = 'prompt-agent-plan-header';
-    const generatesImages = plan.steps.some(step => step.type === 'ImageGenerate');
-    const title = element('strong', generatesImages ? '图片生成方案' : '画布修改方案', header);
+    const inPlace = plan.applyInPlace === true;
+    const imageSettings = plan.steps.filter(step => step.type === 'ImageGenerate' && !step.cachedAssetKeys
+        && !isCanvasGraphOnlyStep(plan, step) && !isPromptLibraryWrite(plan, step));
+    const generatesImages = imageSettings.some(step => step.execute !== false);
+    const title = element('strong', inPlace ? '画布修改方案' : generatesImages ? '图片生成方案' : '画布方案', header);
     title.title = plan.id;
     const overview = element('details', ''); overview.className = 'prompt-agent-plan-overview';
     const overviewSummary = element('summary', '查看详情', overview);
     const count = `${plan.steps.length + (plan.deletes?.length || 0)} 项操作`;
     element('span', count, overviewSummary).className = 'prompt-agent-plan-count';
     const inputs = element('div', ''); inputs.className = 'prompt-agent-plan-inputs';
-    const references = adapter.inputs?.(plan) || [];
-    element('span', references.length ? `本次生图参考图 · ${references.length} 项`
-        : plan.steps.some(step => step.type === 'ImageGenerate') ? '纯文字生成' : plan.steps.length ? '素材处理方案' : '删除节点方案', inputs);
+    const references = !inPlace || imageSettings.length ? adapter.inputs?.(plan) || [] : [];
+    element('span', inPlace ? '修改现有节点' : references.length ? `本次生图参考图 · ${references.length} 项`
+        : generatesImages ? '纯文字生成' : plan.steps.length ? '素材处理方案' : '删除节点方案', inputs);
     let destroyed = false;
     for (const reference of references) {
         const item = element('button', `${reference.name} → ${reference.purpose}${reference.upstream ? '（本次步骤输出）' : ''}`, inputs);
@@ -42,6 +48,7 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     const modelSelectors = [];
     const focusButtons = new Map();
     const parameterPreviews = new Map();
+    let existingGenerators = new Map();
     for (const id of plan.order) {
         const step = plan.steps.find(item => item.id === id);
         const row = element('li', '', list);
@@ -52,7 +59,7 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         stepStates.set(id, badge);
         const focus = element('button', '定位', heading); focus.type = 'button'; focus.addEventListener('click', () => adapter.focus(latest().bindings?.[id] || step.nodeId));
         focusButtons.set(id, focus);
-        if (step.type === 'ImageGenerate') {
+        if (imageSettings.includes(step)) {
             const settings = element('details', '', row); settings.className = 'prompt-agent-step-settings';
             const modelLabel = element('summary', '模型与参数', settings);
             const select = element('select', '', settings); select.setAttribute('aria-label', `${step.title}的生图模型`);
@@ -60,8 +67,13 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
             parameters.className = 'prompt-agent-step-prompt';
             parameterPreviews.set(id, parameters);
             select.id = `agent-step-model-${plan.id}-${id}`;
-            const providerIdFor = modelId => plan.providerOverrides?.[id]?.[modelId] ?? getProviderId(modelId);
-            const inherit = element('option', '使用面板手动选择的模型', select); inherit.value = '';
+            const original = () => existingGenerators.get(step.nodeId);
+            const inheritedId = () => inPlace && step.nodeId ? original()?.modelId : getModelId();
+            const chosenId = () => plan.modelOverrides?.[id] || inheritedId();
+            const providerIdFor = modelId => plan.providerOverrides?.[id]?.[modelId]
+                ?? (original()?.modelId === modelId ? original()?.providerId : getProviderId(modelId));
+            const inheritedLabel = inPlace && step.nodeId ? '节点模型' : '面板模型';
+            const inherit = element('option', inheritedLabel, select); inherit.value = '';
             for (const model of getModels()) { const option = element('option', getAgentModelLabel(model, getProviders(), providerIdFor(model.id)), select); option.value = model.id; }
             modelSelectors.push({ select, route: { getModels, getProviders, getProviderId: providerIdFor,
                 setProviderId: (modelId, providerId) => { ((plan.providerOverrides ||= {})[id] ||= {})[modelId] = providerId; } } });
@@ -71,23 +83,24 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
             let modelSignature = '';
             const refreshModels = () => {
                 const models = getModels(), value = plan.modelOverrides?.[id] || '';
-                const signature = JSON.stringify([models.map(model => [model.id, getAgentModelLabel(model, getProviders())]), value, getModelId(), models.map(model => getAgentModelLabel(model, getProviders(), providerIdFor(model.id))),
+                const signature = JSON.stringify([models.map(model => [model.id, getAgentModelLabel(model, getProviders())]), value, inheritedId(), models.map(model => getAgentModelLabel(model, getProviders(), providerIdFor(model.id))),
                     getProviders().map(provider => [provider.id, provider.name, provider.endpoint])]);
                 if (signature === modelSignature) return;
                 modelSignature = signature; select.replaceChildren();
-                const inherited = models.find(model => model.id === getModelId());
-                const option = element('option', inherited ? `面板模型：${getAgentModelLabel(inherited, getProviders(), getProviderId(inherited.id))}` : '请先选择面板模型', select); option.value = '';
+                const inherited = models.find(model => model.id === inheritedId());
+                const option = element('option', inherited ? `${inheritedLabel}：${getAgentModelLabel(inherited, getProviders(), providerIdFor(inherited.id))}` : `未配置${inheritedLabel}`, select); option.value = '';
                 for (const model of models) { const option = element('option', getAgentModelLabel(model, getProviders(), providerIdFor(model.id)), select); option.value = model.id; }
                 if (value && !models.some(model => model.id === value)) { const option = element('option', '原模型已不可用，请重新选择', select); option.value = value; option.disabled = true; }
                 select.value = value;
-                const chosen = models.find(model => model.id === (value || getModelId()));
-                modelLabel.textContent = `生图模型与参数：${chosen ? getAgentModelLabel(chosen, getProviders(), value ? providerIdFor(chosen.id) : getProviderId(chosen.id)) : '未选择'}`;
+                const chosen = models.find(model => model.id === chosenId());
+                modelLabel.textContent = `生图模型与参数：${chosen ? getAgentModelLabel(chosen, getProviders(), providerIdFor(chosen.id)) : '未选择'}`;
             };
             thinkingControls.push(createThinkingControl({ documentRef, parent: settings, title: `${step.title}的思考设置`,
-                getOptions: () => { const model = getModels().find(item => item.id === (plan.modelOverrides?.[id] || getModelId())) || {};
-                    return { model, provider: (() => { try { return resolveAgentProvider(model, getProviders(), plan.modelOverrides?.[id] ? providerIdFor(model.id) : getProviderId(model.id)); } catch { return {}; } })(), protocol: model.protocol, task: 'image' }; },
-                getValue: () => plan.thinkingOverrides?.[id]?.[plan.modelOverrides?.[id] || getModelId()],
-                onChange: value => { ((plan.thinkingOverrides ||= {})[id] ||= {})[plan.modelOverrides?.[id] || getModelId()] = value; changed(plan); sync(); } }));
+                getOptions: () => { const model = getModels().find(item => item.id === chosenId()) || {};
+                    return { model, provider: (() => { try { return resolveAgentProvider(model, getProviders(), providerIdFor(model.id)); } catch { return {}; } })(), protocol: model.protocol, task: 'image' }; },
+                getValue: () => plan.thinkingOverrides?.[id]?.[chosenId()]
+                    ?? (original()?.modelId === chosenId() ? original()?.thinking : undefined),
+                onChange: value => { ((plan.thinkingOverrides ||= {})[id] ||= {})[chosenId()] = value; changed(plan); sync(); } }));
             refreshSelectors.push(refreshModels); select.addEventListener('focus', refreshModels);
             select.addEventListener('change', () => { (plan.modelOverrides ||= {})[id] = select.value; if (!select.value) delete plan.providerOverrides?.[id]; changed(plan); sync(); });
         }
@@ -108,7 +121,7 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     const repair = element('button', '配置模型与供应商'); repair.type = 'button'; repair.hidden = true;
     repair.addEventListener('click', () => { if (configurationTarget && isCurrent()) configure(configurationTarget); });
     const actions = element('div', '', header); actions.className = 'prompt-agent-canvas-actions';
-    const refresh = element('button', '刷新变更清单', details); refresh.type = 'button';
+    const refresh = element('button', '刷新变更清单', details); refresh.type = 'button'; refresh.hidden = inPlace;
     const primaryActions = element('div', '', actions); primaryActions.className = 'prompt-agent-actions-primary';
     const moreActions = element('details', '', actions); moreActions.className = 'prompt-agent-actions-more';
     const moreSummary = element('summary', '⋯', moreActions); moreSummary.setAttribute('aria-label', '更多方案操作');
@@ -116,7 +129,8 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     const execute = element('button', '运行', primaryActions), apply = element('button', '仅应用', primaryActions);
     execute.className = 'btn btn-primary';
     const retry = element('button', '重试未完成步骤', secondaryActions), undo = element('button', '撤销本次画布操作', secondaryActions);
-    const buttons = [apply, execute, retry, undo]; buttons.forEach(button => { button.type = 'button'; });
+    const copy = plan.offerCopy ? element('button', '创建副本', secondaryActions) : null;
+    [apply, execute, retry, undo, ...(copy ? [copy] : [])].forEach(button => { button.type = 'button'; });
     const surfaces = getSurfaceCoordinator(documentRef);
     const closeMoreActions = () => {
         moreActions.open = false;
@@ -127,12 +141,15 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
             surfaces?.openPopover(moreActions, { element: moreActions, trigger: moreSummary, close: closeMoreActions });
         } else surfaces?.forgetPopover(moreActions);
     });
-    const latest = () => plan.instances?.at(-1) || plan;
-    const running = () => (plan.instances || []).filter(instance => adapter.isRunning?.(instance.id));
+    const latest = () => lastAppliedId === plan.id ? plan : plan.instances?.at(-1) || plan;
+    const running = () => [plan, ...(plan.instances || [])].filter(instance => adapter.isRunning?.(instance.id));
     function sync() {
         if (destroyed) return;
         if (!busy && !plan.runs?.length) plan.agentSizes = Object.fromEntries(getModels().map(model => [model.id, getSize(model.id)]));
         if (!busy) plan.agentProviders = Object.fromEntries(getModels().map(model => [model.id, getProviderId(model.id)]));
+        if (inPlace && imageSettings.some(step => step.nodeId)) {
+            existingGenerators = new Map((adapter.context?.().nodes || []).map(node => [node.id, node]));
+        }
         thinkingControls.forEach(control => control.refresh());
         focusButtons.forEach((button, id) => { button.disabled = !latest().bindings?.[id] && !plan.steps.find(step => step.id === id)?.nodeId; button.hidden = button.disabled; });
         refreshSelectors.forEach(refresh => refresh());
@@ -140,7 +157,8 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         for (const [id, label] of stepStates) {
             const stepStatus = adapter.stepStatus(latest(), id);
             label.dataset.status = stepStatus;
-            label.textContent = { draft: '待确认', applied: '待执行', cached: '使用缓存', pending: '等待执行', running: '执行中', completed: '已完成', failed: '失败', interrupted: '未完成' }[stepStatus] || '未执行';
+            label.textContent = { draft: '待确认', applied: plan.steps.find(step => step.id === id)?.execute === false ? '已应用' : '待执行',
+                cached: '使用缓存', pending: '等待执行', running: '执行中', completed: '已完成', failed: '失败', interrupted: '未完成' }[stepStatus] || '未执行';
         }
         let unavailable = '';
         configurationTarget = null;
@@ -188,18 +206,18 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
                 .map(([key, value]) => `${key}：${typeof value === 'object' ? JSON.stringify(value) : value}`).join('\n');
         }
         repair.hidden = !configurationTarget; repair.disabled = busy;
-        apply.disabled = execute.disabled = busy || adapter.isPreparing?.() || !isCurrent() || Boolean(unavailable);
+        apply.disabled = execute.disabled = busy || adapter.isPreparing?.() || inPlace && adapter.isRunning?.(plan.id) || !isCurrent() || Boolean(unavailable);
+        if (copy) copy.disabled = apply.disabled;
         retry.disabled = execute.disabled || !latest().runs?.length || adapter.isRunning?.(latest().id);
         const failed = [...stepStates.keys()].some(id => ['failed', 'interrupted'].includes(adapter.stepStatus(latest(), id)));
         const completed = stepStates.size > 0 && [...stepStates.keys()].every(id => ['completed','cached'].includes(adapter.stepStatus(latest(), id)));
         retry.hidden = !failed || busy;
         if (completed && !card.classList.contains('is-completed')) overview.open = false;
         card.classList.toggle('is-completed', completed);
-        title.textContent = generatesImages ? '图片生成方案' : '画布方案';
         undo.hidden = !Object.keys(latest().bindings || {}).length && !latest().appliedSignature;
         execute.hidden = !plan.steps.some(step => step.execute !== false);
         undo.disabled = busy || Boolean(adapter.canUndo(latest())); undo.title = adapter.canUndo(latest());
-        moreActions.hidden = retry.hidden && undo.hidden;
+        moreActions.hidden = retry.hidden && undo.hidden && !copy;
         if (moreActions.hidden && moreActions.open) closeMoreActions();
         refresh.disabled = busy || !isCurrent();
         for (const select of list.querySelectorAll('select, .thinking-control input, .thinking-control button')) select.disabled = busy;
@@ -219,15 +237,25 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         confirmedParameters(plan, patch, step.id);
         delete plan.appliedSignature; sync(); changed(plan); return true;
     }
-    async function act(generate, retryOnly = false, authorized = isCurrent) {
+    async function act(generate, retryOnly = false, authorized = isCurrent, asCopy = false) {
         const canApply = () => isCurrent() && authorized();
         if (busy || !canApply()) return;
         busy = true; sync(); status.textContent = '正在校验与应用…';
         let instance;
         try {
-            instance = retryOnly ? latest() : plan.steps.length ? adapter.instantiate(plan) : plan;
+            const instantiate = asCopy || !inPlace && plan.steps.length;
+            instance = retryOnly ? latest() : instantiate ? adapter.instantiate(plan) : plan;
+            if (asCopy) for (const step of imageSettings) {
+                const source = existingGenerators.get(step.nodeId);
+                if (!source?.modelId) continue;
+                const modelId = (instance.modelOverrides ||= {})[step.id] ||= source.modelId;
+                if (modelId !== source.modelId) continue;
+                if (source.providerId) ((instance.providerOverrides ||= {})[step.id] ||= {})[modelId] ??= source.providerId;
+                if (source.thinking) ((instance.thinkingOverrides ||= {})[step.id] ||= {})[modelId] ??= source.thinking;
+            }
             if (!retryOnly && instance !== plan) (plan.instances ||= []).push(instance);
             await adapter.apply(instance, getModelId(), () => changed(instance), canApply); changed(instance);
+            lastAppliedId = instance.id;
         } catch (error) {
             if (instance?.templateId && !instance.bindings?.[instance.order[0]]) {
                 plan.instances = (plan.instances || []).filter(item => item.id !== instance.id);
@@ -241,7 +269,7 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         if (!generate) { adapter.discardExecutionConfig?.(instance); return; }
         const complete = async () => {
             try {
-                status.textContent = '新批次执行中，可继续运行或仅应用';
+                status.textContent = instance === plan ? '正在运行画布中的目标节点' : '新批次执行中，可继续运行或仅应用';
                 const completion = run(instance, retryOnly);
                 sync();
                 await completion;
@@ -253,6 +281,7 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         if (authorized === isCurrent) await completion;
     }
     apply.addEventListener('click', () => act(false)); execute.addEventListener('click', () => act(true)); retry.addEventListener('click', () => act(true, true));
+    copy?.addEventListener('click', () => { closeMoreActions(); void act(false, false, isCurrent, true); });
     refresh.addEventListener('click', () => { try {
         adapter.refresh(plan); changes.replaceChildren(); adapter.describe(plan, getModelId()).forEach(line => element('li', line, changes));
         changed(plan); status.textContent = '已按当前画布更新清单，请重新检查后应用';

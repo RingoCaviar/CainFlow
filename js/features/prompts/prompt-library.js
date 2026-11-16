@@ -120,6 +120,22 @@ export function createPromptLibraryApi({
         return { prompts: page, total: entries.length, nextOffset: end < entries.length ? end : null };
     }
 
+    async function getPrompt({ promptId, name } = {}) {
+        const query = promptId ?? name;
+        if ((promptId === undefined) === (name === undefined)
+            || typeof query !== 'string' || !query.trim() || query.length > 200) {
+            throw new Error('请提供提示词库中的一个 ID 或准确名称');
+        }
+        const saved = await readPromptLibrary(localStorageRef);
+        const matches = saved.map(normalizePrompt).filter((prompt, index) => prompt && (promptId !== undefined
+            ? saved[index]?.id === promptId : prompt.name === name.trim()));
+        if (!matches.length) throw new Error('提示词库中找不到该预设，请检查 ID 或名称');
+        if (matches.length > 1) throw new Error('提示词库中有多条匹配项，请使用唯一的预设 ID');
+        const [prompt] = matches;
+        if (!prompt.content.trim() || prompt.content.length > 20_000) throw new Error('预设内容应为 1 至 20000 字');
+        return prompt;
+    }
+
     async function upsertPrompt({ name, content }, options = {}) {
         if (typeof name !== 'string' || !name.trim() || name.trim().length > 80
             || typeof content !== 'string' || !content.trim() || content.length > 20_000) {
@@ -618,6 +634,7 @@ export function createPromptLibraryApi({
         openLibrary,
         closeLibrary,
         listPrompts,
+        getPrompt,
         upsertPrompt
     };
 }

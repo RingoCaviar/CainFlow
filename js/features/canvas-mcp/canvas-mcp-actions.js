@@ -1,6 +1,7 @@
-import { normalizeCanvasPlan } from '../prompt-agent/prompt-agent-canvas-plan.js';
+import { isCanvasGraphOnlyStep, normalizeCanvasPlan } from '../prompt-agent/prompt-agent-canvas-plan.js';
 import { canvasPlanExecutionNodeIds } from '../prompt-agent/prompt-agent-canvas-context.js';
 import { buildCanvasImageBatch } from '../prompt-agent/prompt-agent-canvas-image-batch.js';
+import { canvasRevisionFingerprint, resolveCanvasRunInput } from './cainflow-app-actions.js';
 
 const MAX_RUNS = 32;
 const MAX_STATUS_NODES = 100;
@@ -33,8 +34,7 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
         if (workflowId !== undefined && workflowId !== context.workflowId) {
             throw actionError('wrong_workflow', '指定的工作流当前未显示，请重新读取画布。');
         }
-        const nodes = context.nodes.map(({ running, ...node }) => node);
-        const fingerprint = JSON.stringify([context.workflowId, nodes, context.connections, context.summary.selectedIds]);
+        const fingerprint = canvasRevisionFingerprint(context);
         if (revisionState?.fingerprint !== fingerprint) {
             revisionState = { fingerprint, revision: crypto.randomUUID() };
         }
@@ -62,7 +62,8 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
     }
 
     function resolveImageChoices(plan, context, choices) {
-        const generators = plan.steps.filter(step => step.type === 'ImageGenerate');
+        const generators = plan.steps.filter(step => step.type === 'ImageGenerate'
+            && (choices.has(step.id) || !isCanvasGraphOnlyStep(plan, step)));
         const { modelId: defaultModelId = '', providerIds = {} } = generators.some(step => !step.nodeId) ? getImageDefaults() : {};
         const models = choices.size ? listModels() : [];
         plan.agentProviders = providerIds;
@@ -111,6 +112,7 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
             const steps = raw.steps.map(step => {
                 if (!step || typeof step !== 'object') return step;
                 const { modelId, providerId, ...fields } = step;
+                if (!imageBatch && fields.nodeId && fields.execute === undefined) fields.execute = false;
                 if (modelId === undefined && providerId === undefined) return fields;
                 if (step.type !== 'ImageGenerate' || [modelId, providerId].some(value =>
                     value !== undefined && (typeof value !== 'string' || !value))) {
@@ -124,6 +126,7 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
             throw actionError('invalid_arguments', error.message);
         }
 
+        plan.applyInPlace = true;
         const defaultModelId = resolveImageChoices(plan, context, choices);
         plan.explicitImageParameters = true;
         if (imageBatch) plan.imageBatch = true;
@@ -266,12 +269,11 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
 
     function startRun(args, { imageBatch = false, isCurrent } = {}) {
         const context = requireRevision(args, isCurrent);
-        const { workflowId, nodeIds } = args;
-        if (nodeIds !== undefined && (!Array.isArray(nodeIds) || !nodeIds.length || nodeIds.length > 100
-            || new Set(nodeIds).size !== nodeIds.length
-            || nodeIds.some(id => !context.nodes.some(node => node.id === id)))) {
-            throw actionError('invalid_arguments', '请选择当前工作流中的 1 至 100 个不同节点。');
-        }
+        const { workflowId } = args;
+        let input;
+        try { input = resolveCanvasRunInput(context, args); }
+        catch (error) { throw actionError('invalid_arguments', error.message); }
+        if (imageBatch && input) input.imageBatch = true;
         if (runs.size >= MAX_RUNS) {
             const finished = [...runs.values()].find(record => record.status !== 'running');
             if (!finished) throw actionError('run_busy', '运行记录已满，请等待现有运行结束。');
@@ -280,7 +282,6 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
         }
         const record = { workflowId, runId: crypto.randomUUID(), status: 'running' };
         runs.set(record.runId, record);
-        const input = nodeIds ? { mode: 'selected-only', selectedNodeIds: nodeIds, ...(imageBatch ? { imageBatch } : {}) } : null;
         void Promise.resolve().then(() => runWorkflow(input, {
             waitForCompletion: true,
             captureTextResults: true,
@@ -291,6 +292,13 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
 
     async function dispatch(method, args = {}, scope) {
         if (appActions?.supports(method)) {
+            if (appActions.usesCanvas(method)) {
+                const context = requireRevision(args, scope?.isCurrent);
+                const { editorId, workflowId, revision, ...parameters } = args;
+                const isCurrent = () => Boolean(requireRevision(args, scope?.isCurrent));
+                const result = await appActions.dispatch(method, parameters, { context, isCurrent });
+                return { ...result, workflowId, revision: snapshot(workflowId).revision };
+            }
             const { editorId, ...parameters } = args;
             return appActions.dispatch(method, parameters, scope);
         }
@@ -303,6 +311,8 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
                 totalNodes: context.summary.totalNodes,
                 totalConnections: context.summary.totalConnections,
                 editableTypes: context.summary.editableTypes.slice(),
+                creatableTypes: (context.summary.creatableTypes || context.summary.editableTypes).slice(),
+                nodePatchFields: context.summary.nodePatchFields,
                 editableFields: context.summary.editableFields,
                 ...context.read(args)
             };

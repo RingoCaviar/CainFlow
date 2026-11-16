@@ -13,6 +13,183 @@ async function callCanvas(server, token, method, args = {}) {
     return { status: response.status, ...await response.json() };
 }
 
+test('MCP edits a canvas in place, restores it through history and stops a targeted run', { timeout: 60000 }, async () => {
+    const token = randomBytes(32).toString('hex');
+    const previousToken = process.env.CAINFLOW_MCP_TOKEN;
+    process.env.CAINFLOW_MCP_TOKEN = token;
+    const workflowId = 'general-canvas-operations';
+    const nodes = [
+        { id: 'source', type: 'Text', x: 100, y: 120, text: 'source' },
+        { id: 'chat', type: 'TextChat', customTitle: '答复', x: 500, y: 120, apiConfigId: 'chat-model', providerId: 'provider',
+            prompt: 'Return the controlled text.', fixed: false }
+    ];
+    const data = { workflowId, nodes, connections: [] };
+    const fixture = { ...data, autoCheckUpdatesOnLoad: false, activeWorkflowName: 'Canvas operations', activeWorkflowId: workflowId,
+        workflowTabs: [{ name: 'Canvas operations', workflowId, data }],
+        models: [{ id: 'chat-model', modelId: 'canvas-chat', name: 'Chat', taskType: 'chat', protocol: 'openai', providerIds: ['provider'] }],
+        providers: [{ id: 'provider', name: 'Test', endpoint: 'https://controlled.test/v1', apikey: 'test' }] };
+    const initScript = `window.canvasRunRequests = 0;
+        const nativeFetch = window.fetch.bind(window);
+        window.fetch = (url, options={}) => {
+            if (String(url) !== '/proxy' || !options.body || JSON.parse(options.body).model !== 'canvas-chat') return nativeFetch(url, options);
+            window.canvasRunRequests++;
+            return new Promise((resolve,reject) => {
+                const abort = () => reject(new DOMException('Cancelled', 'AbortError'));
+                if (options.signal?.aborted) abort();
+                else options.signal?.addEventListener('abort', abort, {once:true});
+            });
+        };`;
+    try {
+        await withAppBrowser(fixture, async app => {
+            const call = async (method, args) => {
+                let reply;
+                for (let attempt = 0; attempt < 20; attempt++) {
+                    reply = await callCanvas(app.server, token, method, args);
+                    if (reply.status !== 409 || /no longer current/i.test(reply.error || '')) break;
+                    await delay(150);
+                }
+                assert.equal(reply.status, 200, reply.error);
+                assert.equal(reply.error, undefined, reply.error);
+                return reply.result;
+            };
+            const scope = ({ editorId, workflowId, revision }) => ({ editorId, workflowId, revision });
+            const before = await call('read_canvas');
+            assert.ok(before.creatableTypes.includes('TextMerge'));
+            await call('edit_canvas', { ...scope(before), plan: { version: 1, steps: [
+                { id: 'patch-source', type: 'Text', nodeId: 'source', execute: false, patch: { title: '已改名', x: -120, y: 320, enabled: false } },
+                { id: 'add-merge', type: 'TextMerge', execute: false }
+            ] } });
+            const edited = await call('read_canvas');
+            const source = edited.nodes.find(node => node.id === 'source');
+            assert.equal(source.name, '已改名');
+            assert.equal(source.enabled, false);
+            assert.deepEqual([source.position.x, source.position.y], [-120, 320]);
+            assert.equal(edited.nodes.filter(node => node.type === 'Text').length, 1);
+            assert.equal(edited.totalNodes, 3);
+            assert.equal((await call('undo_canvas', scope(edited))).changed, true);
+            const undone = await call('read_canvas');
+            assert.equal(undone.totalNodes, 2);
+            assert.equal(undone.nodes.find(node => node.id === 'source').enabled, true);
+            assert.equal((await call('redo_canvas', scope(undone))).changed, true);
+            const redone = await call('read_canvas');
+            assert.equal(redone.nodes.find(node => node.id === 'source').name, '已改名');
+            const run = await call('run_workflow', { ...scope(redone), targetNodeId: 'chat' });
+            await app.waitFor('window.canvasRunRequests === 1');
+            assert.ok((await call('stop_workflow', scope(await call('read_canvas')))).stopped > 0);
+            let result;
+            for (let attempt = 0; attempt < 30; attempt++) {
+                result = await call('get_workflow_run', { editorId: redone.editorId, workflowId, runId: run.runId });
+                if (result.status !== 'running') break;
+                await delay(150);
+            }
+            assert.ok(['stopped', 'cancelled'].includes(result.status), result.status);
+        }, { initScript });
+    } finally {
+        if (previousToken === undefined) delete process.env.CAINFLOW_MCP_TOKEN;
+        else process.env.CAINFLOW_MCP_TOKEN = previousToken;
+    }
+});
+
+test('Agent and MCP import history originals and apply the correct saved prompt fields', { timeout: 60000 }, async () => {
+    const token = randomBytes(32).toString('hex');
+    const previousToken = process.env.CAINFLOW_MCP_TOKEN;
+    process.env.CAINFLOW_MCP_TOKEN = token;
+    const workflowId = 'scoped-history-preset';
+    const nodes = [
+        { id: 'prompt-text', type: 'Text', text: 'Before preset', x: 40, y: 80 },
+        { id: 'hero', type: 'ImageGenerate', customTitle: '主图', prompt: 'Local fallback',
+            apiConfigId: 'gpt', providerId: 'provider', x: 400, y: 80 }
+    ];
+    const connections = [{ id: 'keep-prompt-edge', from: { nodeId: 'prompt-text', port: 'text' },
+        to: { nodeId: 'hero', port: 'prompt' }, type: 'text' }];
+    const data = { workflowId, nodes, connections };
+    const fixture = { ...data, autoCheckUpdatesOnLoad: false, activeWorkflowName: 'History preset', activeWorkflowId: workflowId,
+        workflowTabs: [{ name: 'History preset', workflowId, data }],
+        models: [{ id: 'gpt', modelId: 'gpt-image-1', name: 'Image', taskType: 'image', protocol: 'openai', providerIds: ['provider'] }],
+        providers: [{ id: 'provider', name: 'Test', endpoint: 'https://controlled.test/v1', apikey: 'test' }] };
+    try {
+        await withAppBrowser(fixture, async app => {
+            const call = async (method, args) => {
+                let reply;
+                for (let attempt = 0; attempt < 20; attempt++) {
+                    reply = await callCanvas(app.server, token, method, args);
+                    if (reply.status !== 409 || /no longer current/i.test(reply.error || '')) break;
+                    await delay(150);
+                }
+                assert.equal(reply.status, 200, reply.error);
+                assert.equal(reply.error, undefined, reply.error);
+                return reply.result;
+            };
+            const sendLocal = async text => {
+                await app.evaluate(`(() => {
+                    if (!document.getElementById('prompt-agent-panel').classList.contains('active')) document.getElementById('btn-prompt-agent').click();
+                    const input = document.getElementById('prompt-agent-input');
+                    input.value = ${JSON.stringify(text)};
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                })()`);
+                assert.equal(await app.evaluate("document.getElementById('prompt-agent-send').disabled"), false);
+                await app.evaluate("document.getElementById('prompt-agent-send').click()");
+            };
+            const scope = ({ editorId, workflowId, revision }) => ({ editorId, workflowId, revision });
+            const historyId = await app.evaluate(`(async () => {
+                const { createDiskStorageApi } = await import('/js/services/storage-disk.js');
+                window.historyImportOriginal = document.createElement('canvas').toDataURL();
+                return (await createDiskStorageApi(() => ({})).saveHistoryEntry({ image: historyImportOriginal })).fileId;
+            })()`);
+            const { items: [history] } = await call('list_history', { id: historyId });
+            const beforeImport = scope(await call('read_canvas'));
+            const imported = await call('import_history', { ...beforeImport, items: [{ id: history.id, fileVersion: history.fileVersion }] });
+            const importedNode = imported.imported[0].nodeId;
+            assert.ok(importedNode);
+            await app.waitFor(`!!document.getElementById(${JSON.stringify(importedNode)})`);
+            const samePixels = await app.evaluate(`(async () => {
+                const app = await import('/js/app/bootstrap.js').then(m => m.bootstrapCainFlowApp());
+                const node = app.state.nodes.get(${JSON.stringify(importedNode)});
+                const { createDiskStorageApi } = await import('/js/services/storage-disk.js');
+                return (await createDiskStorageApi(() => ({})).getImageAsset(node.data.imageImportAssetKey)) === historyImportOriginal;
+            })()`);
+            assert.equal(samePixels, true);
+            const stale = await callCanvas(app.server, token, 'import_history', {
+                ...beforeImport, items: [{ id: history.id, fileVersion: history.fileVersion }]
+            });
+            assert.match(stale.error, /画布已修改/);
+            await app.evaluate("document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,bubbles:true,cancelable:true}))");
+            await app.waitFor(`!document.getElementById(${JSON.stringify(importedNode)})`);
+            await app.waitFor("document.body.textContent.includes('已撤回上一步操作')");
+            await app.evaluate("document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'y',ctrlKey:true,bubbles:true,cancelable:true}))");
+            await app.waitFor(`!!document.getElementById(${JSON.stringify(importedNode)})`);
+            await app.waitFor("document.body.textContent.includes('已重做上一步操作')");
+
+            await sendLocal(`把历史图片 ID ${history.id} 导入当前画布`);
+            await app.waitFor("document.getElementById('prompt-agent-messages').textContent.includes('已导入 1 张历史原图')");
+            const afterBothImports = await call('read_canvas');
+            assert.equal(afterBothImports.nodes.filter(node => node.type === 'ImageImport').length, 2);
+
+            const preset = await call('save_prompt', { name: '白底规则', content: '保留标签，使用白底' });
+            await sendLocal('把库里的「白底规则」套用到「主图」的普通提示词');
+            await app.waitFor("!!document.querySelector('.prompt-agent-canvas-plan')");
+            assert.equal(await app.evaluate("document.getElementById('prompt-text-text').value"), 'Before preset');
+            await app.evaluate("[...document.querySelectorAll('.prompt-agent-canvas-plan button')].find(button=>button.textContent==='仅应用').click()");
+            await app.waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已应用并保存')");
+            const afterOrdinary = await call('read_canvas');
+            assert.equal(afterOrdinary.nodes.find(node => node.id === 'prompt-text').parameters.text, preset.content);
+            assert.equal(afterOrdinary.nodes.find(node => node.id === 'hero').parameters.prompt, 'Local fallback');
+            assert.equal(afterOrdinary.totalNodes, afterBothImports.totalNodes);
+            assert.deepEqual(afterOrdinary.connections, afterBothImports.connections);
+
+            const applied = await call('apply_prompt', { ...scope(afterOrdinary), nodeId: 'hero', promptId: preset.id, target: 'system' });
+            assert.equal(applied.appliedNodeId, 'hero');
+            await reloadAppBrowser(app);
+            const reloaded = await call('read_canvas');
+            assert.equal(reloaded.nodes.find(node => node.id === 'hero').parameters.protocolParams.systemPrompt, preset.content);
+            assert.equal(reloaded.nodes.filter(node => node.type === 'ImageImport').length, 2);
+        });
+    } finally {
+        if (previousToken === undefined) delete process.env.CAINFLOW_MCP_TOKEN;
+        else process.env.CAINFLOW_MCP_TOKEN = previousToken;
+    }
+});
+
 test('Agent and MCP share blank workflows, history notes and durable prompt presets without a Provider', { timeout: 60000 }, async () => {
     const token = randomBytes(32).toString('hex');
     const previousToken = process.env.CAINFLOW_MCP_TOKEN;
@@ -286,6 +463,69 @@ test('MCP builds and runs separate image branches with one shared prompt and con
             await app.evaluate("document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,bubbles:true,cancelable:true}))");
             await app.waitFor("document.querySelectorAll('#nodes-layer .node').length===3");
         }, { initScript });
+    } finally {
+        if (previousToken === undefined) delete process.env.CAINFLOW_MCP_TOKEN;
+        else process.env.CAINFLOW_MCP_TOKEN = previousToken;
+    }
+});
+
+test('MCP disconnects one existing image reference and preserves survivor order', { timeout: 60000 }, async () => {
+    const token = randomBytes(32).toString('hex');
+    const previousToken = process.env.CAINFLOW_MCP_TOKEN;
+    process.env.CAINFLOW_MCP_TOKEN = token;
+    const workflowId = 'exact-reference-edit';
+    const colors = ['red', 'blue', 'green'];
+    const nodes = [
+        ...colors.map((id, index) => ({ id, type: 'ImageImport', x: 100, y: 100 + index * 300 })),
+        { id: 'prompt', type: 'Text', text: 'Keep the original colors', x: 100, y: 1000 },
+        { id: 'generator', type: 'ImageGenerate', x: 520, y: 120 }
+    ];
+    const connections = [
+        ...colors.map((nodeId, order) => ({
+            id: `reference-${nodeId}`, order, type: 'image',
+            from: { nodeId, port: 'image' }, to: { nodeId: 'generator', port: 'referenceImages' }
+        })),
+        { id: 'prompt-edge', from: { nodeId: 'prompt', port: 'text' },
+            to: { nodeId: 'generator', port: 'prompt' }, type: 'text' }
+    ];
+    const data = { workflowId, nodes, connections };
+    const fixture = { ...data, autoCheckUpdatesOnLoad: false, activeWorkflowName: 'Exact reference edits', activeWorkflowId: workflowId,
+        workflowTabs: [{ name: 'Exact reference edits', workflowId, data }] };
+    try {
+        await withAppBrowser(fixture, async app => {
+            for (const color of colors) {
+                const image = await readFile(new URL(`./fixtures/reference-${color}.png`, import.meta.url));
+                await uploadImageOriginal(app, color, `data:image/png;base64,${image.toString('base64')}`);
+            }
+            const call = async (method, args) => {
+                let reply;
+                for (let attempt = 0; attempt < 20; attempt++) {
+                    reply = await callCanvas(app.server, token, method, args);
+                    if (reply.status !== 409 || /no longer current/i.test(reply.error || '')) break;
+                    await delay(150);
+                }
+                assert.equal(reply.status, 200, reply.error);
+                assert.equal(reply.error, undefined, reply.error);
+                return reply.result;
+            };
+            const scope = ({ editorId, workflowId, revision }) => ({ editorId, workflowId, revision });
+            const referenceOrder = canvas => canvas.connections
+                .filter(link => link.to.nodeId === 'generator' && link.to.port === 'referenceImages')
+                .sort((left, right) => left.order - right.order)
+                .map(link => [link.id, link.from.nodeId, link.order]);
+            const before = await call('read_canvas');
+            assert.deepEqual(referenceOrder(before), colors.map((color, order) => [`reference-${color}`, color, order]));
+            await call('edit_canvas', { ...scope(before), plan: { version: 1,
+                steps: [{ id: 'edit-generator', type: 'ImageGenerate', nodeId: 'generator', execute: false }],
+                disconnects: [{ ref: 'edit-generator', port: 'referenceImages', connectionId: 'reference-blue' }]
+            } });
+            const edited = await call('read_canvas');
+            assert.deepEqual(referenceOrder(edited), [['reference-red', 'red', 0], ['reference-green', 'green', 2]]);
+            assert.deepEqual(edited.connections.find(link => link.id === 'prompt-edge'), before.connections.find(link => link.id === 'prompt-edge'));
+            assert.deepEqual(edited.nodes.map(node => node.id).sort(), before.nodes.map(node => node.id).sort());
+            assert.equal((await call('undo_canvas', scope(edited))).changed, true);
+            assert.deepEqual(referenceOrder(await call('read_canvas')), referenceOrder(before));
+        });
     } finally {
         if (previousToken === undefined) delete process.env.CAINFLOW_MCP_TOKEN;
         else process.env.CAINFLOW_MCP_TOKEN = previousToken;

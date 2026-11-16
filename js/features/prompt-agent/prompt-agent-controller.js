@@ -1,7 +1,7 @@
 import { bindTaskToReply, confirmTaskParameters, CreativeTaskConfirmationRequired, isCreativeTaskConfirmation } from './prompt-agent-task.js';
 import { normalizePromptAgentChoices } from './prompt-agent-choices.js';
 import { sizeCapabilities, replaceAgentSizeFields, resolveDraftImageSize, parseSizeAnswer } from './prompt-agent-size.js';
-import { imageParameterCapabilities } from './prompt-agent-model.js';
+import { imageParameterCapabilities, setAgentCanvasApplicationMode } from './prompt-agent-model.js';
 import { mergeAgentSizeAnswer, resolveAgentParameterPatch } from './prompt-agent-parameters.js';
 import { getEffectiveProtocol, getModelProviders } from '../execution/provider-request-utils.js';
 import { getOpenAIChatCapabilities } from '../execution/openai-chat-capabilities.js';
@@ -20,7 +20,7 @@ import { createAgentSearchMenu, renderAgentSearch } from './prompt-agent-search-
 import { AGENT_RESULT_DRAG_TYPE, beginAgentResultDrag, takeAgentResultDrag, endAgentResultDrag } from './prompt-agent-result-drag.js';
 import { renderCanvasPlan, createCanvasMentions } from './prompt-agent-canvas-ui.js';
 import { bindImageMentionPicker } from '../ui/image-mention-picker.js';
-import { promptPlanToCanvas } from './prompt-agent-canvas-plan.js';
+import { createSelectedReferenceClearReply, isSelectedReferenceClearRequest, promptPlanToCanvas } from './prompt-agent-canvas-plan.js';
 import { createPromptAgentInput } from './prompt-agent-input.js';
 import { renderAgentBody } from './prompt-agent-body.js';
 import { createImageResultReferenceIdentity } from './prompt-agent-result-reference.js';
@@ -284,7 +284,7 @@ export function createPromptAgentController({
             if (button.disabled !== disabled) button.disabled = disabled;
         });
         if (!sendButton) return;
-        const localAction = appActions && parseAgentAppRequest(input?.value);
+        const localAction = localAppRequest(input?.value);
         sendButton.disabled = localAction ? requestPending : !input?.value?.trim().startsWith('/')
             && (requestPending || mentionReplacementOperations.size > 0 || models.length === 0
                 || pendingReferenceImages.some((image) => image.loading || image.error));
@@ -2079,12 +2079,13 @@ export function createPromptAgentController({
         }
     }
 
-    function appendCanvasPlan(message, plan, runs = []) {
+    function appendCanvasPlan(message, plan, runs = [], { local = false } = {}) {
         if (!canvasAdapter || !message) return;
         const revision = workflowRevision, workflowId = getWorkflowId();
         const isCurrent = () => revision === workflowRevision && getWorkflowId() === workflowId && message.isConnected !== false
-            && conversationStore.hasCanvasPlan(plan.id);
+            && (local || conversationStore.hasCanvasPlan(plan.id));
         const changed = (value = plan) => {
+            if (local) return;
             const update = snapshot => {
                 const message = [...(snapshot.archivedMessages || []), ...(snapshot.messages || [])].find(item => item.canvasPlan?.id === plan.id);
                 if (!message) return false;
@@ -2161,17 +2162,29 @@ export function createPromptAgentController({
         return view;
     }
 
+    function localAppRequest(text) {
+        if (canvasAdapter && isSelectedReferenceClearRequest(text)) return { method: 'clear_selected_references' };
+        return appActions && parseAgentAppRequest(text);
+    }
+
     async function runLocalAppAction(action, input) {
         if (requestPending) return;
+        const context = (action.method === 'clear_selected_references' || appActions?.usesCanvas(action.method))
+            ? canvasAdapter?.context() : undefined;
         const operation = beginOperation('app');
         if (input) input.value = '';
         captureDraft(true);
         setOperationStatus(operation, '正在执行 CainFlow 操作…');
         try {
-            const message = await runAgentAppRequest(action, appActions, { isCurrent: () => isCurrentOperation(operation) });
+            const result = action.method === 'clear_selected_references' ? createSelectedReferenceClearReply(context)
+                : await runAgentAppRequest(action, appActions, { context, isCurrent: () => isCurrentOperation(operation) });
+            const message = typeof result === 'string' ? result : result.message;
             // App operations are local. Their inputs and results stay out of the
             // conversation passed to a Provider, including on later chat turns.
-            if (isCurrentOperation(operation)) appendMessage('agent', message, [], { record: false });
+            if (isCurrentOperation(operation)) {
+                const element = appendMessage('agent', message, [], { record: false });
+                if (result.canvasPlan) appendCanvasPlan(element, result.canvasPlan, [], { local: true });
+            }
             else if (action.method === 'create_workflow') notifyAppAction(message);
         } catch (error) {
             if (isCurrentOperation(operation)) appendMessage('agent', error?.message || 'CainFlow 操作失败。', [], { record: false });
@@ -2189,7 +2202,7 @@ export function createPromptAgentController({
             return;
         }
         if (!choice && !resendMessage && mentionReplacementOperations.size) return;
-        const localAction = !choice && !resendMessage && appActions && parseAgentAppRequest(text);
+        const localAction = !choice && !resendMessage && localAppRequest(text);
         if (localAction) return runLocalAppAction(localAction, input);
         const attachments = choice ? [] : resendMessage ? resendMessage.referenceImages || [] : pendingReferenceImages;
         const latestIndex = conversationStore.getLatestMessageIndex();
@@ -2436,6 +2449,7 @@ export function createPromptAgentController({
                     || (reply.intent !== 'generate' && !reply.editsCurrentAttachment && selectedIds.includes(target.id))
                     || (requestText.includes(target.name) && canvasContext.nodes.filter(node => node.name === target.name).length === 1));
                 reply.canvasPlan = promptPlanToCanvas({ ...reply.promptPlan, targetNodeId: explicitlyNamed ? reply.promptPlan.targetNodeId : null }, canvasContext, { message: requestText });
+                setAgentCanvasApplicationMode(reply.canvasPlan, requestText);
                 reply.promptPlan = null;
             }
             const nextTask = bindTaskToReply(reply, operation.creativeTask, requestText, {

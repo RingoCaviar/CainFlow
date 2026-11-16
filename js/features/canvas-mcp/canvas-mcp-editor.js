@@ -43,10 +43,12 @@ export function startCanvasMcpEditor({ dispatch, fetchImpl = globalThis.fetch, w
 
     const errorBody = (id, error) => JSON.stringify({ action: 'complete', editorId, id, error });
 
-    async function dispatchCommand({ id, method, args }, isCurrent) {
+    async function dispatchCommand({ id, method, args, expiresAt }, isCurrent) {
+        const withinDeadline = () => expiresAt === undefined || Number.isSafeInteger(expiresAt) && Date.now() < expiresAt;
         let body;
         try {
-            const result = await dispatch(method, args, { isCurrent });
+            if (!withinDeadline()) throw new Error('CainFlow 命令已过期，请重新读取画布。');
+            const result = await dispatch(method, args, { isCurrent: () => withinDeadline() && isCurrent() });
             body = JSON.stringify({ action: 'complete', editorId, id, result: result ?? null });
             if (body.length > MAX_EDITOR_BYTES || new TextEncoder().encode(body).byteLength > MAX_EDITOR_BYTES) {
                 body = errorBody(id, RESULT_TOO_LARGE);

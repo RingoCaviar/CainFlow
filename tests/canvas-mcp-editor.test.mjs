@@ -52,6 +52,29 @@ test('the visible canvas editor dispatches a command and sends its result on the
     }
 });
 
+test('an expired MCP command cannot reach the application dispatcher', { timeout: 2000 }, async () => {
+    const windowRef = browserWindow();
+    const documentRef = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+    const completed = Promise.withResolvers();
+    const stop = startCanvasMcpEditor({
+        windowRef, documentRef,
+        dispatch: () => assert.fail('expired import reached the editor'),
+        fetchImpl: async (_url, options) => {
+            const request = JSON.parse(options.body);
+            if (request.action === 'poll') return Response.json({
+                command: { id: 'expired', method: 'import_history', args: {}, expiresAt: Date.now() - 1000 }
+            });
+            completed.resolve(request);
+            return Response.json({ ok: true });
+        }
+    });
+    try {
+        assert.match((await completed.promise).error, /已过期/);
+    } finally {
+        stop();
+    }
+});
+
 test('a poll from before the tab was hidden cannot apply a queued command when the tab returns', { timeout: 2000 }, async () => {
     const windowRef = browserWindow();
     const documentRef = Object.assign(new EventTarget(), { visibilityState: 'visible' });

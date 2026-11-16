@@ -39,15 +39,28 @@ MCP 接口仅接受本机回环连接。多个标签页打开 CainFlow 时，先
 | `create_workflow` | 创建并打开空白工作流。可传 `name`，省略时自动命名。 |
 | `list_history` | 分页读取当前保存目录的历史图片信息，包括 `id`、`fileVersion` 和备注。 |
 | `annotate_history` | 使用历史图片的 `id` 和 `fileVersion` 保存备注。空备注清除现有备注。 |
+| `import_history` | 按历史图片的 `id` 和 `fileVersion`，把原图导入当前画布。 |
 | `list_prompts` | 分页读取提示词库，可按名称查询。 |
 | `save_prompt` | 保存提示词。同名条目更新内容，保存结果由 CainFlow 持久化。 |
+| `apply_prompt` | 将库中预设套用到指定节点的普通提示词或系统提示词。 |
 | `edit_canvas` | 使用读取时的三个标识应用 v1 方案。支持新增、就地编辑、删除和连线。返回新的画布版本和步骤对应的实际节点 ID。 |
 | `generate_image_batch` | 使用同一条提示词逐张处理选区或指定的画布图片。一次建图，可同时启动新批次。 |
-| `run_workflow` | 使用读取时的三个标识启动当前工作流，可限定节点。使用现有模型和供应商配置，返回 `runId`。 |
+| `run_workflow` | 启动当前工作流，或指定 `nodeIds` 只运行这些节点，或指定 `targetNodeId` 运行到该节点。返回 `runId`。 |
+| `stop_workflow` | 停止当前工作流的运行。也可传 `nodeIds`，停止这些节点的运行分支。 |
+| `undo_canvas` / `redo_canvas` | 撤销或重做当前工作流的一步画布操作。 |
 | `get_workflow_run` | 使用 `editorId`、`workflowId`、`runId` 分页获取运行状态、节点结果、可用文本和图片信息。 |
 | `get_run_image` | 从指定运行和节点读取一张已缓存图片，`index` 从零开始。 |
 
-可编辑 `Text`、`ImageImport`、`ImageGenerate`、`ImageResize`、`ImageMerge`、`ImagePreview`、`ImageCompare`。编辑引用现有节点时传入 `nodeId`。连线目标用方案的步骤 ID，来源可用步骤 ID 或已存在的节点 ID。新增生图节点时填写 `parameters.prompt`。生图步骤和批处理的 `modelId` 传 `list_models` 返回的配置项 `id`，`providerId` 传对应供应商的 `id`。未指定模型时，新节点使用 Agent 面板的选择。
+## 编辑节点与连线
+
+`read_canvas` 的 `creatableTypes` 是可创建的节点类型，`editableFields` 是可写参数，`nodePatchFields` 是通用节点属性。没有可写参数清单的类型可按默认设置创建，步骤需填 `execute: false`。新建空节点时也使用 `execute: false`。
+
+- 传 `nodeId` 编辑现有节点。使用 `patch` 的 `title`、`x`、`y`、`enabled` 来改名、移动或设置启用状态。其余受支持设置通过 `parameters` 修改。
+- 连线目标用方案内的步骤 ID，来源可用步骤 ID 或现有节点 ID。断开某条线时，在 `disconnects` 项填写 `ref`、`port` 和读取到的 `connectionId`。省略 `connectionId` 表示清空这个输入。文本合并、文本拆分和图片合并按节点当前配置返回端口。缩减图片合并输入前，需明确断开会受影响的现有连线。
+- 对话节点可编辑普通提示词、系统提示词及固定设置。视频生成可编辑提示词、比例和生成次数。调色节点可编辑白平衡、色温、色调、自然饱和度和饱和度。使用 `parameterOptions` 核对当前节点的枚举值或取值范围。
+- 需要生成的新生图节点填写 `parameters.prompt`。生图步骤和批处理的 `modelId` 传 `list_models` 返回的配置项 `id`，`providerId` 传对应供应商的 `id`。未指定模型时，新节点使用 Agent 面板的选择。
+
+编辑、运行、停止、撤销和重做都需要 `read_canvas` 返回的编辑器、工作流和画布版本。内置 Agent 可以直接处理「运行选中的节点」「运行节点『主图』」「运行到『主图』」「停止当前工作流」「撤销上一步」「重做上一步」。模型规划的已有节点编辑会先展示就地变更预览。
 
 ## 批量处理选中图片
 
@@ -61,12 +74,19 @@ MCP 接口仅接受本机回环连接。多个标签页打开 CainFlow 时，先
 
 ## 空白工作流、历史备注与提示词库
 
-`create_workflow` 返回新工作流的 ID 和名称。打开后先调用 `read_canvas`，再编辑新画布。创建前会保存原工作流，名称不能与现有工作流重名。以上五个应用工具使用当前已连接的编辑器，可选传 `editorId` 固定目标。
+`create_workflow` 返回新工作流的 ID 和名称。打开后先调用 `read_canvas`，再编辑新画布。创建前会保存原工作流，名称不能与现有工作流重名。`create_workflow`、`list_history`、`annotate_history`、`list_prompts` 和 `save_prompt` 使用当前已连接的编辑器，可选传 `editorId` 固定目标。
 
 `list_history` 返回当前保存目录中的图片信息。给某张图添加备注时，把该条目的 `id` 和 `fileVersion` 传给 `annotate_history`。原文件被替换或保存目录已切换时请重新列出。备注最长 80 个字符。
 
 提示词库由 CainFlow 持久化，内置 Agent、MCP 和界面使用同一份库。可在内置 Agent 输入「新建空白工作流，命名为『商品评审』」「给最新一张历史图片加备注：正面样片」「保存提示词『白底规则』：保留包装文字，使用柔光」。也可以输入「查看历史图片」或「查看提示词库」。
 
 此前只存在浏览器里的提示词库，可从原来的 CainFlow 地址打开 **设置 → 旧浏览器数据迁移**，迁入当前数据目录。
+
+## 导入历史图片与套用库提示词
+
+`import_history` 与 `apply_prompt` 都需要 `read_canvas` 返回的 `editorId`、`workflowId` 和 `revision`。每次成功编辑后返回新的画布版本。一次导入或套用可撤销一次。
+
+- `import_history` 的 `items` 接收 1 至 20 项 `{id, fileVersion}`，从 `list_history` 获取。文件变化或切换保存目录时，重新读取列表。导入使用原图并创建图片导入节点。内置 Agent 可接受「把历史图片 ID 42、53 导入当前画布」。
+- `apply_prompt` 接收 `nodeId`、唯一的 `promptId` 或精确的 `name`，以及 `target`。普通提示词用 `prompt`，支持文本、对话和图片生成节点。对话或生图节点接入独享的可写文本时，编辑该文本节点。需要修改共享文本时，请直接指定文本节点。系统提示词用 `system`，可在 `read_canvas` 中通过 `supportsSystemPrompt` 识别支持的对话或生图节点。内置 Agent 可接受「把库里的『白底规则』套用到选中节点的系统提示词」，并在修改前展示预览。
 
 收到画布版本过期、编辑器切换或请求超时时，先重新读取画布，确认当前状态后再提交改动。运行记录与图片暂存在发起运行的编辑器内。运行结果的 `imageCount` 是该节点产出的图片数量。`get_run_image` 可读取其中留在缓存里的 PNG、JPEG、WebP 或 GIF，单张上限约 4.5 MB。
