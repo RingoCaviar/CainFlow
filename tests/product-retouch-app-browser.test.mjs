@@ -217,9 +217,9 @@ async function clickCardPreview(app, count = 1, point = null) {
     await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: count });
 }
 
-async function openCardPreview(app) {
-    await clickCardPreview(app);
-    await clickCardPreview(app, 2);
+async function openCardPreview(app, point = null) {
+    await clickCardPreview(app, 1, point);
+    await clickCardPreview(app, 2, point);
     await waitForComparison(app);
 }
 
@@ -236,15 +236,52 @@ async function clickNearCompareHandle(app, horizontalOffset) {
         `a click ${horizontalOffset}px from the handle center does not reposition the divider`);
 }
 
+async function verifyCardPortHitAreas(app) {
+    const probes = await app.evaluate(`['input', 'output'].map(direction => {
+        const stage = document.querySelector('${compareStage}').getBoundingClientRect();
+        const row = document.querySelector('#retouch .node-port[data-direction=' + direction + ']:not(.image-first-canonical-input)');
+        const bounds = row.getBoundingClientRect();
+        const dot = row.querySelector('.port-dot').getBoundingClientRect();
+        const left = Math.max(stage.left, bounds.left);
+        const right = Math.min(stage.right, bounds.right);
+        const y = bounds.top + bounds.height / 2;
+        return {
+            direction,
+            body: { x: (left + right) / 2, y },
+            dot: { x: dot.left + dot.width * (direction === 'input' ? 0.25 : 0.75), y: dot.top + dot.height / 2 }
+        };
+    })`);
+    for (const { direction, body, dot } of probes) {
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...body });
+        const hit = await app.evaluate(`(() => {
+            const element = document.elementFromPoint(${body.x}, ${body.y});
+            return {
+                preview: Boolean(element.closest('${cardPreview}')),
+                cursor: getComputedStyle(element).cursor,
+                target: element.className
+            };
+        })()`);
+        assert.ok(hit.preview && hit.cursor !== 'crosshair',
+            `the preview remains interactive next to the ${direction} port: ${JSON.stringify(hit)}`);
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...dot });
+        assert.deepEqual(await app.evaluate(`(() => {
+            const element = document.elementFromPoint(${dot.x}, ${dot.y});
+            return [element.closest('#retouch .node-port .port-dot')?.closest('.node-port').dataset.direction, getComputedStyle(element).cursor];
+        })()`), [direction, 'crosshair'], `the ${direction} connector keeps its hit target and cursor`);
+    }
+    return probes[0].body;
+}
+
 async function verifyCardPreviewInteraction(app) {
     await nativeClick(app, closeDock);
     await app.waitFor(`document.querySelector('${panel}').hidden`);
+    const besideInput = await verifyCardPortHitAreas(app);
     await clickNearCompareHandle(app, 45);
     await app.waitFor(`document.querySelector('#retouch.selected') && document.querySelector('${panel}:not([hidden])[data-node-id=retouch]')`);
     assert.equal(await app.evaluate(`Boolean(document.querySelector('${compareDialog}, .fullscreen-overlay'))`), false,
         'a single click selects the retouch node without opening a preview');
 
-    await openCardPreview(app);
+    await openCardPreview(app, besideInput);
     assert.equal(await app.evaluate(`document.querySelector('${compareDialog} h2').textContent.trim()`), '产品精修预览');
     await app.waitFor(`document.querySelector('${dialogFrame}').dataset.comparison === 'split'`);
     assert.equal(await app.evaluate(`document.querySelector('${dialogSlider}').value`), '50');

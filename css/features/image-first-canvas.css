@@ -295,7 +295,7 @@ html:root #canvas-container .node:is(.image-first-card, .node-text) > .node-port
 
 .node:is(.image-first-card, .node-text) > .node-ports-row .node-inputs-section { grid-column: 1; align-self: center; }
 .node:is(.image-first-card, .node-text) > .node-ports-row .node-outputs-section { grid-column: 2; width: 100%; align-self: center; }
-.node:is(.image-first-card, .node-text) > .node-ports-row .node-port { pointer-events: auto; }
+.node:is(.image-first-card, .node-text) > .node-ports-row .port-dot { pointer-events: auto; }
 .node:is(.image-first-card, .node-text) > .node-ports-row .port-label { white-space: normal; overflow-wrap: anywhere; }
 
 html:root #canvas-container .node.image-first-card > .node-body {
@@ -871,8 +871,6 @@ html:root #canvas-container .node.image-first-media > .node-body {
 .node:is(.image-first-card, .node-text) .node-port .port-label {
     display: none !important;
 }
-.node.image-first-media > .node-ports-row .node-port { pointer-events: none; }
-.node.image-first-media > .node-ports-row :is(.port-dot, .port-label) { pointer-events: auto; }
 .node.image-first-media :is(.image-import-upload-section, .image-import-url-section):not(.hidden) {
     display: flex;
     flex-direction: column;
