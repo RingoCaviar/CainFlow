@@ -323,6 +323,24 @@ function renderNodeFormToggleField({
     });
 }
 
+function renderNodeModelSettings(id, modelOptions, providerOptions, { placement = 'leading', extra = '' } = {}) {
+    return `
+        <section class="node-model-settings node-model-settings--${placement}" aria-labelledby="${id}-model-settings-heading">
+            <h3 id="${id}-model-settings-heading" class="node-model-settings-heading">模型与供应商</h3>
+            <div class="node-model-settings-fields">
+                <div class="node-field node-form-field">
+                    <label for="${id}-apiconfig">模型</label>
+                    <select id="${id}-apiconfig">${modelOptions}</select>
+                </div>
+                <div class="node-field node-form-field" id="${id}-provider-field">
+                    <label for="${id}-provider">供应商</label>
+                    <select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select>
+                </div>
+            </div>
+            ${extra}
+        </section>`;
+}
+
 function renderNodeFormNote(note, options = {}) {
     return renderNodeFormField({
         fieldClass: `${options.fieldClass || ''} node-field-note`.trim(),
@@ -448,17 +466,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
         })}
 
         ${renderImageReferenceOverview(id)}
-        <div class="node-parameter-grid">
-        ${renderNodeFormField({
-            label: '模型',
-            content: `<select id="${id}-apiconfig">${opts}</select>`
-        })}
-        ${renderNodeFormField({
-            label: '供应商',
-            fieldId: `${id}-provider-field`,
-            content: `<select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select>`
-        })}
-        </div>
+        ${renderNodeModelSettings(id, opts, providerOptions, { placement: 'popover' })}
         <div class="node-parameter-grid">
         ${renderNodeFormField({
             label: '生成次数',
@@ -633,16 +641,9 @@ function renderVideoGenerateBody(id, restoreData, models, providers) {
         : '');
 
     return `
-        ${renderNodeFormField({
-            label: 'API 配置',
-            content: `<select id="${id}-apiconfig">${opts}</select>`
+        ${renderNodeModelSettings(id, opts, providerOptions, {
+            extra: `<div class="node-protocol-summary${protocolCard.summary ? '' : ' hidden'}" id="${id}-protocol-summary">${escapeHtml(protocolCard.summary)}</div>`
         })}
-        ${renderNodeFormField({
-            label: '供应商',
-            fieldId: `${id}-provider-field`,
-            content: `<select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select>`
-        })}
-        <div class="node-protocol-summary${protocolCard.summary ? '' : ' hidden'}" id="${id}-protocol-summary">${escapeHtml(protocolCard.summary)}</div>
         ${renderImageReferenceOverview(id)}
         <div class="node-parameter-grid">
         ${renderNodeFormField({
@@ -832,8 +833,7 @@ function renderTextChatBody(id, restoreData, models, providers) {
         .join('');
 
     return `
-        <div class="node-field"><label>API 配置</label><select id="${id}-apiconfig">${opts}</select></div>
-        <div class="node-field" id="${id}-provider-field"><label>供应商</label><select id="${id}-provider">${providerOptions || '<option value="">-- 暂无可用供应商 --</option>'}</select></div>
+        ${renderNodeModelSettings(id, opts, providerOptions)}
         ${renderImageReferenceOverview(id)}
         <details class="node-field node-chat-system-field" id="${id}-system-settings">
             <summary><span>系统提示语</span><span class="node-chat-system-summary" id="${id}-system-summary">${escapeHtml(systemSummary)}</span></summary>

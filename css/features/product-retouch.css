@@ -291,6 +291,20 @@ html:root #canvas-container .node.node-product-retouch.node-media-aspect { borde
     border-radius: 4px;
 }
 
+@container (max-width: 250px) {
+    .product-retouch-source-frame {
+        grid-template-columns: 36px minmax(0, 1fr);
+        gap: 6px 8px;
+    }
+    .product-retouch-source-frame :is(.product-retouch-source-icon, .product-retouch-source-preview) {
+        width: 36px;
+        height: 36px;
+    }
+    .product-retouch-source-frame .product-retouch-upload { grid-column: 2; justify-self: start; }
+    .product-retouch-swatches label { gap: 3px; padding-inline: 1px; }
+    .product-retouch-swatch { width: 12px; height: 12px; }
+}
+
 .product-retouch-swatch[data-background="white"] { background: #fff; }
 .product-retouch-swatch[data-background="black"] { background: #000; }
 .product-retouch-swatch[data-background="original"] {
@@ -300,8 +314,7 @@ html:root #canvas-container .node.node-product-retouch.node-media-aspect { borde
 }
 .product-retouch-swatch[data-background="original"] svg { width: 12px; height: 12px; }
 
-.product-retouch-treatment,
-.product-retouch-model-fields {
+.product-retouch-treatment {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 88px), 1fr));
     gap: 7px;
@@ -325,7 +338,7 @@ html:root #canvas-container .node.node-product-retouch.node-media-aspect { borde
 .product-retouch-settings textarea { display: block; resize: vertical; }
 .product-retouch-settings :is(select, textarea):disabled { opacity: .6; }
 .product-retouch-disclosure { min-width: 0; border-top: 1px solid var(--node-control-border); }
-.product-retouch-disclosure + .product-retouch-disclosure { margin-top: -12px; }
+.product-retouch-disclosure + .product-retouch-disclosure:not(.node-model-settings) { margin-top: -12px; }
 .product-retouch-disclosure > summary {
     min-width: 0;
     padding-block: 8px;

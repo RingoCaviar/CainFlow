@@ -105,8 +105,8 @@ export function createProductRetouchView({
             <summary>补充要求</summary>
             <textarea data-retouch-field="notes" aria-label="补充要求" rows="3" maxlength="1000" placeholder="例如保留瓶身磨砂质感，清理表面的指纹"></textarea>
         </details>
-        <details class="product-retouch-disclosure product-retouch-model">
-            <summary>模型与供应商 <span></span></summary>
+        <details class="product-retouch-disclosure product-retouch-model node-model-settings">
+            <summary class="node-model-settings-heading">模型与供应商 <span></span></summary>
             <div class="product-retouch-model-stages">
                 ${modelStages.map(({ taskType, title, label, modelField, providerField }) => `
                     <section class="product-retouch-model-stage" aria-labelledby="${panelId}-${taskType}">
@@ -114,7 +114,7 @@ export function createProductRetouchView({
                             <h3 id="${panelId}-${taskType}">${title}</h3>
                             <button type="button" class="product-retouch-link" data-retouch-action="configure" data-retouch-configure-task="${taskType}" aria-label="配置${label}">配置模型</button>
                         </div>
-                        <div class="product-retouch-model-fields">
+                        <div class="product-retouch-model-fields node-model-settings-fields">
                             <label>${label}<select class="ui-select" data-retouch-field="${modelField}"></select></label>
                             <label>供应商<select class="ui-select" data-retouch-field="${providerField}" aria-label="${title}供应商"></select></label>
                         </div>

@@ -208,6 +208,17 @@ test('commerce, chat and video reference galleries edit their own sources withou
     await withAppBrowser({ ...configuration, models, nodes, connections }, async app => {
         await uploadImageOriginal(app, 'red', originals[0]);
         await uploadImageOriginal(app, 'blue', originals[1]);
+        for (const target of ['chat-target', 'video-target']) {
+            const modelGroup = await app.evaluate(`(() => {
+                const node = document.getElementById('${target}');
+                const group = node.querySelector('.node-model-settings[aria-labelledby]');
+                const heading = document.getElementById(group?.getAttribute('aria-labelledby'));
+                return { heading: heading?.checkVisibility() ? heading.textContent.trim() : null,
+                    hasPair: ['apiconfig', 'provider'].every(field => group?.contains(document.getElementById(node.id + '-' + field))),
+                    referencesOutside: !group?.contains(document.querySelector('${gallery(target)}')) };
+            })()`);
+            assert.deepEqual(modelGroup, { heading: '模型与供应商', hasPair: true, referencesOutside: true }, target);
+        }
         await openParameters(app, 'commerce-target');
         await app.waitFor("document.querySelector('#image-parameter-panel[data-mode=docked] #commerce-target-reference-sources')?.checkVisibility()");
 

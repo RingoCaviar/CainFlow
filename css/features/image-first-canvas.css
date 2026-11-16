@@ -667,8 +667,8 @@ html:root #canvas-container .node.node-commerce-image-set.node-media-aspect.runn
 .commerce-image-set-cover[hidden] { display: none; }
 .commerce-image-set-options {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 132px), 1fr));
-    gap: 8px;
+    gap: 12px;
+    margin-block-start: 6px;
 }
 .commerce-image-set-product {
     display: grid;

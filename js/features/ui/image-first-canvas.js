@@ -15,13 +15,18 @@ import { createProductRetouchView } from '../../nodes/product-retouch-view.js';
 import { createImageGenerationBatchView } from './image-generation-batch.js';
 
 const nodeLabels = { ImageGenerate: '图片生成', ECommerceImageSet: '电商套图', ProductRetouch: '产品精修', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比', ImageMerge: '多图合一', ImageSave: '保存节点', CameraControl: '视角控制' };
-const dockedNodeTypes = new Set(['ECommerceImageSet', 'ProductRetouch']);
-const retouchDockWidthKey = 'cainflow_product_retouch_dock_width';
-const retouchDockMinWidth = 300;
-const retouchDockMaxWidth = 640;
-const retouchDockCanvasReserve = 240;
+const dockWidthKeys = new Map([
+    ['ECommerceImageSet', 'cainflow_ecommerce_image_set_dock_width'],
+    ['ProductRetouch', 'cainflow_product_retouch_dock_width']
+]);
+const dockMinWidth = 300;
+const dockMaxWidth = 640;
+const dockCompactWidth = 240;
+const dockCanvasReserve = 240;
+const dockNarrowCanvasReserve = 72;
 // The desktop dock layout leaves 136px beside Agent's normal 320px minimum.
-const retouchDockAgentReserve = 456;
+const dockAgentReserve = 456;
+const dockWidthProperty = '--node-parameter-dock-width';
 const cameraFields = [['pitch', '俯仰角 Pitch'], ['yaw', '偏航角 Yaw'], ['distance', '距离 Distance'], ['fov', '视野角 FOV'], ['roll', '翻滚角 Roll']];
 // Only ordinary empty states use the node name. Loading, recovery and error
 // messages still belong to the media renderer and must remain visible.
@@ -83,8 +88,12 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     let current = null, closed = null, preferredWidth = storedWidth >= 280 && storedWidth <= 960 ? storedWidth : null;
     const storedImportWidth = Number(storage?.getItem('cainflow_image_import_parameter_width'));
     let importPreferredWidth = storedImportWidth >= 280 && storedImportWidth <= 960 ? storedImportWidth : 280;
-    const storedRetouchWidth = Number(storage?.getItem(retouchDockWidthKey));
-    let retouchPreferredWidth = storedRetouchWidth >= retouchDockMinWidth && storedRetouchWidth <= retouchDockMaxWidth ? storedRetouchWidth : null;
+    const dockWidthPreferences = new Map();
+    for (const [type, key] of dockWidthKeys) {
+        const width = Number(storage?.getItem(key));
+        if (width >= dockMinWidth && width <= dockMaxWidth) dockWidthPreferences.set(type, width);
+    }
+    const persistDockWidth = type => storage?.setItem(dockWidthKeys.get(type), String(dockWidthPreferences.get(type)));
     const currentWidthPreference = () => current?.type === 'ImageImport' ? importPreferredWidth
         : preferredWidth ?? (current?.type === 'ImageMerge' ? 440 : 560);
     const setWidthPreference = width => { if (current?.type === 'ImageImport') importPreferredWidth = width; else preferredWidth = width; };
@@ -100,34 +109,34 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     const heightHandle = panel.querySelector('[data-parameter-resize="height"]');
     const cornerHandle = panel.querySelector('[data-parameter-resize="both"]');
     const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
-    const isRetouchDock = () => current?.type === 'ProductRetouch';
-    function retouchDockWidthBounds() {
+    const isDocked = () => dockWidthKeys.has(current?.type);
+    function dockWidthBounds() {
         const layoutWidth = Math.max(1, Math.floor(Math.min(dock.clientWidth || windowRef.innerWidth, windowRef.innerWidth)));
-        // A narrow window keeps both the editing column and a canvas strip reachable.
+        // Keep a compact editor usable before increasing the canvas reserve in narrow windows.
         const agentBesideDock = windowRef.innerWidth > 800 && agent?.classList.contains('active') && !agent.hidden;
-        const canvasReserve = agentBesideDock ? retouchDockAgentReserve
-            : Math.min(retouchDockCanvasReserve, Math.floor(layoutWidth / 2));
-        const maximum = Math.min(retouchDockMaxWidth, layoutWidth - canvasReserve);
-        return { min: Math.min(retouchDockMinWidth, maximum), max: maximum, layoutWidth };
+        const minimumCanvasReserve = Math.min(dockNarrowCanvasReserve, Math.floor(layoutWidth / 2));
+        const canvasReserve = agentBesideDock ? dockAgentReserve
+            : clamp(layoutWidth - dockCompactWidth, minimumCanvasReserve, dockCanvasReserve);
+        const maximum = clamp(layoutWidth - canvasReserve, 1, dockMaxWidth);
+        return { min: Math.min(dockMinWidth, maximum), max: maximum, layoutWidth };
     }
-    function retouchResizeBoundsChanged(previous, current) {
+    function dockResizeBoundsChanged(previous, current) {
         return previous.layoutWidth !== current.layoutWidth || previous.min !== current.min || previous.max !== current.max;
     }
-    function retouchDockWidth({ min, max }) {
-        const defaultWidth = clamp(windowRef.innerWidth * .34, retouchDockMinWidth, 380);
-        return Math.round(clamp(retouchPreferredWidth ?? defaultWidth, min, max));
+    function dockWidth(type, { min, max }) {
+        const defaultWidth = clamp(windowRef.innerWidth * .34, dockMinWidth, 380);
+        return Math.round(clamp(dockWidthPreferences.get(type) ?? defaultWidth, min, max));
     }
-    function positionRetouchDock() {
-        const bounds = retouchDockWidthBounds();
-        if (gesture?.retouch && retouchResizeBoundsChanged(gesture.retouchBounds, bounds)) {
+    function positionDock() {
+        const bounds = dockWidthBounds();
+        if (gesture?.dockType && dockResizeBoundsChanged(gesture.dockBounds, bounds)) {
             finishGesture(true);
             return;
         }
         const { min, max } = bounds;
-        const width = retouchDockWidth(bounds);
-        const property = '--product-retouch-dock-width';
+        const width = dockWidth(current.type, bounds);
         const value = `${width}px`;
-        if (documentRef.body.style.getPropertyValue(property) !== value) documentRef.body.style.setProperty(property, value);
+        if (documentRef.body.style.getPropertyValue(dockWidthProperty) !== value) documentRef.body.style.setProperty(dockWidthProperty, value);
         widthHandle.setAttribute('aria-valuemin', String(min));
         widthHandle.setAttribute('aria-valuemax', String(max));
         widthHandle.setAttribute('aria-valuenow', String(width));
@@ -182,8 +191,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         return { left, right, bottom, width: right - left, height: Math.max(1, bottom - top), top };
     };
     function updateMode() {
-        const docked = dockedNodeTypes.has(current?.type);
-        const retouch = isRetouchDock();
+        const docked = isDocked();
         const canExpand = !docked && !['ImageImport', 'ImageSave', 'CameraControl'].includes(current?.type);
         if (!canExpand) { expanded = false; expandedRect = null; }
         expandButton.hidden = expandButton.disabled = !canExpand;
@@ -192,12 +200,11 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         panel.dataset.mode = docked ? 'docked' : expanded ? 'expanded' : 'normal';
         const parent = docked ? dock : documentRef.body;
         if (panel.parentNode !== parent) parent.append(panel);
-        widthHandle.hidden = docked && !retouch;
-        widthHandle.setAttribute('aria-label', retouch ? '调整产品精修参数宽度' : '调整节点参数浮层宽度');
-        if (retouch) widthHandle.setAttribute('aria-controls', panel.id);
+        widthHandle.setAttribute('aria-label', docked ? `调整${nodeLabels[current.type]}参数宽度` : '调整节点参数浮层宽度');
+        if (docked) widthHandle.setAttribute('aria-controls', panel.id);
         else {
-            for (const attribute of ['aria-controls', 'aria-valuemin', 'aria-valuemax', 'aria-valuetext', 'aria-disabled']) widthHandle.removeAttribute(attribute);
-            documentRef.body.style.removeProperty('--product-retouch-dock-width');
+            for (const attribute of ['aria-controls', 'aria-valuemin', 'aria-valuemax', 'aria-valuenow', 'aria-valuetext', 'aria-disabled']) widthHandle.removeAttribute(attribute);
+            documentRef.body.style.removeProperty(dockWidthProperty);
         }
         closeButton.setAttribute('aria-label', docked ? `关闭${nodeLabels[current.type]}参数` : '关闭节点参数浮层');
         if (docked) {
@@ -267,7 +274,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         setText(panelTitle, name);
         panelTitle.title = name;
         if (panel.dataset.mode === 'docked') {
-            if (isRetouchDock()) positionRetouchDock();
+            positionDock();
             return;
         }
         setText(targetContext, `当前编辑：${name}`);
@@ -514,10 +521,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (current === node) {
             panel.dataset.importMode = node.type === 'ImageImport'
                 ? (view.urlFields.hidden ? 'upload' : 'url') : '';
-            widthHandle.hidden = (dockedNodeTypes.has(node.type) && !isRetouchDock()) || node.type === 'ImageImport' && panel.dataset.importMode === 'upload';
+            widthHandle.hidden = node.type === 'ImageImport' && panel.dataset.importMode === 'upload';
             const running = state.runningNodeIds?.has(node.id) || ['waiting', 'running'].includes(node.runStatus) || node.el.classList.contains('running');
             const generationCount = node.type === 'ImageGenerate' ? readImageGenerationSettings(node, documentRef).generationCount : 1;
-            generate.hidden = ['ImageImport', 'ImageSave'].includes(node.type) || dockedNodeTypes.has(node.type)
+            generate.hidden = ['ImageImport', 'ImageSave'].includes(node.type) || dockWidthKeys.has(node.type)
                 || (node.type === 'ImageMerge' && !mergeSourceCount);
             setText(generate, node.type === 'ImagePreview' ? (running ? '更新中' : '更新预览')
                 : node.type === 'ImageCompare' ? (running ? '更新中' : '更新对比')
@@ -585,7 +592,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         panel.hidden = false;
         panel.setAttribute('aria-hidden', 'false'); panel.inert = false;
         panel.dataset.nodeId = node.id;
-        panel.setAttribute('aria-label', `${node.el.dataset.nodeTitle || node.customTitle || nodeLabels[node.type]} · ${dockedNodeTypes.has(node.type) ? '节点参数' : '节点参数浮层'}`);
+        panel.setAttribute('aria-label', `${node.el.dataset.nodeTitle || node.customTitle || nodeLabels[node.type]} · ${isDocked() ? '节点参数' : '节点参数浮层'}`);
         if (group) { const view = views.get(node); if (view.group !== group || view.settingsPopup && !view.settingsPopup.matches(':popover-open')) setGroup(node, group); }
         refreshNode(node.id);
         position();
@@ -740,7 +747,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             if (isRetouchPreviewPointer(event)) {
                 if (deferredRetouchDock?.node === node && event.detail > 1) return;
                 if (event.detail === 1 && (current !== node || panel.hidden)) {
-                    const boundary = dock.getBoundingClientRect().right - retouchDockWidth(retouchDockWidthBounds());
+                    const boundary = dock.getBoundingClientRect().right - dockWidth(node.type, dockWidthBounds());
                     if (event.clientX >= boundary) { deferRetouchDock(node); return; }
                 }
             }
@@ -935,8 +942,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             referenceOverview.querySelector('.node-section-label')?.remove();
             form.prepend(referenceOverview);
         }
-        const grids = Array.from(form.querySelectorAll(':scope > .node-parameter-grid'));
-        group(grids[0], 'model');
+        group(form.querySelector(':scope > .node-model-settings'), 'model');
         const countField = form.querySelector(`[id="${nodeId}-generation-count"]`)?.closest('.node-field');
         if (countField) {
             form.append(countField); countField.hidden = true;
@@ -946,7 +952,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             const label = countField.querySelector('label');
             if (label) label.textContent = '次数';
         }
-        group(grids[1], 'size');
+        group(form.querySelector(':scope > .node-parameter-grid'), 'size');
         const advanced = form.querySelector('.node-advanced-parameters');
         const advancedGrid = advanced.querySelector('.node-parameter-grid');
         advancedGrid.classList.add('image-parameter-output-options');
@@ -1066,7 +1072,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         sidebar.addEventListener('transitionend', sidebarChanged);
     }
     if (windowRef.ResizeObserver) new windowRef.ResizeObserver(() => {
-        if (isRetouchDock()) schedulePosition();
+        if (isDocked()) schedulePosition();
     }).observe(dock);
     generate.addEventListener('click', () => {
         if (!current) return;
@@ -1086,14 +1092,14 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const previous = gesture;
         if (!previous) return;
         gesture = null; panel.classList.remove('is-dragging', 'is-resizing');
-        if (cancelled || previous.retouch && (panel.closest('[inert]')
-            || retouchResizeBoundsChanged(previous.retouchBounds, retouchDockWidthBounds()))) {
+        if (cancelled || previous.dockType && (panel.closest('[inert]')
+            || dockResizeBoundsChanged(previous.dockBounds, dockWidthBounds()))) {
             preferredWidth = previous.preferredWidth;
             importPreferredWidth = previous.importPreferredWidth;
-            retouchPreferredWidth = previous.retouchPreferredWidth;
+            if (previous.dockType) dockWidthPreferences.set(previous.dockType, previous.dockPreferredWidth);
             expandedRect = previous.expandedRect;
-        } else if (previous.changed && previous.retouch) {
-            storage?.setItem(retouchDockWidthKey, String(retouchPreferredWidth));
+        } else if (previous.changed && previous.dockType) {
+            persistDockWidth(previous.dockType);
         } else if (!expanded && previous.changed) persistWidthPreference();
         if (previous.handle.hasPointerCapture?.(previous.id)) previous.handle.releasePointerCapture(previous.id);
         position();
@@ -1103,10 +1109,11 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             if (event.button !== 0 || panel.hidden || handle.hidden || handle.getAttribute('aria-disabled') === 'true' || (!expanded && kind !== 'width')) return;
             event.preventDefault(); event.stopPropagation(); finishGesture(true);
             const rect = panel.getBoundingClientRect();
+            const dockType = isDocked() ? current.type : null;
             gesture = { kind, id: event.pointerId, handle, x: event.clientX, y: event.clientY,
                 rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
-                preferredWidth, importPreferredWidth, retouchPreferredWidth, retouch: isRetouchDock(),
-                retouchBounds: isRetouchDock() ? retouchDockWidthBounds() : null,
+                preferredWidth, importPreferredWidth, dockType, dockPreferredWidth: dockWidthPreferences.get(dockType),
+                dockBounds: dockType ? dockWidthBounds() : null,
                 expandedRect: expandedRect ? { ...expandedRect } : null, changed: false };
             panel.classList.add(kind === 'drag' ? 'is-dragging' : 'is-resizing'); handle.setPointerCapture?.(event.pointerId);
         });
@@ -1116,16 +1123,16 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
             if (!expanded && !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
             event.preventDefault(); event.stopPropagation(); finishGesture(true);
-            if (isRetouchDock()) {
-                const { min, max } = retouchDockWidthBounds();
+            if (isDocked()) {
+                const { min, max } = dockWidthBounds();
                 const width = Math.round(panel.getBoundingClientRect().width);
                 const step = event.key === 'ArrowLeft' ? 10 : -10;
                 const requested = event.key === 'Home' ? min : event.key === 'End' ? max : width + step;
                 const next = clamp(requested, min, max);
                 if (next !== width) {
-                    retouchPreferredWidth = next;
-                    storage?.setItem(retouchDockWidthKey, String(next));
-                    positionRetouchDock();
+                    dockWidthPreferences.set(current.type, next);
+                    persistDockWidth(current.type);
+                    positionDock();
                 }
                 return;
             }
@@ -1150,14 +1157,14 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (!gesture || event.pointerId !== gesture.id) return;
         event.preventDefault(); event.stopPropagation();
         const { rect, kind } = gesture, dx = event.clientX - gesture.x, dy = event.clientY - gesture.y;
-        if (gesture.retouch) {
+        if (gesture.dockType) {
             if (panel.closest('[inert]')) { finishGesture(true); return; }
-            const { min, max } = retouchDockWidthBounds();
+            const { min, max } = dockWidthBounds();
             const startWidth = Math.round(rect.width);
             const next = clamp(Math.round(startWidth - dx), min, max);
             gesture.changed = next !== startWidth;
-            retouchPreferredWidth = gesture.changed ? next : gesture.retouchPreferredWidth;
-            positionRetouchDock();
+            dockWidthPreferences.set(gesture.dockType, gesture.changed ? next : gesture.dockPreferredWidth);
+            positionDock();
             return;
         }
         const bounds = available();
@@ -1180,18 +1187,18 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     windowRef.addEventListener('keydown', event => {
         if (event.key !== 'Escape' || event.isComposing) return;
         cancelDeferredRetouchDock();
-        if (!gesture?.retouch) return;
+        if (!gesture?.dockType) return;
         if (panel.closest('[inert]')) { finishGesture(true); return; }
         event.preventDefault(); event.stopImmediatePropagation();
         finishGesture(true);
     }, true);
     documentRef.addEventListener('cainflow:canvas-transform', () => {
-        if (!isRetouchDock()) schedulePosition();
+        if (!isDocked()) schedulePosition();
     });
     documentRef.addEventListener('cainflow:canvas-pan-frame', () => {
         // The canvas transform has already been applied in its animation frame.
         // Do not queue another frame or move the independently placed expanded view.
-        if (!expanded && !panel.hidden && !isRetouchDock()) position();
+        if (!expanded && !panel.hidden && !isDocked()) position();
     });
     windowRef.addEventListener('resize', () => { schedulePosition(); });
     return { install, selectionChanged, close, refreshNode,

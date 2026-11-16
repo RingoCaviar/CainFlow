@@ -224,6 +224,18 @@ test('the commerce node generates selected shots, accepts a retry during generat
 
         const setup = '#image-parameter-panel .commerce-image-set-setup';
         assert.equal(await app.evaluate(`document.querySelector('${setup}').open`), false);
+        const modelSettings = '#image-parameter-panel .commerce-image-set-settings > details.node-model-settings';
+        const modelHeading = `document.querySelector('${modelSettings} > summary')`;
+        assert.equal(await app.evaluate(`${modelHeading}?.checkVisibility() && ${modelHeading}.textContent.trim()`), '模型与供应商');
+        await app.evaluate(`${modelHeading}.scrollIntoView({block:'nearest'})`);
+        await nativeClick(app, `${modelSettings} > summary`);
+        assert.deepEqual(await app.evaluate(`Array.from(document.querySelectorAll('${modelSettings} select'),
+            select => [select.dataset.commerceField, select.checkVisibility()])`), [
+            ['plannerModelId', true], ['plannerProviderId', true], ['imageModelId', true], ['imageProviderId', true]
+        ], 'both model and provider pairs remain directly available after planning');
+        assert.equal(await app.evaluate(`document.querySelector('${setup}').open`), false);
+        await nativeClick(app, `${modelSettings} > summary`);
+        await app.evaluate(`document.querySelector('${setup} > summary').scrollIntoView({block:'nearest'})`);
         await nativeClick(app, `${setup} > summary`);
         await app.evaluate(`${select('feature')}; ${select('detail-overview')}`);
         assert.equal(await app.evaluate(`Boolean(${generationAvailable})`), false);
@@ -566,6 +578,81 @@ test('the commerce node generates selected shots, accepts a retry during generat
         assert.equal(await app.evaluate(available), 9);
         assert.deepEqual(await app.evaluate(selected), []);
     }, { initScript });
+});
+
+test('the commerce dock resizes from its left edge and restores its width independently', { timeout: 30000 }, async () => {
+    const nodes = [
+        { id: 'commerce', type: 'ECommerceImageSet', x: 200, y: 100 },
+        { id: 'retouch', type: 'ProductRetouch', x: 40, y: 100 }
+    ];
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes, connections: [] }, async app => {
+        const panel = "document.getElementById('image-parameter-panel')";
+        const grip = `${panel}.querySelector('[data-parameter-resize=width]')`;
+        const width = `Math.round(${panel}.getBoundingClientRect().width)`;
+        const resizeViewport = pixels => app.send('Emulation.setDeviceMetricsOverride', {
+            width: pixels, height: 820, deviceScaleFactor: 1, mobile: false
+        });
+        const drag = async (delta, expectedWidth) => {
+            const origin = await app.evaluate(`(() => {
+                const grip = ${grip};
+                const rect = grip.getBoundingClientRect();
+                const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+                return { x, y, reachable: grip.contains(document.elementFromPoint(x, y)),
+                    leftEdge: Math.abs(rect.left - ${panel}.getBoundingClientRect().left) <= 2 };
+            })()`);
+            assert.ok(origin.reachable && origin.leftEdge, 'the dock exposes a real pointer target on its left edge');
+            const { x, y } = origin;
+            await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x + delta, y, button: 'left', buttons: 1 });
+            await app.waitFor(`${width} === ${expectedWidth}`);
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x + delta, y, button: 'left', buttons: 0, clickCount: 1 });
+        };
+
+        await resizeViewport(1100);
+        await openParameters(app, 'retouch');
+        const retouchWidth = await app.evaluate(width);
+        await openParameters(app, 'commerce');
+        const initial = await app.evaluate(width);
+        assert.equal(await app.evaluate(`${grip}.checkVisibility() && ${grip}.tabIndex === 0`), true,
+            'the commerce dock has a visible, keyboard-focusable width grip');
+        await drag(-100, initial + 100);
+        await drag(30, initial + 70);
+        await app.evaluate(`${grip}.focus()`);
+        await key(app, 'ArrowRight');
+        const savedWidth = initial + 60;
+        await app.waitFor(`${width} === ${savedWidth}`);
+        assert.equal(await app.evaluate(`Number(${grip}.getAttribute('aria-valuenow'))`), savedWidth);
+
+        await resizeViewport(850);
+        const toggleAgent = () => app.evaluate("document.getElementById('btn-prompt-agent').click()");
+        const agent = "document.getElementById('prompt-agent-panel')";
+        await toggleAgent();
+        await app.waitFor(`${agent}.classList.contains('active') && ${width} < ${savedWidth}`);
+        assert.ok(await app.evaluate(`(() => {
+            const beside = ${agent}.getBoundingClientRect();
+            return beside.width >= 320 && beside.right <= ${panel}.getBoundingClientRect().left;
+        })()`), 'the dock leaves space for Agent beside it');
+        await toggleAgent();
+        await app.waitFor(`${width} === ${savedWidth}`);
+
+        await resizeViewport(620);
+        await app.waitFor(`innerWidth === 620 && ${width} < ${savedWidth}`);
+        assert.ok(await app.evaluate(`(() => {
+            const dock = ${panel}.getBoundingClientRect();
+            const canvas = document.getElementById('canvas-container').getBoundingClientRect();
+            const action = ${panel}.querySelector('[data-commerce-action=plan]').getBoundingClientRect();
+            return canvas.width >= 72 && Math.abs(canvas.right - dock.left) < 1 && Math.abs(dock.right - innerWidth) < 1
+                && action.left >= dock.left && action.right <= dock.right && action.bottom <= innerHeight;
+        })()`), 'a narrower viewport keeps the canvas and dock actions reachable');
+        await resizeViewport(1100);
+        await app.waitFor(`${width} === ${savedWidth}`);
+        await openParameters(app, 'retouch');
+        assert.equal(await app.evaluate(width), retouchWidth, 'commerce resizing does not change the retouch preference');
+
+        await reloadAppBrowser(app);
+        await openParameters(app, 'commerce');
+        assert.equal(await app.evaluate(width), savedWidth, 'reloading restores the last manually selected commerce width');
+    });
 });
 
 test('commerce copy language persists and reaches planning, generation and retry', { timeout: 30000 }, async () => {

@@ -80,15 +80,19 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
                 </section>`).join('')}
                 <p class="commerce-image-set-selection-hint" role="status">请至少勾选一个图位。</p>
             </div>
-            <details class="commerce-image-set-disclosure">
-                <summary>模型与供应商</summary>
-                <div class="commerce-image-set-options">
-                    <label>规划模型${selectControl('plannerModelId')}</label>
-                    <label>规划供应商${selectControl('plannerProviderId')}</label>
-                    <label>生图模型${selectControl('imageModelId')}</label>
-                    <label>生图供应商${selectControl('imageProviderId')}</label>
-                </div>
-            </details>
+        </div>
+    </details>
+    <details class="node-model-settings">
+        <summary class="node-model-settings-heading">模型与供应商</summary>
+        <div class="commerce-image-set-options">
+            <div class="node-model-settings-fields">
+                <label>规划模型${selectControl('plannerModelId')}</label>
+                <label>规划供应商${selectControl('plannerProviderId')}</label>
+            </div>
+            <div class="node-model-settings-fields">
+                <label>生图模型${selectControl('imageModelId')}</label>
+                <label>生图供应商${selectControl('imageProviderId')}</label>
+            </div>
         </div>
     </details>
     <section class="commerce-image-set-plan" aria-label="套图方案" hidden>

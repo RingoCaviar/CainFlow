@@ -109,6 +109,43 @@
     .toggle-switch-compact .toggle-slider { display: none; }
 }
 
+/* Keep a model and its provider together, apart from the task's other inputs. */
+.node-model-settings {
+    min-inline-size: 0;
+    border-block-start: 1px solid var(--border-color);
+    padding-block-start: 8px;
+}
+
+section.node-model-settings { display: grid; gap: 8px; flex: none; }
+.node-model-settings > .node-model-settings-heading {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.node-model-settings-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--model-settings-field-minimum, 116px)), 1fr));
+    gap: 8px 12px;
+    min-inline-size: 0;
+}
+.node-model-settings-fields > * { min-inline-size: 0; }
+
+.node-model-settings--leading, .node-model-settings--popover {
+    border-block-start: 0;
+    padding-block-start: 0;
+}
+.node-model-settings--leading {
+    border-block-end: 1px solid var(--border-color);
+    padding-block-end: 10px;
+}
+.node-model-settings--popover { --model-settings-field-minimum: 96px; }
+.node-model-settings--popover > .node-model-settings-heading {
+    padding-block: 2px 6px;
+    border-block-end: 1px solid var(--border-color);
+}
+
 /* Use the native editor for both soft wrapping and programmatic value changes.
    The layout overrides also cover existing node, dialog and composer sizes. */
 @supports (field-sizing: content) {

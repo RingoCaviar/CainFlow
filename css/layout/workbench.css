@@ -380,16 +380,10 @@ html.animations-disabled #toolbar,
 html.animations-disabled .btn {
     transition: none !important;
 }
-/* The commerce inspector occupies a column in the workbench beside the canvas. */
+/* The docked node editor occupies a workbench column beside the canvas. */
 body:has(#main-layout > .image-parameter-panel.is-docked:not([hidden])) {
-    --commerce-dock-width: clamp(300px, 34vw, 380px);
-    --commerce-dock-visible-width: min(var(--commerce-dock-width), calc(100vw - 72px));
-    --toast-right-offset: calc(var(--commerce-dock-visible-width) + 16px);
-}
-
-body:has(#main-layout > .image-parameter-panel.is-docked[data-node-type="ProductRetouch"]:not([hidden])) {
-    --commerce-dock-width: var(--product-retouch-dock-width, clamp(300px, 34vw, 380px));
-    --commerce-dock-visible-width: var(--product-retouch-dock-width, min(var(--commerce-dock-width), calc(100vw - 72px)));
+    --node-parameter-dock-width: min(clamp(300px, 34vw, 380px), max(1px, calc(100vw - 72px)));
+    --toast-right-offset: calc(var(--node-parameter-dock-width) + 16px);
 }
 
 body:has(#main-layout > .image-parameter-panel.is-docked:not([hidden])) #toast-container {
@@ -399,8 +393,8 @@ body:has(#main-layout > .image-parameter-panel.is-docked:not([hidden])) #toast-c
 #main-layout > .image-parameter-panel.is-docked {
     position: relative;
     z-index: auto;
-    flex: 0 0 var(--commerce-dock-visible-width);
-    width: var(--commerce-dock-visible-width);
+    flex: 0 0 var(--node-parameter-dock-width);
+    width: var(--node-parameter-dock-width);
     min-width: 0;
     max-width: none;
     max-height: none;
@@ -409,13 +403,13 @@ body:has(#main-layout > .image-parameter-panel.is-docked:not([hidden])) #toast-c
     box-shadow: none;
 }
 
-#main-layout > .image-parameter-panel.is-docked[data-node-type="ProductRetouch"] .image-parameter-resize {
+#main-layout > .image-parameter-panel.is-docked .image-parameter-resize {
     z-index: 1;
     inset: 0 auto 0 0;
     width: 12px;
 }
 
-#main-layout > .image-parameter-panel.is-docked[data-node-type="ProductRetouch"] .image-parameter-resize::after {
+#main-layout > .image-parameter-panel.is-docked .image-parameter-resize::after {
     content: '';
     position: absolute;
     inset: calc(50% - 14px) auto auto 2px;
@@ -426,16 +420,16 @@ body:has(#main-layout > .image-parameter-panel.is-docked:not([hidden])) #toast-c
     pointer-events: none;
 }
 
-#main-layout > .image-parameter-panel.is-docked[data-node-type="ProductRetouch"] .image-parameter-resize[aria-disabled="true"] {
+#main-layout > .image-parameter-panel.is-docked .image-parameter-resize[aria-disabled="true"] {
     cursor: default;
 }
 
-#main-layout > .image-parameter-panel.is-docked[data-node-type="ProductRetouch"] .image-parameter-resize[aria-disabled="true"]::after {
+#main-layout > .image-parameter-panel.is-docked .image-parameter-resize[aria-disabled="true"]::after {
     opacity: .45;
 }
 
-#main-layout > .image-parameter-panel.is-docked[data-node-type="ProductRetouch"] .image-parameter-resize:not([aria-disabled="true"]):is(:hover, :focus-visible)::after,
-#main-layout > .image-parameter-panel.is-docked[data-node-type="ProductRetouch"].is-resizing .image-parameter-resize::after {
+#main-layout > .image-parameter-panel.is-docked .image-parameter-resize:not([aria-disabled="true"]):is(:hover, :focus-visible)::after,
+#main-layout > .image-parameter-panel.is-docked.is-resizing .image-parameter-resize::after {
     background: var(--accent-primary);
 }
 
@@ -460,8 +454,8 @@ body:has(#toolbar:hover, #toolbar :focus-visible, #toolbar .btn.active:not(#btn-
 
 @media (min-width: 801px) {
     #main-layout:has(> .image-parameter-panel.is-docked:not([hidden])) .prompt-agent-panel.active {
-        right: calc(var(--commerce-dock-width) + 12px);
-        max-width: min(45vw, calc(100% - var(--commerce-dock-width) - 136px));
+        right: calc(var(--node-parameter-dock-width) + 12px);
+        max-width: min(45vw, calc(100% - var(--node-parameter-dock-width) - 136px));
     }
 
     #main-layout:has(> .image-parameter-panel.is-docked:not([hidden])) #canvas-container {

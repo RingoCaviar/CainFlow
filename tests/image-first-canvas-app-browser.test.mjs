@@ -230,11 +230,22 @@ test('model entry restores its fields after Escape and reopening', { timeout: 30
     await withAppBrowser(session, async app => {
         await openNode(app, 'editor-first');
         await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        const modelGroup = '#editor-first-parameter-settings [data-parameter-group=model]';
+        const heading = `document.querySelector('${modelGroup} .node-model-settings-heading')`;
         for (let i = 0; i < 3; i++) {
             await nativeClick(app, '#image-parameter-panel .image-parameter-model-entry');
-            assert.ok(await app.evaluate("document.querySelector('#editor-first-parameter-settings [data-parameter-group=model]').checkVisibility()"), `model fields visible on open ${i+1}`);
+            assert.equal(await app.evaluate(`${heading}?.checkVisibility() && ${heading}.textContent.trim()`), '模型与供应商');
+            assert.ok(await app.evaluate(`['apiconfig', 'provider'].every(suffix => {
+                const field = document.getElementById('editor-first-' + suffix);
+                return field?.closest('${modelGroup}') && field.nextElementSibling?.querySelector('.node-select-trigger')?.checkVisibility();
+            })`), `both original selectors are visible in the model group on open ${i+1}`);
             await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
             await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
+            assert.equal(await app.evaluate(`${heading}?.checkVisibility()`), false);
+        }
+        for (const entry of ['settings', 'more']) {
+            await nativeClick(app, `#image-parameter-panel .image-parameter-${entry}-entry`);
+            assert.equal(await app.evaluate(`${heading}?.checkVisibility()`), false, `the model heading stays out of ${entry}`);
         }
     });
 });

@@ -2,7 +2,7 @@
 version: 1
 slug: "js-features-ui-image-first-canvas-js"
 primary_target: "js/features/ui/image-first-canvas.js"
-related_targets: ["css/features/image-first-canvas.css"]
+related_targets: ["css/features/image-first-canvas.css", "css/layout/workbench.css"]
 ---
 
 # 节点参数浮层
@@ -50,3 +50,11 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 ### 2026-11-16 多行文本框
 
 提示词编辑区采用共享多行文本框。自动高度从 2 行增至 6 行，超出后框内滚动。手动垂直调整可越过自动上限。 [多行文本框规范](../../DESIGN.md#inputs--fields)
+
+### 右侧停靠参数区宽度
+
+电商套图与产品精修在靠画布的左缘共用分隔手柄，支持拖动、键盘调宽和 Esc 取消拖动。各类停靠参数宽度按类型保留，临时窗口限制不写回。检查普通窗口、窄窗口、Agent 共存、节点切换及重新打开场景。 [停靠参数区宽度规范](../../DESIGN.md#停靠参数区宽度)
+
+### 模型与供应商分组
+
+生图底栏的「模型」打开独立菜单，标题与模型和供应商字段用细线分开。停靠模式使用独立折叠区，多阶段按任务配对模型和供应商。 [模型与供应商分组](../../DESIGN.md#模型与供应商分组)
