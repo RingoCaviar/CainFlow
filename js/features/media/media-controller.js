@@ -3788,9 +3788,9 @@ export function createMediaControllerApi({
         overlay.innerHTML = `
             <div class="preview-action-dock fullscreen-action-dock">
                 <div class="preview-action-list" role="toolbar" aria-label="预览操作">
-            <div class="fullscreen-close" title="关闭 (Esc)">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </div>
+            <button type="button" class="fullscreen-close" title="关闭 (Esc)" aria-label="关闭预览">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
             <button type="button" class="fullscreen-copy-btn" title="复制图片到剪贴板" aria-label="复制图片到剪贴板">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
             </button>
@@ -3798,9 +3798,9 @@ export function createMediaControllerApi({
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5"/></svg>
             </button>
             ${canDescribe ? '<button type="button" class="fullscreen-description-btn" title="添加图片介绍" aria-label="添加图片介绍">介绍</button>' : ''}
-            ${nodeId ? `<div class="fullscreen-paint-btn" title="绘制/编辑">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-            </div>` : ''}
+            ${nodeId ? `<button type="button" class="fullscreen-paint-btn" title="绘制/编辑" aria-label="绘制或编辑图片">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            </button>` : ''}
                 </div>
                 <button class="preview-action-reveal" type="button" aria-label="展开预览操作" aria-expanded="false" title="预览操作"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></button>
             </div>
@@ -3834,8 +3834,10 @@ export function createMediaControllerApi({
             </div>`;
         documentRef.body.appendChild(overlay);
         overlay.querySelector('.preview-action-reveal').addEventListener('click', event => {
-            const expanded = overlay.querySelector('.preview-action-dock').classList.toggle('is-expanded');
+            const dock = overlay.querySelector('.preview-action-dock');
+            const expanded = dock.classList.toggle('is-expanded');
             event.currentTarget.setAttribute('aria-expanded', String(expanded));
+            if (expanded && event.detail === 0) dock.querySelector('.preview-action-list button')?.focus();
         });
         const cropButton = overlay.querySelector('.fullscreen-crop-btn');
         if (cropButton) overlay.querySelector('.preview-action-list').appendChild(cropButton);

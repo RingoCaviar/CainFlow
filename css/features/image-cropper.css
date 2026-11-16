@@ -35,19 +35,20 @@
 
 .fullscreen-crop-actions {
     position: absolute;
-    top: 68px;
-    right: 16px;
+    inset: calc(24px + var(--preview-control-size, 40px)) 16px auto auto;
+    box-sizing: border-box;
+    max-inline-size: calc(100% - 32px);
     display: flex;
     align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
     gap: 8px;
-    padding: 8px;
-    border-radius: 999px;
-    background: rgba(15, 23, 42, 0.86);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
-    z-index: 11;
+    padding: 6px;
+    border-radius: 10px;
+    background: var(--preview-control-surface, #1e1e2e);
+    border: 1px solid var(--preview-control-border, #a2a2b0);
+    color: var(--preview-control-text, #fff);
+    z-index: 19;
 }
 
 .fullscreen-crop-actions.hidden {
@@ -56,30 +57,32 @@
 
 .fullscreen-crop-action {
     height: 32px;
-    padding: 0 14px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.92);
+    padding: 0 10px;
+    border-radius: 7px;
+    border: 1px solid var(--preview-control-border, #a2a2b0);
+    background: transparent;
+    color: inherit;
     font-size: 13px;
     cursor: pointer;
-    transition: all var(--transition);
 }
 
 .fullscreen-crop-action:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.16);
-    border-color: rgba(255, 255, 255, 0.28);
+    background: var(--preview-control-hover, #4b4b5f);
 }
 
-.fullscreen-crop-apply {
-    background: rgba(34, 197, 94, 0.22);
-    border-color: rgba(34, 197, 94, 0.44);
-    color: #bbf7d0;
+.fullscreen-crop-action:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: -4px;
+}
+
+.fullscreen-crop-apply:not(:disabled) {
+    border-color: #86efac;
+    background: #86efac;
+    color: #052e16;
 }
 
 .fullscreen-crop-apply:hover:not(:disabled) {
-    background: rgba(34, 197, 94, 0.34);
-    color: white;
+    background: #bbf7d0;
 }
 
 .fullscreen-crop-action:disabled {
@@ -148,18 +151,9 @@
 }
 
 .fullscreen-crop-hint {
-    position: absolute;
-    top: 18px;
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 8px 14px;
-    border-radius: 999px;
-    background: rgba(15, 23, 42, 0.82);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    color: rgba(255, 255, 255, 0.9);
+    flex: 1 1 auto;
+    padding-inline: 5px 2px;
     font-size: 13px;
-    pointer-events: none;
-    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
 }
 
 .fullscreen-crop-box {

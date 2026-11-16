@@ -151,7 +151,7 @@ test('parameter run reuses an unfixed upstream text reply as its effective promp
     });
 });
 
-test('prompt grows from two to six lines, then scrolls and shrinks again without a dirty status row', { timeout: 30000 }, async () => {
+test('prompt grows from two to six lines, then scrolls and shrinks again until manually resized', { timeout: 30000 }, async () => {
     await withAppBrowser({ ...session, nodes: [{...session.nodes[0], textareaHeights: {prompt: 400}}] }, async app => {
         await openNode(app, 'editor-first');
         const measures = [];
@@ -166,6 +166,26 @@ test('prompt grows from two to six lines, then scrolls and shrinks again without
         assert.equal(measures[2].h, measures[3].h);
         assert.ok(measures[3].scroll>measures[3].client);
         assert.equal(measures[4].h, measures[0].h);
+
+        await changeField(app, 'editor-first-prompt', Array(12).fill('short line').join('\n'));
+        const grip = await app.evaluate(`(async () => {
+            const input = document.getElementById('editor-first-prompt');
+            input.scrollIntoView({ block: 'center' });
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            const { right, bottom } = input.getBoundingClientRect();
+            return { x: right - 5, y: bottom - 5 };
+        })()`);
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...grip });
+        await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...grip, button: 'left', buttons: 1, clickCount: 1 });
+        const end = { x: grip.x, y: grip.y + 72 };
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...end, button: 'left', buttons: 1 });
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...end, button: 'left', buttons: 0, clickCount: 1 });
+        const height = "document.getElementById('editor-first-prompt').offsetHeight";
+        await app.waitFor(`${height} > ${measures[2].h + 30}`);
+        const manualHeight = await app.evaluate(height);
+        await changeField(app, 'editor-first-prompt', 'short prompt after the drag');
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        assert.equal(await app.evaluate(height), manualHeight, 'continuing to edit keeps the dragged height');
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-image-generation-dirty]')"), null);
     });
 });

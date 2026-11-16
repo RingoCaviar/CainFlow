@@ -17,7 +17,7 @@ test('the platform-aware planner sends the original product photo and returns an
         galleryAspect: '4:3', detailAspect: '2:3' };
     const expectedIds = ['detail', 'feature', 'detail-overview'];
     let request;
-    const plan = await createCommerceImageSetPlan({
+    const { plan } = await createCommerceImageSetPlan({
         settings: mixedSettings, references, models, providers,
         getProxyHeaders: (_url, _method, headers) => headers,
         fetchRef: async (path, options) => {
@@ -73,15 +73,54 @@ test('the image model receives the composition and only the latest approved copy
     assert.doesNotMatch(prompt, /^正文：|初稿标题|原始说明/m);
 });
 
+test('explicit copy language applies to planning, rewriting and image prompt lettering', async () => {
+    const requests = [];
+    const options = { references, models, providers, fetchRef: async (_path, { body }) => {
+        const { messages } = JSON.parse(body);
+        const system = messages.find(message => message.role === 'system').content;
+        const input = JSON.parse(messages.at(-1).content[0].text);
+        requests.push({ system, input });
+        const shots = input.shots.map(({ id }) => id === 'feature' ? { id, prompt: '展示杯柄' } : {
+            id, prompt: '用柔光突出马克杯', headline: input.currentShot ? '毎日使えるマグ' : '持ちやすいマグ', body: '手になじむ持ち手'
+        });
+        return Response.json({ choices: [{ message: { content: JSON.stringify({
+            ...(input.currentShot ? {} : { sellingPoints: ['杯柄好握'] }), shots
+        }) } }] });
+    } };
+    const planned = await createCommerceImageSetPlan({
+        ...options, settings: { ...settings, copyLanguage: 'ja' }
+    });
+    const rewritten = await createCommerceImageSetPlan({ ...options, settings: planned, shotId: 'detail' });
+    assert.equal(planned.copyLanguage, 'ja');
+    assert.equal(planned.plan.copyLanguage, 'ja');
+    for (const { input, system } of requests) {
+        assert.equal(input.copyLanguage, 'ja');
+        assert.match(system, /headline 和 body.*日语/);
+    }
+    assert.deepEqual(planned.productInfo.sellingPoints, ['杯柄好握']);
+    assert.equal(planned.plan.shots.find(shot => shot.id === 'feature').headline, '');
+    const detail = rewritten.plan.shots.find(shot => shot.id === 'detail');
+    assert.equal(detail.headline, '毎日使えるマグ');
+    const prompt = buildCommerceImageSetImagePrompt({ shot: detail, plan: rewritten.plan });
+    assert.match(prompt, /图中文字语言：日语/);
+    assert.match(prompt, /^标题："毎日使えるマグ"$/m);
+    assert.match(prompt, /^正文："手になじむ持ち手"$/m);
+    assert.notEqual(planned.plan.sourceKey, await commerceImageSetSourceKey({ settings: { ...planned, copyLanguage: 'fr' }, references }));
+    const restored = normalizeCommerceImageSetState({ ...planned, copyLanguage: 'fr', plan: { ...planned.plan, confirmed: true } });
+    assert.equal(restored.plan.copyLanguage, 'ja');
+    assert.equal(restored.plan.stale, true);
+    assert.equal(restored.plan.confirmed, false);
+});
+
 test('a blank or no-copy slot still preserves original product labels without adding copy', () => {
     const plan = normalizeCommerceImageSetPlan({ sellingPoints: [], shots: [
         { id: 'detail', prompt: '对焦杯身。' }, { id: 'white', prompt: '白底正面展示。' }
-    ] }, 'taobao', ['detail', 'white']);
+    ] }, 'taobao', ['detail', 'white'], { copyLanguage: 'ja' });
     const [blankCopy, noCopy] = plan.shots;
     for (const shot of [blankCopy, { ...noCopy, headline: '不支持的文案', body: '额外说明' }]) {
         const prompt = buildCommerceImageSetImagePrompt({ shot, plan });
         assert.match(prompt, /不添加标题、正文、标签或水印，保留参考图中商品和包装原有的文字与商标/);
-        assert.doesNotMatch(prompt, /^(?:标题|正文)：|不支持的文案|额外说明/m);
+        assert.doesNotMatch(prompt, /^(?:标题|正文|图中文字语言)：|不支持的文案|额外说明/m);
     }
 });
 
@@ -101,6 +140,8 @@ test('loading a pre-selection workflow preserves the approved set and its origin
     const loaded = normalizeCommerceImageSetState({ ...legacy, plan: { version: 1, platformId: 'amazon', confirmed: true,
         sourceKey, sellingPoints: [], shots: allIds.map(id => ({ id, prompt: '展示商品' })) } });
     assert.deepEqual(loaded.selectedShotIds, allIds);
+    assert.equal(loaded.copyLanguage, 'auto');
+    assert.equal(loaded.plan.copyLanguage, 'auto');
     assert.equal(loaded.plan.confirmed, true);
     assert.ok(loaded.plan.shots.every(shot => shot.group === 'gallery' && shot.aspect === '1:1' && !shot.headline && !shot.body));
     assert.equal(await commerceImageSetSourceKey({ settings: loaded, references }), sourceKey);

@@ -5,6 +5,14 @@ import { resolveAgentProvider } from '../prompt-agent/prompt-agent-provider.js';
 export const COMMERCE_IMAGE_SET_ASPECTS = Object.freeze(['1:1', '3:4', '2:3', '4:5', '9:16', '4:3', '3:2', '16:9']);
 export const COMMERCE_IMAGE_SET_DEFAULT_ASPECTS = Object.freeze({ gallery: '1:1', detail: '9:16' });
 export const COMMERCE_IMAGE_SET_COPY_LIMITS = Object.freeze({ headline: 24, body: 64 });
+export const COMMERCE_IMAGE_SET_COPY_LANGUAGES = Object.freeze({
+    auto: '自动', 'zh-CN': '简体中文', 'zh-TW': '繁体中文', en: '英语', ja: '日语', ko: '韩语',
+    de: '德语', fr: '法语', es: '西班牙语', it: '意大利语', pt: '葡萄牙语', nl: '荷兰语',
+    ru: '俄语', ar: '阿拉伯语', th: '泰语', vi: '越南语', id: '印度尼西亚语'
+});
+export const COMMERCE_PRODUCT_INFO_LIMITS = Object.freeze({
+    name: 160, sellingPoint: 160, sellingPoints: 8, audience: 400, useCases: 800, details: 4000
+});
 
 const shot = (id, label, purpose, { group = 'gallery', source = 'generate', allowCopy = false } = {}) => Object.freeze({
     id, role: id, label, group, aspect: COMMERCE_IMAGE_SET_DEFAULT_ASPECTS[group], source, purpose, allowCopy
@@ -46,6 +54,78 @@ export const COMMERCE_IMAGE_SET_PRESETS = Object.freeze({
 
 const text = (value, limit) => typeof value === 'string' ? value.trim().slice(0, limit) : '';
 const copyText = (value, limit) => typeof value === 'string' ? text(value.replace(/\s+/g, ' '), limit) : '';
+const isCopyLanguage = value => typeof value === 'string' && Object.hasOwn(COMMERCE_IMAGE_SET_COPY_LANGUAGES, value);
+
+export function normalizeCommerceImageSetCopyLanguage(value) {
+    return isCopyLanguage(value) ? value : 'auto';
+}
+
+export function updateCommerceImageSetCopyLanguage(settings, value) {
+    if (!isCopyLanguage(value) || normalizeCommerceImageSetCopyLanguage(settings.copyLanguage) === value) return false;
+    settings.copyLanguage = value;
+    if (settings.plan) {
+        settings.plan.confirmed = false;
+        settings.plan.stale = true;
+    }
+    return true;
+}
+
+export function normalizeCommerceProductInfo(raw) {
+    const limits = COMMERCE_PRODUCT_INFO_LIMITS;
+    return {
+        name: text(raw?.name, limits.name),
+        sellingPoints: Array.isArray(raw?.sellingPoints)
+            ? [...new Set(raw.sellingPoints.map(value => copyText(value, limits.sellingPoint)).filter(Boolean))].slice(0, limits.sellingPoints)
+            : [],
+        audience: text(raw?.audience, limits.audience),
+        useCases: text(raw?.useCases, limits.useCases),
+        details: text(raw?.details, limits.details)
+    };
+}
+
+export function getCommerceProductInfo(settings) {
+    return normalizeCommerceProductInfo({
+        details: settings?.productNotes,
+        sellingPoints: settings?.plan?.sellingPoints,
+        ...settings?.productInfo
+    });
+}
+
+const hasProductValue = value => value.length > 0;
+const sameProductValue = (first, second) => JSON.stringify(first) === JSON.stringify(second);
+
+export function updateCommerceProductInfoField(settings, key, value) {
+    const previous = getCommerceProductInfo(settings);
+    if (!Object.hasOwn(previous, key)) return false;
+    const next = normalizeCommerceProductInfo({ ...previous, [key]: value });
+    const auto = normalizeCommerceProductInfo(settings.autoProductInfo);
+    const changed = !sameProductValue(previous[key], next[key]);
+    const wasAuto = hasProductValue(auto[key]) && sameProductValue(previous[key], auto[key]);
+    if (!changed && !wasAuto) return false;
+    settings.productInfo = next;
+    settings.autoProductInfo = normalizeCommerceProductInfo({ ...auto, [key]: undefined });
+    delete settings.productNotes;
+    if (changed && settings.plan) {
+        settings.plan.confirmed = false;
+        if (key === 'sellingPoints') settings.plan.sellingPoints = next.sellingPoints;
+        else settings.plan.stale = true;
+    }
+    return true;
+}
+
+function getManualProductInfo(settings) {
+    const product = settings.productInfo;
+    return normalizeCommerceProductInfo(Object.fromEntries(Object.entries(product)
+        .filter(([key, value]) => !sameProductValue(value, settings.autoProductInfo[key]))));
+}
+
+function mergeCommerceProductInfo(manual, detected) {
+    const autoProductInfo = normalizeCommerceProductInfo(Object.fromEntries(Object.entries(detected)
+        .filter(([key]) => !hasProductValue(manual[key]))));
+    const productInfo = Object.fromEntries(Object.entries(manual)
+        .map(([key, value]) => [key, hasProductValue(value) ? value : autoProductInfo[key]]));
+    return { productInfo, autoProductInfo };
+}
 
 function normalizeAspect(value, group) {
     return COMMERCE_IMAGE_SET_ASPECTS.includes(value) ? value : COMMERCE_IMAGE_SET_DEFAULT_ASPECTS[group];
@@ -68,13 +148,13 @@ export function getSelectedCommerceImageSetShots(settings) {
         .map(item => ({ ...item, aspect: aspects[item.group] })) : [];
 }
 
-export function normalizeCommerceImageSetPlan(raw, platformId, selectedShotIds, aspectSettings) {
+export function normalizeCommerceImageSetPlan(raw, platformId, selectedShotIds, settings) {
     const platform = getCommerceImageSetPreset(platformId);
     if (!platform || (raw?.platformId && raw.platformId !== platform.id) || !Array.isArray(raw?.sellingPoints) || !Array.isArray(raw?.shots)) {
         throw new Error('套图方案格式无效，请重新规划。');
     }
     const selected = getSelectedCommerceImageSetShots({
-        ...aspectSettings, platformId, selectedShotIds: selectedShotIds === undefined ? platform.shots.map(item => item.id) : selectedShotIds
+        ...settings, platformId, selectedShotIds: selectedShotIds === undefined ? platform.shots.map(item => item.id) : selectedShotIds
     });
     if (!selected.length) throw new Error('请至少选择一个图位。');
     const knownIds = new Set(selected.map(item => item.id));
@@ -91,7 +171,8 @@ export function normalizeCommerceImageSetPlan(raw, platformId, selectedShotIds, 
             headline: item.allowCopy ? copyText(input?.headline, COMMERCE_IMAGE_SET_COPY_LIMITS.headline) : '',
             body: item.allowCopy ? copyText(input?.body, COMMERCE_IMAGE_SET_COPY_LIMITS.body) : '' };
     });
-    return { version: 1, platformId: platform.id, sellingPoints: [...new Set(raw.sellingPoints.map(value => text(value, 160)).filter(Boolean))].slice(0, 8), shots };
+    return { version: 1, platformId: platform.id, copyLanguage: normalizeCommerceImageSetCopyLanguage(settings?.copyLanguage),
+        sellingPoints: normalizeCommerceProductInfo(raw).sellingPoints, shots };
 }
 
 export function normalizeCommerceImageSetState(raw) {
@@ -101,7 +182,9 @@ export function normalizeCommerceImageSetState(raw) {
         selectedShotIds: selected.map(item => item.id),
         galleryAspect: normalizeAspect(raw?.galleryAspect, 'gallery'),
         detailAspect: normalizeAspect(raw?.detailAspect, 'detail'),
-        productNotes: text(raw?.productNotes, 4000),
+        copyLanguage: normalizeCommerceImageSetCopyLanguage(raw?.copyLanguage),
+        productInfo: getCommerceProductInfo(raw),
+        autoProductInfo: normalizeCommerceProductInfo(raw?.autoProductInfo),
         plannerModelId: text(raw?.plannerModelId, 200), plannerProviderId: text(raw?.plannerProviderId, 200),
         imageModelId: text(raw?.imageModelId, 200), imageProviderId: text(raw?.imageProviderId, 200),
         plan: null, results: []
@@ -109,8 +192,10 @@ export function normalizeCommerceImageSetState(raw) {
     const sourceKey = text(raw?.plan?.sourceKey, 128);
     if (raw?.plan?.version === 1 && sourceKey) {
         try {
-            settings.plan = { ...normalizeCommerceImageSetPlan(raw.plan, settings.platformId, settings.selectedShotIds, settings),
-                sourceKey, confirmed: raw.plan.confirmed === true };
+            const copyLanguage = normalizeCommerceImageSetCopyLanguage(raw.plan.copyLanguage);
+            const stale = raw.plan.stale === true || copyLanguage !== settings.copyLanguage;
+            const plan = normalizeCommerceImageSetPlan(raw.plan, settings.platformId, settings.selectedShotIds, { ...settings, copyLanguage });
+            settings.plan = { ...plan, sourceKey, confirmed: raw.plan.confirmed === true && !stale, ...(stale ? { stale: true } : {}) };
         } catch { /* Invalid stored plans can be replaced by planning again. */ }
     }
     if (Array.isArray(raw?.results)) {
@@ -151,10 +236,13 @@ async function sourceFingerprint(value) {
 }
 
 export async function commerceImageSetSourceKey({ settings, references }) {
-    const { platformId, productNotes, plannerModelId, plannerProviderId, selectedShotIds, galleryAspect, detailAspect } = normalizeCommerceImageSetState(settings);
+    const { platformId, productInfo, plannerModelId, plannerProviderId, selectedShotIds, galleryAspect, detailAspect, copyLanguage } = normalizeCommerceImageSetState(settings);
     const images = normalizeReferences(references);
     const hashes = await Promise.all(images.map(sourceFingerprint));
-    const inputs = [platformId, productNotes, plannerModelId, plannerProviderId, hashes];
+    const { name, details, audience, useCases } = productInfo;
+    const inputs = [platformId, details, plannerModelId, plannerProviderId, hashes];
+    // Selling points remain editable in the approved draft without changing its image inputs.
+    if (name || audience || useCases) inputs.push({ name, audience, useCases });
     const platform = getCommerceImageSetPreset(platformId);
     const includesDetail = platform.shots.some(shot => shot.group === 'detail' && selectedShotIds.includes(shot.id));
     const galleryCount = platform.shots.filter(shot => shot.group === 'gallery').length;
@@ -163,15 +251,19 @@ export async function commerceImageSetSourceKey({ settings, references }) {
     if (includesDetail || galleryAspect !== COMMERCE_IMAGE_SET_DEFAULT_ASPECTS.gallery || detailAspect !== COMMERCE_IMAGE_SET_DEFAULT_ASPECTS.detail) {
         inputs.push({ galleryAspect, detailAspect });
     }
+    if (copyLanguage !== 'auto') inputs.push({ copyLanguage });
     return sourceFingerprint(JSON.stringify(inputs));
 }
 
-export function buildCommerceImageSetImagePrompt({ shot, plan, productNotes }) {
+export function buildCommerceImageSetImagePrompt({ shot, plan, productInfo, productNotes }) {
     const platform = getCommerceImageSetPreset(plan.platformId);
+    const { name, details, audience, useCases } = normalizeCommerceProductInfo({ details: productNotes, ...productInfo });
     const headline = shot.allowCopy ? copyText(shot.headline, COMMERCE_IMAGE_SET_COPY_LIMITS.headline) : '';
     const body = shot.allowCopy ? copyText(shot.body, COMMERCE_IMAGE_SET_COPY_LIMITS.body) : '';
     const onImageCopy = [headline && `标题：${JSON.stringify(headline)}`, body && `正文：${JSON.stringify(body)}`].filter(Boolean);
+    const copyLanguage = normalizeCommerceImageSetCopyLanguage(plan.copyLanguage);
     const lettering = onImageCopy.length ? [
+        copyLanguage !== 'auto' && `图中文字语言：${COMMERCE_IMAGE_SET_COPY_LANGUAGES[copyLanguage]}。`,
         '在同一次出图中完成商品画面与文案排版。遵循画面设计中的文字位置、对齐、字体风格和字色，让文字融入背景与留白，和商品主体共同构图。避免独立于画面的底部色条和贴片。',
         '标题为主要文字，正文使用较小字号并保持合适的行距。文字与背景对比清晰，不遮挡商品，四周留足安全边距。仅有一项文案时按该项重新平衡布局，不保留空文字区。',
         '以以下文案为准，每项只渲染一次，逐字保留，不翻译、不改写，不画出引号、字段名、商品资料或其他说明。禁止额外标语、装饰性假字和水印。',
@@ -184,80 +276,151 @@ export function buildCommerceImageSetImagePrompt({ shot, plan, productNotes }) {
         `图位用途：${shot.purpose}`,
         `画面设计：${shot.prompt}`,
         '商品的外观、颜色、商标、包装与销售数量须与参考图一致。只呈现参考图或资料能证实的商品信息。',
-        productNotes && `已确认的商品资料：${productNotes}`,
+        name && `商品名称：${name}`,
+        details && `已确认的商品资料：${details}`,
+        audience && `适用人群用于辅助画面设计：${audience}`,
+        useCases && `使用场景用于辅助画面设计：${useCases}`,
         plan.sellingPoints.length > 0 && `已确认的卖点：${plan.sellingPoints.join('；')}`,
         '以下文字规则优先于画面设计里的旧文案或排字要求。',
         ...lettering
     ].filter(Boolean).join('\n');
 }
 
-export async function createCommerceImageSetPlan({
-    settings, references, models, providers, fetchRef, getProxyHeaders, signal, shotId,
-    runRequest = (_request, execute) => execute()
+const PRODUCT_ANALYSIS_INSTRUCTIONS = [
+    '从商品参考图和用户提供的商品资料分析产品信息。按 productInfo 中已有的非空字段使用原值；仅补充留空的字段。',
+    'productInfo 包含 name（商品名称或通用类目名称）、sellingPoints（按优先级排列的字符串数组，最多 8 条）、audience（建议适用人群）、useCases（合理的用途和使用场景）、details（产品外观、可观察到的结构与已核实规格）。除卖点外均为字符串。',
+    '只使用参考图可观察到或商品资料明确提供的事实。尺寸、材质、功效、认证、销量、价格及包装数量无法核实时留空。人群和场景只作创意建议，避免写成事实或效果承诺。'
+].join('\n');
+
+function requestCommerceJson({
+    settings, references, models, providers, fetchRef, getProxyHeaders, signal, systemPrompt, message,
+    responseError, validate, shot, runRequest = (_request, execute) => execute()
 }) {
+    const model = getModelsForTask(models, 'chat').find(item => item.id === settings.plannerModelId);
+    if (!model) throw new Error('请选择支持图片输入的规划模型。');
+    const provider = resolveAgentProvider(model, providers, settings.plannerProviderId);
+    const protocol = getEffectiveProtocol(model, provider);
+    const request = createChatRequestPlan({
+        model, provider, protocol,
+        capabilities: { imageInput: model.capabilities?.imageInput !== false },
+        systemPrompt,
+        messages: [{ role: 'user', content: JSON.stringify(message) }],
+        media: references.map(url => ({ type: 'image', url }))
+    });
+    const providerHeaders = { 'Content-Type': 'application/json',
+        ...(request.protocol === 'openai' ? { Authorization: `Bearer ${provider.apikey}` } : {}) };
+    const headers = getProxyHeaders?.(request.url, request.method, providerHeaders);
+    return runRequest(request, async () => {
+        const { text: reply } = await requestChatCompletion(request, { fetchRef, headers, signal });
+        signal?.throwIfAborted();
+        let raw;
+        try { raw = JSON.parse(reply.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')); }
+        catch { throw new Error(responseError); }
+        return validate(raw);
+    }, shot);
+}
+
+function readAnalyzedProductInfo(raw, { acceptLegacy = false, responseError }) {
+    const info = raw?.productInfo;
+    if (info && typeof info === 'object' && !Array.isArray(info)) {
+        const normalized = normalizeCommerceProductInfo(info);
+        if (Object.keys(normalized).some(key => key === 'sellingPoints' ? Array.isArray(info[key]) : typeof info[key] === 'string')) {
+            return normalized;
+        }
+    }
+    if (acceptLegacy && Array.isArray(raw?.sellingPoints)) return normalizeCommerceProductInfo(raw);
+    throw new Error(responseError);
+}
+
+export async function analyzeCommerceImageSetProduct({ settings, references, ...requestOptions }) {
+    const input = normalizeCommerceImageSetState(settings);
+    const images = normalizeReferences(references);
+    const manual = getManualProductInfo(input);
+    const responseError = '规划模型未返回有效的商品信息，请重试。';
+    const detected = await requestCommerceJson({
+        ...requestOptions, settings: input, references: images, responseError,
+        systemPrompt: `${PRODUCT_ANALYSIS_INSTRUCTIONS}\n只返回纯 JSON，根对象仅含 productInfo。`,
+        message: { platform: getCommerceImageSetPreset(input.platformId).label, productInfo: manual },
+        validate: raw => readAnalyzedProductInfo(raw, { responseError })
+    });
+    const updated = { ...input, ...mergeCommerceProductInfo(manual, detected) };
+    if (input.plan) {
+        const sellingPoints = updated.productInfo.sellingPoints;
+        const stale = input.plan.stale || input.plan.sourceKey !== await commerceImageSetSourceKey({ settings: updated, references: images });
+        updated.plan = {
+            ...input.plan, sellingPoints,
+            confirmed: input.plan.confirmed && !stale && sameProductValue(sellingPoints, input.plan.sellingPoints),
+            ...(stale ? { stale: true } : {})
+        };
+    }
+    return updated;
+}
+
+export async function createCommerceImageSetPlan({ settings, references, shotId, ...requestOptions }) {
     const input = normalizeCommerceImageSetState(settings);
     if (!input.selectedShotIds.length) throw new Error('请至少选择一个图位。');
     const images = normalizeReferences(references);
     const currentShot = shotId === undefined ? null : input.plan?.shots.find(shot => shot.id === shotId);
     if (shotId !== undefined && currentShot?.source !== 'generate') throw new Error('请选择一个需要生图的图位。');
-    if (currentShot && input.plan.sourceKey !== await commerceImageSetSourceKey({ settings: input, references: images })) {
-        throw new Error('商品资料、参考图、图位或规划模型已改变，请重新规划整套方案。');
+    if (currentShot && (input.plan.stale || input.plan.sourceKey !== await commerceImageSetSourceKey({ settings: input, references: images }))) {
+        throw new Error('商品资料、参考图或生成设置已改变，请重新规划整套方案。');
     }
     const platform = getCommerceImageSetPreset(input.platformId);
-    const model = getModelsForTask(models, 'chat').find(item => item.id === input.plannerModelId);
-    if (!model) throw new Error('请选择支持图片输入的规划模型。');
-    const provider = resolveAgentProvider(model, providers, input.plannerProviderId);
-    const protocol = getEffectiveProtocol(model, provider);
     const selectedShotIds = currentShot ? [currentShot.id] : input.selectedShotIds;
     const slots = getSelectedCommerceImageSetShots({ ...input, selectedShotIds }).filter(item => item.source === 'generate');
-    const request = createChatRequestPlan({
-        model, provider, protocol,
-        capabilities: { imageInput: model.capabilities?.imageInput !== false },
+    const productInfo = currentShot ? input.productInfo : getManualProductInfo(input);
+    const responseError = '规划模型未返回有效套图方案，请重试。';
+    const { raw, plan, product } = await requestCommerceJson({
+        ...requestOptions, settings: input, references: images, responseError, shot: currentShot,
         systemPrompt: [
             '你负责规划电商商品主副图和详情页图片。只提取参考图可观察到或商品资料明确提供的卖点。不要推断尺寸、材质、功效、认证、销量或价格。',
+            !currentShot && PRODUCT_ANALYSIS_INSTRUCTIONS,
+            !currentShot && '先完成产品分析，再用用户提供或本次分析的商品信息规划各图位与文案。',
             '保持同一商品的外观、颜色、商标、包装和销售数量。图中不得添加虚构标签、促销标识或其他商品。不使用逼真的生成式人物。',
             '按各图位的用途和宽高比设计不同的画面。主副图用于商品列表和轮播展示，详情图各自说明一个主题，依次组成详情页内容。',
-            '输出纯 JSON，包含 sellingPoints（字符串数组）和 shots（每项仅含 id、prompt、headline、body）。只为给定 id 编写方案。',
+            currentShot ? '输出纯 JSON，根对象仅含 shots。' : '输出纯 JSON，根对象包含 productInfo 和 shots。',
+            'shots 是对象数组，每项仅含 id、prompt、headline、body。只为给定 id 编写方案。',
             '每个 prompt 都应写清画面内容、构图和摄影风格，具体到展示的商品部位、场景、景别、拍摄角度、主体位置、光线和色调。全套图片协调统一，每个图位有自己的构图重点。',
             'allowCopy 为 true 且有文案时，在 prompt 中描述与商品构图融为一体的文字布局，指定标题和正文的位置、对齐、层级、字体风格和字色，保证阅读对比度，不遮挡实物。用“标题”“正文”指代，不在 prompt 中重复实际文案。',
             'headline 和 body 分别填写要出现在图上的短标题和辅助说明，具体、自然，贴合本图用途。避免多张图重复同样的文案。缺少合适证据时留空。',
-            'allowCopy 为 false 的图位两项留空，画面不添加额外文字。遵循商品资料指定的语言，默认亚马逊使用英语，其他平台使用简体中文。',
+            'allowCopy 为 false 的图位两项留空，画面不添加额外文字。',
+            input.copyLanguage === 'auto'
+                ? '图上文案遵循商品资料指定的语言，默认亚马逊使用英语，其他平台使用简体中文。'
+                : `图上文案的 headline 和 body 使用${COMMERCE_IMAGE_SET_COPY_LANGUAGES[input.copyLanguage]}，这项设置优先于平台默认值、商品资料或当前草稿中的语言要求。商品分析和画面说明沿用原有语言。`,
             currentShot && '只重新规划指定图位。以现有商品卖点为依据，参考当前草稿提出新的构图或文案。'
         ].filter(Boolean).join('\n'),
-        messages: [{ role: 'user', content: JSON.stringify({ platform: platform.label, productNotes: input.productNotes,
+        message: { platform: platform.label, productInfo, copyLanguage: input.copyLanguage,
             copyLimits: COMMERCE_IMAGE_SET_COPY_LIMITS,
             ...(currentShot ? { currentShot: { prompt: currentShot.prompt, headline: currentShot.headline, body: currentShot.body },
                 sellingPoints: input.plan.sellingPoints } : {}),
-            shots: slots.map(({ id, label, group, aspect, purpose, allowCopy }) => ({ id, label, group, aspect, purpose, allowCopy })) }) }],
-        media: images.map(url => ({ type: 'image', url }))
+            shots: slots.map(({ id, label, group, aspect, purpose, allowCopy }) => ({ id, label, group, aspect, purpose, allowCopy })) },
+        validate(raw) {
+            const product = currentShot ? null
+                : mergeCommerceProductInfo(productInfo, readAnalyzedProductInfo(raw, { acceptLegacy: true, responseError }));
+            const sellingPoints = product?.productInfo.sellingPoints ?? input.plan.sellingPoints;
+            return { raw, product, plan: normalizeCommerceImageSetPlan({ ...raw, sellingPoints }, platform.id, selectedShotIds, input) };
+        }
     });
-    const providerHeaders = { 'Content-Type': 'application/json',
-        ...(request.protocol === 'openai' ? { Authorization: `Bearer ${provider.apikey}` } : {}) };
-    const headers = getProxyHeaders?.(request.url, request.method, providerHeaders);
-    const { raw, plan } = await runRequest(request, async () => {
-        const { text: reply } = await requestChatCompletion(request, { fetchRef, headers, signal });
-        signal?.throwIfAborted();
-        let raw;
-        try { raw = JSON.parse(reply.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')); }
-        catch { throw new Error('规划模型未返回有效套图方案，请重试。'); }
-        return { raw, plan: normalizeCommerceImageSetPlan(raw, platform.id, selectedShotIds, input) };
-    }, currentShot);
-    const missingHeadlines = new Set(raw.shots.filter(shot => !Object.hasOwn(shot, 'headline')).map(shot => shot.id));
-    const usedHeadlines = new Set(plan.shots.map(shot => shot.headline));
-    const sellingPoints = currentShot ? input.plan.sellingPoints : plan.sellingPoints;
-    if (currentShot) {
-        for (const shot of input.plan.shots) {
-            if (shot.id !== currentShot.id) usedHeadlines.add(shot.headline);
+    if (input.copyLanguage === 'auto') {
+        const missingHeadlines = new Set(raw.shots.filter(shot => !Object.hasOwn(shot, 'headline')).map(shot => shot.id));
+        const usedHeadlines = new Set(plan.shots.map(shot => shot.headline));
+        const sellingPoints = currentShot ? input.plan.sellingPoints : plan.sellingPoints;
+        if (currentShot) {
+            for (const shot of input.plan.shots) {
+                if (shot.id !== currentShot.id) usedHeadlines.add(shot.headline);
+            }
+        }
+        for (const shot of plan.shots) {
+            if (!['feature', 'detail-feature'].includes(shot.id) || shot.body || !missingHeadlines.has(shot.id)) continue;
+            const fallback = sellingPoints.find(point => point.length <= COMMERCE_IMAGE_SET_COPY_LIMITS.headline && !usedHeadlines.has(point));
+            if (!fallback) continue;
+            shot.headline = copyText(fallback, COMMERCE_IMAGE_SET_COPY_LIMITS.headline);
+            usedHeadlines.add(fallback);
         }
     }
-    for (const shot of plan.shots) {
-        if (!['feature', 'detail-feature'].includes(shot.id) || shot.body || !missingHeadlines.has(shot.id)) continue;
-        const fallback = sellingPoints.find(point => point.length <= COMMERCE_IMAGE_SET_COPY_LIMITS.headline && !usedHeadlines.has(point));
-        if (!fallback) continue;
-        shot.headline = copyText(fallback, COMMERCE_IMAGE_SET_COPY_LIMITS.headline);
-        usedHeadlines.add(fallback);
-    }
-    if (currentShot) return { ...input.plan, confirmed: false,
-        shots: input.plan.shots.map(shot => shot.id === currentShot.id ? plan.shots[0] : shot) };
-    return { ...plan, sourceKey: await commerceImageSetSourceKey({ settings: input, references: images }), confirmed: false };
+    if (currentShot) return { ...input, plan: { ...input.plan, confirmed: false,
+        shots: input.plan.shots.map(shot => shot.id === currentShot.id ? plan.shots[0] : shot) } };
+    const updated = { ...input, ...product };
+    return { ...updated, plan: { ...plan, sourceKey: await commerceImageSetSourceKey({ settings: updated, references: images }), confirmed: false },
+        results: [] };
 }

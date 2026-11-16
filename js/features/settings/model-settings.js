@@ -532,7 +532,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                     <div class="provider-multiselect" data-id="${mod.id}">
                         <button type="button" class="provider-multiselect-trigger" id="${controlId}-providers" data-id="${mod.id}" aria-labelledby="${controlId}-providers-label ${controlId}-providers-summary" aria-expanded="${isProviderPanelOpen ? 'true' : 'false'}">
                             <span class="provider-multiselect-summary" id="${controlId}-providers-summary">${dialogs.escapeHtml(providerSettings.getModelProviderSummary(mod))}</span>
-                            <span class="provider-multiselect-caret" aria-hidden="true">▾</span>
+                            <span class="provider-multiselect-caret" aria-hidden="true"></span>
                         </button>
                     </div>
                 `
@@ -562,7 +562,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                     <div class="card-row">
                         <div class="card-field">
                             <label for="${controlId}-task">模型用途</label>
-                            <select id="${controlId}-task" data-id="${mod.id}" data-field="taskType">
+                            <select id="${controlId}-task" class="ui-select" data-id="${mod.id}" data-field="taskType">
                                 <option value="chat" ${taskType === 'chat' ? 'selected' : ''}>对话</option>
                                 <option value="image" ${taskType === 'image' ? 'selected' : ''}>生图</option>
                                 <option value="video" ${taskType === 'video' ? 'selected' : ''}>视频</option>
@@ -570,7 +570,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
                         </div>
                         <div class="card-field">
                             <label for="${controlId}-protocol">兼容格式</label>
-                            <select id="${controlId}-protocol" class="${protocol ? '' : 'invalid model-protocol-required'}" aria-invalid="${protocol ? 'false' : 'true'}" data-id="${mod.id}" data-field="protocol">${protocolOptions}</select>
+                            <select id="${controlId}-protocol" class="ui-select${protocol ? '' : ' invalid model-protocol-required'}" aria-invalid="${protocol ? 'false' : 'true'}" data-id="${mod.id}" data-field="protocol">${protocolOptions}</select>
                         </div>
                     </div>
                     <details class="model-protocol-details"><summary>请求示例与格式说明（高级）</summary><div class="card-row">

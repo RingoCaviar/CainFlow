@@ -46,3 +46,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 ### 2026-11-06 底部单行规范覆盖
 
 生图参数上方仅文本输入，不显示提示词标题、移除让助手优化。底部单行从左到右为参数、紧凑模型、生成；参考、尺寸、高级与次数收入可关闭二级选单，Esc 优先关闭选单。此规则替代前述模型全宽和助手操作行。详见 docs/node-style-spec.md。
+
+### 2026-11-16 多行文本框
+
+提示词编辑区采用共享多行文本框。自动高度从 2 行增至 6 行，超出后框内滚动。手动垂直调整可越过自动上限。 [多行文本框规范](../../DESIGN.md#inputs--fields)

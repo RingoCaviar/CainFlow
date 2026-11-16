@@ -1,12 +1,15 @@
 import {
-    COMMERCE_IMAGE_SET_ASPECTS, COMMERCE_IMAGE_SET_COPY_LIMITS, COMMERCE_IMAGE_SET_DEFAULT_ASPECTS,
-    COMMERCE_IMAGE_SET_PRESETS, getSelectedCommerceImageSetShots
+    COMMERCE_IMAGE_SET_ASPECTS, COMMERCE_IMAGE_SET_COPY_LANGUAGES, COMMERCE_IMAGE_SET_COPY_LIMITS,
+    COMMERCE_IMAGE_SET_DEFAULT_ASPECTS, COMMERCE_IMAGE_SET_PRESETS, COMMERCE_PRODUCT_INFO_LIMITS,
+    getCommerceProductInfo, getSelectedCommerceImageSetShots, normalizeCommerceImageSetCopyLanguage,
+    updateCommerceImageSetCopyLanguage, updateCommerceProductInfoField
 } from '../features/ecommerce-image-set/commerce-image-set-plan.js';
 import { getEffectiveProtocol, getModelProviders, getModelsForTask } from '../features/execution/provider-request-utils.js';
 import { getOpenAIChatCapabilities } from '../features/execution/openai-chat-capabilities.js';
 import { projectImageReferences } from './image-reference-projection.js';
 
 const shotGroups = [['gallery', '主副图'], ['detail', '详情图']];
+const selectControl = (field, label = '') => `<select class="ui-select" data-commerce-field="${field}"${label ? ` aria-label="${label}"` : ''}></select>`;
 let panelSequence = 0;
 
 export function renderCommerceImageSetBody() {
@@ -32,49 +35,64 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
     const cover = card.querySelector('img');
     const cardTitle = card.querySelector('.commerce-image-set-card-title');
     const cardProgress = card.querySelector('.commerce-image-set-card-progress');
-    const editorIdPrefix = `commerce-shot-editor-${++panelSequence}`;
+    const panelId = `commerce-image-set-${++panelSequence}`;
+    const editorIdPrefix = `${panelId}-shot`;
     const element = documentRef.createElement('section');
     element.className = 'commerce-image-set-settings';
-    element.innerHTML = `<details class="commerce-image-set-setup" open>
-        <summary hidden><strong>生成设置</strong><span></span></summary>
+    element.innerHTML = `<section class="commerce-image-set-product" aria-labelledby="${panelId}-product-heading">
+        <header class="commerce-image-set-product-header">
+            <h3 id="${panelId}-product-heading" tabindex="-1">产品信息</h3>
+            <button type="button" class="commerce-image-set-analyze" data-commerce-action="analyze" aria-describedby="${panelId}-product-hint">
+                <svg class="commerce-image-set-analyze-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3m13-5h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3m13-5v3a2 2 0 0 1-2 2h-3M7 12h10"/><path d="M10 8h4m-4 8h4"/></svg>
+                <span class="commerce-image-set-analyze-spinner functional-animation" aria-hidden="true"></span>
+                <span class="commerce-image-set-analyze-label">分析产品</span>
+            </button>
+        </header>
+        <p class="commerce-image-set-product-hint" id="${panelId}-product-hint" role="status">可选填。生成方案时，AI 会根据参考图补全。</p>
+        <div class="commerce-image-set-product-fields">
+            <label>产品名称<input type="text" data-commerce-product-field="name" maxlength="${COMMERCE_PRODUCT_INFO_LIMITS.name}" placeholder="填写名称或由 AI 识别"></label>
+            <label>核心卖点<textarea data-commerce-product-field="sellingPoints" data-commerce-selling-points rows="2" maxlength="${(COMMERCE_PRODUCT_INFO_LIMITS.sellingPoint + 1) * COMMERCE_PRODUCT_INFO_LIMITS.sellingPoints - 1}" placeholder="每行一条，最多 ${COMMERCE_PRODUCT_INFO_LIMITS.sellingPoints} 条"></textarea></label>
+        </div>
+        <details class="commerce-image-set-disclosure commerce-image-set-product-more">
+            <summary>人群、场景与规格<span class="commerce-image-set-product-extra" hidden></span></summary>
+            <div class="commerce-image-set-product-fields">
+                <label>适用人群<textarea data-commerce-product-field="audience" rows="2" maxlength="${COMMERCE_PRODUCT_INFO_LIMITS.audience}" placeholder="如日常通勤人群"></textarea></label>
+                <label>使用场景<textarea data-commerce-product-field="useCases" rows="2" maxlength="${COMMERCE_PRODUCT_INFO_LIMITS.useCases}" placeholder="如办公室、户外运动"></textarea></label>
+                <label>产品细节与规格<textarea data-commerce-product-field="details" rows="3" maxlength="${COMMERCE_PRODUCT_INFO_LIMITS.details}" placeholder="补充材质、尺寸、配件或其他产品信息"></textarea></label>
+            </div>
+        </details>
+    </section>
+    <details class="commerce-image-set-setup" open>
+        <summary><strong>生成设置</strong><span></span></summary>
         <div class="commerce-image-set-setup-fields">
             <div class="commerce-image-set-platform">
-                <label>平台<select data-commerce-field="platformId"></select></label>
+                <label>平台${selectControl('platformId')}</label>
                 <p class="commerce-image-set-guide"></p>
+                <label>图中文字语言${selectControl('copyLanguage')}</label>
             </div>
             <div class="commerce-image-set-selection">
                 ${shotGroups.map(([group, title]) => `<section class="commerce-image-set-choice-group">
                     <div class="commerce-image-set-group-heading">
                         <h3>${title}</h3>
-                        <label>比例<select data-commerce-field="${group}Aspect" aria-label="${title}比例"></select></label>
+                        <label>比例${selectControl(`${group}Aspect`, `${title}比例`)}</label>
                     </div>
                     <div class="commerce-image-set-shot-choices" data-commerce-choice-group="${group}" role="group" aria-label="${title}图位"></div>
                 </section>`).join('')}
                 <p class="commerce-image-set-selection-hint" role="status">请至少勾选一个图位。</p>
             </div>
             <details class="commerce-image-set-disclosure">
-                <summary>商品资料（可选）</summary>
-                <textarea data-commerce-field="productNotes" aria-label="商品资料" rows="2" maxlength="4000" placeholder="补充已确认的材质、尺寸或规格"></textarea>
-            </details>
-            <details class="commerce-image-set-disclosure">
                 <summary>模型与供应商</summary>
                 <div class="commerce-image-set-options">
-                    <label>规划模型<select data-commerce-field="plannerModelId"></select></label>
-                    <label>规划供应商<select data-commerce-field="plannerProviderId"></select></label>
-                    <label>生图模型<select data-commerce-field="imageModelId"></select></label>
-                    <label>生图供应商<select data-commerce-field="imageProviderId"></select></label>
+                    <label>规划模型${selectControl('plannerModelId')}</label>
+                    <label>规划供应商${selectControl('plannerProviderId')}</label>
+                    <label>生图模型${selectControl('imageModelId')}</label>
+                    <label>生图供应商${selectControl('imageProviderId')}</label>
                 </div>
             </details>
         </div>
     </details>
     <section class="commerce-image-set-plan" aria-label="套图方案" hidden>
-        <header class="commerce-image-set-plan-heading">
-            <h3>套图方案</h3>
-            <details class="commerce-image-set-disclosure">
-                <summary>商品卖点</summary>
-                <textarea data-commerce-selling-points aria-label="商品卖点" rows="3" maxlength="2400" placeholder="每行一个卖点"></textarea>
-            </details>
-        </header>
+        <header class="commerce-image-set-plan-heading"><h3>套图方案</h3></header>
         <div class="commerce-image-set-shots"></div>
     </section>`;
     const actions = documentRef.createElement('div');
@@ -86,6 +104,13 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
             <button type="button" class="btn btn-primary" data-commerce-action="generate" hidden>确认并生成套图</button>
         </div>`;
     const fields = Object.fromEntries(Array.from(element.querySelectorAll('[data-commerce-field]'), control => [control.dataset.commerceField, control]));
+    const productFields = Array.from(element.querySelectorAll('[data-commerce-product-field]'));
+    const productHeading = element.querySelector('.commerce-image-set-product-header h3');
+    const productHint = element.querySelector('.commerce-image-set-product-hint');
+    const productMore = element.querySelector('.commerce-image-set-product-more');
+    const productExtra = productMore.querySelector('.commerce-image-set-product-extra');
+    const analyzeButton = element.querySelector('[data-commerce-action="analyze"]');
+    const analyzeLabel = analyzeButton.querySelector('.commerce-image-set-analyze-label');
     const setup = element.querySelector('.commerce-image-set-setup');
     const setupSummary = setup.querySelector('summary');
     const setupSelection = setupSummary.querySelector('span');
@@ -94,7 +119,6 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
     const choiceGroups = new Map(shotGroups.map(([group]) => [group, shotSelection.querySelector(`[data-commerce-choice-group="${group}"]`)]));
     const shotSelectionHint = shotSelection.querySelector('.commerce-image-set-selection-hint');
     const planSection = element.querySelector('.commerce-image-set-plan');
-    const sellingPoints = element.querySelector('[data-commerce-selling-points]');
     const shots = element.querySelector('.commerce-image-set-shots');
     const planButton = actions.querySelector('[data-commerce-action="plan"]');
     const generateButton = actions.querySelector('[data-commerce-action="generate"]');
@@ -109,6 +133,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
     let pendingAction = null;
     let drainingRetries = false;
     let runMessage = '';
+    let productMessage = '';
     let shotStructure = '';
     let choicePlatform = '';
     let activeShotId = '';
@@ -152,7 +177,13 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
                     checkbox.dataset.commerceSelectShot = shot.id;
                     const name = documentRef.createElement('span');
                     name.textContent = shot.label;
-                    label.append(checkbox, name);
+                    const control = documentRef.createElement('span');
+                    control.className = 'toggle-switch toggle-switch-compact';
+                    const track = documentRef.createElement('span');
+                    track.className = 'toggle-slider';
+                    track.setAttribute('aria-hidden', 'true');
+                    control.append(checkbox, track);
+                    label.append(name, control);
                     return label;
                 });
                 container.replaceChildren(...choices);
@@ -325,6 +356,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
         const value = config();
         const platformId = Object.hasOwn(COMMERCE_IMAGE_SET_PRESETS, value.platformId) ? value.platformId : defaultPlatformId;
         const preset = COMMERCE_IMAGE_SET_PRESETS[platformId];
+        const copyLanguage = normalizeCommerceImageSetCopyLanguage(value.copyLanguage);
         const selectedShots = getSelectedCommerceImageSetShots(value);
         const needsImageModel = selectedShots.some(shot => shot.source === 'generate');
         const planner = modelOptions('chat', value.plannerModelId, value.plannerProviderId);
@@ -337,12 +369,12 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
         const unavailable = node.enabled === false || node.isClone === true;
         const locked = busy || unavailable;
         const plan = value.plan;
+        const copyLanguageChanged = !!plan && (plan.copyLanguage ?? 'auto') !== copyLanguage;
         if ((plan?.sourceKey ?? null) !== planSourceKey) {
             planSourceKey = plan?.sourceKey ?? null;
             activeShotId = '';
-            setup.open = !plan?.sourceKey;
+            setup.open = !plan?.sourceKey || copyLanguageChanged;
         }
-        setupSummary.hidden = !plan;
         const selectionLabel = `${preset.label} · ${selectedShots.length} 个图位`;
         if (setupSelection.textContent !== selectionLabel) setupSelection.textContent = selectionLabel;
         const results = Array.isArray(value.results) ? value.results : [];
@@ -350,7 +382,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
         const progress = busy && Number.isInteger(processed) && Number.isInteger(total)
             && total > 0 && processed >= 0 && processed <= total ? `正在生成图片（${processed} / ${total}）` : '';
         const missingPrompt = plan?.shots.some(shot => shot.source === 'generate' && !shot.prompt?.trim());
-        const currentPlan = !!plan?.sourceKey && plan.platformId === platformId && selectedShots.length > 0
+        const currentPlan = !!plan?.sourceKey && !plan.stale && !copyLanguageChanged && plan.platformId === platformId && selectedShots.length > 0
             && plan.shots.length === selectedShots.length && plan.shots.every((shot, index) => (
                 shot.id === selectedShots[index].id && shot.aspect === selectedShots[index].aspect
             ));
@@ -359,6 +391,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
         const canRetry = readyToGenerate && !unavailable
             && (!busy || node.commerceShotPreviews || pendingAction?.action === 'retry' || drainingRetries);
         setOptions(fields.platformId, Object.values(COMMERCE_IMAGE_SET_PRESETS).map(item => [item.id, item.label]), platformId);
+        setOptions(fields.copyLanguage, Object.entries(COMMERCE_IMAGE_SET_COPY_LANGUAGES), copyLanguage);
         for (const [group] of shotGroups) {
             const field = `${group}Aspect`;
             setOptions(fields[field], COMMERCE_IMAGE_SET_ASPECTS.map(aspect => [aspect, aspect]), value[field] || COMMERCE_IMAGE_SET_DEFAULT_ASPECTS[group]);
@@ -368,12 +401,27 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
             setOptions(fields[`${prefix}ProviderId`], options.providers.map(provider => [provider.id, provider.name || provider.id]), value[`${prefix}ProviderId`], '选择供应商');
         }
         for (const control of Object.values(fields)) control.disabled = locked;
-        if (documentRef.activeElement !== fields.productNotes) fields.productNotes.value = value.productNotes || '';
+        const product = getCommerceProductInfo(value);
+        for (const control of productFields) {
+            const item = product[control.dataset.commerceProductField];
+            const fieldValue = Array.isArray(item) ? item.join('\n') : item;
+            if (documentRef.activeElement !== control && control.value !== fieldValue) control.value = fieldValue;
+            control.disabled = locked;
+        }
+        const filledDetails = [product.audience, product.useCases, product.details].filter(Boolean).length;
+        productExtra.hidden = !filledDetails;
+        if (filledDetails && productExtra.textContent !== `${filledDetails} 项已填`) productExtra.textContent = `${filledDetails} 项已填`;
+        const analyzing = pendingAction?.action === 'analyze';
+        const analyzeHint = productMessage || '可选填。生成方案时，AI 会根据参考图补全。';
+        if (productHint.textContent !== analyzeHint) productHint.textContent = analyzeHint;
+        analyzeButton.disabled = locked || !!referenceIssue || !planner.ready;
+        analyzeButton.setAttribute('aria-busy', String(analyzing));
+        analyzeButton.title = referenceIssue || (!planner.ready ? '请先选择支持图片输入的规划模型和供应商。' : '');
+        const analysisLabel = analyzing ? '分析中…' : '分析产品';
+        if (analyzeLabel.textContent !== analysisLabel) analyzeLabel.textContent = analysisLabel;
         guide.textContent = Array.isArray(preset.guide) ? preset.guide.join(' ') : (preset.guide || '');
         renderShotChoices(preset, selectedShots, locked);
         planSection.hidden = !plan;
-        if (documentRef.activeElement !== sellingPoints) sellingPoints.value = (plan?.sellingPoints || []).join('\n');
-        sellingPoints.disabled = locked;
         planButton.textContent = plan ? '重新规划' : '生成方案';
         planButton.classList.toggle('btn-primary', !currentPlan);
         planButton.classList.toggle('btn-secondary', currentPlan);
@@ -386,8 +434,10 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
             progressBar.max = total;
             progressBar.value = processed;
         }
+        const replanHint = copyLanguageChanged ? '图中文字语言已修改，请重新规划。'
+            : '商品资料或生成设置已修改，请重新规划。';
         const hint = referenceIssue || (!currentPlan && !planner.ready ? '请在「模型与供应商」中选择支持图片输入的规划模型。'
-            : plan && !currentPlan ? '生成设置已修改，请重新规划。'
+            : plan && !currentPlan ? replanHint
                 : currentPlan && needsImageModel && !image.ready ? '请在「模型与供应商」中选择生图模型和供应商。'
                     : missingPrompt ? '请填写每张待生成图片的提示词。' : '');
         const runningLabel = node.runStatus === 'running' ? '正在执行…' : '等待执行…';
@@ -434,6 +484,13 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
     function updateSelect(control) {
         const field = control.dataset.commerceField;
         const value = config();
+        if (field === 'copyLanguage') {
+            if (updateCommerceImageSetCopyLanguage(value, control.value)) {
+                runMessage = '';
+                setup.open = true;
+            }
+            return;
+        }
         if (value[field] === control.value) return;
         value[field] = control.value;
         if (field === 'platformId') {
@@ -470,12 +527,11 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
             return;
         }
         const value = config();
-        if (event.target === fields.productNotes) {
-            value.productNotes = event.target.value;
-            if (value.plan) { value.plan.confirmed = false; value.plan.sourceKey = ''; }
-        } else if (value.plan && event.target === sellingPoints) {
-            value.plan.sellingPoints = sellingPoints.value.split('\n').map(line => line.trim()).filter(Boolean);
-            value.plan.confirmed = false;
+        if (event.target.dataset.commerceProductField) {
+            const key = event.target.dataset.commerceProductField;
+            const input = key === 'sellingPoints' ? event.target.value.split('\n') : event.target.value;
+            if (!updateCommerceProductInfoField(value, key, input)) return;
+            productMessage = '';
         } else if (value.plan && event.target.dataset.commerceShotField) {
             const field = event.target.dataset.commerceShotField;
             const shot = value.plan.shots.find(item => item.id === event.target.closest('[data-commerce-shot-id]')?.dataset.commerceShotId);
@@ -496,13 +552,15 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
     async function runAction(action, shotId) {
         const actionShot = shotId ? config().plan?.shots.find(shot => shot.id === shotId) : null;
         pendingAction = { action, shotId };
-        runMessage = action === 'plan' ? '正在规划套图…'
+        runMessage = action === 'analyze' ? '正在分析产品…'
+            : action === 'plan' ? '正在分析产品并规划套图…'
             : action === 'replan-shot' && actionShot ? `正在重新规划「${actionShot.label}」…`
                 : actionShot ? `正在生成「${actionShot.label}」图片…` : '正在生成图片…';
         if (action === 'generate') {
             config().plan.confirmed = true;
             onChange();
         }
+        if (action === 'analyze' || action === 'plan') productMessage = '';
         refresh();
         try {
             const result = await run(action, shotId);
@@ -513,6 +571,11 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
             if (action === 'plan' && !runMessage) {
                 activeShotId = '';
                 setup.open = !config().plan;
+            }
+            if (action === 'analyze' && !runMessage) {
+                const product = getCommerceProductInfo(config());
+                productMore.open ||= !!(product.audience || product.useCases || product.details);
+                productMessage = '分析完成，可继续编辑产品信息。';
             }
             if (action === 'replan-shot' && actionShot && !runMessage) runMessage = `「${actionShot.label}」方案已更新。`;
             return result !== false && result?.executed !== false && result?.outcome !== 'stopped' && node.runStatus !== 'aborted';
@@ -580,7 +643,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, wait
             });
             return;
         }
-        const actionRow = documentRef.activeElement === button ? shotRow : null;
+        const actionRow = documentRef.activeElement === button ? (shotRow || (action === 'analyze' ? productHeading : null)) : null;
         actionRow?.focus({ preventScroll: true });
         if (action === 'retry') {
             queuedRetries.add(shotId);

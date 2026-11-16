@@ -58,6 +58,7 @@ MCP 接口仅接受本机回环连接。多个标签页打开 CainFlow 时，先
 - 传 `nodeId` 编辑现有节点。使用 `patch` 的 `title`、`x`、`y`、`enabled` 来改名、移动或设置启用状态。其余受支持设置通过 `parameters` 修改。
 - 连线目标用方案内的步骤 ID，来源可用步骤 ID 或现有节点 ID。断开某条线时，在 `disconnects` 项填写 `ref`、`port` 和读取到的 `connectionId`。省略 `connectionId` 表示清空这个输入。文本合并、文本拆分和图片合并按节点当前配置返回端口。缩减图片合并输入前，需明确断开会受影响的现有连线。
 - 对话节点可编辑普通提示词、系统提示词及固定设置。视频生成可编辑提示词、比例和生成次数。调色节点可编辑白平衡、色温、色调、自然饱和度和饱和度。使用 `parameterOptions` 核对当前节点的枚举值或取值范围。
+- 电商套图节点的 `parameters.productInfo` 支持按字段更新 `name`（商品名称）、`sellingPoints`（核心卖点，字符串数组）、`audience`（目标人群）、`useCases`（使用场景）和 `details`（商品资料）。`parameters.copyLanguage` 设置图中文字的语言，从 `parameterOptions.copyLanguage` 选择语言代码，例如 `auto`、`en` 或 `ja`。修改语言后在节点参数列重新生成方案。步骤使用 `execute: false`。
 - 需要生成的新生图节点填写 `parameters.prompt`。生图步骤和批处理的 `modelId` 传 `list_models` 返回的配置项 `id`，`providerId` 传对应供应商的 `id`。未指定模型时，新节点使用 Agent 面板的选择。
 
 编辑、运行、停止、撤销和重做都需要 `read_canvas` 返回的编辑器、工作流和画布版本。内置 Agent 可以直接处理「运行选中的节点」「运行节点『主图』」「运行到『主图』」「停止当前工作流」「撤销上一步」「重做上一步」。模型规划的已有节点编辑会先展示就地变更预览。

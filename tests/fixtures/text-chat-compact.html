@@ -30,7 +30,7 @@ try {
         viewportApi: {}, pushHistory: noop, scheduleSave: noop, showToast: noop, copyToClipboard: text => copies.push(text), debounce: fn => fn, fitNodeToContent: lifecycle.fitNodeToContent });
     const serializer = createNodeSerializer({ state, documentRef: document });
     const saved = { apiConfigId: 'google', providerId: 'provider', sysprompt: '你是创作助手，回答时请保持简洁。', prompt: '为我整理创作灵感', search: true,
-        textareaHeights: { sysprompt: 104, prompt: 90, response: 220 } };
+        textareaHeights: { manual: true, sysprompt: 104, prompt: 90, response: 220 } };
     const render = (data = saved, clone = false) => {
         node._cleanupFns?.splice(0).forEach(cleanup => cleanup());
         node.querySelectorAll('*').forEach(el => el._cleanupFns?.forEach(cleanup => cleanup()));

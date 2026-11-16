@@ -243,7 +243,7 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
                         <div class="card-field"><label for="${controlId}-responses-endpoint">独立 Responses 地址（关闭自动补全时用于 Agent 搜索）</label><input id="${controlId}-responses-endpoint" type="text" value="${String(prov.responsesEndpoint || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')}" placeholder="https://…/v1/responses" data-id="${prov.id}" data-field="responsesEndpoint" /></div>
                     </div>
                     <div class="provider-toggle-row">
-                        <div class="endpoint-preview" id="ep-preview-${prov.id}" style="font-size:12px;word-break:break-all;line-height:1.4;flex:1;">连接说明：${getProviderEndpointPreview(prov.endpoint, prov.autoComplete, normalizeProviderType(prov.type, prov))}</div>
+                        <div class="endpoint-preview" id="ep-preview-${prov.id}">连接说明：${getProviderEndpointPreview(prov.endpoint, prov.autoComplete, normalizeProviderType(prov.type, prov))}</div>
                         <label class="settings-toggle-row provider-toggle-label">
                             <span class="settings-toggle-text">自动补全</span>
                             <span class="toggle-switch">

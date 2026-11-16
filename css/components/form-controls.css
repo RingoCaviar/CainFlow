@@ -1,0 +1,134 @@
+/* Native controls keep their value, label, focus and events across surfaces. */
+.ui-select {
+    min-inline-size: 0;
+    box-sizing: border-box;
+    text-overflow: ellipsis;
+    transition: border-color 150ms ease-out;
+}
+.ui-select:enabled { cursor: pointer; }
+.ui-select:enabled:hover { border-color: var(--text-link); }
+.ui-select:disabled { color: var(--text-secondary); cursor: not-allowed; }
+.ui-select:focus-visible {
+    outline: 2px solid var(--text-link);
+    outline-offset: 2px;
+}
+
+@supports (appearance: base-select) and selector(::picker(select)) {
+    .ui-select, .ui-select::picker(select) { appearance: base-select; }
+    .ui-select {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding-inline-end: 11px;
+    }
+    .ui-select::picker-icon {
+        flex: none;
+        inline-size: 6px;
+        block-size: 6px;
+        margin: -3px 0 0 auto;
+        border: solid var(--text-secondary);
+        border-width: 0 1.5px 1.5px 0;
+        transform: rotate(45deg);
+        content: "";
+    }
+    .ui-select::picker(select) {
+        max-block-size: min(280px, 50dvh);
+        max-inline-size: calc(100dvw - 24px);
+        margin-block: 4px;
+        padding: 4px;
+        border: 1px solid var(--border-input);
+        border-radius: 10px;
+        background: var(--bg-node);
+        background: rgb(from var(--surface-panel-strong) r g b / 1);
+        color: var(--text-primary);
+        box-shadow: var(--panel-shadow-strong);
+    }
+    .ui-select option {
+        min-block-size: 32px;
+        padding: 5px 8px;
+        border-radius: 5px;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+    .ui-select option:checked { color: var(--text-link); font-weight: 600; }
+    .ui-select option:enabled:is(:hover, :focus-visible) { background: var(--surface-control-hover); }
+    .ui-select option:focus-visible {
+        outline: 1px solid var(--text-link);
+        outline-offset: -1px;
+    }
+}
+
+.toggle-switch.toggle-switch-compact { inline-size: 26px; block-size: 16px; }
+.toggle-switch.toggle-switch-compact .toggle-slider {
+    box-sizing: border-box;
+    border: 1px solid var(--text-secondary);
+    border-radius: 10px;
+    background: var(--bg-input);
+    color: var(--text-secondary);
+    transition: background-color 150ms ease-out, border-color 150ms ease-out;
+}
+.toggle-switch.toggle-switch-compact .toggle-slider::before {
+    inline-size: 10px;
+    block-size: 10px;
+    inset: 2px auto auto 2px;
+    background: currentColor;
+    box-shadow: none;
+    transition: transform 180ms cubic-bezier(.16, 1, .3, 1);
+}
+.toggle-switch-compact input:checked + .toggle-slider {
+    border-color: var(--panel-primary-action-bg);
+    background: var(--panel-primary-action-bg);
+    color: var(--panel-primary-action-text);
+}
+.toggle-switch-compact input:checked + .toggle-slider::before {
+    transform: translateX(10px);
+    background: currentColor;
+}
+.toggle-switch-compact input:focus-visible + .toggle-slider {
+    outline: 2px solid var(--text-link);
+    outline-offset: 2px;
+}
+.toggle-switch-compact input:disabled + .toggle-slider { opacity: .62; cursor: not-allowed; }
+
+@media (prefers-reduced-motion: reduce) {
+    .ui-select, .toggle-switch-compact .toggle-slider, .toggle-switch-compact .toggle-slider::before {
+        transition: none;
+    }
+}
+
+@media (forced-colors: active) {
+    .ui-select, .ui-select::picker(select) { appearance: auto; }
+    .toggle-switch-compact input {
+        position: static;
+        inline-size: 100%;
+        block-size: 100%;
+        margin: 0;
+        opacity: 1;
+    }
+    .toggle-switch-compact .toggle-slider { display: none; }
+}
+
+/* Use the native editor for both soft wrapping and programmatic value changes.
+   The layout overrides also cover existing node, dialog and composer sizes. */
+@supports (field-sizing: content) {
+    textarea:not([readonly]) {
+        box-sizing: border-box;
+        field-sizing: content;
+        padding-block: 6px !important;
+        min-height: calc(2lh + 14px) !important;
+        max-height: calc(6lh + 14px) !important;
+        overflow-y: auto !important;
+        resize: var(--textarea-resize, vertical) !important;
+        flex-grow: 0 !important;
+    }
+    textarea:not([readonly], [style^="height:"], [style*="; height:"]) {
+        height: auto !important;
+    }
+    /* Native resizing and the keyboard grip author an inline height. */
+    textarea:not([readonly]):is([style^="height:"], [style*="; height:"]) {
+        field-sizing: fixed;
+        max-height: var(--textarea-manual-max, none) !important;
+    }
+    textarea:disabled { resize: none !important; }
+}

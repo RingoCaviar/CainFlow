@@ -56,6 +56,7 @@ import { getNodeImageResultPersistence, IMAGE_RESULT_PERSISTENCE } from '../../n
 import { getIncludedAutoSaveNodeIds } from './generation-save-targets.js';
 import { sanitizeRequestUrl } from '../../services/api-client.js';
 import {
+    analyzeCommerceImageSetProduct,
     buildCommerceImageSetImagePrompt,
     commerceImageSetSourceKey,
     createCommerceImageSetPlan,
@@ -111,6 +112,7 @@ export function createExecutionCoreApi({
     fitNodeToContent,
     scheduleSave = () => {},
     getActiveWorkflowId = () => '',
+    assertCommercePlanningCurrent = () => {},
     onNodeResultUpdated = () => {},
     getAbortMessage,
     connectionProjection = null,
@@ -930,7 +932,10 @@ export function createExecutionCoreApi({
         const commerceNodeId = runInput.commerceNodeId;
         const commerceAction = runInput.commerceAction;
         const commerceTargeted = mode === 'selected-only' && selectedNodeIds.length === 1 && selectedNodeIds[0] === commerceNodeId
-            && state.nodes.get(commerceNodeId)?.type === 'ECommerceImageSet' && ['plan', 'replan-shot', 'generate', 'retry'].includes(commerceAction);
+            && state.nodes.get(commerceNodeId)?.type === 'ECommerceImageSet' && ['analyze', 'plan', 'replan-shot', 'generate', 'retry'].includes(commerceAction);
+        if (commerceAction === 'analyze' && !commerceTargeted) {
+            throw new Error('请选择一个需要分析商品信息的电商套图节点。');
+        }
         if (commerceAction === 'replan-shot' && (!commerceTargeted || typeof runInput.commerceShotId !== 'string' || !runInput.commerceShotId)) {
             throw new Error('请选择一个需要重新规划的图位。');
         }
@@ -1391,7 +1396,7 @@ export function createExecutionCoreApi({
 
     function startCommerceRequestLog(node, request, { action, shot, signal }) {
         const { model } = request;
-        const label = { plan: '生成方案', 'replan-shot': '重做方案', generate: '生成图片', retry: '重试图片' }[action];
+        const label = { analyze: '分析产品', plan: '生成方案', 'replan-shot': '重做方案', generate: '生成图片', retry: '重试图片' }[action];
         const title = `电商套图 · ${label}${shot ? `「${shot.label}」` : ''} · ${model.name || model.modelId}`;
         return startWorkflowImageRequestLog(node, request, { title, operation: action, shotId: shot?.id, signal });
     }
@@ -1848,10 +1853,11 @@ export function createExecutionCoreApi({
         };
         const references = await Promise.all(sourceImages.map(readCommerceImage));
         signal?.throwIfAborted();
-        if (commerceAction === 'plan' || commerceAction === 'replan-shot') {
+        if (['analyze', 'plan', 'replan-shot'].includes(commerceAction)) {
             const replanningShot = commerceAction === 'replan-shot';
             if (replanningShot && !commerceShotId) throw new Error('请选择一个需要重新规划的图位。');
-            const plan = await createCommerceImageSetPlan({ settings, references, models: state.models,
+            const operation = commerceAction === 'analyze' ? analyzeCommerceImageSetProduct : createCommerceImageSetPlan;
+            const updated = await operation({ settings, references, models: state.models,
                 providers: state.providers, fetchRef, getProxyHeaders, signal,
                 shotId: replanningShot ? commerceShotId : undefined,
                 runRequest: (request, execute, shot) => {
@@ -1859,19 +1865,24 @@ export function createExecutionCoreApi({
                     return runTrackedProviderRequest(node, request.provider, request.model, sanitizeRequestUrl(request.url), execute, { onOutcome });
                 } });
             signal?.throwIfAborted();
-            node.data.commerceImageSet = { ...settings, plan, results: replanningShot ? settings.results : [] };
+            if (state.nodes.get(node.id) !== node || JSON.stringify(settings) !== JSON.stringify(normalizeCommerceImageSetState(node.data?.commerceImageSet))) {
+                throw new Error('商品设置已改变，请根据当前设置重新执行。');
+            }
+            assertCommercePlanningCurrent(node.id);
+            node.data.commerceImageSet = updated;
             onNodeResultUpdated(node.id);
             return;
         }
 
         const { plan } = settings;
         const retryingShot = commerceAction === 'retry';
+        if (plan?.stale) throw new Error('商品资料、参考图或生成设置已改变，请重新规划并确认。');
         if (!plan || (!plan.confirmed && !retryingShot)) throw new Error('请先规划电商套图并确认方案。');
         const target = plan.shots.find(shot => shot.id === commerceShotId);
         if (commerceShotId && !target) throw new Error('找不到所选图位。');
         if (retryingShot && target?.source !== 'generate') throw new Error('请选择一个需要生图的图位。');
         if (plan.sourceKey !== await commerceImageSetSourceKey({ settings, references })) {
-            throw new Error('商品资料、参考图、图位或规划模型已改变，请重新规划并确认。');
+            throw new Error('商品资料、参考图或生成设置已改变，请重新规划并确认。');
         }
         const workflowId = getActiveWorkflowId();
         if (!workflowId) throw new Error('套图结果需要保存到当前工作流。');
@@ -1947,7 +1958,7 @@ export function createExecutionCoreApi({
                             await saveImageGenerationHistoryEntry({ nodeId: node.id, image, prompt: shot.label,
                                 model: '商品原图', generationDurationSeconds: getNodeGenerationDurationSeconds(node) });
                         } else {
-                            const shotPrompt = buildCommerceImageSetImagePrompt({ shot, plan, productNotes: settings.productNotes });
+                            const shotPrompt = buildCommerceImageSetImagePrompt({ shot, plan, productInfo: settings.productInfo });
                             const resolved = await resolveRequestMentions(node, { referenceImages: sourceImages }, [shotPrompt], { signal });
                             const extraImages = resolved.inputs.referenceImages.slice(sourceImages.length);
                             if (references.length + extraImages.length > 5) throw new Error('每个图位最多使用 5 张参考图，请减少提示词引用或上游输入。');

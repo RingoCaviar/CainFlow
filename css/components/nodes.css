@@ -533,8 +533,8 @@
 .camera-control-open-btn:focus-visible,
 .camera-control-editor-close:focus-visible,
 .camera-control-editor-reset:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.28);
+    outline: 2px solid var(--text-link);
+    outline-offset: 2px;
 }
 
 .camera-control-editor-actions {
@@ -748,8 +748,8 @@
 }
 
 .camera-control-view-mode-btn:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.28);
+    outline: 2px solid var(--text-link);
+    outline-offset: 2px;
 }
 
 .camera-control-sliders .node-field,
@@ -804,9 +804,9 @@
 }
 
 .camera-control-value:focus {
-    outline: none;
-    border-color: rgba(99, 102, 241, 0.62);
-    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.18);
+    outline: 2px solid var(--text-link);
+    outline-offset: 2px;
+    border-color: var(--text-link);
 }
 
 .camera-control-sliders input[type="range"] {

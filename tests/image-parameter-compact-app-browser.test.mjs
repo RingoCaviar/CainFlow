@@ -196,9 +196,15 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
         assert.ok(automatic.font >= 13);
         assert.ok(automatic.height >= automatic.line * 2 + automatic.padding);
         assert.ok(automatic.height <= automatic.line * 6 + automatic.padding + 3);
-        await app.evaluate("originalCompactPrompt.style.height='260px';originalCompactPrompt.value='short';originalCompactPrompt.dispatchEvent(new Event('input',{bubbles:true}))");
+        await app.evaluate("originalCompactPrompt.value='short';originalCompactPrompt.dispatchEvent(new Event('input',{bubbles:true}))");
         await settle(app);
-        assert.ok(await app.evaluate("originalCompactPrompt.offsetHeight<=Math.ceil(parseFloat(getComputedStyle(originalCompactPrompt).lineHeight)*6+24)"), 'automatic editor height stays within six lines');
+        const shortened = await app.evaluate(`(() => {
+            const input = originalCompactPrompt, style = getComputedStyle(input);
+            return { height: input.offsetHeight, border: parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth), resize: style.resize };
+        })()`);
+        assert.ok(Math.abs(shortened.height - (automatic.line * 2 + automatic.padding + shortened.border)) <= 2,
+            'a shortened generation prompt returns to its automatic two-row height');
+        assert.equal(shortened.resize, 'vertical', 'the generation prompt keeps the shared manual vertical resize affordance');
 
         for (const [index, type] of types.entries()) {
             await open(app, `image-${index}`);

@@ -97,9 +97,9 @@ export function createProductRetouchView({
                     <span class="product-retouch-swatch" data-background="${value}" aria-hidden="true">${value === 'original' ? photoIcon : ''}</span><span>${label}</span></label>`).join('')}</div>
         </fieldset>
         <div class="product-retouch-treatment">
-            <label>布光<select data-retouch-field="lighting"><option value="soft">柔光</option><option value="balanced">均匀光</option><option value="dramatic">轮廓光</option></select></label>
-            <label>阴影<select data-retouch-field="shadow"><option value="natural">自然阴影</option><option value="none">无阴影</option></select></label>
-            <label>精修风格<select data-retouch-field="finish"><option value="natural">自然质感</option><option value="polished">棚拍质感</option></select></label>
+            <label>布光<select class="ui-select" data-retouch-field="lighting"><option value="soft">柔光</option><option value="balanced">均匀光</option><option value="dramatic">轮廓光</option></select></label>
+            <label>阴影<select class="ui-select" data-retouch-field="shadow"><option value="natural">自然阴影</option><option value="none">无阴影</option></select></label>
+            <label>精修风格<select class="ui-select" data-retouch-field="finish"><option value="natural">自然质感</option><option value="polished">棚拍质感</option></select></label>
         </div>
         <details class="product-retouch-disclosure">
             <summary>补充要求</summary>
@@ -115,8 +115,8 @@ export function createProductRetouchView({
                             <button type="button" class="product-retouch-link" data-retouch-action="configure" data-retouch-configure-task="${taskType}" aria-label="配置${label}">配置模型</button>
                         </div>
                         <div class="product-retouch-model-fields">
-                            <label>${label}<select data-retouch-field="${modelField}"></select></label>
-                            <label>供应商<select data-retouch-field="${providerField}" aria-label="${title}供应商"></select></label>
+                            <label>${label}<select class="ui-select" data-retouch-field="${modelField}"></select></label>
+                            <label>供应商<select class="ui-select" data-retouch-field="${providerField}" aria-label="${title}供应商"></select></label>
                         </div>
                     </section>`).join('')}
             </div>

@@ -125,18 +125,29 @@ export function getSurfaceCoordinator(documentRef) {
     documentRef.addEventListener('keydown', event => {
         refresh();
         if (event.isComposing) return;
+        if (event.key !== 'Tab' && event.key !== 'Escape') return;
+        const focused = documentRef.activeElement;
+        const select = focused?.closest('select');
+        const openSelect = select && view.CSS?.supports('selector(select:open)') && select.matches(':open') ? select : null;
         if (event.key === 'Tab' && top) {
             const roots = [top, ...[...popovers.values()].filter(entry => entry.owner === top).map(entry => entry.element)];
             const controls = roots.flatMap(root => [...root.querySelectorAll('button, input, select, textarea, a[href], [tabindex]')])
                 .filter(element => !element.disabled && element.tabIndex >= 0 && visible(element) && !element.closest('[inert]'));
             const first = controls[0], last = controls.at(-1);
-            if (first && event.shiftKey && (event.target === first || !controls.includes(documentRef.activeElement))) {
+            const target = openSelect || event.target;
+            const activeControl = openSelect || focused;
+            if (first && event.shiftKey && (target === first || !controls.includes(activeControl))) {
                 event.preventDefault(); last.focus();
-            } else if (last && !event.shiftKey && (event.target === last || !controls.includes(documentRef.activeElement))) {
+            } else if (last && !event.shiftKey && (target === last || !controls.includes(activeControl))) {
                 event.preventDefault(); first.focus();
             }
         }
         if (event.key !== 'Escape') return;
+        if (openSelect) {
+            // Let the browser close its picker before any app window handles Escape.
+            event.stopImmediatePropagation();
+            return;
+        }
         const popover = [...popovers].at(-1);
         if (popover) {
             event.preventDefault(); event.stopImmediatePropagation();

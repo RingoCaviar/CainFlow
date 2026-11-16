@@ -21,16 +21,12 @@
 
 #btn-prompt-agent:hover {
     --prompt-agent-button-tint: 20%;
-    box-shadow:
-        inset 0 1px 0 color-mix(in srgb, var(--text-primary) 12%, transparent),
-        0 0 14px color-mix(in srgb, var(--prompt-agent-accent-start) 17%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-primary) 12%, transparent);
 }
 
 #btn-prompt-agent[aria-expanded="true"] {
     --prompt-agent-button-tint: 27%;
-    box-shadow:
-        inset 0 -2px 0 color-mix(in srgb, var(--prompt-agent-accent-start) 75%, var(--prompt-agent-accent-end)),
-        0 0 16px color-mix(in srgb, var(--prompt-agent-accent-end) 18%, transparent);
+    box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--prompt-agent-accent-start) 75%, var(--prompt-agent-accent-end));
 }
 
 #btn-prompt-agent:active {
@@ -512,6 +508,7 @@ body:has(#toolbar:hover, #toolbar :focus-visible, #toolbar .btn.active:not(#btn-
 .prompt-agent-reference-option.is-selected .prompt-agent-reference-check { border-color: var(--text-link); color: var(--text-link); }
 .prompt-agent-reference-option-label { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; line-height: 1.5; }
 .prompt-agent-composer textarea {
+    --textarea-resize: none;
     width: 100%;
     box-sizing: border-box;
     min-width: 0;

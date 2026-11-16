@@ -217,6 +217,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     }
 
     function sizePrompt() {
+        if (windowRef.CSS?.supports('field-sizing', 'content')) return;
         const prompt = current?.parameterRoot?.querySelector('.image-generate-prompt');
         if (!prompt?.getClientRects().length) return;
         let sizing = promptSizing.get(prompt);

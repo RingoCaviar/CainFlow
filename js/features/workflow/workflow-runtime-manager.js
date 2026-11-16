@@ -22,6 +22,7 @@ import {
 } from '../execution/execution-data-utils.js';
 import { createDisplayImageRenderer } from '../media/display-image-renderer.js';
 import { projectImageOutput } from '../../nodes/image-output-projection.js';
+import { orderInputConnections, REFERENCE_IMAGES_PORT } from '../../nodes/reference-image-ports.js';
 import { createNodeDomBindingsApi } from '../../nodes/node-dom-bindings.js';
 import { createNodeLifecycleApi } from '../../nodes/node-lifecycle.js';
 import { migrateLegacyWorkflowData } from '../persistence/legacy-node-migration.js';
@@ -39,6 +40,7 @@ import {
 } from '../../nodes/registry.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
 import { normalizeProductRetouchSettings, readProductRetouchAnalysis } from '../product-retouch/product-retouch-settings.js';
+import { normalizeCommerceImageSetState } from '../ecommerce-image-set/commerce-image-set-plan.js';
 import { readProductRetouchComparison } from '../product-retouch/product-retouch-comparison.js';
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
 import { readImageSaveFilename } from '../../nodes/image-save-settings.js';
@@ -143,6 +145,22 @@ function cloneWorkflowData(data = {}) {
         connections: Array.isArray(data?.connections) ? data.connections.map((connection) => cloneWorkflowConnection(connection)) : [],
         version: data?.version || '1.3'
     };
+}
+
+export function commercePlanningPublicationKey(nodeId, connections, getNode) {
+    const target = getNode(nodeId);
+    if (target?.type !== 'ECommerceImageSet' || target.enabled === false) return null;
+    const links = orderInputConnections(target.type, connections.filter(connection =>
+        connection.to.nodeId === nodeId && connection.to.port === REFERENCE_IMAGES_PORT));
+    const references = links.flatMap(({ from }) => {
+        const source = getNode(from.nodeId);
+        if (!source || source.enabled === false) return [];
+        // Workflow snapshots store Media identities at the node root.
+        const node = { ...source, data: { ...source, ...source.data } };
+        const output = projectImageOutput(node, getCanonicalImageList(node));
+        return [[from.nodeId, from.port, output.assets.length ? output.assets : output.images, output.missingPositions]];
+    });
+    return JSON.stringify([normalizeCommerceImageSetState(target.commerceImageSet ?? target.data?.commerceImageSet), references]);
 }
 
 function escapeHtml(value) {
@@ -1923,6 +1941,20 @@ export function createWorkflowRuntimeManager({
             fitNodeToContent: () => {},
             scheduleSave: () => syncRuntimeWorkflowSnapshot(context),
             getActiveWorkflowId: () => workflowId,
+            assertCommercePlanningCurrent(nodeId) {
+                const original = commercePlanningPublicationKey(nodeId, data.connections,
+                    id => data.nodes.find(node => node.id === id));
+                const isActive = isActiveWorkflow({ workflowId, workflowName });
+                const tabData = isActive ? null : state.workflowTabs.find(tab => tab.workflowId === workflowId)?.data;
+                const current = commercePlanningPublicationKey(nodeId, isActive ? state.connections : tabData?.connections || [], id => {
+                    if (!isActive) return tabData?.nodes?.find(node => node.id === id);
+                    const node = state.nodes.get(id);
+                    return node ? serializeRuntimeNode(node, documentRef) : null;
+                });
+                if (current === null || current !== original) {
+                    throw new Error('商品参考图已改变，或节点设置已更新，请根据当前画布重新执行。');
+                }
+            },
             onNodeResultUpdated: (nodeId, { progressOnly = false, downstreamImageResults = false } = {}) => {
                 if (progressOnly) {
                     const runtimeNode = runtimeState.nodes.get(nodeId);

@@ -112,8 +112,22 @@ test('main panel text and download actions follow every theme', { timeout: 90000
             for(let p=e;p;p=p.parentElement){const c=getComputedStyle(p);backgrounds.push(c.backgroundColor);gradient ||= c.backgroundImage!=='none';}
             return {label:e.id || e.className, color:s.color, backgrounds, gradient, large:parseFloat(s.fontSize)>=24 || (parseFloat(s.fontSize)>=18.66 && Number(s.fontWeight)>=700)};
         });`);
-        for (const [button, panel] of [['btn-history','history-sidebar'], ['btn-toggle-workflow','workflow-sidebar'], ['btn-toggle-cache','cache-sidebar'], ['btn-toggle-statistics','statistics-sidebar'], ['btn-logs','log-drawer']]) {
+        for (const [button, panel] of [['btn-history','history-sidebar'], ['btn-toggle-workflow','workflow-sidebar'], ['btn-toggle-cache','cache-sidebar'], ['btn-toggle-statistics','statistics-sidebar'], ['btn-logs','log-drawer'], ['btn-help','help-panel']]) {
             await evaluate(`document.getElementById('${button}').click()`); await delay(350);
+            if (['history-sidebar', 'log-drawer'].includes(panel)) {
+                assert.equal(await evaluate("getComputedStyle(document.getElementById('canvas-navigation')).visibility"), 'hidden');
+                assert.equal(await evaluate("getComputedStyle(document.getElementById('toast-container')).left"), '20px');
+            } else {
+                assert.equal(await evaluate("getComputedStyle(document.getElementById('canvas-navigation')).visibility"), 'visible');
+            }
+            if (panel === 'history-sidebar') {
+                const layout = await evaluate(`(() => {
+                    const grid = document.getElementById('history-list');
+                    return { empty: grid.querySelector('.history-empty')?.clientWidth, width: grid.clientWidth,
+                        padding: parseFloat(getComputedStyle(grid).paddingInlineStart) * 2 };
+                })()`);
+                assert.equal(layout.empty, layout.width - layout.padding, 'The empty state spans the available history columns');
+            }
             for (const theme of themes) {
                 const rows = await evaluate(`(async () => {
                     document.documentElement.dataset.appTheme = '${theme}';

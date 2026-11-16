@@ -15,6 +15,7 @@ import { getNodeDefinition } from '../../nodes/registry.js';
 import { nodeBounds, findNearbyNodePosition } from '../execution/node-placement.js';
 import { isPromptLibraryWrite, validatePromptLibraryWrite } from './prompt-agent-apply-library-prompt.js';
 import { rememberWorkflowMediaOperation } from '../media/workflow-media-operation.js';
+import { updateCommerceImageSetCopyLanguage, updateCommerceProductInfoField } from '../ecommerce-image-set/commerce-image-set-plan.js';
 
 const controlFields = { text: 'text', filename: 'filename', resizeMode: 'resize-mode', scalePercent: 'scale-percent',
     targetWidth: 'target-width', targetHeight: 'target-height', keepAspect: 'keep-aspect', quality: 'quality',
@@ -292,6 +293,16 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                         state.nodes.get(nodeId).data.thinking = cloneCanvasValue(selected[id].thinking);
                         state.nodes.get(nodeId).el?._thinkingControl?.refresh();
                         if (!nodeAdapter.applyPromptPlan(patch)) throw new Error('生图参数不兼容');
+                    } else if (step.type === 'ECommerceImageSet') {
+                        const node = state.nodes.get(nodeId);
+                        if (Object.hasOwn(step.parameters, 'copyLanguage')) {
+                            updateCommerceImageSetCopyLanguage(node.data.commerceImageSet, step.parameters.copyLanguage);
+                        }
+                        for (const [field, value] of Object.entries(step.parameters.productInfo || {})) {
+                            updateCommerceProductInfoField(node.data.commerceImageSet, field, value);
+                        }
+                        documentRef.dispatchEvent(new documentRef.defaultView.CustomEvent('cainflow:commerce-image-set-updated',
+                            { detail: { nodeId } }));
                     } else for (const [field, value] of Object.entries(step.parameters)) {
                         if (field === 'inputCount') {
                             if (step.nodeId) state.nodes.get(nodeId).data.inputCount = value;

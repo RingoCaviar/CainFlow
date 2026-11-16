@@ -2533,8 +2533,26 @@ export function createPromptAgentController({
         }
         const { button, form, input, modelSelect, addModelButton, cancelButton, addReferenceButton, referencePickerClose } = getElements();
         const resizeHandle = documentRef.getElementById('prompt-agent-input-resize');
+        let syncInputHeight;
         if (input && resizeHandle) {
-            const setHeight = height => { input.style.height = `${Math.max(42, Math.min(150, height))}px`; };
+            const transcript = surfacePanel?.querySelector?.('.prompt-agent-transcript');
+            const view = documentRef.defaultView;
+            const inputBounds = () => {
+                const minHeight = parseFloat(view?.getComputedStyle(input).minHeight) || 42;
+                if (!surfacePanel || !transcript || !form) return { minHeight, maxHeight: view?.innerHeight || 150 };
+                const surroundingHeight = form.offsetTop - transcript.offsetHeight + form.offsetHeight - input.offsetHeight;
+                const maxHeight = Math.max(minHeight, surfacePanel.clientHeight - surroundingHeight - minHeight);
+                return { minHeight, maxHeight };
+            };
+            syncInputHeight = () => {
+                if (!input.style?.height || !surfacePanel?.clientHeight) return;
+                input.style.setProperty('--textarea-manual-max', `${inputBounds().maxHeight}px`);
+            };
+            const setHeight = height => {
+                const { minHeight, maxHeight } = inputBounds();
+                input.style.height = `${Math.max(minHeight, Math.min(maxHeight, height))}px`;
+                syncInputHeight();
+            };
             let resizeStart = null;
             resizeHandle.addEventListener('pointerdown', event => {
                 if (event.button !== 0) return;
@@ -2765,9 +2783,11 @@ export function createPromptAgentController({
         const { panel } = getElements();
         ensurePanelWidth();
         resizeObserver = resizeObserverFactory?.(() => {
+            syncInputHeight?.();
             updateScrollBottomButton();
         }) || null;
         if (panel) resizeObserver?.observe?.(panel);
+        if (form && syncInputHeight) resizeObserver?.observe?.(form);
         if (messages) contentObserver?.observe?.(messages);
         initialized = true;
     }

@@ -82,7 +82,7 @@ export function showNodeExecutionFailure(node, error) {
 
 function isCommerceImageGeneration(node, plan) {
     if (node?.type !== 'ECommerceImageSet') return false;
-    return plan?.commerceNodeId !== node.id || !['plan', 'replan-shot'].includes(plan.commerceAction);
+    return plan?.commerceNodeId !== node.id || !['analyze', 'plan', 'replan-shot'].includes(plan.commerceAction);
 }
 
 function isUnbatchedImageInput(node, portName) {

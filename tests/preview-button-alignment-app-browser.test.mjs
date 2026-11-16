@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { withAppBrowser } from './helpers/app-browser.mjs';
 import { composite, contrastRatio, parseColor } from './helpers/browser-theme-fixture.mjs';
+import { uploadImageOriginal } from './helpers/image-upload.mjs';
+import { key, nativeClick } from './helpers/image-first-integrated-fixture.mjs';
 
 const session = { autoCheckUpdatesOnLoad: false,
     models: [{ id: 'chat', modelId: 'chat', protocol: 'openai', taskType: 'chat', providerIds: ['p'] }],
@@ -94,5 +96,65 @@ test('preview zoom controls center their visible glyphs and preserve zoom/fit ac
             assert.ok(historyControls.length >= 7);
             for (const control of historyControls) assert.ok(Math.abs(control.x) <= 1 && Math.abs(control.y) <= 1, `${theme}: ${JSON.stringify(control)}`);
         }
+    });
+});
+
+test('crop instructions and drawing controls remain usable in a short, narrow preview', async () => {
+    const reference = 'data:image/png;base64,' + (await readFile(new URL('./fixtures/reference-blue.png', import.meta.url))).toString('base64');
+    await withAppBrowser(session, async app => {
+        await uploadImageOriginal(app, 'source', reference);
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 340, deviceScaleFactor: 1, mobile: false });
+        await app.waitFor('innerWidth === 390 && innerHeight === 340');
+        await app.evaluate("document.querySelector('#source-drop img').dispatchEvent(new MouseEvent('click',{bubbles:true,button:0,detail:2}))");
+        await app.waitFor("document.querySelector('.fullscreen-overlay')?.classList.contains('active')");
+        await app.evaluate("document.querySelector('.fullscreen-action-dock .preview-action-reveal').focus()");
+        await key(app, 'Enter');
+        await app.waitFor("document.activeElement.matches('button.fullscreen-close')");
+        await nativeClick(app, '.fullscreen-crop-btn');
+        const cropLayout = await app.evaluate(`(() => {
+            const dock = document.querySelector('.fullscreen-action-dock').getBoundingClientRect();
+            const strip = document.querySelector('.fullscreen-crop-actions').getBoundingClientRect();
+            const hint = document.querySelector('.fullscreen-crop-hint').getBoundingClientRect();
+            return strip.top > dock.bottom && strip.left >= 0 && strip.right <= innerWidth
+                && hint.top >= strip.top && hint.bottom <= strip.bottom
+                && document.querySelector('.fullscreen-crop-btn').getAttribute('aria-pressed') === 'true';
+        })()`);
+        assert.equal(cropLayout, true, 'the crop row contains its instructions and leaves every dock action visible');
+        await nativeClick(app, '.fullscreen-crop-cancel');
+        await app.evaluate("document.querySelector('button.fullscreen-paint-btn').focus()");
+        await key(app, 'Enter');
+        await app.waitFor("document.querySelector('.painter-overlay')?.classList.contains('active')");
+        await app.evaluate("document.querySelector('[data-tool=rect]').focus()");
+        await key(app, 'Enter');
+        assert.equal(await app.evaluate("document.querySelector('[data-tool=rect]').getAttribute('aria-pressed')"), 'true');
+        assert.equal(await app.evaluate("document.querySelector('#painter-undo').disabled"), true);
+        assert.equal(await app.evaluate("[...document.querySelectorAll('.painter-tool-btn')].every(button=>button.offsetHeight>=34)"), true);
+
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 26, y: 230, deltaX: 0, deltaY: 450 });
+        await app.waitFor("document.querySelector('.painter-toolbar-left').scrollTop > 0");
+        await app.evaluate("document.querySelector('#painter-custom-color').focus()");
+        await key(app, 'Enter');
+        await app.waitFor("document.activeElement.id === 'hue-wheel'");
+        await key(app, 'ArrowRight');
+        assert.equal(await app.evaluate("document.activeElement.getAttribute('aria-valuenow')"), '191');
+        assert.equal(await app.evaluate(`(() => {
+            const rail = document.querySelector('.painter-toolbar-left').getBoundingClientRect();
+            const panel = document.querySelector('.painter-color-panel').getBoundingClientRect();
+            return panel.left >= rail.right && panel.top >= 0 && panel.right <= innerWidth && panel.bottom <= innerHeight;
+        })()`), true);
+        for (const theme of ['light', 'pink']) {
+            const { color, background } = await app.evaluate(`(() => {
+                document.documentElement.dataset.appTheme = ${JSON.stringify(theme)};
+                return {
+                    color: getComputedStyle(document.querySelector('.painter-hsb-controls label')).color,
+                    background: getComputedStyle(document.querySelector('.painter-color-panel')).backgroundColor
+                };
+            })()`);
+            assert.ok(contrastRatio(parseColor(color), parseColor(background)) >= 4.5, `${theme}: drawing color controls stay readable`);
+        }
+        await key(app, 'Escape');
+        assert.equal(await app.evaluate("document.activeElement.id === 'painter-custom-color' && !document.querySelector('.painter-color-panel').checkVisibility()"), true);
+        await key(app, 'Escape');
+        await app.waitFor("!document.querySelector('.painter-overlay')");
     });
 });

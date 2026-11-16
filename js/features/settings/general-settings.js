@@ -81,7 +81,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
             card.dataset.settingsCard = id;
             const header = documentRef.createElement('div');
             header.className = 'card-header';
-            const heading = documentRef.createElement('span');
+            const heading = documentRef.createElement('h3');
             heading.textContent = title;
             header.appendChild(heading);
             const row = documentRef.createElement('div');
@@ -120,7 +120,6 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
         const connectionRow = connectionSelect?.previousElementSibling;
         if (connectionRow) {
             connectionRow.classList.replace('general-settings-label-row', 'general-settings-control-row');
-            connectionSelect.style.removeProperty('width');
             connectionRow.appendChild(connectionSelect);
         }
 
@@ -376,7 +375,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
         const updateSettingsCardHtml = AUTO_UPDATE_CHECK_DISABLED ? '' : `
             <div class="api-config-card general-settings-card general-settings-card--update" data-settings-card="update" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
                 <div class="card-header">
-                    <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">系统版本与更新</span>
+                    <h3>系统版本与更新</h3>
                 </div>
                 <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
                     <div class="card-field">
@@ -420,7 +419,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
         <div class="general-settings-grid">
             <div class="api-config-card general-settings-card" data-settings-card="image" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
                 <div class="card-header">
-                    <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">图片处理设置</span>
+                    <h3>图片处理设置</h3>
                 </div>
                 <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
                     <div class="card-field">
@@ -436,7 +435,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                     <div class="card-field">
                         <div class="general-settings-control-row">
                             <label for="setting-canvas-dense-mode">画布密集模式</label>
-                            <select id="setting-canvas-dense-mode">
+                            <select id="setting-canvas-dense-mode" class="ui-select">
                                 <option value="auto" ${denseModeOverride === 'auto' ? 'selected' : ''}>自动</option>
                                 <option value="on" ${denseModeOverride === 'on' ? 'selected' : ''}>始终开启</option>
                                 <option value="off" ${denseModeOverride === 'off' ? 'selected' : ''}>始终关闭</option>
@@ -458,7 +457,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
 
             <div class="api-config-card general-settings-card" data-settings-card="storage">
                 <div class="card-header">
-                    <span>存储设置</span>
+                    <h3>存储设置</h3>
                 </div>
                 <div class="card-row">
                     <div class="card-field">
@@ -501,7 +500,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
 
             <div class="api-config-card general-settings-card" data-settings-card="automation">
                 <div class="card-header">
-                    <span>自动化与重试</span>
+                    <h3>自动化与重试</h3>
                 </div>
                 <div class="card-row">
                     <div class="card-field">
@@ -599,14 +598,14 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
             </div>
             <div class="api-config-card general-settings-card" data-settings-card="canvas" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
                 <div class="card-header">
-                    <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">画布显示与交互</span>
+                    <h3>画布显示与交互</h3>
                 </div>
                 <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
                     <div class="card-field">
                         <div class="general-settings-label-row">
                             ${dialogs.renderGeneralSettingsHelpLabel('连线类型', generalHelpText.connectionLineType, { controlId: 'setting-connection-line-type' })}
                         </div>
-                        <select id="setting-connection-line-type" style="width:100%;">
+                        <select id="setting-connection-line-type" class="ui-select">
                             <option value="bezier" ${connectionLineType === 'bezier' ? 'selected' : ''}>贝塞尔曲线</option>
                             <option value="orthogonal" ${connectionLineType === 'orthogonal' ? 'selected' : ''}>直角连线（圆角）</option>
                         </select>
@@ -636,7 +635,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
             ${canvasMcpSettingsCard}
             <div class="api-config-card general-settings-card" data-settings-card="notifications" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
                 <div class="card-header">
-                    <span style="font-size:14px; font-weight:500; color:var(--text-secondary)">通知设置</span>
+                    <h3>通知设置</h3>
                 </div>
                 <div class="card-row" style="flex: 1; display: flex; flex-direction: column; justify-content: flex-start;">
                     <div class="card-field">
@@ -663,11 +662,11 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
             </div>
 
             <div class="api-config-card general-settings-card" data-settings-card="diagnostics" style="flex: 1; margin-top: 0; display: flex; flex-direction: column;">
-                <div class="card-header"><span style="font-size:14px; font-weight:500; color:var(--text-secondary)">诊断记录</span></div>
+                <div class="card-header"><h3>诊断记录</h3></div>
                 <div class="card-row" style="display:flex; flex-direction:column; gap:10px;">
                     <div class="card-field">
                         <label for="setting-diagnostic-level">诊断级别</label>
-                        <select id="setting-diagnostic-level">
+                        <select id="setting-diagnostic-level" class="ui-select">
                             <option value="compact">精简</option>
                             <option value="standard">标准</option>
                             <option value="detailed">详细</option>

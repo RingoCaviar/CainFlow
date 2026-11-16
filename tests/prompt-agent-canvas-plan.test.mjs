@@ -36,6 +36,35 @@ test('the current selection can be revised or deleted while new work remains ind
     assert.throws(() => normalizeCanvasPlan({ version: 1, steps: [], deletes: [{ nodeId: 'source' }] }, context), /选中|@节点/);
 });
 
+test('canvas plans validate explicitly targeted commerce product information and copy language edits', () => {
+    const node = { id: 'commerce', type: 'ECommerceImageSet',
+        commerceImageSet: { productInfo: { name: '旧名称', sellingPoints: ['可见杯盖'] },
+            copyLanguage: 'en', autoProductInfo: { name: '旧名称' }, plannerProviderId: 'private-config' } };
+    const context = graph({ nodes: [node], selectedIds: [node.id] });
+    assert.deepEqual(context.summary.editableFields.ECommerceImageSet, ['productInfo', 'copyLanguage']);
+    assert.deepEqual(context.nodes[0].parameters, { copyLanguage: 'en', productInfo: { name: '旧名称', sellingPoints: ['可见杯盖'] } });
+    assert.ok(context.nodes[0].parameterOptions.copyLanguage.includes('ja'));
+    const raw = (parameters, options = {}) => ({ version: 1, steps: [{ id: 'edit', type: node.type,
+        nodeId: node.id, parameters, execute: false, ...options }] });
+    const parameters = { productInfo: { name: '随行杯', sellingPoints: [] }, copyLanguage: 'ja' };
+    const plan = normalizeCanvasPlan(raw(parameters), context, { message: '修改选中的商品信息和图中文字语言' });
+    assert.deepEqual(plan.steps[0].parameters, parameters);
+    assert.match(describeCanvasPlan(plan, context).join('\n'), /商品名称：旧名称 → 随行杯/);
+    assert.match(describeCanvasPlan(plan, context).join('\n'), /图中文字语言：英[语文] → 日[语文]/);
+    assert.throws(() => normalizeCanvasPlan(raw(parameters), graph({ nodes: [node] })), /选中|@节点/);
+    assert.throws(() => normalizeCanvasPlan(raw(parameters, { execute: true }), context), /execute: false/);
+    for (const invalid of [{ name: 1 }, { sellingPoints: '可见杯盖' }, { details: 'x'.repeat(4001) }, { providerId: 'other' }]) {
+        assert.throws(() => normalizeCanvasPlan(raw({ productInfo: invalid }), context), /商品信息/);
+    }
+    for (const invalid of ['invalid-language', 123]) {
+        assert.throws(() => normalizeCanvasPlan(raw({ copyLanguage: invalid }), context), /copyLanguage/);
+    }
+    const legacy = graph({ nodes: [{ ...node, commerceImageSet: { ...node.commerceImageSet, copyLanguage: undefined } }] });
+    assert.equal(legacy.read().nodes[0].parameters.copyLanguage, 'auto');
+    assert.doesNotMatch(canvasBaseline(legacy, [node.id]), /copyLanguage/, 'automatic mode keeps persisted v1 plan baselines');
+    assert.match(canvasBaseline(context, [node.id]), /"copyLanguage":"en"/, 'explicit edits invalidate a planned language change');
+});
+
 test('clearing references needs an explicit selected-node command and preserves other inputs, including masks', () => {
     assert.equal(isSelectedReferenceClearRequest('把我选中节点的参考图都移除'), true);
     assert.equal(isSelectedReferenceClearRequest('请断开当前选中的生图节点的所有参考图连线。'), true);

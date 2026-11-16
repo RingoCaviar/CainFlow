@@ -23,7 +23,7 @@
     --border-input: rgba(255, 255, 255, 0.1);
     --text-primary: #e8e8f0;
     --text-secondary: #9999b8;
-    --text-dim: #666688;
+    --text-dim: #8d8da8;
     --accent-purple: #a855f7;
     --accent-blue: #6366f1;
     --accent-cyan: #22d3ee;
@@ -65,6 +65,8 @@
     --panel-hover-border: rgba(168, 85, 247, 0.4);
     --panel-active-bg: rgba(168, 85, 247, 0.16);
     --panel-active-border: rgba(168, 85, 247, 0.28);
+    --panel-primary-action-bg: #0e7490;
+    --panel-primary-action-text: #ffffff;
     --panel-control-bg: rgba(255, 255, 255, 0.06);
     --panel-control-border: rgba(255, 255, 255, 0.1);
     --panel-control-text: var(--text-dim);

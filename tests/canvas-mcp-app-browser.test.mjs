@@ -21,7 +21,9 @@ test('MCP edits a canvas in place, restores it through history and stops a targe
     const nodes = [
         { id: 'source', type: 'Text', x: 100, y: 120, text: 'source' },
         { id: 'chat', type: 'TextChat', customTitle: '答复', x: 500, y: 120, apiConfigId: 'chat-model', providerId: 'provider',
-            prompt: 'Return the controlled text.', fixed: false }
+            prompt: 'Return the controlled text.', fixed: false },
+        { id: 'commerce', type: 'ECommerceImageSet', x: 100, y: 350,
+            commerceImageSet: { productInfo: { name: '旧名称', audience: '通勤人群' }, autoProductInfo: { name: '旧名称' } } }
     ];
     const data = { workflowId, nodes, connections: [] };
     const fixture = { ...data, autoCheckUpdatesOnLoad: false, activeWorkflowName: 'Canvas operations', activeWorkflowId: workflowId,
@@ -55,9 +57,15 @@ test('MCP edits a canvas in place, restores it through history and stops a targe
             const scope = ({ editorId, workflowId, revision }) => ({ editorId, workflowId, revision });
             const before = await call('read_canvas');
             assert.ok(before.creatableTypes.includes('TextMerge'));
+            const commerce = snapshot => snapshot.nodes.find(node => node.id === 'commerce');
+            assert.deepEqual(commerce(before).parameters.productInfo, { name: '旧名称', audience: '通勤人群' });
+            assert.equal(commerce(before).parameters.copyLanguage, 'auto');
+            assert.ok(commerce(before).parameterOptions.copyLanguage.includes('ja'));
             await call('edit_canvas', { ...scope(before), plan: { version: 1, steps: [
                 { id: 'patch-source', type: 'Text', nodeId: 'source', execute: false, patch: { title: '已改名', x: -120, y: 320, enabled: false } },
-                { id: 'add-merge', type: 'TextMerge', execute: false }
+                { id: 'add-merge', type: 'TextMerge', execute: false },
+                { id: 'edit-product', type: 'ECommerceImageSet', nodeId: 'commerce', execute: false,
+                    parameters: { productInfo: { name: '随行杯', sellingPoints: ['带可拆杯盖'] }, copyLanguage: 'ja' } }
             ] } });
             const edited = await call('read_canvas');
             const source = edited.nodes.find(node => node.id === 'source');
@@ -65,14 +73,18 @@ test('MCP edits a canvas in place, restores it through history and stops a targe
             assert.equal(source.enabled, false);
             assert.deepEqual([source.position.x, source.position.y], [-120, 320]);
             assert.equal(edited.nodes.filter(node => node.type === 'Text').length, 1);
-            assert.equal(edited.totalNodes, 3);
+            assert.equal(edited.totalNodes, 4);
+            assert.deepEqual(commerce(edited).parameters.productInfo, { name: '随行杯', audience: '通勤人群', sellingPoints: ['带可拆杯盖'] });
+            assert.equal(commerce(edited).parameters.copyLanguage, 'ja');
             assert.equal((await call('undo_canvas', scope(edited))).changed, true);
             const undone = await call('read_canvas');
-            assert.equal(undone.totalNodes, 2);
+            assert.equal(undone.totalNodes, 3);
             assert.equal(undone.nodes.find(node => node.id === 'source').enabled, true);
+            assert.deepEqual(commerce(undone).parameters, commerce(before).parameters);
             assert.equal((await call('redo_canvas', scope(undone))).changed, true);
             const redone = await call('read_canvas');
             assert.equal(redone.nodes.find(node => node.id === 'source').name, '已改名');
+            assert.deepEqual(commerce(redone).parameters, commerce(edited).parameters);
             const run = await call('run_workflow', { ...scope(redone), targetNodeId: 'chat' });
             await app.waitFor('window.canvasRunRequests === 1');
             assert.ok((await call('stop_workflow', scope(await call('read_canvas')))).stopped > 0);

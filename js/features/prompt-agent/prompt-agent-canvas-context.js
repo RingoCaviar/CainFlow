@@ -3,6 +3,7 @@ import { publicImageProtocolFields } from './prompt-agent-parameters.js';
 import { listNodeDefinitions } from '../../nodes/registry.js';
 import { getDynamicNodePorts } from '../../nodes/node-view-factory.js';
 import { DOUBAO_VIDEO_RATIO_OPTIONS } from '../execution/provider-request-utils.js';
+import { COMMERCE_IMAGE_SET_COPY_LANGUAGES, getCommerceProductInfo, normalizeCommerceImageSetCopyLanguage } from '../ecommerce-image-set/commerce-image-set-plan.js';
 
 const colorAdjustment = { type: 'integer', min: -100, max: 100 };
 export const CANVAS_SCALAR_RULES = Object.freeze({
@@ -11,6 +12,7 @@ export const CANVAS_SCALAR_RULES = Object.freeze({
         generationCount: { type: 'integer', min: 1 } },
     ColorReset: { whiteBalanceMode: { enum: ['original', 'auto'] }, temperature: colorAdjustment, tint: colorAdjustment,
         vibrance: colorAdjustment, saturation: colorAdjustment },
+    ECommerceImageSet: { copyLanguage: { enum: Object.keys(COMMERCE_IMAGE_SET_COPY_LANGUAGES) } },
     TextSplit: { previewEnabled: { type: 'boolean' } }
 });
 
@@ -18,7 +20,8 @@ export const CANVAS_FIELDS = Object.freeze({
     ImageImport: [], ImageGenerate: ['prompt', 'aspect', 'resolution', 'customWidth', 'customHeight', 'quality', 'moderation', 'background', 'generationCount', 'search', 'protocolParams'],
     ImageResize: ['resizeMode', 'scalePercent', 'targetWidth', 'targetHeight', 'keepAspect', 'quality'],
     ImageMerge: ['inputCount'], ImagePreview: [], ImageCompare: [], Text: ['text'],
-    ...Object.fromEntries(Object.entries(CANVAS_SCALAR_RULES).map(([type, fields]) => [type, Object.keys(fields)]))
+    ...Object.fromEntries(Object.entries(CANVAS_SCALAR_RULES).map(([type, fields]) => [type, Object.keys(fields)])),
+    ECommerceImageSet: ['productInfo', ...Object.keys(CANVAS_SCALAR_RULES.ECommerceImageSet)]
 });
 export const CANVAS_TYPES = Object.keys(CANVAS_FIELDS);
 export const CANVAS_CREATABLE_TYPES = listNodeDefinitions().map(node => node.type);
@@ -34,6 +37,12 @@ export function projectCanvasNode(node, running = false) {
     const readableFields = node.type === 'TextSplit' ? [...fields, 'text'] : fields;
     const parameters = Object.fromEntries(readableFields.filter(key =>
         isParameterValue(node[key])).map(key => [key, node[key]]));
+    if (node.type === 'ECommerceImageSet') {
+        parameters.copyLanguage = normalizeCommerceImageSetCopyLanguage(node.commerceImageSet?.copyLanguage);
+        const productInfo = Object.fromEntries(Object.entries(getCommerceProductInfo(node.commerceImageSet))
+            .filter(([, value]) => value.length));
+        if (Object.keys(productInfo).length) parameters.productInfo = productInfo;
+    }
     // URL mode may retain old upload keys for switching back, but those are not its current output.
     const assetKeys = node.type === 'ImageImport' && node.importMode === 'url' ? []
         : node.mediaAssetKeys?.length ? node.mediaAssetKeys : [node.imageImportAssetKey, node.imageAssetKey];
@@ -106,6 +115,7 @@ export function createCanvasContext({ workflowId, nodes, connections, selectedId
             const fields = [
                 ...Object.keys(safe.parameters).map(key => [safe.parameters, key, key]),
                 ...Object.keys(safe.parameters.protocolParams || {}).map(key => [safe.parameters.protocolParams, key, `protocolParams.${key}`]),
+                ...Object.keys(safe.parameters.productInfo || {}).map(key => [safe.parameters.productInfo, key, `productInfo.${key}`]),
                 [safe, 'effectivePrompt', 'effectivePrompt'], [safe.promptSource, 'text', 'promptSource.text']
             ];
             for (const [owner, key, name] of fields) {
@@ -138,6 +148,8 @@ export function canvasBaseline(context, ids, ignoreOutputIds = []) {
     return JSON.stringify({ nodes: context.nodes.filter(node => relevant.has(node.id)).map(({ running, position, effectivePrompt, promptSource, parameterOptions, supportsSystemPrompt, patchable, imageCount, ...node }) => {
         // Keep the persisted v1 baseline independent of protocol controls projected from the live UI.
         const { protocolParams, ...parameters } = node.parameters;
+        // The automatic language is the behavior of workflows saved before this field existed.
+        if (node.type === 'ECommerceImageSet' && parameters.copyLanguage === 'auto') delete parameters.copyLanguage;
         // Stored v1 baselines use the registry's static declarations. A new plan that
         // edits custom sockets checks their live shape separately.
         const defaults = getNodeDefinition(node.type);

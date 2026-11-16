@@ -5,6 +5,64 @@ import { composite, contrastRatio, parseColor } from './helpers/browser-theme-fi
 
 const emptySession = { autoCheckUpdatesOnLoad: false, models: [], providers: [], nodes: [], connections: [] };
 
+test('the Agent composer shares automatic textarea sizing and keeps its keyboard resize control', { timeout: 30000 }, async () => {
+    await withAppBrowser(emptySession, async app => {
+        await app.evaluate("document.getElementById('btn-prompt-agent').click()");
+        await app.waitFor("document.getElementById('prompt-agent-input').checkVisibility()");
+        const input = "document.getElementById('prompt-agent-input')";
+        const measure = () => app.evaluate(`[ ${input}.offsetHeight, ${input}.scrollHeight > ${input}.clientHeight ]`);
+        const fill = lines => app.evaluate(`${input}.value = ${JSON.stringify(lines.join('\n'))}`);
+        const [initial] = await measure();
+        await fill(Array(4).fill('描述商品特写'));
+        const [four] = await measure();
+        assert.ok(four > initial);
+        await fill(Array(6).fill('描述商品特写'));
+        const [six] = await measure();
+        await fill(Array(12).fill('描述商品特写'));
+        assert.deepEqual(await measure(), [six, true]);
+        await app.evaluate("document.getElementById('prompt-agent-input-resize').focus()");
+        const arrow = { key: 'ArrowUp', code: 'ArrowUp', nativeVirtualKeyCode: 38, windowsVirtualKeyCode: 38 };
+        for (let index = 0; index < 3; index++) {
+            await app.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...arrow });
+            await app.send('Input.dispatchKeyEvent', { type: 'keyUp', ...arrow });
+        }
+        const [manual] = await measure();
+        assert.ok(manual >= six + 30, 'keyboard resize can exceed the automatic six-line cap');
+        await fill(['短稿']);
+        assert.deepEqual(await measure(), [manual, false]);
+
+        for (let index = 0; index < 60; index++) {
+            await app.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', autoRepeat: index > 0, ...arrow });
+        }
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', ...arrow });
+        const measureLayout = () => app.evaluate(`(() => {
+            const panel = document.getElementById('prompt-agent-panel').getBoundingClientRect();
+            const send = document.getElementById('prompt-agent-send').getBoundingClientRect();
+            return {
+                inputHeight: ${input}.offsetHeight,
+                transcriptHeight: document.getElementById('prompt-agent-messages').clientHeight,
+                sendFits: send.top >= panel.top && send.bottom <= panel.bottom
+            };
+        })()`);
+        const layout = await measureLayout();
+        assert.ok(layout.inputHeight > manual, 'repeated ArrowUp can enlarge the composer');
+        assert.ok(layout.transcriptHeight > 0, 'the transcript retains visible space at the resize limit');
+        assert.ok(layout.sendFits, 'the send button stays inside the Agent panel at the resize limit');
+
+        const viewport = await app.evaluate('({ width: innerWidth, height: innerHeight })');
+        const resizeWindow = height => app.send('Emulation.setDeviceMetricsOverride', { width: viewport.width, height, deviceScaleFactor: 1, mobile: false });
+        const settle = () => app.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+        await resizeWindow(400);
+        await settle();
+        const compact = await measureLayout();
+        assert.ok(compact.inputHeight < layout.inputHeight && compact.sendFits && compact.transcriptHeight > 0,
+            'the composer adapts to a shorter window without clipping the send button');
+        await resizeWindow(viewport.height);
+        await settle();
+        assert.equal((await measureLayout()).inputHeight, layout.inputHeight, 'the composer restores its manual height when space returns');
+    });
+});
+
 test('settings forms reflow, expose labels and keep navigation visible after scrolling', { timeout: 60000 }, async () => {
     await withAppBrowser({ ...emptySession,
         providers: [{ id: 'usable-provider', name: '本地接口', endpoint: 'https://controlled.test/v1', apikey: 'fixture' }],
@@ -18,6 +76,15 @@ test('settings forms reflow, expose labels and keep navigation visible after scr
             assert.equal(form.fits, true, `${width}px supplier form must not scroll sideways`);
             assert.equal(form.labels, true, 'supplier fields retain associated labels');
             assert.ok(parseFloat(form.labelSize) >= 13);
+            if (width <= 420) {
+                const footer = await app.evaluate(`(() => {
+                    const footer = document.querySelector('#settings-modal .modal-footer');
+                    const warning = footer.querySelector('.footer-left').getBoundingClientRect();
+                    const actions = footer.querySelector('.footer-right').getBoundingClientRect();
+                    return { stacked: warning.bottom <= actions.top, fits: footer.scrollWidth <= footer.clientWidth };
+                })()`);
+                assert.deepEqual(footer, { stacked: true, fits: true }, `${width}px settings footer keeps its warning and actions readable`);
+            }
             await app.evaluate("document.querySelector('#settings-modal [data-tab=proxy]').click()");
             assert.equal(await app.evaluate("(()=>{const body=document.getElementById('settings-body'),row=document.getElementById('proxy-test-row');return body.scrollWidth<=body.clientWidth+1&&row.scrollWidth<=row.clientWidth+1&&['proxy-enabled','proxy-ip','proxy-port'].every(id=>[...document.getElementById(id).labels].some(label=>label.textContent.trim()))})()"), true, `${width}px proxy form remains labelled and contained`);
             await app.evaluate("document.querySelector('#settings-modal [data-tab=api]').click()");
@@ -28,6 +95,29 @@ test('settings forms reflow, expose labels and keep navigation visible after scr
         const panel = composite(parseColor(colors.panel), composite(parseColor(colors.overlay), parseColor(colors.page)));
         assert.ok(contrastRatio(parseColor(colors.color), composite(parseColor(colors.bg), panel)) >= 4.5, 'dark selected category stays readable');
         assert.equal(await app.evaluate("[...document.querySelectorAll('#general-settings label[for]')].every(label=>Boolean(label.control))"), true, 'general settings labels target existing controls');
+        if (await app.evaluate("CSS.supports('appearance: base-select') && CSS.supports('selector(select:open)')")) {
+            const select = "document.querySelector('#setting-connection-line-type')";
+            await app.evaluate(`document.getElementById('general-settings-category-canvas').click();${select}.focus()`);
+            const space = { key: ' ', code: 'Space', windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 32 };
+            const openPicker = async () => {
+                await app.send('Input.dispatchKeyEvent', { type: 'keyDown', ...space, text: ' ' });
+                await app.send('Input.dispatchKeyEvent', { type: 'keyUp', ...space });
+                await app.waitFor(`${select}.matches(':open')`);
+            };
+            await openPicker();
+            const tab = { key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, nativeVirtualKeyCode: 9 };
+            await app.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...tab });
+            await app.send('Input.dispatchKeyEvent', { type: 'keyUp', ...tab });
+            assert.ok(await app.evaluate("document.activeElement.closest('#settings-body') !== null"), 'Tab from a native picker remains in the form');
+            await app.evaluate(`${select}.focus()`);
+            if (!await app.evaluate(`${select}.matches(':open')`)) await openPicker();
+            const escape = { key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 };
+            await app.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...escape });
+            await app.send('Input.dispatchKeyEvent', { type: 'keyUp', ...escape });
+            await app.waitFor(`!${select}.matches(':open') && document.activeElement === ${select} && ${select}.value === 'bezier'`);
+            assert.equal(await app.evaluate("document.querySelector('#settings-modal').classList.contains('hidden')"), false);
+            await app.evaluate("document.getElementById('general-settings-category-generation').click()");
+        }
         await app.send('Emulation.setDeviceMetricsOverride', { width: 1120, height: 600, deviceScaleFactor: 1, mobile: false });
         await app.evaluate("document.getElementById('settings-body').scrollTop=99999");
         const sticky = await app.evaluate("(()=>{const body=document.getElementById('settings-body'),nav=document.querySelector('.general-settings-navigation');return {scrolled:body.scrollTop>0,visible:nav.getBoundingClientRect().top>=body.getBoundingClientRect().top-1,background:getComputedStyle(nav).backgroundColor}})()");

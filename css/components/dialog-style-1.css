@@ -48,7 +48,7 @@ dialog.dialog-style-1:not([open]) {
     border-bottom: 1px solid var(--settings-dialog-divider, rgba(255, 255, 255, 0.08));
 }
 
-.dialog-style-1-header h3 {
+.dialog-style-1-header :is(h2, h3) {
     margin: 0;
     font-size: 16px;
 }
@@ -120,19 +120,20 @@ dialog.dialog-style-1:not([open]) {
     padding: 8px 10px;
     font: inherit;
     outline: none;
-    transition: border-color 0.14s ease, box-shadow 0.14s ease, background-color 0.14s ease;
+    transition: border-color 0.14s ease, background-color 0.14s ease;
 }
 
 .dialog-style-1-field input:focus {
-    border-color: var(--accent-blue, #60a5fa);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-blue, #60a5fa) 24%, transparent);
+    border-color: var(--text-link, var(--accent-primary));
+    outline: 2px solid var(--text-link, var(--accent-primary));
+    outline-offset: 2px;
 }
 
 .dialog-style-1-field input.is-rejecting,
 .dialog-style-1-field input.is-rejecting:focus {
     border-color: var(--accent-red, #ef4444);
     background: color-mix(in srgb, var(--accent-red, #ef4444) 12%, var(--settings-input-bg, rgba(255, 255, 255, 0.08)));
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-red, #ef4444) 25%, transparent);
+    outline-color: var(--accent-red, #ef4444);
 }
 
 .dialog-style-1-footer {

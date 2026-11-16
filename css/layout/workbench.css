@@ -71,6 +71,7 @@
 #canvas-navigation .canvas-node-results button { width: 100%; text-align: left; margin-bottom: 4px; white-space: normal; }
 .canvas-node-results p { color: var(--text-secondary); font-size: 12px; }
 body:has(.fullscreen-overlay.active) #canvas-navigation,
+body:has(#history-sidebar.active, #log-drawer.active) #canvas-navigation,
 body:has(.painter-overlay.active) #canvas-navigation { visibility: hidden; }
 :root {
     --surface-panel: var(--panel-bg, var(--bg-drawer));
@@ -308,6 +309,14 @@ body:has(#prompt-agent-panel.active) #toast-container .toast {
 
 body:has(#prompt-agent-panel.active) #toast-container .toast-message {
     min-width: 0;
+}
+
+/* Right drawers own their viewport edge. Keep feedback visible on the canvas side. */
+body:has(#history-sidebar.active, #log-drawer.active) #toast-container {
+    right: auto;
+    left: 20px;
+    bottom: var(--toast-bottom-offset);
+    align-items: flex-start;
 }
 
 body:has(#statistics-sidebar.active),

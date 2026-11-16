@@ -14,20 +14,20 @@
 .statistics-metric {
     min-width: 0;
     padding: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: var(--radius-sm);
-    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    background: var(--panel-bg-soft);
 }
 
 .statistics-metric-label {
     display: block;
-    margin-bottom: 8px;
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-secondary);
 }
 
 .statistics-metric-value {
     display: block;
+    margin-block: 6px;
     font-size: 24px;
     line-height: 1;
     color: var(--text-primary);
@@ -43,6 +43,7 @@
 
 .statistics-section-header {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
@@ -55,39 +56,21 @@
     color: var(--text-primary);
 }
 
-.statistics-sort-select {
-    height: 30px;
-    max-width: 132px;
-    padding: 0 28px 0 10px;
-    border: 1px solid var(--node-select-border);
-    border-radius: var(--radius-xs);
-    background-color: var(--node-select-bg);
-    color: var(--node-select-text);
+.statistics-sort-select,
+.log-retention-control--inline .ui-select {
+    min-height: 30px;
+    padding-block: 4px;
+    padding-inline-start: 8px;
+    border: 1px solid var(--panel-input-border);
+    border-radius: 8px;
+    background-color: var(--panel-input-bg);
+    color: var(--text-primary);
+    font: inherit;
     font-size: 12px;
-    font-family: var(--font);
-    outline: none;
-    cursor: pointer;
-    appearance: none;
-    background-image:
-        linear-gradient(45deg, transparent 50%, var(--node-select-caret) 50%),
-        linear-gradient(135deg, var(--node-select-caret) 50%, transparent 50%);
-    background-position:
-        calc(100% - 15px) 12px,
-        calc(100% - 10px) 12px;
-    background-size: 5px 5px, 5px 5px;
-    background-repeat: no-repeat;
-    box-shadow: var(--node-select-focus-shadow);
-    transition: border-color var(--transition), background-color var(--transition), box-shadow var(--transition);
 }
 
-.statistics-sort-select:hover,
-.statistics-sort-select:focus {
-    border-color: var(--node-select-focus-border);
-}
-
-.statistics-sort-select option {
-    background-color: Canvas;
-    color: CanvasText;
+.statistics-sort-select {
+    max-width: 100%;
 }
 
 .statistics-provider-ranking {
@@ -101,9 +84,9 @@
     grid-template-columns: 28px minmax(0, 1fr);
     gap: 10px;
     padding: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--panel-border);
     border-radius: var(--radius-sm);
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--panel-bg-soft);
 }
 
 .statistics-provider-rank {
@@ -112,8 +95,8 @@
     display: grid;
     place-items: center;
     border-radius: 50%;
-    background: rgba(34, 211, 238, 0.12);
-    color: var(--accent-cyan);
+    background: var(--panel-accent-bg);
+    color: var(--text-link);
     font-size: 12px;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
@@ -153,22 +136,23 @@
     margin: 8px 0 7px;
     overflow: hidden;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--panel-control-bg);
 }
 
 .statistics-provider-bar span {
     display: block;
     height: 100%;
     border-radius: inherit;
-    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue));
+    background: var(--accent-primary);
 }
 
 .statistics-empty {
-    padding: 34px 12px;
+    padding: 20px 12px;
     text-align: center;
     color: var(--text-secondary);
-    border: 1px dashed rgba(255, 255, 255, 0.12);
-    border-radius: var(--radius-sm);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    background: var(--panel-bg-soft);
     font-size: 13px;
 }
 
@@ -187,36 +171,15 @@
 
 .statistics-day-nav {
     display: grid;
-    grid-template-columns: minmax(76px, 1fr) auto minmax(76px, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: center;
     gap: 10px;
 }
 
 .statistics-day-btn {
-    height: 32px;
-    padding: 0 12px;
-    border: 1px solid rgba(34, 211, 238, 0.28);
-    border-radius: var(--radius-xs);
-    background: rgba(34, 211, 238, 0.12);
-    color: var(--text-primary);
-    font-family: var(--font);
+    min-height: var(--density-control-height);
+    padding-inline: 8px;
     font-size: 12px;
-    cursor: pointer;
-    transition: border-color var(--transition), background-color var(--transition), color var(--transition), opacity var(--transition);
-}
-
-.statistics-day-btn:hover:not(:disabled),
-.statistics-day-btn:focus-visible:not(:disabled) {
-    border-color: var(--accent-cyan);
-    background: rgba(34, 211, 238, 0.2);
-}
-
-.statistics-day-btn:disabled {
-    border-color: rgba(148, 163, 184, 0.16);
-    background: rgba(148, 163, 184, 0.08);
-    color: var(--text-dim);
-    cursor: not-allowed;
-    opacity: 0.58;
 }
 
 .statistics-current-day {
@@ -297,6 +260,7 @@ body:has(#toolbar [aria-expanded="true"]:not(#btn-prompt-agent)) .help-panel {
     /* Reserve space for native vertical scrollbars without scaling thumbnails. */
     --history-scrollbar-gutter: 17px;
     width: calc(var(--history-grid-cols, 2) * 151px + 10px + var(--history-scrollbar-gutter));
+    max-width: 100%;
     right: calc(-1 * (var(--history-grid-cols, 2) * 151px + 10px + var(--history-scrollbar-gutter)));
 }
 
@@ -353,6 +317,40 @@ body:has(#toolbar [aria-expanded="true"]:not(#btn-prompt-agent)) .help-panel {
     display: none;
 }
 
+.history-settings-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    width: 100%;
+}
+
+.history-grid-stepper {
+    display: grid;
+    grid-template-columns: auto minmax(24px, auto) auto;
+    align-items: center;
+    padding: 2px;
+    border: 1px solid var(--panel-control-border);
+    border-radius: 8px;
+    background: var(--panel-control-bg);
+    text-align: center;
+    color: var(--text-primary);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.history-grid-stepper .icon-btn {
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+}
+
+.history-grid-stepper .icon-btn:not(:hover, :focus-visible) {
+    border-color: transparent;
+    background: transparent;
+}
+
 #history-batch-toolbar {
     flex-direction: column;
     align-items: stretch;
@@ -396,6 +394,18 @@ body:has(#toolbar [aria-expanded="true"]:not(#btn-prompt-agent)) .help-panel {
     align-content: start;
     gap: 6px;
     padding: 8px;
+}
+
+.history-grid:has(> .history-empty) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: auto;
+}
+
+.history-empty {
+    padding: 26px 12px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    text-align: center;
 }
 
 .history-card {
@@ -729,9 +739,9 @@ body:has(#toolbar [aria-expanded="true"]:not(#btn-prompt-agent)) .help-panel {
 }
 
 #btn-delete-preview:hover {
-    background: rgba(239, 68, 68, 0.2) !important;
+    background: color-mix(in srgb, var(--preview-control-surface, #1e1e2e) 82%, #ef4444) !important;
     border-color: rgba(239, 68, 68, 0.5) !important;
-    color: #ef4444 !important;
+    color: #fda4af !important;
     transform: scale(1.1) !important;
 }
 

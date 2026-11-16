@@ -50,9 +50,13 @@ export function createNodeSerializer({ state, documentRef }) {
         node?.parameterRoot?.querySelectorAll('textarea').forEach(element => textareas.add(element));
         textareas.forEach((textarea) => {
             const key = textarea.id.slice(`${id}-`.length);
-            const height = textarea.offsetHeight || parseFloat(textarea.style.height || '0');
+            // The legacy image editor's sizing script writes its automatic height inline.
+            if (node?.type === 'ImageGenerate' && key === 'prompt'
+                && !documentRef.defaultView?.CSS?.supports('field-sizing', 'content')) return;
+            const height = parseFloat(textarea.style.height);
             if (key && Number.isFinite(height) && height > 0) {
                 heights[key] = Math.round(height);
+                heights.manual = true;
             }
         });
         const responseArea = documentRef.getElementById(`${id}-response`);

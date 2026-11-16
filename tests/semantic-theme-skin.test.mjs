@@ -23,6 +23,23 @@ test('the real application entry loads semantic skins after theme styles', async
     assert.ok(menuDialogSkin > themeEntry, 'the real application entry must load the menu and dialog skin after theme styles');
 });
 
+test('the shared form controls are shipped and documented with the same component identities', async () => {
+    const read = path => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
+    const [entry, imports, css, design, extension] = await Promise.all([
+        read('index.html'), read('index.css'), read('css/components/form-controls.css'),
+        read('DESIGN.md'), read('.impeccable/design.json')
+    ]);
+    assert.match(entry, /href="css\/components\/form-controls\.css"/);
+    assert.match(imports, /@import '[.]\/css\/components\/form-controls\.css'/);
+    for (const [token, selector] of [['native-select-picker', 'ui-select'], ['switch-compact', 'toggle-switch-compact']]) {
+        assert.match(design, new RegExp(`^  ${token}:`, 'm'));
+        assert.ok(css.includes(`.${selector}`));
+        const component = JSON.parse(extension).components.find(item => item.refersTo === token);
+        assert.ok(component?.html.includes(selector));
+        assert.ok(component?.css.includes(`.${selector}`));
+    }
+});
+
 test('the settings surface contract maps feature roles to the shared panel palette', async () => {
     const stylesheet = await readFile(
         new URL('../css/features/settings.css', import.meta.url),

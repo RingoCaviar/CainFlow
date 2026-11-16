@@ -271,6 +271,8 @@ function renderImageResolutionOptions(model, providers, selectedResolution, prov
 }
 
 function getTextareaHeightStyle(restoreData = {}, key) {
+    // Older workflows recorded the measured height of every editor.
+    if (restoreData?.textareaHeights?.manual !== true) return '';
     const height = Number(restoreData?.textareaHeights?.[key]);
     return Number.isFinite(height) && height > 0 ? ` style="height:${Math.round(height)}px"` : '';
 }
@@ -441,7 +443,7 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
             content: `<div class="image-prompt-source hidden" id="${id}-prompt-source" aria-live="polite">
                 <div class="image-prompt-source-label"></div>
                 <details><summary>查看上游已有文本</summary><pre class="image-prompt-source-preview"></pre></details>
-            </div><textarea class="image-generate-prompt" id="${id}-prompt" placeholder="描述你想生成的图片..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${escapeHtml(rd.prompt || '')}</textarea>
+            </div><textarea class="image-generate-prompt" id="${id}-prompt" placeholder="描述你想生成的图片..." rows="2"${getTextareaHeightStyle(rd, 'prompt')}>${escapeHtml(rd.prompt || '')}</textarea>
             <div class="image-prompt-actions"><button type="button" class="image-node-assistant" id="${id}-assistant">让助手优化</button></div>`
         })}
 
@@ -1061,7 +1063,7 @@ function renderColorResetBody(id, restoreData) {
                 <div class="node-field">
                 <label>模式</label>
                 <div class="color-reset-white-balance-controls">
-                    <select id="${id}-white-balance">
+                    <select class="ui-select" id="${id}-white-balance">
                         <option value="original" ${mode === 'original' ? 'selected' : ''}>原始设置</option>
                         <option value="auto" ${mode === 'auto' ? 'selected' : ''}>自动</option>
                         <option value="custom" ${mode === 'custom' ? 'selected' : ''} ${mode === 'custom' ? '' : 'hidden'}>自定义</option>

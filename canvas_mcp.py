@@ -24,6 +24,7 @@ HistoryVersion = Annotated[str, Field(min_length=1, max_length=41)]
 PromptName = Annotated[str, Field(min_length=1, max_length=80)]
 CanvasScalar = StrictStr | StrictBool | StrictInt | StrictFloat
 CanvasParameters = dict[str, CanvasScalar | dict[str, CanvasScalar]]
+CanvasPlanParameters = dict[str, CanvasScalar | dict[str, CanvasScalar | list[StrictStr]]]
 READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 EDIT = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=False)
 CREATE = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False)
@@ -52,8 +53,13 @@ class CanvasPlanStep(BaseModel):
     type: CanvasNodeType = Field(description='Registered node type from read_canvas.')
     nodeId: str | None = Field(default=None, description='Existing node ID to edit in place. Omit to create a node.')
     title: str | None = None
-    parameters: CanvasParameters = Field(
-        default_factory=dict, description='Editable parameters from read_canvas. A new ImageGenerate step needs prompt unless creating an empty node with execute false.'
+    parameters: CanvasPlanParameters = Field(
+        default_factory=dict,
+        description=(
+            'Editable parameters from read_canvas. ECommerceImageSet supports partial productInfo edits with '
+            'sellingPoints as a string array. Set copyLanguage using parameterOptions.copyLanguage. Use execute '
+            'false for these edits. A new ImageGenerate step needs prompt unless creating an empty node with execute false.'
+        ),
     )
     assetKey: str | None = Field(default=None, description='Existing canvas media reference for an ImageImport node.')
     modelId: str | None = Field(default=None, description='Configured ImageGenerate model ID from list_models.')

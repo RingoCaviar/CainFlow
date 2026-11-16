@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { normalizeCommerceImageSetState, updateCommerceImageSetCopyLanguage, updateCommerceProductInfoField } from '../js/features/ecommerce-image-set/commerce-image-set-plan.js';
 import test from 'node:test';
 import { createExecutionCoreApi } from '../js/features/execution/execution-core.js';
 import '../js/features/execution/protocols/google.js';
@@ -146,6 +147,107 @@ test('commerce planning requires confirmation and unchanged original references 
     assert.deepEqual(node.data.commerceImageSet.results.map(row => row.shotId), ['main', ...roles]);
     assert.deepEqual(node.data.mediaAssetKeys, node.data.commerceImageSet.results.map(row => row.assetKey));
     assert.deepEqual(node.data.mediaAssetKeys.map(key => assets.get(key)), output.image);
+});
+
+test('product analysis refreshes AI fields, preserves explicit edits, and supplies the resulting product information to the image model', async () => {
+    const { node, execute, normalizeRunOptions, requestLogs, imagePrompts } = createCommerceExecutionFixture({
+        selectedShotIds: ['detail'],
+        beforePlanRequest(input) {
+            const planning = Boolean(input.shots);
+            assert.equal(input.productInfo.details, '杯盖可拆卸');
+            assert.equal(input.productInfo.name, planning ? '旅行杯' : '');
+            assert.deepEqual(input.productInfo.sellingPoints, planning ? ['杯盖开合方便'] : []);
+            assert.equal(input.productInfo.audience, '');
+            return { productInfo: {
+                name: '杯子', sellingPoints: ['杯口宽', '杯口宽'], audience: planning ? '办公族' : '通勤者',
+                useCases: planning ? '办公桌饮水' : '随身饮水', details: '模型推测的材质'
+            }, ...(planning ? { shots: [{ id: 'detail', prompt: '突出杯盖的结构和开合。' }] } : {}) };
+        }
+    });
+    const analyzeOptions = { mode: 'selected-only', selectedNodeIds: [node.id], commerceNodeId: node.id, commerceAction: 'analyze' };
+    assert.equal(normalizeRunOptions(analyzeOptions).commerceAction, 'analyze');
+    assert.throws(() => normalizeRunOptions({ ...analyzeOptions, mode: 'full' }), /请选择一个.*节点/);
+    await execute('analyze');
+    let info = node.data.commerceImageSet;
+    assert.deepEqual(info.productInfo, { name: '杯子', sellingPoints: ['杯口宽'], audience: '通勤者', useCases: '随身饮水', details: '杯盖可拆卸' });
+    assert.equal(info.plan, null);
+
+    updateCommerceProductInfoField(info, 'name', '旅行杯');
+    updateCommerceProductInfoField(info, 'sellingPoints', ['杯盖开合方便']);
+    node.data.commerceImageSet = normalizeCommerceImageSetState(JSON.parse(JSON.stringify(info)));
+    await execute('plan', nextReference);
+    info = node.data.commerceImageSet;
+    assert.deepEqual(info.productInfo, { name: '旅行杯', sellingPoints: ['杯盖开合方便'],
+        audience: '办公族', useCases: '办公桌饮水', details: '杯盖可拆卸' });
+    assert.deepEqual(info.plan.sellingPoints, info.productInfo.sellingPoints);
+    assert.deepEqual(requestLogs.map(log => log.operation), ['analyze', 'plan']);
+    info.plan.confirmed = true;
+    await execute('generate', nextReference);
+    assert.match(imagePrompts.get('突出杯盖的结构和开合。'), /商品名称：旅行杯[\s\S]*办公族[\s\S]*办公桌饮水[\s\S]*杯盖开合方便/);
+
+    info = node.data.commerceImageSet;
+    const sourceKey = info.plan.sourceKey;
+    const images = structuredClone(info.results);
+    updateCommerceProductInfoField(info, 'sellingPoints', ['宽口易清洁']);
+    assert.deepEqual(info.plan.sellingPoints, ['宽口易清洁']);
+    assert.equal(info.plan.sourceKey, sourceKey);
+    assert.equal(info.plan.stale, undefined);
+
+    updateCommerceProductInfoField(info, 'audience', '露营人群');
+    const saved = normalizeCommerceImageSetState(JSON.parse(JSON.stringify(info)));
+    assert.equal(saved.plan.stale, true);
+    assert.equal(saved.plan.confirmed, false);
+    assert.deepEqual(saved.results, images);
+    await assert.rejects(execute('retry', nextReference, 'detail'), /重新规划/);
+});
+
+test('changing the copy language keeps the previous images and blocks an old plan from running', async () => {
+    const { node, execute, apiCalls } = createCommerceExecutionFixture({ selectedShotIds: ['detail'] });
+    await execute('plan');
+    node.data.commerceImageSet.plan.confirmed = true;
+    await execute('generate');
+    const savedOutput = structuredClone(node.data.commerceImageSet.results);
+    assert.equal(savedOutput[0].status, 'completed');
+    const requestCount = apiCalls.length;
+
+    assert.equal(updateCommerceImageSetCopyLanguage(node.data.commerceImageSet, 'ja'), true);
+    await assert.rejects(execute('generate'), /生成设置已改变.*重新规划/);
+    await assert.rejects(execute('retry', reference, 'detail'), /重新规划/);
+    await assert.rejects(execute('replan-shot', reference, 'detail'), /重新规划整套/);
+    assert.equal(apiCalls.length, requestCount);
+    assert.deepEqual(node.data.commerceImageSet.results, savedOutput);
+});
+
+test('failed, aborted, and superseded analysis leaves the previous product and image results intact', async () => {
+    let response = { productInfo: { name: '圆口杯', sellingPoints: ['宽口'] } };
+    let afterRequest;
+    const { node, execute, requestLogs } = createCommerceExecutionFixture({
+        selectedShotIds: ['main'],
+        beforePlanRequest(input, signal) {
+            if (input.shots) return { ...response, shots: [] };
+            afterRequest?.(signal);
+            return response;
+        }
+    });
+    await execute('plan');
+    node.data.commerceImageSet.plan.confirmed = true;
+    await execute('generate');
+    const prior = structuredClone(node.data.commerceImageSet);
+
+    response = { productInfo: { ignored: true } };
+    await assert.rejects(execute('analyze'), /没有有效的商品信息|未返回有效的商品信息/);
+    assert.deepEqual(node.data.commerceImageSet, prior);
+    response = { productInfo: { name: '另一款商品', sellingPoints: ['防滑外观'] } };
+    const controller = new AbortController();
+    afterRequest = () => controller.abort();
+    await assert.rejects(execute('analyze', reference, undefined, controller.signal), { name: 'AbortError' });
+    assert.deepEqual(node.data.commerceImageSet, prior);
+    assert.deepEqual(requestLogs.slice(-2).map(log => log.requestStatus), ['failed', 'canceled']);
+
+    afterRequest = () => updateCommerceProductInfoField(node.data.commerceImageSet, 'name', '用户的新商品名');
+    await assert.rejects(execute('analyze'), /设置已改变/);
+    assert.equal(node.data.commerceImageSet.productInfo.name, '用户的新商品名');
+    assert.deepEqual(node.data.commerceImageSet.results, prior.results);
 });
 
 test('retrying one failed commerce shot keeps all previously saved images in platform order', async () => {

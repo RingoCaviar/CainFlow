@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createRuntimeForwardedMediaReferenceApi } from '../js/features/workflow/workflow-runtime-manager.js';
+import { commercePlanningPublicationKey, createRuntimeForwardedMediaReferenceApi } from '../js/features/workflow/workflow-runtime-manager.js';
 import { createExecutionCoreApi } from '../js/features/execution/execution-core.js';
 
 test('background ImageImport forwards its Media asset to a preview workflow-node owner', async () => {
@@ -68,4 +68,24 @@ test('running ImageImport prefers its durable Media reference over a stale compa
     assert.equal(node.data.image, 'data:image/png;base64,NEW');
     assert.equal(node.imageImportAssetKey, 'media:new');
     assert.deepEqual(node.data.mediaAssetKeys, ['media:new']);
+});
+
+test('commerce publication follows source identity and order across visible and saved workflow snapshots', () => {
+    const commerce = { id: 'commerce', type: 'ECommerceImageSet', enabled: true };
+    const upload = { id: 'upload', type: 'ImageImport', importMode: 'upload', imageImportAssetKey: 'media:original' };
+    const url = { id: 'url', type: 'ImageImport', importMode: 'url', imageUrl: 'https://example.test/product.png' };
+    const links = [upload, url].map(({ id }, order) => ({
+        from: { nodeId: id, port: 'image' }, to: { nodeId: commerce.id, port: 'referenceImages' }, order
+    }));
+    const key = (nodes, connections = links) => commercePlanningPublicationKey(commerce.id, connections, id => nodes.find(node => node.id === id));
+    const initial = key([commerce, upload, url]);
+
+    assert.equal(key([{ ...commerce, customTitle: '商品套图' }, { ...upload, imagePreviewIndex: 1 }, url], links.toReversed()), initial);
+    assert.notEqual(key([commerce, { ...upload, imageImportAssetKey: 'media:replacement' }, url]), initial);
+    assert.notEqual(key([commerce, upload, { ...url, imageUrl: 'https://example.test/updated.png' }]), initial);
+    assert.notEqual(key([commerce, upload, { ...url, enabled: false }]), initial);
+    assert.notEqual(key([commerce, upload, url], links.map(link => ({ ...link, order: 1 - link.order }))), initial);
+    assert.notEqual(key([{ ...commerce, commerceImageSet: { productInfo: { name: '商品' } } }, upload, url]), initial);
+    assert.equal(key([{ ...commerce, enabled: false }, upload, url]), null);
+    assert.equal(key([upload, url]), null);
 });

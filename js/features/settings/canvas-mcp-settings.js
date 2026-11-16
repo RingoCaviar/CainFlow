@@ -2,7 +2,7 @@ const SETTINGS_ENDPOINT = '/api/canvas-mcp/settings';
 
 export const canvasMcpSettingsCard = `
     <div class="api-config-card general-settings-card" data-settings-card="canvas-mcp">
-        <div class="card-header"><span>画布 MCP</span></div>
+        <div class="card-header"><h3>画布 MCP</h3></div>
         <div class="card-row">
             <div class="card-field">
                 <div class="general-settings-control-row">

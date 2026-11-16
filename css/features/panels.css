@@ -94,6 +94,8 @@
     flex-shrink: 0;
 }
 
+.drawer-header { border-bottom-color: var(--panel-border); }
+
 .modal-header h2,
 .modal-header h3 {
     margin: 0;
@@ -220,6 +222,7 @@
     top: calc(var(--drawer-top-offset, 0px) + var(--drawer-edge-gap, 0px));
     bottom: var(--drawer-edge-gap, 0px);
     width: 320px;
+    max-width: 100vw;
     max-height: none;
     transition:
         left 0.3s cubic-bezier(0.4, 0, 0.2, 1),
@@ -269,8 +272,8 @@
     padding: 10px 12px;
     border: 1px solid var(--panel-border);
     border-radius: 12px;
-    background: rgba(255, 255, 255, 0.04);
-    color: var(--text-dim);
+    background: var(--panel-bg-soft);
+    color: var(--text-secondary);
     font-size: 12px;
     line-height: 1.5;
 }
@@ -280,7 +283,7 @@
     padding: 12px;
     border: 1px solid var(--panel-border);
     border-radius: 14px;
-    background: rgba(255, 255, 255, 0.035);
+    background: var(--panel-bg-soft);
 }
 
 .help-section:last-child {
@@ -289,11 +292,9 @@
 
 .help-section h4 {
     margin: 0 0 8px 0;
-    color: var(--accent-purple);
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 650;
 }
 
 .help-grid {
@@ -311,14 +312,18 @@
 }
 
 .help-key {
+    flex-shrink: 0;
+    max-width: 65%;
     background: var(--panel-control-bg);
     border: 1px solid var(--panel-control-border);
     padding: 2px 6px;
     border-radius: 4px;
     font-family: var(--font);
-    font-size: 11px;
-    color: var(--accent-cyan);
-    white-space: nowrap;
+    font-size: 12px;
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+    text-wrap: balance;
+    text-align: end;
 }
 
 .help-desc {
@@ -746,9 +751,12 @@ body.workflow-sidebar-resizing * {
     border-color: color-mix(in srgb, var(--workflow-card-border) 55%, transparent);
 }
 
+#workflow-list .workflow-item.is-active:not(.is-selected) {
+    background: color-mix(in srgb, var(--accent-primary) 14%, var(--panel-bg-strong));
+    border-color: var(--panel-accent-border);
+}
+
 .workflow-item.is-active {
-    background: linear-gradient(rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.08)), var(--workflow-card-bg);
-    border-color: rgba(34, 197, 94, 0.42);
     --workflow-item-active-offset: 8px;
 }
 
@@ -893,30 +901,27 @@ body.workflow-sidebar-resizing * {
     background: var(--cache-card-bg);
     border: 1px solid var(--cache-card-border);
     border-radius: 12px;
-    padding: 24px;
-    text-align: center;
+    padding: 16px;
     box-shadow: var(--cache-card-shadow);
 }
 
 .cache-metric-label {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-secondary);
     margin-bottom: 6px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
 }
 
 .cache-metric-value {
-    font-size: 34px;
+    font-size: 28px;
     font-weight: 700;
-    color: var(--accent-primary);
-    font-family: var(--font-mono);
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
 }
 
 .cache-metric-hint {
     margin-top: 8px;
     color: var(--text-secondary);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.5;
 }
 
@@ -943,6 +948,10 @@ body.workflow-sidebar-resizing * {
 }
 
 .cache-item-value {
+    flex-shrink: 0;
+    max-width: 54%;
+    text-align: end;
+    font-variant-numeric: tabular-nums;
     font-size: 13px;
     font-weight: 500;
     color: var(--text-primary);
@@ -974,8 +983,8 @@ body.workflow-sidebar-resizing * {
 }
 
 .cache-agent-scope {
-    color: var(--text-dim);
-    font-size: 11px;
+    color: var(--text-secondary);
+    font-size: 12px;
 }
 
 .cache-agent-card .cache-metric-value {
@@ -1004,10 +1013,9 @@ body.workflow-sidebar-resizing * {
 }
 
 .cache-action-note {
-    font-size: 11px;
-    color: var(--text-dim);
+    font-size: 12px;
+    color: var(--text-secondary);
     margin-top: 14px;
-    text-align: center;
     line-height: 1.5;
 }
 
@@ -1017,8 +1025,8 @@ body.workflow-sidebar-resizing * {
 }
 
 .cache-action-btn-danger {
-    color: var(--accent-red);
-    border-color: rgba(239, 68, 68, 0.2);
+    color: var(--text-primary);
+    border-color: color-mix(in srgb, var(--accent-red) 38%, var(--panel-control-border));
 }
 
 #modal-update {
@@ -1489,25 +1497,12 @@ body.workflow-sidebar-resizing * {
     color: var(--text-secondary);
 }
 
-.log-retention-control select {
-    min-width: 84px;
-    height: 30px;
-    padding: 0 10px;
-    border-radius: 8px;
-    border: 1px solid var(--panel-border);
-    background: var(--panel-bg);
-    color: var(--text-primary);
-}
-
 .log-retention-control--inline span {
-    font-size: 11px;
     white-space: nowrap;
 }
 
 .log-retention-control--inline select {
     min-width: 72px;
-    height: 28px;
-    padding: 0 8px;
 }
 .history-count-badge:empty {
     display: none;
@@ -1580,9 +1575,9 @@ body.workflow-sidebar-resizing * {
     justify-content: center;
     padding: 0 8px;
     border-radius: 999px;
-    color: var(--accent-cyan);
-    background: rgba(34, 211, 238, 0.1);
-    border: 1px solid rgba(34, 211, 238, 0.22);
+    color: var(--text-link);
+    background: var(--panel-accent-bg);
+    border: 1px solid var(--panel-accent-border);
     font-size: 12px;
     font-weight: 700;
 }
@@ -1607,7 +1602,7 @@ body.workflow-sidebar-resizing * {
     padding: 12px 20px; border-bottom: 1px solid var(--panel-border);
 }
 .prompt-library-searchbar input {
-    flex: 1; min-width: 180px; padding: 9px 12px;
+    flex: 1 1 180px; min-width: 0; padding: 9px 12px;
     border: 1px solid var(--panel-input-border); border-radius: 6px;
     background: var(--panel-input-bg); color: var(--text-primary);
 }
@@ -1630,14 +1625,15 @@ body.workflow-sidebar-resizing * {
     gap: 14px;
 }
 
+.prompt-library-grid:has(> .prompt-library-empty) { grid-template-columns: minmax(0, 1fr); }
+
 .prompt-library-empty {
     grid-column: 1 / -1;
     align-self: start;
     padding: 18px;
-    border: 1px dashed var(--prompt-empty-border);
-    border-radius: 8px;
     color: var(--text-secondary);
-    background: var(--prompt-empty-bg);
+    font-size: 13px;
+    text-align: center;
 }
 
 .prompt-card {
@@ -2034,8 +2030,13 @@ body.workflow-sidebar-resizing * {
     }
 
     .prompt-library-grid {
-        grid-template-columns: repeat(auto-fill, minmax(220px, 260px));
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 260px));
         justify-content: center;
+    }
+
+    .prompt-card {
+        width: 100%;
+        min-width: 0;
     }
 
     .prompt-import-dialog {

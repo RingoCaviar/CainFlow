@@ -197,7 +197,7 @@ export function createHistoryPanelApi({
         state.historyVisibleItems = items;
 
         if (!items.length) {
-            list.innerHTML = '<div style="color:var(--text-secondary); text-align:center; padding: 40px 0; font-size:13px;">暂无历史记录</div>';
+            list.innerHTML = '<div class="history-empty">暂无历史记录</div>';
             if (countBadge) countBadge.textContent = '';
             return;
         }

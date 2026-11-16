@@ -39,6 +39,7 @@ html:root #settings-modal {
     --settings-toggle-off-border: var(--panel-control-border);
     --settings-toggle-on-bg: var(--panel-primary-action-bg, var(--accent-cyan));
     --settings-toggle-on-border: var(--panel-primary-action-border, var(--settings-toggle-on-bg));
+    --settings-toggle-off-thumb: var(--text-secondary);
     --settings-toggle-thumb: var(--panel-primary-action-text, #ffffff);
     --settings-slider-accent: var(--panel-accent-text);
     --settings-slider-track: var(--panel-control-bg);
@@ -73,6 +74,25 @@ html:root #settings-modal :is(.modal-header, .modal-tabs) {
 
 html:root #settings-modal .modal-footer {
     border-top-color: var(--settings-dialog-divider);
+}
+
+html:root #settings-modal .modal-footer:has(.footer-right) {
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 16px;
+}
+
+html:root #settings-modal .modal-footer:has(.footer-right) .footer-left {
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+html:root #settings-modal .footer-right {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
 }
 
 html:root #settings-modal :is(.api-config-card, .general-settings-card),
@@ -165,7 +185,7 @@ html:root #settings-modal.modal-overlay .settings-inline-help {
 }
 
 html:root #settings-modal.modal-overlay .settings-inline-help:hover {
-    color: var(--settings-action-primary-hover-text);
+    color: var(--text-primary);
 }
 
 html:root #settings-modal.modal-overlay .general-settings-help-trigger {
@@ -218,7 +238,7 @@ html:root #settings-modal.modal-overlay :is(input:not([type]), input:is([type="t
     box-shadow: 0 0 0 3px var(--settings-input-error-ring);
 }
 
-html:root #settings-modal.modal-overlay select option {
+html:root #settings-modal.modal-overlay select:not(.ui-select) option {
     background: Canvas;
     color: CanvasText;
 }
@@ -243,6 +263,10 @@ html:root #settings-modal.modal-overlay .provider-multiselect-trigger:focus-visi
 
 html:root #settings-modal.modal-overlay .provider-multiselect-caret {
     color: var(--settings-dialog-muted-text);
+}
+
+html:root #settings-modal.modal-overlay .provider-multiselect-trigger[aria-expanded="true"] .provider-multiselect-caret {
+    transform: rotate(225deg);
 }
 
 html:root #settings-modal.modal-overlay .provider-toggle-label {
@@ -504,7 +528,7 @@ html:root #settings-modal.modal-overlay .toggle-slider::before {
     left: 3px;
     top: 50%;
     transform: translateY(-50%);
-    background: var(--settings-toggle-thumb);
+    background: var(--settings-toggle-off-thumb);
     box-shadow: none;
 }
 
@@ -521,6 +545,7 @@ html:root #settings-modal.modal-overlay .toggle-switch input:checked + .toggle-s
 
 html:root #settings-modal.modal-overlay .toggle-switch input:checked + .toggle-slider::before {
     transform: translate(18px, -50%);
+    background: var(--settings-toggle-thumb);
 }
 
 html:root #settings-modal.modal-overlay .toggle-switch input:is(:focus-visible, .is-focused) + .toggle-slider {
@@ -801,6 +826,16 @@ html:root #settings-modal #general-settings .retry-input-group .btn-retry-step:d
 }
 
 @media (max-width: 640px) {
+    html:root #settings-modal .modal-footer:has(.footer-right) {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 10px 16px;
+    }
+
+    html:root #settings-modal .footer-right .btn {
+        padding-inline: 8px;
+    }
+
     html:root #settings-modal.modal-overlay :is(#providers-list, #models-list) .card-row {
         flex-direction: column;
         align-items: stretch;

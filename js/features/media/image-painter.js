@@ -18,72 +18,71 @@ export function createImagePainterApi({
         overlay.className = 'painter-overlay';
         documentRef.body?.classList.add('preview-active');
         overlay.innerHTML = `
-        <div class="painter-floating-actions">
-            <div class="painter-btn painter-btn-undo" id="painter-undo" title="撤回 (Ctrl+Z)" disabled>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
-            </div>
-            <div class="painter-btn painter-btn-save" id="painter-save" title="确认编辑 (Ctrl+S)">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-            </div>
-            <div class="painter-btn painter-btn-cancel" id="painter-cancel" title="取消并退出 (Esc)">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </div>
-        </div>
         <div class="painter-body">
-            <div class="painter-toolbar-left">
-                <div class="painter-tool-btn active" data-tool="pen" title="自由绘制 (P)">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                </div>
-                <div class="painter-tool-btn" data-tool="line" title="绘制直线 (L)">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="19" x2="19" y2="5"/></svg>
-                </div>
-                <div class="painter-tool-btn" data-tool="arrow" title="绘制箭头 (A)">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="19" x2="19" y2="5"/><polyline points="12 5 19 5 19 12"/></svg>
-                </div>
-                <div class="painter-tool-btn" data-tool="rect" title="绘制矩形 (R)">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
-                </div>
-                <div class="painter-tool-btn" data-tool="circle" title="绘制圆形 (C)">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
+            <div class="painter-toolbar-left" role="group" aria-label="绘制工具与画笔设置">
+                <div class="painter-tools">
+                    <button type="button" class="painter-tool-btn active" data-tool="pen" title="自由绘制 (P)" aria-label="自由绘制" aria-pressed="true">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                    </button>
+                    <button type="button" class="painter-tool-btn" data-tool="line" title="绘制直线 (L)" aria-label="绘制直线" aria-pressed="false">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="5" y1="19" x2="19" y2="5"/></svg>
+                    </button>
+                    <button type="button" class="painter-tool-btn" data-tool="arrow" title="绘制箭头 (A)" aria-label="绘制箭头" aria-pressed="false">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="5" y1="19" x2="19" y2="5"/><polyline points="12 5 19 5 19 12"/></svg>
+                    </button>
+                    <button type="button" class="painter-tool-btn" data-tool="rect" title="绘制矩形 (R)" aria-label="绘制矩形" aria-pressed="false">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
+                    </button>
+                    <button type="button" class="painter-tool-btn" data-tool="circle" title="绘制圆形 (C)" aria-label="绘制圆形" aria-pressed="false">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/></svg>
+                    </button>
                 </div>
                 <div class="painter-size-control" title="画笔大小">
                     <div class="painter-size-preview" id="painter-size-preview"></div>
                     <input type="range" id="painter-size-slider" class="painter-size-slider" min="1" max="32" value="4" aria-label="画笔大小">
                     <div class="painter-size-value" id="painter-size-value">4</div>
                 </div>
-                <div class="painter-colors">
-                    <div class="painter-color-swatch active" data-color="#22d3ee" style="background: #22d3ee;"></div>
-                    <div class="painter-color-swatch" data-color="#ef4444" style="background: #ef4444;"></div>
-                    <div class="painter-color-swatch" data-color="#10b981" style="background: #10b981;"></div>
-                    <div class="painter-color-swatch" data-color="#f59e0b" style="background: #f59e0b;"></div>
-                    <div class="painter-color-swatch" data-color="#ffffff" style="background: #ffffff;"></div>
-                    <div class="painter-color-swatch" data-color="#000000" style="background: #000000;"></div>
-                    <div class="painter-color-swatch painter-color-custom-btn" id="painter-custom-color" title="自定义颜色"></div>
-                </div>
-
-                <div class="painter-color-panel" id="color-picker-panel">
-                    <div class="painter-hue-wrapper">
-                        <canvas id="hue-wheel" class="painter-hue-canvas"></canvas>
-                    </div>
-                    <div class="painter-hsb-controls">
-                        <div class="hsb-slider-group">
-                            <label>饱和度 (S) <span id="s-val">100%</span></label>
-                            <input type="range" id="s-slider" class="hsb-slider" min="0" max="100" value="100">
-                        </div>
-                        <div class="hsb-slider-group">
-                            <label>亮度 (B) <span id="b-val">100%</span></label>
-                            <input type="range" id="b-slider" class="hsb-slider" min="0" max="100" value="100">
-                        </div>
-                        <div class="painter-color-preview-row">
-                            <div class="color-preview-box" id="color-preview"></div>
-                            <input type="text" class="color-hex-input" id="color-hex" value="#22d3ee" readonly>
-                        </div>
-                    </div>
+                <div class="painter-colors" role="group" aria-label="画笔颜色">
+                    <button type="button" class="painter-color-swatch active" data-color="#22d3ee" style="background: #22d3ee;" aria-label="青色" aria-pressed="true"></button>
+                    <button type="button" class="painter-color-swatch" data-color="#ef4444" style="background: #ef4444;" aria-label="红色" aria-pressed="false"></button>
+                    <button type="button" class="painter-color-swatch" data-color="#10b981" style="background: #10b981;" aria-label="绿色" aria-pressed="false"></button>
+                    <button type="button" class="painter-color-swatch" data-color="#f59e0b" style="background: #f59e0b;" aria-label="橙色" aria-pressed="false"></button>
+                    <button type="button" class="painter-color-swatch" data-color="#ffffff" style="background: #ffffff;" aria-label="白色" aria-pressed="false"></button>
+                    <button type="button" class="painter-color-swatch" data-color="#000000" style="background: #000000;" aria-label="黑色" aria-pressed="false"></button>
+                    <button type="button" class="painter-color-swatch painter-color-custom-btn" id="painter-custom-color" title="自定义颜色" aria-label="自定义颜色" aria-expanded="false" aria-controls="color-picker-panel"></button>
                 </div>
             </div>
             <div class="painter-canvas-container">
                 <canvas id="painter-canvas"></canvas>
             </div>
+            <div class="painter-color-panel" id="color-picker-panel" role="group" aria-label="自定义颜色">
+                <canvas id="hue-wheel" class="painter-hue-canvas" role="slider" tabindex="0" aria-label="色相" aria-valuemin="0" aria-valuemax="359" aria-valuenow="190"></canvas>
+                <div class="painter-hsb-controls">
+                    <div class="hsb-slider-group">
+                        <label for="s-slider">饱和度 <span id="s-val">100%</span></label>
+                        <input type="range" id="s-slider" class="hsb-slider" min="0" max="100" value="100">
+                    </div>
+                    <div class="hsb-slider-group">
+                        <label for="b-slider">亮度 <span id="b-val">100%</span></label>
+                        <input type="range" id="b-slider" class="hsb-slider" min="0" max="100" value="100">
+                    </div>
+                    <div class="painter-color-preview-row">
+                        <div class="color-preview-box" id="color-preview" aria-hidden="true"></div>
+                        <input type="text" class="color-hex-input" id="color-hex" aria-label="颜色值" value="#22d3ee" readonly>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="painter-floating-actions" role="group" aria-label="图片编辑操作">
+            <button type="button" class="painter-btn painter-btn-undo" id="painter-undo" title="撤回 (Ctrl+Z)" aria-label="撤回" disabled>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+            </button>
+            <button type="button" class="painter-btn painter-btn-save" id="painter-save" title="确认编辑 (Ctrl+S)" aria-label="确认编辑">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
+            <button type="button" class="painter-btn painter-btn-cancel" id="painter-cancel" title="取消并退出 (Esc)" aria-label="取消编辑">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
         </div>`;
 
         documentRef.body.appendChild(overlay);
@@ -125,7 +124,7 @@ export function createImagePainterApi({
                 requestAnimationFrameRef(resetView);
                 return;
             }
-            const padding = 100;
+            const padding = Math.min(100, rect.width * 0.25, rect.height * 0.25);
             const nextScale = Math.min((rect.width - padding) / img.width, (rect.height - padding) / img.height);
             scale = nextScale;
             offsetX = (rect.width - img.width * scale) / 2;
@@ -149,6 +148,7 @@ export function createImagePainterApi({
         windowRef.addEventListener('resize', onResize);
 
         function render() {
+            if (!img.naturalWidth) return;
             ctx.setTransform(1, 0, 0, 1, 0, 0);
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(img, 0, 0);
@@ -209,6 +209,24 @@ export function createImagePainterApi({
         const previewBox = overlay.querySelector('#color-preview');
         const hexInput = overlay.querySelector('#color-hex');
         const customSwatch = overlay.querySelector('#painter-custom-color');
+        const swatches = overlay.querySelectorAll('.painter-color-swatch');
+        const toolButtons = overlay.querySelectorAll('.painter-tool-btn');
+
+        function selectSwatch(selected) {
+            for (const swatch of swatches) {
+                swatch.classList.toggle('active', swatch === selected);
+                if (swatch !== customSwatch) swatch.setAttribute('aria-pressed', String(swatch === selected));
+            }
+        }
+
+        function selectTool(tool) {
+            currentTool = tool;
+            for (const button of toolButtons) {
+                const selected = button.dataset.tool === tool;
+                button.classList.toggle('active', selected);
+                button.setAttribute('aria-pressed', String(selected));
+            }
+        }
 
         function hsbToHex(h, s, b) {
             b /= 100;
@@ -225,9 +243,9 @@ export function createImagePainterApi({
             previewBox.style.background = hex;
             hexInput.value = hex.toUpperCase();
             customSwatch.style.background = hex;
-            overlay.querySelectorAll('.painter-color-swatch').forEach((swatch) => swatch.classList.remove('active'));
-            customSwatch.classList.add('active');
+            selectSwatch(customSwatch);
 
+            hueWheel.setAttribute('aria-valuenow', String(Math.floor(hsb_h)));
             overlay.querySelector('#s-val').textContent = `${Math.round(hsb_s)}%`;
             overlay.querySelector('#b-val').textContent = `${Math.round(hsb_b)}%`;
             render();
@@ -251,17 +269,18 @@ export function createImagePainterApi({
                 hctx.fill();
             }
 
+            hctx.globalCompositeOperation = 'destination-out';
             hctx.beginPath();
             hctx.arc(cx, cy, r - 15, 0, Math.PI * 2);
-            hctx.fillStyle = 'rgba(30, 41, 59, 1)';
             hctx.fill();
+            hctx.globalCompositeOperation = 'source-over';
         }
 
         hueWheel.addEventListener('mousedown', (e) => {
             const pick = (ev) => {
                 const rect = hueWheel.getBoundingClientRect();
-                const x = ev.clientX - rect.left - 80;
-                const y = ev.clientY - rect.top - 80;
+                const x = ev.clientX - rect.left - rect.width / 2;
+                const y = ev.clientY - rect.top - rect.height / 2;
                 hsb_h = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
                 updateColorFromHSB();
             };
@@ -275,6 +294,16 @@ export function createImagePainterApi({
             pick(e);
         });
 
+        hueWheel.addEventListener('keydown', (event) => {
+            const steps = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1, PageUp: 15, PageDown: -15 };
+            if (event.key === 'Home') hsb_h = 0;
+            else if (event.key === 'End') hsb_h = 359;
+            else if (Object.hasOwn(steps, event.key)) hsb_h = Math.min(359, Math.max(0, hsb_h + steps[event.key]));
+            else return;
+            event.preventDefault();
+            updateColorFromHSB();
+        });
+
         sSlider.addEventListener('input', (e) => {
             hsb_s = parseInt(e.target.value, 10);
             updateColorFromHSB();
@@ -284,18 +313,25 @@ export function createImagePainterApi({
             updateColorFromHSB();
         });
 
-        customSwatch.addEventListener('click', (e) => {
-            e.stopPropagation();
-            pickerPanel.classList.toggle('active');
-            if (pickerPanel.classList.contains('active')) {
+        function setColorPanelOpen(open) {
+            pickerPanel.classList.toggle('active', open);
+            customSwatch.setAttribute('aria-expanded', String(open));
+            if (open) {
                 initHueWheel();
                 updateColorFromHSB();
             }
+        }
+
+        customSwatch.addEventListener('click', (event) => {
+            event.stopPropagation();
+            const open = !pickerPanel.classList.contains('active');
+            setColorPanelOpen(open);
+            if (open && event.detail === 0) hueWheel.focus({ preventScroll: true });
         });
 
         overlay.addEventListener('click', (e) => {
             if (!pickerPanel.contains(e.target) && e.target !== customSwatch) {
-                pickerPanel.classList.remove('active');
+                setColorPanelOpen(false);
             }
         });
 
@@ -360,27 +396,22 @@ export function createImagePainterApi({
             }
         };
 
-        overlay.addEventListener('wheel', onWheel, { passive: false });
+        container.addEventListener('wheel', onWheel, { passive: false });
         container.addEventListener('mousedown', onMouseDown);
         windowRef.addEventListener('mousemove', onMouseMove);
         windowRef.addEventListener('mouseup', onMouseUp);
 
-        overlay.querySelectorAll('.painter-tool-btn').forEach((btn) => {
-            btn.addEventListener('click', () => {
-                overlay.querySelectorAll('.painter-tool-btn').forEach((button) => button.classList.remove('active'));
-                btn.classList.add('active');
-                currentTool = btn.dataset.tool;
-            });
-        });
+        for (const button of toolButtons) {
+            button.addEventListener('click', () => selectTool(button.dataset.tool));
+        }
 
-        overlay.querySelectorAll('.painter-color-swatch:not(.painter-color-custom-btn)').forEach((swatch) => {
+        for (const swatch of swatches) {
+            if (swatch === customSwatch) continue;
             swatch.addEventListener('click', () => {
-                overlay.querySelectorAll('.painter-color-swatch').forEach((item) => item.classList.remove('active'));
-                swatch.classList.add('active');
+                selectSwatch(swatch);
                 currentColor = swatch.dataset.color;
-                pickerPanel.classList.remove('active');
             });
-        });
+        }
 
         sizeSlider.addEventListener('input', (e) => {
             updateStrokeSize(e.target.value);
@@ -480,7 +511,13 @@ export function createImagePainterApi({
         function onKey(e) {
             const top = getSurfaceCoordinator(documentRef)?.topModal();
             if (top && top !== overlay) return;
-            if (e.key === 'Escape' && !saving) cleanup();
+            if (e.key === 'Escape' && !saving) {
+                if (e.target && pickerPanel.classList.contains('active')) {
+                    setColorPanelOpen(false);
+                    customSwatch.focus({ preventScroll: true });
+                } else cleanup();
+                return;
+            }
             if (e.key.toLowerCase() === 's' && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
                 save();
@@ -490,14 +527,8 @@ export function createImagePainterApi({
                 undo();
             }
             const tools = { p: 'pen', l: 'line', a: 'arrow', r: 'rect', c: 'circle' };
-            if (tools[e.key.toLowerCase()]) {
-                const tool = tools[e.key.toLowerCase()];
-                overlay.querySelectorAll('.painter-tool-btn').forEach((button) => {
-                    const active = button.dataset.tool === tool;
-                    button.classList.toggle('active', active);
-                    if (active) currentTool = tool;
-                });
-            }
+            const tool = tools[e.key.toLowerCase()];
+            if (tool && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target?.matches?.('input')) selectTool(tool);
         }
 
         documentRef.addEventListener('keydown', onKey);

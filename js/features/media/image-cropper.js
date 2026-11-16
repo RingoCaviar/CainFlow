@@ -29,10 +29,11 @@ function renderCropRatioMenu() {
 export function renderFullscreenCropControls(enabled) {
     if (!enabled) return '';
     return `
-            <button type="button" class="fullscreen-crop-btn" title="裁剪图片" aria-label="裁剪图片">
+            <button type="button" class="fullscreen-crop-btn" title="裁剪图片" aria-label="裁剪图片" aria-pressed="false">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg>
             </button>
             <div class="fullscreen-crop-actions hidden" role="toolbar" aria-label="裁剪操作">
+                <span class="fullscreen-crop-hint">拖拽框选裁剪区域</span>
                 <button type="button" class="fullscreen-crop-action fullscreen-crop-cancel">取消</button>
                 <button type="button" class="fullscreen-crop-action fullscreen-crop-apply" disabled>应用裁剪</button>
             </div>
@@ -43,7 +44,6 @@ export function renderFullscreenCropLayer(enabled) {
     if (!enabled) return '';
     return `
                     <div class="fullscreen-crop-layer hidden" aria-label="拖拽框选裁剪区域">
-                        <div class="fullscreen-crop-hint">拖拽框选裁剪区域</div>
                         <div class="fullscreen-crop-box hidden"></div>
                     </div>`;
 }
@@ -189,6 +189,7 @@ export function createFullscreenImageCropper({
         selecting = false;
         interactionMode = null;
         overlay?.classList.toggle('is-cropping', active);
+        cropButton?.setAttribute('aria-pressed', String(active));
         cropLayer?.classList.toggle('hidden', !active);
         cropActions?.classList.toggle('hidden', !active);
         if (wrapperElement) wrapperElement.style.cursor = active ? 'crosshair' : 'grab';

@@ -235,6 +235,7 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
             top.append(title, facts); row.append(top);
             const controls = documentRef.createElement('div'); controls.className = 'image-input-controls';
             const select = documentRef.createElement('select'); select.dataset.inputRole = '';
+            select.className = 'ui-select';
             select.setAttribute('aria-label', `${description.title}的${isMerge ? '输入槽位' : '输入用途'}`);
             const availableRoles = roles.filter(([role, , type]) => type === description.type || role === edge.to.port);
             if (!availableRoles.some(([role]) => role === edge.to.port)) availableRoles.push([edge.to.port, edge.to.port]);
@@ -303,6 +304,7 @@ export function createImageInputDetail({ state, node, documentRef, updateInputCo
             if (replacing === edge.id) {
                 const replacement = documentRef.createElement('div'); replacement.className = 'image-input-replacement';
                 const sources = documentRef.createElement('select'); sources.dataset.inputReplacementSource = '';
+                sources.className = 'ui-select';
                 sources.setAttribute('aria-label', `替换${description.title}的来源输出`);
                 sources.disabled = disabled;
                 const placeholder = documentRef.createElement('option'); placeholder.value = ''; placeholder.textContent = '选择来源输出'; sources.append(placeholder);

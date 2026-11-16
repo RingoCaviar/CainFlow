@@ -1,9 +1,52 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 import { uploadImageOriginal } from './helpers/image-upload.mjs';
 import { key, nativeClick, openParameters } from './helpers/image-first-integrated-fixture.mjs';
+
+const commerceProductField = field => `#image-parameter-panel [data-commerce-product-field=${field}]`;
+const commerceProductValue = field => `document.querySelector('${commerceProductField(field)}').value`;
+
+const measureProductField = (app, field) => app.evaluate(`(() => {
+    const input = document.querySelector(${JSON.stringify(commerceProductField(field))});
+    const style = getComputedStyle(input);
+    const extra = ['paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth']
+        .reduce((total, name) => total + parseFloat(style[name]), 0);
+    return { height: input.offsetHeight, line: parseFloat(style.lineHeight), extra,
+        overflows: input.scrollHeight > input.clientHeight + 1 };
+})()`);
+
+function assertProductFieldRows(measurement, rows, description) {
+    assert.ok(Math.abs(measurement.height - (rows * measurement.line + measurement.extra)) <= 2,
+        `${description}: expected ${rows} rows, got ${JSON.stringify(measurement)}`);
+}
+
+async function captureProductInspector(app) {
+    const directory = process.env.CAINFLOW_QA_SCREENSHOT_DIR;
+    if (!directory) return;
+    await mkdir(directory, { recursive: true });
+    const currentTheme = await app.evaluate('document.documentElement.dataset.appTheme');
+    const viewport = await app.evaluate('({width:innerWidth,height:innerHeight,deviceScaleFactor:devicePixelRatio,mobile:false})');
+    await app.send('Emulation.setDeviceMetricsOverride', { width: 1120, height: 900, deviceScaleFactor: 1, mobile: false });
+    try {
+        for (const theme of ['light', 'dark']) {
+            await app.evaluate(`document.documentElement.dataset.appTheme='${theme}';
+                document.querySelector('#image-parameter-panel .image-parameter-scroll').scrollTop=0;
+                document.fonts.ready.then(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))`);
+            const clip = await app.evaluate(`(()=>{
+                const {x,y,width,height}=document.getElementById('image-parameter-panel').getBoundingClientRect();
+                return {x,y,width,height,scale:1};
+            })()`);
+            const { data } = await app.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false, clip });
+            await writeFile(join(directory, `ecommerce-product-${theme}.png`), Buffer.from(data, 'base64'));
+        }
+    } finally {
+        await app.evaluate(`document.documentElement.dataset.appTheme=${JSON.stringify(currentTheme)}`);
+        await app.send('Emulation.setDeviceMetricsOverride', viewport);
+    }
+}
 
 test('the commerce node generates selected shots, accepts a retry during generation and restores the set', { timeout: 45000 }, async () => {
     const reference = (await readFile(new URL('./fixtures/reference-red.png', import.meta.url))).toString('base64');
@@ -50,8 +93,9 @@ test('the commerce node generates selected shots, accepts a retry during generat
             const body=JSON.parse(options.body);
             if (!body.messages) throw new Error('Unexpected request without reference image form data');
             const [text,photo]=body.messages.at(-1).content;
-            const shotIds=JSON.parse(text.text).shots.map(shot=>shot.id);
-            commerceCalls.push({kind:'plan',image:photo.image_url.url,shotIds,instructions:body.messages[0].content});
+            const input=JSON.parse(text.text);
+            const shotIds=input.shots.map(shot=>shot.id);
+            commerceCalls.push({kind:'plan',image:photo.image_url.url,shotIds,instructions:body.messages[0].content, input});
             if (window.commercePlanRevision) {
                 await new Promise(resolve=>{window.releaseCommercePlan=resolve;});
                 return Response.json({choices:[{message:{content:JSON.stringify({sellingPoints:['单张规划不得替换卖点'],
@@ -59,6 +103,7 @@ test('the commerce node generates selected shots, accepts a retry during generat
                         headline:'重新规划的标题',body:'俯拍呈现可拆下的杯盖。'}))})}}]});
             }
             return Response.json({choices:[{message:{content:JSON.stringify({sellingPoints:['可见杯盖'],
+                productInfo:{name:'带盖随行杯',sellingPoints:['可见杯盖'],audience:'通勤人群',useCases:'日常饮水',details:'杯口配有杯盖'},
                 shots:shotIds.map(id=>({id,prompt:'原商品图位 '+id+'\\n杯盖位于右侧，采用近景构图、柔和侧光和简洁商品摄影风格。标题和正文排在左上方。',
                     headline:id==='detail-overview'?'旧版标题':'握持方便',body:id==='detail-overview'?'旧版正文':'杯盖可拆卸'}))})}}]});
         };`;
@@ -124,7 +169,27 @@ test('the commerce node generates selected shots, accepts a retry during generat
     }, async app => {
         await uploadImageOriginal(app, 'product', `data:image/png;base64,${reference}`);
         await openParameters(app, 'commerce');
+        if (await app.evaluate("CSS.supports('appearance: base-select') && CSS.supports('selector(select:open)')")) {
+            const platform = "document.querySelector('[data-commerce-field=platformId]')";
+            const space = { key: ' ', code: 'Space', windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 32 };
+            const escape = { key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 };
+            await app.evaluate(`${platform}.focus()`);
+            await app.send('Input.dispatchKeyEvent', { type: 'keyDown', ...space, text: ' ' });
+            await app.send('Input.dispatchKeyEvent', { type: 'keyUp', ...space });
+            await app.waitFor(`${platform}.matches(':open')`);
+            await app.send('Input.dispatchKeyEvent', { type: 'keyDown', ...escape });
+            await app.send('Input.dispatchKeyEvent', { type: 'keyUp', ...escape });
+            await app.waitFor(`!${platform}.matches(':open') && document.activeElement === ${platform} && ${platform}.value === 'amazon'`);
+        }
+        const featureSwitch = "document.querySelector('input[data-commerce-select-shot=feature]')";
+        await app.evaluate(`${featureSwitch}.focus()`);
+        const space = { key: ' ', code: 'Space', windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 32 };
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', ...space, text: ' ' });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', ...space });
+        assert.equal(await app.evaluate(`${featureSwitch}.checked && getComputedStyle(${featureSwitch}.nextElementSibling).outlineStyle === 'solid'`), true);
+        await app.evaluate(select('feature'));
         assert.equal(await app.evaluate("document.querySelector('.commerce-image-set-references [data-input-role]').checkVisibility()"), false);
+        assert.equal(await app.evaluate(commerceProductValue('details')), '商品含一个杯盖');
         assert.equal(await app.evaluate(available), 10);
         assert.deepEqual(await app.evaluate(`(()=>{const panel=document.getElementById('image-parameter-panel');
             const canvas=document.getElementById('canvas-container');
@@ -146,6 +211,11 @@ test('the commerce node generates selected shots, accepts a retry during generat
         assert.deepEqual(await app.evaluate('commerceCalls.map(call=>call.kind)'), ['plan']);
         assert.equal(await app.evaluate('commerceCalls[0].image'), `data:image/png;base64,${reference}`);
         assert.deepEqual(await app.evaluate('commerceCalls[0].shotIds'), ['detail']);
+        assert.equal(await app.evaluate('commerceCalls[0].input.productInfo.details'), '商品含一个杯盖');
+        assert.equal(await app.evaluate(commerceProductValue('name')), '带盖随行杯');
+        assert.equal(await app.evaluate(commerceProductValue('sellingPoints')), '可见杯盖');
+        assert.equal(await app.evaluate(commerceProductValue('audience')), '通勤人群');
+        assert.equal(await app.evaluate(commerceProductValue('details')), '商品含一个杯盖');
         const instructions = await app.evaluate('commerceCalls[0].instructions');
         for (const requirement of [/画面内容/, /构图/, /摄影风格/, /文字布局/, /层级/, /字体/, /字色/]) {
             assert.match(instructions, requirement);
@@ -495,6 +565,249 @@ test('the commerce node generates selected shots, accepts a retry during generat
         await openParameters(app, await app.evaluate("document.querySelector('#nodes-layer .node-commerce-image-set:not(#commerce)').id"));
         assert.equal(await app.evaluate(available), 9);
         assert.deepEqual(await app.evaluate(selected), []);
+    }, { initScript });
+});
+
+test('commerce copy language persists and reaches planning, generation and retry', { timeout: 30000 }, async () => {
+    const reference = (await readFile(new URL('./fixtures/reference-red.png', import.meta.url))).toString('base64');
+    const nodes = [
+        { id: 'product', type: 'ImageImport', x: 40, y: 100 },
+        { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100,
+            commerceImageSet: { platformId: 'amazon', selectedShotIds: ['detail'], productInfo: { name: '带盖随行杯' },
+                plannerModelId: 'vision', plannerProviderId: 'p', imageModelId: 'image', imageProviderId: 'p' } }
+    ];
+    const connections = [{ id: 'photo', from: { nodeId: 'product', port: 'image' },
+        to: { nodeId: 'commerce', port: 'referenceImages' }, type: 'image', order: 0 }];
+    const initScript = `window.commerceLanguageRequests=[];
+        const actualFetch=window.fetch.bind(window);
+        window.fetch=async (url, options)=>{
+            if (url!=='/proxy'||!options?.body) return actualFetch(url,options);
+            if (options.body instanceof FormData) {
+                commerceLanguageRequests.push({ kind:'image', prompt:options.body.get('prompt') });
+                return Response.json({data:[{b64_json:${JSON.stringify(reference)}}]});
+            }
+            const {messages}=JSON.parse(options.body);
+            const input=JSON.parse(messages.at(-1).content[0].text);
+            commerceLanguageRequests.push({ kind:'plan', input, instructions:messages[0].content });
+            const japanese=input.copyLanguage==='ja';
+            const plan={sellingPoints:['杯盖可以拆卸'],shots:[{id:'detail',prompt:'近景展示杯盖，使用柔和侧光。',
+                headline:japanese?'取り外せるフタ':'Removable lid',body:japanese?'お手入れしやすい設計':'Designed for easy cleaning'}]};
+            return Response.json({choices:[{message:{content:JSON.stringify(plan)}}]});
+        };`;
+    const language = "document.querySelector('#image-parameter-panel [data-commerce-field=copyLanguage]')";
+    const planButton = "document.querySelector('[data-commerce-action=plan]')";
+    const generateButton = "document.querySelector('[data-commerce-action=generate]')";
+    const generationAvailable = `(${generateButton}?.checkVisibility() && !${generateButton}.disabled)`;
+    const setup = '#image-parameter-panel .commerce-image-set-setup';
+    const retry = "document.querySelector('[data-commerce-shot-id=detail] [data-commerce-action=retry]')";
+    const saved = `fetch('/api/storage/documents/session').then(response=>response.json())
+        .then(snapshot=>snapshot.value.nodes.find(node=>node.id==='commerce').commerceImageSet)`;
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes, connections,
+        models: [{ id: 'vision', modelId: 'gpt-4o', taskType: 'chat', protocol: 'openai', providerIds: ['p'] },
+            { id: 'image', modelId: 'gpt-image-2', taskType: 'image', protocol: 'openai', providerIds: ['p'] }],
+        providers: [{ id: 'p', endpoint: 'https://fixture.test/v1', apikey: 'test' }]
+    }, async app => {
+        await uploadImageOriginal(app, 'product', `data:image/png;base64,${reference}`);
+        await openParameters(app, 'commerce');
+        const control = await app.evaluate(`(() => {
+            const select=${language};
+            const label=select.labels[0].cloneNode(true);
+            label.querySelector('select')?.remove();
+            return { shared:select.matches('select.ui-select'), label:label.textContent.trim(),
+                value:select.value, options:[...select.options].map(option=>option.value) };
+        })()`);
+        assert.equal(control.shared, true);
+        assert.equal(control.label, '图中文字语言');
+        assert.equal(control.value, 'auto');
+        assert.ok(control.options.includes('en') && control.options.includes('ja'));
+        await app.evaluate(`${planButton}.click()`);
+        await app.waitFor(generationAvailable);
+        const automatic = await app.evaluate('commerceLanguageRequests[0]');
+        assert.equal(automatic.input.copyLanguage, 'auto');
+        assert.match(automatic.instructions, /亚马逊.*英[语文]/);
+
+        await nativeClick(app, `${setup} > summary`);
+        await app.evaluate(`${language}.value='ja'; ${language}.dispatchEvent(new Event('change',{bubbles:true}));`);
+        assert.equal(await app.evaluate(`Boolean(${generationAvailable})`), false, 'the previous language plan needs to be regenerated');
+        assert.equal(await app.evaluate(`!${retry}?.checkVisibility() || ${retry}.disabled`), true);
+        assert.equal(await app.evaluate(`${language}.checkVisibility()`), true, 'the stale plan leaves the selected language visible');
+        assert.equal(await app.evaluate("document.querySelector('[data-commerce-select-shot=detail]').checked"), true);
+        await app.waitFor(`${saved}.then(settings=>settings.copyLanguage==='ja' && settings.plan?.stale===true)`);
+        await reloadAppBrowser(app);
+        await openParameters(app, 'commerce');
+        assert.equal(await app.evaluate(`${language}.value`), 'ja');
+        assert.equal(await app.evaluate(`Boolean(${generationAvailable})`), false);
+        await app.evaluate(`${planButton}.click()`);
+        await app.waitFor(generationAvailable);
+        const request = await app.evaluate('commerceLanguageRequests[0]');
+        assert.equal(request.input.copyLanguage, 'ja');
+        assert.equal(request.input.productInfo.name, '带盖随行杯');
+        assert.match(request.instructions, /日[语文]/);
+
+        await app.evaluate(`${generateButton}.click()`);
+        await app.waitFor(`${saved}.then(settings=>settings.results.some(result=>result.status==='completed'))`);
+        await app.waitFor(`${retry}?.checkVisibility() && !${retry}.disabled`);
+        await app.evaluate(`${retry}.click()`);
+        await app.waitFor(`commerceLanguageRequests.filter(request=>request.kind==='image').length===2 && !${retry}.disabled`);
+        const prompts = await app.evaluate("commerceLanguageRequests.filter(request=>request.kind==='image').map(request=>request.prompt)");
+        for (const prompt of prompts) {
+            assert.match(prompt, /日[语文]/);
+            assert.match(prompt, /标题：\s*"取り外せるフタ"/);
+            assert.match(prompt, /正文：\s*"お手入れしやすい設計"/);
+            assert.doesNotMatch(prompt, /Removable lid/);
+        }
+    }, { initScript });
+});
+
+test('commerce product textareas adapt to six rows and retain a manually enlarged field while editing', { timeout: 30000 }, async () => {
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes: [{ id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100 }], connections: [] }, async app => {
+        await openParameters(app, 'commerce');
+        await app.evaluate("document.querySelector('.commerce-image-set-product-more').open=true");
+        const edit = (field, value) => app.evaluate(`(() => {
+            const input = document.querySelector(${JSON.stringify(commerceProductField(field))});
+            input.value = ${JSON.stringify(value)};
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        })()`);
+        for (const field of ['sellingPoints', 'audience', 'useCases', 'details']) {
+            for (const rows of [1, 4, 6, 8, 1]) {
+                await edit(field, Array.from({ length: rows }, (_, index) => `短文 ${index + 1}`).join('\n'));
+                const size = await measureProductField(app, field);
+                assertProductFieldRows(size, Math.max(2, Math.min(6, rows)), field);
+                assert.equal(size.overflows, rows > 6, `${field} scrolls only above the automatic cap`);
+            }
+        }
+
+        const field = 'details';
+        const selector = commerceProductField(field);
+        await edit(field, '杯身和杯盖的外观说明。'.repeat(70));
+        const wrapped = await measureProductField(app, field);
+        assertProductFieldRows(wrapped, 6, 'visually wrapped product details');
+        assert.equal(wrapped.overflows, true);
+        const grip = await app.evaluate(`(() => {
+            const input = document.querySelector(${JSON.stringify(selector)});
+            input.scrollIntoView({ block: 'center' });
+            const { right, bottom } = input.getBoundingClientRect();
+            return { x: right - 5, y: bottom - 5 };
+        })()`);
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...grip });
+        await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...grip, button: 'left', buttons: 1, clickCount: 1 });
+        const end = { x: grip.x, y: grip.y + 72 };
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...end, button: 'left', buttons: 1 });
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...end, button: 'left', buttons: 0, clickCount: 1 });
+        await app.waitFor(`document.querySelector(${JSON.stringify(selector)}).offsetHeight > ${wrapped.height + 30}`);
+        const manuallyResized = await measureProductField(app, field);
+        await edit(field, '保留手动高度');
+        assert.equal((await measureProductField(app, field)).height, manuallyResized.height);
+        assert.equal(await app.evaluate(`document.querySelector(${JSON.stringify(selector)}).value`), '保留手动高度');
+    });
+});
+
+test('commerce analysis saves editable fields and rejects a response for a replaced reference', { timeout: 30000 }, async () => {
+    const reference = 'data:image/png;base64,' + (await readFile(new URL('./fixtures/reference-red.png', import.meta.url))).toString('base64');
+    const replacement = 'data:image/png;base64,' + (await readFile(new URL('./fixtures/reference-blue.png', import.meta.url))).toString('base64');
+    const nodes = [
+        { id: 'product', type: 'ImageImport', x: 40, y: 100 },
+        { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100,
+            commerceImageSet: { platformId: 'amazon', plannerModelId: 'vision', plannerProviderId: 'p',
+                imageModelId: 'image', imageProviderId: 'p' } }
+    ];
+    const connections = [{ id: 'photo', from: { nodeId: 'product', port: 'image' },
+        to: { nodeId: 'commerce', port: 'referenceImages' }, type: 'image', order: 0 }];
+    const models = [
+        { id: 'vision', name: '商品分析模型', modelId: 'gpt-4o', taskType: 'chat', protocol: 'openai', providerIds: ['p'] },
+        { id: 'image', name: '商品图片模型', modelId: 'gpt-image-2', taskType: 'image', protocol: 'openai', providerIds: ['p'] }
+    ];
+    const providers = [{ id: 'p', name: '商品摄影供应商', endpoint: 'https://fixture.test/v1', apikey: 'test' }];
+    const inferred = { name: 'AI 随行杯', sellingPoints: ['附带杯盖', '圆润杯身'],
+        audience: '日常通勤人群', useCases: '办公室饮水', details: '参考图中可见杯盖\n杯身圆润\n杯口可见\n底部平整' };
+    const replacementDetails = '蓝色杯身配杯盖';
+    const initScript = `window.commerceProductCalls=[];
+        const actualFetch=window.fetch.bind(window);
+        window.fetch=async (url, options)=>{
+            if (url!=='/proxy'||!options?.body) return actualFetch(url,options);
+            const body=JSON.parse(options.body);
+            const [text,photo]=body.messages.at(-1).content;
+            const input=JSON.parse(text.text);
+            const planning=Array.isArray(input.shots);
+            commerceProductCalls.push({kind:planning?'plan':'analyze',input,image:photo.image_url.url});
+            const productInfo=${JSON.stringify(inferred)};
+            if (!planning && commerceProductCalls.length>1) productInfo.details='基于旧参考图的分析';
+            else if (photo.image_url.url===${JSON.stringify(replacement)}) productInfo.details=${JSON.stringify(replacementDetails)};
+            const reply={productInfo};
+            if (planning) {
+                reply.sellingPoints=productInfo.sellingPoints;
+                reply.shots=input.shots.map(({id})=>({id,prompt:'用柔和侧光突出杯盖。',headline:'日常随行',body:''}));
+            } else {
+                await new Promise(resolve=>{window.releaseProductAnalysis=resolve;});
+            }
+            return Response.json({choices:[{message:{content:JSON.stringify(reply)}}]});
+        };`;
+    const analyze = '#image-parameter-panel [data-commerce-action=analyze]';
+    const plan = '#image-parameter-panel [data-commerce-action=plan]';
+    const generate = '#image-parameter-panel [data-commerce-action=generate]';
+    const name = '用户命名的随行杯';
+    const sellingPoints = ['便于拿取的杯盖', '杯身握持舒适'];
+    const edit = (app, field, value) => app.evaluate(`(()=>{
+        const control=document.querySelector(${JSON.stringify(commerceProductField(field))});
+        control.value=${JSON.stringify(value)};
+        control.dispatchEvent(new Event('input',{bubbles:true}));
+    })()`);
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes, connections, models, providers }, async app => {
+        await openParameters(app, 'commerce');
+        assert.equal(await app.evaluate(`document.querySelector('${analyze}').disabled`), true);
+        await uploadImageOriginal(app, 'product', reference);
+        await app.waitFor(`!document.querySelector('${analyze}')?.disabled`);
+        assert.equal(await app.evaluate(`document.querySelector('${plan}').disabled`), true, 'analysis does not require selected shots');
+        assert.equal(await app.evaluate(commerceProductValue('name')), '');
+        await edit(app, 'name', name);
+        await app.evaluate(`document.querySelector('${analyze}').scrollIntoView({block:'nearest'})`);
+        await nativeClick(app, analyze);
+        await app.waitFor(`typeof window.releaseProductAnalysis==='function' && document.querySelector('${analyze}').disabled`);
+        assert.deepEqual(await app.evaluate('commerceProductCalls.map(call=>call.kind)'), ['analyze']);
+        assert.equal(await app.evaluate('commerceProductCalls[0].image'), reference);
+        assert.equal(await app.evaluate('commerceProductCalls[0].input.productInfo.name'), name);
+        await app.evaluate('window.releaseProductAnalysis()');
+        await app.waitFor(`${commerceProductValue('sellingPoints')}===${JSON.stringify(inferred.sellingPoints.join('\n'))}`);
+        assert.equal(await app.evaluate(commerceProductValue('name')), name, 'analysis leaves the entered name intact');
+        for (const field of ['audience', 'useCases', 'details']) {
+            assert.equal(await app.evaluate(commerceProductValue(field)), inferred[field]);
+        }
+        await app.evaluate("document.querySelector('.commerce-image-set-product-more').open=true;new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
+        assertProductFieldRows(await measureProductField(app, 'details'), 4, 'analysis fills the field and sizes it to the new text');
+        assert.equal(await app.evaluate("document.querySelectorAll('[data-commerce-shot-id]').length"), 0);
+        assert.equal(await app.evaluate(`document.querySelector('${generate}').checkVisibility()`), false);
+        await edit(app, 'sellingPoints', sellingPoints.join('\n'));
+
+        await app.waitFor(`!document.querySelector('${analyze}').disabled`);
+        await app.evaluate(`window.releaseProductAnalysis=null;document.querySelector('${analyze}').scrollIntoView({block:'nearest'})`);
+        await nativeClick(app, analyze);
+        await app.waitFor("commerceProductCalls.length===2 && typeof window.releaseProductAnalysis==='function'");
+        assert.equal(await app.evaluate('commerceProductCalls[1].image'), reference);
+        await uploadImageOriginal(app, 'product', replacement);
+        await app.evaluate('window.releaseProductAnalysis()');
+        await app.waitFor("document.querySelector('.commerce-image-set-status').textContent.includes('商品参考图已改变')");
+        assert.equal(await app.evaluate(commerceProductValue('details')), inferred.details);
+        assert.equal(await app.evaluate(commerceProductValue('sellingPoints')), sellingPoints.join('\n'));
+
+        await reloadAppBrowser(app);
+        await openParameters(app, 'commerce');
+        assert.equal(await app.evaluate(commerceProductValue('name')), name);
+        assert.equal(await app.evaluate(commerceProductValue('sellingPoints')), sellingPoints.join('\n'));
+        assert.equal(await app.evaluate(commerceProductValue('details')), inferred.details);
+        const savedPlan = await app.evaluate(`fetch('/api/storage/documents/session').then(response=>response.json())
+            .then(document=>document.value.nodes.find(node=>node.id==='commerce').commerceImageSet.plan)`);
+        assert.equal(savedPlan, null);
+        await app.evaluate("document.querySelector('input[data-commerce-select-shot=detail]').click()");
+        await captureProductInspector(app);
+        await nativeClick(app, plan);
+        await app.waitFor(`document.querySelector('${generate}').checkVisibility() && !document.querySelector('${generate}').disabled`);
+        assert.deepEqual(await app.evaluate('commerceProductCalls.map(call=>call.kind)'), ['plan']);
+        assert.equal(await app.evaluate('commerceProductCalls[0].image'), replacement);
+        assert.equal(await app.evaluate('commerceProductCalls[0].input.productInfo.name'), name);
+        assert.deepEqual(await app.evaluate('commerceProductCalls[0].input.productInfo.sellingPoints'), sellingPoints);
+        assert.equal(await app.evaluate(commerceProductValue('sellingPoints')), sellingPoints.join('\n'));
+        assert.equal(await app.evaluate(commerceProductValue('details')), replacementDetails);
     }, { initScript });
 });
 

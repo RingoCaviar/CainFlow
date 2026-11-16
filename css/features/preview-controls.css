@@ -1,4 +1,12 @@
 /* Shared controls for node, Agent, and history image previews. */
+:is(.fullscreen-overlay, #history-preview-modal) {
+    --preview-control-size: 40px;
+    --preview-control-surface: #1e1e2e;
+    --preview-control-hover: #4b4b5f;
+    --preview-control-border: #a2a2b0;
+    --preview-control-text: #ffffff;
+}
+
 .fullscreen-download-status:not([hidden]) {
     position: absolute;
     bottom: 24px;
@@ -52,9 +60,9 @@
     top: auto;
     right: auto;
     flex: 0 0 auto;
-    width: 40px;
-    height: 40px;
-    min-width: 40px;
+    width: var(--preview-control-size);
+    height: var(--preview-control-size);
+    min-width: var(--preview-control-size);
     padding: 0;
     display: inline-flex;
     align-items: center;
@@ -72,9 +80,6 @@
     font-size: 14px;
 }
 
-.preview-action-dock .preview-action-list > :is(.fullscreen-close, .fullscreen-paint-btn):hover,
-.preview-action-dock .preview-action-list > .btn-close-preview:hover { transform: none; }
-
 .preview-action-reveal,
 .preview-zoom-controls button {
     display: inline-flex;
@@ -82,57 +87,41 @@
     justify-content: center;
     box-sizing: border-box;
     flex: 0 0 auto;
-    height: 40px;
-    min-width: 40px;
+    height: var(--preview-control-size);
+    min-width: var(--preview-control-size);
     padding: 0 10px;
-    border: 1px solid rgba(255, 255, 255, 0.28);
-    border-radius: 20px;
-    background: rgba(30, 30, 46, 0.82);
-    color: #fff;
     font: inherit;
     font-size: 20px;
     line-height: 1;
     cursor: pointer;
-    backdrop-filter: blur(12px);
 }
 
-.preview-action-reveal:hover,
-.preview-action-reveal:focus-visible,
-.preview-zoom-controls button:hover,
-.preview-zoom-controls button:focus-visible {
-    background: rgba(75, 75, 95, 0.92);
-    outline: 2px solid rgba(255, 255, 255, 0.65);
-    outline-offset: 2px;
-}
-
-.preview-action-reveal { font-size: 26px; line-height: 1; }
-.preview-action-dock:is(:hover, :focus-within, .is-expanded) .preview-action-reveal { background: rgba(75, 75, 95, 0.92); }
-
-/* The fullscreen dock sits over the image even when zoomed or panned. */
-.fullscreen-overlay .fullscreen-action-dock :is(.preview-action-list > *, .preview-action-reveal) {
-    background: #1e1e2e;
-    border: 1px solid #a2a2b0;
-    color: #fff;
+/* Preview controls sit over the media and need an opaque, contrast-safe backplate. */
+:is(.fullscreen-overlay, #history-preview-modal) :is(.preview-action-list > *, .preview-action-reveal, .preview-zoom-controls button) {
+    background: var(--preview-control-surface);
+    border: 1px solid var(--preview-control-border);
+    border-radius: 10px;
+    color: var(--preview-control-text);
     box-shadow: none;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
-    transition: none;
+    transition: background-color 150ms ease-out;
 }
 
-.fullscreen-overlay .fullscreen-action-dock :is(.preview-action-list > *, .preview-action-reveal):hover,
-.fullscreen-overlay .fullscreen-action-dock:is(:hover, :focus-within, .is-expanded) > .preview-action-reveal {
-    background: #4b4b5f;
+:is(.fullscreen-overlay, #history-preview-modal) :is(.preview-action-list > *, .preview-action-reveal, .preview-zoom-controls button):hover,
+:is(.fullscreen-overlay, #history-preview-modal) .preview-action-dock:is(:hover, :focus-within, .is-expanded) > .preview-action-reveal {
+    background: var(--preview-control-hover);
     transform: none;
 }
 
-.fullscreen-overlay.is-cropping .fullscreen-action-dock .preview-action-list > .fullscreen-crop-btn {
-    background: #86efac;
-    border-color: #14532d;
-    color: #052e16;
-    transform: none;
+.fullscreen-overlay.is-cropping .fullscreen-crop-btn {
+    --preview-control-surface: #86efac;
+    --preview-control-hover: #bbf7d0;
+    --preview-control-border: #14532d;
+    --preview-control-text: #052e16;
 }
 
-.fullscreen-overlay .fullscreen-action-dock :is(.preview-action-list > *, .preview-action-reveal):focus-visible {
+:is(.fullscreen-overlay, #history-preview-modal) :is(.preview-action-list > *, .preview-action-reveal, .preview-zoom-controls button):focus-visible {
     outline: 2px solid currentColor;
     outline-offset: -4px;
 }
@@ -155,11 +144,12 @@
 }
 
 @media (max-width: 520px) {
+    :is(.fullscreen-overlay, #history-preview-modal) { --preview-control-size: 34px; }
     .preview-action-dock .preview-action-list { gap: 4px; }
-    .preview-action-dock .preview-action-list > :is(.fullscreen-close, .fullscreen-copy-btn, .fullscreen-download-btn, .fullscreen-description-btn, .fullscreen-paint-btn, .fullscreen-crop-btn, .btn-close-preview) { width: 34px; height: 34px; min-width: 34px; }
     .preview-action-dock .preview-action-list > .fullscreen-description-btn { width: auto; min-width: 38px; padding: 0 5px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .preview-action-dock .preview-action-list { transition-duration: 0ms; }
+    .preview-action-dock .preview-action-list,
+    :is(.fullscreen-overlay, #history-preview-modal) :is(.preview-action-list > *, .preview-action-reveal, .preview-zoom-controls button) { transition-duration: 0ms; }
 }

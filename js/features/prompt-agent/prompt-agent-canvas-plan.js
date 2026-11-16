@@ -4,9 +4,22 @@ import { CANVAS_CREATABLE_TYPES, CANVAS_FIELDS, CANVAS_NODE_PATCH_FIELDS, CANVAS
 import { excludesReferenceImages, mayUseCandidate, referenceInputChangePermission } from './prompt-agent-reference-policy.js';
 import { orderImageReferenceConnections } from '../../nodes/image-reference-projection.js';
 import { getDynamicNodePorts } from '../../nodes/node-view-factory.js';
+import { COMMERCE_IMAGE_SET_COPY_LANGUAGES, COMMERCE_PRODUCT_INFO_LIMITS } from '../ecommerce-image-set/commerce-image-set-plan.js';
 
 const fail = message => { throw new Error(message); };
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
+const commerceProductLabels = Object.freeze({
+    name: '商品名称', sellingPoints: '核心卖点', audience: '目标人群', useCases: '使用场景', details: '商品资料'
+});
+
+function validateCommerceProductInfo(value) {
+    if (!object(value) || !Object.keys(value).length || Object.entries(value).some(([field, input]) => {
+        if (!Object.hasOwn(commerceProductLabels, field)) return true;
+        if (field === 'sellingPoints') return !Array.isArray(input) || input.length > COMMERCE_PRODUCT_INFO_LIMITS.sellingPoints
+            || input.some(point => typeof point !== 'string' || point.length > COMMERCE_PRODUCT_INFO_LIMITS.sellingPoint);
+        return typeof input !== 'string' || input.length > COMMERCE_PRODUCT_INFO_LIMITS[field];
+    })) fail('商品信息字段或长度无效');
+}
 
 function normalizeNodePatch(raw) {
     if (raw === undefined) return undefined;
@@ -325,7 +338,12 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         if (!CANVAS_TYPES.includes(step.type) && (!registered || execute || Object.keys(parameters).length)) {
             fail(`节点类型 ${step.type} 仅支持基础画布操作`);
         }
+        if (step.type === 'ECommerceImageSet' && execute) fail('电商套图编辑请使用 execute: false。');
         for (const [key, value] of Object.entries(parameters)) {
+            if (step.type === 'ECommerceImageSet' && key === 'productInfo') {
+                validateCommerceProductInfo(value);
+                continue;
+            }
             if (step.type === 'ImageGenerate' && key === 'protocolParams') {
                 if (!object(value) || Object.entries(value).some(([name, setting]) =>
                     ['__proto__', 'constructor', 'prototype'].includes(name) || !['string', 'number', 'boolean'].includes(typeof setting)
@@ -482,6 +500,7 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
 
 export function describeCanvasPlan(plan, context) {
     const displayValue = value => value === '' || value == null ? '（空）' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+    const displayProductField = value => Array.isArray(value) ? value.join('；') : value;
     const stepLabel = step => context.nodes.find(node => node.id === (step.nodeId || plan.bindings?.[step.id]))?.name || step.title;
     const fieldChange = (step, field, before, after) => {
         const previous = displayValue(before), next = displayValue(after);
@@ -505,7 +524,13 @@ export function describeCanvasPlan(plan, context) {
                 : fieldChange(step, '普通提示词', expectedValue, step.parameters[step.type === 'Text' ? 'text' : 'prompt'])];
         }
         const node = context.nodes.find(node => node.id === (step.nodeId || plan.bindings?.[step.id]));
-        const changes = Object.entries(step.parameters).map(([key, value]) => fieldChange(step, key, node?.parameters?.[key], value));
+        const changes = Object.entries(step.parameters).flatMap(([key, value]) => {
+            if (key === 'productInfo') return Object.entries(value).map(([field, content]) => fieldChange(step, commerceProductLabels[field],
+                displayProductField(node?.parameters?.productInfo?.[field]), displayProductField(content)));
+            if (key === 'copyLanguage') return [fieldChange(step, '图中文字语言',
+                COMMERCE_IMAGE_SET_COPY_LANGUAGES[node?.parameters?.copyLanguage], COMMERCE_IMAGE_SET_COPY_LANGUAGES[value])];
+            return [fieldChange(step, key, node?.parameters?.[key], value)];
+        });
         if (step.patch && node) {
             const { title, enabled, x, y } = step.patch;
             if (title !== undefined) changes.push(fieldChange(step, '名称', node.name, title || getNodeDefinition(node.type)?.title));

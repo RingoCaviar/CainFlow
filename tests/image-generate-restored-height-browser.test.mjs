@@ -10,15 +10,18 @@ const restored = [
         userResized: true, prompt: '雪景列车。', textareaHeights: { prompt: 484 } },
     { id: 'collapsed', type: 'ImageGenerate', x: 960, y: 100, height: 64, width: 410,
         userResized: false, collapsed: true, collapsedExpandedHeight: 2309,
-        prompt: '雪景列车。', textareaHeights: { prompt: 1593 } }
+        prompt: '雪景列车。', textareaHeights: { prompt: 1593 } },
+    { id: 'sized-editor', type: 'ImageGenerate', x: 500, y: 450, width: 410, userResized: false,
+        prompt: '雪景列车。', textareaHeights: { prompt: 210, manual: true } }
 ];
+const restoredIds = JSON.stringify(restored.map(node => node.id));
 const configuration = { autoCheckUpdatesOnLoad: false,
     models: [{ id: 'chat', modelId: 'chat', protocol: 'openai', taskType: 'chat', providerIds: ['p'] },
         { id: 'image', modelId: 'gpt-image-1', protocol: 'openai', taskType: 'image', providerIds: ['p'] }],
     providers: [{ id: 'p', endpoint: 'https://controlled.test/v1', apikey: 'test' }],
     nodes: restored.map(node => ({ ...node, apiConfigId: 'image', providerId: 'p' })), connections: [] };
 const settle = app => app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
-const cards = app => app.evaluate("Object.fromEntries(['legacy','manual','collapsed'].map(id=>{const node=document.getElementById(id);return [id,{width:node.offsetWidth,height:node.offsetHeight,collapsed:node.classList.contains('collapsed')}]}))");
+const cards = app => app.evaluate(`Object.fromEntries(${restoredIds}.map(id=>{const node=document.getElementById(id);return [id,{width:node.offsetWidth,height:node.offsetHeight,collapsed:node.classList.contains('collapsed')}]}))`);
 
 async function assertRealEditors(app) {
     const before = await cards(app), viewportHeight = await app.evaluate('innerHeight');
@@ -26,13 +29,17 @@ async function assertRealEditors(app) {
     assert.equal(before.manual.height, 1200, 'the explicitly resized card retains its actual DOM height');
     assert.ok(before.collapsed.height < viewportHeight); assert.equal(before.collapsed.collapsed, false);
     for (const node of restored) assert.equal(before[node.id].width, node.width);
-    await app.evaluate("window.restoredHeightPrompts=Object.fromEntries(['legacy','manual','collapsed'].map(id=>[id,document.getElementById(id+'-prompt')]))");
+    await app.evaluate(`window.restoredHeightPrompts=Object.fromEntries(${restoredIds}.map(id=>[id,document.getElementById(id+'-prompt')]))`);
     for (const node of restored) {
         await app.evaluate(`document.getElementById(${JSON.stringify(node.id)}).click()`);
         await app.waitFor(`!document.getElementById('image-parameter-panel').hidden&&document.getElementById('image-parameter-panel').dataset.nodeId===${JSON.stringify(node.id)}`);
         await settle(app);
         const editor = await app.evaluate(`(()=>{const id=${JSON.stringify(node.id)},prompt=document.getElementById(id+'-prompt'),panel=document.getElementById('image-parameter-panel'),scroll=panel.querySelector('.image-parameter-scroll');return {height:prompt.offsetHeight,value:prompt.value,original:prompt===restoredHeightPrompts[id],inPanel:panel.contains(prompt),inCard:document.getElementById(id).contains(prompt),count:document.querySelectorAll('#'+id+'-prompt').length,scrollHeight:scroll.scrollHeight,clientHeight:scroll.clientHeight}})()`);
-        assert.ok(editor.height>=60&&editor.height<=154, node.id+' follows two-to-six-line prompt bounds (15px / 1.55, 14px padding and border): '+editor.height);
+        if (node.textareaHeights.manual) {
+            assert.equal(editor.height, node.textareaHeights.prompt);
+        } else {
+            assert.ok(editor.height>=60&&editor.height<=154, node.id+' follows two-to-six-line prompt bounds (15px / 1.55, 14px padding and border): '+editor.height);
+        }
         assert.equal(editor.value, node.prompt); assert.equal(editor.original, true); assert.equal(editor.inPanel, true);
         assert.equal(editor.inCard, false); assert.equal(editor.count, 1);
         assert.ok(editor.scrollHeight >= editor.height, 'the original editor remains reachable in the panel scroll area');
@@ -44,14 +51,15 @@ async function assertRealEditors(app) {
 
 async function saveFile(app) {
     await waitForAutosave(app);
-    await app.waitFor("fetch('/api/workflows/'+encodeURIComponent(document.getElementById('toolbar-workflow-name').textContent.trim())).then(response=>response.json()).then(graph=>graph.nodes?.find(node=>node.id==='manual')?.height===1200&&graph.nodes.find(node=>node.id==='legacy')?.textareaHeights?.prompt<=154)");
+    await app.waitFor("fetch('/api/workflows/'+encodeURIComponent(document.getElementById('toolbar-workflow-name').textContent.trim())).then(response=>response.json()).then(graph=>graph.nodes?.find(node=>node.id==='manual')?.height===1200&&graph.nodes.some(node=>node.id==='legacy'&&node.textareaHeights?.prompt===undefined))");
     return app.evaluate("fetch('/api/workflows/'+encodeURIComponent(document.getElementById('toolbar-workflow-name').textContent.trim())).then(response=>response.json())");
 }
 function assertSavedHeights(graph) {
-    assert.equal(graph.nodes.length, 3); assert.deepEqual(graph.connections, []);
+    assert.equal(graph.nodes.length, restored.length); assert.deepEqual(graph.connections, []);
     for (const original of restored) {
         const node = graph.nodes.find(node => node.id === original.id);
-        assert.ok(node.textareaHeights.prompt<=154, 'saved prompt respects automatic height bounds');
+        assert.deepEqual(node.textareaHeights, original.textareaHeights.manual ? original.textareaHeights : undefined,
+            'only an explicitly resized prompt keeps its saved height');
         assert.equal(node.prompt, original.prompt); assert.equal(node.userResized, original.userResized);
         assert.equal(node.height, original.userResized ? 1200 : null);
         assert.equal(Object.hasOwn(node, 'collapsedExpandedHeight'), false, 'automatic expanded height never persists the old long form');

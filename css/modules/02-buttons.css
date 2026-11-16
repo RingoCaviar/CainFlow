@@ -38,7 +38,7 @@
 
 .btn-xs {
     padding: 4px 10px;
-    font-size: 11px;
+    font-size: 12px;
     height: 28px;
 }
 
@@ -149,10 +149,7 @@
     height: 8px;
     background-color: var(--accent-red);
     border-radius: 50%;
-    border: 2px solid var(--bg-dark);
-    box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
-    animation: common-scale-pulse 2s infinite;
-    --pulse-color: rgba(239, 68, 68, 0.7);
+    border: 1px solid var(--bg-toolbar);
 }
 
 @keyframes common-pulse {
@@ -165,23 +162,6 @@
     50% {
         box-shadow: var(--pulse-shadow);
         border-color: var(--pulse-border, transparent);
-    }
-}
-
-@keyframes common-scale-pulse {
-    0% {
-        transform: scale(0.95);
-        box-shadow: 0 0 0 0 var(--pulse-color);
-    }
-
-    70% {
-        transform: scale(1);
-        box-shadow: 0 0 0 6px rgba(0, 0, 0, 0);
-    }
-
-    100% {
-        transform: scale(0.95);
-        box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
     }
 }
 

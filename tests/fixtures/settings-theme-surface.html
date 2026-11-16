@@ -162,7 +162,7 @@
                     actual: styleTuple(control.nextElementSibling),
                     thumb: (() => {
                         const thumb = getComputedStyle(control.nextElementSibling, '::before');
-                        return { top: thumb.top, transform: thumb.transform };
+                        return { top: thumb.top, transform: thumb.transform, background: thumb.backgroundColor };
                     })(),
                     outline: getComputedStyle(control.nextElementSibling).outline,
                     opacity: getComputedStyle(control.nextElementSibling).opacity,

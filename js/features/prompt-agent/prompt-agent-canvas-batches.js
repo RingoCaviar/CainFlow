@@ -34,6 +34,9 @@ export function instantiateCanvasPlan(template, current) {
             delete inherited.customWidth; delete inherited.customHeight;
         }
         copy.parameters = { ...inherited, ...copy.parameters };
+        if (copy.type === 'ECommerceImageSet' && inherited.productInfo && step.parameters?.productInfo) {
+            copy.parameters.productInfo = { ...inherited.productInfo, ...step.parameters.productInfo };
+        }
         copy.inheritedFields = Object.keys(inherited).filter(key => !Object.hasOwn(step.parameters || {}, key));
         if (copy.execute === false && source?.assets?.length && copy.type === 'ImageGenerate') {
             copy.cachedAssetKeys = [...source.assets];

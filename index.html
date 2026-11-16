@@ -69,6 +69,7 @@
     <link rel="stylesheet" href="css/features/image-mention-picker.css">
     <link rel="stylesheet" href="css/features/button-edges.css">
     <link rel="stylesheet" href="css/features/preview-controls.css">
+    <link rel="stylesheet" href="css/components/form-controls.css">
     <script type="module">
         import { APP_VERSION, APP_VERSION_NUMBER } from './js/core/constants.js';
 
@@ -613,23 +614,17 @@
                     </div>
                 </div>
                 <div id="history-settings-toolbar" class="drawer-subheader">
-                    <div class="grid-col-tool"
-                        style="display:flex; align-items:center; justify-content:flex-end; gap:10px; width:100%;">
-                        <span
-                            style="font-size:11px; color:var(--text-secondary); font-weight:500; white-space:nowrap;">展示列数:</span>
-                        <div
-                            style="display:flex; align-items:center; background:rgba(255,255,255,0.05); border-radius:4px; padding:2px;">
-                            <button id="btn-col-decrease" class="icon-btn"
-                                style="width:24px; height:24px; min-width:24px;" title="减少列数">
+                    <div class="history-settings-controls">
+                        <span id="history-grid-cols-heading">展示列数</span>
+                        <div class="history-grid-stepper" role="group" aria-labelledby="history-grid-cols-heading">
+                            <button id="btn-col-decrease" class="icon-btn" type="button" title="减少列数" aria-label="减少列数">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                     stroke-width="2">
                                     <line x1="5" y1="12" x2="19" y2="12"></line>
                                 </svg>
                             </button>
-                            <span id="history-grid-cols-label"
-                                style="font-size:12px; color:var(--text-primary); width:24px; text-align:center; font-weight:bold;">2</span>
-                            <button id="btn-col-increase" class="icon-btn"
-                                style="width:24px; height:24px; min-width:24px;" title="增加列数">
+                            <span id="history-grid-cols-label" aria-live="polite">2</span>
+                            <button id="btn-col-increase" class="icon-btn" type="button" title="增加列数" aria-label="增加列数">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                     stroke-width="2">
                                     <line x1="12" y1="5" x2="12" y2="19"></line>
@@ -757,7 +752,7 @@
             <div class="header-right">
                 <label class="log-retention-control log-retention-control--inline" for="statistics-retention-days">
                     <span>保留</span>
-                    <select id="statistics-retention-days">
+                    <select id="statistics-retention-days" class="ui-select">
                         <option value="1">1 天</option>
                         <option value="3">3 天</option>
                         <option value="7" selected>7 天</option>
@@ -787,7 +782,7 @@
             <section class="statistics-ranking-section">
                 <div class="statistics-section-header">
                     <h4>供应商排行榜</h4>
-                    <select id="statistics-ranking-sort" class="statistics-sort-select" title="切换排序依据">
+                    <select id="statistics-ranking-sort" class="ui-select statistics-sort-select" aria-label="供应商排行排序">
                         <option value="requestCount">按请求次数</option>
                         <option value="successRate">按成功率</option>
                     </select>
@@ -797,9 +792,9 @@
             </section>
             <div class="statistics-updated-note">更新时间 <span id="statistics-updated-time">--:--:--</span></div>
             <div class="statistics-day-nav">
-                <button id="statistics-prev-day" class="statistics-day-btn" type="button">上一天</button>
+                <button id="statistics-prev-day" class="btn btn-ghost statistics-day-btn" type="button">上一天</button>
                 <span id="statistics-current-day" class="statistics-current-day">今天</span>
-                <button id="statistics-next-day" class="statistics-day-btn" type="button">下一天</button>
+                <button id="statistics-next-day" class="btn btn-ghost statistics-day-btn" type="button">下一天</button>
             </div>
         </div>
     </div>
@@ -883,7 +878,7 @@
                     <div class="cache-item-label">引用分布（可重叠，不相加）</div>
                 </div>
                 <div class="cache-item">
-                    <div class="cache-item-label">🖼 当前工作流</div>
+                    <div class="cache-item-label">当前工作流</div>
                     <div id="usage-workflow-media" class="cache-item-value">0 项 · 0.00 MB</div>
                 </div>
                 <div class="cache-item">
@@ -903,7 +898,7 @@
                     <div id="usage-undo-pending" class="cache-item-value">无待清理</div>
                 </div>
                 <div class="cache-item">
-                    <div class="cache-item-label">🕰 历史记录</div>
+                    <div class="cache-item-label">历史记录</div>
                     <div id="usage-history" class="cache-item-value">0.00 MB
                     </div>
                 </div>
@@ -925,7 +920,7 @@
                     <div id="usage-unreferenced-media" class="cache-item-value">0 项 · 0.00 MB</div>
                 </div>
                 <div class="cache-item">
-                    <div class="cache-item-label">💾 基础数据 (存档与配置)</div>
+                    <div class="cache-item-label">基础数据（存档与配置）</div>
                     <div id="usage-local" class="cache-item-value">0.00 MB
                     </div>
                 </div>
@@ -1363,7 +1358,7 @@
                         <div class="settings-toolbar">
                             <div class="settings-toolbar-title">
                                 <h3>API 供应商 (Providers)</h3>
-                                <button type="button" id="btn-api-settings-help" class="settings-inline-help" title="查看 API 设置帮助">不知道如何设置点我</button>
+                                <button type="button" id="btn-api-settings-help" class="settings-inline-help" title="查看 API 设置帮助">API 设置帮助</button>
                             </div>
                             <button id="btn-add-provider" class="btn btn-accent btn-sm">+ 添加供应商</button>
                         </div>
@@ -1424,13 +1419,11 @@
                     </div>
                 </div>
             </div>
-            <div class="modal-footer"
-                style="padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: space-between;">
+            <div class="modal-footer">
                 <div class="footer-left">
-                    <span style="font-size: 11px;">⚠
-                        注意：恢复出厂设置将清空所有画布、API配置及历史记录。</span>
+                    恢复出厂设置将清空所有画布、API 配置及历史记录。
                 </div>
-                <div class="footer-right" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <div class="footer-right">
                     <input id="input-config-import" type="file" accept=".zip,.json,application/zip,application/json" style="display:none;" />
                     <button id="btn-import-config" class="btn btn-secondary btn-sm">导入配置</button>
                     <button id="btn-export-config" class="btn btn-secondary btn-sm">导出配置</button>
@@ -1663,7 +1656,7 @@
             style="margin:0;width:100vw;max-width:none;height:100vh;max-height:none;border:0;padding:0;background:transparent">
             <div class="dialog-style-1-backdrop" onclick="this.parentElement.close()"></div>
             <div class="dialog-style-1-panel">
-                <div class="dialog-style-1-header"><h3 id="startup-reload-title">重新加载</h3></div>
+                <div class="dialog-style-1-header"><h2 id="startup-reload-title">重新加载</h2></div>
                 <div class="dialog-style-1-body"><p class="dialog-style-1-message">重新加载可能丢失未保存的修改，确定继续吗？</p></div>
                 <div class="dialog-style-1-footer">
                     <button class="btn btn-secondary" type="button" autofocus data-action="close" onclick="this.closest('dialog').close()">取消</button>

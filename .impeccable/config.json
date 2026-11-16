@@ -138,6 +138,51 @@
         ],
         "createdAt": "2026-11-16T02:51:22.300Z",
         "reason": "Codex verified that the prompt library search fixture defines no shadows and imports existing production panel/theme styles. This edit only waits for durable storage before assertions."
+      },
+      {
+        "rule": "pulsing-dot",
+        "value": "*",
+        "files": [
+          "index.html"
+        ],
+        "createdAt": "2026-11-16T07:04:30.917Z",
+        "reason": "Codex verified: Agent processing and workflow-running indicators follow actual request and execution lifecycles. The unread error badge is static. The index scan reports linked CSS without source lines."
+      },
+      {
+        "rule": "ai-color-palette",
+        "value": "*",
+        "files": [
+          "index.html"
+        ],
+        "createdAt": "2026-11-16T07:04:30.960Z",
+        "reason": "Codex verified: the inherited accents are semantic theme colors and distinguish image and text connections in the canvas SVG. The index detector reports the linked palette as one file-level finding."
+      },
+      {
+        "rule": "nested-cards",
+        "value": "*",
+        "files": [
+          "index.html"
+        ],
+        "createdAt": "2026-11-16T07:06:04.535Z",
+        "reason": "Codex verified from isolated rescans: the two reported containers are the Agent reference picker and the canvas zoom options popup. Both have their own interaction lifecycle and open on demand."
+      },
+      {
+        "rule": "dark-glow",
+        "value": "*",
+        "files": [
+          "index.html"
+        ],
+        "createdAt": "2026-11-16T07:08:02.755Z",
+        "reason": "Codex verified: after removing the rendered Agent button halo, the static index scan matches dormant run and stop pulse rules. The current toolbar renderer removes both running classes and presents the execution state as text."
+      },
+      {
+        "rule": "dark-glow",
+        "value": "*",
+        "files": [
+          "tests/fixtures/text-chat-compact.html"
+        ],
+        "createdAt": "2026-11-16T07:28:56.355Z",
+        "reason": "The TextChat browser fixture imports shared theme styles for geometry assertions. The reported shadow comes from imported CSS and has no matching element in the fixture."
       }
     ]
   }
