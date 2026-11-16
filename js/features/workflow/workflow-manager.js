@@ -796,6 +796,12 @@ export function createWorkflowManagerApi({
                 return returnOutcome ? { ok: false, documentPersisted: false, publicationUnknown, error, status: result?.status } : false;
             }
             documentPersisted = true;
+            // The active session can replace the tab's snapshot while the file write is pending.
+            const currentTab = getWorkflowTab(name);
+            if (currentTab?.data && currentTab.workflowId === data.workflowId
+                && Number(currentTab.data.mediaOwnershipRevision || 0) < data.mediaOwnershipRevision) {
+                currentTab.data.mediaOwnershipRevision = data.mediaOwnershipRevision;
+            }
             if (missingComparisons.size && data.nodes === savedNodes) data.nodes = documentData.nodes;
             if (data.workflowId === getActiveWorkflowId()) {
                 for (const { liveNode, liveComparison, pair } of missingComparisons.values()) {
@@ -1225,20 +1231,23 @@ export function createWorkflowManagerApi({
         return getActiveWorkflowName() ? getWorkflowTab(getActiveWorkflowName()) : null;
     }
 
-    function snapshotActiveWorkflow({ markDirty = false } = {}) {
-        const tab = getActiveWorkflowTab();
-        if (!tab) return null;
-        const workflowId = getActiveWorkflowId();
+    function captureActiveWorkflowSnapshot(tab) {
         const previousData = tab.data || {};
         const snapshot = getWorkflowPayload();
-        snapshot.workflowId = workflowId;
+        snapshot.workflowId = getActiveWorkflowId();
         if (previousData.mediaOwnershipRevision !== undefined) {
             snapshot.mediaOwnershipRevision = previousData.mediaOwnershipRevision;
         }
         if (Array.isArray(previousData.mediaOwnershipRestoreOwnerIds)) {
             snapshot.mediaOwnershipRestoreOwnerIds = previousData.mediaOwnershipRestoreOwnerIds;
         }
-        replaceWorkflowTabData(tab, snapshot);
+        return snapshot;
+    }
+
+    function snapshotActiveWorkflow({ markDirty = false } = {}) {
+        const tab = getActiveWorkflowTab();
+        if (!tab) return null;
+        replaceWorkflowTabData(tab, captureActiveWorkflowSnapshot(tab));
         if (markDirty) queueAutosave(tab);
         syncToolbarWorkflowStatus();
         return tab;
@@ -3299,9 +3308,10 @@ export function createWorkflowManagerApi({
 
     function updateWorkflowTabDataByName(name, data, options = {}) {
         if (!name || !data) return false;
-        const sourceData = getActiveWorkflowName() === name && options.mergeWithCanvas === true
-            ? getWorkflowPayload()
-            : getWorkflowTab(name)?.data;
+        let tab = getWorkflowTab(name);
+        const sourceData = tab && getActiveWorkflowName() === name && options.mergeWithCanvas === true
+            ? captureActiveWorkflowSnapshot(tab)
+            : tab?.data;
         const nextData = options.mergeRunResults === true
             ? mergeRunWorkflowData(sourceData, data, {
                 baseNodeIds: options.baseNodeIds,
@@ -3309,7 +3319,6 @@ export function createWorkflowManagerApi({
                 mergeNodeIds: options.mergeNodeIds
             })
             : cloneWorkflowData(data);
-        let tab = getWorkflowTab(name);
         if (!tab) {
             tab = {
                 name,

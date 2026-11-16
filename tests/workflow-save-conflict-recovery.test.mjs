@@ -59,6 +59,73 @@ test('strict canvas persistence refuses conflict rebase and reconciles an uncert
     }
 });
 
+test('runtime result projection keeps the current revision for strict canvas saves', async t => {
+    const workflowId = 'runtime-workflow';
+    const image = { id: 'image', type: 'ImageGenerate', x: 30, y: 60, prompt: 'existing prompt' };
+    const restored = { workflowId, mediaOwnershipRevision: 7, nodes: [image], connections: [] };
+    let disk = structuredClone(restored), readbacks = 0;
+    const writes = [];
+    t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+        if (url === '/api/workflows') return Response.json({ workflows: ['Runtime'], folders: [] });
+        assert.equal(url, '/api/workflows/Runtime');
+        if (options.method !== 'POST') {
+            readbacks++;
+            return Response.json(disk);
+        }
+        const document = JSON.parse(options.body);
+        const expected = options.headers['X-CainFlow-Expected-Media-Ownership-Revision'];
+        const strict = options.headers['X-CainFlow-Strict-Workflow-Revision'];
+        writes.push({ expected, strict, revision: document.mediaOwnershipRevision });
+        if (expected !== String(disk.mediaOwnershipRevision)) {
+            return Response.json({ detail: 'Workflow media ownership revision conflict' }, { status: 409 });
+        }
+        disk = document;
+        return Response.json({ mediaOwnershipRevision: disk.mediaOwnershipRevision });
+    });
+
+    const state = { workflowTabs: [], workflowOrder: [], workflowFolders: [], nodes: new Map(),
+        connections: [], selectedNodes: new Set(), canvas: { x: 0, y: 0, zoom: 1 } };
+    const manager = createWorkflowManagerApi({
+        state, nodeSerializer: { buildStatePayload: () => ({ nodes: [...state.nodes.values()], connections: [] }),
+            serializeNodes: () => [...state.nodes.values()] },
+        viewportApi: { updateCanvasTransform() {} }, addNode() {}, updateAllConnections() {}, updatePortStyles() {},
+        scheduleSave() {}, showToast() {}, panelManager: {}, prepareDetachedEditorView: async () => ({ async commit() { return true; } }),
+        getStorageSafetyStatus: async () => ({ storageEpoch: 'epoch' }),
+        recordMediaWorkflowRevision: async () => true,
+        getMediaOwnerReferenceList: async () => null,
+        replaceMediaOwnerReferenceList: async () => ({ status: 'committed' }),
+        documentRef: { getElementById: () => null }, windowRef: { innerWidth: 0, innerHeight: 0 },
+        localStorageRef: { getItem: () => null, setItem() {} }
+    });
+    await manager.activateRestoredWorkflowState({
+        workflowTabs: [{ workflowId, name: 'Runtime', data: structuredClone(restored) }],
+        activeWorkflowId: workflowId, activeWorkflowName: 'Runtime', workflowData: structuredClone(restored)
+    });
+    const initialReadbacks = readbacks;
+    state.nodes.set(image.id, image);
+    const resultNode = { ...image, lastDuration: 100 };
+    assert.equal(manager.updateWorkflowTabDataById(workflowId, { workflowId, nodes: [resultNode], connections: [] },
+        { mergeRunResults: true, mergeWithCanvas: true }), true);
+    assert.equal(manager.getWorkflowTabSnapshot('Runtime').nodes[0].lastDuration, 100);
+    state.nodes.set(image.id, { ...resultNode, prompt: 'first edit' });
+
+    const firstSave = manager.persistActiveHistoryTransition({ strictRevision: true });
+    // Session capture can replace the active snapshot before the write finishes.
+    manager.snapshotActiveWorkflow();
+    assert.equal((await firstSave).committed, true);
+    assert.equal(disk.nodes[0].prompt, 'first edit');
+    assert.equal(manager.getWorkflowTabSnapshot('Runtime').mediaOwnershipRevision, 8);
+
+    state.nodes.set(image.id, { ...resultNode, prompt: 'second edit' });
+    assert.equal((await manager.persistActiveHistoryTransition({ strictRevision: true })).committed, true);
+    assert.equal(disk.nodes[0].prompt, 'second edit');
+    assert.deepEqual(writes, [
+        { expected: '7', strict: 'true', revision: 8 },
+        { expected: '8', strict: 'true', revision: 9 }
+    ]);
+    assert.equal(readbacks, initialReadbacks, 'strict edits commit without looking up and rebasing onto a new revision');
+});
+
 test('retouch original metadata can be cleaned on save and reopen without dropping its output', async () => {
     const originalFetch = globalThis.fetch;
     try {

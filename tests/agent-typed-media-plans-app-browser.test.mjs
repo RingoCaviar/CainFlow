@@ -69,7 +69,7 @@ async function assetHash(app, key) {
     return app.evaluate(`(async()=>{const bytes=await(await fetch('/api/storage/assets/'+encodeURIComponent(${JSON.stringify(key)}))).arrayBuffer();return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).map(value=>value.toString(16).padStart(2,'0')).join('')})()`);
 }
 
-test('an explicit existing B-only Compare step applies and executes into a new Preview while missing B is rejected without graph changes', { timeout: 60000 }, async () => {
+test('an explicitly requested B-only Compare copy applies and executes into a new Preview while missing B is rejected without graph changes', { timeout: 60000 }, async () => {
     const originalInput = { id: 'original-B-input', from: { nodeId: 'source', port: 'image' }, to: { nodeId: 'compare', port: 'imageB' }, type: 'image', order: 17 };
     await withAppBrowser({ ...configuration, nodes: [
         { id: 'source', type: 'ImageImport', customTitle: '蓝色原图', x: 40, y: 100 },
@@ -81,7 +81,7 @@ test('an explicit existing B-only Compare step applies and executes into a new P
         await propose(app, { version: 1, steps: [
             { id: 'compare-step', type: 'ImageCompare', nodeId: 'compare', parameters: {}, execute: true },
             { id: 'preview-step', type: 'ImagePreview', title: '单B对比输出', parameters: {} }
-        ], connections: [{ from: { ref: 'compare-step', port: 'image' }, to: { ref: 'preview-step', port: 'image' }, type: 'image' }] }, '保留原B输入，A保持空，应用并更新对比输出。', [['compare', '现有单B对比']]);
+        ], connections: [{ from: { ref: 'compare-step', port: 'image' }, to: { ref: 'preview-step', port: 'image' }, type: 'image' }] }, '复制节点，保留 B 输入并让 A 保持空，将副本连到新预览。', [['compare', '现有单B对比']]);
         await action(app, '仅应用');
         await app.waitFor(`${status}?.includes('已应用并保存')`);
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(record=>record.value.nodes.length===4)");
@@ -149,9 +149,9 @@ test('generated video is automatically saved and Agent cannot recreate retired S
             connections: [{ from: { ref: 'video', port: 'video' }, to: { ref: 'save-video', port: 'video' }, type: 'video' }] } };
         await app.evaluate(`typedMediaReply=${JSON.stringify(reply)};document.getElementById('btn-prompt-agent').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.getElementById('prompt-agent-input').value='@原始视频来源[video] 保存视频';document.getElementById('prompt-agent-input').dispatchEvent(new Event('input',{bubbles:true}));`);
         await nativeClick(app, "document.getElementById('prompt-agent-send')");
-        await app.waitFor("document.getElementById('prompt-agent-cancel').hidden&&document.getElementById('prompt-agent-messages').textContent.includes('不支持操作 ImageSave')");
+        await app.waitFor("document.getElementById('prompt-agent-cancel').hidden&&document.getElementById('prompt-agent-messages').textContent.includes('节点类型 ImageSave 仅支持基础画布操作')");
         assert.equal(await app.evaluate("document.querySelectorAll('.prompt-agent-canvas-plan').length"), 0);
         assert.deepEqual(await graph(app), beforeRejected);
-        assert.deepEqual(await app.evaluate("typedMediaRequests.map(request=>request.kind)"), ['video', 'poll', 'chat']);
+        assert.deepEqual(await app.evaluate("typedMediaRequests.map(request=>request.kind)"), ['video', 'poll', 'chat', 'chat']);
     });
 });
