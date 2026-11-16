@@ -115,8 +115,19 @@ test('main panel text and download actions follow every theme', { timeout: 90000
         for (const [button, panel] of [['btn-history','history-sidebar'], ['btn-toggle-workflow','workflow-sidebar'], ['btn-toggle-cache','cache-sidebar'], ['btn-toggle-statistics','statistics-sidebar'], ['btn-logs','log-drawer']]) {
             await evaluate(`document.getElementById('${button}').click()`); await delay(350);
             for (const theme of themes) {
-                await evaluate(`document.documentElement.dataset.appTheme='${theme}'`); await delay(200);
-                const rows = await evaluate(`panelColors('#${panel}')`);
+                const rows = await evaluate(`(async () => {
+                    document.documentElement.dataset.appTheme = '${theme}';
+                    const root = document.getElementById('${panel}');
+                    // CSS transitions can start on a later frame under load. Measure the settled theme.
+                    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                    while (true) {
+                        const transitions = root.getAnimations({ subtree: true }).filter(animation =>
+                            animation instanceof CSSTransition && (animation.pending || animation.playState === 'running'));
+                        if (!transitions.length) break;
+                        await Promise.allSettled(transitions.map(animation => animation.finished));
+                    }
+                    return panelColors('#${panel}');
+                })()`);
                 assert.ok(rows.length, `${panel} must render actual content`);
                 for (const row of rows.filter(row => !row.gradient)) {
                     let bg=[255,255,255,1]; for(const c of row.backgrounds.toReversed()) bg=composite(parseColor(c),bg);
