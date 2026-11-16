@@ -228,7 +228,15 @@ async function verifyCardPreviewInteraction(app) {
 
 const widthOfDock = `Math.round(document.querySelector('${panel}').getBoundingClientRect().width)`;
 const comparisonMode = `document.querySelector('${compareStage}').dataset.comparison`;
+const retouchCardHeight = "document.getElementById('retouch').offsetHeight";
 const resizeViewport = (app, width, height) => app.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+
+async function assertCanvasResultOnly(app) {
+    await app.waitFor(`${comparisonMode} === 'none'`);
+    assert.equal(await app.evaluate(`document.querySelector('${compareSlider}').checkVisibility()`), false);
+    assert.equal(await app.evaluate("Boolean(document.querySelector('#retouch [data-retouch-card-view]'))"), false,
+        'the canvas does not contain original or retouch switch buttons');
+}
 
 function retouchPosition(app) {
     return app.evaluate(`(() => {
@@ -331,6 +339,7 @@ async function zoomCanvas(app, zoom) {
 
 async function exerciseDockWidth(app) {
     const initialWidth = await app.evaluate(widthOfDock);
+    const initialCardHeight = await app.evaluate(retouchCardHeight);
     const sliderValue = await app.evaluate(`document.querySelector('${compareSlider}').value`);
     await dragDockToCoverPartOfCard(app, () => key(app, 'Escape'));
     await app.waitFor(`${widthOfDock} === ${initialWidth} && ${comparisonMode} === 'split'`);
@@ -344,8 +353,8 @@ async function exerciseDockWidth(app) {
     await dragDockToCoverPartOfCard(app);
     const draggedWidth = await app.evaluate(widthOfDock);
     assert.ok(draggedWidth > initialWidth + 80, 'dragging the left edge outward widens the dock');
-    await app.waitFor(`${comparisonMode} === 'switch'`);
-    assert.equal(await app.evaluate(`document.querySelector('${compareSlider}').checkVisibility()`), false);
+    await assertCanvasResultOnly(app);
+    assert.equal(await app.evaluate(retouchCardHeight), initialCardHeight, 'dock clipping does not change the card height');
     await assertDockLayout(app);
     await openComparison(app);
     assert.equal(await app.evaluate(`document.querySelector('${dialogSlider}').value`), sliderValue);
@@ -353,8 +362,25 @@ async function exerciseDockWidth(app) {
 
     await nativeClick(app, closeDock);
     await app.waitFor(`${comparisonMode} === 'split'`);
+    await app.evaluate(`document.querySelector('${compareSlider}').focus()`);
+    await resizeViewport(app, 790, 820);
+    await assertCanvasResultOnly(app);
+    assert.equal(await app.evaluate(`document.activeElement.matches('${cardPreview}')`), true,
+        'closing a focused slider returns focus to the visible card preview');
+    await resizeViewport(app, 1100, 820);
+    await app.waitFor(`${comparisonMode} === 'split'`);
+    await app.evaluate(`document.querySelector('${compareSlider}').focus()`);
+    await resizeViewport(app, 580, 820);
+    await assertCanvasResultOnly(app);
+    assert.ok(await app.evaluate(`(() => {
+        const preview = document.querySelector('${cardPreview}').getBoundingClientRect();
+        return preview.left < innerWidth && preview.right > innerWidth
+            && document.activeElement.matches('${cardPreview}');
+    })()`), 'a partly visible preview still receives focus when the dock is closed');
+    await resizeViewport(app, 1100, 820);
+    await app.waitFor(`${comparisonMode} === 'split'`);
     await openParameters(app, 'retouch');
-    await app.waitFor(`${widthOfDock} === ${draggedWidth} && ${comparisonMode} === 'switch'`);
+    await app.waitFor(`${widthOfDock} === ${draggedWidth} && ${comparisonMode} === 'none'`);
     await app.evaluate(`document.querySelector('${dockWidthHandle}').focus()`);
     await key(app, 'ArrowRight');
     const keyboardWidth = draggedWidth - 10;
@@ -372,16 +398,19 @@ async function exerciseDockWidth(app) {
     await app.waitFor(`${widthOfDock} < ${initialWidth} && ${comparisonMode} === 'split'`);
     await app.evaluate(`document.querySelector('${compareSlider}').focus()`);
     await resizeViewport(app, 500, 360);
-    await app.waitFor(`innerWidth === 500 && ${comparisonMode} === 'switch'
+    await app.waitFor(`innerWidth === 500 && ${comparisonMode} === 'none'
         && document.querySelector('${dockWidthHandle}').getAttribute('aria-disabled') === 'true'`);
     assert.equal(await app.evaluate(`document.activeElement.matches('${inspect}')`), true,
         'when the focused slider is clipped, focus moves to the comparison entry in the dock');
     await assertDockLayout(app);
     await resizeViewport(app, 1100, 820);
     await app.waitFor(`${comparisonMode} === 'split'`);
+    assertRenderedColor(await sampleRenderedImageColors(app, compareStage), red);
     await zoomCanvas(app, 0.25);
-    await app.waitFor(`${comparisonMode} === 'switch'`);
+    await assertCanvasResultOnly(app);
     assert.ok(await app.evaluate(`document.querySelector('${compareStage}').getBoundingClientRect().width < 180`), 'zoom out actually shrinks the comparison card');
+    assert.equal(await app.evaluate(retouchCardHeight), initialCardHeight, 'the card keeps the same unscaled height when comparison no longer fits');
+    assertRenderedColor(await sampleRenderedImageColors(app, compareStage), blue);
     await zoomCanvas(app, 1);
     await app.waitFor(`${comparisonMode} === 'split'`);
     assert.equal(await app.evaluate(`document.querySelector('${compareSlider}').value`), sliderValue);
@@ -389,7 +418,7 @@ async function exerciseDockWidth(app) {
     const toggleAgent = () => app.evaluate("document.getElementById('btn-prompt-agent').click()");
     const agent = "document.getElementById('prompt-agent-panel')";
     await toggleAgent();
-    await app.waitFor(`${agent}.classList.contains('active') && ${comparisonMode} === 'switch'`);
+    await app.waitFor(`${agent}.classList.contains('active') && ${comparisonMode} === 'none'`);
     assert.ok(await app.evaluate(`(() => {
         const stage = document.querySelector('${compareStage}').getBoundingClientRect();
         const canvas = document.getElementById('canvas-container').getBoundingClientRect();
@@ -622,7 +651,7 @@ test('product retouch analyzes and edits the same original in one run and preser
         assert.deepEqual(await sampleRenderedImageColors(app, compareStage), [blue, blue]);
         const fromRetouch = await dragComparisonDivider(app, compareSlider, { ...canvasDivider, gripOffset: 6, target: 0.5 });
         assert.ok(fromRetouch >= 40 && fromRetouch <= 60, 'the in-frame portion of the retouch endpoint handle remains draggable');
-        await key(app, 'End');
+        await key(app, 'Home');
         const savedDockWidth = await exerciseDockWidth(app);
 
         const sourceId = (await saved(app)).connections.find(edge => edge.to.nodeId === 'retouch' && edge.to.port === 'image').from.nodeId;
@@ -682,14 +711,13 @@ test('product retouch analyzes and edits the same original in one run and preser
         assert.deepEqual(await comparisonImageColors(app, 'result'), [blue, blue]);
         await closeComparison(app);
         await resizeViewport(app, 620, 560);
-        await nativeClick(app, `${panel} [data-parameter-action=close]`);
-        const originalToggle = '#retouch [data-retouch-card-view=original]';
-        const resultToggle = '#retouch [data-retouch-card-view=result]';
-        assert.equal(await app.evaluate(`document.querySelector('${compareSlider}').checkVisibility()`), false);
-        await nativeClick(app, originalToggle);
-        assertRenderedColor(await sampleRenderedImageColors(app, compareStage), red);
-        await nativeClick(app, resultToggle);
+        await nativeClick(app, closeDock);
+        await assertCanvasResultOnly(app);
         assertRenderedColor(await sampleRenderedImageColors(app, compareStage), blue);
+        await openCardPreview(app);
+        assert.deepEqual(await comparisonImageColors(app, 'original'), [red, red]);
+        await key(app, 'Escape');
+        await app.waitFor(`!document.querySelector('${compareDialog}')`);
         await resizeViewport(app, 1100, 820);
 
         const originalAssetKey = workflow.nodes.find(node => node.id === 'retouch').productRetouchComparison.originalAssetKey;
@@ -741,19 +769,19 @@ test('product retouch analyzes and edits the same original in one run and preser
 
         await app.evaluate('window.wideRetouch = true; window.emptyAnalysis = true');
         await nativeClick(app, `${panel} [data-retouch-action=run]`);
-        await app.waitFor(`document.querySelector('${compareStage}').dataset.comparison === 'switch'`);
-        assert.equal(await app.evaluate(`document.querySelector('${compareSlider}').checkVisibility()`), false);
-        await nativeClick(app, originalToggle);
+        await app.waitFor(`document.querySelector('${compareStage} [data-retouch-result]').naturalWidth === 48`);
+        await assertCanvasResultOnly(app);
         assert.deepEqual(await app.evaluate(`(() => {
             const original = document.querySelector('${compareStage} [data-retouch-original]');
             const result = document.querySelector('${compareStage} [data-retouch-result]');
-            return [original.naturalWidth / original.naturalHeight, result.naturalWidth / result.naturalHeight,
-                getComputedStyle(original).objectFit, getComputedStyle(result).clipPath];
-        })()`), [4 / 3, 2, 'contain', 'inset(0px 0px 0px 100%)']);
-        await openComparison(app);
+            return [original.checkVisibility(), result.naturalWidth / result.naturalHeight, getComputedStyle(result).objectFit];
+        })()`), [false, 2, 'contain']);
+        assertRenderedColor(await sampleRenderedImageColors(app, compareStage), blue);
+        await openCardPreview(app);
         await app.waitFor(`document.querySelector('${dialogFrame}').dataset.comparison === 'switch'
             && !document.querySelector('${dialogSlider}').checkVisibility()`);
-        await closeComparison(app);
+        assert.deepEqual(await comparisonImageColors(app, 'original'), [[255, 165, 0], [255, 165, 0]]);
+        await closeComparison(app, cardPreview);
 
         const emptyAnalysis = `${analysisDetails} [data-retouch-analysis-empty]`;
         await app.evaluate(`document.querySelector('${analysisDetails}').scrollIntoView({ block: 'nearest' })`);

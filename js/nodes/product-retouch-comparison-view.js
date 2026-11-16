@@ -10,14 +10,10 @@ export function renderProductRetouchComparison() {
     return `<div class="product-retouch-compare-stage" hidden>
         <div class="product-retouch-card-preview" tabindex="0" role="button" aria-label="查看产品精修预览" title="双击查看预览"><img data-retouch-result alt="精修结果" draggable="false"></div>
         <p class="product-retouch-preview-unavailable" data-retouch-result-unavailable hidden>暂时无法预览精修结果</p>
-        <img class="product-retouch-compare-original" data-retouch-original alt="本次精修使用的原图" decoding="async" draggable="false">
+        <img class="product-retouch-compare-original" data-retouch-original alt="本次精修使用的原图" decoding="async" draggable="false" hidden>
         <div class="product-retouch-compare-labels" aria-hidden="true"><span>原图</span><span>精修</span></div>
         <div class="product-retouch-compare-divider" aria-hidden="true"><span>${handleIcon}</span></div>
-        <input type="range" min="0" max="100" value="50" aria-label="调整原图与精修的对照分界" data-retouch-compare-slider data-node-read-action>
-    </div>
-    <div class="product-retouch-compare-switch" role="group" aria-label="切换对照图片" hidden>
-        <button type="button" data-retouch-card-view="original" data-node-read-action aria-pressed="false">原图</button>
-        <button type="button" data-retouch-card-view="result" data-node-read-action aria-pressed="true">精修</button>
+        <input type="range" min="0" max="100" value="50" aria-label="调整原图与精修的对照分界" data-retouch-compare-slider data-node-read-action hidden>
     </div>`;
 }
 
@@ -48,7 +44,7 @@ function updateSplit(slider, frame) {
     slider.setAttribute('aria-valuetext', `原图 ${100 - resultPercent}%，精修 ${resultPercent}%`);
 }
 
-function openComparisonDialog({ documentRef, originalUrl, resultUrl, startView, splitValue, restoreFocus, openResultPreview }) {
+function openComparisonDialog({ documentRef, originalUrl, resultUrl, splitValue, restoreFocus, openResultPreview }) {
     const dialog = documentRef.createElement('div');
     const headingId = `product-retouch-comparison-${++dialogSequence}`;
     dialog.className = 'modal-overlay product-retouch-compare-dialog';
@@ -95,7 +91,7 @@ function openComparisonDialog({ documentRef, originalUrl, resultUrl, startView, 
     const backdrop = createBackdropDismissalGuard({ overlay: dialog, panel: dialog.firstElementChild });
     const surfaces = getSurfaceCoordinator(documentRef);
     const windowRef = documentRef.defaultView;
-    let preferredView = originalUrl ? startView : 'result';
+    let preferredView = originalUrl ? 'split' : 'result';
     let currentImage = result;
 
     function update() {
@@ -178,14 +174,11 @@ export function createProductRetouchComparison({ card, inspect, hint, documentRe
     const result = stage.querySelector('[data-retouch-result]');
     const original = stage.querySelector('[data-retouch-original]');
     const slider = stage.querySelector('[data-retouch-compare-slider]');
-    const switcher = card.querySelector('.product-retouch-compare-switch');
-    const buttons = [...switcher.querySelectorAll('button')];
     const hintText = hint.querySelector('span');
     const retryOriginalButton = hint.querySelector('[data-retouch-retry-original]');
     const retryResultButton = hint.querySelector('[data-retouch-retry-result]');
     const events = new windowRef.AbortController();
     let resultUrl = '', originalUrl = '';
-    let view = 'result';
     let originalFailed = false, resultFailed = false;
     let retryCount = 0;
     let closeDialog = null;
@@ -208,23 +201,22 @@ export function createProductRetouchComparison({ card, inspect, hint, documentRe
     function focusVisible(...candidates) {
         for (const candidate of candidates) {
             if (!candidate?.checkVisibility() || candidate.closest('[inert]')) continue;
-            const visibleTarget = candidate === slider ? stage : candidate;
-            if (card.contains(candidate) && !visibleOnCanvas(visibleTarget.getBoundingClientRect())) continue;
+            if (card.contains(candidate)) {
+                const rect = candidate.getBoundingClientRect();
+                const canFocusPart = candidate === preview && !inspect.checkVisibility() && !sidebars.some(sidebarOpen);
+                if (!(canFocusPart ? overlapsRect(visibleBounds(), rect) : visibleOnCanvas(rect))) continue;
+            }
             candidate.focus({ preventScroll: true });
             return;
         }
     }
-    function setMode(mode) {
+    function setSplitEnabled(split) {
+        const mode = split ? 'split' : 'none';
         if (stage.dataset.comparison === mode) return;
-        const active = documentRef.activeElement;
+        const returnFocus = !split && documentRef.activeElement === slider;
         stage.dataset.comparison = mode;
-        slider.hidden = mode !== 'split';
-        switcher.hidden = mode !== 'switch';
-        if (active === slider && slider.hidden || buttons.includes(active) && switcher.hidden) {
-            const replacement = mode === 'split' ? slider
-                : mode === 'switch' ? buttons.find(button => button.dataset.retouchCardView === view) : preview;
-            focusVisible(replacement, inspect, retryResultButton);
-        }
+        original.hidden = slider.hidden = !split;
+        if (returnFocus) focusVisible(preview, inspect, retryResultButton);
     }
     function scheduleLayout() {
         if (!matchingFrame || frameRequest !== null || sliderPointer !== null) return;
@@ -235,7 +227,7 @@ export function createProductRetouchComparison({ card, inspect, hint, documentRe
             // Measure the transformed card in the clipped canvas. Window width
             // alone cannot account for the dock or for zooming the node.
             const fits = windowRef.innerWidth > 800 && rect.width >= 180 && rect.height >= 96 && visibleOnCanvas(rect);
-            setMode(fits ? 'split' : 'switch');
+            setSplitEnabled(fits);
         });
     }
     const resizeObserver = windowRef.ResizeObserver ? new windowRef.ResizeObserver(scheduleLayout) : null;
@@ -252,24 +244,16 @@ export function createProductRetouchComparison({ card, inspect, hint, documentRe
         if (sidebars.some(sidebarOpen)) scheduleLayout();
     }, { signal: events.signal });
 
-    function show(next) {
-        view = next;
-        stage.dataset.retouchView = view;
-        for (const button of buttons) button.setAttribute('aria-pressed', String(button.dataset.retouchCardView === view));
-    }
     function sync() {
         const active = documentRef.activeElement;
         const hasResult = Boolean(resultUrl && imageReady(result) && !resultFailed);
-        const ready = Boolean(hasResult && originalUrl && imageReady(original) && !originalFailed);
-        // A provider can return a different frame. Offer full-image switching
-        // whenever the two frames cannot be meaningfully overlaid.
-        matchingFrame = ready && matchingImageFrames(original, result);
+        // Different frames can still be viewed separately in the dialog.
+        matchingFrame = Boolean(hasResult && originalUrl && !originalFailed && matchingImageFrames(original, result));
         stage.hidden = !resultUrl;
         preview.hidden = !hasResult;
         unavailable.hidden = !resultUrl || hasResult;
         const previewStatus = resultFailed ? '暂时无法预览精修结果' : '正在读取精修结果…';
         if (unavailable.textContent !== previewStatus) unavailable.textContent = previewStatus;
-        original.hidden = !ready;
         inspect.hidden = !resultUrl || resultFailed;
         inspect.setAttribute('aria-disabled', String(!hasResult));
         const label = originalUrl && !originalFailed ? '查看对照' : '查看精修结果';
@@ -281,7 +265,7 @@ export function createProductRetouchComparison({ card, inspect, hint, documentRe
         retryOriginalButton.hidden = resultFailed || !originalFailed || !originalUrl;
         retryResultButton.hidden = !resultFailed || !resultUrl.startsWith('/api/storage/assets/');
         if (matchingFrame) scheduleLayout();
-        else setMode(ready ? 'switch' : 'none');
+        else setSplitEnabled(false);
         if (resultFailed && (active === inspect || active === preview)) focusVisible(retryResultButton);
     }
     function retryImage(image, source) {
@@ -327,12 +311,10 @@ export function createProductRetouchComparison({ card, inspect, hint, documentRe
     slider.addEventListener('lostpointercapture', endSliderGesture);
     slider.addEventListener('mousedown', event => event.stopPropagation());
     slider.addEventListener('input', () => updateSplit(slider, stage));
-    for (const button of buttons) button.addEventListener('click', () => show(button.dataset.retouchCardView));
     function inspectResult(trigger) {
         if (inspect.getAttribute('aria-disabled') === 'true') return;
-        const startView = trigger === preview && view === 'original' && stage.dataset.comparison === 'switch' ? 'original' : 'split';
         closeDialog = openComparisonDialog({ documentRef, originalUrl: originalUrl ? original.src : '', resultUrl: result.src,
-            startView, splitValue: slider.value, restoreFocus: () => focusVisible(trigger, inspect, preview, retryResultButton), openResultPreview });
+            splitValue: slider.value, restoreFocus: () => focusVisible(trigger, inspect, preview, retryResultButton), openResultPreview });
     }
     preview.addEventListener('dblclick', event => {
         if (event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -362,7 +344,6 @@ export function createProductRetouchComparison({ card, inspect, hint, documentRe
                 if (resultChanged) resultFailed = false;
                 slider.value = '50';
                 updateSplit(slider, stage);
-                show('result');
                 if (resultChanged) setImageSource(result, resultUrl);
                 if (originalChanged) setImageSource(original, originalUrl);
             }

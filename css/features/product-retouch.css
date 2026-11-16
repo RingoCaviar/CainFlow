@@ -79,7 +79,7 @@
     clip-path: inset(0 calc(100% - var(--retouch-visible-original-share)) 0 0);
 }
 
-.product-retouch-compare-stage:is([data-comparison="split"], [data-comparison="switch"]) [data-retouch-result] {
+.product-retouch-compare-stage[data-comparison="split"] [data-retouch-result] {
     clip-path: inset(0 0 0 var(--retouch-visible-original-share));
 }
 
@@ -165,18 +165,6 @@
 
 .product-retouch-compare-stage:not([data-comparison="split"]) :is(.product-retouch-compare-labels, .product-retouch-compare-divider) {
     display: none;
-}
-
-.product-retouch-compare-stage[data-comparison="switch"] { --retouch-visible-original-share: 0%; }
-.product-retouch-compare-stage[data-comparison="switch"][data-retouch-view="original"] { --retouch-visible-original-share: 100%; }
-
-.product-retouch-compare-switch {
-    display: flex;
-    justify-content: center;
-    gap: 4px;
-    width: 100%;
-    padding: 6px;
-    background: var(--surface-panel);
 }
 
 html:root #canvas-container .node.node-product-retouch.node-media-aspect { border: 0; }
@@ -443,7 +431,6 @@ html:root #canvas-container .node.node-product-retouch.node-media-aspect { borde
 
 .product-retouch-footer .product-retouch-run:disabled { opacity: .6; cursor: default; }
 
-.product-retouch-compare-switch button,
 .product-retouch-compare-dialog button,
 .product-retouch-footer .product-retouch-inspect {
     min-height: 34px;
@@ -455,7 +442,6 @@ html:root #canvas-container .node.node-product-retouch.node-media-aspect { borde
     cursor: pointer;
 }
 
-.product-retouch-compare-switch button:is(:hover, [aria-pressed="true"]),
 .product-retouch-compare-dialog button:not(:disabled):is(:hover, [aria-pressed="true"]),
 .product-retouch-footer .product-retouch-inspect:not([aria-disabled="true"]):hover {
     border-color: var(--accent-primary);
@@ -465,7 +451,7 @@ html:root #canvas-container .node.node-product-retouch.node-media-aspect { borde
 .product-retouch-compare-dialog button:disabled,
 .product-retouch-footer .product-retouch-inspect[aria-disabled="true"] { opacity: .6; cursor: default; }
 
-:is(.product-retouch-compare-switch, .product-retouch-compare-dialog) button[aria-pressed="true"] { font-weight: 650; }
+.product-retouch-compare-dialog button[aria-pressed="true"] { font-weight: 650; }
 
 .product-retouch-compare-dialog { background: var(--overlay-backdrop); }
 
