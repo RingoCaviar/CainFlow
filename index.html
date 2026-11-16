@@ -246,7 +246,7 @@
                 </div>
             </div>
             <div class="toolbar-canvas-only toolbar-action-group toolbar-run-group" role="group" aria-label="运行控制">
-                <button id="btn-run" class="btn btn-run" title="运行当前工作流 (Ctrl+Enter)">
+                <button id="btn-run" class="btn btn-run" title="运行整个工作流（画布获得焦点后 Ctrl+Enter）" aria-label="运行整个工作流">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                     运行
                 </button>
@@ -519,7 +519,7 @@
                     <h2 id="canvas-empty-title">从这里开始创作</h2>
                     <p>添加节点搭建工作流，或让助手帮你规划画面。</p>
                     <div class="canvas-empty-actions">
-                        <button id="canvas-add-first-node" class="btn btn-primary" type="button">添加第一个节点</button>
+                        <button id="canvas-add-first-node" class="btn btn-primary" type="button" aria-haspopup="dialog" aria-controls="connection-create-popup" aria-expanded="false">添加第一个节点</button>
                         <button id="canvas-open-agent" class="btn btn-secondary" type="button">让助手创建</button>
                         <button id="canvas-configure-models" class="btn btn-ghost" type="button">配置模型</button>
                     </div>
@@ -556,6 +556,10 @@
                 <!-- Nodes layer -->
                 <div id="nodes-layer"></div>
                 <div id="canvas-navigation" role="group" aria-label="画布导航">
+                    <button id="canvas-add-node" type="button" aria-label="添加节点" aria-keyshortcuts="Alt+N" aria-haspopup="dialog" aria-controls="connection-create-popup" aria-expanded="false" title="添加节点（Alt+N）" hidden>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                        <span>添加节点</span>
+                    </button>
                     <div class="canvas-node-search"><input type="search" aria-label="搜索当前工作流节点" placeholder="搜索节点名称或类型…"><div class="canvas-node-results"></div></div>
                     <button class="canvas-node-search-toggle" type="button" data-nav="search" aria-expanded="false" aria-label="查找节点" title="查找当前工作流节点">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" focusable="false">
@@ -980,7 +984,7 @@
     </div>
 
     <!-- Modals & Context Menus (Fixed Overlays) -->
-    <div id="connection-create-popup" class="context-menu hidden"></div>
+    <section id="connection-create-popup" class="node-picker-panel hidden"></section>
 
     <div id="context-menu" class="context-menu hidden">
         <div id="context-menu-node-actions" style="display:none;">
@@ -1025,6 +1029,20 @@
                     <polygon points="15 15 21 12 15 9 15 15"></polygon>
                 </svg>
                 只运行选中的节点
+            </div>
+            <div class="context-menu-item" id="context-menu-trace-upstream" data-connection-trace="upstream">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="m10 7-5 5 5 5m-5-5h14"></path>
+                </svg>
+                追踪上游连线
+            </div>
+            <div class="context-menu-item" id="context-menu-trace-downstream" data-connection-trace="downstream">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="m14 7 5 5-5 5m-9-5h14"></path>
+                </svg>
+                追踪下游连线
             </div>
             <div class="context-menu-item" id="context-menu-preview-request-body">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"

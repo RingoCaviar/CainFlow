@@ -1,7 +1,7 @@
 import {
     COMMERCE_IMAGE_SET_ASPECTS, COMMERCE_IMAGE_SET_COPY_LANGUAGES, COMMERCE_IMAGE_SET_COPY_LIMITS,
     COMMERCE_IMAGE_SET_DEFAULT_ASPECTS, COMMERCE_IMAGE_SET_PRESETS, COMMERCE_PRODUCT_INFO_LIMITS,
-    getCommerceProductInfo, getSelectedCommerceImageSetShots, normalizeCommerceImageSetCopyLanguage,
+    getCommerceProductInfo, getSelectedCommerceImageSetShots, getUnfinishedCommerceImageSetShots, normalizeCommerceImageSetCopyLanguage,
     updateCommerceImageSetCopyLanguage, updateCommerceProductInfoField
 } from '../features/ecommerce-image-set/commerce-image-set-plan.js';
 import { getEffectiveProtocol, getModelProviders, getModelsForTask } from '../features/execution/provider-request-utils.js';
@@ -111,6 +111,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         <div class="commerce-image-set-actions">
             <button type="button" class="btn btn-primary" data-commerce-action="plan">生成方案</button>
             <button type="button" class="btn btn-primary" data-commerce-action="generate" hidden>确认并生成套图</button>
+            <button type="button" class="btn btn-primary" data-commerce-action="fill" hidden>补齐图位</button>
         </div>`;
     const fields = Object.fromEntries(Array.from(element.querySelectorAll('[data-commerce-field]'), control => [control.dataset.commerceField, control]));
     const productFields = Array.from(element.querySelectorAll('[data-commerce-product-field]'));
@@ -131,6 +132,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
     const shots = element.querySelector('.commerce-image-set-shots');
     const planButton = actions.querySelector('[data-commerce-action="plan"]');
     const generateButton = actions.querySelector('[data-commerce-action="generate"]');
+    const fillButton = actions.querySelector('[data-commerce-action="fill"]');
     const cancelAllButton = actions.querySelector('[data-commerce-action="cancel-all"]');
     const status = actions.querySelector('.commerce-image-set-status');
     const progressBar = actions.querySelector('progress');
@@ -440,15 +442,22 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         const selectionLabel = `${preset.label} · ${selectedShots.length} 个图位`;
         if (setupSelection.textContent !== selectionLabel) setupSelection.textContent = selectionLabel;
         const results = Array.isArray(value.results) ? value.results : [];
+        const unfinishedShots = getUnfinishedCommerceImageSetShots(value);
+        const hasCompleted = !!plan && unfinishedShots.length < plan.shots.length;
+        const showFill = hasCompleted && unfinishedShots.length > 0;
         const { completed: processed, total } = node.apiGenerationProgress || {};
+        const progressLabel = pendingAction?.action === 'fill' ? '正在补齐图位' : '正在生成图片';
         const progress = busy && !hasIndependentTasks && Number.isInteger(processed) && Number.isInteger(total)
-            && total > 0 && processed >= 0 && processed <= total ? `正在生成图片（${processed} / ${total}）` : '';
+            && total > 0 && processed >= 0 && processed <= total ? `${progressLabel}（${processed} / ${total}）` : '';
         const missingPrompt = plan?.shots.some(shot => shot.source === 'generate' && !shot.prompt?.trim());
         const currentPlan = !!plan?.sourceKey && !plan.stale && !copyLanguageChanged && plan.platformId === platformId && selectedShots.length > 0
             && plan.shots.length === selectedShots.length && plan.shots.every((shot, index) => (
                 shot.id === selectedShots[index].id && shot.aspect === selectedShots[index].aspect
             ));
         const readyToGenerate = currentPlan && !referenceIssue && (!needsImageModel || image.ready) && !missingPrompt;
+        const readyToFill = currentPlan && !referenceIssue && unfinishedShots.every(shot => (
+            shot.source === 'reference' || image.ready && shot.prompt?.trim()
+        ));
         const readyToReplan = currentPlan && !referenceIssue && planner.ready;
         const canRetry = currentPlan && !referenceIssue && image.ready;
         setOptions(fields.platformId, Object.values(COMMERCE_IMAGE_SET_PRESETS).map(item => [item.id, item.label]), platformId);
@@ -489,6 +498,17 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         planButton.disabled = locked || !selectedShots.length || !!referenceIssue || !planner.ready;
         generateButton.hidden = !currentPlan;
         generateButton.disabled = locked || !readyToGenerate;
+        const confirmation = plan?.confirmed ? '' : '确认并';
+        const generateLabel = `${confirmation}${hasCompleted ? '重做整套' : '生成套图'}`;
+        if (generateButton.textContent !== generateLabel) generateButton.textContent = generateLabel;
+        generateButton.classList.toggle('btn-primary', !showFill);
+        generateButton.classList.toggle('btn-secondary', showFill);
+        fillButton.hidden = !currentPlan || !showFill;
+        fillButton.disabled = locked || !showFill || !readyToFill;
+        if (showFill) {
+            const label = `${confirmation}补齐 ${unfinishedShots.length} 个图位`;
+            if (fillButton.textContent !== label) fillButton.textContent = label;
+        }
         actionButtons.hidden = busy;
         const restoreFooterFocus = !busy && documentRef.activeElement === cancelAllButton;
         cancelAllButton.hidden = !busy || unavailable;
@@ -508,7 +528,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         const statusMessage = busy ? (cancelingAll ? '正在取消套图任务…' : progress || activeShotLabel || runMessage || runningLabel) : runMessage || hint;
         if (status.textContent !== statusMessage) status.textContent = statusMessage;
         if (restoreFooterFocus) {
-            const target = !generateButton.hidden && !generateButton.disabled ? generateButton : !planButton.disabled ? planButton : status;
+            const target = [fillButton, generateButton, planButton].find(button => !button.hidden && !button.disabled) || status;
             target.focus({ preventScroll: true });
         }
         const completed = results.filter(result => result.status === 'completed' && !getShotPreview(result.shotId));
@@ -627,9 +647,13 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         pendingAction = { action };
         runMessage = action === 'analyze' ? '正在分析产品…'
             : action === 'plan' ? '正在分析产品并规划套图…'
-                : '正在生成图片…';
+                : action === 'fill' ? '正在补齐图位…' : '正在生成图片…';
         if (action === 'generate') {
             shotNotices.clear();
+        } else if (action === 'fill') {
+            for (const { id } of getUnfinishedCommerceImageSetShots(config())) shotNotices.delete(id);
+        }
+        if (action === 'generate' || action === 'fill') {
             config().plan.confirmed = true;
             onChange();
         }

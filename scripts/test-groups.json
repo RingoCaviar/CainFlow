@@ -341,6 +341,7 @@
     "tests/connection-target-snap.test.mjs": {"tier": "fast", "groups": ["canvas"]},
     "tests/connections-restore.test.mjs": {"tier": "fast", "groups": ["canvas"]},
     "tests/context-menu-contract.test.mjs": {"tier": "fast", "groups": ["ui"]},
+    "tests/commerce-run-preflight.test.mjs": {"tier": "fast", "groups": ["canvas", "nodes", "workflow"]},
     "tests/conversation-api.test.mjs": {"tier": "fast", "groups": ["conversation"]},
     "tests/conversation-browser-send-smoke.test.mjs": {"tier": "browser", "groups": ["conversation"]},
     "tests/conversation-canvas-materialization.test.mjs": {"tier": "fast", "groups": ["conversation", "canvas"]},
@@ -364,7 +365,7 @@
     "tests/dialog-style-1-abort.test.mjs": {"tier": "fast", "groups": ["ui"]},
     "tests/disk-cache-quota.test.mjs": {"tier": "fast", "groups": ["media"]},
     "tests/disk-storage-concurrent-save.test.mjs": {"tier": "fast", "groups": ["workflow", "media"]},
-    "tests/ecommerce-image-set-app-browser.test.mjs": {"tier": "browser", "groups": ["canvas", "nodes", "media", "workflow"], "sources": ["index.html", "css/components/form-controls.css", "css/features/image-first-canvas.css", "css/layout/workbench.css", "js/app/bootstrap-impl.js", "js/features/ecommerce-image-set/commerce-image-set-plan.js", "js/features/execution/execution-core.js", "js/features/execution/workflow-runner.js", "js/features/ui/image-first-canvas.js", "js/features/workflow/workflow-runtime-manager.js", "js/nodes/commerce-image-set-view.js", "js/nodes/types/commerce-image-set.js", "js/nodes/image-first-presentation.js", "js/nodes/node-lifecycle.js", "js/nodes/node-media-aspect.js", "js/nodes/node-serializer.js", "js/nodes/node-view-factory.js", "js/nodes/reference-image-ports.js", "js/nodes/registry.js", "js/nodes/universal-input-policy.js"]},
+    "tests/ecommerce-image-set-app-browser.test.mjs": {"tier": "browser", "groups": ["canvas", "nodes", "media", "workflow"], "sources": ["index.html", "css/components/form-controls.css", "css/features/image-first-canvas.css", "css/layout/workbench.css", "js/app/bootstrap-impl.js", "js/features/ecommerce-image-set/commerce-image-set-plan.js", "js/features/execution/commerce-run-preflight.js", "js/features/execution/execution-core.js", "js/features/execution/workflow-runner.js", "js/features/ui/canvas-run-scope.js", "js/features/ui/image-first-canvas.js", "js/features/workflow/workflow-runtime-manager.js", "js/nodes/commerce-image-set-view.js", "js/nodes/types/commerce-image-set.js", "js/nodes/image-first-presentation.js", "js/nodes/node-lifecycle.js", "js/nodes/node-media-aspect.js", "js/nodes/node-serializer.js", "js/nodes/node-view-factory.js", "js/nodes/reference-image-ports.js", "js/nodes/registry.js", "js/nodes/universal-input-policy.js"]},
     "tests/ecommerce-image-set-execution.test.mjs": {"tier": "fast", "groups": ["nodes", "media", "workflow"]},
     "tests/ecommerce-image-set-plan.test.mjs": {"tier": "fast", "groups": ["nodes", "media"]},
     "tests/product-retouch-app-browser.test.mjs": {"tier": "browser", "groups": ["canvas", "nodes", "media", "workflow"], "sources": ["index.html", "index.css", "css/features/image-first-canvas.css", "css/features/product-retouch.css", "css/layout/workbench.css", "js/app/bootstrap-impl.js", "js/features/media/media-controller.js", "js/features/workflow/workflow-manager.js", "js/features/product-retouch/product-retouch-settings.js", "js/features/execution/execution-core.js", "js/features/execution/workflow-runner.js", "js/features/ui/image-first-canvas.js", "js/features/workflow/workflow-runtime-manager.js", "js/nodes/product-retouch-view.js", "js/nodes/product-retouch-comparison-view.js", "js/features/product-retouch/product-retouch-comparison.js", "js/features/ui/surface-coordinator.js", "js/nodes/types/product-retouch.js", "js/nodes/image-first-presentation.js", "js/nodes/node-dom-bindings.js", "js/nodes/node-lifecycle.js", "js/nodes/node-media-aspect.js", "js/nodes/node-serializer.js", "js/nodes/node-view-factory.js", "js/nodes/registry.js", "js/nodes/universal-input-policy.js"]},
@@ -403,7 +404,7 @@
     "tests/image-compare-media-state.test.mjs": {"tier": "fast", "groups": ["media", "nodes"]},
     "tests/image-context-menu.test.mjs": {"tier": "fast", "groups": ["media", "nodes", "ui"]},
     "tests/image-first-async-identity.test.mjs": {"tier": "fast", "groups": ["media", "nodes"]},
-    "tests/image-first-canvas-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes", "canvas"], "sources": ["css/components/form-controls.css"]},
+    "tests/image-first-canvas-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes", "canvas"], "sources": ["css/components/form-controls.css", "css/layout/workbench.css", "js/features/ui/canvas-run-scope.js"]},
     "tests/image-first-canvas-gestures-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes", "canvas"]},
     "tests/image-first-clone-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"]},
     "tests/image-first-integrated-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes", "agent"]},
@@ -673,7 +674,7 @@
     "tests/workflow-visible-node-layout.test.mjs": {"tier": "fast", "groups": ["workflow", "nodes", "canvas", "ui"]},
     "tests/workspace-mode-controller.test.mjs": {"tier": "fast", "groups": ["canvas"]},
     "tests/workspace-polish-browser.test.mjs": {"tier": "browser", "groups": ["canvas", "ui"]},
-    "tests/ux-ui-improvements-app-browser.test.mjs": {"tier": "browser", "groups": ["canvas", "ui", "settings", "workflow", "nodes"], "sources": ["css/components/form-controls.css", "js/features/prompt-agent/prompt-agent-controller.js"]},
+    "tests/ux-ui-improvements-app-browser.test.mjs": {"tier": "browser", "groups": ["canvas", "ui", "settings", "workflow", "nodes"], "sources": ["css/components/form-controls.css", "js/features/help/help-panel.js", "js/features/prompt-agent/prompt-agent-controller.js", "js/features/ui/workflow-toolbar-status.js"]},
     "tests/model-configuration-readiness.test.mjs": {"tier": "fast", "groups": ["nodes", "settings", "workflow"]}
   }
 }

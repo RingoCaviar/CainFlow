@@ -206,8 +206,9 @@ test('parameter overlay follows a held canvas pan and clamps before release with
         const snapshot = () => app.evaluate(`(()=>{
             const panel=document.getElementById('image-parameter-panel'), rect=panel.getBoundingClientRect();
             const node=document.getElementById('gesture-image').getBoundingClientRect();
-            return {left:rect.left,top:rect.top,right:rect.right,bottom:rect.bottom,panelHeight:rect.height,nodeLeft:node.left,
-                width:innerWidth,height:innerHeight};
+            const navigation=document.getElementById('canvas-navigation').getBoundingClientRect();
+            return {left:rect.left,top:rect.top,right:rect.right,bottom:rect.bottom,panelHeight:rect.height,
+                nodeLeft:node.left,nodeTop:node.top,width:innerWidth,height:innerHeight,navigationTop:navigation.top};
         })()`);
         await app.evaluate(`window.panPrompt=document.getElementById('gesture-image-prompt');
             panPrompt.value='retained draft';panPrompt.focus();panPrompt.setSelectionRange(2,5);`);
@@ -232,6 +233,7 @@ test('parameter overlay follows a held canvas pan and clamps before release with
             }
         })()`);
         const start = { x: 850, y: 180 };
+        const edgePoint = { x: before.width - 80, y: before.height - 100 };
         const pan = async (type, x, y) => app.send('Input.dispatchMouseEvent', {
             type, x, y, button: type === 'mouseMoved' ? 'none' : 'middle',
             buttons: type === 'mouseReleased' ? 0 : 4, clickCount: 1
@@ -240,7 +242,6 @@ test('parameter overlay follows a held canvas pan and clamps before release with
         try {
             await pan('mouseMoved', start.x + 60, start.y + 40);
             await app.waitFor(`document.getElementById('gesture-image').getBoundingClientRect().left > ${before.nodeLeft + 30}`);
-            await delay(80);
             const during = await snapshot();
             assert.ok(Math.abs(during.left - before.left - 60) < 2, 'overlay moves while middle button remains held');
             const stableReads = [];
@@ -252,11 +253,14 @@ test('parameter overlay follows a held canvas pan and clamps before release with
             }
             assert.deepEqual(stableReads, [0, 0, 0],
                 'each warm pan frame reuses the measured node, viewport and overlay rectangles');
-            await pan('mouseMoved', start.x + 300, start.y + 1000);
-            await delay(80);
+            const framesBeforeEdge = await app.evaluate('panFrameLayoutReads.length');
+            await pan('mouseMoved', edgePoint.x, edgePoint.y);
+            await app.waitFor(`panFrameLayoutReads.length > ${framesBeforeEdge}`);
             const edge = await snapshot();
-            assert.ok(edge.left >= 0 && edge.right <= edge.width && edge.bottom <= edge.height,
-                'overlay stays in the viewport before releasing the mouse');
+            assert.ok(Math.abs(edge.nodeTop - before.nodeTop - (edgePoint.y - start.y)) < 2,
+                'the final held input moved the node by the expected distance');
+            assert.ok(edge.left >= 0 && edge.right <= edge.width && Math.abs(edge.bottom - (edge.navigationTop - 8)) < 2,
+                `overlay clamps above canvas navigation while the middle button remains held: ${JSON.stringify(edge)}`);
             await app.evaluate("document.querySelector('#image-parameter-panel .image-parameter-footer').style.paddingBottom='56px'");
             await app.waitFor(`(() => {
                 const rect = document.getElementById('image-parameter-panel').getBoundingClientRect();
@@ -269,7 +273,7 @@ test('parameter overlay follows a held canvas pan and clamps before release with
                 value:panPrompt.value,start:panPrompt.selectionStart,end:panPrompt.selectionEnd})`),
                 { same: true, value: 'retained draft', start: 2, end: 5 });
         } finally {
-            await pan('mouseReleased', start.x + 300, start.y + 1000);
+            await pan('mouseReleased', edgePoint.x, edgePoint.y);
         }
     });
 });

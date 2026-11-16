@@ -1,7 +1,7 @@
 /**
  * 负责节点端口连线的创建、删除、渲染与样式更新，是画布连接关系的核心实现。
  */
-import { getFirstCompatibleDefinitionPort, listNodeDefinitions } from '../nodes/registry.js';
+import { getFirstCompatibleDefinitionPort, getNodeDefinition, getNodeDefinitionPorts, listNodeDefinitions } from '../nodes/registry.js';
 import { createCanvasConnectionRenderer } from './canvas-connection-renderer.js';
 import { checkLineIntersection, getBezierCurveGeometry } from './geometry.js';
 import { orderImageReferenceConnections } from '../nodes/image-reference-projection.js';
@@ -18,7 +18,8 @@ import {
 } from '../nodes/generation-input-projection.js';
 import { getGenerationInputProtocolId, getModelsForTask } from '../features/execution/provider-request-utils.js';
 import { getProtocol } from '../features/execution/protocols/index.js';
-import { isUniversalInputNode, resolveUniversalInput, planCompareInputSwap, planMoveMergeInput } from '../nodes/universal-input-policy.js';
+import { getUniversalInputRoles, isUniversalInputNode, resolveUniversalInput, planCompareInputSwap, planMoveMergeInput } from '../nodes/universal-input-policy.js';
+import { getSurfaceCoordinator } from '../features/ui/surface-coordinator.js';
 
 export function createConnectionsApi({
     state,
@@ -119,6 +120,7 @@ export function createConnectionsApi({
     const INSERTION_PREVIEW_PADDING = 24;
     const CONNECTION_HIT_CELL_SIZE = 256;
     const CONNECTION_HIT_CELL_LIMIT = 32;
+    const CONNECTION_PICK_RADIUS = 8;
     const CONNECTION_BOUNDS_PADDING = 100;
     const OUTPUT_PORT_TRANSITION = 28;
     const INPUT_PORT_TURN_LEAD = 72;
@@ -140,6 +142,11 @@ export function createConnectionsApi({
     let targetFeedback = null;
     let nearestTargetPort = null;
     let batchDragPreview = null;
+    let batchDragPreviewWidth = 0;
+    let connectionHint = null;
+    let closeKeyboardConnection = null;
+    let inspectedConnection = null;
+    const tracedConnectionIds = new Set();
     const highlightedTargetPorts = new Set();
     let targetLayoutObserver = null;
     let targetLayoutLayer = null;
@@ -197,6 +204,14 @@ export function createConnectionsApi({
         indexedConnections = state.connections;
         indexedConnectionCount = indexedConnections.length;
         invalidateConnectionLaneCache();
+        if (inspectedConnection) {
+            const connection = connectionById.get(inspectedConnection.id);
+            if (!connection && !getNodeById(inspectedConnection.nodeId)) clearConnectionInspection();
+            else {
+                updateConnectionDetails(connection);
+                updateConnectionTrace(inspectedConnection.direction);
+            }
+        }
     }
 
     function exportConnectionProjection() {
@@ -212,6 +227,7 @@ export function createConnectionsApi({
     }
 
     function adoptConnectionProjection(projection = []) {
+        clearConnectionInspection();
         translatedPaths.clear();
         pathById.forEach((path) => path.remove?.());
         pathById.clear();
@@ -758,6 +774,7 @@ export function createConnectionsApi({
         observedEndpoints.clear();
         translatedPaths.clear();
         clearConnectionTargetFeedback();
+        clearConnectionInspection();
         stopFlowAnimation();
         flowDecorationById.forEach((decoration) => decoration.group?.remove?.());
         flowDecorationById.clear();
@@ -927,9 +944,13 @@ export function createConnectionsApi({
     function getPopupCandidatePort(source, definition, direction) {
         if (direction === 'output' && isUniversalInputNode(getNodeById(source.nodeId))) {
             const targetNode = getNodeById(source.nodeId);
-            return (definition.outputs || []).find(port => !resolveUniversalInput({ state,
-                sourceNode: { id: Symbol('candidate-source'), type: definition.type, data: {} }, sourcePort: port.name,
-                sourceType: port.type, targetNode, role: source.portName }).error) || null;
+            const sourceNode = { id: Symbol('candidate-source'), type: definition.type, data: {} };
+            for (const port of definition.outputs || []) {
+                const policy = resolveUniversalInput({ state, sourceNode, sourcePort: port.name,
+                    sourceType: port.type, targetNode, role: source.portName });
+                if (!policy.error) return { ...port, destinationPort: policy.port };
+            }
+            return null;
         }
         if (direction === 'input' && definition.type === 'ImageGenerate') {
             const models = getModelsForTask(state.models || [], 'image');
@@ -967,11 +988,16 @@ export function createConnectionsApi({
             .map((definition) => {
                 const port = getPopupCandidatePort(source, definition, direction);
                 if (!port) return null;
+                const destinationPort = direction === 'input' ? port.name : (port.destinationPort || source.portName);
                 return {
                     type: definition.type,
                     title: definition.title || definition.type,
                     matchPortName: port.name,
-                    matchDirection: direction
+                    matchLabel: direction === 'input'
+                        ? getUniversalInputRoles({ type: definition.type }).find(([name]) => name === port.name)?.[1] || port.label
+                        : `${port.label} · 接入${getPortLabel(getNodeById(source.nodeId), destinationPort, 'input')}`,
+                    matchDirection: direction,
+                    destinationPort
                 };
             })
             .filter(Boolean);
@@ -992,7 +1018,9 @@ export function createConnectionsApi({
             return false;
         }
         const currentCandidate = getCompatibleNodeTypeCandidates(source).find((entry) => entry.type === candidate.type);
-        if (!currentCandidate) {
+        if (!currentCandidate || currentCandidate.matchPortName !== candidate.matchPortName
+            || currentCandidate.matchDirection !== candidate.matchDirection
+            || currentCandidate.destinationPort !== candidate.destinationPort) {
             showToast('节点配置已变化，请重新拖线创建节点', 'warning');
             return false;
         }
@@ -1029,7 +1057,14 @@ export function createConnectionsApi({
             const targetPort = getPortElement(targetNode, currentCandidate.matchPortName, currentCandidate.matchDirection);
             const target = { nodeId, port: currentCandidate.matchPortName,
                 type: targetPort?.dataset.type || source.dataType, dir: currentCandidate.matchDirection };
-            const connected = finishConnection({ ...source, dragged: false, historyPushed: true }, target);
+            const liveSource = { ...source, dragged: false, historyPushed: true };
+            const resolved = resolveConnection(liveSource, target, null, state);
+            if (!targetPort || (!resolved.error && resolved.toPort !== currentCandidate.destinationPort)) {
+                rollback();
+                showToast('输入用途已变化，请重新拖线创建节点', 'warning');
+                return false;
+            }
+            const connected = finishConnection(liveSource, target);
             if (!connected) {
                 rollback();
                 return false;
@@ -1147,6 +1182,156 @@ export function createConnectionsApi({
             }
         }
         return hits;
+    }
+
+    function pickConnectionAt(clientX, clientY, paintedId) {
+        if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+        if (state.connections !== indexedConnections || state.connections.length !== indexedConnectionCount) ensureConnectionIndex();
+        if (connectionById.has(paintedId) && pathById.get(paintedId)?.getAttribute('d')) return paintedId;
+        if (typeof getConnectionSamplePoints !== 'function') return null;
+        const rect = canvasContainer.getBoundingClientRect();
+        const { x, y, zoom } = state.canvas;
+        const point = { x: (clientX - rect.left - x) / zoom, y: (clientY - rect.top - y) / zoom };
+        const radius = CONNECTION_PICK_RADIUS / zoom;
+        const bounds = expandBounds({ left: point.x, right: point.x, top: point.y, bottom: point.y }, radius);
+        let best = null;
+        let laneById;
+        for (const { connection, order } of getNearbyConnections(getConnectionHitIndex(), bounds)) {
+            if (!pathById.get(connection.id)?.getAttribute('d')) continue;
+            laneById ??= getConnectionLaneMap();
+            const { samplePoints } = getConnectionHitGeometry(connection, rect, laneById);
+            let distance = Infinity;
+            for (let i = 1; i < samplePoints.length; i++) {
+                distance = Math.min(distance, getDistancePointToSegment(point, samplePoints[i - 1], samplePoints[i]));
+            }
+            if (distance <= radius && (!best || distance < best.distance || (distance === best.distance && order > best.order))) {
+                best = { id: connection.id, distance, order };
+            }
+        }
+        return best?.id || null;
+    }
+
+    function nodeConnectionTitle(nodeId) {
+        const node = getNodeById(nodeId);
+        return node?.customTitle || getNodeDefinition(node?.type)?.title || node?.type || nodeId;
+    }
+
+    function updateConnectionDetails(connection) {
+        const { endpoints, role, nodeId } = inspectedConnection;
+        endpoints.textContent = connection
+            ? `${nodeConnectionTitle(connection.from.nodeId)} → ${nodeConnectionTitle(connection.to.nodeId)}`
+            : nodeConnectionTitle(nodeId);
+        role.hidden = !connection;
+        role.textContent = connection ? `接入 · ${getPortLabel(getNodeById(connection.to.nodeId), connection.to.port, 'input')}` : '';
+    }
+
+    function updateConnectionTrace(direction) {
+        const { id, nodeId, buttons, summary } = inspectedConnection;
+        const connection = connectionById.get(id);
+        const next = new Set();
+        if (direction && (connection || nodeId)) {
+            const upstream = direction === 'upstream';
+            const pending = [nodeId || (upstream ? connection.from.nodeId : connection.to.nodeId)];
+            const visited = new Set();
+            while (pending.length) {
+                const ancestor = pending.pop();
+                if (visited.has(ancestor)) continue;
+                visited.add(ancestor);
+                for (const edgeId of connectionsByNodeId.get(ancestor) || []) {
+                    if (edgeId === id) continue;
+                    const edge = connectionById.get(edgeId);
+                    const endpoint = upstream ? edge.to : edge.from;
+                    if (endpoint?.nodeId !== ancestor) continue;
+                    next.add(edgeId);
+                    pending.push(upstream ? edge.from.nodeId : edge.to.nodeId);
+                }
+            }
+        }
+        for (const edgeId of tracedConnectionIds) {
+            if (next.has(edgeId)) continue;
+            pathById.get(edgeId)?.classList.remove('connection-traced');
+            tracedConnectionIds.delete(edgeId);
+        }
+        for (const edgeId of next) {
+            if (tracedConnectionIds.has(edgeId)) continue;
+            tracedConnectionIds.add(edgeId);
+            pathById.get(edgeId)?.classList.add('connection-traced');
+        }
+        inspectedConnection.direction = direction;
+        for (const [kind, button] of buttons) button.setAttribute('aria-pressed', String(direction === kind));
+        const label = direction === 'upstream' ? '上游' : '下游';
+        summary.textContent = direction ? (next.size ? `${label} · ${next.size} 条连线` : `没有更多${label}连线`) : '';
+        summary.hidden = !direction;
+    }
+
+    function clearConnectionInspection({ returnFocus = false, fromEscape = false } = {}) {
+        if (!inspectedConnection) return false;
+        const { id, panel } = inspectedConnection;
+        const focus = documentRef.activeElement;
+        const hadFocus = panel.contains(focus);
+        if (fromEscape && ((!hadFocus && focus !== canvasContainer) || getSurfaceCoordinator(documentRef)?.topModal())) return false;
+        updateConnectionTrace(null);
+        inspectedConnection = null;
+        pathById.get(id)?.classList.remove('connection-inspected');
+        panel.remove();
+        if (returnFocus && hadFocus) canvasContainer.focus({ preventScroll: true });
+        return true;
+    }
+
+    function inspectConnection(id, clientX, clientY) {
+        const connection = connectionById.get(id);
+        if (!connection) return false;
+        openConnectionDetails({ id, connection }, clientX, clientY);
+        inspectedConnection.panel.focus({ preventScroll: true });
+        return true;
+    }
+
+    function inspectConnectionsFromNode(nodeId, direction, clientX, clientY) {
+        if (!getNodeById(nodeId) || !['upstream', 'downstream'].includes(direction)) return false;
+        if (state.connections !== indexedConnections || state.connections.length !== indexedConnectionCount) ensureConnectionIndex();
+        openConnectionDetails({ nodeId }, clientX, clientY);
+        updateConnectionTrace(direction);
+        inspectedConnection.buttons.find(([kind]) => kind === direction)?.[1].focus({ preventScroll: true });
+        return true;
+    }
+
+    function openConnectionDetails({ id, nodeId, connection }, clientX, clientY) {
+        if (!inspectedConnection || inspectedConnection.id !== id || inspectedConnection.nodeId !== nodeId) {
+            clearConnectionInspection();
+            const panel = documentRef.createElement('section');
+            panel.className = 'canvas-connection-details';
+            panel.tabIndex = -1;
+            panel.setAttribute('aria-label', nodeId ? '连线路径' : '连线详情');
+            panel.setAttribute('aria-describedby', 'canvas-connection-endpoints canvas-connection-role');
+            panel.innerHTML = `<div class="canvas-connection-details-heading"><p id="canvas-connection-endpoints" data-connection-endpoints></p>
+                <button type="button" data-close-connection-details title="关闭连线详情" aria-label="关闭连线详情">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+                </button></div>
+                <p id="canvas-connection-role" data-connection-role></p>
+                <div class="canvas-connection-trace-actions">
+                    <button type="button" data-trace-direction="upstream" aria-pressed="false">追踪上游</button>
+                    <button type="button" data-trace-direction="downstream" aria-pressed="false">追踪下游</button>
+                </div><p data-connection-trace-summary role="status" hidden></p>`;
+            const buttons = [...panel.querySelectorAll('[data-trace-direction]')].map(button => [button.dataset.traceDirection, button]);
+            inspectedConnection = { id, nodeId, panel, direction: null, buttons, endpoints: panel.querySelector('[data-connection-endpoints]'),
+                role: panel.querySelector('[data-connection-role]'), summary: panel.querySelector('[data-connection-trace-summary]') };
+            panel.addEventListener('mousedown', event => event.stopPropagation());
+            panel.addEventListener('wheel', event => event.stopPropagation());
+            panel.addEventListener('keydown', event => event.stopPropagation());
+            panel.querySelector('[data-close-connection-details]').addEventListener('click', () => clearConnectionInspection({ returnFocus: true }));
+            for (const [direction, button] of buttons) {
+                button.addEventListener('click', () => updateConnectionTrace(inspectedConnection.direction === direction ? null : direction));
+            }
+            canvasContainer.appendChild(panel);
+            pathById.get(id)?.classList.add('connection-inspected');
+        }
+        updateConnectionDetails(connection);
+        const { panel } = inspectedConnection;
+        const bounds = canvasContainer.getBoundingClientRect();
+        panel.style.maxHeight = `${Math.max(32, bounds.height - 16)}px`;
+        const point = Number.isFinite(clientX) && Number.isFinite(clientY) ? { x: clientX, y: clientY }
+            : { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 };
+        positionPortSurface(panel, bounds, point, panel.offsetWidth);
     }
 
     function getConnectionInsertScore(samplePoints, bounds, center) {
@@ -1396,25 +1581,19 @@ export function createConnectionsApi({
         path = documentRef.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('data-conn-id', conn.id);
         path.classList.add('connection-path');
+        if (inspectedConnection?.id === conn.id) path.classList.add('connection-inspected');
+        if (tracedConnectionIds.has(conn.id)) path.classList.add('connection-traced');
         path.addEventListener('dblclick', (e) => {
             e.stopPropagation();
-            if (hasRunningEndpoint(conn)) {
+            const current = getConnectionById(conn.id);
+            if (!current || (inspectedConnection && inspectedConnection.id !== current.id)) return;
+            if (hasRunningEndpoint(current)) {
                 showToast('节点正在运行，暂不能修改连线', 'warning');
                 return;
             }
             try { pushHistory(); }
             catch (error) { showToast(error.message, 'warning'); return; }
-            state.connections = state.connections.filter((candidate) => candidate.id !== conn.id);
-            pathById.get(conn.id)?.remove();
-            pathById.delete(conn.id);
-            hoveredConnectionIds.delete(conn.id);
-            removeFlowDecoration(conn.id);
-            rebuildConnectionIndex();
-            updateAllConnections();
-            updatePortStyles();
-            showToast('连接已删除', 'info');
-            scheduleSave();
-            onConnectionsChanged();
+            if (deleteConnection(current.id)) showToast('连接已删除', 'info');
         });
         connectionsGroup.appendChild(path);
         pathById.set(conn.id, path);
@@ -1600,6 +1779,7 @@ export function createConnectionsApi({
     }
 
     function beginConnectionRestoration() {
+        clearConnectionInspection();
         canvasConnectionRenderer.begin();
         try {
             prepareWholeConnectionProjection({ reflectInteractionState: false });
@@ -2169,7 +2349,7 @@ export function createConnectionsApi({
         const position = rect
             ? { x: (entry.center.x - rect.left - x) / zoom, y: (entry.center.y - rect.top - y) / zoom }
             : getPortPosition(target.nodeId, target.port, target.dir);
-        return { target, position, portEl: entry.portEl };
+        return { target, position, portEl: entry.portEl, center: entry.center };
     }
 
     function* nearbyTargetPorts(layout, clientX, clientY, radius) {
@@ -2217,27 +2397,37 @@ export function createConnectionsApi({
     function createConnectionTargetCheck(source) {
         if (!isBatchDrag(source)) {
             const lookup = buildTargetConnectionLookup(source);
-            return { canConnect: target => !checkConnectionTarget(source, target, lookup).error };
+            const check = target => checkConnectionTarget(source, target, lookup);
+            return { check, canConnect: target => !check(target).error };
         }
         const batchSources = getBatchDragSources(source);
         const { byId, incomingByNode, neighbors } = buildConnectionLookup(state.connections);
-        const availableTargets = new Map();
-        function canConnect(target) {
-            if (target.dir !== 'input' || !batchSources.length) return false;
-            if (target.type !== 'any' && target.type !== source.dataType && !isUniversalInputNode(getNodeById(target.nodeId))) return false;
+        const targetChecks = new Map();
+        function check(target) {
+            if (target.dir !== 'input' || !batchSources.length) return { error: '没有可连接的来源' };
+            if (target.type !== 'any' && target.type !== source.dataType && !isUniversalInputNode(getNodeById(target.nodeId))) {
+                return { error: '类型不匹配' };
+            }
             const key = `${target.nodeId}:${target.port}:${target.type}`;
-            if (availableTargets.has(key)) return availableTargets.get(key);
+            if (targetChecks.has(key)) return targetChecks.get(key);
             const reachable = getReachableNodes(neighbors, target.nodeId);
             const lookup = { byId, incomingByNode, createsCycle: fromId => reachable.has(fromId) };
+            let error = '';
             const available = batchSources.some(candidate => {
-                if (lookup.createsCycle(candidate.nodeId)) return false;
+                if (lookup.createsCycle(candidate.nodeId)) {
+                    error ||= '此连接会形成循环，请选择其他端口';
+                    return false;
+                }
                 const result = checkConnectionTarget(candidate, target, lookup);
-                return !result.error && (candidate === source || result.isMultiConnection || !result.inputConnections.length);
+                if (!result.error && (candidate === source || result.isMultiConnection || !result.inputConnections.length)) return true;
+                error ||= result.error || '输入端口已占用，请选择其他端口';
+                return false;
             });
-            availableTargets.set(key, available);
-            return available;
+            const result = { error: available ? '' : error };
+            targetChecks.set(key, result);
+            return result;
         }
-        return { batchSources, canConnect };
+        return { batchSources, check, canConnect: target => !check(target).error };
     }
 
     function updateConnectionTargetFeedback(src, clientX = NaN, clientY = NaN) {
@@ -2253,9 +2443,9 @@ export function createConnectionsApi({
             previousFeedback.connectionCount !== connections.length || previousFeedback.batch !== batch;
         if (graphChanged || previousFeedback.running !== running || previousFeedback.blocked !== blocked ||
             previousFeedback.modelSettings !== modelSettings || previousFeedback.layout !== layout) {
-            const { batchSources, canConnect } = createConnectionTargetCheck(src);
+            const { batchSources, canConnect, check } = createConnectionTargetCheck(src);
             targetFeedback = { source: src, connections, connectionCount: connections.length,
-                running, blocked, modelSettings, layout, batch, batchSources, canConnect };
+                running, blocked, modelSettings, layout, batch, batchSources, canConnect, check };
             for (const { portEl, center } of layout.entries) {
                 const available = !!center && canConnect(readConnectionTarget(portEl));
                 highlightedTargetPorts.add(portEl);
@@ -2272,13 +2462,21 @@ export function createConnectionsApi({
             if (nearestTargetPort) setTargetClass(nearestTargetPort, 'connection-target-nearest', true);
         }
         const target = nearest && { target: nearest.target, position: nearest.position };
-        if (!batch) return target;
+        const blockedTarget = !nearest && Number.isFinite(clientX) && Number.isFinite(clientY)
+            ? findNearestConnectionTarget(clientX, clientY, TARGET_SNAP_RADIUS, layout,
+                entry => entry.nodeId !== src.nodeId && entry.dir === (src.isOutput ? 'input' : 'output'))
+            : null;
+        if (!batch) {
+            showConnectionHint(layout, nearest || blockedTarget, src, targetFeedback.check);
+            return target;
+        }
 
-        const previewSources = getBatchPreviewSources(targetFeedback, nearest);
-        showBatchDragPreview(layout, nearest, previewSources.length, clientX, clientY);
+        const { acceptedSources, roles } = getBatchPreview(targetFeedback, nearest);
+        showConnectionHint(layout, blockedTarget, src, targetFeedback.check);
+        showBatchDragPreview(layout, nearest, blockedTarget ? 0 : acceptedSources.length, roles, clientX, clientY);
         return {
             ...target,
-            starts: previewSources.map(({ nodeId, portName }) => getPortPosition(nodeId, portName, 'output', layout.containerRect))
+            starts: acceptedSources.map(({ nodeId, portName }) => getPortPosition(nodeId, portName, 'output', layout.containerRect))
         };
     }
 
@@ -2286,19 +2484,184 @@ export function createConnectionsApi({
         if (portEl.classList.contains(name) !== enabled) portEl.classList.toggle(name, enabled);
     }
 
-    function getBatchPreviewSources(feedback, nearest) {
-        const { batchSources, source } = feedback;
-        if (!nearest) return batchSources;
-        if (feedback.previewPort !== nearest.portEl) {
-            feedback.previewPort = nearest.portEl;
-            feedback.previewSources = planConnectionBatch(
-                batchSources.map(output => ({ outputs: [output] })), [nearest.target], source
-            ).acceptedSources;
-        }
-        return feedback.previewSources;
+    function getPortLabel(node, port, direction, incoming = null) {
+        const role = direction === 'input' && getUniversalInputRoles(node, state, incoming).find(([name]) => name === port)?.[1];
+        return role || getPortElement(node, port, direction)?.querySelector('.port-label')?.textContent?.trim()
+            || getNodeDefinitionPorts(node?.type, direction).find(entry => entry.name === port)?.label || port;
     }
 
-    function showBatchDragPreview(layout, nearest, count, clientX, clientY) {
+    function describeConnectionIntent(checked) {
+        if (checked.error) {
+            return checked.error === '类型不匹配' ? '类型不匹配，请选择兼容端口' : checked.error;
+        }
+        const role = getPortLabel(getNodeById(checked.toId), checked.toPort, 'input');
+        const rewire = checked.rewiredConnection;
+        if (rewire?.to.nodeId === checked.toId && rewire.to.port === checked.toPort) return `保留${role}`;
+        if (!checked.isMultiConnection && checked.inputConnections.length) return `替换${role}`;
+        if (rewire) return `改接到${role}`;
+        return `${checked.isMultiConnection ? '新增' : '接入'}${role}`;
+    }
+
+    function positionPortSurface(surface, bounds, center, preferredWidth, preferLeft) {
+        const width = Math.max(1, Math.min(preferredWidth, bounds.width - 16));
+        const x = center.x - bounds.left;
+        const y = center.y - bounds.top;
+        const leftOfPort = x - width - 16;
+        const rightOfPort = x + 16;
+        const left = (preferLeft && leftOfPort >= 8) || rightOfPort + width > bounds.width - 8 ? leftOfPort : rightOfPort;
+        surface.style.left = `${Math.max(8, Math.min(left, bounds.width - width - 8))}px`;
+        surface.style.top = `${Math.max(8, Math.min(y + 16, bounds.height - surface.offsetHeight - 8))}px`;
+    }
+
+    function showConnectionHint(layout, candidate, source, check) {
+        if (!source.dragged || !candidate || !layout.containerRect) {
+            connectionHint?.el.remove();
+            connectionHint = null;
+            return;
+        }
+        const checked = check(candidate.target);
+        const text = describeConnectionIntent(checked);
+        if (connectionHint?.layout === layout && connectionHint.center === candidate.center &&
+            connectionHint.text === text && connectionHint.blocked === Boolean(checked.error)) return;
+        if (!connectionHint) {
+            const el = documentRef.createElement('div');
+            el.className = 'canvas-connection-hint';
+            el.setAttribute('aria-hidden', 'true');
+            canvasContainer.appendChild(el);
+            connectionHint = { el };
+        }
+        const { el } = connectionHint;
+        if (el.textContent !== text) el.textContent = text;
+        setTargetClass(el, 'is-blocked', Boolean(checked.error));
+        positionPortSurface(el, layout.containerRect, candidate.center, el.offsetWidth, candidate.target.dir === 'input');
+        Object.assign(connectionHint, { layout, center: candidate.center, text, blocked: Boolean(checked.error) });
+    }
+
+    function openKeyboardConnection(portEl, source) {
+        closeKeyboardConnection?.();
+        const surfaces = getSurfaceCoordinator(documentRef);
+        if (!source || state.connecting || surfaces?.topModal()) return;
+
+        const start = readConnectionTarget(portEl);
+        const direction = source.isOutput ? 'input' : 'output';
+        const check = createConnectionTargetCheck(source).check;
+        const menu = documentRef.createElement('div');
+        menu.className = 'canvas-connection-choice';
+        menu.setAttribute('role', 'menu');
+        menu.setAttribute('aria-label', '选择连接端口');
+        menu.tabIndex = -1;
+        const heading = documentRef.createElement('div');
+        heading.className = 'canvas-connection-choice-heading';
+        heading.textContent = '选择连接端口';
+        heading.setAttribute('aria-hidden', 'true');
+        menu.appendChild(heading);
+
+        function close({ returnFocus = false } = {}) {
+            if (closeKeyboardConnection !== close) return;
+            closeKeyboardConnection = null;
+            surfaces?.forgetPopover('keyboard-connection');
+            portEl.setAttribute('aria-expanded', 'false');
+            menu.remove();
+            if (returnFocus) (portEl.isConnected ? portEl : canvasContainer).focus({ preventScroll: true });
+        }
+
+        for (const node of state.nodes.values()) {
+            if (node.id === source.nodeId) continue;
+            for (const target of getVisibleConnectionPorts(node.id, direction)) {
+                const checked = check(target);
+                if (checked.error) continue;
+                const title = node.customTitle || getNodeDefinition(node.type)?.title || node.type;
+                const label = describeConnectionIntent(checked);
+                const button = documentRef.createElement('button');
+                button.type = 'button';
+                button.tabIndex = -1;
+                button.setAttribute('role', 'menuitem');
+                const name = documentRef.createElement('span');
+                name.textContent = title;
+                const detail = documentRef.createElement('span');
+                detail.textContent = source.isOutput ? label : `${getPortLabel(node, target.port, 'output')} · ${label}`;
+                button.append(name, detail);
+                button.addEventListener('click', () => {
+                    const current = getVisibleConnectionPorts(node.id, direction).find(port => port.port === target.port && port.type === target.type);
+                    const latestStart = readConnectionTarget(portEl);
+                    if (!current || !isPortElementVisible(portEl) || !portEl.isConnected ||
+                        latestStart.port !== start.port || latestStart.type !== start.type ||
+                        (source.rewiredFromConnection && !state.connections.includes(source.rewiredFromConnection))) {
+                        showToast('端口或连接已变化，请重新选择', 'warning');
+                    } else {
+                        const latest = createConnectionTargetCheck(source).check(current);
+                        if (latest.error) showToast(latest.error, 'warning');
+                        else if (latest.toPort !== checked.toPort || describeConnectionIntent(latest) !== label) {
+                            showToast('输入用途已变化，请重新选择', 'warning');
+                        } else finishConnection(source, current);
+                    }
+                    close({ returnFocus: true });
+                });
+                menu.appendChild(button);
+            }
+        }
+
+        const options = [...menu.querySelectorAll('[role="menuitem"]')];
+        if (!options.length) {
+            const empty = documentRef.createElement('div');
+            empty.className = 'canvas-connection-choice-empty';
+            empty.setAttribute('role', 'status');
+            empty.textContent = '没有可连接的端口，请检查目标类型、容量和运行状态。';
+            menu.appendChild(empty);
+        }
+        menu.addEventListener('mousedown', event => event.stopPropagation());
+        menu.addEventListener('wheel', event => event.stopPropagation());
+        menu.addEventListener('keydown', event => {
+            if (event.isComposing) return;
+            if (event.key === 'Tab') { close({ returnFocus: true }); return; }
+            if (event.key === 'Escape') { event.preventDefault(); close({ returnFocus: true }); }
+            if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) && options.length) {
+                event.preventDefault();
+                const index = options.indexOf(documentRef.activeElement);
+                const next = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1
+                    : (index + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
+                options[next].focus();
+            }
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                const option = documentRef.activeElement;
+                if (!event.repeat && options.includes(option)) option.click();
+            }
+            event.stopPropagation();
+        });
+        menu.addEventListener('focusout', event => {
+            if (!menu.contains(event.relatedTarget)) close();
+        });
+        closeKeyboardConnection = close;
+        portEl.setAttribute('aria-expanded', 'true');
+        const bounds = canvasContainer.getBoundingClientRect();
+        menu.style.maxHeight = `${Math.max(52, bounds.height - 16)}px`;
+        canvasContainer.appendChild(menu);
+        const anchor = measureConnectionTarget(portEl) || { x: bounds.left + 16, y: bounds.top + 16 };
+        positionPortSurface(menu, bounds, anchor, menu.offsetWidth, start.dir === 'input');
+        surfaces?.openPopover('keyboard-connection', { element: menu, trigger: portEl, close });
+        (options[0] || menu).focus({ preventScroll: true });
+    }
+
+    function getBatchPreview(feedback, nearest) {
+        const { batchSources, source } = feedback;
+        if (!nearest) return { acceptedSources: batchSources, roles: '' };
+        if (feedback.previewPort !== nearest.portEl) {
+            feedback.previewPort = nearest.portEl;
+            const plan = planConnectionBatch(
+                batchSources.map(output => ({ outputs: [output] })), [nearest.target], source
+            );
+            const node = getNodeById(nearest.target.nodeId);
+            const incoming = plan.connections.filter(edge => edge.to.nodeId === node?.id);
+            const rolePorts = [...plan.acceptedRolePorts];
+            const names = rolePorts.slice(0, 2).map(port => getPortLabel(node, port, 'input', incoming));
+            const roles = `${names.join('、')}${rolePorts.length > names.length ? `等 ${rolePorts.length} 个用途` : ''}`;
+            feedback.preview = { acceptedSources: plan.acceptedSources, roles };
+        }
+        return feedback.preview;
+    }
+
+    function showBatchDragPreview(layout, nearest, count, roles, clientX, clientY) {
         if (!count || !layout.containerRect || !Number.isFinite(clientX) || !Number.isFinite(clientY)) {
             batchDragPreview?.remove();
             batchDragPreview = null;
@@ -2311,12 +2674,17 @@ export function createConnectionsApi({
             canvasContainer.appendChild(batchDragPreview);
         }
         const { left, top, right, bottom } = layout.containerRect;
-        const text = `${nearest ? '连接 ' : ''}${count} 个来源`;
-        if (batchDragPreview.textContent !== text) batchDragPreview.textContent = text;
+        const text = `${nearest ? '连接 ' : ''}${count} 个来源${roles ? ` · ${roles}` : ''}`;
+        if (batchDragPreview.textContent !== text) {
+            batchDragPreview.textContent = text;
+            batchDragPreviewWidth = batchDragPreview.offsetWidth;
+        }
+        const placeLeft = clientX + batchDragPreviewWidth + 22 > right;
+        const x = placeLeft ? Math.max(clientX - 14, left + batchDragPreviewWidth + 8) : clientX + 14;
         batchDragPreview.classList.toggle('is-snapped', Boolean(nearest));
-        batchDragPreview.style.setProperty('--preview-x', `${(clientX > right - 150 ? clientX - 14 : clientX + 14) - left}px`);
+        batchDragPreview.style.setProperty('--preview-x', `${x - left}px`);
         batchDragPreview.style.setProperty('--preview-y', `${(clientY > bottom - 48 ? clientY - 38 : clientY + 14) - top}px`);
-        batchDragPreview.classList.toggle('is-left', clientX > right - 150);
+        batchDragPreview.classList.toggle('is-left', placeLeft);
     }
 
     function clearConnectionTargetFeedback() {
@@ -2331,6 +2699,8 @@ export function createConnectionsApi({
         highlightedTargetPorts.clear();
         batchDragPreview?.remove();
         batchDragPreview = null;
+        connectionHint?.el.remove();
+        connectionHint = null;
     }
 
     function appendConnection(connections, checked) {
@@ -2367,6 +2737,7 @@ export function createConnectionsApi({
         const connectedNodeIds = new Set();
         const connectionIds = new Set();
         const acceptedSources = [];
+        const acceptedRolePorts = new Set();
         const { byId, incomingByNode, neighbors } = buildConnectionLookup(state.connections);
         // Every edge in the batch points at the same node, so its downstream reachability stays fixed.
         const targetNodeId = targets[0]?.nodeId;
@@ -2398,10 +2769,11 @@ export function createConnectionsApi({
                 connectedNodeIds.add(match.toId);
                 connectionIds.add(edge.id);
                 acceptedSources.push(output);
+                acceptedRolePorts.add(match.toPort);
                 break;
             }
         }
-        return { connections: graphState.connections, acceptedSources, connectedNodeIds, connectionIds };
+        return { connections: graphState.connections, acceptedSources, acceptedRolePorts, connectedNodeIds, connectionIds };
     }
 
     function commitConnectionBatch(plan) {
@@ -2553,6 +2925,7 @@ export function createConnectionsApi({
         getNearestConnectionTarget,
         updateConnectionTargetFeedback,
         clearConnectionTargetFeedback,
+        openKeyboardConnection,
         invalidateNodePortCache,
         measureNodePorts,
         markConnectionDirty,
@@ -2565,6 +2938,10 @@ export function createConnectionsApi({
         realignConnections,
         updateDraggingConnections,
         findConnectionsCrossingSegments,
+        pickConnectionAt,
+        inspectConnection,
+        inspectConnectionsFromNode,
+        clearConnectionInspection,
         clearConnectionInsertPreview,
         commitConnectionInsertPreview,
         getCompatibleNodeTypeCandidates,

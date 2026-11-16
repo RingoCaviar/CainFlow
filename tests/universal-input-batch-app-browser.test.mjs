@@ -146,14 +146,14 @@ async function assertPreviewCleared(app) {
     assert.equal(await app.evaluate("!!document.querySelector('.connection-batch-preview')"), false);
 }
 
-async function dragImagesToTarget(app, sources) {
+async function dragImagesToTarget(app, sources, roles = '参考图') {
     await beginImageDrag(app);
     const target = await portPoint(app, '#target .universal-input .port-dot', 0.5);
     // Exercise snapping through a release just outside the actual port dot.
     const drop = { x: target.x - 22, y: target.y };
     assert.equal(await app.evaluate(`Boolean(document.elementFromPoint(${drop.x}, ${drop.y})?.closest('.port-dot'))`), false);
     await pointer(app, 'mouseMoved', drop);
-    await app.waitFor(`document.querySelector('.connection-batch-preview')?.textContent.trim() === '连接 ${sources.length} 个来源'`);
+    await app.waitFor(`document.querySelector('.connection-batch-preview')?.textContent.trim() === ${JSON.stringify(`连接 ${sources.length} 个来源 · ${roles}`)}`);
     await assertWires(app, previewPath, sources, target);
     await pointer(app, 'mouseReleased', drop);
     await assertPreviewCleared(app);
@@ -175,6 +175,7 @@ async function assertBatchUndone(app) {
     await shortcut(app, 'z');
     await app.waitFor("document.querySelectorAll('#connections-svg path[data-conn-id]').length === 0");
     await app.waitFor("fetch('/api/storage/documents/session').then(response => response.json()).then(document => document.value?.connections?.length === 0)");
+    await app.waitFor("Array.from(document.querySelectorAll('.toast')).some(toast => toast.textContent.includes('已撤回上一步操作'))");
 }
 
 async function watchForConnectionWarnings(app) {
@@ -188,7 +189,8 @@ async function watchForConnectionWarnings(app) {
 }
 
 test('dragging one selected image output connects all compatible selected sources in a single edit', { timeout: 30000 }, async () => {
-    await withAppBrowser(multiSourceSession, async app => {
+    const nodes = [...multiSourceSession.nodes, { id: 'text-target', type: 'TextMerge', x: 870, y: 650 }];
+    await withAppBrowser({ ...multiSourceSession, nodes }, async app => {
         await selectSources(app);
         const assertNoWarnings = await watchForConnectionWarnings(app);
         const origin = await beginImageDrag(app);
@@ -196,9 +198,13 @@ test('dragging one selected image output connects all compatible selected source
         await pointer(app, 'mouseReleased', origin);
         await assertPreviewCleared(app);
         await beginImageDrag(app);
+        const incompatible = await portPoint(app, '#text-target .node-port.input .port-dot');
+        await pointer(app, 'mouseMoved', incompatible);
+        await app.waitFor("document.querySelector('.canvas-connection-hint.is-blocked')?.textContent.includes('类型不匹配')");
         const target = await portPoint(app, '#target .universal-input .port-dot');
         await pointer(app, 'mouseMoved', target);
         await app.waitFor("document.querySelector('.connection-batch-preview')?.classList.contains('is-snapped')");
+        assert.equal(await app.evaluate("!!document.querySelector('.canvas-connection-hint')"), false);
         await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
         await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
         await pointer(app, 'mouseReleased', target);
@@ -232,6 +238,16 @@ test('dragging from an already connected anchor adds only the new selected sourc
     });
 });
 
+test('batch drag previews both actual slots on a comparison node', { timeout: 30000 }, async () => {
+    const nodes = multiSourceSession.nodes.map(node => node.id === 'target' ? { ...node, type: 'ImageCompare' } : node);
+    await withAppBrowser({ ...multiSourceSession, nodes }, async app => {
+        await selectSources(app);
+        await dragImagesToTarget(app, ['first-image', 'second-image'], '对比 A（可选）、结果 B（必需）');
+        await app.waitFor("fetch('/api/storage/documents/session').then(response => response.json()).then(document => document.value?.connections?.length === 2)");
+        assert.deepEqual((await graph(app)).connections.map(edge => edge.to.port), ['imageA', 'imageB']);
+    });
+});
+
 test('the multi-selection context menu connects eligible sources when the user clicks a target', { timeout: 30000 }, async () => {
     await withAppBrowser(multiSourceSession, async app => {
         await selectSources(app);
@@ -244,9 +260,10 @@ test('the multi-selection context menu connects eligible sources when the user c
         await assertSourcesSelected(app);
         await clickAt(app, await elementCenter(app, menuItem));
         await app.waitFor("document.getElementById('canvas-container').classList.contains('batch-connection-mode-active')");
-        await clickAt(app, await elementCenter(app, '#target .image-first-placeholder'));
+        await clickAt(app, await elementCenter(app, '#target .image-first-empty-action'));
         await assertNoWarnings();
         await assertImageReferences(app, ['first-image', 'second-image']);
+        assert.equal(await app.evaluate("!!document.querySelector('#image-parameter-panel[data-node-id=target]:not([hidden])')"), false);
         await leaveBatch(app);
         await assertBatchUndone(app);
     });

@@ -150,6 +150,73 @@
     z-index: 10;
 }
 
+#connections-group .connection-path.connection-traced {
+    stroke: var(--canvas-connection-hover) !important;
+    stroke-width: 3;
+    stroke-dasharray: 7 3;
+}
+
+#connections-group .connection-path.connection-inspected {
+    stroke: var(--canvas-connection-selected) !important;
+    stroke-width: 3.5;
+    stroke-opacity: 1;
+}
+
+.canvas-connection-details {
+    position: absolute;
+    z-index: var(--layer-menu);
+    box-sizing: border-box;
+    width: min(300px, calc(100% - 16px));
+    padding: 8px 10px 10px;
+    overflow: auto;
+    border: 1px solid var(--notice-border);
+    border-radius: 8px;
+    background: var(--bg-node);
+    color: var(--text-primary);
+    box-shadow: var(--notice-shadow);
+    font-size: 13px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+.canvas-connection-details-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    font-weight: 600;
+}
+
+.canvas-connection-details p { margin: 0; }
+
+.canvas-connection-details [data-connection-role],
+.canvas-connection-details [data-connection-trace-summary] { color: var(--text-secondary); }
+
+.canvas-connection-trace-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.canvas-connection-details button {
+    min-height: 28px;
+    padding: 3px 8px;
+    border: 1px solid var(--notice-border);
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.canvas-connection-details button:is(:hover, [aria-pressed="true"]) { background: var(--panel-active-bg); }
+.canvas-connection-details button[aria-pressed="true"] { border-color: var(--accent-primary); }
+.canvas-connection-details:focus { outline: 1px solid var(--accent-primary); outline-offset: 1px; }
+.canvas-connection-details button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
+.canvas-connection-details [data-close-connection-details] { display: grid; place-items: center; flex: 0 0 28px; padding: 0; border-color: transparent; }
+.canvas-connection-details [data-connection-trace-summary] { margin-top: 6px; }
+
 .connection-path.connection-insert-target {
     stroke: var(--canvas-connection-insert-target) !important;
     stroke-width: 4;

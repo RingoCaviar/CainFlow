@@ -19,6 +19,7 @@ async function point(app, selector) {
 }
 
 async function click(app, selector) {
+    await app.evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(selector)});if(el?.matches('.node-picker-result'))el.scrollIntoView({block:'nearest'});})()`);
     const p = await point(app, selector);
     await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...p, button: 'left', clickCount: 1 });
     await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...p, button: 'left', clickCount: 1 });
@@ -57,6 +58,102 @@ async function savedConnectionRecords(app, count = 1, newNodeId = '') {
 async function savedConnections(app, count = 1, newNodeId = '') {
     return (await savedConnectionRecords(app, count, newNodeId)).map(({ from, to }) => ({ from, to }));
 }
+
+test('port feedback names the intended role and explains a rejected target before release', { timeout: 30000 }, async () => {
+    const nodes = [...session.nodes, { id: 'image-target', type: 'ImageGenerate', x: 420, y: 200 },
+        { id: 'text-target', type: 'TextMerge', x: 860, y: 200 }];
+    await withAppBrowser({ ...session, nodes }, async app => {
+        const from = await point(app, '#source .node-port.output .port-dot');
+        await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...from, button: 'left', clickCount: 1 });
+        const compatible = await point(app, '#image-target .universal-input .port-dot');
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...compatible, button: 'left', buttons: 1 });
+        await app.waitFor("document.querySelector('.canvas-connection-hint')?.textContent === '新增参考图'");
+        assert.equal(await app.evaluate(`(() => {
+            const hint = document.querySelector('.canvas-connection-hint');
+            const port = document.querySelector('#image-target .universal-input .port-dot');
+            return hint.getBoundingClientRect().right < port.getBoundingClientRect().left + port.offsetWidth / 2
+                && getComputedStyle(hint).pointerEvents === 'none';
+        })()`), true, 'feedback stays in the gutter and leaves hit testing alone');
+        const incompatible = await point(app, '#text-target .node-port.input .port-dot');
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...incompatible, button: 'left', buttons: 1 });
+        await app.waitFor("document.querySelector('.canvas-connection-hint.is-blocked')?.textContent.includes('类型不匹配')");
+        assert.equal(await app.evaluate("document.querySelectorAll('#connections-svg path[data-conn-id]').length"), 0);
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+        await app.waitFor("!document.querySelector('.canvas-connection-hint')");
+    });
+});
+
+test('focused ports support finding, canceling and committing a connection through the keyboard', { timeout: 30000 }, async () => {
+    const nodes = [...session.nodes, { id: 'first', type: 'ImageGenerate', x: 420, y: 220, customTitle: '第一张' },
+        { id: 'second', type: 'ImageGenerate', x: 720, y: 220, customTitle: '第二张' }];
+    await withAppBrowser({ ...session, nodes }, async app => {
+        const port = '#source .node-port.output';
+        assert.equal(await app.evaluate(`document.querySelector('${port}').tabIndex`), 0);
+        await app.evaluate(`document.querySelector('${port}').focus()`);
+        const key = value => app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: value, code: value });
+        await key('Enter');
+        await app.waitFor("document.activeElement.textContent.includes('第一张') && document.activeElement.textContent.includes('新增参考图')");
+        await key('ArrowDown');
+        await app.waitFor("document.activeElement.textContent.includes('第二张')");
+        await key('Escape');
+        await app.waitFor(`document.activeElement.matches('${port}') && !document.querySelector('.canvas-connection-choice')`);
+        assert.equal(await app.evaluate("document.querySelectorAll('#connections-svg path[data-conn-id]').length"), 0);
+        await key('Enter');
+        await key('ArrowDown');
+        await key('Enter');
+        await assertConnected(app, 'source', 'second', 'referenceImages');
+        assert.deepEqual(await savedConnections(app), [{ from: { nodeId: 'source', port: 'image' }, to: { nodeId: 'second', port: 'referenceImages' } }]);
+    });
+});
+
+test('the same anchored picker searches the catalog and compatible connection targets', { timeout: 30000 }, async () => {
+    await withAppBrowser(session, async app => {
+        const picker = '#connection-create-popup';
+        const trigger = '#canvas-add-node';
+        const input = `${picker} input`;
+        const key = async (key, modifiers = 0) => {
+            await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key, modifiers });
+            await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key, modifiers });
+        };
+        await click(app, trigger);
+        await app.waitFor(`document.activeElement.matches('${input}')`);
+        const triggerBox = await point(app, trigger);
+        assert.ok(await app.evaluate(`document.querySelector('${picker}').getBoundingClientRect().bottom < ${triggerBox.y}`));
+        await app.send('Input.insertText', { text: 'TextSplit' });
+        assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('${picker} .node-picker-result')].map(row=>row.dataset.type)`), ['TextSplit']);
+        await key('Escape');
+        assert.ok(await app.evaluate(`document.activeElement.matches('${trigger}')`));
+        assert.equal(await app.evaluate("document.querySelectorAll('#nodes-layer > .node').length"), 1);
+
+        await app.evaluate("document.getElementById('canvas-container').focus()");
+        await key('n', 1);
+        await app.waitFor(`document.activeElement.matches('${input}')`);
+        await key('Escape');
+
+        await dragFromPort(app, '#source .node-port[data-direction="output"] .port-dot', { x: 620, y: 200 });
+        assert.ok(await app.evaluate(`document.activeElement.matches('${input}')`));
+        await app.send('Input.insertText', { text: 'ImageGenerate' });
+        const matches = await app.evaluate(`[...document.querySelectorAll('${picker} .node-picker-result')].map(row=>[row.dataset.popupNodeType,row.textContent])`);
+        assert.equal(matches.length, 1);
+        assert.equal(matches[0][0], 'ImageGenerate');
+        assert.match(matches[0][1], /参考图/);
+        await key('Enter');
+        await app.waitFor("document.querySelectorAll('.node-generate').length===1");
+        const target = await app.evaluate("document.querySelector('.node-generate').id");
+        await assertConnected(app, 'source', target, 'referenceImages');
+
+        await app.evaluate(`document.getElementById(${JSON.stringify(target)}).querySelector('.image-first-placeholder').click()`);
+        await app.waitFor("document.querySelector('.canvas-run-scope-trigger')?.checkVisibility()");
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 640, deviceScaleFactor: 1, mobile: false });
+        await app.waitFor(`(() => {
+            const nav = document.querySelector('#canvas-navigation');
+            return innerWidth === 390 && [...nav.children].filter(control => control.checkVisibility()).every(control => {
+                const rect = control.getBoundingClientRect();
+                return rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight;
+            });
+        })()`);
+    });
+});
 
 test('dragging an image output onto blank canvas creates a node with an immediately visible reference connection', { timeout: 30000 }, async () => {
     await withAppBrowser(session, async app => {
@@ -222,6 +319,7 @@ for (const [type, port] of [['Text', 'prompt'], ['CameraControl', 'camera_prompt
 test('creating a text split node from a prompt input connects the actual initial output', { timeout: 30000 }, async () => {
     await withAppBrowser({ ...session, nodes: [{ id: 'target', type: 'ImageGenerate', x: 620, y: 320 }] }, async app => {
         await dragFromPort(app, '#target .universal-input .port-dot', { x: 200, y: 260 });
+        assert.match(await app.evaluate("document.querySelector('[data-popup-node-type=TextSplit] .node-picker-match').textContent"), /片段 1 · 接入主提示词/);
         await click(app, '#connection-create-popup [data-popup-node-type="TextSplit"]');
         await app.waitFor("document.querySelectorAll('.node-text-split').length===1");
         const source = await app.evaluate("document.querySelector('.node-text-split').id");

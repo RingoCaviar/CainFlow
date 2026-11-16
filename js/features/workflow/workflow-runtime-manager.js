@@ -6,6 +6,7 @@ import { createConnectionsApi } from '../../canvas/connections.js';
 import { createConnectionProjection } from '../../canvas/connection-projection.js';
 import { createCameraControlNodeApi } from '../camera/camera-control-node-proxy.js';
 import { createExecutionCoreApi } from '../execution/execution-core.js';
+import { getCommerceRunBlocker } from '../execution/commerce-run-preflight.js';
 import { createWorkflowRunnerApi, clearNodeExecutionFailure, showNodeExecutionFailure } from '../execution/workflow-runner.js';
 import {
     normalizeConcurrentRequestStatusPayload,
@@ -1372,6 +1373,7 @@ export function createWorkflowRuntimeManager({
         }
 
         node.runStatus = payload.status || 'idle';
+        if (node.type === 'ECommerceImageSet') node.commerceRunPartial = payload.commerceRunPartial;
         if (payload.status === 'waiting' || payload.status === 'running' || payload.running === true) {
             clearNodeExecutionFailure(node);
         }
@@ -2113,8 +2115,16 @@ export function createWorkflowRuntimeManager({
             systemNotificationApi: getSystemNotificationApi(),
             onRunStateChanged: () => syncGlobalRunToolbarState(),
             onNodeRunStateChange: (payload) => {
+                const runtimeNode = context.state.nodes.get(payload?.nodeId);
+                const commerce = runtimeNode?.type === 'ECommerceImageSet';
+                const action = context.commercePrimaryPlan?.commerceNodeId === payload.nodeId ? context.commercePrimaryPlan.commerceAction : '';
+                if (commerce && payload.status === 'completed' && !['analyze', 'plan', 'replan-shot'].includes(action)) {
+                    const { plan, results } = normalizeCommerceImageSetState(runtimeNode.data?.commerceImageSet);
+                    const total = plan?.shots.length || 0;
+                    const completed = results.filter(row => row.status === 'completed').length;
+                    if (completed > 0 && completed < total) payload = { ...payload, commerceRunPartial: { completed, total } };
+                }
                 recordRuntimeNodeRunState(context, payload);
-                const commerce = context.state.nodes.get(payload?.nodeId)?.type === 'ECommerceImageSet';
                 if (commerce && payload.status === 'running') {
                     context.commerceReadyNodeIds?.add(payload.nodeId);
                     context.notifyCommerceReady?.(payload.nodeId, true);
@@ -2148,6 +2158,7 @@ export function createWorkflowRuntimeManager({
             }
         });
         context.runner = runtimeRunnerApi;
+        context.isFixedTextChatWithCachedResult = runtimeExecutionCoreApi.isFixedTextChatWithCachedResult;
 
         runtimeState.canvas.x = data.canvas.x;
         runtimeState.canvas.y = data.canvas.y;
@@ -2237,7 +2248,7 @@ export function createWorkflowRuntimeManager({
 
     async function runWorkflowInContext(workflow, workflowData, runInput = null, {
         waitForCompletion = false, retainResults, configurationSnapshot, resumeNodeId = null,
-        captureTextResults = false, commercePanelSignal
+        captureTextResults = false, commercePanelSignal, validateExecutionPlan
     } = {}) {
         const { workflowName, workflowId } = requireStableWorkflowReference(workflow);
         const stoppedBeforeStart = { started: false, executed: false, reason: 'stopped-before-start', outcome: 'stopped' };
@@ -2280,6 +2291,8 @@ export function createWorkflowRuntimeManager({
         let plan;
         try {
             plan = context.resolveExecutionPlan(runInput);
+            if (plan) validateExecutionPlan?.({ state: context.state, plan,
+                isFixedTextChatWithCachedResult: context.isFixedTextChatWithCachedResult });
         } catch (error) {
             context.dispose();
             syncGlobalRunToolbarState();
@@ -2289,6 +2302,13 @@ export function createWorkflowRuntimeManager({
             context.dispose();
             syncGlobalRunToolbarState();
             return waitForCompletion ? { started: false, executed: false, reason: 'no-plan' } : false;
+        }
+        const commerceBlocker = resumeNodeId ? null : getCommerceRunBlocker({ state: context.state, plan });
+        if (commerceBlocker) {
+            context.dispose();
+            showToast(commerceBlocker.error, 'warning', 8000);
+            syncGlobalRunToolbarState();
+            return waitForCompletion ? commerceBlocker : false;
         }
         context.commercePrimaryPlan = plan;
         const runnableNodeIds = (plan.executionOrder || plan.nodeIds || [])
@@ -2592,6 +2612,7 @@ export function createWorkflowRuntimeManager({
         applyVisibleNodeRunState,
         cancelCommerceImageSet,
         cancelRunningNode,
+        getPlanOverlapNodeIds,
         getRunConflictInfo,
         prepareEditorView,
         releaseEditorView,

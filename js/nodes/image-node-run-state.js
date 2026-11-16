@@ -1,5 +1,37 @@
 const RUN_LABELS = { waiting: '待运行', running: '运行中', completed: '完成', error: '失败', aborted: '已取消' };
 
+function readProgress(node) {
+    const batch = node.type === 'ImageGenerate' ? node.data?.concurrentRequestStatus : null;
+    if (Array.isArray(batch?.requests) && batch.requests.length > 0 && batch.requests.length === batch.total) {
+        return { completed: batch.requests.filter(request => request.status === 'success').length, total: batch.total };
+    }
+    const progress = node.apiGenerationProgress;
+    if (Number.isInteger(progress?.completed) && Number.isInteger(progress?.total)
+        && progress.total > 0 && progress.completed >= 0 && progress.completed <= progress.total) return progress;
+    return null;
+}
+
+export function projectImageCardRunStatus(node, running) {
+    const status = node.runStatus;
+    if (status === 'waiting' && running) return { status, label: '等待执行' };
+    if (status === 'running' && running) {
+        const stage = node.productRetouchStage;
+        const label = stage === 'analyzing' ? '分析中' : stage === 'retouching' ? '精修中' : '运行中';
+        const progress = readProgress(node);
+        const count = progress && `${progress.completed}/${progress.total}`;
+        return { status, label: count ? `${label} · ${node.type === 'ECommerceImageSet' ? '已完成 ' : ''}${count}` : label };
+    }
+    if (status === 'error' && !running) return { status, label: '执行失败' };
+    if (status === 'completed' && !running) {
+        const progress = node.type === 'ECommerceImageSet' ? node.commerceRunPartial : node.type === 'ImageGenerate' ? readProgress(node) : null;
+        const partial = node.type === 'ECommerceImageSet' ? Boolean(progress)
+            : node.type === 'ImageGenerate' && (node.generationAttemptIncomplete === true
+                || (progress && progress.completed > 0 && progress.completed < progress.total));
+        if (partial) return { status: 'partial', label: progress ? `部分完成 · ${progress.completed}/${progress.total}` : '部分完成' };
+    }
+    return null;
+}
+
 export function queryImageNodeRunControl(node, selector) {
     return node?.el?.querySelector?.(selector) || node?.parameterRoot?.querySelector?.(selector);
 }

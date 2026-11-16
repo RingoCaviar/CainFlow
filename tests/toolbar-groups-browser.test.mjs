@@ -2,35 +2,72 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 
+function readCanvasNavigation(app) {
+    return app.evaluate(`(() => {
+        const navigation = document.getElementById('canvas-navigation');
+        const nav = navigation.getBoundingClientRect();
+        const agent = document.getElementById('prompt-agent-panel').getBoundingClientRect();
+        const controls = [...navigation.children].filter(element =>
+            element.matches('button, details') && element.getClientRects().length);
+        return { rows: new Set(controls.map(element => Math.round(element.getBoundingClientRect().top))).size,
+            inside: nav.left >= 0 && nav.right <= innerWidth && nav.bottom <= innerHeight,
+            clear: nav.right <= agent.left || nav.top >= agent.bottom + 7 };
+    })()`);
+}
+
+function resizeAgentToMaximum(app) {
+    return app.evaluate("document.getElementById('prompt-agent-resize').dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))");
+}
+
 test('canvas navigation remains one horizontal row beside an open and resized Agent', { timeout: 30000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes: [], connections: [] }, async app => {
         await app.send('Emulation.setDeviceMetricsOverride', { width: 1085, height: 878, deviceScaleFactor: 1, mobile: false });
         await app.evaluate(`document.getElementById('btn-prompt-agent').click();
             for (let i = 0; i < 12; i++) document.getElementById('prompt-agent-resize').dispatchEvent(
                 new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));`);
-        const layout = await app.evaluate(`(() => {
-            const navigation = document.getElementById('canvas-navigation');
-            const controls = [...navigation.children].filter(element => element.matches('button, details')).map(element => element.getBoundingClientRect());
-            return { rows: new Set(controls.map(rect => Math.round(rect.top))).size,
-                width: navigation.getBoundingClientRect().width, height: navigation.getBoundingClientRect().height };
-        })()`);
-        assert.equal(layout.rows, 1, JSON.stringify(layout));
+        assert.deepEqual(await readCanvasNavigation(app), { rows: 1, inside: true, clear: true });
+        assert.equal(await app.evaluate("document.getElementById('canvas-add-node').hidden && document.querySelector('.canvas-run-scope-trigger').hidden"), true);
         for (const width of [1440, 1280, 1201, 1200, 1085, 801, 800, 760, 480, 360]) {
             await app.send('Emulation.setDeviceMetricsOverride', { width, height: 878, deviceScaleFactor: 1, mobile: false });
-            await app.evaluate("document.getElementById('prompt-agent-resize').dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))");
+            await resizeAgentToMaximum(app);
             for (const theme of ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink']) {
                 await app.evaluate(`document.documentElement.dataset.appTheme = ${JSON.stringify(theme)}`);
-                const result = await app.evaluate(`(() => {
-                    const nav = document.getElementById('canvas-navigation'), n = nav.getBoundingClientRect();
-                    const agent = document.getElementById('prompt-agent-panel').getBoundingClientRect();
-                    const controls = [...nav.children].filter(element => element.matches('button, details')).map(element => element.getBoundingClientRect());
-                    return { rows: new Set(controls.map(rect => Math.round(rect.top))).size,
-                        inside: n.left >= 0 && n.right <= innerWidth && n.bottom <= innerHeight,
-                        clear: n.right <= agent.left || n.top >= agent.bottom + 7 };
-                })()`);
-                assert.deepEqual(result, { rows: 1, inside: true, clear: true }, `${theme} at ${width}px`);
+                assert.deepEqual(await readCanvasNavigation(app), { rows: 1, inside: true, clear: true }, `${theme} at ${width}px`);
             }
         }
+    });
+});
+
+test('canvas navigation keeps add and run scope reachable when a node is selected beside Agent', { timeout: 30000 }, async () => {
+    const nodes = [{ id: 'navigation-text', type: 'Text', x: 80, y: 140, width: 260, height: 190, text: 'Fixture' }];
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes, connections: [] }, async app => {
+        const size = width => app.send('Emulation.setDeviceMetricsOverride', { width, height: 878, deviceScaleFactor: 1, mobile: false });
+        await size(1350);
+        await app.evaluate("document.getElementById('btn-prompt-agent').click()");
+        await resizeAgentToMaximum(app);
+        assert.deepEqual(await readCanvasNavigation(app), { rows: 1, inside: true, clear: true });
+
+        const point = await app.evaluate(`(() => {
+            const text = document.getElementById('navigation-text-text').getBoundingClientRect();
+            return { x: text.left + 40, y: text.top + 40 };
+        })()`);
+        await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
+        await app.waitFor("document.querySelector('.canvas-run-scope-trigger').checkVisibility()");
+        await app.evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+        assert.deepEqual(await readCanvasNavigation(app), { rows: 1, inside: true, clear: true }, 'selecting another node can widen navigation while Agent is already open');
+
+        for (const width of [1440, 1201, 1200, 1085, 801, 800, 480, 360]) {
+            await size(width);
+            await resizeAgentToMaximum(app);
+            for (const theme of ['dark', 'paper', 'glass-light']) {
+                await app.evaluate(`document.documentElement.dataset.appTheme = ${JSON.stringify(theme)}`);
+                assert.deepEqual(await readCanvasNavigation(app), { rows: 1, inside: true, clear: true }, `${theme} at ${width}px`);
+            }
+        }
+        assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('#canvas-add-node, .canvas-run-scope-trigger')].map(button => ({
+            name: button.getAttribute('aria-label'), visible: button.checkVisibility()
+        }))`), [{ name: '预览并选择运行范围', visible: true }, { name: '添加节点', visible: true }]);
     });
 });
 

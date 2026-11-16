@@ -23,7 +23,8 @@ try {
     input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',ctrlKey:true,bubbles:true}));
     const compositionSafe=added.length===0 && escapedKeys===0;
     input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
-    const closed=document.querySelector('.node-picker-overlay').classList.contains('hidden');
+    const panel=document.querySelector('.node-picker-panel');
+    const closed=panel.classList.contains('hidden');
     picker.open();
     const recent=document.querySelector('.node-picker-heading').textContent;
     search('不存在');
@@ -40,11 +41,11 @@ try {
     document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
     picker.open();search('视频');allow=false;
     document.querySelector('.node-picker-result').click();
-    const failStaysOpen=!document.querySelector('.node-picker-overlay').classList.contains('hidden');
+    const failStaysOpen=!panel.classList.contains('hidden');
     search('');
-    const noFailedRecent=document.querySelector('.node-picker-results').firstElementChild.nextElementSibling.dataset.type!=='VideoGenerate';
+    const noFailedRecent=!document.querySelector('[role=group][aria-label="最近使用"] [data-type=VideoGenerate]');
     input.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
     document.getElementById('surface-result').textContent=JSON.stringify({filtered,added,compositionSafe,keyboardType,closed,recent,noResults,failStaysOpen,noFailedRecent,
-        escaped:document.querySelector('.node-picker-overlay').classList.contains('hidden')});
+        escaped:panel.classList.contains('hidden')});
 } catch(error){document.getElementById('surface-result').textContent=JSON.stringify({error:error.stack});}
 </script></body></html>

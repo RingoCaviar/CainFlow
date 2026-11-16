@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 import { uploadImageOriginal } from './helpers/image-upload.mjs';
 import { key, nativeClick, openParameters } from './helpers/image-first-integrated-fixture.mjs';
+import { commerceImageSetSourceKey, normalizeCommerceImageSetPlan } from '../js/features/ecommerce-image-set/commerce-image-set-plan.js';
 
 const commerceProductField = field => `#image-parameter-panel [data-commerce-product-field=${field}]`;
 const commerceProductValue = field => `document.querySelector('${commerceProductField(field)}').value`;
@@ -48,6 +49,207 @@ async function captureCommerceInspector(app, { name = 'product', width = 1120, s
         await app.send('Emulation.setDeviceMetricsOverride', viewport);
     }
 }
+
+test('whole-workflow run reports an unplanned commerce set before sending an upstream image request', { timeout: 30000 }, async () => {
+    const fixture = {
+        autoCheckUpdatesOnLoad: false,
+        models: [{ id: 'image', modelId: 'gpt-image-2', name: '受控图片', protocol: 'openai', taskType: 'image', providerIds: ['p'] }],
+        providers: [{ id: 'p', name: '测试供应商', endpoint: 'https://controlled.test/v1', apikey: 'fixture' }],
+        nodes: [
+            { id: 'source', type: 'ImageGenerate', x: 40, y: 160, apiConfigId: 'image', providerId: 'p', prompt: '上游商品图' },
+            { id: 'commerce', type: 'ECommerceImageSet', x: 490, y: 160, customTitle: '尚未规划的套图' }
+        ],
+        connections: [{ id: 'product', from: { nodeId: 'source', port: 'image' },
+            to: { nodeId: 'commerce', port: 'referenceImages' }, type: 'image', order: 0 }]
+    };
+    const initScript = `window.commercePreflightRequests=0;
+        const originalFetch=window.fetch.bind(window);
+        window.fetch=(url, options)=>{
+            if (url==='/proxy' && options?.body) {
+                window.commercePreflightRequests++;
+                return Promise.resolve(Response.json({error:{message:'Upstream request escaped preflight'}},{status:400}));
+            }
+            return originalFetch(url,options);
+        };`;
+    await withAppBrowser(fixture, async app => {
+        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.waitFor("window.commercePreflightRequests || document.getElementById('toast-container').textContent.includes('尚未规划的套图')");
+        assert.equal(await app.evaluate('window.commercePreflightRequests'), 0);
+        assert.match(await app.evaluate("document.getElementById('toast-container').textContent"), /尚未规划的套图.*(?:生成方案|规划)/);
+        await app.waitFor("document.getElementById('btn-stop').disabled");
+    }, { initScript });
+});
+
+test('a confirmed original-only commerce set runs from canvas scope without a generation provider', { timeout: 30000 }, async () => {
+    const reference = `data:image/png;base64,${(await readFile(new URL('./fixtures/reference-red.png', import.meta.url))).toString('base64')}`;
+    const settings = { platformId: 'amazon', selectedShotIds: ['main'] };
+    const normalizedPlan = normalizeCommerceImageSetPlan({ sellingPoints: [], shots: [{ id: 'main' }] },
+        settings.platformId, settings.selectedShotIds, settings);
+    const plan = { ...normalizedPlan, confirmed: true,
+        sourceKey: await commerceImageSetSourceKey({ settings, references: [reference] }) };
+    const fixture = {
+        autoCheckUpdatesOnLoad: false, models: [], providers: [],
+        nodes: [
+            { id: 'product', type: 'ImageImport', x: 40, y: 160 },
+            { id: 'commerce', type: 'ECommerceImageSet', x: 490, y: 160, commerceImageSet: { ...settings, plan } }
+        ],
+        connections: [{ id: 'product-input', from: { nodeId: 'product', port: 'image' },
+            to: { nodeId: 'commerce', port: 'referenceImages' }, type: 'image', order: 0 }]
+    };
+    await withAppBrowser(fixture, async app => {
+        await uploadImageOriginal(app, 'product', reference);
+        await openParameters(app, 'commerce');
+        assert.equal(await app.evaluate("document.querySelector('[data-commerce-action=fill]').hidden"), true);
+        assert.equal(await app.evaluate("document.querySelector('[data-commerce-action=generate]').textContent"), '生成套图');
+        await app.evaluate("document.querySelector('.canvas-run-scope-trigger').click()");
+        await app.waitFor("document.querySelector('#canvas-run-scope:popover-open [data-confirm-run-scope]:enabled')");
+        await app.evaluate("document.querySelector('[data-confirm-run-scope]').click()");
+        await app.waitFor(`fetch('/api/storage/documents/session').then(r=>r.json()).then(d=>d.value.nodes
+            .some(node=>node.id==='commerce' && node.commerceImageSet.results?.[0]?.status==='completed'))`);
+    });
+});
+
+test('canvas run scope shows commerce slot counts, changing upstream references, and keyboard recovery', { timeout: 30000 }, async () => {
+    const settings = { platformId: 'amazon', selectedShotIds: ['main', 'detail'] };
+    const nodes = [
+        { id: 'scope-upstream', type: 'ImageGenerate', x: 40, y: 100, apiConfigId: 'image', providerId: 'p', prompt: '上游产品图' },
+        { id: 'scope-commerce', type: 'ECommerceImageSet', x: 390, y: 100, customTitle: '杯具套图', commerceImageSet: settings },
+        { id: 'scope-other', type: 'ECommerceImageSet', x: 750, y: 100, customTitle: '另一套图',
+            commerceImageSet: { ...settings, selectedShotIds: ['main'] } }
+    ];
+    const connections = [{ id: 'scope-ref', from: { nodeId: 'scope-upstream', port: 'image' },
+        to: { nodeId: 'scope-commerce', port: 'referenceImages' }, type: 'image', order: 0 }];
+    const initScript = `window.scopeRequests=0;const actualFetch=window.fetch.bind(window);
+        window.fetch=(url,options)=>{if(url==='/proxy'){window.scopeRequests++;return Promise.resolve(Response.json({error:{message:'unexpected request'}},{status:409}));}
+        return actualFetch(url,options);};`;
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes, connections,
+        models: [{ id: 'image', modelId: 'gpt-image-1', taskType: 'image', protocol: 'openai', providerIds: ['p'] }],
+        providers: [{ id: 'p', endpoint: 'https://fixture.test/v1', apikey: 'test' }]
+    }, async app => {
+        const panel = '#canvas-run-scope';
+        const trigger = '.canvas-run-scope-trigger';
+        const row = `${panel} [data-commerce-run-node="scope-commerce"]`;
+        const other = `${panel} [data-commerce-run-node="scope-other"]`;
+        await openParameters(app, 'scope-commerce');
+        await nativeClick(app, trigger);
+        const rowText = selector => app.evaluate(`document.querySelector(${JSON.stringify(selector)})?.innerText || ''`);
+        assert.match(await rowText(row), /2 个图位 · 模型生成 1 张 · 复用原图 1 张/);
+        assert.match(await rowText(row), /请先规划电商套图/);
+        assert.doesNotMatch(await rowText(row), /本次也会运行上游节点/);
+        assert.equal(await app.evaluate(`document.querySelector('${panel} [data-confirm-run-scope]').disabled`), true);
+        await nativeClick(app, `${panel} label:has([value=target-node])`);
+        assert.match(await rowText(row), /本次也会运行上游节点，商品参考图可能变化/);
+        assert.match(await rowText(row), /参考图变化后需重新规划并确认套图/);
+
+        await nativeClick(app, `${panel} label:has([value=all])`);
+        assert.match(await rowText(other), /1 个图位 · 模型生成 0 张 · 复用原图 1 张/);
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 470, deviceScaleFactor: 1, mobile: false });
+        await app.waitFor(`(()=>{const r=document.querySelector('${panel}').getBoundingClientRect();
+            return r.left>=0 && r.right<=innerWidth && r.top>=0 && r.bottom<=innerHeight})()`);
+        await app.evaluate(`document.querySelector('${panel} input:checked').focus()`);
+        await key(app, 'Tab');
+        await key(app, 'Tab');
+        assert.equal(await app.evaluate("document.activeElement.dataset.commerceRunSettings"), 'scope-other');
+        await key(app, 'Enter');
+        await app.waitFor("!document.querySelector('#canvas-run-scope:popover-open') && document.querySelector('#image-parameter-panel[data-node-id=scope-other]:not([hidden])')");
+        assert.equal(await app.evaluate('scopeRequests'), 0, 'preview and its recovery entry never start a provider request');
+    }, { initScript });
+});
+
+test('commerce footer fills only unfinished slots and keeps an explicit whole-set redo', { timeout: 30000 }, async () => {
+    const image = (await readFile(new URL('./fixtures/reference-red.png', import.meta.url))).toString('base64');
+    const fixture = {
+        autoCheckUpdatesOnLoad: false,
+        autoRetry: false,
+        models: [{ id: 'vision', modelId: 'gpt-4o', taskType: 'chat', protocol: 'openai', providerIds: ['p'] },
+            { id: 'image', modelId: 'gpt-image-2', taskType: 'image', protocol: 'openai', providerIds: ['p'] }],
+        providers: [{ id: 'p', endpoint: 'https://fixture.test/v1', apikey: 'test' }],
+        nodes: [{ id: 'product', type: 'ImageImport', x: 40, y: 100 },
+            { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100, commerceImageSet: {
+                platformId: 'amazon', selectedShotIds: ['main', 'angle', 'detail'], plannerModelId: 'vision', plannerProviderId: 'p',
+                imageModelId: 'image', imageProviderId: 'p'
+            } }],
+        connections: [{ id: 'product-reference', from: { nodeId: 'product', port: 'image' },
+            to: { nodeId: 'commerce', port: 'referenceImages' }, type: 'image', order: 0 }]
+    };
+    const initScript = `window.fillRequests=[];window.rejectDetail=true;
+        const actualFetch=window.fetch.bind(window);
+        window.fetch=async (url, options)=>{
+            if (url!=='/proxy'||!options?.body) return actualFetch(url,options);
+            if (!(options.body instanceof FormData)) {
+                const plan={sellingPoints:['可见杯盖'],shots:['angle','detail'].map(id=>({
+                    id,prompt:'套图测试图位 '+id+'\\n商品在画面右侧，近景构图与柔和光线。'
+                }))};
+                return Response.json({choices:[{message:{content:JSON.stringify(plan)}}]});
+            }
+            const shot=options.body.get('prompt').match(/^画面设计：套图测试图位 ([a-z]+)$/m)?.[1];
+            fillRequests.push(shot);
+            if (window.rejectDetail&&shot==='detail') return Response.json({error:{message:'Fixture detail failure'}},{status:400});
+            return Response.json({data:[{b64_json:${JSON.stringify(image)}}]});
+        };`;
+    const selector = action => `#image-parameter-panel [data-commerce-action=${action}]`;
+    const button = action => `document.querySelector('${selector(action)}')`;
+    const ready = action => `${button(action)}?.checkVisibility() && !${button(action)}.disabled`;
+    const rows = `fetch('/api/storage/documents/session').then(response=>response.json())
+        .then(session=>session.value.nodes.find(node=>node.id==='commerce').commerceImageSet.results)`;
+    await withAppBrowser(fixture, async app => {
+        await uploadImageOriginal(app, 'product', `data:image/png;base64,${image}`);
+        await openParameters(app, 'commerce');
+        await app.evaluate(`${button('plan')}.click()`);
+        await app.waitFor(ready('generate'));
+        assert.equal(await app.evaluate(`${button('generate')}.textContent`), '确认并生成套图');
+        assert.equal(await app.evaluate(`${button('fill')}.hidden`), true);
+        await nativeClick(app, selector('generate'));
+        await app.waitFor(`${rows}.then(results=>results?.find(row=>row.shotId==='detail')?.status==='failed')`);
+        await app.waitFor(ready('fill'));
+        await app.waitFor("document.querySelector('#commerce > .node-card-run-status:not([hidden])')?.textContent==='部分完成 · 2/3'");
+        await nativeClick(app, '#commerce > .node-card-run-status');
+        await app.waitFor("document.activeElement.closest('[data-commerce-shot-id=detail]') && document.activeElement.dataset.commerceAction==='error-detail'");
+        const prior = (await app.evaluate(rows)).filter(row => row.status === 'completed');
+        assert.deepEqual(prior.map(row => row.shotId), ['main', 'angle']);
+        assert.equal(await app.evaluate(`${button('fill')}.textContent`), '补齐 1 个图位');
+        assert.equal(await app.evaluate(`${button('generate')}.textContent`), '重做整套');
+        await captureCommerceInspector(app, { name: 'fill-actions' });
+        await app.evaluate('window.rejectDetail=false;fillRequests.length=0');
+        await nativeClick(app, '.canvas-run-scope-trigger');
+        const scope = '#canvas-run-scope';
+        const recovery = `${scope} [data-commerce-run-settings="commerce"]`;
+        assert.equal(await app.evaluate(`document.querySelector('${scope} [data-confirm-run-scope]').textContent`), '重做整套');
+        assert.equal(await app.evaluate(`document.querySelector(${JSON.stringify(recovery)}).textContent`), '去参数面板补齐 1 个图位');
+        await nativeClick(app, recovery);
+        await app.waitFor(`!document.querySelector('${scope}:popover-open') && document.activeElement === ${button('fill')}`);
+        assert.deepEqual(await app.evaluate('fillRequests'), [], 'reviewing the range only focuses the action');
+        const editPrompt = '#image-parameter-panel [data-commerce-shot-id=detail] [data-commerce-shot-field=prompt]';
+        await app.evaluate(`(() => {
+            const field = document.querySelector('${editPrompt}');
+            field.value += '\\n在构图中保留杯盖。';
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+        })()`);
+        assert.equal(await app.evaluate(`${button('generate')}.textContent`), '确认并重做整套');
+        assert.equal(await app.evaluate(`${button('fill')}.textContent`), '确认并补齐 1 个图位');
+        assert.deepEqual(await app.evaluate('fillRequests'), [], 'editing a shot does not confirm or produce it');
+        const viewport = await app.evaluate('({width:innerWidth,height:innerHeight,deviceScaleFactor:devicePixelRatio,mobile:false})');
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 620, height: 560, deviceScaleFactor: 1, mobile: false });
+        await app.waitFor(`(() => {
+            const dock = document.getElementById('image-parameter-panel').getBoundingClientRect();
+            const buttons = [${button('plan')}, ${button('generate')}, ${button('fill')}];
+            return innerWidth === 620 && buttons.every(button => {
+                const box = button.getBoundingClientRect();
+                return box.width > 0 && box.left >= dock.left && box.right <= dock.right && box.bottom <= innerHeight;
+            });
+        })()`);
+        await app.send('Emulation.setDeviceMetricsOverride', viewport);
+        await app.evaluate(`${button('fill')}.focus()`);
+        await key(app, 'Enter');
+        await app.waitFor(`${rows}.then(results=>results?.length===3 && results.every(row=>row.status==='completed'))`);
+        await app.waitFor(`(${ready('generate')}) && ${button('fill')}.hidden`);
+        const complete = await app.evaluate(rows);
+        assert.deepEqual(complete.map(row => row.shotId), ['main', 'angle', 'detail']);
+        assert.deepEqual(complete.slice(0, 2), prior);
+        assert.deepEqual(await app.evaluate('fillRequests'), ['detail']);
+        assert.equal(await app.evaluate(`${button('generate')}.textContent`), '重做整套');
+    }, { initScript });
+});
 
 test('the commerce node generates selected shots, accepts a retry during generation and restores the set', { timeout: 45000 }, async () => {
     const reference = (await readFile(new URL('./fixtures/reference-red.png', import.meta.url))).toString('base64');
@@ -539,11 +741,22 @@ test('the commerce node generates selected shots, accepts a retry during generat
         await app.waitFor(`(()=>{const image=document.querySelector('#commerce .commerce-image-set-cover');
             return image.naturalWidth>0 && image.naturalWidth*16===image.naturalHeight*9;})()`);
         await nativeClick(app, '#image-parameter-panel [data-parameter-action=close]');
-        const resize = await app.evaluate(`(()=>{const node=document.getElementById('commerce');
+        await app.waitFor("document.getElementById('image-parameter-panel').hidden");
+        const resizeTarget = `(()=>{const node=document.getElementById('commerce');
             const handle=node.querySelector('.node-resize-handle--bottom-right'), rect=handle.getBoundingClientRect();
             const x=rect.x+rect.width/2, y=rect.y+rect.height/2;
-            return {x,y,width:node.offsetWidth,viewportHeight:innerHeight,reachable:handle.contains(document.elementFromPoint(x,y))};})()`);
-        assert.ok(resize.reachable, `the portrait resize handle can receive native input: ${JSON.stringify(resize)}`);
+            const hit=document.elementFromPoint(x,y);
+            return {x,y,width:node.offsetWidth,viewportHeight:innerHeight,reachable:handle.contains(hit),
+                hit:hit?.id||hit?.getAttribute('class')||hit?.tagName};})()`;
+        let resize;
+        try {
+            await app.waitFor(async () => {
+                resize = await app.evaluate(resizeTarget);
+                return resize.reachable;
+            });
+        } catch (error) {
+            throw new Error(`The portrait resize handle did not become reachable: ${JSON.stringify(resize)}`, { cause: error });
+        }
         await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: resize.x, y: resize.y, button: 'left', buttons: 1, clickCount: 1 });
         await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: resize.x + 48, y: resize.y + 44, button: 'left', buttons: 1 });
         await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: resize.x + 48, y: resize.y + 44, button: 'left', buttons: 0, clickCount: 1 });

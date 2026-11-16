@@ -1,7 +1,7 @@
 /* Workbench foundation: shared UI tokens and low-cost polish for the main app shell. */
 #canvas-navigation {
     position: absolute; right: 16px; bottom: 16px; z-index: calc(var(--layer-toolbar) - 1);
-    display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; padding: 6px; width: max-content; max-width: calc(100% - 32px);
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px; padding: 6px; width: max-content; max-width: calc(100% - 32px);
     border: 1px solid var(--panel-border); border-radius: 10px;
     background: var(--panel-bg-strong); color: var(--text-primary); box-shadow: var(--panel-shadow-soft);
 }
@@ -73,6 +73,134 @@
 body:has(.fullscreen-overlay.active) #canvas-navigation,
 body:has(#history-sidebar.active, #log-drawer.active) #canvas-navigation,
 body:has(.painter-overlay.active) #canvas-navigation { visibility: hidden; }
+#canvas-navigation > .canvas-run-scope-trigger { gap: 4px; font-size: 12px; }
+#canvas-navigation > .canvas-run-scope-trigger[hidden] { display: none; }
+#canvas-navigation > .canvas-run-scope-trigger[aria-expanded="true"] {
+    background: var(--panel-hover-bg);
+    border-color: var(--accent-primary);
+}
+
+#canvas-run-scope {
+    position: fixed;
+    inset: auto;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 12px;
+    overflow: auto;
+    border: 0;
+    border-radius: 12px;
+    color: var(--text-primary);
+    background: var(--panel-bg-strong);
+    box-shadow: var(--panel-shadow-soft);
+    font: 13px/1.5 var(--font);
+}
+#canvas-run-scope h2 { margin: 0 0 8px; font-size: 14px; font-weight: 650; }
+#canvas-run-scope fieldset { display: grid; gap: 2px; margin: 0; padding: 0; border: 0; }
+#canvas-run-scope label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 30px;
+    padding: 3px 6px;
+    border-radius: 5px;
+    cursor: pointer;
+}
+#canvas-run-scope label[hidden] { display: none; }
+#canvas-run-scope label:is(:hover, :has(:checked)) { background: var(--panel-hover-bg); }
+#canvas-run-scope input { margin: 0; accent-color: var(--accent-primary); }
+#canvas-run-scope :is(input, button):focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.canvas-run-scope-summary {
+    display: grid;
+    gap: 6px;
+    margin: 8px 0;
+    padding: 8px 6px 0;
+    border-top: 1px solid var(--panel-border);
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+}
+.canvas-run-scope-summary strong { display: block; color: var(--text-primary); font-weight: 600; }
+.canvas-run-scope-summary [data-route-legend]::before {
+    display: inline-block;
+    width: 12px;
+    margin-right: 5px;
+    border-top: 2px solid var(--accent-primary);
+    content: '';
+    vertical-align: middle;
+}
+.canvas-run-scope-summary [data-route-legend="reuse"]::before { border-top-style: dashed; }
+.canvas-run-scope-summary p { margin: 0; }
+.canvas-run-scope-commerce { margin: 0 0 10px; padding: 8px 6px 0; border-top: 1px solid var(--panel-border); }
+.canvas-run-scope-commerce h3 { margin: 0 0 4px; font-size: 13px; font-weight: 650; }
+.canvas-run-scope-commerce-row { display: grid; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.canvas-run-scope-commerce-row + .canvas-run-scope-commerce-row {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--panel-border);
+}
+.canvas-run-scope-commerce-row strong { font-weight: 600; }
+.canvas-run-scope-commerce-row p { margin: 0; }
+.canvas-run-scope-commerce-counts { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.canvas-run-scope-commerce-note { color: var(--text-warning, var(--text-primary)); }
+#canvas-run-scope [data-commerce-run-settings] {
+    justify-self: start;
+    min-height: 30px;
+    margin-top: 3px;
+    padding: 3px 8px;
+    border: 1px solid var(--panel-control-border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    background: var(--panel-control-bg);
+    font: inherit;
+    cursor: pointer;
+}
+#canvas-run-scope [data-commerce-run-settings]:hover {
+    border-color: var(--panel-hover-border);
+    background: var(--panel-hover-bg);
+}
+#canvas-run-scope [data-confirm-run-scope] {
+    display: block;
+    min-height: 34px;
+    margin-left: auto;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--panel-control-border);
+    color: var(--text-primary);
+    background: var(--panel-control-bg);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+#canvas-run-scope [data-confirm-run-scope]:hover:enabled { border-color: var(--accent-primary); }
+#canvas-run-scope [data-confirm-run-scope]:enabled {
+    border-color: transparent;
+    color: var(--panel-primary-action-text);
+    background: var(--panel-primary-action-bg);
+}
+#canvas-run-scope [data-confirm-run-scope]:disabled { cursor: default; color: var(--text-secondary); }
+#canvas-container .node[data-canvas-run-route]:not(.workflow-running-locked, .batch-connection-source)::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border: 1.5px solid var(--accent-primary);
+    border-radius: inherit;
+    pointer-events: none;
+}
+#canvas-container .node[data-canvas-run-route="reuse"]:not(.workflow-running-locked, .batch-connection-source)::after { border-style: dashed; }
+#connections-group .connection-path[data-canvas-run-route] {
+    stroke: var(--accent-primary) !important;
+    stroke-width: 3.5;
+}
+#connections-group .connection-path[data-canvas-run-route="reuse"] { stroke-dasharray: 7 5; }
+@media (max-width: 1200px) {
+    #main-layout:has(.prompt-agent-panel.active) #canvas-navigation { gap: 3px; padding: 4px; }
+    #main-layout:has(.prompt-agent-panel.active) #canvas-navigation > :is(#canvas-add-node, .canvas-run-scope-trigger) span {
+        display: none;
+    }
+}
+@media (max-width: 430px) {
+    #canvas-navigation { gap: 3px; padding: 4px; }
+    #canvas-navigation > .canvas-run-scope-trigger span { display: none; }
+}
 :root {
     --surface-panel: var(--panel-bg, var(--bg-drawer));
     --surface-panel-strong: var(--panel-bg-strong, var(--bg-drawer));

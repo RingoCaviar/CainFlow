@@ -268,6 +268,49 @@ test('retrying one failed commerce shot keeps all previously saved images in pla
     assert.deepEqual(node.data.commerceImageSet.results.map(row => row.shotId), selectedShotIds);
 });
 
+test('commerce fill attempts failed, canceled and pending slots while retaining completed assets in place', async () => {
+    const selectedShotIds = ['main', 'angle', 'detail', 'scene'];
+    const { node, execute, apiCalls, requestLogs, history, assets } = createCommerceExecutionFixture({ selectedShotIds });
+    await execute('plan');
+    const { commerceImageSet } = node.data;
+    commerceImageSet.plan.confirmed = true;
+    const retained = { shotId: 'main', status: 'completed', assetKey: 'media:prior' };
+    assets.set(retained.assetKey, nextReference);
+    commerceImageSet.results = [retained, { shotId: 'angle', status: 'failed', error: 'provider failed' },
+        { shotId: 'detail', status: 'canceled' }];
+    const result = await execute('fill');
+    assert.deepEqual(apiCalls.filter(call => call.type === 'image').map(call => call.role), ['angle', 'detail', 'scene']);
+    const log = requestLogs.filter(entry => entry.operation === 'fill');
+    assert.deepEqual(log.map(entry => entry.shotId), ['angle', 'detail', 'scene']);
+    assert.ok(log.every(entry => entry.title.includes('补齐图片')));
+    assert.equal(history.length, 3);
+    assert.deepEqual(node.data.commerceImageSet.results.map(row => row.shotId), selectedShotIds);
+    assert.deepEqual(node.data.commerceImageSet.results[0], retained);
+    assert.equal(node.data.mediaAssetKeys[0], retained.assetKey);
+    assert.equal(result.image[0], nextReference);
+});
+
+test('commerce fill requires a confirmed plan and makes no request when every slot is complete', async () => {
+    const { node, execute, apiCalls, normalizeRunOptions, history } = createCommerceExecutionFixture({ selectedShotIds: ['main', 'angle'] });
+    const input = { mode: 'selected-only', selectedNodeIds: [node.id], commerceNodeId: node.id, commerceAction: 'fill' };
+    assert.equal(normalizeRunOptions(input).commerceAction, 'fill');
+    assert.throws(() => normalizeRunOptions({ ...input, mode: 'all' }), /请选择一个需要补齐/);
+    assert.throws(() => normalizeRunOptions({ ...input, commerceShotId: 'angle' }), /请选择一个需要补齐/);
+    await execute('plan');
+    await assert.rejects(execute('fill'), /确认方案/);
+    assert.equal(apiCalls.length, 1);
+    node.data.commerceImageSet.plan.confirmed = true;
+    await execute('fill');
+    assert.deepEqual(apiCalls.filter(call => call.type === 'image').map(call => call.role), ['angle']);
+    const before = structuredClone(node.data.commerceImageSet.results);
+    const historyLength = history.length;
+    assert.throws(() => normalizeRunOptions(input), /所有图位已完成/);
+    await assert.rejects(execute('fill'), /所有图位已完成/);
+    assert.equal(apiCalls.length, 2);
+    assert.equal(history.length, historyLength);
+    assert.deepEqual(node.data.commerceImageSet.results, before);
+});
+
 test('replanning a commerce shot changes only its draft and preserves existing images and shared selling points', async () => {
     const { node, execute, normalizeRunOptions, apiCalls, history } = createCommerceExecutionFixture({
         selectedShotIds: ['main', 'detail', 'scene'], beforePlanRequest(input) {

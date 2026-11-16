@@ -39,8 +39,10 @@ test('an empty import card opens parameters while its explicit file button remai
         await app.waitFor("!document.getElementById('image-parameter-panel').hidden && document.getElementById('image-parameter-panel').dataset.nodeId==='media-import'");
         assert.equal(await app.evaluate('importPickerClicks'), 0, 'clicking the image area does not unexpectedly open a file picker');
         assert.equal(await app.evaluate("Boolean(document.querySelector('.fullscreen-overlay'))"), false);
+        await click(app, '#media-import .image-first-empty-action');
+        assert.equal(await app.evaluate('importPickerClicks'), 1, 'the card action reuses the original file input');
         await app.evaluate("document.getElementById('media-import-select-btn').click()");
-        assert.equal(await app.evaluate('importPickerClicks'), 1, 'the explicit upload action still selects a file');
+        assert.equal(await app.evaluate('importPickerClicks'), 2, 'the editor action still selects a file');
     });
 });
 

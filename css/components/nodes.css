@@ -213,6 +213,42 @@
 .node-failure-indicator.hidden { display: none; }
 .node.error .node-time-badge { display: none !important; }
 
+.node-card-run-status {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 4;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: calc(100% - 16px);
+    min-height: 25px;
+    padding: 3px 7px;
+    border: 1px solid var(--node-control-border);
+    border-radius: 6px;
+    background: var(--panel-bg-strong, var(--bg-node));
+    color: var(--text-primary);
+    font: 600 12px/1.2 var(--font);
+    font-variant-numeric: tabular-nums;
+    text-align: left;
+    cursor: pointer;
+    pointer-events: auto;
+}
+.node-card-run-status::before {
+    content: '';
+    flex: 0 0 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+}
+.node-card-run-status[data-status="running"]::before { background: var(--accent-primary); }
+.node-card-run-status[data-status="partial"]::before { background: var(--accent-warning, currentColor); }
+.node-card-run-status[data-status="error"] { border-color: var(--node-danger-border); color: var(--node-danger-text); }
+.node-card-run-status[hidden], .node.is-virtualized > .node-card-run-status { display: none; }
+.node:has(> .node-card-run-status:not([hidden])) .commerce-image-set-card-progress { visibility: hidden; }
+.node-card-run-status:hover { border-color: var(--accent-primary); }
+.node-card-run-status:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+
 .node-failure-summary {
     position: relative;
     z-index: 2;

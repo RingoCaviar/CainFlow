@@ -655,6 +655,36 @@ test('cut hit-testing samples nearby routes once until the route or endpoint cha
     assert.equal(sampled, 3, 'running endpoint protection is checked live');
 });
 
+test('wire picking uses the local index, a screen-space margin, and stable overlap ordering', () => {
+    let sampled = 0;
+    const fixture = createHarness(502, {
+        sampleConnection(fromX, fromY, toX, toY) {
+            sampled += 1;
+            return [{ x: fromX, y: fromY }, { x: toX, y: toY }];
+        }
+    });
+    const { api, state } = fixture;
+    for (const [index, connection] of state.connections.entries()) {
+        if (index < 2) continue;
+        const x = 3000 + index * 400;
+        const from = createNode(`far-source-${index}`, x, createPort('text', 'output', x + 120), createPort('text', 'input', x));
+        const to = createNode(`far-target-${index}`, x + 240, createPort('text', 'output', x + 360), createPort('text', 'input', x + 240));
+        state.nodes.set(from.id, from);
+        state.nodes.set(to.id, to);
+        connection.from.nodeId = from.id;
+        connection.to.nodeId = to.id;
+    }
+    api.updateAllConnections();
+    assert.equal(api.pickConnectionAt(170, 24, 'connection-1'), 'connection-1', 'the painted path takes priority over the overlap tie');
+    assert.equal(sampled, 0, 'the painted hit requires no route samples');
+    assert.equal(api.pickConnectionAt(170, 31), 'connection-2', 'the later path wins exactly coincident ties');
+    const indexed = fixture.getConnectionForEachReadCount();
+    assert.equal(api.pickConnectionAt(170, 32), 'connection-2');
+    assert.equal(api.pickConnectionAt(170, 33), null);
+    assert.equal(fixture.getConnectionForEachReadCount(), indexed, 'subsequent picks reuse the settled spatial index');
+    assert.equal(sampled, 2, 'only the two visible candidates are ever sampled');
+});
+
 test('insertion preview reuses local curve samples and checks the actual release position', () => {
     let sampled = 0;
     const { api, state } = createHarness(2, {

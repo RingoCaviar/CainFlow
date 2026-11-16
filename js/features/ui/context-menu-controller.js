@@ -4,6 +4,7 @@
 import { hasRunningEndpoint } from '../media/utils/ui-state-helpers.js';
 import { createNodePicker } from './node-picker.js';
 import { getSurfaceCoordinator } from './surface-coordinator.js';
+import { canUseCanvasShortcuts } from './shortcut-guard.js';
 import { createSelectionApi } from '../../canvas/selection.js';
 
 const IMAGE_CONTEXT_TARGET_SELECTOR = '.preview-container, .save-preview-container, .file-drop-zone, .image-compare-container, .color-reset-preview, .image-resize-preview, .camera-control-node-preview';
@@ -63,6 +64,7 @@ export function createContextMenuControllerApi({
     renameNode = null,
     enterBatchConnectionMode = null,
     getBatchConnectionSources = () => [],
+    inspectConnectionsFromNode = null,
     runWorkflow,
     getRunConflictInfo = () => ({ blocked: false, count: 0 }),
     buildNodeRequestPreview = null,
@@ -77,7 +79,7 @@ export function createContextMenuControllerApi({
     documentRef = document
 }) {
     const surfaces = getSurfaceCoordinator(documentRef);
-    const nodePicker = createNodePicker({ canvasContainer, viewportApi, addNode, showToast, documentRef });
+    const nodePicker = createNodePicker({ canvasContainer, viewportApi, addNode, showToast, panel: connectionCreatePopup, documentRef });
     const referenceImageNodeTypes = new Set(['ImageGenerate', 'VideoGenerate', 'TextChat']);
     const imageCopyNodeTypes = new Set(['ImageImport', 'ImageGenerate', 'ImagePreview', 'ImageSave', 'ImageResize', 'ImageCompare', 'ColorReset', 'CameraControl']);
     const requestPreviewNodeTypes = new Set(['ImageGenerate', 'VideoGenerate', 'TextChat']);
@@ -152,6 +154,11 @@ export function createContextMenuControllerApi({
 
         setElementVisible(runToHereItem, showRunToHere);
         setElementVisible(runSelectedItem, showRunSelected);
+        const traceNodeId = !hasMultiSelection && hasNodeTarget && inspectConnectionsFromNode && targetNode?.id;
+        setElementVisible(documentRef.getElementById('context-menu-trace-upstream'), !!traceNodeId
+            && state.connections.some(edge => edge.to.nodeId === traceNodeId));
+        setElementVisible(documentRef.getElementById('context-menu-trace-downstream'), !!traceNodeId
+            && state.connections.some(edge => edge.from.nodeId === traceNodeId));
         applyRunActionState(runToHereItem, showRunToHere ? targetRunConflict : null, '运行到此节点');
         applyRunActionState(runSelectedItem, showRunSelected ? selectedRunConflict : null, '只运行选中的节点');
         setElementVisible(requestBodyItem, hasNodeTarget && requestPreviewNodeTypes.has(targetNode?.type));
@@ -178,7 +185,6 @@ export function createContextMenuControllerApi({
         }
     }
 
-    let ignoreNextDocumentClickForConnectionPopup = false;
     let ignoreNextContextMenuClick = false;
     let closeSubmenuTimer = null;
 
@@ -550,12 +556,7 @@ export function createContextMenuControllerApi({
     }
 
     function closeConnectionCreatePopup() {
-        surfaces?.forgetPopover('connection-create');
-        state.connectionCreatePopup = null;
-        connectionCreatePopup?.classList.add('hidden');
-        if (connectionCreatePopup) {
-            connectionCreatePopup.innerHTML = '';
-        }
+        nodePicker.close();
     }
 
     function closeContextMenu() {
@@ -599,7 +600,8 @@ export function createContextMenuControllerApi({
 
         try {
             if (item.id === 'context-menu-search-nodes') {
-                nodePicker.open(state.contextMenu);
+                closeContextMenu();
+                nodePicker.open(state.contextMenu, { trigger: canvasContainer });
                 return;
             }
             if (item.id === 'context-menu-copy-nodes') {
@@ -641,6 +643,15 @@ export function createContextMenuControllerApi({
                         selectedNodeIds: Array.from(state.selectedNodes)
                     });
                 }
+                return;
+            }
+
+            const direction = item.dataset.connectionTrace;
+            if (direction === 'upstream' || direction === 'downstream') {
+                const nodeId = state.contextMenuNodeId;
+                const { x, y } = state.contextMenu;
+                closeContextMenu();
+                if (nodeId) inspectConnectionsFromNode?.(nodeId, direction, x, y);
                 return;
             }
 
@@ -786,21 +797,12 @@ export function createContextMenuControllerApi({
 
     function openConnectionCreatePopup(popupState) {
         if (!connectionCreatePopup) return;
-        state.connectionCreatePopup = popupState;
-        ignoreNextDocumentClickForConnectionPopup = true;
-        connectionCreatePopup.style.left = `${popupState.screenX}px`;
-        connectionCreatePopup.style.top = `${popupState.screenY}px`;
-        connectionCreatePopup.innerHTML = [
-            '<div class="context-menu-header">创建并连接节点</div>',
-            ...popupState.candidates.map((candidate) => (`
-                <div class="context-menu-item" data-popup-node-type="${candidate.type}">
-                    ${candidate.title}
-                </div>
-            `))
-        ].join('');
-        connectionCreatePopup.classList.remove('hidden');
-        surfaces?.openPopover('connection-create', { element: connectionCreatePopup, trigger: canvasContainer, close: closeConnectionCreatePopup });
-        positionFloatingMenu(connectionCreatePopup, popupState.screenX, popupState.screenY);
+        nodePicker.open({ x: popupState.screenX, y: popupState.screenY }, {
+            trigger: canvasContainer,
+            candidates: popupState.candidates,
+            canvasPoint: { x: popupState.canvasX, y: popupState.canvasY },
+            create: (candidate, position) => createNodeFromConnectionCandidate?.(popupState.source, candidate, position.x, position.y)
+        });
     }
 
     function isPointInsideRect(clientX, clientY, rect) {
@@ -861,35 +863,32 @@ export function createContextMenuControllerApi({
         surfaces?.openPopover('canvas-context', { element: contextMenu, trigger: target, close: closeContextMenu });
     }
 
-    function initConnectionCreatePopup() {
-        connectionCreatePopup?.addEventListener('click', (e) => {
-            const item = e.target.closest('[data-popup-node-type]');
-            if (!item || !state.connectionCreatePopup) return;
-            const candidate = state.connectionCreatePopup.candidates.find((entry) => entry.type === item.dataset.popupNodeType);
-            if (!candidate) return;
-            createNodeFromConnectionCandidate?.(
-                state.connectionCreatePopup.source,
-                candidate,
-                state.connectionCreatePopup.canvasX,
-                state.connectionCreatePopup.canvasY
-            );
-            closeConnectionCreatePopup();
-        });
-    }
-
     function initContextMenu() {
         const emptyState = documentRef.getElementById('canvas-empty-state');
         const nodesLayer = documentRef.getElementById('nodes-layer');
+        const addTrigger = documentRef.getElementById('canvas-add-node');
+        const canvasIsReady = () => (documentRef.documentElement?.dataset.canvasLoadState || 'ready') === 'ready';
+        const openFromTrigger = e => {
+            const trigger = e.currentTarget;
+            if (trigger.getAttribute('aria-expanded') === 'true') nodePicker.close({ restoreFocus: true });
+            else nodePicker.open(null, { trigger, anchor: trigger });
+        };
         if (emptyState && nodesLayer) {
-            const refreshEmptyState = () => { emptyState.hidden = nodesLayer.childElementCount > 0
-                || (documentRef.documentElement?.dataset.canvasLoadState || 'ready') !== 'ready'; };
+            const refreshEmptyState = () => {
+                const ready = canvasIsReady();
+                const hasNodes = nodesLayer.childElementCount > 0;
+                emptyState.hidden = !ready || hasNodes;
+                if (addTrigger) addTrigger.hidden = !ready || !hasNodes;
+                if (!ready) nodePicker.close();
+            };
             refreshEmptyState();
             new documentRef.defaultView.MutationObserver(refreshEmptyState).observe(nodesLayer, { childList: true });
             new documentRef.defaultView.MutationObserver(refreshEmptyState).observe(documentRef.documentElement, { attributes: true, attributeFilter: ['data-canvas-load-state'] });
-            documentRef.getElementById('canvas-add-first-node').addEventListener('click', () => nodePicker.open());
+            documentRef.getElementById('canvas-add-first-node').addEventListener('click', openFromTrigger);
             documentRef.getElementById('canvas-open-agent').addEventListener('click', () => documentRef.getElementById('btn-prompt-agent').click());
             documentRef.getElementById('canvas-configure-models').addEventListener('click', () => documentRef.getElementById('btn-settings').click());
         }
+        addTrigger?.addEventListener('click', openFromTrigger);
         documentRef.querySelectorAll('#toolbar, #side-bar').forEach((chromeElement) => {
             chromeElement.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
@@ -910,11 +909,6 @@ export function createContextMenuControllerApi({
         });
 
         documentRef.addEventListener('click', (e) => {
-            if (ignoreNextDocumentClickForConnectionPopup) {
-                ignoreNextDocumentClickForConnectionPopup = false;
-            } else if (connectionCreatePopup && !connectionCreatePopup.contains(e.target)) {
-                closeConnectionCreatePopup();
-            }
             const isInsideSubmenu = getContextSubmenus().some((submenu) => submenu.contains(e.target));
             if (!contextMenu.contains(e.target) && !isInsideSubmenu) closeContextMenu();
 
@@ -924,6 +918,18 @@ export function createContextMenuControllerApi({
         });
 
         documentRef.addEventListener('keydown', (e) => {
+            if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.repeat && e.key.toLowerCase() === 'n'
+                && canvasIsReady() && canUseCanvasShortcuts({ event: e, state, canvasContainer, documentRef,
+                    windowRef: documentRef.defaultView, requireCanvasFocus: true })) {
+                e.preventDefault();
+                const rect = canvasContainer.getBoundingClientRect();
+                const point = state.isMouseOverCanvas && state.mouseCanvas && state.canvas
+                    ? { x: rect.left + state.canvas.x + state.mouseCanvas.x * state.canvas.zoom,
+                        y: rect.top + state.canvas.y + state.mouseCanvas.y * state.canvas.zoom }
+                    : null;
+                nodePicker.open(point, { trigger: canvasContainer });
+                return;
+            }
             if (e.key === 'Escape') {
                 closeContextMenu();
                 closeConnectionCreatePopup();
@@ -991,8 +997,6 @@ export function createContextMenuControllerApi({
                 handleContextMenuItemSelection(item);
             });
         });
-
-        initConnectionCreatePopup();
     }
 
     return {

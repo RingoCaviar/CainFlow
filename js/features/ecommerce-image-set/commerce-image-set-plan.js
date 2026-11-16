@@ -148,6 +148,17 @@ export function getSelectedCommerceImageSetShots(settings) {
         .map(item => ({ ...item, aspect: aspects[item.group] })) : [];
 }
 
+function isCompletedCommerceResult(row) {
+    return row?.status === 'completed' && /^media:[a-zA-Z0-9_-]+$/.test(row.assetKey || '');
+}
+
+export function getUnfinishedCommerceImageSetShots(settings) {
+    if (!Array.isArray(settings?.plan?.shots)) return [];
+    const selected = new Set(getSelectedCommerceImageSetShots(settings).map(shot => shot.id));
+    const results = new Map((Array.isArray(settings.results) ? settings.results : []).map(row => [row?.shotId, row]));
+    return settings.plan.shots.filter(shot => selected.has(shot.id) && !isCompletedCommerceResult(results.get(shot.id)));
+}
+
 export function normalizeCommerceImageSetPlan(raw, platformId, selectedShotIds, settings, { allowBlankPrompts = false } = {}) {
     const platform = getCommerceImageSetPreset(platformId);
     if (!platform || (raw?.platformId && raw.platformId !== platform.id) || !Array.isArray(raw?.sellingPoints) || !Array.isArray(raw?.shots)) {
@@ -207,7 +218,7 @@ export function normalizeCommerceImageSetState(raw) {
             const row = results.get(id);
             if (row?.status === 'failed') return [{ shotId: id, status: 'failed', error: text(row.error, 300) }];
             if (row?.status === 'canceled') return [{ shotId: id, status: 'canceled' }];
-            if (row?.status === 'completed' && /^media:[a-zA-Z0-9_-]+$/.test(row.assetKey || '')) {
+            if (isCompletedCommerceResult(row)) {
                 return [{ shotId: id, status: 'completed', assetKey: row.assetKey }];
             }
             return [];

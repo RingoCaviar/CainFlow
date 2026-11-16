@@ -20,14 +20,14 @@ import {
     buildUnifiedVideoRequest,
     extractImageResult,
     getEffectiveProtocol,
-    getModelsForTask,
     getOpenAiImageContents,
     getOpenAiReferenceImages,
     getResolvedProviderForModel,
     getResolvedProviderIdForModel,
     resolveProviderUrl
 } from './provider-request-utils.js';
-import { getImageAspectOptionsForProtocol, resolveImageRequestSize, usesOpenAiImageSize } from './image-generation-size.js';
+import { resolveImageRequestSize } from './image-generation-size.js';
+import { resolveCommerceImageGenerationSettings } from './commerce-run-preflight.js';
 import { getOpenAiImageCapabilities } from './openai-image-capabilities.js';
 import { createChatRequestPlan, executeChatRequestPlan, requestChatCompletion } from './chat-request-plan.js';
 import {
@@ -61,7 +61,7 @@ import {
     commerceImageSetPlanningSettingsKey,
     commerceImageSetSourceKey,
     createCommerceImageSetPlan,
-    normalizeCommerceImageSetState
+    getUnfinishedCommerceImageSetShots, normalizeCommerceImageSetState
 } from '../ecommerce-image-set/commerce-image-set-plan.js';
 import {
     buildProductRetouchPrompt,
@@ -935,7 +935,7 @@ export function createExecutionCoreApi({
         const commerceNodeId = runInput.commerceNodeId;
         const commerceAction = runInput.commerceAction;
         const commerceTargeted = mode === 'selected-only' && selectedNodeIds.length === 1 && selectedNodeIds[0] === commerceNodeId
-            && state.nodes.get(commerceNodeId)?.type === 'ECommerceImageSet' && ['analyze', 'plan', 'replan-shot', 'generate', 'retry'].includes(commerceAction);
+            && state.nodes.get(commerceNodeId)?.type === 'ECommerceImageSet' && ['analyze', 'plan', 'replan-shot', 'generate', 'fill', 'retry'].includes(commerceAction);
         if (commerceAction === 'analyze' && !commerceTargeted) {
             throw new Error('请选择一个需要分析商品信息的电商套图节点。');
         }
@@ -944,6 +944,11 @@ export function createExecutionCoreApi({
         }
         if (commerceAction === 'retry' && (!commerceTargeted || typeof runInput.commerceShotId !== 'string' || !runInput.commerceShotId)) {
             throw new Error('请选择一个需要生图的图位。');
+        }
+        if (commerceAction === 'fill') {
+            if (!commerceTargeted || runInput.commerceShotId !== undefined) throw new Error('请选择一个需要补齐的电商套图节点。');
+            const settings = normalizeCommerceImageSetState(state.nodes.get(commerceNodeId).data?.commerceImageSet);
+            if (settings.plan?.confirmed && !getUnfinishedCommerceImageSetShots(settings).length) throw new Error('所有图位已完成。');
         }
         const { imageRetryNodeId, imageRetryIndex, imageRetryBatchId } = runInput;
         const imageRetry = imageRetryNodeId !== undefined || imageRetryIndex !== undefined || imageRetryBatchId !== undefined;
@@ -1071,7 +1076,7 @@ export function createExecutionCoreApi({
         };
     }
 
-    function topologicalSortForPlan(plan) {
+    function topologicalSortForPlan(plan, notify) {
         const visited = new Set();
         const visiting = new Set();
         const result = [];
@@ -1094,7 +1099,7 @@ export function createExecutionCoreApi({
 
         for (const nodeId of plan.nodeIds) {
             if (!visit(nodeId)) {
-                showToast('循环连接', 'error');
+                notify('循环连接', 'error');
                 return null;
             }
         }
@@ -1102,20 +1107,20 @@ export function createExecutionCoreApi({
         return result;
     }
 
-    function resolveExecutionPlan(runInput = null) {
+    function resolveExecutionPlan(runInput = null, { notify = showToast } = {}) {
         const runOptions = normalizeRunOptions(runInput);
         let scopeNodeSet = null;
 
         if (runOptions.mode === 'target-node') {
             if (!runOptions.targetNodeId) {
-                showToast('未找到目标节点', 'error');
+                notify('未找到目标节点', 'error');
                 return null;
             }
             scopeNodeSet = collectUpstreamNodeIds(runOptions.targetNodeId);
         } else if (runOptions.mode === 'selected-only') {
             scopeNodeSet = new Set(runOptions.selectedNodeIds);
             if (scopeNodeSet.size === 0) {
-                showToast('请先选择要运行的节点', 'warning');
+                notify('请先选择要运行的节点', 'warning');
                 return null;
             }
         } else {
@@ -1123,7 +1128,7 @@ export function createExecutionCoreApi({
         }
 
         if (!scopeNodeSet || scopeNodeSet.size === 0) {
-            showToast('当前没有可运行的节点', 'warning');
+            notify('当前没有可运行的节点', 'warning');
             return null;
         }
 
@@ -1148,7 +1153,7 @@ export function createExecutionCoreApi({
             inputConnectionsByNode,
             executionOrder: []
         };
-        const executionOrder = topologicalSortForPlan(plan);
+        const executionOrder = topologicalSortForPlan(plan, notify);
         if (!executionOrder) return null;
         plan.executionOrder = executionOrder;
         return plan;
@@ -1402,7 +1407,7 @@ export function createExecutionCoreApi({
 
     function startCommerceRequestLog(node, request, { action, shot, signal }) {
         const { model } = request;
-        const label = { analyze: '分析产品', plan: '生成方案', 'replan-shot': '重做方案', generate: '生成图片', retry: '重试图片' }[action];
+        const label = { analyze: '分析产品', plan: '生成方案', 'replan-shot': '重做方案', generate: '生成图片', fill: '补齐图片', retry: '重试图片' }[action];
         const title = `电商套图 · ${label}${shot ? `「${shot.label}」` : ''} · ${model.name || model.modelId}`;
         return startWorkflowImageRequestLog(node, request, { title, operation: action, shotId: shot?.id, signal });
     }
@@ -1852,13 +1857,16 @@ export function createExecutionCoreApi({
         const settings = normalizeCommerceImageSetState(node.data?.commerceImageSet);
         const replanningShot = commerceAction === 'replan-shot';
         const retryingShot = commerceAction === 'retry';
+        const filling = commerceAction === 'fill';
         const shotTask = replanningShot || retryingShot;
         const planning = replanningShot || ['analyze', 'plan'].includes(commerceAction);
         const target = settings.plan?.shots.find(shot => shot.id === commerceShotId);
         if (shotTask && target?.source !== 'generate') throw new Error('请选择一个需要生图的图位。');
         if (!planning && commerceShotId && !target) throw new Error('找不到所选图位。');
 
-        const shots = planning ? [] : settings.plan?.shots.filter(shot => !commerceShotId || shot.id === commerceShotId) || [];
+        const shots = filling ? getUnfinishedCommerceImageSetShots(settings)
+            : planning ? [] : settings.plan?.shots.filter(shot => !commerceShotId || shot.id === commerceShotId) || [];
+        if (filling && settings.plan?.confirmed && !shots.length) throw new Error('所有图位已完成。');
         const claimedIds = shotTask ? [commerceShotId] : shots.map(shot => shot.id);
         const handlers = node.commerceShotCancelHandlers ??= new Map();
         if (claimedIds.some(id => handlers.has(id))) throw new Error('所选图位有任务正在运行。');
@@ -1967,27 +1975,11 @@ export function createExecutionCoreApi({
             if (missingPrompt) throw new Error(`「${missingPrompt.label}」缺少生图提示词，请补充后重试。`);
             let imageSettings;
             if (generatedShots.length) {
-                const imageModel = getModelsForTask(state.models, 'image').find(model => model.id === settings.imageModelId);
-                const providerId = settings.imageProviderId;
-                const imageProvider = imageModel && providerId && getResolvedProviderIdForModel(imageModel, state.providers, providerId) === providerId
-                    ? getResolvedProviderForModel(imageModel, state.providers, providerId) : null;
-                if (!imageModel || !imageProvider?.apikey) throw new Error('请选择绑定且已配置密钥的生图模型与供应商。');
-                const protocol = getEffectiveProtocol(imageModel, imageProvider);
-                if (!['openai', 'google', 'ttapi', 'ttapi-openai'].includes(protocol)) {
-                    throw new Error('电商套图需要支持商品参考图的同步生图模型。');
-                }
-                const sizeProtocol = protocol === 'ttapi-openai' ? 'openai' : protocol;
-                const aspectOptions = getImageAspectOptionsForProtocol(sizeProtocol, imageModel.modelId);
-                const unsupportedShot = generatedShots.find(shot => !aspectOptions.some(option => option.value === shot.aspect));
-                if (unsupportedShot) {
-                    throw new Error(`当前生图模型不支持直接生成「${unsupportedShot.label}」的 ${unsupportedShot.aspect} 比例。请更换生图模型，或调整该组比例并重新规划。`);
-                }
-                imageSettings = { apiConfigId: imageModel.id, providerId, generationCount: 1,
-                    resolution: usesOpenAiImageSize(protocol) ? '1K' : '', protocolParams: {} };
+                imageSettings = resolveCommerceImageGenerationSettings({ state, settings, generatedShots });
                 assertImageInputCompatibility(node, generationInputs, imageSettings);
             }
 
-            if (retryingShot) await readRetainedCommerceImages(settings, commerceShotId, signal);
+            if (retryingShot || filling) await readRetainedCommerceImages(settings, commerceShotId, signal);
             const attempts = new Map();
             let firstError;
             for (const shot of shots) {
@@ -3254,6 +3246,7 @@ export function createExecutionCoreApi({
         resolveExecutionPlan,
         topologicalSort,
         getCachedOutputValue,
+        isFixedTextChatWithCachedResult,
         buildNodeRequestPreview,
         captureSceneReferenceImages,
         downloadGeneratedImage,

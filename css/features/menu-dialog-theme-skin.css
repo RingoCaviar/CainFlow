@@ -1,33 +1,74 @@
 /* Menus and dialogs own component selectors; themes provide the shared semantic panel palette. */
-.node-picker-overlay { z-index: var(--layer-modal); background: var(--dialog-backdrop); }
 .node-picker-panel {
-    width: min(460px, calc(100vw - 32px));
-    max-height: calc(100dvh - 48px);
+    position: fixed;
+    z-index: var(--layer-menu);
+    box-sizing: border-box;
+    width: min(328px, calc(100vw - 16px));
+    max-height: min(360px, calc(100dvh - 16px));
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 20px;
-    border-radius: 12px;
-    border: 1px solid var(--dialog-border);
-    background: var(--dialog-surface);
-    color: var(--dialog-text);
-    box-shadow: var(--dialog-shadow);
+    gap: 6px;
+    padding: 8px;
+    border-radius: 10px;
+    border: 1px solid var(--menu-border);
+    background: var(--menu-surface);
+    backdrop-filter: var(--glass-blur, none);
+    -webkit-backdrop-filter: var(--glass-blur, none);
+    color: var(--menu-text);
+    box-shadow: var(--menu-shadow);
 }
-.node-picker-panel header { display: flex; align-items: center; justify-content: space-between; }
-.node-picker-panel h2 { margin: 0; font-size: 18px; }
+.node-picker-panel.hidden { display: none; }
+.node-picker-panel header { display: flex; align-items: center; justify-content: space-between; padding-left: 4px; }
+.node-picker-panel h2 { margin: 0; font-size: 14px; font-weight: 650; }
 .node-picker-panel input {
-    padding: 10px; min-width: 0; border-radius: 6px;
+    flex: 0 0 auto; padding: 7px 9px; min-width: 0; min-height: 34px; border-radius: 6px;
+    font: inherit; font-size: 13px;
     color: var(--text-primary); background: var(--panel-input-bg); border: 1px solid var(--panel-input-border);
 }
-.node-picker-results { overflow-y: auto; min-height: 0; }
-.node-picker-heading, .node-picker-panel footer { color: var(--dialog-muted-text); font-size: 12px; padding: 6px 0; }
-.node-picker-result, .node-picker-close {
-    background: var(--menu-item-surface); color: var(--menu-text); border: 1px solid var(--menu-item-border);
-    border-radius: 6px; cursor: pointer; padding: 8px 12px;
+.node-picker-results { overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
+.node-picker-heading, .node-picker-panel footer, .node-picker-match, .node-picker-results p {
+    color: var(--text-secondary);
+    font-size: 12px;
 }
-.node-picker-result { display: block; width: 100%; text-align: left; margin-bottom: 4px; }
-.node-picker-result:is(:hover, .is-active) { background: var(--menu-hover-bg); border-color: var(--menu-hover-border); }
-.node-picker-panel :is(button,input):focus-visible { outline: 2px solid var(--menu-focus-ring); outline-offset: 2px; }
+.node-picker-heading, .node-picker-results p { padding: 5px 8px; }
+.node-picker-results p { margin: 0; }
+.node-picker-panel footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px 12px;
+    padding: 6px 4px 0;
+    border-top: 1px solid var(--menu-divider);
+}
+html:root .node-picker-panel :is(.node-picker-result, .node-picker-close) {
+    background: transparent; color: var(--menu-text); border: 1px solid transparent;
+    border-radius: 6px; cursor: pointer; font: inherit; font-size: 13px;
+}
+.node-picker-result {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px 12px;
+    flex-wrap: wrap;
+    width: 100%;
+    min-height: 34px;
+    padding: 5px 8px;
+    text-align: left;
+    overflow-wrap: anywhere;
+}
+.node-picker-match { max-width: 100%; }
+.node-picker-close { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; }
+html:root .node-picker-panel :is(.node-picker-result, .node-picker-close):is(:hover, .is-active) {
+    background: var(--menu-hover-bg); border-color: var(--menu-hover-border);
+}
+.node-picker-panel :is(button,input):focus-visible { outline: 2px solid var(--menu-focus-ring); outline-offset: -2px; }
+#canvas-navigation > #canvas-add-node { gap: 4px; font-size: 13px; }
+#canvas-navigation > #canvas-add-node[hidden] { display: none; }
+@media (max-width: 370px) {
+    #canvas-add-node span { display: none; }
+}
+@media (max-width: 640px) {
+    #main-layout:has(.prompt-agent-panel.active) #canvas-add-node span { display: none; }
+}
 :root {
     --menu-surface: var(--panel-bg-strong);
     --menu-border: var(--panel-border-strong);

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createConnectionsApi } from '../js/canvas/connections.js';
+import '../js/features/execution/protocols/api6789-video.js';
+import '../js/features/execution/protocols/veo-unified.js';
 
 function classList() {
     const values = new Set();
@@ -28,7 +30,7 @@ function harness(ports = [
     port('near', 'in', 'image', 'input', 100, 100),
     port('far', 'in', 'image', 'input', 115, 100),
     port('running', 'in', 'image', 'input', 96, 100)
-], { observeLayout = false } = {}) {
+], { observeLayout = false, addNode, showToast = () => {} } = {}) {
     const mutations = [];
     let notifyLayout;
     const layer = { addEventListener() {} };
@@ -63,7 +65,7 @@ function harness(ports = [
         connectionsGroup: {}, tempConnection: {}, originAxes: {},
         getNodeById: (id) => nodes.get(id),
         createBezierPath: () => '', getConnectionSamplePoints: () => [],
-        pushHistory() {}, showToast() {}, scheduleSave() {},
+        addNode, pushHistory() {}, showToast, scheduleSave() {},
         documentRef: {
             defaultView: { MutationObserver },
             querySelectorAll: (selector) => selector === '.node-port' ? ports : []
@@ -80,6 +82,49 @@ test('snaps to the closest usable port within a fixed screen radius', () => {
     assert.equal(api.getNearestConnectionTarget(source, 93, 100)?.target.nodeId, 'near');
     assert.equal(api.getNearestConnectionTarget(source, 150, 100), null);
     assert.equal(api.getNearestConnectionTarget(source, 500, 100, Number.MAX_SAFE_INTEGER)?.target.nodeId, 'far');
+});
+
+test('reverse drag-create refuses a candidate when its destination role changes', () => {
+    const warnings = [];
+    const { api, state } = harness([
+        port('compare', 'auto', 'any', 'input', 100, 100),
+        port('existing', 'image', 'image', 'output', 10, 100)
+    ], { addNode: () => assert.fail('a stale candidate must be rejected before node creation'), showToast: message => warnings.push(message) });
+    state.nodes.get('compare').type = 'ImageCompare';
+    state.nodes.get('existing').type = 'ImageImport';
+    const source = { nodeId: 'compare', portName: 'auto', dataType: 'any', isOutput: false };
+    const getImport = () => api.getCompatibleNodeTypeCandidates(source).find(candidate => candidate.type === 'ImageImport');
+    const candidate = getImport();
+    assert.equal(candidate.destinationPort, 'imageA');
+    assert.match(candidate.matchLabel, /接入对比 A/);
+    const edge = { id: 'first-image', from: { nodeId: 'existing', port: 'image' }, to: { nodeId: 'compare', port: 'imageA' }, type: 'image' };
+    state.connections.push(edge);
+    assert.equal(getImport().destinationPort, 'imageB');
+    assert.equal(api.createNodeFromConnectionCandidate(source, candidate, 0, 0), false);
+    assert.deepEqual(state.connections, [edge]);
+    assert.deepEqual(warnings, ['节点配置已变化，请重新拖线创建节点']);
+});
+
+test('forward drag-create refuses the same node type after a different model changes its matched port', () => {
+    const warnings = [];
+    const { api, state } = harness([port('source', 'image', 'image', 'output', 10, 100)], {
+        addNode: () => assert.fail('a stale candidate must be rejected before node creation'),
+        showToast: message => warnings.push(message)
+    });
+    state.nodes.get('source').type = 'ImageImport';
+    state.models = [
+        { id: 'frames', modelId: 'veo-3', protocol: 'veo-unified', taskType: 'video' },
+        { id: 'references', modelId: 'kling-o3', protocol: 'async-video-api', taskType: 'video' }
+    ];
+    state.nodeDefaults = { VideoGenerate: { apiConfigId: 'frames' } };
+    const source = { nodeId: 'source', portName: 'image', dataType: 'image', isOutput: true };
+    const getVideo = () => api.getCompatibleNodeTypeCandidates(source).find(candidate => candidate.type === 'VideoGenerate');
+    const candidate = getVideo();
+    assert.equal(candidate.matchPortName, 'image_1');
+    state.nodeDefaults.VideoGenerate.apiConfigId = 'references';
+    assert.equal(getVideo().matchPortName, 'referenceImages');
+    assert.equal(api.createNodeFromConnectionCandidate(source, candidate, 0, 0), false);
+    assert.deepEqual(warnings, ['节点配置已变化，请重新拖线创建节点']);
 });
 
 test('feedback uses the same validity rules as creating a connection', () => {

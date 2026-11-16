@@ -4,6 +4,7 @@ export function createPromptAgentPanelWidth({ panel, handle, windowRef, read = (
     let preferred = valid(saved) ? Math.round(Number(saved)) : null;
     let migrated = preferred !== null;
     let gesture = null;
+    const navigation = panel?.ownerDocument?.getElementById?.('canvas-navigation');
     const bounds = () => {
         const available = panel?.parentElement?.clientWidth || windowRef?.innerWidth || 1200;
         // Smaller desktops reserve a usable editor beside Agent. Clamping the
@@ -13,16 +14,18 @@ export function createPromptAgentPanelWidth({ panel, handle, windowRef, read = (
         return { min: Math.min(300, max), max, available };
     };
     const clamp = (value, limits = bounds()) => Math.max(limits.min, Math.min(limits.max, value));
+    const updateNavigationSpace = (available, width) => {
+        const navigationWidth = navigation?.offsetWidth || 0;
+        panel.classList.toggle('needs-navigation-space', available - width < navigationWidth + 36);
+    };
     const apply = () => {
         if (!panel) return;
         const limits = bounds();
         const width = Math.round(clamp(preferred ?? Math.max(320, (windowRef?.innerWidth || 1200) * 0.34), limits));
-        const navigationWidth = panel.ownerDocument?.getElementById?.('canvas-navigation')?.offsetWidth || 0;
+        updateNavigationSpace(limits.available, width);
         panel.style.width = `${width}px`;
         panel.parentElement?.style.setProperty('--prompt-agent-width', `${width}px`);
         panel.ownerDocument?.body?.style.setProperty('--prompt-agent-width', `${width}px`);
-        // Reserve the navigation row only when it cannot fit beside Agent.
-        panel.classList.toggle('needs-navigation-space', limits.available - width < navigationWidth + 36);
         handle?.setAttribute('aria-valuemin', String(bounds().min));
         handle?.setAttribute('aria-valuemax', String(bounds().max));
         handle?.setAttribute('aria-valuenow', String(Math.round(width)));
@@ -55,6 +58,13 @@ export function createPromptAgentPanelWidth({ panel, handle, windowRef, read = (
     handle?.addEventListener('lostpointercapture', finish);
     windowRef?.addEventListener('blur', finish);
     windowRef?.addEventListener('resize', apply);
+    if (navigation && windowRef?.ResizeObserver) {
+        // Selection can reveal canvas controls without resizing Agent or the window.
+        const observer = new windowRef.ResizeObserver(() => {
+            if (panel.classList.contains('active')) updateNavigationSpace(bounds().available, panel.offsetWidth);
+        });
+        observer.observe(navigation, { box: 'border-box' });
+    }
     handle?.addEventListener('keydown', event => {
         if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
         event.preventDefault(); event.stopPropagation();

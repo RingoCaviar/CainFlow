@@ -377,7 +377,6 @@ test('disconnect-all reports removed topology without requesting a full connecti
         state,
         canvasContainer: { addEventListener: () => {} },
         contextMenu,
-        connectionCreatePopup: null,
         viewportApi: {},
         addNode: () => {},
         runWorkflow: () => {},

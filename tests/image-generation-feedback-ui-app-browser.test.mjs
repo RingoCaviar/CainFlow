@@ -50,6 +50,7 @@ test('failure feedback appears once in parameters and preserves complete modal d
         await app.waitFor("document.getElementById('failed-run-status')?.dataset.status==='error'&&document.getElementById('btn-stop').disabled");
         await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
         assert.equal(await app.evaluate("!!document.querySelector('#failed > .image-first-run-feedback')"), false);
+        assert.equal(await app.evaluate("document.querySelector('#failed > .node-card-run-status:not([hidden])').textContent"), '执行失败');
         assert.match(await app.evaluate(`document.querySelector('${section}').innerText`), /生成失败/);
         assert.equal(await app.evaluate(`document.querySelector('${reason}')?.innerText.trim()`), '查看原因');
         assert.equal(await app.evaluate(`document.querySelector('${retry}')?.innerText.trim()`), '重试');
@@ -61,6 +62,9 @@ test('failure feedback appears once in parameters and preserves complete modal d
             await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
             await app.waitFor("!document.getElementById('modal-error').classList.contains('active')");
         }
+        await app.evaluate("document.querySelector('[data-parameter-action=close]').click()");
+        await press(app, '#failed > .node-card-run-status');
+        await app.waitFor(`document.activeElement.matches('${reason}')`);
         await press(app, reason);
         await app.waitFor("document.getElementById('modal-error').classList.contains('active')");
         await app.evaluate("if(!document.getElementById('btn-show-full-log').classList.contains('hidden'))document.getElementById('btn-show-full-log').click()");
@@ -84,9 +88,26 @@ test('failure feedback appears once in parameters and preserves complete modal d
         await app.evaluate('feedbackSuccess=true');
         await press(app, retry);
         await app.waitFor("document.getElementById('failed-run-status').dataset.status==='completed'");
+        await app.waitFor("document.querySelector('#failed > .node-card-run-status').hidden");
         assert.equal(await app.evaluate('feedbackRequests.length'), 2, 'the single-image retry sends exactly one more request');
         assert.equal(await app.evaluate(`document.querySelector('${reason}')?.checkVisibility() ?? false`), false, 'success clears the error action');
         assert.equal(await app.evaluate(`document.querySelector('${retry}')?.checkVisibility() ?? false`), false, 'success clears the retry action');
+    });
+});
+
+test('a processing card failure reopens its current execution error', { timeout: 30000 }, async () => {
+    await withAppBrowser({ ...configuration, nodes: [{ id: 'resize-error', type: 'ImageResize', x: 70, y: 90 }], connections: [] }, async app => {
+        await app.evaluate("document.getElementById('btn-run').click()");
+        const status = '#resize-error > .node-card-run-status[data-status="error"]:not([hidden])';
+        await app.waitFor(`document.querySelector(${JSON.stringify(status)}) && document.getElementById('btn-stop').disabled`);
+        if (await app.evaluate("document.getElementById('modal-error').classList.contains('active')")) {
+            await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+            await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
+            await app.waitFor("!document.getElementById('modal-error').classList.contains('active')");
+        }
+        await press(app, status);
+        await app.waitFor("document.getElementById('modal-error').classList.contains('active')");
+        assert.equal(await app.evaluate("document.getElementById('error-modal-msg').textContent"), '无输入图片');
     });
 });
 
@@ -124,6 +145,7 @@ test('a genuinely incomplete batch says partially completed with its real progre
         await app.evaluate("const prompt=document.getElementById('partial-prompt');prompt.value='partial edited pending prompt';prompt.dispatchEvent(new Event('input',{bubbles:true}));prompt.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('[data-parameter-action=generate]').click()");
         await app.waitFor("partialRequests===2&&document.getElementById('partial-run-status').dataset.status==='completed'&&document.getElementById('btn-stop').disabled");
         assert.equal(await app.evaluate("document.getElementById('partial-run-status').textContent"), '部分完成');
+        assert.equal(await app.evaluate("document.querySelector('#partial > .node-card-run-status:not([hidden])').textContent"), '部分完成 · 1/2');
         assert.equal(await app.evaluate("document.getElementById('partial-generation-progress').textContent"), '1/2');
         assert.equal(await app.evaluate("document.getElementById('partial-generation-progress').checkVisibility()"), false);
         assert.match(await app.evaluate(`document.querySelector('${section}').innerText`), /已完成 1\/2 张/);
@@ -132,9 +154,8 @@ test('a genuinely incomplete batch says partially completed with its real progre
         await app.evaluate("document.querySelector('[data-parameter-action=close]').click()");
         await press(app, '#partial .node-concurrent-status-dot[data-status=failed]');
         assert.match(await app.evaluate("document.querySelector('.node-concurrent-status-error-popover:not(.hidden)').textContent"), /partial-provider-failure-detail/);
-        await open(app, 'partial');
-        await app.evaluate(`document.querySelector('${toggle}').scrollIntoView({ block: 'nearest' })`);
-        await press(app, toggle);
+        await app.evaluate("document.querySelector('#partial > .node-card-run-status').click()");
+        await app.waitFor(`document.querySelector('${toggle}')?.getAttribute('aria-expanded')==='true'`);
         assert.equal(await app.evaluate(`document.querySelector('${toggle}').getAttribute('aria-expanded')`), 'true');
         await app.evaluate("partialFail=false;document.querySelector('[data-parameter-action=generate]').click()");
         await app.waitFor("partialRequests===4&&document.getElementById('partial-run-status').textContent==='完成'&&document.getElementById('btn-stop').disabled");
@@ -196,6 +217,7 @@ test('the parameter panel tracks individual images and retries just the failed s
 
         await app.evaluate('releaseImageBatchRequest[2](2);releaseImageBatchRequest[1](-1)');
         await waitForStates(app, ['running', 'failed', 'completed']);
+        assert.equal(await app.evaluate(`document.querySelector('#${id} > .node-card-run-status:not([hidden])')?.textContent`), '运行中 · 1/3');
         const summary = await app.evaluate(`document.querySelector('${section}').innerText`);
         assert.match(summary, /已完成 1\/3 张/);
         assert.match(summary, /1 张失败/);
@@ -266,6 +288,8 @@ test('waiting has no fabricated progress and the original reachable two-second c
         // Running upstream is explicit; the parameter button only reuses its cache.
         await app.evaluate("document.querySelector('[data-parameter-group-toggle=more]').click();document.getElementById('target').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:300,clientY:200}));document.getElementById('context-menu-run-to-here').click()");
         await app.waitFor("feedbackRequests.length===1&&document.getElementById('target-run-status')?.dataset.status==='waiting'");
+        assert.equal(await app.evaluate("document.querySelector('#target > .node-card-run-status:not([hidden])')?.textContent"), '等待执行');
+        assert.match(await app.evaluate("document.querySelector('#upstream > .node-card-run-status:not([hidden])')?.textContent"), /^运行中/);
         assert.equal(await app.evaluate("document.getElementById('target-generation-progress').checkVisibility()"), false);
         assert.doesNotMatch(await app.evaluate(`document.querySelector('${section}')?.checkVisibility() ? document.querySelector('${section}').innerText : ''`), /\d+\/\d+/);
         assert.equal(await app.evaluate("document.querySelector('[data-parameter-action=generate]').disabled"), true);

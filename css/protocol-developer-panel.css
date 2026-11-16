@@ -950,7 +950,7 @@
     color: var(--text-primary, #fff);
     font-size: 13.5px;
     font-family: inherit;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: border-color var(--transition), box-shadow var(--transition);
     line-height: 1.5;
     box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
 }

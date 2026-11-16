@@ -183,6 +183,24 @@
         ],
         "createdAt": "2026-11-16T07:28:56.355Z",
         "reason": "The TextChat browser fixture imports shared theme styles for geometry assertions. The reported shadow comes from imported CSS and has no matching element in the fixture."
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "tests/fixtures/node-picker.html"
+        ],
+        "createdAt": "2026-11-16T12:24:14.213Z",
+        "reason": "Codex: the node-picker behavior fixture imports panels.css but renders no .workflow-item elements. The workflow-list stripe is outside this fixture."
+      },
+      {
+        "rule": "pulsing-dot",
+        "value": "*",
+        "files": [
+          "tests/fixtures/node-picker.html"
+        ],
+        "createdAt": "2026-11-16T12:24:14.269Z",
+        "reason": "Codex: the node-picker behavior fixture imports panels.css but renders no running workflow items or workflow status indicators."
       }
     ]
   }

@@ -29,7 +29,7 @@ export function renderWorkflowRunControls({ documentRef, starting = false, runCo
     if (run) {
         run.classList.remove('running');
         run.disabled = launchPending;
-        run.title = launchPending ? '正在准备运行，请稍候' : '运行当前工作流 (Ctrl+Enter)';
+        run.title = launchPending ? '正在准备运行，请稍候' : '运行整个工作流（画布获得焦点后 Ctrl+Enter）';
         run.setAttribute('aria-busy', String(starting));
     }
     const stop = documentRef.getElementById('btn-stop');

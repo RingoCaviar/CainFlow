@@ -190,5 +190,17 @@ export function createImageGenerationBatchView({ node, documentRef, retryImage, 
         return { hasRequests: requests.length > 0, allFailed: failed > 0 && failed === requests.length };
     }
 
-    return { element, refresh };
+    function focusDetails() {
+        if (element.hidden) return false;
+        if (!toggle.hidden && !expanded) {
+            expanded = true;
+            refresh({ blocked });
+        }
+        const target = list.querySelector('[data-status="failed"] [data-image-batch-retry]:enabled:not([hidden]), [data-status="failed"] [data-image-batch-error]:enabled:not([hidden])')
+            || (!toggle.hidden ? toggle : rows[0]?.row);
+        target?.focus();
+        return Boolean(target);
+    }
+
+    return { element, refresh, focusDetails };
 }

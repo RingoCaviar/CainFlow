@@ -39,6 +39,9 @@ export function createCanvasInteractionsApi({
     getNodeMinimumSize = null,
     enforceNodeContentMinimum = null,
     findConnectionsCrossingSegments = () => new Set(),
+    pickConnectionAt = null,
+    inspectConnection = null,
+    clearConnectionInspection = null,
     onConnectionsChanged = () => {},
     onViewportSettled = () => {},
     getConnectionCreateCandidates = null,
@@ -846,6 +849,12 @@ export function createCanvasInteractionsApi({
         marquee.endY = pointer.y;
         marquee.endCanvasX = pointer.canvas.x;
         marquee.endCanvasY = pointer.canvas.y;
+        if (marquee.connectionPress) {
+            if (Math.abs(marquee.startX - pointer.x) <= 5 && Math.abs(marquee.startY - pointer.y) <= 5) return;
+            marquee.connectionPress = false;
+            pressedConnection = null;
+            clearConnectionInspection?.();
+        }
         if (!settling) {
             const { style } = documentRef.getElementById('selection-box');
             style.left = `${Math.min(marquee.startX, pointer.x)}px`;
@@ -1088,7 +1097,9 @@ export function createCanvasInteractionsApi({
         node?.el?.style.setProperty('--connection-shake-progress', progress);
     }
 
+    let pressedConnection = null;
     function initCanvasInteractions() {
+        let firstPaintedConnectionClick = null;
         // Only suppress the click/dblclick belonging to the completed drag.
         // A fresh press starts a new gesture, even within the old 100ms window.
         const stopDragClick = event => {
@@ -1097,9 +1108,23 @@ export function createCanvasInteractionsApi({
             event.stopImmediatePropagation();
             return true;
         };
-        canvasContainer.addEventListener('dblclick', stopDragClick, true);
+        canvasContainer.addEventListener('dblclick', event => {
+            if (stopDragClick(event)) return;
+            const path = event.target?.closest?.('.connection-path[data-conn-id]');
+            if (event.isTrusted && path && path.dataset.connId !== firstPaintedConnectionClick) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+            }
+        }, true);
         windowRef.addEventListener('keydown', event => {
-            if (event.key !== 'Escape' || event.isComposing || !state.connecting) return;
+            if (event.key !== 'Escape' || event.isComposing) return;
+            if (!state.connecting) {
+                if (clearConnectionInspection?.({ returnFocus: true, fromEscape: true })) {
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                }
+                return;
+            }
             event.preventDefault();
             event.stopImmediatePropagation();
             if (state.connecting.dragged) suppressDragClick = true;
@@ -1111,6 +1136,7 @@ export function createCanvasInteractionsApi({
         }, true);
         windowRef.addEventListener('blur', () => {
             suppressDragClick = false;
+            pressedConnection = null;
             finishCut();
             documentRef.body.classList.remove('is-interacting');
             documentRef.getElementById('connections-group').classList.remove('is-interacting');
@@ -1124,10 +1150,24 @@ export function createCanvasInteractionsApi({
             }
         });
 
+        if (clearConnectionInspection) documentRef.addEventListener('mousedown', event => {
+            if (!canvasContainer.contains(event.target)) clearConnectionInspection();
+        }, true);
+
         canvasContainer.addEventListener('mousedown', (e) => {
             if (suppressDragClick) state.justDragged = false;
             suppressDragClick = false;
-            if (e.target?.closest?.('#canvas-navigation')) return;
+            pressedConnection = null;
+            if (e.target?.closest?.('.canvas-connection-details, #canvas-navigation')) return;
+            const painted = e.target?.closest?.('.connection-path[data-conn-id]');
+            if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey && !state.isSpacePressed
+                && !state.connecting && !state.isCutting && !canvasContainer.classList.contains('batch-connection-mode-active')
+                && (e.target === canvasContainer || e.target === nodesLayer || e.target?.id === 'connections-layer' || painted)) {
+                const id = pickConnectionAt?.(e.clientX, e.clientY, painted?.dataset.connId);
+                if (id) pressedConnection = { id, x: e.clientX, y: e.clientY };
+            }
+            const panning = e.button === 1 || (e.button === 0 && (e.altKey || state.isSpacePressed));
+            if (!pressedConnection && !panning) clearConnectionInspection?.();
             if (e.button !== 0 || !state.isSpacePressed) return;
 
             canvasContainer.focus();
@@ -1137,6 +1177,12 @@ export function createCanvasInteractionsApi({
 
         canvasContainer.addEventListener('click', (e) => {
             if (stopDragClick(e)) return;
+            if (e.detail === 1) firstPaintedConnectionClick = e.target?.closest?.('.connection-path[data-conn-id]')?.dataset.connId || null;
+            const pressed = pressedConnection;
+            pressedConnection = null;
+            if (pressed && Math.abs(pressed.x - e.clientX) <= 5 && Math.abs(pressed.y - e.clientY) <= 5) {
+                if (inspectConnection?.(pressed.id, e.clientX, e.clientY)) e.stopPropagation();
+            }
             if (e.target?.closest?.('#canvas-navigation')) return;
             if (!state.isSpacePressed) return;
 
@@ -1178,7 +1224,7 @@ export function createCanvasInteractionsApi({
 
             if (isMarqueeAction) {
                 const isToggle = e.ctrlKey || e.metaKey || e.shiftKey;
-                if (!isToggle) {
+                if (!isToggle && !pressedConnection) {
                     selectionApi.clearSelection();
                 }
 
@@ -1194,7 +1240,7 @@ export function createCanvasInteractionsApi({
                     startCanvasY: startCanvas.y,
                     endCanvasX: startCanvas.x,
                     endCanvasY: startCanvas.y,
-                    initialSelection: new Set(state.selectedNodes)
+                    initialSelection: new Set(isToggle ? state.selectedNodes : []), connectionPress: Boolean(pressedConnection)
                 };
                 const box = documentRef.getElementById('selection-box');
                 box.style.left = e.clientX + 'px';

@@ -5,9 +5,34 @@ import { createWorkflowRunnerApi, showNodeExecutionFailure } from '../js/feature
 import { createImageGenerationRevisionApi } from '../js/nodes/image-generation-revision.js';
 import { registerProtocol } from '../js/features/execution/protocols/index.js';
 import { OpenaiProtocol } from '../js/features/execution/protocols/openai.js';
+import { projectImageCardRunStatus } from '../js/nodes/image-node-run-state.js';
 
 const noop = () => {};
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=';
+
+test('card indicators report current work and never revive a restored attempt', () => {
+    const requests = [{ status: 'success' }, { status: 'failed' }];
+    const image = { type: 'ImageGenerate', data: { concurrentRequestStatus: { total: 2, requests } } };
+    assert.equal(projectImageCardRunStatus(image, false), null, 'saved result receipts alone do not describe a live attempt');
+    image.runStatus = 'waiting';
+    assert.equal(projectImageCardRunStatus(image, false), null, 'detached waiting flags are ignored');
+    assert.deepEqual(projectImageCardRunStatus(image, true), { status: 'waiting', label: '等待执行' });
+    image.runStatus = 'running';
+    assert.deepEqual(projectImageCardRunStatus(image, true), { status: 'running', label: '运行中 · 1/2' });
+    image.runStatus = 'completed';
+    assert.deepEqual(projectImageCardRunStatus(image, false), { status: 'partial', label: '部分完成 · 1/2' });
+    requests[1].status = 'success';
+    assert.equal(projectImageCardRunStatus(image, false), null);
+
+    const commerce = { type: 'ECommerceImageSet', runStatus: 'completed', data: { mediaAssetKeys: ['media:prior'] } };
+    assert.equal(projectImageCardRunStatus(commerce, false), null, 'planning does not report the prior set as a new result');
+    commerce.commerceRunPartial = { completed: 1, total: 3 };
+    assert.deepEqual(projectImageCardRunStatus(commerce, false), { status: 'partial', label: '部分完成 · 1/3' });
+    commerce.runStatus = 'running';
+    commerce.apiGenerationProgress = { completed: 1, total: 3 };
+    assert.equal(projectImageCardRunStatus(commerce, true)?.label, '运行中 · 已完成 1/3');
+});
+
 const element = () => ({ style: {}, dataset: {}, classList: { add: noop, remove: noop, toggle: noop, contains: () => false },
     querySelector: () => null, querySelectorAll: () => [], getBoundingClientRect: () => ({ width: 240 }), setAttribute: noop, removeAttribute: noop,
     appendChild: noop, remove: noop, addEventListener: noop });

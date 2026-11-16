@@ -19,7 +19,7 @@ const viewFactory = await readFile(new URL('../js/nodes/node-view-factory.js', i
 
 test('node cards grow around their content instead of scrolling their body', () => {
     assert.match(core, /\.node-body\s*\{[\s\S]*?overflow:\s*visible;[\s\S]*?flex:\s*0 0 auto;[\s\S]*?min-height:\s*auto;/);
-    assert.doesNotMatch(core, /\.node-body\s*\{[\s\S]*?overflow-y:\s*auto;/);
+    assert.doesNotMatch(core, /\.node-body\s*\{[^}]*overflow-y:\s*auto;/);
     assert.match(media, /\.node-preview \.node-body\s*\{[\s\S]*?overflow:\s*visible;[\s\S]*?flex:\s*1 1 auto;[\s\S]*?min-height:\s*0;/);
     assert.match(media, /\.node-preview \.preview-container\s*\{[\s\S]*?flex:\s*1 1 auto;/);
     assert.match(media, /\.node-save \.node-body\s*\{[\s\S]*?overflow:\s*visible;/);

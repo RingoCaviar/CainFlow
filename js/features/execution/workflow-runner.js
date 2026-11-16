@@ -1,5 +1,6 @@
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
 import { getNodeModelConfigurationIssue } from './model-configuration-readiness.js';
+import { getCommerceRunBlocker } from './commerce-run-preflight.js';
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
 import { readImageSaveFilename } from '../../nodes/image-save-settings.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
@@ -2498,6 +2499,11 @@ export function createWorkflowRunnerApi({
             if (runnableNodeIds.length === 0) {
                 showToast('当前运行范围内没有启用的可运行节点', 'warning');
                 return { started: false, executed: false, reason: 'no-enabled-nodes' };
+            }
+            const commerceBlocker = getCommerceRunBlocker({ state, plan });
+            if (commerceBlocker) {
+                showToast(commerceBlocker.error, 'warning', 8000);
+                return commerceBlocker;
             }
             for (const nodeId of runnableNodeIds) {
                 const node = state.nodes.get(nodeId);

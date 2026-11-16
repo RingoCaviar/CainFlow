@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
+import { withAppBrowser, reloadAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
 
 const session = {
     autoCheckUpdatesOnLoad: false,
@@ -70,6 +70,51 @@ async function controlCurrentNodeRequests(app) {
         };` });
     await reloadAppBrowser(app);
 }
+
+test('canvas run scope previews live paths without requests and only confirms the chosen scope', { timeout: 45000 }, async () => {
+    const unrelated = { ...session.nodes[0], id: 'editor-unrelated', x: 80, y: 420, prompt: 'unrelated draft' };
+    await withAppBrowser({ ...session, nodes: [...session.nodes, unrelated], connections: [cachedReferenceConnection] }, async app => {
+        await controlCurrentNodeRequests(app);
+        await openNode(app, 'editor-second');
+        await app.evaluate("document.getElementById('editor-second-prompt').focus()");
+        const combo = { key: 'Enter', code: 'Enter', modifiers: 2 };
+        await app.send('Input.dispatchKeyEvent', { ...combo, type: 'keyDown' });
+        await app.send('Input.dispatchKeyEvent', { ...combo, type: 'keyUp' });
+        assert.ok(await app.evaluate(`document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'Enter', code: 'Enter', ctrlKey: true, bubbles: true, cancelable: true, isComposing: true
+        }))`));
+
+        await nativeClick(app, '.canvas-run-scope-trigger');
+        await app.waitFor("document.querySelector('#canvas-run-scope:popover-open') !== null");
+        const routes = () => app.evaluate(`Object.fromEntries(
+            ['editor-first','editor-second','editor-unrelated'].map(id => [id, document.getElementById(id).dataset.canvasRunRoute || '']))`);
+        assert.deepEqual(await routes(), { 'editor-first': 'reuse', 'editor-second': 'run', 'editor-unrelated': '' });
+        assert.equal(await app.evaluate("document.querySelector('[data-conn-id=cached-reference]').dataset.canvasRunRoute"), 'reuse');
+        await nativeClick(app, '#canvas-run-scope label:has([value=all])');
+        assert.deepEqual(await routes(), { 'editor-first': 'run', 'editor-second': 'run', 'editor-unrelated': 'run' });
+        await nativeClick(app, '#canvas-run-scope label:has([value=target-node])');
+        assert.deepEqual(await routes(), { 'editor-first': 'run', 'editor-second': 'run', 'editor-unrelated': '' });
+        assert.equal(await app.evaluate("document.querySelector('[data-conn-id=cached-reference]').dataset.canvasRunRoute"), 'run');
+        assert.equal(await app.evaluate('window.currentNodeRequests.length'), 0);
+
+        await app.send('Input.dispatchKeyEvent', { key: 'Escape', code: 'Escape', type: 'keyDown' });
+        await app.send('Input.dispatchKeyEvent', { key: 'Escape', code: 'Escape', type: 'keyUp' });
+        assert.equal(await app.evaluate('document.activeElement.className'), 'canvas-run-scope-trigger');
+        assert.deepEqual(await routes(), { 'editor-first': '', 'editor-second': '', 'editor-unrelated': '' });
+        await nativeClick(app, '.canvas-run-scope-trigger');
+        await nativeClick(app, '#canvas-run-scope label:has([value=target-node])');
+        await nativeClick(app, '[data-confirm-run-scope]');
+        await app.waitFor("window.currentNodeRequests.length===2 && document.getElementById('editor-second-run-status').textContent==='完成' && document.getElementById('btn-stop').disabled");
+        assert.deepEqual(await app.evaluate('window.currentNodeRequests.map(request=>request.prompt)'), ['first local draft', 'second local draft']);
+        await waitForAutosave(app);
+        await app.evaluate("document.getElementById('canvas-container').focus()");
+        await app.send('Input.dispatchKeyEvent', { ...combo, type: 'keyDown' });
+        await app.send('Input.dispatchKeyEvent', { ...combo, type: 'keyUp' });
+        await app.waitFor("window.currentNodeRequests.length===5 && document.getElementById('editor-second-run-status').textContent==='完成' && document.getElementById('btn-stop').disabled");
+        assert.deepEqual(await app.evaluate('window.currentNodeRequests.slice(2).map(request=>request.prompt).sort()'),
+            ['first local draft', 'second local draft', 'unrelated draft']);
+    });
+});
 
 test('parameter run executes only its current node and reuses cached upstream images', { timeout: 45000 }, async () => {
     await withAppBrowser({ ...session, nodes: session.nodes.map((node,index)=>index===0?{...node,generationCount:2}:node), connections: [cachedReferenceConnection] }, async app => {
@@ -375,6 +420,41 @@ test('titleless parameter editor keeps execution reachable while long content sc
         assert.deepEqual(await measure(), before, 'scrolling content leaves the editor header and action bar in place');
         assert.equal(await app.evaluate("document.getElementById('editor-first-prompt').value.split('\\n').length"), 81);
     });
+});
+
+test('empty cards suggest their next action and the prompt action opens the existing editor', { timeout: 30000 }, async () => {
+    const generate = { ...session.nodes[0], prompt: '', y: 80 };
+    const nodes = [generate,
+        { id: 'empty-import', type: 'ImageImport', x: 570, y: 80 },
+        { id: 'empty-unlinked', type: 'ImagePreview', x: 80, y: 450 },
+        { id: 'empty-linked', type: 'ImagePreview', x: 420, y: 450 }];
+    const connections = [{ id: 'await-reference', from: { nodeId: 'empty-import', port: 'image' },
+        to: { nodeId: 'empty-linked', port: 'image' }, type: 'image' }];
+    const initScript = `window.emptyCardProviderCalls=0;const actualFetch=window.fetch.bind(window);
+        window.fetch=(url, options)=>{if(url==='/proxy')window.emptyCardProviderCalls++;return actualFetch(url,options)};`;
+    await withAppBrowser({ ...session, nodes, connections }, async app => {
+        const promptAction = '#editor-first .image-first-empty-action';
+        await app.waitFor(`document.querySelector('${promptAction}')?.textContent === '填写提示词'`);
+        assert.equal(await app.evaluate("document.querySelector('#empty-import .image-first-empty-action').textContent"), '选择文件');
+        assert.equal(await app.evaluate("document.querySelector('#empty-import .image-first-empty-detail').textContent"), '将图片拖到这里');
+        assert.equal(await app.evaluate("document.querySelector('#empty-unlinked .image-first-empty-detail').textContent"), '从上游图片节点拖线连接');
+        assert.equal(await app.evaluate("document.querySelector('#empty-linked .image-first-empty-detail').textContent"), '等待上游图片');
+        const rendererChange = (message, options) => app.evaluate(`import('/js/features/media/display-image-renderer.js')
+            .then(({createDisplayImageRenderer}) => createDisplayImageRenderer().updatePreviewPlaceholder(
+                document.querySelector('#empty-linked .preview-placeholder'), ${JSON.stringify(message)}, ${JSON.stringify(options)}))`);
+        await rendererChange('已释放内存，移入视野或点击恢复预览', { icon: 'cache', modifierClass: 'preview-placeholder-memory-released' });
+        await app.waitFor(`(()=>{const placeholder=document.querySelector('#empty-linked .preview-placeholder');
+            return !placeholder.querySelector('.image-first-empty-title') && placeholder.querySelector('.preview-placeholder-text').checkVisibility()
+                && placeholder.innerText.includes('已释放内存') && !placeholder.innerText.includes('等待上游图片')})()`);
+        await rendererChange('无输入图片', { resetReleasedState: true });
+        await app.waitFor("document.querySelector('#empty-linked .image-first-empty-detail')?.textContent === '等待上游图片'");
+        await app.evaluate("document.querySelectorAll('.notice-close').forEach(button=>button.click())");
+        await nativeClick(app, promptAction);
+        await app.waitFor("document.activeElement?.id === 'editor-first-prompt'");
+        await changeField(app, 'editor-first-prompt', '方向明确的图片提示词');
+        await app.waitFor(`document.querySelector('${promptAction}')?.hidden && document.querySelector('#editor-first .image-first-empty-detail')?.textContent === '打开节点参数以生成图片'`);
+        assert.equal(await app.evaluate('emptyCardProviderCalls'), 0);
+    }, { initScript });
 });
 
 test('one screen-space image editor follows selection and preserves edits, width and layout across closing, zoom and reload', { timeout: 45000 }, async () => {

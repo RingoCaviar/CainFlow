@@ -63,6 +63,7 @@ import { createExecutionCoreApi } from '../features/execution/execution-core.js'
 import { createWorkflowRunnerApi } from '../features/execution/workflow-runner.js';
 import { getCanonicalImageList } from '../features/execution/execution-data-utils.js';
 import { prepareGenerationSaveTargets } from '../features/execution/generation-save-targets.js';
+import { getNodeModelConfigurationIssue } from '../features/execution/model-configuration-readiness.js';
 import { findAgentImageNodePosition } from '../features/execution/node-placement.js';
 import { createSessionManagerApi } from '../features/persistence/session-manager.js';
 import { flushSessionToDisk } from '../features/persistence/flush-session-to-disk.js';
@@ -75,6 +76,7 @@ import { createContextMenuControllerApi } from '../features/ui/context-menu-cont
 import { createErrorModalControllerApi } from '../features/ui/error-modal-controller.js';
 import { openDialogStyle1 } from '../features/ui/dialog-style-1.js';
 import { createRuntimeControllerApi } from '../features/ui/runtime-controller.js';
+import { createCanvasRunScopeMenu, projectCanvasRunScope } from '../features/ui/canvas-run-scope.js';
 import { createThemeControllerApi } from '../features/ui/theme-controller.js';
 import { applyGlobalAnimationSetting as applyGlobalAnimationSettingService } from '../features/ui/animation-controller.js';
 import { applyCanvasUiSetting as applyCanvasUiSettingService } from '../features/ui/canvas-ui-controller.js';
@@ -429,6 +431,7 @@ const selectionApi = createSelectionApi({
     onChange: () => {
         registry.imageFirstCanvasApi?.selectionChanged();
         registry.promptAgentController?.refreshPreparedNodeContext?.();
+        registry.canvasRunScopeMenu?.refresh();
     }
 });
 const nodeSerializer = createNodeSerializer({
@@ -484,6 +487,7 @@ function handleNodeGraphChanged(options = {}) {
     promptAgentController?.refreshPreparedNodeContext?.();
     if (!isMediaRestoreBatchActive()) registry.imageGenerationRevisionApi?.observeAll();
     registry.imageFirstCanvasApi?.refresh();
+    registry.canvasRunScopeMenu?.refresh();
     if (!force && isMediaRestoreBatchActive()) {
         return;
     }
@@ -778,6 +782,7 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
     },
     openResultPreview: (images, index, onClose) => openFullscreenPreview(images[index], null, { images, index, onClose }),
     openShotError: (label, reason) => showErrorModal('', reason, null, `「${label}」生成失败`),
+    openNodeRunError: (label, reason) => showErrorModal('', reason, null, `「${label}」执行失败`),
     openNodeFailureLog,
     openReferencePreview: async (edge, onClose) => {
         const source = state.nodes.get(edge.from.nodeId);
@@ -873,6 +878,7 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     finishConnection: (src, tgt) => finishConnection(src, tgt),
     updateConnectionTargetFeedback: (src) => updateConnectionTargetFeedback(src),
     clearConnectionTargetFeedback: () => clearConnectionTargetFeedback(),
+    openKeyboardConnection: connectionsApi.openKeyboardConnection,
     resumeVideoGeneration: resumeWorkflowNode,
     resumeImageGeneration: resumeWorkflowNode,
     setupImageImport,
@@ -1073,13 +1079,50 @@ function cancelCommerceImageSet(nodeId, shotId) {
     return canceled;
 }
 
+function getCanvasRunScopePreview(runInput) {
+    const execution = getExecutionCoreApi();
+    let message = '';
+    let plan = null;
+    const resolveExecutionPlan = input => {
+        plan = execution.resolveExecutionPlan(input, { notify: reason => { message = reason; } });
+        return plan;
+    };
+
+    try {
+        const prepared = prepareGenerationSaveTargets({ state, runInput, resolveExecutionPlan, normalizeRunOptions: execution.normalizeRunOptions });
+        if (plan && prepared.includedAutoSaveNodeIds.length) resolveExecutionPlan(prepared);
+        if (plan) {
+            const workflowId = workflowManagerApi.getActiveWorkflowId();
+            const runnableIds = plan.executionOrder.filter(id => state.nodes.get(id)?.enabled !== false);
+            const overlap = getWorkflowRuntimeManagerApi().getPlanOverlapNodeIds({ workflowId }, runnableIds);
+            if (overlap.length) message = `此范围内有 ${overlap.length} 个节点仍在运行。`;
+        }
+    } catch (error) {
+        message = error.message;
+    }
+    if (!plan) return { runIds: new Set(), reusedIds: new Set(), routes: new Map(), message };
+    const preview = projectCanvasRunScope({ state, plan, isFixedTextChatWithCachedResult: execution.isFixedTextChatWithCachedResult });
+    message ||= preview.commerce?.find(row => row.issue)?.issue.message || '';
+    if (!message) {
+        for (const id of preview.runIds) {
+            const node = state.nodes.get(id);
+            const issue = getNodeModelConfigurationIssue({ state, node, documentRef: document });
+            if (issue) {
+                message = `${node.customTitle || NODE_CONFIGS[node.type]?.title || node.type} · ${issue.message}`;
+                break;
+            }
+        }
+    }
+    return { ...preview, message: message || (!preview.runIds.size ? '此范围内没有需要执行的节点。' : '') };
+}
+
 async function runWorkflow(runInput = null, {
     waitForCompletion = false, retainResults, configurationSnapshot, validateBeforeRun, resumeNodeId = null,
-    captureTextResults = false, commercePanelRun
+    captureTextResults = false, commercePanelRun, validateExecutionPlan
 } = {}) {
     if (state.canvasPlanApplying || state.historyTransitionInProgress) {
         const message = state.canvasPlanApplying ? '画布方案正在应用，请稍后运行' : '画布正在撤销或重做，请稍后运行';
-        if (waitForCompletion || validateBeforeRun) throw new Error(message);
+        if (!validateExecutionPlan && (waitForCompletion || validateBeforeRun)) throw new Error(message);
         showToast(message, 'warning');
         return false;
     }
@@ -1149,9 +1192,10 @@ async function runWorkflow(runInput = null, {
         if (commercePanelRun) commercePanelRun.dispatched = true;
         // Forward the completion promise without holding the launch guard for
         // the full generation; other workflow branches can still be started.
-        return getWorkflowRuntimeManagerApi().runWorkflowInContext({ workflowName, workflowId }, workflowData, runInput, {
-            waitForCompletion, retainResults, configurationSnapshot, resumeNodeId, captureTextResults, commercePanelSignal
+        const execution = getWorkflowRuntimeManagerApi().runWorkflowInContext({ workflowName, workflowId }, workflowData, runInput, {
+            waitForCompletion, retainResults, configurationSnapshot, resumeNodeId, captureTextResults, commercePanelSignal, validateExecutionPlan
         });
+        return validateExecutionPlan ? await execution : execution;
     } catch (error) {
         showToast(error?.message || '无法启动工作流', 'warning');
         if (waitForCompletion || validateBeforeRun) throw error;
@@ -1545,6 +1589,9 @@ function getCanvasInteractionsApi() {
             getNodeMinimumSize: (nodeOrId, options) => getNodeLifecycleApi().getNodeMinimumSize(nodeOrId, options),
             enforceNodeContentMinimum: (nodeId, options) => getNodeLifecycleApi().enforceNodeContentMinimum(nodeId, options),
             findConnectionsCrossingSegments,
+            pickConnectionAt: connectionsApi.pickConnectionAt,
+            inspectConnection: connectionsApi.inspectConnection,
+            clearConnectionInspection: connectionsApi.clearConnectionInspection,
             onViewportSettled: () => mediaControllerApi.scheduleMediaMemorySweep?.({ reason: 'viewport-settled' })
         });
     }
@@ -1777,6 +1824,7 @@ function getContextMenuControllerApi() {
             buildNodeRequestPreview: (nodeId) => getExecutionCoreApi().buildNodeRequestPreview(nodeId),
             enterBatchConnectionMode: (selection) => getBatchConnectionModeApi().enter(selection),
             getBatchConnectionSources: connectionsApi.getBatchConnectionSources,
+            inspectConnectionsFromNode: (nodeId, direction, x, y) => connectionsApi.inspectConnectionsFromNode(nodeId, direction, x, y),
             createNodeFromConnectionCandidate: (source, candidate, x, y) => createNodeFromConnectionCandidate(source, candidate, x, y),
             fitNodeToContent,
             updateAllConnections,
@@ -2417,6 +2465,13 @@ function copyToClipboard(text) {
 
 getGlobalInteractionsApi().initGlobalInteractions();
 getRuntimeControllerApi().initRuntimeBindings();
+registry.canvasRunScopeMenu = createCanvasRunScopeMenu({
+    state, documentRef: document,
+    getWorkflowId: () => workflowManagerApi.getActiveWorkflowId(),
+    getPreview: getCanvasRunScopePreview,
+    openNodeSettings: (nodeId, action) => registry.imageFirstCanvasApi?.openNodeSettings(nodeId, action),
+    runWorkflow
+});
 installSessionPersistenceOnExit({
     flushSession: () => getSessionManagerApi().flushSave(),
     flushWorkflows: () => workflowManagerApi.flushAutosave(),

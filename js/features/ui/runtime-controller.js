@@ -134,10 +134,12 @@ export function createRuntimeControllerApi({
             const activeElement = documentRef.activeElement;
             const inInput = isTextEditingTarget(activeElement);
             const hasTextSelection = windowRef.getSelection()?.toString().length > 0;
+            const workflowRunShortcut = (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === 'Enter';
             const canvasShortcutsEnabled = canUseCanvasShortcuts({
                 event: e,
                 state,
                 canvasContainer,
+                requireCanvasFocus: workflowRunShortcut,
                 documentRef,
                 windowRef
             });
@@ -160,7 +162,10 @@ export function createRuntimeControllerApi({
                 e.preventDefault();
                 selectionApi.selectAllNodes();
             }
-            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); runWorkflow(); }
+            if (workflowRunShortcut && canvasShortcutsEnabled) {
+                e.preventDefault();
+                if (!e.repeat) runWorkflow();
+            }
             // Suppress the browser's Save Page command; documents save automatically.
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') e.preventDefault();
             if ((e.ctrlKey || e.metaKey) && e.key === 'e') { e.preventDefault(); exportWorkflow(); }

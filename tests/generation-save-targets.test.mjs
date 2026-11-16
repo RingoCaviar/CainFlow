@@ -8,6 +8,7 @@ import { createNodeLifecycleApi } from '../js/nodes/node-lifecycle.js';
 import { createNodeSerializer } from '../js/nodes/node-serializer.js';
 import { imageSaveNode } from '../js/nodes/types/image-save.js';
 import { createWorkflowManagerApi } from '../js/features/workflow/workflow-manager.js';
+import { projectCanvasRunScope } from '../js/features/ui/canvas-run-scope.js';
 
 const noop = () => {};
 const element = () => ({
@@ -66,6 +67,38 @@ function fixture(type = 'ImageGenerate') {
     };
     return { state, source, documentRef, nodeConfigs, core, prepare, connect, changes, directorySaves, get saved() { return saved; } };
 }
+
+test('run scope preview follows fixed results, disabled inputs, and legacy save targets in the execution plan', () => {
+    const f = fixture();
+    const { state, core } = f;
+    f.connect('automatic-save', { automatic: true });
+    state.nodes.set('fixed-text', { id: 'fixed-text', type: 'TextChat', isSucceeded: true, data: { text: '固定结果' } });
+    state.nodes.set('disabled-input', { id: 'disabled-input', type: 'ImageImport', enabled: false });
+    state.nodes.set('external-image', { id: 'external-image', type: 'ImageImport' });
+    const getElementById = f.documentRef.getElementById;
+    f.documentRef.getElementById = id => id === 'fixed-text-fixed' ? { checked: true } : getElementById(id);
+    function connect(sourceId, fromPort, toPort) {
+        state.connections.push({ id: sourceId, from: { nodeId: sourceId, port: fromPort }, to: { nodeId: 'generate', port: toPort } });
+    }
+    connect('fixed-text', 'text', 'prompt');
+    connect('disabled-input', 'image', 'referenceImages');
+    connect('external-image', 'image', 'referenceImages');
+    const project = input => projectCanvasRunScope({ state, plan: core.resolveExecutionPlan(f.prepare(input)),
+        isFixedTextChatWithCachedResult: core.isFixedTextChatWithCachedResult });
+    const selected = project({ mode: 'selected-only', selectedNodeIds: ['generate'] });
+    assert.deepEqual([...selected.runIds], ['generate', 'automatic-save']);
+    assert.deepEqual([...selected.reusedIds], ['fixed-text', 'external-image']);
+    assert.deepEqual([...selected.routes], [['fixed-text', 'reuse'], ['external-image', 'reuse'], ['to-automatic-save', 'run']]);
+    const upstream = project({ mode: 'target-node', targetNodeId: 'generate' });
+    assert.deepEqual([...upstream.runIds], ['external-image', 'generate', 'automatic-save']);
+    assert.deepEqual([...upstream.reusedIds], ['fixed-text']);
+    assert.equal(upstream.routes.get('external-image'), 'run');
+    assert.equal(upstream.routes.has('disabled-input'), false);
+    assert.deepEqual([...project({ mode: 'target-node', targetNodeId: 'fixed-text' }).runIds], ['fixed-text']);
+    state.connections.find(edge => edge.id === 'external-image').to.port = 'mask';
+    const rebound = project({ mode: 'selected-only', selectedNodeIds: ['generate'] });
+    assert.notEqual(rebound.scopeKey, selected.scopeKey, 'a reassigned port changes the confirmed plan even if the edge id is retained');
+});
 
 for (const type of ['ImageGenerate', 'VideoGenerate']) {
     for (const mode of ['all', 'selected-only', 'target-node']) {

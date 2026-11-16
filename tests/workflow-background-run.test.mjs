@@ -45,6 +45,21 @@ function scopedToolbarFixture({ holdRestore = false } = {}) {
         activate(id) { activeId = id; manager.refreshVisibleWorkflowRunState(reference(id)); } };
 }
 
+test('a changed confirmed plan is rejected before any detached run starts', async () => {
+    const f = scopedToolbarFixture();
+    const workflow = { workflowId: 'workflow-a', workflowName: 'workflow-a' };
+    await assert.rejects(f.manager.runWorkflowInContext(workflow, {}, { mode: 'all' }, {
+        validateExecutionPlan({ state, plan }) {
+            assert.equal(state, f.contexts[0].state);
+            assert.deepEqual(plan.executionOrder, ['workflow-a:0-node']);
+            throw new Error('画布已变化');
+        }
+    }), /画布已变化/);
+    assert.equal(f.contexts[0].calls, 0);
+    assert.equal(f.manager.getPlanOverlapNodeIds(workflow, ['workflow-a:0-node']).length, 0);
+    assert.equal(f.state.isRunning, false);
+});
+
 test('toolbar stop is scoped by current workflow identity and leaves background work running', async () => {
     const f = scopedToolbarFixture();
     await f.run('workflow-a');

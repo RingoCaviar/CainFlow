@@ -88,6 +88,7 @@ export function createNodeDomBindingsApi({
     finishConnection,
     updateConnectionTargetFeedback = () => {},
     clearConnectionTargetFeedback = () => {},
+    openKeyboardConnection = null,
     resumeVideoGeneration = async () => {},
     resumeImageGeneration = async () => {},
     setupImageImport,
@@ -629,6 +630,28 @@ export function createNodeDomBindingsApi({
             </div>`;
     }
 
+    function readPortConnectionSource(portEl, clientX, clientY) {
+        const { nodeId, port: portName, type: dataType, direction } = portEl.dataset;
+        const existingInputConnection = direction === 'input'
+            ? state.connections.find(connection => connection.to.nodeId === nodeId && connection.to.port === portName)
+            : null;
+        const supportsMultiple = isMultiConnectionInput(state.nodes.get(nodeId)?.type, portName);
+        if (existingInputConnection && !supportsMultiple) {
+            if (isNodeRunning(existingInputConnection.from.nodeId)) {
+                showToast('节点正在运行，暂不能修改连线', 'warning');
+                return null;
+            }
+            const { from, type } = existingInputConnection;
+            const position = getPortPosition(from.nodeId, from.port, 'output');
+            return { nodeId: from.nodeId, portName: from.port, dataType: type || dataType, isOutput: true,
+                startX: position.x, startY: position.y, screenX: clientX, screenY: clientY, dragged: false,
+                rewiredFromConnection: existingInputConnection };
+        }
+        const position = getPortPosition(nodeId, portName, direction);
+        return { nodeId, portName, dataType, isOutput: direction === 'output', startX: position.x, startY: position.y,
+            screenX: clientX, screenY: clientY, dragged: false };
+    }
+
     function bindPortInteraction(portEl) {
         if (!portEl || portEl.dataset.bound === '1') return;
         portEl.dataset.bound = '1';
@@ -641,6 +664,26 @@ export function createNodeDomBindingsApi({
             portEl.addEventListener('pointerenter', () => {
                 if (!portEl.title) portEl.title = portEl.getAttribute('aria-label');
             });
+        }
+        if (openKeyboardConnection) {
+            const label = portEl.querySelector('.port-label')?.textContent?.trim() || portEl.dataset.port;
+            const direction = portEl.dataset.direction === 'input' ? '输入' : '输出';
+            portEl.setAttribute('role', 'button');
+            portEl.setAttribute('aria-label', `连接${direction}端口：${label}`);
+            portEl.setAttribute('aria-haspopup', 'menu');
+            portEl.setAttribute('aria-expanded', 'false');
+            portEl.tabIndex = 0;
+            const activate = event => {
+                event.stopPropagation();
+                event.preventDefault();
+                if (blockRunningNodeMutation(portEl.dataset.nodeId, event, '节点正在运行，暂不能修改连线')) return;
+                openKeyboardConnection(portEl, readPortConnectionSource(portEl));
+            };
+            portEl.addEventListener('keydown', event => {
+                if (!event.repeat && !event.isComposing && !event.altKey && !event.ctrlKey && !event.metaKey
+                    && (event.key === 'Enter' || event.key === ' ')) activate(event);
+            });
+            portEl.addEventListener('click', event => { if (event.detail === 0) activate(event); });
         }
 
         dot.addEventListener('mousedown', (e) => {
@@ -670,72 +713,15 @@ export function createNodeDomBindingsApi({
                 return;
             }
 
-            const existingInputConnection = portEl.dataset.direction === 'input'
-                ? state.connections.find((connection) => (
-                    connection.to.nodeId === portEl.dataset.nodeId &&
-                    connection.to.port === portEl.dataset.port
-                ))
-                : null;
-            const supportsMultipleConnections = isMultiConnectionInput(
-                state.nodes.get(portEl.dataset.nodeId)?.type,
-                portEl.dataset.port
-            );
-
-            if (existingInputConnection && !supportsMultipleConnections) {
-                if (isNodeRunning(existingInputConnection.from.nodeId)) {
-                    showToast('节点正在运行，暂不能修改连线', 'warning');
-                    return;
-                }
-
-                const sourcePosition = getPortPosition(
-                    existingInputConnection.from.nodeId,
-                    existingInputConnection.from.port,
-                    'output'
-                );
-
-                // Keep the old topology until a valid replacement is committed.
-                state.connecting = {
-                    nodeId: existingInputConnection.from.nodeId,
-                    portName: existingInputConnection.from.port,
-                    dataType: existingInputConnection.type || portEl.dataset.type,
-                    isOutput: true,
-                    startX: sourcePosition.x,
-                    startY: sourcePosition.y,
-                    screenX: e.clientX,
-                    screenY: e.clientY,
-                    dragged: false,
-                    rewiredFromConnection: {
-                        id: existingInputConnection.id,
-                        from: existingInputConnection.from,
-                        to: existingInputConnection.to,
-                        type: existingInputConnection.type
-                    }
-                };
-                documentRef.body.classList.add('is-interacting');
-                documentRef.getElementById('connections-group').classList.add('is-interacting');
-                updateConnectionTargetFeedback(state.connecting);
-                return;
+            const source = readPortConnectionSource(portEl, e.clientX, e.clientY);
+            if (!source) return;
+            // Keep the old topology until a valid replacement is committed.
+            if (source.rewiredFromConnection) documentRef.getElementById('connections-group').classList.add('is-interacting');
+            if (portEl.dataset.direction === 'output') {
+                const selectedNodeIds = selectionApi.getSelectedNodeIds();
+                if (selectedNodeIds.length > 1 && selectedNodeIds.includes(nodeId)) source.selectedNodeIds = selectedNodeIds;
             }
-
-            const startPosition = getPortPosition(
-                portEl.dataset.nodeId,
-                portEl.dataset.port,
-                portEl.dataset.direction
-            );
-            const isOutput = portEl.dataset.direction === 'output';
-            const selectedNodeIds = isOutput ? selectionApi.getSelectedNodeIds() : [];
-            state.connecting = {
-                nodeId: portEl.dataset.nodeId,
-                portName: portEl.dataset.port,
-                dataType: portEl.dataset.type,
-                isOutput,
-                ...(selectedNodeIds.length > 1 && selectedNodeIds.includes(nodeId) ? { selectedNodeIds } : {}),
-                startX: startPosition.x,
-                startY: startPosition.y,
-                screenX: e.clientX,
-                screenY: e.clientY,
-                dragged: false
-            };
+            state.connecting = source;
             documentRef.body.classList.add('is-interacting');
             updateConnectionTargetFeedback(state.connecting);
         });

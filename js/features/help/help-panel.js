@@ -23,7 +23,8 @@ export function createHelpPanelApi({
     <div class="help-section">
         <h4>运行与文件</h4>
         <div class="help-grid">
-            <div class="help-item"><span class="help-desc">运行工作流</span><span class="help-key">Ctrl + Enter</span></div>
+            <div class="help-item"><span class="help-desc">运行整个工作流</span><span class="help-key">画布获得焦点后 Ctrl + Enter</span></div>
+            <div class="help-item"><span class="help-desc">预览节点运行范围</span><span class="help-key">选中节点 → 运行范围</span></div>
             <div class="help-item"><span class="help-desc">停止全部运行</span><span class="help-key">顶部停止</span></div>
             <div class="help-item"><span class="help-desc">停止修改 3 秒后自动保存，失败时提示重试</span></div>
             <div class="help-item"><span class="help-desc">导入 / 导出工作流</span><span class="help-key">Ctrl + O / E</span></div>
@@ -34,7 +35,7 @@ export function createHelpPanelApi({
     <div class="help-section">
         <h4>画布视图</h4>
         <div class="help-grid">
-            <div class="help-item"><span class="help-desc">添加节点</span><span class="help-key">右键空白处</span></div>
+            <div class="help-item"><span class="help-desc">添加节点</span><span class="help-key">＋ 添加节点 / Alt + N</span></div>
             <div class="help-item"><span class="help-desc">框选节点</span><span class="help-key">拖拽空白处</span></div>
             <div class="help-item"><span class="help-desc">全选节点</span><span class="help-key">Ctrl + A</span></div>
             <div class="help-item"><span class="help-desc">平移画布</span><span class="help-key">空格拖拽</span></div>
@@ -59,6 +60,7 @@ export function createHelpPanelApi({
         <h4>连线与素材</h4>
         <div class="help-grid">
             <div class="help-item"><span class="help-desc">创建连线</span><span class="help-key">拖拽端口</span></div>
+            <div class="help-item"><span class="help-desc">用键盘连接</span><span class="help-key">聚焦端口，按 Enter 选择目标</span></div>
             <div class="help-item"><span class="help-desc">删除连线</span><span class="help-key">双击连线</span></div>
             <div class="help-item"><span class="help-desc">剪断多条连线</span><span class="help-key">Ctrl + 右键划线</span></div>
             <div class="help-item"><span class="help-desc">导入图片</span><span class="help-key">拖入画布</span></div>

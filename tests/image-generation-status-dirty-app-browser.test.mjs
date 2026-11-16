@@ -390,8 +390,10 @@ test('a held background run confirms only its own recipe while an identical node
         await open(app, 'shared'); await change(app, 'shared-prompt', 'shared A pending'); await expectDirty(app, 'shared', true);
         await app.evaluate("statusHold=['shared']"); await start(app, 'shared');
         await app.waitFor("statusPending.shared===true&&document.getElementById('shared-run-status').textContent==='运行中'");
+        assert.equal(await app.evaluate("document.querySelector('#shared > .node-card-run-status:not([hidden])')?.dataset.status"), 'running');
         assert.equal(await app.evaluate("document.getElementById('shared-prompt').disabled"), true);
         await activate(app, 'Status B'); await open(app, 'shared'); await expectUnconfirmed(app, 'shared');
+        assert.equal(await app.evaluate("document.querySelector('#shared > .node-card-run-status').hidden"), true, 'the active card has no status from a same-ID background run');
         assert.equal(await app.evaluate("document.getElementById('shared-prompt').disabled"), false, 'the background workflow cannot lock a different node with the same ID');
         assert.equal(await app.evaluate("document.getElementById('shared-prompt').value"), 'shared B original');
         await change(app, 'shared-prompt', 'shared B edited during A'); await expectDirty(app, 'shared', true);
@@ -405,6 +407,7 @@ test('a held background run confirms only its own recipe while an identical node
         assert.equal(await app.evaluate("document.getElementById('shared-image-results').hidden"), true, 'background output never appears on the active same-ID node');
         await activate(app, 'Status A'); await expectDirty(app, 'shared', false);
         await app.waitFor("document.querySelector('#shared-image-results img')?.naturalWidth>0");
+        assert.equal(await app.evaluate("document.querySelector('#shared > .node-card-run-status').hidden"), true, 'a completed background run does not leave a running indicator on return');
         assert.equal(await app.evaluate("document.getElementById('shared-prompt').value"), 'shared A pending');
         assert.equal(await app.evaluate("document.getElementById('shared-prompt').disabled"), false);
         const graphA = await saved(app);

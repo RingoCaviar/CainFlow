@@ -938,6 +938,97 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
     box-shadow: 0 0 18px color-mix(in srgb, var(--port-color) 70%, transparent);
 }
 
+#canvas-container .node-port[role="button"]:focus-visible {
+    outline: 2px solid var(--node-selected-ring, var(--accent-primary));
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+#canvas-container .node-port[role="button"]:focus-visible .port-dot::after {
+    position: absolute;
+    inset: 3px;
+    border: 2px solid var(--bg-node);
+    border-radius: 50%;
+    content: "";
+    pointer-events: none;
+}
+
+.canvas-connection-hint,
+.canvas-connection-choice {
+    position: absolute;
+    box-sizing: border-box;
+    z-index: var(--layer-notice);
+    border: 1px solid var(--notice-border);
+    border-radius: 8px;
+    background: var(--bg-node);
+    color: var(--text-primary);
+    box-shadow: var(--notice-shadow);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.canvas-connection-hint {
+    width: max-content;
+    max-width: min(260px, calc(100% - 16px));
+    padding: 5px 9px;
+    border-color: var(--accent-primary);
+    overflow-wrap: anywhere;
+    pointer-events: none;
+}
+
+.canvas-connection-hint.is-blocked {
+    border-color: var(--text-danger);
+}
+
+.canvas-connection-choice {
+    width: min(300px, calc(100% - 16px));
+    padding: 4px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.canvas-connection-choice-heading,
+.canvas-connection-choice-empty {
+    padding: 6px 8px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.canvas-connection-choice button {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    width: 100%;
+    min-height: 34px;
+    padding: 5px 8px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: start;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+}
+
+.canvas-connection-choice button span:first-child {
+    font-weight: 600;
+}
+
+.canvas-connection-choice button span + span {
+    color: var(--text-secondary);
+}
+
+.canvas-connection-choice button:hover,
+.canvas-connection-choice button:focus-visible {
+    background: var(--panel-active-bg);
+}
+
+.canvas-connection-choice button:focus-visible {
+    outline: 2px solid var(--node-selected-ring, var(--accent-primary));
+    outline-offset: -2px;
+}
+
 .node-port.input {
     justify-content: flex-start;
 }
