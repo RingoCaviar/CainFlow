@@ -332,8 +332,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             .map(element => element.getBoundingClientRect().bottom + 12);
         const preferredTop = Math.max(rect.bottom + 12, ...floatingBottoms);
         const hasCancel = !!current.el.querySelector('.node-run-cancel-btn')?.getClientRects().length;
-        // Content changes must not move the controls under the pointer. Only
-        // changes to the node or available canvas invalidate the opening anchor.
+        // Ordinary edits keep controls under the pointer. Explicit disclosure
+        // changes release this anchor so the new content can use the viewport.
         const geometry = anchorGeometry(rect, bounds, preferredTop);
         // A measured rectangle may round a translated edge to a slightly different subpixel.
         if (preserveOrdinaryAnchor && ordinaryAnchor?.node === current && ordinaryAnchor.hasCancel === hasCancel &&
@@ -961,7 +961,13 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         form.addEventListener('mousedown', event => event.stopPropagation());
         form.addEventListener('input', () => { refreshNode(node.id); onSettingsChanged(node.id); });
         form.addEventListener('change', () => { refreshNode(node.id); onSettingsChanged(node.id); });
-        form.addEventListener('toggle', () => { if (current === node) schedulePosition(); }, true);
+        form.addEventListener('toggle', event => {
+            if (current !== node) return;
+            // Explicit disclosure changes need a fresh content-height measurement.
+            // Keep the editing anchor only for ordinary inputs, not collapsed geometry.
+            if (event.target.matches('details')) preserveOrdinaryAnchor = false;
+            schedulePosition();
+        }, true);
         form.addEventListener('pointerup', () => { if (current === node) schedulePosition(); });
         let resizePress = false;
         node.el.addEventListener('mousedown', event => {

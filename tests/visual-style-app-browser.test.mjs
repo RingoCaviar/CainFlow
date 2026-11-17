@@ -5,6 +5,57 @@ import { withAppBrowser, reloadAppBrowser, waitForAutosave } from './helpers/app
 import { uploadImageOriginal } from './helpers/image-upload.mjs';
 import { configuration, originals } from './helpers/image-first-integrated-fixture.mjs';
 
+test('风格浮层当场展开与重新打开有相同的完整高度', { timeout: 30000 }, async () => {
+    await withAppBrowser({ ...configuration, nodes: [{ id: 'style', type: 'VisualStyle', x: 360, y: 430 }], connections: [] }, async app => {
+        const click = async selector => {
+            const point = await app.evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})()`);
+            await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
+        };
+        const settle = () => app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        const measure = () => app.evaluate(`(()=>{const p=document.getElementById('image-parameter-panel'),s=p.querySelector('.image-parameter-scroll');return {height:p.offsetHeight,top:p.getBoundingClientRect().top,overflow:s.scrollHeight-s.clientHeight};})()`);
+        await click('#style [data-style-preview]');
+        await settle();
+        const collapsed = await measure();
+        await click('#style-style-description');
+        await app.send('Input.insertText', { text: '保留这份风格草稿' });
+        await settle();
+        assert.equal((await measure()).top, collapsed.top, 'typing keeps the editor anchored');
+        await app.evaluate("window.styleInputBefore=document.getElementById('style-style-description')");
+        await click('#image-parameter-panel summary');
+        await settle();
+        assert.equal(await app.evaluate("document.activeElement===document.querySelector('#image-parameter-panel summary')"), true);
+        const expanded = await measure();
+        await mkdir('.scratch/visual-style/panel-resize', { recursive: true });
+        const capture = await app.send('Page.captureScreenshot', { format: 'png' });
+        await writeFile('.scratch/visual-style/panel-resize/expanded.png', Buffer.from(capture.data, 'base64'));
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+        await click('#style [data-style-preview]');
+        await settle();
+        const reopened = await measure();
+        assert.ok(Math.abs(expanded.height - reopened.height) <= 1, JSON.stringify({ expanded, reopened }));
+        assert.ok(expanded.overflow <= 1, 'available viewport space should be used before adding scrolling');
+        await click('#image-parameter-panel summary');
+        await settle();
+        assert.ok(Math.abs((await measure()).height - collapsed.height) <= 1, 'collapsing releases the extra height');
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+        await settle();
+        assert.ok(Math.abs((await measure()).height - expanded.height) <= 1, JSON.stringify({ expanded, keyboard: await measure(), state: await app.evaluate("({open:document.querySelector('#image-parameter-panel details').open,focus:document.activeElement.tagName})") }));
+        assert.equal(await app.evaluate("window.styleInputBefore===document.getElementById('style-style-description') && styleInputBefore.value==='保留这份风格草稿'"), true);
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 520, height: 300, deviceScaleFactor: 1, mobile: false });
+        await settle();
+        await app.evaluate("document.querySelector('#image-parameter-panel details').open=false");
+        await settle();
+        await app.evaluate("document.querySelector('#image-parameter-panel details').open=true");
+        await settle();
+        assert.ok((await measure()).overflow > 1, 'a truly short viewport still scrolls');
+        assert.ok(await app.evaluate("(()=>{const b=document.querySelector('#image-parameter-panel [data-parameter-action=generate]').getBoundingClientRect();return b.top>=0 && b.bottom<=innerHeight;})()"), 'execution stays reachable');
+        const small = await app.send('Page.captureScreenshot', { format: 'png' });
+        await writeFile('.scratch/visual-style/panel-resize/short-window.png', Buffer.from(small.data, 'base64'));
+    });
+});
+
 test('画布菜单创建画面风格节点并保存恢复', { timeout: 30000 }, async () => {
     await withAppBrowser({ ...configuration, nodes: [], connections: [] }, async app => {
         await app.evaluate(`document.getElementById('canvas-container').dispatchEvent(new MouseEvent('contextmenu',
