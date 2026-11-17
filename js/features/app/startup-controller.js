@@ -30,13 +30,13 @@ export function createStartupControllerApi({
         }
         startupNetworkDetectionTimer = window.setTimeout(() => {
             startupNetworkDetectionTimer = null;
-            Promise.resolve(checkNetworkConnectivity({ showResultToast: true }))
+            Promise.resolve(checkNetworkConnectivity({ showResultToast: true, deferWhileInteracting: true }))
                 .catch((error) => {
                     consoleRef.error('Failed to check startup network connectivity:', error);
                 })
                 .finally(() => {
                     window.setTimeout(() => {
-                        Promise.resolve(checkNetworkProxyMismatch(true)).catch((error) => {
+                        Promise.resolve(checkNetworkProxyMismatch(true, { deferWhileInteracting: true })).catch((error) => {
                             consoleRef.error('Failed to detect startup network proxy mismatch:', error);
                         });
                     }, 1600);

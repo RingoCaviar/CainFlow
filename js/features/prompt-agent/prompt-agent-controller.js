@@ -276,6 +276,27 @@ export function createPromptAgentController({
     function getUsableChatModels() {
         return getChatModels().filter((model) => model?.id && model?.modelId);
     }
+    function syncModelOptions(select, options, selectedId, disabled) {
+        if (!select) return;
+        const currentOptions = Array.from(select.options || select.children || []);
+        const unchanged = currentOptions.length === options.length && options.every((option, index) => {
+            const current = currentOptions[index];
+            return current.value === option.value && current.textContent === option.label &&
+                Boolean(current.disabled) === Boolean(option.disabled);
+        });
+        if (!unchanged) {
+            select.replaceChildren?.();
+            for (const { value, label, disabled: optionDisabled = false } of options) {
+                const option = documentRef.createElement('option');
+                option.value = value;
+                option.textContent = label;
+                option.disabled = optionDisabled;
+                select.appendChild(option);
+            }
+        }
+        if (select.value !== selectedId) select.value = selectedId;
+        if (select.disabled !== disabled) select.disabled = disabled;
+    }
     function updateSendButtonState(models = getUsableChatModels()) {
         const { input, sendButton } = getElements();
         getElements().messages?.querySelectorAll('[data-message-action="resend"]').forEach(button => {
@@ -293,34 +314,28 @@ export function createPromptAgentController({
         renderImageModelOptions();
         const { modelSelect, modelHint } = getElements();
         const models = getUsableChatModels();
-        if (modelHint) modelHint.hidden = models.length > 0;
         // Local commands remain available without a model and during requests.
         updateSendButtonState(models);
         refreshChoiceButtons(models);
         if (!modelSelect) return models;
         const selected = conversationStore.getChatModelId() || getSelectedModelId() || models[0]?.id || '';
         if (selected && !conversationStore.getChatModelId()) conversationStore.setChatModelId(selected);
-        modelSelect.replaceChildren?.();
-        models.forEach((model) => {
-            const option = documentRef.createElement('option');
-            option.value = model.id;
-            option.textContent = getAgentModelLabel(model, getProviders());
-            modelSelect.appendChild(option);
-        });
+        const options = models.map(model => ({ value: model.id, label: getAgentModelLabel(model, getProviders()) }));
         if (selected && !models.some(model => model.id === selected)) {
-            const missing = documentRef.createElement('option'); missing.value = selected;
-            missing.textContent = '已选对话模型不可用，请检查配置'; missing.disabled = true; modelSelect.appendChild(missing);
+            options.push({ value: selected, label: '已选对话模型不可用，请检查配置', disabled: true });
         }
-        modelSelect.value = selected;
+        syncModelOptions(modelSelect, options, selected, models.length === 0);
         initializeProvider('chat', models.find(model => model.id === selected));
         const error = providerError('chat', models.find(model => model.id === selected));
         const status = documentRef.getElementById('prompt-agent-model-status');
-        if (status) status.textContent = models.length === 0 ? '尚未配置可用的对话模型。' : error?.message || '已选对话模型不可用，请检查配置。';
-        if (modelHint) modelHint.hidden = !error && models.some(model => model.id === selected);
+        const statusText = models.length === 0 ? '尚未配置可用的对话模型。' : error?.message || '已选对话模型不可用，请检查配置。';
+        if (status && status.textContent !== statusText) status.textContent = statusText;
+        const hideHint = !error && models.some(model => model.id === selected);
+        if (modelHint && modelHint.hidden !== hideHint) modelHint.hidden = hideHint;
         const configure = documentRef.getElementById('prompt-agent-add-model');
-        if (configure) configure.textContent = '配置模型与供应商';
-        modelSelect.disabled = models.length === 0;
+        if (configure && configure.textContent !== '配置模型与供应商') configure.textContent = '配置模型与供应商';
         thinkingControls.forEach(control => control.refresh());
+        modelMenus?.refresh();
         return models;
     }
 
@@ -335,39 +350,29 @@ export function createPromptAgentController({
         const selectedId = conversationStore.getImageModelId();
         const valid = models.some((model) => model.id === selectedId);
         initializeProvider('image', models.find(model => model.id === selectedId));
-        if (imageModelSelect) {
-            imageModelSelect.replaceChildren?.();
-            const placeholder = documentRef.createElement('option');
-            placeholder.value = '';
-            placeholder.textContent = '请选择生图模型';
-            imageModelSelect.appendChild(placeholder);
-            if (selectedId && !valid) {
-                const missing = documentRef.createElement('option');
-                missing.value = selectedId;
-                missing.textContent = '已选模型不可用，请重新选择';
-                missing.disabled = true;
-                imageModelSelect.appendChild(missing);
-            }
-            models.forEach((model) => {
-                const option = documentRef.createElement('option');
-                option.value = model.id;
-                option.textContent = getAgentModelLabel(model, getProviders());
-                imageModelSelect.appendChild(option);
-            });
-            // Never infer a selection from the first option or canvas node.
-            imageModelSelect.value = selectedId;
-            imageModelSelect.disabled = models.length === 0;
+        const options = [{ value: '', label: '请选择生图模型' }];
+        if (selectedId && !valid) {
+            options.push({ value: selectedId, label: '已选模型不可用，请重新选择', disabled: true });
         }
+        options.push(...models.map(model => ({ value: model.id, label: getAgentModelLabel(model, getProviders()) })));
+        // Never infer a selection from the first option or canvas node.
+        syncModelOptions(imageModelSelect, options, selectedId, models.length === 0);
         const error = providerError('image', models.find(model => model.id === selectedId));
-        if (imageModelHint) imageModelHint.hidden = valid && !error;
-        if (imageModelStatus) imageModelStatus.textContent = selectedId && !valid
+        const hideHint = valid && !error;
+        if (imageModelHint && imageModelHint.hidden !== hideHint) imageModelHint.hidden = hideHint;
+        const statusText = error?.message || (selectedId && !valid
             ? '已选生图模型不可用，请重新选择。'
-            : (models.length ? '请选择生图模型后再应用或生成。' : '暂无可用生图模型，');
-        if (imageModelStatus && error) imageModelStatus.textContent = error.message;
-        if (addImageModelButton) { addImageModelButton.hidden = valid && !error; addImageModelButton.textContent = '配置模型与供应商'; }
+            : (models.length ? '请选择生图模型后再应用或生成。' : '暂无可用生图模型，'));
+        if (imageModelStatus && imageModelStatus.textContent !== statusText) imageModelStatus.textContent = statusText;
+        if (addImageModelButton) {
+            if (addImageModelButton.hidden !== hideHint) addImageModelButton.hidden = hideHint;
+            if (addImageModelButton.textContent !== '配置模型与供应商') addImageModelButton.textContent = '配置模型与供应商';
+        }
         promptPlanActionStates.forEach((actionState) => actionState.sync());
         canvasViews.forEach(view => view.sync());
         thinkingControls.forEach(control => control.refresh());
+        // A provider preference can change without changing native options.
+        modelMenus?.refresh();
     }
 
     function setCommandStatus(text = '') {

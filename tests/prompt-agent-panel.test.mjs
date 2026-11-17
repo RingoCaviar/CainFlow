@@ -573,6 +573,46 @@ test('late models and ordering changes never choose or replace an explicit image
     assert.equal(elements['prompt-agent-image-model'].value, '');
 });
 
+test('refreshing unchanged Agent action state preserves model options without rewriting their presentation', () => {
+    let models = [TEST_IMAGE_MODEL];
+    const { controller, elements } = createHarness(undefined, undefined, null, { getImageModels: () => models });
+    const select = elements['prompt-agent-image-model'];
+    const originalOptions = [...select.children];
+    const writes = [];
+    for (const [id, properties] of [
+        ['prompt-agent-image-model', ['value', 'disabled']],
+        ['prompt-agent-image-model-hint', ['hidden']],
+        ['prompt-agent-image-model-status', ['textContent']],
+        ['prompt-agent-add-image-model', ['hidden', 'textContent']]
+    ]) {
+        const element = elements[id];
+        for (const property of properties) {
+            let value = element[property];
+            Object.defineProperty(element, property, {
+                get: () => value,
+                set(next) { writes.push(`${id}.${property}`); value = next; },
+                configurable: true
+            });
+        }
+    }
+
+    controller.refreshActionStates();
+    controller.refreshActionStates();
+
+    assert.ok(select.children.every((option, index) => option === originalOptions[index]),
+        'selecting another canvas node must not recreate unchanged model options');
+    assert.deepEqual(writes, [], 'an unchanged selection must not invalidate hidden Agent presentation');
+
+    models = [{ ...TEST_IMAGE_MODEL, name: 'Renamed image model' }];
+    controller.refreshActionStates();
+    assert.match(select.children[1].textContent, /Renamed image model/);
+    models = [];
+    controller.refreshActionStates();
+    assert.equal(select.disabled, true);
+    assert.equal(select.value, TEST_IMAGE_MODEL.id, 'a removed model remains an explicit unavailable selection');
+    assert.equal(select.children[1].disabled, true);
+});
+
 test('legacy applied plans become actionable when only the provider preference changes', async () => {
     const store = selectedImageStore(), configurations = [];
     const { controller, elements } = createHarness(undefined, {

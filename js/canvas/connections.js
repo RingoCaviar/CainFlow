@@ -1611,50 +1611,53 @@ export function createConnectionsApi({
         else hoveredConnectionIds.delete(connection.id);
     }
 
-    function renderConnectionPath(conn, context = {}) {
-        if (!conn?.id) return false;
+    function measureConnectionPath(conn, context) {
+        if (!conn?.id) return null;
         const {
             containerRect = canvasContainer.getBoundingClientRect(),
             viewport = getCurrentConnectionViewport(containerRect),
             laneById = getConnectionLaneMap()
         } = context;
+        const fromNode = getNodeById(conn.from?.nodeId);
+        const toNode = getNodeById(conn.to?.nodeId);
+        observeEndpoint(fromNode);
+        observeEndpoint(toNode);
+        const measurement = { conn, fromNode, toNode };
+        if (!fromNode || !toNode || !connectionBoundsOverlapViewport(fromNode, toNode, viewport)) return measurement;
+        const endpointsVisible = isConnectionEndpointVisible(conn.from.nodeId, conn.from.port, 'output') &&
+            isConnectionEndpointVisible(conn.to.nodeId, conn.to.port, 'input');
+        if (!endpointsVisible) return measurement;
+        return {
+            ...measurement,
+            from: getPortPosition(conn.from.nodeId, conn.from.port, 'output', containerRect),
+            to: getPortPosition(conn.to.nodeId, conn.to.port, 'input', containerRect),
+            pathOptions: getConnectionPathOptions(conn, laneById)
+        };
+    }
+
+    function renderConnectionPaths(connections, context) {
+        // A path write can invalidate layout for the next endpoint read, even
+        // when both edges share a node. Snapshot this synchronous batch first;
+        // the next batch must observe its own current port geometry/visibility.
+        const measurements = connections.map(conn => measureConnectionPath(conn, context));
+        for (const measurement of measurements) renderConnectionPath(measurement);
+    }
+
+    function renderConnectionPath(measurement) {
+        if (!measurement) return false;
+        const { conn, fromNode, toNode, from, to, pathOptions } = measurement;
         let path = pathById.get(conn.id);
         if (path) {
             if (translatedPaths.delete(path)) setSvgAttribute(path, 'transform', '');
             renderedPathGeometry.delete(path);
         }
-        const fromNode = getNodeById(conn.from?.nodeId);
-        const toNode = getNodeById(conn.to?.nodeId);
-        observeEndpoint(fromNode);
-        observeEndpoint(toNode);
-        if (!fromNode || !toNode) {
+        if (!from || !to) {
             if (path) {
                 setSvgAttribute(path, 'd', '');
                 updateFlowDecoration(path, conn.id, false);
             }
             return false;
         }
-
-        if (!connectionBoundsOverlapViewport(fromNode, toNode, viewport)) {
-            if (path) {
-                setSvgAttribute(path, 'd', '');
-                updateFlowDecoration(path, conn.id, false);
-            }
-            return false;
-        }
-
-        const endpointsVisible = isConnectionEndpointVisible(conn.from.nodeId, conn.from.port, 'output') &&
-            isConnectionEndpointVisible(conn.to.nodeId, conn.to.port, 'input');
-        if (!endpointsVisible && path) {
-            setSvgAttribute(path, 'd', '');
-            updateFlowDecoration(path, conn.id, false);
-            return false;
-        }
-        if (!endpointsVisible) return false;
-
-        const from = getPortPosition(conn.from.nodeId, conn.from.port, 'output', containerRect);
-        const to = getPortPosition(conn.to.nodeId, conn.to.port, 'input', containerRect);
-        const pathOptions = getConnectionPathOptions(conn, laneById);
         const pathStr = createBezierPath(from.x, from.y, to.x, to.y, pathOptions);
         // Current selection alone controls emphasis; active-node history can outlive it.
         const isSelected = state.selectedNodes.has(conn.from.nodeId) ||
@@ -1768,9 +1771,7 @@ export function createConnectionsApi({
             prepareWholeConnectionProjection();
             const context = getWholeConnectionRenderContext();
 
-            for (const conn of state.connections) {
-                renderConnectionPath(conn, context);
-            }
+            renderConnectionPaths(state.connections, context);
 
             completeWholeConnectionProjection();
         } finally {
@@ -1794,11 +1795,9 @@ export function createConnectionsApi({
             renderViewport() {
                 if (finished) return true;
                 const context = getWholeConnectionRenderContext();
-                state.connections.forEach((connection) => {
-                    if (isConnectionNearViewport(connection, context.viewport) || pathById.has(connection.id)) {
-                        renderConnectionPath(connection, context);
-                    }
-                });
+                const visibleConnections = state.connections.filter(connection =>
+                    isConnectionNearViewport(connection, context.viewport) || pathById.has(connection.id));
+                renderConnectionPaths(visibleConnections, context);
                 nextConnectionIndex = state.connections.length;
                 return true;
             },
@@ -1806,10 +1805,8 @@ export function createConnectionsApi({
                 if (finished) return true;
                 const context = getWholeConnectionRenderContext();
                 const batchEnd = Math.min(nextConnectionIndex + batchSize, state.connections.length);
-                while (nextConnectionIndex < batchEnd) {
-                    renderConnectionPath(state.connections[nextConnectionIndex], context);
-                    nextConnectionIndex += 1;
-                }
+                renderConnectionPaths(state.connections.slice(nextConnectionIndex, batchEnd), context);
+                nextConnectionIndex = batchEnd;
                 return nextConnectionIndex >= state.connections.length;
             },
             finish({ completed = false } = {}) {
@@ -1848,7 +1845,7 @@ export function createConnectionsApi({
 
         const laneById = getConnectionLaneMap();
         const draggedIds = new Set(state.dragging?.isCloneDrag ? [] : state.dragging?.nodes || []);
-        let context = null;
+        const connectionsToRender = [];
         Array.from(dirtyConnectionIds).forEach((connId) => {
             const conn = connectionById.get(connId);
             if (!conn) {
@@ -1860,12 +1857,14 @@ export function createConnectionsApi({
                 return;
             }
             if (translateInternalDragPath(conn, draggedIds, laneById)) return;
-            if (!context) {
-                const containerRect = canvasContainer.getBoundingClientRect();
-                context = { containerRect, viewport: getCurrentConnectionViewport(containerRect), laneById };
-            }
-            renderConnectionPath(conn, context);
+            connectionsToRender.push(conn);
         });
+        if (connectionsToRender.length) {
+            const containerRect = canvasContainer.getBoundingClientRect();
+            renderConnectionPaths(connectionsToRender, {
+                containerRect, viewport: getCurrentConnectionViewport(containerRect), laneById
+            });
+        }
 
         dirtyConnectionIds.clear();
         renderConnectionInsertPreview();
@@ -1989,11 +1988,13 @@ export function createConnectionsApi({
             viewport: getCurrentConnectionViewport(containerRect),
             laneById: getConnectionLaneMap()
         };
+        const connectionsToRender = [];
         for (const { conn, pathEl } of draggingState.connectionsToUpdate) {
             if (pathEl && !pathEl.isConnected) continue;
-            renderConnectionPath(conn, context);
+            connectionsToRender.push(conn);
             dirtyConnectionIds.delete(conn?.id);
         }
+        renderConnectionPaths(connectionsToRender, context);
 
         updateConnectionInsertPreview(draggingState);
         ensureFlowAnimation();

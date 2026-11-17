@@ -93,7 +93,7 @@ function createHarness({ getNodeMinimumSize = null, connectionTargetApi = {}, re
     });
     api.initCanvasInteractions();
     return {
-        api, canvasContainer, canvasListeners, windowListeners, state, viewportCalls, projectionCalls,
+        api, canvasContainer, documentRef, canvasListeners, windowListeners, state, viewportCalls, projectionCalls,
         draggingConnectionCalls, legacyRefreshCalls, saveCalls, viewportSaveCalls
     };
 }
@@ -231,6 +231,38 @@ test('space pan blocks the parameter click dispatched after mousedown', () => {
 
     assert.equal(clickEvent.defaultPrevented, true);
     assert.equal(parameterClickCount, 0);
+});
+
+test('panning scopes interaction styling to the canvas instead of restyling the document body', () => {
+    const { canvasContainer, documentRef, canvasListeners } = createHarness();
+    const classes = [];
+    canvasContainer.classList.add = (...names) => classes.push(...names);
+    documentRef.body.classList.add = () => assert.fail('pan must not invalidate global interaction styles');
+    canvasListeners.find(({ type, options }) => type === 'mousedown' && !options).listener({
+        button: 1, clientX: 100, clientY: 200,
+        target: canvasContainer, preventDefault() {}
+    });
+    assert.ok(classes.includes('is-panning'));
+});
+
+test('wheel zoom measures its anchor before applying scoped interaction styles', () => {
+    const { canvasContainer, documentRef, canvasListeners, state } = createHarness({ requestFrame() { return 1; } });
+    const calls = [];
+    canvasContainer.getBoundingClientRect = () => {
+        calls.push('measure');
+        return { left: 20, top: 30, width: 800, height: 600 };
+    };
+    canvasContainer.classList.add = () => calls.push('style');
+    documentRef.body.classList.add = () => calls.push('body-style');
+    try {
+        canvasListeners.find(({ type }) => type === 'wheel').listener({
+            clientX: 400, clientY: 300, deltaY: -40,
+            target: { closest() { return null; } }, preventDefault() {}
+        });
+        assert.deepEqual(calls, ['measure', 'style'], 'do not force layout after changing the canvas interaction style');
+        assert.ok(Math.abs((380 - state.canvas.x) / state.canvas.zoom - 370) < 1e-8);
+        assert.ok(Math.abs((270 - state.canvas.y) / state.canvas.zoom - 250) < 1e-8);
+    } finally { clearTimeout(state.zoomTimer); }
 });
 
 test('continuous wheel zoom skips full node projection work until the interaction settles', () => {

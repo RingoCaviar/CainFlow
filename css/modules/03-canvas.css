@@ -97,6 +97,15 @@
     cursor: grabbing;
 }
 
+#canvas-container.is-panning {
+    user-select: none !important;
+}
+
+#canvas-container.is-panning * {
+    user-select: none !important;
+    cursor: inherit !important;
+}
+
 #connections-svg {
     position: absolute;
     top: 0;

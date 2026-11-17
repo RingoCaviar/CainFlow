@@ -95,14 +95,16 @@ function createHarness(connectionCount, {
     pushHistory = () => {},
     scheduleSave = () => {},
     onConnectionsChanged = () => {},
-    onTopologyChanged
+    onTopologyChanged,
+    onGeometryRead = () => {},
+    onPathWrite = () => {}
 } = {}) {
     const frames = [];
     const paths = [];
     let outputPortLeft = 120;
     let portsVisible = portsInitiallyVisible;
     let portRectReads = 0;
-    const countPortRectRead = () => { portRectReads += 1; };
+    const countPortRectRead = () => { portRectReads += 1; onGeometryRead(); };
     const isPortVisible = () => portsVisible;
     const outputPort = createPort('text', 'output', () => outputPortLeft, countPortRectRead, isPortVisible);
     const inputPort = createPort('text', 'input', 220, countPortRectRead, isPortVisible);
@@ -177,7 +179,10 @@ function createHarness(connectionCount, {
                 style: {},
                 parentNode: { insertBefore() {} },
                 addEventListener() {},
-                setAttribute(name, value) { attributes.set(name, value); },
+                setAttribute(name, value) {
+                    if (name === 'd') onPathWrite();
+                    attributes.set(name, value);
+                },
                 getAttribute(name) { return attributes.get(name) || ''; },
                 getTotalLength() { return 120; },
                 getPointAtLength(length) { return { x: length, y: 0 }; },
@@ -192,7 +197,10 @@ function createHarness(connectionCount, {
     const api = createConnectionsApi({
         state,
         canvasContainer: {
-            getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+            getBoundingClientRect: () => {
+                onGeometryRead();
+                return { left: 0, top: 0, width: 800, height: 600 };
+            },
             addEventListener(name, listener) { canvasEvents.set(name, listener); }
         },
         connectionsGroup,
@@ -1195,6 +1203,80 @@ test('whole connection projection measures each node port once per refresh', () 
 
     api.updateAllConnections();
     assert.equal(getPortRectReadCount(), 8);
+});
+
+test('drag projection measures all affected endpoints before writing paths', () => {
+    const events = [];
+    const { api, state, paths, setOutputPortLeft } = createHarness(5, {
+        distinctTargets: true,
+        onGeometryRead: () => events.push('read'),
+        onPathWrite: () => events.push('write')
+    });
+    api.updateAllConnections();
+    const projection = createRestorationProjection(api, {
+        requestAnimationFrameRef: () => 1,
+        cancelAnimationFrameRef() {}
+    });
+    state.dragging = { nodes: ['from'], portOffsets: new Map() };
+    const drag = projection.interactions.beginInteraction('node-drag', ['from']);
+    state.nodes.get('from').x += 20;
+    setOutputPortLeft(140);
+    events.length = 0;
+
+    drag.nodePositionsApplied();
+
+    assert.equal(events.filter(event => event === 'write').length, 5);
+    assert.ok(events.lastIndexOf('read') < events.indexOf('write'),
+        'one moved source must not force a new layout after each outgoing path write');
+    assert.ok(paths.every(path => path.getAttribute('d').startsWith('M 144 ')));
+});
+
+test('whole projection and restoration batches measure geometry before writing paths', () => {
+    for (const mode of ['whole', 'viewport-restoration', 'batch-restoration']) {
+        const events = [];
+        const { api, paths } = createHarness(5, {
+            distinctTargets: true,
+            onGeometryRead: () => events.push('read'),
+            onPathWrite: () => events.push('write')
+        });
+
+        if (mode === 'whole') api.updateAllConnections();
+        else {
+            const restoration = api.beginConnectionRestoration();
+            if (mode === 'viewport-restoration') restoration.renderViewport();
+            else restoration.renderNextBatch(5);
+            restoration.finish({ completed: true });
+        }
+
+        assert.equal(paths.length, 5, mode);
+        assert.ok(events.lastIndexOf('read') < events.indexOf('write'),
+            `${mode} must not interleave endpoint reads with path writes`);
+    }
+});
+
+test('each drag batch remeasures current visibility and geometry without retaining the previous snapshot', () => {
+    const { api, state, paths, setOutputPortLeft, setPortsVisible } = createHarness(3, { distinctTargets: true });
+    api.updateAllConnections();
+    const projection = createRestorationProjection(api, {
+        requestAnimationFrameRef: () => 1,
+        cancelAnimationFrameRef() {}
+    });
+    state.dragging = { nodes: ['from'], portOffsets: new Map() };
+    const drag = projection.interactions.beginInteraction('node-drag', ['from']);
+    setPortsVisible(false);
+    drag.nodePositionsApplied();
+    assert.ok(paths.every(path => path.getAttribute('d') === ''));
+
+    setPortsVisible(true);
+    setOutputPortLeft(180);
+    drag.nodePositionsApplied();
+    assert.ok(paths.every(path => path.getAttribute('d').startsWith('M 184 ')));
+
+    state.nodes.delete('to-2');
+    drag.nodePositionsApplied();
+    assert.equal(paths[1].getAttribute('d'), '');
+    assert.match(paths[0].getAttribute('d'), /^M 184 /);
+    assert.match(paths[2].getAttribute('d'), /^M 184 /);
 });
 
 test('later restoration batches use current selection and ignore stale active-node history', () => {

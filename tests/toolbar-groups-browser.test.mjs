@@ -19,6 +19,61 @@ function resizeAgentToMaximum(app) {
     return app.evaluate("document.getElementById('prompt-agent-resize').dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))");
 }
 
+test('toolbar-local activity keeps notice clearance for keyboard and expanded controls', { timeout: 30000 }, async () => {
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes: [], connections: [] }, async app => {
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 900, y: 600 });
+        await app.evaluate(`document.body.classList.remove('toolbar-pinned','toolbar-peek-active');
+            document.getElementById('canvas-container').focus()`);
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab' });
+        await app.evaluate(`document.querySelector('#toolbar button').focus()`);
+        await app.waitFor("document.body.classList.contains('toolbar-controls-active')");
+        assert.equal(await app.evaluate("!!document.querySelector('#toolbar :focus-visible')"), true);
+        const clearance = `parseFloat(getComputedStyle(document.getElementById('floating-notices-container')).top)`;
+        const height = await app.evaluate("document.getElementById('toolbar').offsetHeight");
+        assert.equal(await app.evaluate(clearance), height + 12);
+        await app.evaluate(`document.getElementById('canvas-container').focus();
+            document.body.classList.remove('toolbar-peek-active')`);
+        await app.waitFor("!document.body.classList.contains('toolbar-controls-active')");
+
+        await app.evaluate(`document.getElementById('btn-prompt-agent').setAttribute('aria-expanded','true')`);
+        await app.evaluate('new Promise(resolve=>requestAnimationFrame(resolve))');
+        assert.equal(await app.evaluate("document.body.classList.contains('toolbar-controls-active')"), false,
+            'the independent Agent panel does not pin toolbar clearance');
+        await app.evaluate(`document.getElementById('btn-prompt-agent').removeAttribute('aria-expanded');
+            window.activityButton=document.querySelector('#toolbar button:not(#btn-prompt-agent)');
+            activityButton.setAttribute('aria-expanded','true')`);
+        await app.waitFor("document.body.classList.contains('toolbar-controls-active')");
+        assert.equal(await app.evaluate(clearance), height + 12);
+        await app.evaluate("activityButton.removeAttribute('aria-expanded')");
+        await app.waitFor("!document.body.classList.contains('toolbar-controls-active')");
+        assert.ok(await app.evaluate(clearance) < height + 12);
+
+        await app.evaluate(`(() => {
+            const button = document.createElement('button');
+            button.id = 'toolbar-modality-probe'; button.textContent = 'Focus probe';
+            button.style.cssText = 'position:absolute;left:50%;top:5px';
+            document.getElementById('toolbar').append(button);
+            document.body.classList.add('toolbar-pinned');
+        })()`);
+        await app.waitFor("document.getElementById('toolbar-modality-probe').getBoundingClientRect().top >= 0");
+        const point = await app.evaluate(`(() => { const r=document.getElementById('toolbar-modality-probe').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2} })()`);
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+        await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', button: 'left', buttons: 1, clickCount: 1, ...point });
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'left', buttons: 0, clickCount: 1, ...point });
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 900, y: 600 });
+        await app.evaluate("document.body.classList.remove('toolbar-pinned','toolbar-peek-active')");
+        await app.waitFor("!document.body.classList.contains('toolbar-controls-active')");
+        assert.equal(await app.evaluate("document.activeElement.id"), 'toolbar-modality-probe');
+        assert.equal(await app.evaluate("document.activeElement.matches(':focus-visible')"), false);
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'x', code: 'KeyX' });
+        assert.equal(await app.evaluate("document.activeElement.id === 'toolbar-modality-probe' && document.activeElement.matches(':focus-visible')"), true,
+            'keyboard modality can change while focus stays on the same button');
+        assert.equal(await app.evaluate("document.body.classList.contains('toolbar-controls-active')"), true,
+            'notice clearance follows focus-visible changes without a focusin event');
+        assert.equal(await app.evaluate(clearance), height + 12);
+    });
+});
+
 test('canvas navigation remains one horizontal row beside an open and resized Agent', { timeout: 30000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes: [], connections: [] }, async app => {
         await app.send('Emulation.setDeviceMetricsOverride', { width: 1085, height: 878, deviceScaleFactor: 1, mobile: false });

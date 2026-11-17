@@ -1988,7 +1988,7 @@ function getStartupControllerApi() {
             showToast,
             syncProxyToServer: () => settingsFeature.syncProxyToServer(),
             checkNetworkConnectivity: (options) => settingsFeature.checkNetworkConnectivity(options),
-            checkNetworkProxyMismatch: (force = false) => settingsFeature.checkNetworkProxyMismatch(force),
+            checkNetworkProxyMismatch: (force = false, options) => settingsFeature.checkNetworkProxyMismatch(force, options),
             ensureOpenWorkflow: canvasBenchmarkMode ? async () => true : () => workflowManagerApi.ensureOpenWorkflow(),
             applyWorkspaceMode: (mode) => getWorkspaceModeControllerApi().activate(mode, { persist: false }),
             updateCanvasTransform: () => viewportApi.updateCanvasTransform(),

@@ -623,7 +623,6 @@ export function createCanvasInteractionsApi({
         state.canvas.canvasStart = { x: state.canvas.x, y: state.canvas.y };
         beginProjectionInteraction(CANVAS_INTERACTION_KIND.PAN);
         canvasContainer.classList.add('grabbing', 'is-panning');
-        documentRef.body.classList.add('is-interacting');
         documentRef.getElementById('connections-group').classList.add('is-panning');
     }
 
@@ -1438,12 +1437,16 @@ export function createCanvasInteractionsApi({
             if (!idleText && hasScrollableNodeAncestor(e.target)) return;
 
             e.preventDefault();
+            // Read the anchor before interaction classes invalidate the canvas
+            // subtree, so wheel input does not force an extra style/layout pass.
+            const rect = canvasContainer.getBoundingClientRect();
             canvasContainer.classList.add('is-zooming');
 
             if (!state.isInteracting) {
                 state.isInteracting = true;
                 beginProjectionInteraction(CANVAS_INTERACTION_KIND.ZOOM);
-                documentRef.body.classList.add('is-interacting');
+                // Wheel zoom needs only the canvas/connection effects. Toggling
+                // the global drag cursor restyles every node control per burst.
                 documentRef.getElementById('connections-group').classList.add('is-interacting');
             }
 
@@ -1460,7 +1463,6 @@ export function createCanvasInteractionsApi({
                 finishZoomInteraction();
             }, ZOOM_SETTLE_DELAY_MS);
 
-            const rect = canvasContainer.getBoundingClientRect();
             const mx = e.clientX - rect.left;
             const my = e.clientY - rect.top;
             const oldZoom = state.canvas.zoom;

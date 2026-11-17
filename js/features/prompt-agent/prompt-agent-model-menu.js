@@ -50,20 +50,44 @@ export function createPromptAgentModelMenus({ documentRef, selects, parent = nul
         select.tabIndex = -1;
         select.setAttribute('aria-hidden', 'true');
         select.insertAdjacentElement('afterend', trigger);
+        const getOptions = () => [...select.options].flatMap(option => {
+            const model = route?.getModels().find(item => item.id === option.value);
+            if (!model) {
+                if (route?.onlyBoundProviders && option.value) return [];
+                return [{ value: option.value, textContent: option.textContent, disabled: option.disabled, selected: option.selected }];
+            }
+            const selectedProvider = route.getProviderId(model.id);
+            const bound = getModelProviders(model, route.getProviders());
+            const ids = bound.map(provider => provider.id);
+            if (!route.onlyBoundProviders) {
+                if (!ids.length && !selectedProvider) ids.push('');
+                if (selectedProvider && !ids.includes(selectedProvider)) ids.push(selectedProvider);
+            }
+            return ids.map(providerId => ({ value: model.id, providerId,
+                textContent: getAgentModelLabel(model, route.getProviders(), providerId),
+                disabled: option.disabled || !providerId || !bound.some(provider => provider.id === providerId),
+                selected: option.selected && selectedProvider === providerId }));
+        });
         const sync = () => {
-            trigger.disabled = select.disabled;
-            trigger.textContent = select.selectedOptions[0]?.textContent || emptyText;
+            if (trigger.disabled !== select.disabled) trigger.disabled = select.disabled;
+            let label = select.selectedOptions[0]?.textContent || emptyText;
             const model = route?.getModels().find(item => item.id === select.value);
             if (model) {
                 const providers = route.getProviders();
                 const providerId = route.getProviderId(model.id);
                 const missingProvider = route.onlyBoundProviders
                     && !getModelProviders(model, providers).some(provider => provider.id === providerId);
-                trigger.textContent = missingProvider
+                label = missingProvider
                     ? emptyText : getAgentModelLabel(model, providers, providerId);
             }
-            trigger.title = trigger.textContent;
-            if (current?.select === select) close();
+            if (trigger.textContent !== label) trigger.textContent = label;
+            if (trigger.title !== label) trigger.title = label;
+            if (current?.select === select) {
+                const options = getOptions();
+                const unchanged = options.length === current.options.length && options.every((option, index) =>
+                    ['value', 'providerId', 'textContent', 'disabled', 'selected'].every(key => option[key] === current.options[index][key]));
+                if (select.disabled || !unchanged) close();
+            }
         };
         const open = () => {
             if (select.disabled) return;
@@ -100,24 +124,7 @@ export function createPromptAgentModelMenus({ documentRef, selects, parent = nul
             list.setAttribute('aria-label', select.getAttribute('aria-label'));
             menu.appendChild(list);
             search.setAttribute('aria-controls', list.id);
-            const options = [...select.options].flatMap(option => {
-                const model = route?.getModels().find(item => item.id === option.value);
-                if (!model) {
-                    if (route?.onlyBoundProviders && option.value) return [];
-                    return [{ value: option.value, textContent: option.textContent, disabled: option.disabled, selected: option.selected }];
-                }
-                const selectedProvider = route.getProviderId(model.id);
-                const bound = getModelProviders(model, route.getProviders());
-                const ids = bound.map(provider => provider.id);
-                if (!route.onlyBoundProviders) {
-                    if (!ids.length && !selectedProvider) ids.push('');
-                    if (selectedProvider && !ids.includes(selectedProvider)) ids.push(selectedProvider);
-                }
-                return ids.map(providerId => ({ value: model.id, providerId,
-                    textContent: getAgentModelLabel(model, route.getProviders(), providerId),
-                    disabled: option.disabled || !providerId || !bound.some(provider => provider.id === providerId),
-                    selected: option.selected && selectedProvider === providerId }));
-            });
+            const options = getOptions();
             for (const option of options) {
                 const item = documentRef.createElement('button');
                 item.type = 'button';
@@ -160,7 +167,7 @@ export function createPromptAgentModelMenus({ documentRef, selects, parent = nul
             search.addEventListener('input', filterOptions);
             filterOptions();
             documentRef.body.appendChild(menu);
-            current = { select, trigger, menu };
+            current = { select, trigger, menu, options };
             surfaces?.openPopover(menu.id, { element: menu, trigger, close,
                 parent: parentId });
             if (!current) return;

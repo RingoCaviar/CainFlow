@@ -18,6 +18,70 @@ export function createProxyNetworkSettings({ ctx, store, dialogs }) {
         constants
     } = store;
 
+    const presentationRequests = new Map();
+    const pendingPresentations = new Map();
+    let presentationTimer = null;
+    let proxyCheck = null;
+
+    function isCanvasInteractionActive() {
+        return !!(state.dragging || state.resizing || state.connecting || state.marquee || state.isCutting
+            || state.canvas?.isPanning || state.isInteracting);
+    }
+
+    function proxyConfigurationSignature() {
+        return JSON.stringify([!!state.proxy?.enabled, String(state.proxy?.ip || ''), String(state.proxy?.port || '')]);
+    }
+
+    function beginPresentation(kind, deferWhileInteracting) {
+        pendingPresentations.delete(kind);
+        if (!pendingPresentations.size && presentationTimer !== null) {
+            windowRef.clearTimeout(presentationTimer);
+            presentationTimer = null;
+        }
+        const request = { kind, deferWhileInteracting, proxySignature: proxyConfigurationSignature() };
+        presentationRequests.set(kind, request);
+        return request;
+    }
+
+    function isCurrentPresentation(request) {
+        return presentationRequests.get(request.kind) === request
+            && request.proxySignature === proxyConfigurationSignature();
+    }
+
+    function schedulePendingPresentations() {
+        if (presentationTimer !== null || !pendingPresentations.size) return;
+        presentationTimer = windowRef.setTimeout(() => {
+            presentationTimer = null;
+            if (isCanvasInteractionActive()) {
+                schedulePendingPresentations();
+                return;
+            }
+            const pending = [...pendingPresentations.values()];
+            pendingPresentations.clear();
+            pending.forEach(({ request, render }) => {
+                if (isCurrentPresentation(request)) render();
+            });
+        }, 100);
+    }
+
+    function presentResult(request, render) {
+        if (!isCurrentPresentation(request)) return;
+        if (request.deferWhileInteracting && isCanvasInteractionActive()) {
+            pendingPresentations.set(request.kind, { request, render });
+            schedulePendingPresentations();
+        } else {
+            render();
+        }
+    }
+
+    function presentProxyResult(request, result) {
+        presentResult(request, () => {
+            if (result.shouldNotify) showNetworkProxyMismatchNotice(result);
+            else hideNetworkProxyMismatchNotice();
+            showNetworkProxyDetectionResultToast(result);
+        });
+    }
+
     function createAbortErrorMessage(error, timeoutMessage) {
         if (error?.name === 'AbortError') return timeoutMessage;
         return error?.message || String(error);
@@ -433,11 +497,17 @@ export function createProxyNetworkSettings({ ctx, store, dialogs }) {
         }
     }
 
-    async function checkNetworkConnectivity({ showResultToast = true } = {}) {
+    async function checkNetworkConnectivity({ showResultToast = true, deferWhileInteracting = false } = {}) {
+        const previous = presentationRequests.get('connectivity');
+        const manualPending = deferWhileInteracting && previous?.pending && !previous.deferWhileInteracting
+            && isCurrentPresentation(previous);
+        const presentation = showResultToast && !manualPending
+            ? beginPresentation('connectivity', deferWhileInteracting) : null;
+        if (presentation) presentation.pending = true;
         try {
             const result = await detectNetworkConnectivity();
-            if (showResultToast) {
-                showNetworkConnectivityResultToast(result);
+            if (presentation) {
+                presentResult(presentation, () => showNetworkConnectivityResultToast(result));
             }
             return result;
         } catch (error) {
@@ -450,14 +520,21 @@ export function createProxyNetworkSettings({ ctx, store, dialogs }) {
                 detail: error?.message || '网络连通性检测失败',
                 attempts: []
             };
-            if (showResultToast) {
-                showToast(`${result.detail}，请检查网络或代理设置`, 'warning', 7000);
+            if (presentation) {
+                presentResult(presentation, () => showToast(`${result.detail}，请检查网络或代理设置`, 'warning', 7000));
             }
             return result;
+        } finally {
+            if (presentation) presentation.pending = false;
         }
     }
 
-    async function checkNetworkProxyMismatch(force = false) {
+    async function checkNetworkProxyMismatch(force = false, { deferWhileInteracting = false } = {}) {
+        const sharedCheck = proxyCheck?.presentation.proxySignature === proxyConfigurationSignature() ? proxyCheck : null;
+        // Joining a pending check can promote its result to an immediate manual
+        // presentation, but a later automatic check must not demote that intent.
+        const presentation = beginPresentation('proxy', deferWhileInteracting
+            && (!sharedCheck || sharedCheck.presentation.deferWhileInteracting));
         if (state.proxy?.enabled) {
             const result = {
                 proxyEnabled: true,
@@ -472,66 +549,68 @@ export function createProxyNetworkSettings({ ctx, store, dialogs }) {
                 skippedBecauseProxyEnabled: true
             };
             networkProxyStatusState.result = result;
-            hideNetworkProxyMismatchNotice();
-            showNetworkProxyDetectionResultToast(result);
+            presentProxyResult(presentation, result);
             return result;
         }
-        if (networkProxyStatusState.checking) {
-            return networkProxyStatusState.result;
+        if (sharedCheck) {
+            sharedCheck.presentation = presentation;
+            return sharedCheck.promise;
         }
 
         const cachedResult = !force ? readNetworkProxyDetectionCache() : null;
         if (cachedResult) {
             networkProxyStatusState.result = cachedResult;
-            if (cachedResult.shouldNotify) {
-                showNetworkProxyMismatchNotice(cachedResult);
-            } else {
-                hideNetworkProxyMismatchNotice();
-            }
-            showNetworkProxyDetectionResultToast(cachedResult);
+            presentProxyResult(presentation, cachedResult);
             return cachedResult;
         }
 
+        const operation = { presentation, promise: null };
+        proxyCheck = operation;
         networkProxyStatusState.checking = true;
-        try {
-            const result = await detectNetworkPathFromBrowser();
-            networkProxyStatusState.result = result;
-            saveNetworkProxyDetectionCache(result);
-            if (result?.shouldNotify) {
-                showNetworkProxyMismatchNotice(result);
-            } else {
-                hideNetworkProxyMismatchNotice();
-            }
-            showNetworkProxyDetectionResultToast(result);
-            return result;
-        } catch (error) {
-            console.error('Failed to detect network proxy mismatch', error);
-            hideNetworkProxyMismatchNotice();
-            const isDetectionTimeout = String(error?.message || error || '').includes('网络环境检测超时');
-            if (isDetectionTimeout) {
-                const result = {
-                    proxyEnabled: false,
-                    effectiveMode: 'direct',
-                    reachable: false,
-                    transparentProxyLikely: false,
-                    localProxyDetected: false,
-                    localProxy: null,
-                    latency: 0,
-                    checkedTarget: '',
-                    detail: '检测超时，未检测到代理/透明代理异常',
-                    attempts: [],
-                    proxyAttempts: [],
-                    shouldNotify: false
-                };
-                networkProxyStatusState.result = result;
-                showNetworkProxyDetectionResultToast(result);
+        operation.promise = (async () => {
+            try {
+                const result = await detectNetworkPathFromBrowser();
+                if (isCurrentPresentation(operation.presentation)) {
+                    networkProxyStatusState.result = result;
+                    saveNetworkProxyDetectionCache(result);
+                }
+                presentProxyResult(operation.presentation, result);
                 return result;
+            } catch (error) {
+                console.error('Failed to detect network proxy mismatch', error);
+                const isDetectionTimeout = String(error?.message || error || '').includes('网络环境检测超时');
+                if (isDetectionTimeout) {
+                    const result = {
+                        proxyEnabled: false,
+                        effectiveMode: 'direct',
+                        reachable: false,
+                        transparentProxyLikely: false,
+                        localProxyDetected: false,
+                        localProxy: null,
+                        latency: 0,
+                        checkedTarget: '',
+                        detail: '检测超时，未检测到代理/透明代理异常',
+                        attempts: [],
+                        proxyAttempts: [],
+                        shouldNotify: false
+                    };
+                    if (isCurrentPresentation(operation.presentation)) networkProxyStatusState.result = result;
+                    presentProxyResult(operation.presentation, result);
+                    return result;
+                }
+                presentResult(operation.presentation, () => {
+                    hideNetworkProxyMismatchNotice();
+                    showToast(error?.message || '网络环境检测失败', 'warning', 7000);
+                });
+                return null;
+            } finally {
+                if (proxyCheck === operation) {
+                    networkProxyStatusState.checking = false;
+                    proxyCheck = null;
+                }
             }
-            showToast(error?.message || '网络环境检测失败', 'warning', 7000);
-            return null;
-        } finally {
-            networkProxyStatusState.checking = false;
-        }
+        })();
+        return operation.promise;
     }
 
     return {

@@ -154,8 +154,8 @@ test('startup schedules network checks quietly and still runs connectivity then 
         state: { nodes: new Map() }, initUI() {}, loadState: async () => false,
         showToast: (...args) => toasts.push(args), syncProxyToServer() {},
         updateCanvasTransform() {}, scheduleAutoUpdateCheck: () => events.push('update-scheduled'), checkRefreshNotice() {},
-        checkNetworkConnectivity: async options => { events.push(['connectivity', options.showResultToast]); },
-        checkNetworkProxyMismatch: async force => { events.push(['proxy-detection', force]); },
+        checkNetworkConnectivity: async options => { events.push(['connectivity', options]); },
+        checkNetworkProxyMismatch: async (force, options) => { events.push(['proxy-detection', force, options]); },
         documentRef: { readyState: 'complete', getElementById: () => { throw new Error('startup must not create countdown notifications'); } },
         consoleRef: { log() {}, error() {} }
     });
@@ -167,11 +167,12 @@ test('startup schedules network checks quietly and still runs connectivity then 
         assert.equal(timers[0].delay, 2000);
         timers[0].callback();
         await new Promise(setImmediate);
-        assert.deepEqual(events, ['update-scheduled', ['connectivity', true]]);
+        assert.deepEqual(events, ['update-scheduled', ['connectivity', { showResultToast: true, deferWhileInteracting: true }]]);
         assert.equal(timers[1].delay, 1600);
         timers[1].callback();
         await new Promise(setImmediate);
-        assert.deepEqual(events, ['update-scheduled', ['connectivity', true], ['proxy-detection', true]]);
+        assert.deepEqual(events, ['update-scheduled', ['connectivity', { showResultToast: true, deferWhileInteracting: true }],
+            ['proxy-detection', true, { deferWhileInteracting: true }]]);
         assert.deepEqual(toasts, []);
     } finally {
         globalThis.window = previousWindow;

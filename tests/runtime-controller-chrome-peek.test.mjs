@@ -24,17 +24,25 @@ test('an active fullscreen preview suppresses toolbar peek', () => {
 
 function makeRuntime() {
     const classes = new Set();
+    const classWrites = [];
     const classList = {
         add: (...names) => names.forEach(name => classes.add(name)),
         remove: (...names) => names.forEach(name => classes.delete(name)),
         contains: name => classes.has(name),
-        toggle: (name, enabled) => enabled ? classes.add(name) : classes.delete(name)
+        toggle: (name, enabled) => { classWrites.push(name); return enabled ? classes.add(name) : classes.delete(name); }
     };
     const handlers = new Map();
-    const toolbar = { offsetHeight: 64, getBoundingClientRect: () => ({ top: -64, bottom: 0 }) };
+    const activity = { hover: false, focus: false, controls: false };
+    const toolbar = { offsetHeight: 64, getBoundingClientRect: () => ({ top: -64, bottom: 0 }),
+        matches: selector => selector === ':hover' && activity.hover,
+        querySelector: selector => (selector === ':focus-visible' ? activity.focus : activity.controls) ? {} : null,
+        addEventListener: (name, handler) => handlers.set(`toolbar:${name}`, handler) };
     const canvasContainer = { classList, contains: () => false };
     const documentRef = {
-        body: { classList }, activeElement: null, defaultView: {},
+        body: { classList }, activeElement: null, defaultView: { getComputedStyle: () => ({ getPropertyValue: () => '' }), MutationObserver: class {
+            constructor(callback) { this.callback = callback; }
+            observe(target) { if (target === toolbar) handlers.set('toolbar:mutation', this.callback); }
+        } },
         documentElement: { style: { setProperty() {} } },
         getElementById: id => id === 'toolbar' ? toolbar : null,
         querySelector: () => null, querySelectorAll: () => [],
@@ -57,8 +65,34 @@ function makeRuntime() {
         clipboardControllerApi: { markNativeClipboardEvent: noop }, removeNode: noop,
         zoomToFit: noop, scheduleSave: noop, closeModal: noop, documentRef, windowRef
     }).initRuntimeBindings();
-    return { classes, documentRef, history, handlers };
+    return { classes, documentRef, history, handlers, activity, classWrites };
 }
+
+test('toolbar activity tracks local hover, keyboard focus and control state without repeated body writes', () => {
+    const { classes, handlers, activity, classWrites } = makeRuntime();
+    assert.equal(classes.has('toolbar-controls-active'), false);
+    activity.hover = true;
+    handlers.get('toolbar:pointerenter')();
+    assert.equal(classes.has('toolbar-controls-active'), true);
+    activity.focus = true;
+    activity.hover = false;
+    handlers.get('toolbar:pointerleave')();
+    assert.equal(classes.has('toolbar-controls-active'), true, 'keyboard focus keeps chrome clear');
+    activity.focus = false;
+    activity.controls = true;
+    handlers.get('toolbar:focusout')();
+    assert.equal(classes.has('toolbar-controls-active'), true, 'expanded controls keep chrome clear');
+    activity.controls = false;
+    handlers.get('toolbar:mutation')();
+    assert.equal(classes.has('toolbar-controls-active'), false);
+    const writes = classWrites.length;
+    handlers.get('toolbar:mutation')();
+    handlers.get('toolbar:focusout')();
+    assert.equal(classWrites.length, writes, 'unrelated unchanged toolbar updates must not invalidate the body');
+    activity.focus = true;
+    handlers.get('toolbar:keydown')();
+    assert.equal(classes.has('toolbar-controls-active'), true, 'keyboard modality does not require moving focus');
+});
 
 test('the unified toolbar still peeks and dismisses without a sidebar', () => {
     const { classes, handlers } = makeRuntime();

@@ -371,10 +371,7 @@ body:has(.painter-overlay.active) #toast-container {
     pointer-events: none;
 }
 
-body:has(#toolbar:hover),
-body:has(#toolbar :focus-visible),
-body:has(#toolbar .btn.active:not(#btn-prompt-agent)),
-body:has(#toolbar [aria-expanded="true"]:not(#btn-prompt-agent)),
+body.toolbar-controls-active,
 body.toolbar-peek-active,
 body.toolbar-pinned {
     --floating-notices-top-offset: calc(var(--toolbar-height, 48px) + 12px);
@@ -576,7 +573,7 @@ body:has(#main-layout > .image-parameter-panel.is-docked:not([hidden])) #toast-c
 #main-layout > .image-parameter-panel.is-docked .image-parameter-context { display: none; }
 
 body:is(.toolbar-pinned, .toolbar-peek-active) #main-layout > .image-parameter-panel.is-docked,
-body:has(#toolbar:hover, #toolbar :focus-visible, #toolbar .btn.active:not(#btn-prompt-agent), #toolbar [aria-expanded="true"]:not(#btn-prompt-agent)) #main-layout > .image-parameter-panel.is-docked {
+body.toolbar-controls-active #main-layout > .image-parameter-panel.is-docked {
     padding-block-start: var(--toolbar-height, 48px);
 }
 

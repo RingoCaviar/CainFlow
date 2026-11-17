@@ -67,6 +67,28 @@ export function createRuntimeControllerApi({
         const toolbar = documentRef.getElementById('toolbar');
         if (!body || !toolbar) return;
 
+        // Keep toolbar-dependent overlay geometry local to toolbar changes.
+        // A body :has(#toolbar ...) rule invalidates unrelated canvas descendants
+        // when focus or selection changes anywhere in the document.
+        const syncToolbarActivity = () => {
+            const active = !!(toolbar.matches?.(':hover')
+                || toolbar.querySelector?.(':focus-visible')
+                || toolbar.querySelector?.('.btn.active:not(#btn-prompt-agent), [aria-expanded="true"]:not(#btn-prompt-agent)'));
+            if (body.classList.contains('toolbar-controls-active') !== active) {
+                body.classList.toggle('toolbar-controls-active', active);
+            }
+        };
+        for (const name of ['pointerenter', 'pointerleave', 'focusin', 'focusout', 'keydown']) {
+            toolbar.addEventListener?.(name, syncToolbarActivity);
+        }
+        const MutationObserverCtor = documentRef.defaultView?.MutationObserver;
+        if (MutationObserverCtor) {
+            new MutationObserverCtor(syncToolbarActivity).observe(toolbar, {
+                subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'aria-expanded']
+            });
+        }
+        syncToolbarActivity();
+
         let lastToolbarPeek = false;
 
         function getCssPx(element, propertyName, fallback) {
