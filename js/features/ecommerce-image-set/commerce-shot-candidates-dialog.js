@@ -1,3 +1,4 @@
+import { buildVisualStylePrompt } from '../visual-style/visual-style.js';
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 
 export function openCommerceShotCandidates({ documentRef, opener, shot, current, candidates, finalized, getAssetUrl, onApply, onClose }) {
@@ -86,7 +87,7 @@ export function openCommerceShotCandidates({ documentRef, opener, shot, current,
         copy.textContent = [version?.draft?.headline, version?.draft?.body].filter(Boolean).join('\n');
         copy.hidden = !copy.textContent;
         const prompt = figure.querySelector('.commerce-candidate-prompt');
-        prompt.querySelector('p').textContent = version?.draft?.prompt || '';
+        prompt.querySelector('p').textContent = [version?.draft?.prompt, buildVisualStylePrompt(version?.draft?.visualStyleSnapshot, { lettering: !!(version?.draft?.headline || version?.draft?.body) })].filter(Boolean).join('\n\n');
         prompt.hidden = !version?.draft?.prompt;
         updateImageStatus(figure);
     }

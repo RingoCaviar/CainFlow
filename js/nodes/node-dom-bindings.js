@@ -1,3 +1,4 @@
+import { bindVisualStyleNode } from './visual-style-view.js';
 import { createThinkingControl } from '../features/execution/thinking-control.js';
 import { bindTextNodeReader } from './text-node-reader.js';
 import { bindTextNodeTools } from './text-node-tools.js';
@@ -1222,6 +1223,12 @@ export function createNodeDomBindingsApi({
             };
         };
         syncVideoProtocolDraftsToClone();
+
+        if (cloneNode.type === 'VisualStyle') {
+            cloneNode.data.visualStyle = clonePlainValue(sourceNode.data?.visualStyle || {});
+            cloneNode.data.styleModelId = sourceNode.data?.styleModelId || '';
+            cloneNode.data.styleProviderId = sourceNode.data?.styleProviderId || '';
+        }
 
         if (cloneNode.type === 'CameraControl') {
             cloneNode.data = clonePlainValue(cloneNode.data || {});
@@ -2754,7 +2761,7 @@ export function createNodeDomBindingsApi({
         bindNodeRunCancelButton(id, el);
         bindNodePorts(el);
         bindZoomSettleGuard(el);
-        bindCustomNodeSelects(el);
+        if (type !== 'VisualStyle') bindCustomNodeSelects(el);
         lockCloneNodeEditing(id, el);
         syncConnectedInputFieldVisibility(id);
 
@@ -3244,6 +3251,9 @@ export function createNodeDomBindingsApi({
                 row.querySelector('.custom-param-key')?.focus();
             });
             fitNodeToContent(id);
+        }
+        else if (type === 'VisualStyle') {
+            bindVisualStyleNode(state.nodes.get(id), { state, runToNode, scheduleSave, pushHistory, fitNodeToContent });
         }
         else if (type === 'CameraControl') {
             setupCameraControlNode?.(id, el);

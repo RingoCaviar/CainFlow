@@ -1,3 +1,4 @@
+import { resolveVisualStyle, visualStyleKey } from '../features/visual-style/visual-style.js';
 import {
     COMMERCE_IMAGE_SET_ASPECTS, COMMERCE_IMAGE_SET_COPY_LANGUAGES, COMMERCE_IMAGE_SET_COPY_LIMITS,
     COMMERCE_IMAGE_SET_DEFAULT_ASPECTS, COMMERCE_IMAGE_SET_PRESETS, COMMERCE_PRODUCT_INFO_LIMITS,
@@ -611,6 +612,9 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             : !references.count || references.slots.some(slot => slot.missing) ? '请连接 1 至 5 张可读取的商品参考图。'
                 : referenceVerificationPending ? '正在核对商品参考图…' : '';
         const plan = value.plan;
+        let styleChanged = false;
+        try { styleChanged = !!plan && visualStyleKey(plan.visualStyle) !== visualStyleKey(resolveVisualStyle(state, node.id)); }
+        catch { styleChanged = true; }
         const activeShots = plan?.shots.filter(shot => isActiveShot(shotTaskStatus(shot.id))) || [];
         const activeShotLabel = activeShots.length ? `${activeShots.length} 个图位进行中` : '';
         const hasIndependentTasks = activeShots.some(({ id }) => isActiveShot(node.commerceShotTasks?.[id])
@@ -642,7 +646,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         const progress = busy && !hasIndependentTasks && Number.isInteger(processed) && Number.isInteger(total)
             && total > 0 && processed >= 0 && processed <= total ? `${progressLabel}（${processed} / ${total}）` : '';
         const missingPrompt = generatableShots.some(shot => shot.source === 'generate' && !shot.prompt?.trim());
-        const currentPlan = !!plan?.sourceKey && !plan.stale && !copyLanguageChanged && !referenceChanged && !referenceVerificationPending
+        const currentPlan = !!plan?.sourceKey && !styleChanged && !plan.stale && !copyLanguageChanged && !referenceChanged && !referenceVerificationPending
             && plan.platformId === platformId && selectedShots.length > 0
             && plan.shots.length === selectedShots.length && plan.shots.every((shot, index) => (
                 shot.id === selectedShots[index].id && shot.aspect === selectedShots[index].aspect
@@ -731,7 +735,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             progressBar.max = total;
             progressBar.value = processed;
         }
-        const replanHint = referenceChanged ? referenceChangeMessage
+        const replanHint = styleChanged ? '画面风格已更新，请重新规划；已有成图与定稿保留。' : referenceChanged ? referenceChangeMessage
             : copyLanguageChanged ? '图中文字语言已修改，请重新规划。'
             : '商品资料或生成设置已修改，请重新规划。';
         const needsPlannerHint = !planner.ready && (!currentPlan || plan?.shots.some(shot => shot.customScene && !getCommerceSceneSummary(shot)));

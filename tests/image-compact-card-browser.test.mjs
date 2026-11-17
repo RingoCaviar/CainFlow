@@ -10,7 +10,7 @@ test('image card retains editable advanced values and primary controls across se
         assert.equal(result.expanded, true, result.theme);
         assert.equal(result.saved, 'opaque');
         assert.ok(result.quality && result.prompt && result.progress);
-        assert.equal(result.ports, 6);
+        assert.equal(result.ports, 7, 'includes the dedicated visual style input');
         assert.ok(result.expandedHeight > result.height + 30, `${result.theme}: local collapse must visibly reduce card height`);
     }
     const bound = results[7];

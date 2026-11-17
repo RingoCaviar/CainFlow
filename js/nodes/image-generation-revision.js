@@ -1,3 +1,4 @@
+import { normalizeVisualStyle } from '../features/visual-style/visual-style.js';
 import { readImageGenerationSettings } from './image-generation-settings.js';
 import { renderImageNodeRunState } from './image-node-run-state.js';
 import { getImageImportMediaAssetReferences, getPrimaryTextInput, getTextInputList } from '../features/execution/execution-data-utils.js';
@@ -103,7 +104,8 @@ export function createImageGenerationRevisionApi({ state, documentRef, getActive
                 missing: (data.mediaIntegrity?.missingItems || []).map(item => item.position).filter(position => position < consumedCount),
                 ready: !!remote || consumedSlots.length >= consumedCount && consumedSlots.every(slot => !!slot.asset) };
         }
-        const output = value !== undefined ? value : getCachedOutputValue(source, connection.from.port);
+        const output = source.type === 'VisualStyle' ? normalizeVisualStyle(source.data?.visualStyle)
+            : value !== undefined ? value : getCachedOutputValue(source, connection.from.port);
         return { ...identity, value: compact(output) };
     }
     function inputIdentities(node, captured = null) {

@@ -7,6 +7,7 @@ export const imageGenerateNode = {
     cssClass: 'node-generate',
     icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>',
     inputs: [
+        { name: 'style', type: 'style', label: '画面风格' },
         { name: 'prompt', type: 'text', label: '提示词输入' },
         { name: 'camera_prompt', type: 'text', label: '视角提示词' },
         { name: 'image_1', type: 'image', label: '参考图 1' },

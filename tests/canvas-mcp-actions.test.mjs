@@ -5,6 +5,31 @@ import { createCanvasContext } from '../js/features/prompt-agent/prompt-agent-ca
 import { createPromptAgentCanvasAdapter } from '../js/features/prompt-agent/prompt-agent-canvas-adapter.js';
 import { projectPlanConnections } from '../js/features/prompt-agent/prompt-agent-reference-inputs.js';
 
+test('MCP reads and validates visual style edits with revision guards', async () => {
+    const node = { id: 'style', type: 'VisualStyle', visualStyle: { preset: 'natural', palette: '青绿' } };
+    let applied = 0;
+    const { dispatch } = createCanvasMcpActions({ canvasAdapter: {
+        context: () => createCanvasContext({ workflowId: 'style-workflow', nodes: [node], connections: [] }),
+        async apply(plan) {
+            applied++;
+            Object.assign(node.visualStyle, plan.steps[0].parameters);
+            plan.bindings[plan.steps[0].id] = node.id;
+            return plan;
+        }
+    } });
+    const read = await dispatch('read_canvas');
+    assert.equal(read.nodes[0].parameters.palette, '青绿');
+    const plan = { version: 1, steps: [{ id: 'edit', nodeId: node.id, type: node.type, execute: false, parameters: { palette: '暖棕色' } }] };
+    const write = { workflowId: read.workflowId, revision: read.revision, plan };
+    await dispatch('edit_canvas', write);
+    assert.equal((await dispatch('read_canvas')).nodes[0].parameters.palette, '暖棕色');
+    await assert.rejects(dispatch('edit_canvas', write), { code: 'stale_revision' });
+    const current = await dispatch('read_canvas');
+    plan.steps[0].parameters = { palette: 9 };
+    await assert.rejects(dispatch('edit_canvas', { ...write, revision: current.revision }), /类型无效/);
+    assert.equal(applied, 1);
+});
+
 test('reads a page of the live workflow with a stable revision and projected node fields', async () => {
     const nodes = [
         { id: 'intro', type: 'Text', text: 'First', apikey: 'private' },

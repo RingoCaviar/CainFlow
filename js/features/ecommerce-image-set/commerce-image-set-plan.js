@@ -1,3 +1,4 @@
+import { buildVisualStylePrompt, normalizeVisualStyle, visualStyleKey } from '../visual-style/visual-style.js';
 import { generateId } from '../../core/common-utils.js';
 import { createChatRequestPlan, requestChatCompletion } from '../execution/chat-request-plan.js';
 import { getEffectiveProtocol, getModelsForTask } from '../execution/provider-request-utils.js';
@@ -283,7 +284,9 @@ function markCommerceSceneForReview(shot) {
 
 export function confirmCommerceSceneShot(settings, shotId) {
     const shot = settings?.plan?.shots?.find(item => item.id === shotId);
-    if (settings?.plan?.stale || !shot?.customScene || !getCommerceSceneSummary(shot)) return false;
+    if (settings?.plan?.stale || !shot?.customScene || !getCommerceSceneSummary(shot) || isCommerceShotFinalized(settings, shotId)) return false;
+    if (settings.plan.visualStyle) shot.visualStyleSnapshot = normalizeVisualStyle(settings.plan.visualStyle);
+    else delete shot.visualStyleSnapshot;
     delete shot.sceneNeedsReview;
     shot.sceneConfirmed = true;
     return true;
@@ -367,13 +370,13 @@ function normalizeCommerceShotCopy(input, allowCopy) {
 export function commerceShotPlanKey(shot) {
     if (shot?.source !== 'generate') return '';
     const { headline, body } = normalizeCommerceShotCopy(shot, shot.allowCopy);
-    return `v1-${changeFingerprint(JSON.stringify([text(shot.prompt, 2000), headline, body]))}`;
+    return `v1-${changeFingerprint(JSON.stringify([text(shot.prompt, 2000), headline, body, ...(shot.visualStyleSnapshot ? [visualStyleKey(shot.visualStyleSnapshot)] : [])]))}`;
 }
 
 function normalizeCandidateDraft(input, shot) {
     const prompt = text(input?.prompt, 2000);
     if (!prompt || shot?.source !== 'generate') return null;
-    return { prompt, ...normalizeCommerceShotCopy(input, shot.allowCopy),
+    return { prompt, visualStyleSnapshot: input?.visualStyleSnapshot ? normalizeVisualStyle(input.visualStyleSnapshot) : null, ...normalizeCommerceShotCopy(input, shot.allowCopy),
         ...(shot.customScene ? {
             description: text(input.description, COMMERCE_SCENE_DESCRIPTION_LIMIT),
             ...scenePlanFields(input, prompt, true)
@@ -484,7 +487,7 @@ export function normalizeCommerceImageSetPlan(raw, platformId, selectedShotIds, 
         if (item.source === 'generate' && !prompt && !(allowBlankPrompts && (typeof input?.prompt === 'string' || item.customScene))) {
             throw new Error(`套图方案缺少「${item.label}」的画面说明。`);
         }
-        return { ...item, prompt, ...normalizeCommerceShotCopy(input, item.allowCopy),
+        return { ...item, prompt, ...(input?.visualStyleSnapshot ? { visualStyleSnapshot: normalizeVisualStyle(input.visualStyleSnapshot) } : {}), ...normalizeCommerceShotCopy(input, item.allowCopy),
             ...(item.customScene ? scenePlanFields(input, prompt, allowBlankPrompts) : {}) };
     });
     return { version: 1, platformId: platform.id, copyLanguage: normalizeCommerceImageSetCopyLanguage(settings?.copyLanguage),
@@ -506,6 +509,7 @@ export function normalizeCommerceImageSetState(raw) {
         plannerModelId: text(raw?.plannerModelId, 200), plannerProviderId: text(raw?.plannerProviderId, 200),
         imageModelId: text(raw?.imageModelId, 200), imageProviderId: text(raw?.imageProviderId, 200),
         ...(candidateCount > 1 ? { candidateCount } : {}),
+        ...(raw?.visualStyle ? { visualStyle: normalizeVisualStyle(raw.visualStyle) } : {}),
         plan: null, results: []
     };
     const sourceKey = text(raw?.plan?.sourceKey, 128);
@@ -520,7 +524,7 @@ export function normalizeCommerceImageSetState(raw) {
             const referenceContentKey = text(raw.plan.referenceContentKey, 128);
             const sceneContextKeys = Object.fromEntries(Object.keys(COMMERCE_IMAGE_SET_DEFAULT_ASPECTS)
                 .map(group => [group, text(raw.plan.sceneContextKeys?.[group], 128)]).filter(([, key]) => key));
-            settings.plan = { ...plan, sourceKey, ...(productContextKey ? { productContextKey } : {}),
+            settings.plan = { ...plan, ...(raw.plan.visualStyle ? { visualStyle: normalizeVisualStyle(raw.plan.visualStyle) } : {}), sourceKey, ...(productContextKey ? { productContextKey } : {}),
                 ...(referenceRevision ? { referenceRevision } : {}), ...(referenceContentKey ? { referenceContentKey } : {}),
                 ...(Object.keys(sceneContextKeys).length ? { sceneContextKeys } : {}),
                 confirmed: raw.plan.confirmed === true && !stale, ...(stale ? { stale: true } : {}) };
@@ -615,6 +619,7 @@ async function commerceImageSetKeys({ settings, references }) {
     if (includesDetail || galleryAspect !== COMMERCE_IMAGE_SET_DEFAULT_ASPECTS.gallery || detailAspect !== COMMERCE_IMAGE_SET_DEFAULT_ASPECTS.detail) {
         inputs.push({ galleryAspect, detailAspect });
     }
+    if (normalized.visualStyle) inputs.push({ visualStyle: normalized.visualStyle });
     if (copyLanguage !== 'auto') inputs.push({ copyLanguage });
     const manual = getManualProductInfo(normalized);
     const [sourceKey, productContextKey, referenceContentKey] = await Promise.all([
@@ -624,7 +629,7 @@ async function commerceImageSetKeys({ settings, references }) {
     ]);
     const sceneContextKeys = Object.fromEntries(await Promise.all(Object.entries({ gallery: galleryAspect, detail: detailAspect })
         .map(async ([group, aspect]) => [group, await sourceFingerprint(JSON.stringify([referenceContentKey, platformId,
-            productInfo, copyLanguage, aspect]))])));
+            productInfo, copyLanguage, aspect, ...(normalized.visualStyle ? [normalized.visualStyle] : [])]))])));
     return { sourceKey, productContextKey, referenceContentKey, sceneContextKeys };
 }
 
@@ -651,6 +656,7 @@ export function buildCommerceImageSetImagePrompt({ shot, plan, productInfo, prod
         `为${platform?.label || '电商平台'}生成「${shot.label}」成品图，宽高比 ${shot.aspect}。`,
         `图位用途：${shot.purpose}`,
         `画面设计：${shot.prompt}`,
+        buildVisualStylePrompt(shot.visualStyleSnapshot ?? plan.visualStyle, { lettering: onImageCopy.length > 0 }),
         '商品的外观、颜色、商标、包装与销售数量须与参考图一致。只呈现参考图或资料能证实的商品信息。',
         name && `商品名称：${name}`,
         details && `已确认的商品资料：${details}`,
@@ -767,6 +773,7 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
         ...requestOptions, settings: input, references: images, responseError, shot: currentShot,
         systemPrompt: [
             '你负责规划电商商品主副图和详情页图片。只提取参考图可观察到或商品资料明确提供的卖点。不要推断尺寸、材质、功效、认证、销量或价格。',
+            buildVisualStylePrompt(input.visualStyle, { lettering: true }),
             !currentShot && PRODUCT_ANALYSIS_INSTRUCTIONS,
             !currentShot && '先完成产品分析，再用用户提供或本次分析的商品信息规划各图位与文案。',
             '保持同一商品的外观、颜色、商标、包装和销售数量。图中不得添加虚构标签、促销标识或其他商品。不使用逼真的生成式人物。',
@@ -815,6 +822,7 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
             usedHeadlines.add(fallback);
         }
     }
+    for (const shot of plan.shots) if (shot.source === 'generate' && input.visualStyle) shot.visualStyleSnapshot = normalizeVisualStyle(input.visualStyle);
     const revision = text(referenceRevision, 512);
     if (currentShot) return { ...input, plan: { ...input.plan,
         ...keysForCurrentShot, ...(revision ? { referenceRevision: revision } : {}),
@@ -860,6 +868,6 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
     }) : [];
     const currentReferenceRevision = revision || (sameReferences ? input.plan?.referenceRevision : '');
     return { ...updated,
-        plan: { ...combined, ...keys, ...(currentReferenceRevision ? { referenceRevision: currentReferenceRevision } : {}), confirmed: false },
+        plan: { ...combined, ...(input.visualStyle ? { visualStyle: normalizeVisualStyle(input.visualStyle) } : {}), ...keys, ...(currentReferenceRevision ? { referenceRevision: currentReferenceRevision } : {}), confirmed: false },
         results };
 }

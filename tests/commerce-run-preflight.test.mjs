@@ -30,6 +30,13 @@ function fixture({ mode = 'target-node', confirmed = true, sourceType = 'ImageGe
     return { state, plan, source, settings, inspect };
 }
 
+test('画布运行预检在发送上游请求前识别风格变更', () => {
+    const { state, inspect } = fixture();
+    state.nodes.set('style', { id: 'style', type: 'VisualStyle', data: { visualStyle: { palette: '暖棕' } } });
+    state.connections.push({ from: { nodeId: 'style', port: 'style' }, to: { nodeId: 'commerce', port: 'style' }, type: 'style' });
+    assert.match(inspect().issue.message, /画面风格已更新/);
+});
+
 test('commerce preflight distinguishes changing upstreams, reusable sources, and missing inputs', () => {
     const rerun = fixture();
     const preview = rerun.inspect();

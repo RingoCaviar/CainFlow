@@ -1,3 +1,4 @@
+import { normalizeVisualStyle } from '../features/visual-style/visual-style.js';
 /**
  * 管理节点的创建、删除、选择、启停与尺寸自适应等生命周期行为。
  */
@@ -1561,6 +1562,12 @@ export function createNodeLifecycleApi({
             }
         }
         if (normalizedType === 'ImageSave' && nodeData.data.videos?.length) nodeData.data.video = { ...nodeData.data.videos.at(-1) };
+        if (effectiveRestoreData?.visualStyleSnapshot) nodeData.data.visualStyleSnapshot = structuredClone(effectiveRestoreData.visualStyleSnapshot);
+        if (normalizedType === 'VisualStyle') {
+            nodeData.data.visualStyle = normalizeVisualStyle(effectiveRestoreData?.visualStyle);
+            nodeData.data.styleModelId = effectiveRestoreData?.styleModelId || '';
+            nodeData.data.styleProviderId = effectiveRestoreData?.styleProviderId || '';
+        }
         if (normalizedType === 'CameraControl') {
             nodeData.data.pitch = Number.isFinite(Number(effectiveRestoreData?.pitch)) ? Number(effectiveRestoreData.pitch) : 12;
             nodeData.data.yaw = Number.isFinite(Number(effectiveRestoreData?.yaw)) ? Number(effectiveRestoreData.yaw) : 28;

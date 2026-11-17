@@ -1,3 +1,5 @@
+import { buildVisualStylePrompt, normalizeVisualStyle, resolveVisualStyle, visualStyleKey, VISUAL_STYLE_FIELDS } from '../visual-style/visual-style.js';
+import { analyzeVisualStyle } from '../visual-style/visual-style-analysis.js';
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
 import { validateUniversalImageInputs } from '../../nodes/universal-input-policy.js';
@@ -516,6 +518,7 @@ export function createExecutionCoreApi({
             assetReady: false
         });
         node.imagePromptList = normalizedImages.map(() => prompt || '');
+        if (normalizedImages.length) node.data.visualStyleSnapshot = node.pendingVisualStyleSnapshot ? structuredClone(node.pendingVisualStyleSnapshot) : null;
         node.generationCompletedCount = normalizedImages.length;
         if (getNodeImageResultPersistence(node.type) === IMAGE_RESULT_PERSISTENCE.PERSISTENT && normalizedImages.length > 0) {
             node.data.imageResultPersistence = 'transient';
@@ -1017,6 +1020,10 @@ export function createExecutionCoreApi({
             const settings = normalizeCommerceImageSetState(state.nodes.get(commerceNodeId).data?.commerceImageSet);
             if (settings.plan?.confirmed && !getUnfinishedCommerceImageSetShots(settings).length) throw new Error('所有图位已完成。');
         }
+        const { visualStyleFields } = runInput;
+        if (visualStyleFields !== undefined && (mode !== 'target-node' || state.nodes.get(targetNodeId)?.type !== 'VisualStyle'
+            || !Array.isArray(visualStyleFields) || !visualStyleFields.length
+            || visualStyleFields.some(key => !Object.hasOwn(VISUAL_STYLE_FIELDS, key)))) throw new Error('请选择画面风格节点和有效提取维度。');
         const { imageRetryNodeId, imageRetryIndex, imageRetryBatchId } = runInput;
         const imageRetry = imageRetryNodeId !== undefined || imageRetryIndex !== undefined || imageRetryBatchId !== undefined;
         if (imageRetry && (mode !== 'selected-only' || selectedNodeIds.length !== 1 || selectedNodeIds[0] !== imageRetryNodeId
@@ -1037,6 +1044,7 @@ export function createExecutionCoreApi({
                 ...(typeof commerceShotId === 'string' ? { commerceShotId } : {}),
                 ...(commerceAction === 'select-candidate' ? { commerceCandidateKey } : {})
             } : {}),
+            ...(visualStyleFields ? { visualStyleFields: [...new Set(visualStyleFields)] } : {}),
             ...(imageRetry ? { imageRetryNodeId, imageRetryIndex, imageRetryBatchId } : {}),
             ...(Array.isArray(runInput.includedAutoSaveNodeIds) ? {
                 includedAutoSaveNodeIds: [...new Set(runInput.includedAutoSaveNodeIds.filter((id) => (
@@ -1233,6 +1241,7 @@ export function createExecutionCoreApi({
     }
 
     function getCachedOutputValue(node, portName) {
+        if (node?.type === 'VisualStyle' && portName === 'style' && node.enabled !== false) return normalizeVisualStyle(node.data?.visualStyle);
         if (!node || node.enabled === false) return undefined;
         if (portName === 'params' && node.type === 'CustomParams') {
             return getCustomParamsFromNode(node);
@@ -1803,6 +1812,8 @@ export function createExecutionCoreApi({
         if (cameraPrompt) {
             promptSections.push(cameraPrompt);
         }
+        const stylePrompt = buildVisualStylePrompt(resolveVisualStyle(state, id, inputs), { lettering: true });
+        if (stylePrompt) promptSections.push(stylePrompt);
         const combinedPrompt = appendReferenceDescriptions(promptSections.join('\n\n'), state, id);
 
         if (systemPrompt) {
@@ -1933,6 +1944,12 @@ export function createExecutionCoreApi({
     } = {}) {
         parentSignal?.throwIfAborted();
         const settings = normalizeCommerceImageSetState(node.data?.commerceImageSet);
+        const visualStyle = resolveVisualStyle(state, node.id, inputs);
+        settings.visualStyle = visualStyle;
+        if (!['plan', 'analyze', 'select-candidate'].includes(commerceAction) && settings.plan
+            && visualStyleKey(settings.plan.visualStyle) !== visualStyleKey(visualStyle)) {
+            throw new Error('画面风格已更新，请重新规划并确认；已有成图和定稿保留。');
+        }
         const replanningShot = commerceAction === 'replan-shot';
         const retryingShot = commerceAction === 'retry';
         const selectingCandidate = commerceAction === 'select-candidate';
@@ -2052,6 +2069,7 @@ export function createExecutionCoreApi({
                     } });
                 signal?.throwIfAborted();
                 const current = normalizeCommerceImageSetState(node.data?.commerceImageSet);
+                current.visualStyle = resolveVisualStyle(state, node.id, inputs);
                 if (state.nodes.get(node.id) !== node ||
                     commerceImageSetPlanningSettingsKey(settings, commerceShotId) !== commerceImageSetPlanningSettingsKey(current, commerceShotId)) {
                     throw new Error('商品设置已改变，请根据当前设置重新执行。');
@@ -2130,6 +2148,7 @@ export function createExecutionCoreApi({
                             try {
                                 const { image } = await nodeHandlers.ImageGenerate(node, shotInputs, shotSignal, {
                                     preparedImageRequest: {
+                                        visualStyleSnapshot: shot.visualStyleSnapshot ?? visualStyle,
                                         prompt: resolved.prompts[0],
                                         settings: { ...imageSettings, ...size },
                                         startRequestLog: request => startCommerceRequestLog(node, request, {
@@ -2530,6 +2549,24 @@ export function createExecutionCoreApi({
 
     const nodeHandlers = {
         ECommerceImageSet: executeCommerceImageSet,
+        VisualStyle: async (node, inputs, signal, { visualStyleFields } = {}) => {
+            if (visualStyleFields) {
+                const before = visualStyleKey(node.data.visualStyle);
+                const references = normalizeImageList(inputs.image);
+                const style = await analyzeVisualStyle({ node, references, fields: visualStyleFields, models: state.models,
+                    providers: state.providers, fetchRef, getProxyHeaders, signal,
+                    runRequest: (request, execute) => {
+                        const onOutcome = startWorkflowImageRequestLog(node, request, {
+                            title: `画面风格 · 提取风格 · ${request.model.name || request.model.modelId}`, operation: 'analyze-style', signal
+                        });
+                        return runTrackedProviderRequest(node, request.provider, request.model, sanitizeRequestUrl(request.url), execute, { onOutcome });
+                    } });
+                if (visualStyleKey(node.data.visualStyle) !== before) throw new Error('风格已编辑，请重新提取。');
+                node.data.visualStyle = style;
+                onNodeResultUpdated(node.id);
+            }
+            node.data.style = normalizeVisualStyle(node.data.visualStyle);
+        },
         ProductRetouch: executeProductRetouch,
         ImageImport: async (node) => {
             const imageValue = await restoreImageImportOutputValue(node);
@@ -2613,7 +2650,9 @@ export function createExecutionCoreApi({
             let sequentialRequestIndex;
 
             try {
+                const styleSnapshot = prepared?.visualStyleSnapshot ?? resolveVisualStyle(state, id, inputs);
                 const promptText = prepared?.prompt || buildImageGeneratePrompt(node, inputs);
+                node.pendingVisualStyleSnapshot = styleSnapshot;
                 const resolved = prepared ? { inputs, prompts: [promptText] }
                     : await resolveRequestMentions(node, inputs, [promptText], { signal });
                 inputs = resolved.inputs;

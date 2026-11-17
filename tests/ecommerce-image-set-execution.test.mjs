@@ -15,7 +15,7 @@ const roles = ['angle', 'detail', 'feature', 'scene', 'included'];
 
 function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main', ...roles], beforeImageRequest, beforePlanRequest,
     galleryAspect, imageModel = 'gemini-2.5-flash-image', imageProtocol = 'google', responseImageData,
-    referenceImageCatalog, syncImagePreviewNode } = {}) {
+    referenceImageCatalog, syncImagePreviewNode, visualStyle } = {}) {
     const node = { id: 'commerce', type: 'ECommerceImageSet', data: { commerceImageSet: {
         platformId: 'amazon', productNotes: '杯盖可拆卸', plannerModelId: 'vision', plannerProviderId: 'provider',
         imageModelId: 'image', imageProviderId: 'provider', selectedShotIds, galleryAspect
@@ -30,6 +30,10 @@ function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main',
     const noop = () => {};
     const nodes = new Map([[node.id, node]]);
     const connections = [];
+    if (visualStyle) {
+        nodes.set('style', { id: 'style', type: 'VisualStyle', data: { visualStyle } });
+        connections.push({ from: { nodeId: 'style', port: 'style' }, to: { nodeId: node.id, port: 'style' } });
+    }
     const setConnectedReference = image => {
         const id = 'product-reference';
         if (!nodes.has(id)) connections.push({ from: { nodeId: id, port: 'image' }, to: {
@@ -1111,4 +1115,69 @@ test('canceling one batch shot and rerunning a finished shot can leave the remai
         controller.abort();
         await batch.catch(() => {});
     }
+});
+
+
+test('共用风格参与套图规划和生图，变更后保留旧结果与定稿', async () => {
+    const visualStyle = { preset: 'custom', palette: '苔藓绿', typography: '标题左对齐' };
+    const fixture = createCommerceExecutionFixture({ selectedShotIds: ['main', 'detail'], visualStyle });
+    await fixture.execute('plan');
+    assert.equal(fixture.node.data.commerceImageSet.plan.visualStyle.palette, '苔藓绿');
+    fixture.node.data.commerceImageSet.plan.confirmed = true;
+    await fixture.execute('generate');
+    assert.match(fixture.imagePrompts.get('detail'), /苔藓绿/);
+    const before = structuredClone(fixture.node.data.commerceImageSet.results);
+    visualStyle.palette = '深蓝';
+    await assert.rejects(fixture.execute('generate'), /画面风格已更新/);
+    assert.deepEqual(fixture.node.data.commerceImageSet.results, before);
+    fixture.node.data.commerceImageSet.results[1].finalized = true;
+    await fixture.execute('plan');
+    assert.equal(fixture.node.data.commerceImageSet.plan.visualStyle.palette, '深蓝');
+    assert.equal(fixture.node.data.commerceImageSet.plan.shots.find(shot => shot.id === 'detail').visualStyleSnapshot.palette, '苔藓绿');
+    assert.equal(fixture.node.data.commerceImageSet.results[1].assetKey, before[1].assetKey);
+});
+
+test('旧追加场景在风格变更并重规划后重新确认，使用当前风格', async () => {
+    const visualStyle = { palette: '苔藓绿' };
+    const { node, execute, imagePrompts } = createCommerceExecutionFixture({ selectedShotIds: ['main', 'detail'], visualStyle,
+        beforePlanRequest: input => input.shots[0].id.startsWith('scene-') ? { shots: [{ id: input.shots[0].id,
+            prompt: 'scene\n窗边生活场景', sceneSummary: '窗边生活场景', headline: '', body: '' }] } : undefined });
+    await execute('plan');
+    node.data.commerceImageSet.plan.confirmed = true;
+    const scene = appendCommerceSceneShot(node.data.commerceImageSet, 'gallery');
+    await execute('replan-shot', reference, scene.id);
+    confirmCommerceSceneShot(node.data.commerceImageSet, scene.id);
+    visualStyle.palette = '深蓝';
+    await execute('plan');
+    node.data.commerceImageSet = normalizeCommerceImageSetState(JSON.parse(JSON.stringify(node.data.commerceImageSet)));
+    node.data.commerceImageSet.plan.confirmed = true;
+    assert.equal(confirmCommerceSceneShot(node.data.commerceImageSet, scene.id), true);
+    await execute('retry', reference, scene.id);
+    assert.match(imagePrompts.get('scene'), /深蓝/);
+    assert.doesNotMatch(imagePrompts.get('scene'), /苔藓绿/);
+});
+
+
+test('appending eight candidates retains the adopted output and bounds history to twenty versions', async () => {
+    let variant = 1;
+    const { node, execute } = createCommerceExecutionFixture({ selectedShotIds: ['detail'],
+        responseImageData: () => Buffer.from([variant++]).toString('base64') });
+    await execute('plan');
+    node.data.commerceImageSet.plan.confirmed = true;
+    await execute('generate');
+    const original = structuredClone(node.data.commerceImageSet.results[0]);
+    const output = [...node.data.mediaAssetKeys];
+    node.data.commerceImageSet.candidateCount = 8;
+    await execute('generate-candidates', reference, 'detail');
+    assert.equal(getCommerceShotCandidates(node.data.commerceImageSet, 'detail').length, 9);
+    assert.deepEqual(node.data.commerceImageSet.results[0], original);
+    assert.deepEqual(node.data.mediaAssetKeys, output);
+    await execute('generate-candidates', reference, 'detail');
+    await execute('generate-candidates', reference, 'detail');
+    const versions = getCommerceShotCandidates(node.data.commerceImageSet, 'detail');
+    assert.equal(versions.length, 20);
+    assert.ok(versions.some(version => version.assetKey === original.assetKey));
+    await execute('select-candidate', null, 'detail', undefined, versions[0].key);
+    assert.equal(node.data.commerceImageSet.results[0].assetKey, versions[0].assetKey);
+    assert.ok(getCommerceShotCandidates(node.data.commerceImageSet, 'detail').some(version => version.assetKey === original.assetKey));
 });

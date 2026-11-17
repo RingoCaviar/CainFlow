@@ -584,7 +584,7 @@ export function createWorkflowRunnerApi({
 
     function getPreservedNodeDataForReset(node) {
         if (node?.type === 'ImageSave') return { ...(node.data || {}), filename: readImageSaveFilename(node) };
-        if (['ImageMerge', 'ECommerceImageSet', 'ProductRetouch'].includes(node?.type)) return { ...(node.data || {}) };
+        if (['ImageMerge', 'ECommerceImageSet', 'ProductRetouch', 'VisualStyle'].includes(node?.type)) return { ...(node.data || {}) };
         if (node?.type === 'ImageCompare') return { ...(node.data || {}), comparePosition: node.comparePosition ?? node.data?.comparePosition ?? 50 };
         if (node?.type === 'ImageResize') return { ...(node.data || {}), ...readImageResizeSettings(node) };
         if (node?.type === 'ColorReset') {
@@ -1928,6 +1928,10 @@ export function createWorkflowRunnerApi({
     }
 
     async function executeNodeWithInputBatches(node, inputs, signal, connections = [], plan, recipe) {
+        if (node?.type === 'VisualStyle') {
+            await executeNode(node, inputs, signal, { visualStyleFields: plan?.targetNodeId === node.id ? plan.visualStyleFields : undefined });
+            return inputs;
+        }
         if (node?.type === 'ECommerceImageSet') {
             const action = plan?.commerceNodeId === node.id
                 ? { commerceAction: plan.commerceAction, commerceShotId: plan.commerceShotId, commerceCandidateKey: plan.commerceCandidateKey } : {};

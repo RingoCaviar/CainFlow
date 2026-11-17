@@ -320,3 +320,6 @@ _Avoid_: Resetting values on every model switch, protocol upgrades overwriting u
 **Protocol vertical slice**:
 The first delivery of a new Declarative protocol capability together with one production protocol that exercises it. CainFlow will use the 6789 video protocol as the first slice and migrate existing protocols separately.
 _Avoid_: Big-bang protocol migration, hard-coded pilot
+
+**画面风格**:
+可供多个生成节点共用的视觉表达规范，包含表现形式、配色、光影、质感、背景、构图、可选排版和避免项。风格参考图只用于显式提取视觉特征，主体与商品事实来自下游任务。电商套图在规划与生成时使用风格，已生成结果保留当次风格快照。

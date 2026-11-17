@@ -1,3 +1,4 @@
+import { renderVisualStyleBody } from './visual-style-view.js';
 /**
  * 根据节点类型与恢复数据生成节点的 HTML 结构。
  */
@@ -1258,6 +1259,7 @@ function renderCustomParamsBody(id, restoreData = {}) {
 }
 
 function renderNodeBody(type, id, restoreData, state) {
+    if (type === 'VisualStyle') return renderVisualStyleBody(id, restoreData, state);
     if (type === 'ImageImport') return renderImageImportBody(id, restoreData);
     if (type === 'ImageResize') return renderImageResizeBody(id, restoreData);
     if (type === 'ColorReset') return renderColorResetBody(id, restoreData);

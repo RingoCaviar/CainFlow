@@ -20,7 +20,7 @@ function mergeRoleCount(node, incoming = []) {
 }
 
 export function getUniversalInputRoles(node, state = null, incoming = null) {
-    if (node?.type === 'ECommerceImageSet') return [['referenceImages', '商品参考图', 'image']];
+    if (node?.type === 'ECommerceImageSet') return [['referenceImages', '商品参考图', 'image'], ['style', '画面风格', 'style']];
     if (node?.type === 'ProductRetouch') return [['image', '商品参考图', 'image']];
     if (node?.type === 'ImageSave') return [['image', '图片输入', 'image'], ['video', '视频输入', 'video']];
     if (node?.type === 'ImageMerge') {
@@ -30,7 +30,7 @@ export function getUniversalInputRoles(node, state = null, incoming = null) {
     if (node?.type === 'ImageCompare') return [['imageA', '对比 A（可选）', 'image'], ['imageB', '结果 B（必需）', 'image']];
     if (isUniversalInputNode(node) && node.type !== 'ImageGenerate') return [['image', '图片输入', 'image']];
     return node?.type === 'ImageGenerate' ? [
-        ['prompt', '主提示词', 'text'], ['camera_prompt', '视角提示词', 'text'],
+        ['prompt', '主提示词', 'text'], ['camera_prompt', '视角提示词', 'text'], ['style', '画面风格', 'style'],
         ['referenceImages', '参考图', 'image'], ['mask', '遮罩', 'image'], ['params', '自定义参数', 'params']
     ] : [];
 }
@@ -143,9 +143,9 @@ export function resolveUniversalInput({ state, sourceNode, sourcePort, sourceTyp
             const indices = targetConnections.filter(edge => /^image_\d+$/.test(edge.to.port))
                 .map(edge => Number(edge.to.port.slice(6))).filter(index => Number.isSafeInteger(index) && index > 0);
             port = type === 'image' ? `image_${Math.max(0, ...indices) + 1}` : null;
-        } else if (targetNode.type === 'ECommerceImageSet') port = type === 'image' ? 'referenceImages' : null;
+        } else if (targetNode.type === 'ECommerceImageSet') port = { image: 'referenceImages', style: 'style' }[type];
         else port = (targetNode.type !== 'ImageGenerate' ? { image: 'image' }
-            : { image: 'referenceImages', text: sourceNode.type === 'CameraControl' ? 'camera_prompt' : 'prompt', params: 'params' })[type];
+            : { image: 'referenceImages', text: sourceNode.type === 'CameraControl' ? 'camera_prompt' : 'prompt', params: 'params', style: 'style' })[type];
     }
     if (!getUniversalInputRoles(targetNode, state, allIncoming).some(([name, , acceptedType]) => name === port && acceptedType === type)) return failure('来源类型不兼容所选输入用途。');
     if (sourceNode.id === targetNode.id) return failure('节点不能连接到自身。');
@@ -166,7 +166,7 @@ export function resolveUniversalInput({ state, sourceNode, sourcePort, sourceTyp
     if (wouldCycle) return failure('此连接会形成循环，请选择其他来源。');
     if (targetNode.type !== 'ImageGenerate') {
         if (targetNode.type === 'ImageResize' && hasRemoteImageOutput(sourceNode)) return failure('URL 图片不支持连接到图片缩放节点。');
-        return { port, type, multiple: targetNode.type === 'ECommerceImageSet', error: '' };
+        return { port, type, multiple: targetNode.type === 'ECommerceImageSet' && port === 'referenceImages', error: '' };
     }
     const contract = resolveImageGenerationInputContract(state, targetNode), unsupported = roleError(contract, port);
     if (unsupported) return failure(unsupported);

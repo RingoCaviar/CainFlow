@@ -1,0 +1,11 @@
+.visual-style-settings { display: grid; gap: 12px; min-width: 0; }
+.visual-style-settings summary { cursor: pointer; padding: 8px 0; font-size: 14px; font-weight: 600; }
+.visual-style-settings details { min-width: 0; }
+.visual-style-settings select { max-width: 100%; background: var(--bg-input); color: var(--text-primary); }
+.visual-style-settings details > .node-field { margin-top: 10px; }
+.visual-style-settings textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+.visual-style-settings p { color: var(--text-secondary); font-size: 12px; line-height: 1.6; margin: 0; overflow-wrap: anywhere; }
+.visual-style-scope { display: flex; flex-wrap: wrap; gap: 8px 12px; margin: 10px 0; }
+.visual-style-scope label { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+.visual-style-scope input { accent-color: var(--text-link); }
+.visual-style-settings [data-style-extract] { width: 100%; margin-top: 10px; }

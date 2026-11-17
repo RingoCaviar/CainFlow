@@ -1,3 +1,4 @@
+import { normalizeVisualStyle } from '../visual-style/visual-style.js';
 import { cleanupElementResources } from '../../core/common-utils.js';
 import { renderWorkflowRunControls } from '../ui/workflow-toolbar-status.js';
 import { createInitialState } from '../../core/state.js';
@@ -168,7 +169,11 @@ export function commercePlanningPublicationKey(nodeId, connections, getNode, sho
     const commerce = target.commerceImageSet ?? target.data?.commerceImageSet;
     return JSON.stringify([
         shotId ? commerceImageSetPlanningSettingsKey(commerce, shotId) : normalizeCommerceImageSetState(commerce),
-        references
+        references,
+        connections.filter(edge => edge.to.nodeId === nodeId && edge.to.port === 'style').map(edge => {
+            const source = getNode(edge.from.nodeId);
+            return [edge.from.nodeId, source?.enabled !== false, source?.type, normalizeVisualStyle(source?.visualStyle ?? source?.data?.visualStyle)];
+        })
     ]);
 }
 
@@ -427,6 +432,12 @@ export function serializeRuntimeNode(node, doc) {
         serialized.mergeOutputEnabled = mergeOutputEnabled;
         serialized.parts = Array.isArray(node.data?.parts) ? node.data.parts.slice() : [];
     }
+    if (node.data?.visualStyleSnapshot) serialized.visualStyleSnapshot = structuredClone(node.data.visualStyleSnapshot);
+    if (node.type === 'VisualStyle') {
+        serialized.visualStyle = structuredClone(node.data.visualStyle);
+        serialized.styleModelId = node.data.styleModelId || '';
+        serialized.styleProviderId = node.data.styleProviderId || '';
+    }
     if (node.type === 'CustomParams') {
         serialized.params = Array.isArray(node.data?.params) ? clonePlainValue(node.data.params) : [];
     }
@@ -681,6 +692,7 @@ export function createWorkflowRuntimeManager({
         });
         state.activeRunCount = activeRunCount;
         state.isRunning = activeRunCount > 0;
+        for (const node of state.nodes.values()) if (node.type === 'VisualStyle') setVisibleNodeControlsLocked(node, state.isRunning);
         const activeId = getWorkflowManagerApi()?.getActiveWorkflow?.()?.workflowId || '';
         const contexts = [...workflowRunContexts.values()].filter(context => context.workflowId === activeId);
         const starting = state.isRunStarting === true && (!state.runStartingWorkflowId || state.runStartingWorkflowId === activeId);
@@ -969,6 +981,11 @@ export function createWorkflowRuntimeManager({
             node.imageGenerationRequestImages = runtimeNode.imageGenerationRequestImages.slice();
         } else delete node.imageGenerationRequestImages;
 
+        if (runtimeNode.data?.visualStyleSnapshot !== undefined) node.data.visualStyleSnapshot = clonePlainValue(runtimeNode.data.visualStyleSnapshot);
+        if (runtimeNode.type === 'VisualStyle') {
+            node.data.visualStyle = clonePlainValue(runtimeNode.data.visualStyle);
+            for (const control of node.el?.querySelectorAll('[data-style-field]') || []) control.value = node.data.visualStyle[control.dataset.styleField] || '';
+        }
         if (runtimeNode.type === 'ImagePreview') {
             const images = getCanonicalImageList(runtimeNode, { includeResizePreview: false });
             await syncImagePreviewNode(runtimeNodeId, { resultProjection: runtimeNode });
@@ -1325,7 +1342,7 @@ export function createWorkflowRuntimeManager({
         node.runStartedAt = null;
         node.el.classList.remove('running');
         node.el.querySelector('.node-run-cancel-btn')?.classList.remove('is-holding', 'is-canceling');
-        setVisibleNodeControlsLocked(node, false);
+        setVisibleNodeControlsLocked(node, node.type === 'VisualStyle' && state.isRunning);
         return node;
     }
 

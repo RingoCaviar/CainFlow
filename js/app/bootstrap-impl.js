@@ -892,7 +892,7 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
     disconnectReferenceSource: (nodeId, connectionId) => connectionsApi.disconnectImageReferenceConnection(nodeId, connectionId),
     prepareNodeContext: reference => promptAgentController.prepareNodeContext(reference),
     createImageResultActions: buildImageResultActions,
-    runToNode: nodeId => runWorkflow({ mode: 'target-node', targetNodeId: nodeId }),
+    runToNode: (nodeId, options = {}) => runWorkflow({ ...options, mode: 'target-node', targetNodeId: nodeId }),
     openNodeLog: nodeId => {
         const log = state.logs?.find(entry => entry.nodeId === nodeId);
         if (log) getLogPanelApi().showLogDetail(log.id);

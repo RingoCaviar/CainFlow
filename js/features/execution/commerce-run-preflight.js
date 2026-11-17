@@ -1,3 +1,4 @@
+import { resolveVisualStyle, visualStyleKey } from '../visual-style/visual-style.js';
 import { projectImageOutput } from '../../nodes/image-output-projection.js';
 import { resolveImageGenerationInputContract } from '../../nodes/universal-input-policy.js';
 import {
@@ -98,7 +99,12 @@ export function getCommerceRunPreflight({ state, plan }) {
             || references.slots.some(slot => slot.connection === group.connection && slot.missing));
         let issue = null;
         const panelAction = plan.commerceNodeId === nodeId && plan.commerceAction;
-        if (panelAction !== 'plan' && panelAction !== 'analyze' && hasCommerceReferenceChange(settings, references)) {
+        let styleChanged = false;
+        try { styleChanged = !!settings.plan && visualStyleKey(settings.plan.visualStyle) !== visualStyleKey(resolveVisualStyle(state, nodeId)); }
+        catch { styleChanged = true; }
+        if (!['plan', 'analyze', 'select-candidate'].includes(panelAction) && styleChanged) {
+            issue = { action: 'plan', message: '画面风格已更新，请重新规划并确认。' };
+        } else if (panelAction !== 'plan' && panelAction !== 'analyze' && hasCommerceReferenceChange(settings, references)) {
             issue = { action: 'plan', message: COMMERCE_REFERENCE_CHANGED_MESSAGE };
         } else if (!panelAction && !reusesFinalized) {
             if (!settings.plan || settings.plan.stale) {

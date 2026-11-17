@@ -1,3 +1,4 @@
+import { normalizeVisualStyle } from '../visual-style/visual-style.js';
 import { batchBaseline, instantiateCanvasPlan, layoutIndependentCanvasNodes } from './prompt-agent-canvas-batches.js';
 import { prepareCanvasPlanRecreation } from './prompt-agent-canvas-recreation.js';
 import { normalizePlanInputs, projectPlanConnections, referenceManifest, assertReferenceInputsPreserved, isReferencePort, assertPromptOnlyReferenceRecipe } from './prompt-agent-reference-inputs.js';
@@ -246,7 +247,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                         const config = selected[id];
                         const staged = stagedImports.get(id);
                         const parameters = config && step.type === 'ImageGenerate'
-                            ? { prompt: step.parameters.prompt } : step.parameters;
+                            ? { prompt: step.parameters.prompt } : step.type === 'VisualStyle' ? { visualStyle: normalizeVisualStyle(step.parameters) } : step.parameters;
                         nodeId = addNode(step.type, viewport.x, viewport.y, { ...parameters, customTitle: step.title,
                             ...(staged ? { id: staged.nodeId, agentReferenceSource: {
                                 historyId: staged.id, historyVersion: staged.fileVersion, assetKey: step.assetKey
@@ -301,6 +302,11 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                         state.nodes.get(nodeId).data.thinking = cloneCanvasValue(selected[id].thinking);
                         state.nodes.get(nodeId).el?._thinkingControl?.refresh();
                         if (!nodeAdapter.applyPromptPlan(patch)) throw new Error('生图参数不兼容');
+                    } else if (step.type === 'VisualStyle') {
+                        if (state.isRunning) throw new Error('请等待工作流运行结束后修改画面风格。');
+                        const node = state.nodes.get(nodeId);
+                        node.data.visualStyle = normalizeVisualStyle({ ...(Object.hasOwn(step.parameters, 'preset') ? normalizeVisualStyle({ preset: step.parameters.preset }) : node.data.visualStyle), ...step.parameters });
+                        for (const control of node.el?.querySelectorAll('[data-style-field]') || []) control.value = node.data.visualStyle[control.dataset.styleField] || '';
                     } else if (step.type === 'ECommerceImageSet') {
                         const node = state.nodes.get(nodeId);
                         if (Object.hasOwn(step.parameters, 'copyLanguage')) {

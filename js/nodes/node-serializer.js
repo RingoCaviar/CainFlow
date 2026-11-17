@@ -318,6 +318,12 @@ export function createNodeSerializer({ state, documentRef }) {
                 serialized.mergeOutputEnabled = mergeOutputEnabled;
                 serialized.parts = Array.isArray(node.data?.parts) ? node.data.parts.slice() : [];
             }
+            if (node.data?.visualStyleSnapshot) serialized.visualStyleSnapshot = structuredClone(node.data.visualStyleSnapshot);
+            if (node.type === 'VisualStyle') {
+                serialized.visualStyle = structuredClone(node.data.visualStyle);
+                serialized.styleModelId = node.data.styleModelId || '';
+                serialized.styleProviderId = node.data.styleProviderId || '';
+            }
             if (node.type === 'CustomParams') {
                 serialized.params = Array.from(documentRef.querySelectorAll(`#${id}-params-list [data-param-row]`))
                     .map((row) => ({

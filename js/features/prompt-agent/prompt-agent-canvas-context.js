@@ -1,3 +1,4 @@
+import { VISUAL_STYLE_FIELDS, VISUAL_STYLE_PRESETS, normalizeVisualStyle } from '../visual-style/visual-style.js';
 import { agentNodeDefinition as getNodeDefinition } from './prompt-agent-reference-inputs.js';
 import { publicImageProtocolFields } from './prompt-agent-parameters.js';
 import { listNodeDefinitions } from '../../nodes/registry.js';
@@ -11,6 +12,7 @@ import {
 
 const colorAdjustment = { type: 'integer', min: -100, max: 100 };
 export const CANVAS_SCALAR_RULES = Object.freeze({
+    VisualStyle: { preset: { enum: Object.keys(VISUAL_STYLE_PRESETS) }, ...Object.fromEntries(Object.keys(VISUAL_STYLE_FIELDS).map(key => [key, { type: 'string' }])) },
     TextChat: { prompt: { type: 'string' }, sysprompt: { type: 'string' }, fixed: { type: 'boolean' } },
     VideoGenerate: { prompt: { type: 'string' }, aspect: { enum: DOUBAO_VIDEO_RATIO_OPTIONS.map(option => option.value) },
         generationCount: { type: 'integer', min: 1 } },
@@ -41,6 +43,10 @@ export function projectCanvasNode(node, running = false) {
     const readableFields = node.type === 'TextSplit' ? [...fields, 'text'] : fields;
     const parameters = Object.fromEntries(readableFields.filter(key =>
         isParameterValue(node[key])).map(key => [key, node[key]]));
+    if (node.type === 'VisualStyle') {
+        const { version, ...style } = normalizeVisualStyle(node.visualStyle ?? node.data?.visualStyle);
+        Object.assign(parameters, style);
+    }
     if (node.type === 'ECommerceImageSet') {
         parameters.copyLanguage = normalizeCommerceImageSetCopyLanguage(node.commerceImageSet?.copyLanguage);
         const productInfo = Object.fromEntries(Object.entries(getCommerceProductInfo(node.commerceImageSet))

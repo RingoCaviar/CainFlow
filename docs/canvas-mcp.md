@@ -91,3 +91,5 @@ MCP 接口仅接受本机回环连接。多个标签页打开 CainFlow 时，先
 - `apply_prompt` 接收 `nodeId`、唯一的 `promptId` 或精确的 `name`，以及 `target`。普通提示词用 `prompt`，支持文本、对话和图片生成节点。对话或生图节点接入独享的可写文本时，编辑该文本节点。需要修改共享文本时，请直接指定文本节点。系统提示词用 `system`，可在 `read_canvas` 中通过 `supportsSystemPrompt` 识别支持的对话或生图节点。内置 Agent 可接受「把库里的『白底规则』套用到选中节点的系统提示词」，并在修改前展示预览。
 
 收到画布版本过期、编辑器切换或请求超时时，先重新读取画布，确认当前状态后再提交改动。运行记录与图片暂存在发起运行的编辑器内。运行结果的 `imageCount` 是该节点产出的图片数量。`get_run_image` 可读取其中留在缓存里的 PNG、JPEG、WebP 或 GIF，单张上限约 4.5 MB。
+
+画面风格节点 VisualStyle 支持 preset、description、medium、palette、lighting、texture、background、composition、typography、avoid。通过节点能力清单读取 preset 枚举。style 输出可连接图片生成或电商套图的 style 输入，每个目标只接一个风格。参考图接 image 输入，提取操作在节点内显式执行；普通运行只输出配置。内置 Agent 与 MCP 共用字段校验和连线规则。详见 [画面风格](visual-style.md)。
