@@ -11,8 +11,7 @@ import { assertCanvasPlanCurrent, assertCanvasPlanPromptInputs, assertCanvasMerg
     describeCanvasPlan, isCanvasGraphOnlyStep } from './prompt-agent-canvas-plan.js';
 import { getAvailablePromptAgentImageModels } from './prompt-agent-node-adapter.js';
 import { resolveAgentProvider } from './prompt-agent-provider.js';
-import { getNodeDefinition } from '../../nodes/registry.js';
-import { nodeBounds, findNearbyNodePosition } from '../execution/node-placement.js';
+import { nodeBounds, findNearbyNodePosition, findViewportNodePosition, setNodePosition } from '../execution/node-placement.js';
 import { isPromptLibraryWrite, validatePromptLibraryWrite } from './prompt-agent-apply-library-prompt.js';
 import { rememberWorkflowMediaOperation } from '../media/workflow-media-operation.js';
 import { updateCommerceImageSetCopyLanguage, updateCommerceProductInfoField } from '../ecommerce-image-set/commerce-image-set-plan.js';
@@ -230,9 +229,9 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                     return before && (!after || before.from.nodeId !== after.from.nodeId || before.from.port !== after.from.port);
                 }));
                 if (promptTargets.size) state.connections = state.connections.filter(edge => !(promptTargets.has(edge.to.nodeId) && edge.to.port === 'prompt'));
-                const start = origin();
-                const occupied = [...state.nodes.values()].map(node => nodeBounds(node, state.canvas?.zoom || 1));
-                if (start.blockedSpan) occupied.push({ y: start.y, height: 340, ...start.blockedSpan });
+                const viewport = origin();
+                const zoom = state.canvas?.zoom || 1;
+                const occupied = [...state.nodes.values()].map(node => nodeBounds(node, zoom));
                 const gridSteps = new Set(plan.steps.filter(step => {
                     const nodeId = step.nodeId || bindings[step.id];
                     return (!nodeId || recreation.missingIds.has(nodeId))
@@ -244,18 +243,11 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                     const step = plan.steps.find(item => item.id === id);
                     let nodeId = step.nodeId || bindings[id];
                     if (!nodeId || recreation.missingIds.has(nodeId)) {
-                        const width = getNodeDefinition(step.type).defaultWidth || 300;
-                        const parents = plan.connections.filter(link => link.to.ref === id).map(link =>
-                            state.nodes.get(bindings[link.from.ref] || plan.steps.find(item => item.id === link.from.ref)?.nodeId || link.from.ref)).filter(Boolean);
-                        const anchor = parents.sort((a, b) => b.x - a.x)[0];
-                        const bounds = anchor && nodeBounds(anchor, state.canvas?.zoom || 1);
-                        const position = gridSteps.has(id) ? { x: start.x, y: start.y } : findNearbyNodePosition({ x: bounds ? bounds.x + bounds.width + 80 : start.x,
-                            y: bounds ? bounds.y : start.y, width, occupied });
                         const config = selected[id];
                         const staged = stagedImports.get(id);
                         const parameters = config && step.type === 'ImageGenerate'
                             ? { prompt: step.parameters.prompt } : step.parameters;
-                        nodeId = addNode(step.type, position.x, position.y, { ...parameters, customTitle: step.title,
+                        nodeId = addNode(step.type, viewport.x, viewport.y, { ...parameters, customTitle: step.title,
                             ...(staged ? { id: staged.nodeId, agentReferenceSource: {
                                 historyId: staged.id, historyVersion: staged.fileVersion, assetKey: step.assetKey
                             } } : {}),
@@ -269,7 +261,23 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                             throw new Error('无法登记历史原图的保存记录，请重新导入。');
                         }
                         createdNodes.push({ nodeId, type: step.type, autoAdded: step.autoAddedForGeneration });
-                        occupied.push(nodeBounds(state.nodes.get(nodeId), state.canvas?.zoom || 1));
+                        if (!gridSteps.has(id)) {
+                            const node = state.nodes.get(nodeId);
+                            const { width, height } = nodeBounds(node, zoom);
+                            const parents = plan.connections.filter(link => link.to.ref === id).map(link =>
+                                state.nodes.get(bindings[link.from.ref] || plan.steps.find(item => item.id === link.from.ref)?.nodeId || link.from.ref)).filter(Boolean);
+                            const anchor = parents.sort((a, b) => b.x - a.x)[0];
+                            let position;
+                            if (anchor) {
+                                const bounds = nodeBounds(anchor, zoom);
+                                position = findNearbyNodePosition({ x: bounds.x + bounds.width + 80, y: bounds.y, width, height,
+                                    occupied: viewport.blockedSpan ? [...occupied, viewport.blockedSpan] : occupied });
+                            } else {
+                                position = findViewportNodePosition({ viewport, width, height, occupied });
+                            }
+                            setNodePosition(node, position);
+                            occupied.push({ ...position, width, height });
+                        }
                     }
                     if (!state.nodes.has(nodeId)) throw new Error('方案绑定节点已删除，请刷新方案');
                     bindings[id] = nodeId;
@@ -337,13 +345,13 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                     state.connections = projectPlanConnections(plan, restoredConnections, ref => bindings[ref] || ref)
                         .map(link => ({ ...link, id: link.id || `conn_${crypto.randomUUID()}` }));
                 }
-                const gridNodes = [...gridSteps].map(id => state.nodes.get(bindings[id]));
-                const gridIds = new Set(gridNodes.map(node => node.id));
-                const gridObstacles = [...state.nodes.values()].filter(node => !gridIds.has(node.id))
-                    .map(node => nodeBounds(node, state.canvas?.zoom || 1));
-                if (start.blockedSpan) gridObstacles.push({ y: start.y, height: 340, ...start.blockedSpan });
-                layoutIndependentCanvasNodes(gridNodes, { x: start.x, y: start.y,
-                    occupied: gridObstacles, zoom: state.canvas?.zoom || 1 });
+                if (gridSteps.size) {
+                    const gridNodes = [...gridSteps].map(id => state.nodes.get(bindings[id]));
+                    const gridIds = new Set(gridNodes.map(node => node.id));
+                    const gridObstacles = [...state.nodes.values()].filter(node => !gridIds.has(node.id))
+                        .map(node => nodeBounds(node, zoom));
+                    layoutIndependentCanvasNodes(gridNodes, { viewport, occupied: gridObstacles, zoom });
+                }
                 graphChanged();
                 plan.completedSteps = (plan.completedSteps || []).filter(id => !recreation.affectedSteps.includes(id));
                 for (const id of recreation.affectedSteps) delete plan.completedReferenceOutputs?.[id];

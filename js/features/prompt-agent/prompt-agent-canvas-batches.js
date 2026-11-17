@@ -1,4 +1,4 @@
-import { nodeBounds, findNearbyNodePosition } from '../execution/node-placement.js';
+import { nodeBounds, findViewportNodePosition, setNodePosition } from '../execution/node-placement.js';
 import { canvasBaseline, cloneCanvasValue } from './prompt-agent-canvas-context.js';
 import { normalizePlanInputs, projectPlanConnections } from './prompt-agent-reference-inputs.js';
 
@@ -59,21 +59,21 @@ export function instantiateCanvasPlan(template, current) {
 }
 
 // Pack unrelated new nodes as a single block so obstacles cannot fragment a batch.
-export function layoutIndependentCanvasNodes(nodes, { x, y, occupied = [], zoom = 1, gap = 40 }) {
+export function layoutIndependentCanvasNodes(nodes, { viewport, occupied = [], zoom = 1, gap = 40 }) {
     if (nodes.length < 2) return;
     const boxes = nodes.map(node => nodeBounds(node, zoom));
     const columns = Math.ceil(Math.sqrt(nodes.length));
     const rows = Math.ceil(nodes.length / columns);
     const width = Math.max(...boxes.map(box => box.width));
     const height = Math.max(...boxes.map(box => box.height));
-    const start = findNearbyNodePosition({ x, y, width: columns * (width + gap) - gap,
-        height: rows * (height + gap) - gap, occupied, gap });
-    nodes.forEach((node, index) => {
-        node.x = start.x + (index % columns) * (width + gap);
-        node.y = start.y + Math.floor(index / columns) * (height + gap);
-        if (node.el) {
-            node.el.style.left = `${node.x}px`;
-            node.el.style.top = `${node.y}px`;
-        }
-    });
+    const gridWidth = columns * (width + gap) - gap;
+    const gridHeight = rows * (height + gap) - gap;
+    // Keep the first card visible when the whole grid cannot fit in the viewport.
+    const start = findViewportNodePosition({ viewport, width: gridWidth, height: gridHeight,
+        visibleWidth: gridWidth <= viewport.width ? gridWidth : boxes[0].width,
+        visibleHeight: gridHeight <= viewport.height ? gridHeight : boxes[0].height, occupied, gap });
+    nodes.forEach((node, index) => setNodePosition(node, {
+        x: start.x + (index % columns) * (width + gap),
+        y: start.y + Math.floor(index / columns) * (height + gap)
+    }));
 }

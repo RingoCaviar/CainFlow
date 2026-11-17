@@ -1,18 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nodeBounds, findNearbyNodePosition, findAgentImageNodePosition } from '../js/features/execution/node-placement.js';
+import { nodeBounds, findNearbyNodePosition, findViewportNodePosition } from '../js/features/execution/node-placement.js';
 
-test('Agent image generation stays near the visible origin when other nodes occupy distant rows', () => {
-    const position = findAgentImageNodePosition({ centerX: 500, y: 100, width: 410, occupiedNodes: [
+test('Agent placement centers a new node in the current viewport with distant rows', () => {
+    const viewport = { x: -100, y: -220, width: 1200, height: 980 };
+    const position = findViewportNodePosition({ viewport, width: 410, occupied: [
         { x: 300, y: 2000, width: 410, height: 340 },
         { x: 800, y: -2000, width: 410, height: 340 }
     ] });
     assert.deepEqual(position, { x: 295, y: 100 });
-    const nearby = findAgentImageNodePosition({ centerX: 500, y: 100, width: 410, occupiedNodes: [
-        { x: 295, y: 100, width: 410, height: 340 }
+});
+
+test('Agent placement prefers an open area on the left when the closer right edge is offscreen', () => {
+    const viewport = { x: 0, y: 0, width: 900, height: 550 };
+    const position = findViewportNodePosition({ viewport, width: 300, height: 340, occupied: [
+        { x: 420, y: 60, width: 180, height: 400 }
     ] });
-    assert.ok(Math.hypot(nearby.x - 295, nearby.y - 100) <= 500);
-    assert.ok(nearby.x >= 745 || nearby.y >= 480 || nearby.y + 340 <= 100);
+    assert.deepEqual(position, { x: 80, y: 105 });
+});
+
+test('Agent placement avoids the panel when the visible viewport is already occupied', () => {
+    const viewport = { x: 0, y: 0, width: 838, height: 820,
+        blockedSpan: { x: 850, y: -16, width: 610, height: 852 } };
+    const position = findViewportNodePosition({ viewport, occupied: [
+        { x: 0, y: 0, width: 832, height: 820 }
+    ] });
+    assert.deepEqual(position, { x: -340, y: 240 });
 });
 
 test('placement ignores distant rows and keeps the preferred right-side anchor at every zoom', () => {

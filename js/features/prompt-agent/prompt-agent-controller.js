@@ -176,7 +176,6 @@ export function createPromptAgentController({
     let historyError = '';
     let historyLoadToken = 0;
     let importQueue = Promise.resolve();
-    let importSlot = 0;
     let thumbnailObservers = [];
     const promptPlanActionStates = new Set();
     const runViews = new Map();
@@ -1105,7 +1104,6 @@ export function createPromptAgentController({
             selectionKey: candidate.referenceId, previewUrl: candidate.previewUrl, loading: true,
             ...mention, ...(mention ? { mentionOnly: true } : {}) };
         const revision = workflowRevision;
-        const slot = importSlot++;
         const isCurrent = () => revision === workflowRevision && pendingReferenceImages.includes(pending);
         const run = () => {
             if (!isCurrent()) return Promise.resolve();
@@ -1114,7 +1112,7 @@ export function createPromptAgentController({
             const operation = importQueue.catch(() => {}).then(async () => {
                 if (!isCurrent()) return;
                 try {
-                    const image = await referenceSource.importReference(candidate, { isCurrent, slot,
+                    const image = await referenceSource.importReference(candidate, { isCurrent,
                         read: read || (candidate.file ? () => readReferenceFile(candidate.file) : undefined),
                         onSourceNode: (id) => { pending.sourceNodeId = id; }
                     });
@@ -1224,7 +1222,7 @@ export function createPromptAgentController({
             const operation = importQueue.catch(() => {}).then(async () => {
                 if (!current()) return null;
                 const original = sceneImport ? await nodeAdapter?.readSceneReferenceImage?.(sceneImport)
-                    : await referenceSource.importReference(importCandidate, { isCurrent: current, slot: importSlot++, read, signal });
+                    : await referenceSource.importReference(importCandidate, { isCurrent: current, read, signal });
                 if (!current()) return null;
                 if (!original?.dataUrl) throw new Error('参考原图不可用，请重新选择。');
                 const attached = pendingReferenceImages.find(matches);

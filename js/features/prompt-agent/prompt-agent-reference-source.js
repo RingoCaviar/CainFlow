@@ -42,7 +42,7 @@ export function createPromptAgentReferenceSource({
         if (!entry?.image?.startsWith('data:image/')) throw new Error('历史原图缺失，请重新导入图片。');
         return { name: candidate.name, description: candidate.description ?? readDescriptions()[candidate.historyId] ?? '', dataUrl: entry.image, type: entry.image.slice(5, entry.image.indexOf(';')) };
     }
-    async function importReference(candidate, { isCurrent, read, slot = 0, onSourceNode = () => {}, signal } = {}) {
+    async function importReference(candidate, { isCurrent, read, onSourceNode = () => {}, signal } = {}) {
         if (!isCurrent()) return null;
         const workflowId = getWorkflowId();
         let node = candidate.nodeId ? state.nodes.get(candidate.nodeId) : null;
@@ -61,7 +61,7 @@ export function createPromptAgentReferenceSource({
         if (!image?.dataUrl?.startsWith('data:image/')) throw new Error('无法读取图片。');
         const createdForReplacement = Boolean(!node && signal && discardImportNode);
         if (!node) {
-            const id = createImportNode({ name: image.name || candidate.name, slot, provisional: createdForReplacement });
+            const id = createImportNode({ name: image.name || candidate.name, provisional: createdForReplacement });
             if (!id) throw new Error('无法创建图片导入节点。');
             candidate.nodeId = id;
             node = state.nodes.get(id);
@@ -152,7 +152,7 @@ export function createPromptAgentReferenceSource({
                 image = await nodeAdapter.readSceneReferenceImage(scene);
                 if (nodeAdapter.getSceneReferenceImages().filter(item => item.sourceNodeId === scene.sourceNodeId).length > 1) {
                     const candidate = { name: image.name, description: reference.description ?? image.description ?? '', resolvedImage: image };
-                    image = await importReference(candidate, { isCurrent, onSourceNode, slot: references.length,
+                    image = await importReference(candidate, { isCurrent, onSourceNode,
                         read: async () => candidate.resolvedImage });
                 }
             } else if (reference.runId || (reference.sourceNodeId && state.nodes.get(reference.sourceNodeId)?.type !== 'ImageImport')) {
@@ -166,7 +166,7 @@ export function createPromptAgentReferenceSource({
                 if (!dataUrl?.startsWith('data:image/')) throw new Error('参考原图缺失，请恢复图片后重试。');
                 candidate.resolvedImage = { name: reference.name, dataUrl };
                 image = await importReference(candidate, {
-                    isCurrent, onSourceNode, slot: references.length,
+                    isCurrent, onSourceNode,
                     read: async () => candidate.resolvedImage
                 });
             } else {

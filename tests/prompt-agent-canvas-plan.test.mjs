@@ -624,12 +624,15 @@ test('empty image imports cannot execute or supply nonexistent reference images'
 });
 
 test('independent Agent batches use measured grid cells and avoid occupied content as one block at every zoom', () => {
+    const viewport = { x: 100, y: 200, width: 1000, height: 800 };
     for (const zoom of [0.12, 0.5, 1, 2]) {
         const nodes = Array.from({ length: 7 }, (_, i) => ({ id: `new-${i}`, width: 999, height: 999,
             el: { style: {}, offsetWidth: i === 1 ? 320 : 260, offsetHeight: i === 2 ? 420 : 280 } }));
+        layoutIndependentCanvasNodes(nodes, { viewport, zoom });
+        assert.deepEqual([nodes[0].x, nodes[0].y], [470, 460], 'the first card is centered when the grid is larger than the viewport');
         const occupied = [{ x: 100, y: 200, width: 500, height: 600 }];
         const before = structuredClone(occupied);
-        layoutIndependentCanvasNodes(nodes, { x: 100, y: 200, occupied, zoom });
+        layoutIndependentCanvasNodes(nodes, { viewport, occupied, zoom });
         assert.deepEqual(occupied, before);
         assert.equal(new Set(nodes.map(node => node.x)).size, 3);
         assert.equal(new Set(nodes.map(node => node.y)).size, 3);
@@ -638,12 +641,12 @@ test('independent Agent batches use measured grid cells and avoid occupied conte
             assert.equal(node.y, nodes[0].y + Math.floor(index / 3) * 460);
             assert.equal(node.el.style.left, `${node.x}px`);
             assert.equal(node.el.style.top, `${node.y}px`);
-            assert.ok(node.x >= 640 || node.y >= 840 || node.y + 420 + 40 <= 200);
+            assert.ok(node.x >= 640 || node.y >= 840 || node.x + 320 + 40 <= 100 || node.y + 420 + 40 <= 200);
         }
         const block = { x: nodes[0].x, y: nodes[0].y, width: 1040, height: 1340 };
         const second = nodes.map(node => ({ id: node.id, width: 320, height: 420 }));
-        layoutIndependentCanvasNodes(second, { x: 100, y: 200, occupied: [...occupied, block], zoom });
+        layoutIndependentCanvasNodes(second, { viewport, occupied: [...occupied, block], zoom });
         assert.ok(second[0].x >= block.x + block.width + 40 || second[0].y >= block.y + block.height + 40
-            || second.at(-1).y + 420 + 40 <= block.y);
+            || second[0].x + block.width + 40 <= block.x || second[0].y + block.height + 40 <= block.y);
     }
 });

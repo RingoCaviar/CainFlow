@@ -153,7 +153,13 @@ test('Agent uses send-time selection to revise, create or delete through reversi
         await app.waitFor("document.querySelectorAll('#nodes-layer>.node').length===2");
         assert.equal(await app.evaluate('selectionRequests.length'), 3, 'redo does not call a model');
         // Clearing the canvas selection must reach the next request as none.
-        await app.evaluate("document.getElementById('canvas-container').dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,clientX:1000,clientY:650}));document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0}))");
+        await app.evaluate(`(() => {
+            const canvas = document.getElementById('canvas-container');
+            const { left, top } = canvas.getBoundingClientRect();
+            const point = { bubbles: true, button: 0, clientX: left + 8, clientY: top + 8 };
+            canvas.dispatchEvent(new MouseEvent('mousedown', point));
+            canvas.dispatchEvent(new MouseEvent('mouseup', point));
+        })()`);
         const last = await request(app, '新建一个空白记录', { version: 1, steps: [{ id: 'empty_note', type: 'Text', parameters: { text: '' }, execute: false }], connections: [] });
         assert.deepEqual(last.canvas.selectedIds, []);
         await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value?.workflowTabs?.some(tab=>tab.data?.promptAgent?.messages?.some(m=>m.canvasPlan?.deletes?.length===2)))");

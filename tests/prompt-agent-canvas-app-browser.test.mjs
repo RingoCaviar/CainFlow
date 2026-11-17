@@ -21,6 +21,7 @@ test('complete application previews, applies, executes and undoes a canvas plan 
             } return window.nativeFetch(url,options);
         };` });
         await reloadAppBrowser({ evaluate, send, waitFor });
+        await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 820, deviceScaleFactor: 1, mobile: false });
         await evaluate(` document.getElementById('btn-prompt-agent').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-provider-id=\"p\"]').click(); document.getElementById('prompt-agent-input').value='生成一张海报，调整尺寸后预览'; document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));`);
         await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
         assert.equal(await evaluate("document.querySelectorAll('#nodes-layer .node').length"), 0);
@@ -31,10 +32,45 @@ test('complete application previews, applies, executes and undoes a canvas plan 
         assert.equal(await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='仅应用').disabled"), true);
         await evaluate("document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=\"image-two\"][data-provider-id=\"p\"]').click();");
         assert.equal(await evaluate("document.getElementById('prompt-agent-image-model').value"), 'image-two');
+        await evaluate(`document.querySelector('[data-zoom="0.75"]').click()`);
+        const readViewport = `(() => {
+            const layer = document.getElementById('nodes-layer');
+            const transform = new DOMMatrix(getComputedStyle(layer).transform);
+            const canvas = document.getElementById('canvas-container').getBoundingClientRect();
+            const panel = document.getElementById('prompt-agent-panel').getBoundingClientRect();
+            return { x: transform.e, y: transform.f, zoom: transform.a,
+                width: Math.min(canvas.right, panel.left) - canvas.left, height: canvas.height };
+        })()`;
+        const beforePan = await evaluate(readViewport);
+        await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: 330, y: 300, button: 'middle', buttons: 4 });
+        await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 480, y: 190, button: 'none', buttons: 4 });
+        await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 480, y: 190, button: 'middle', buttons: 0 });
+        await waitFor(`${readViewport}.x > ${beforePan.x + 100}`);
+        const viewport = await evaluate(readViewport);
+        assert.equal(viewport.zoom, 0.75);
         await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='仅应用').click()");
         await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已应用并保存')");
         assert.equal(await evaluate("document.querySelectorAll('#nodes-layer .node').length"), 3);
         assert.equal(await evaluate("document.querySelectorAll('#nodes-layer .node.selected').length"), 0);
+        const placement = await evaluate(`(async () => {
+            const { state } = await import('/js/app/bootstrap.js').then(module => module.bootstrapCainFlowApp());
+            const nodeOfType = type => [...state.nodes.values()].find(node => node.type === type);
+            const root = nodeOfType('ImageGenerate');
+            const child = nodeOfType('ImageResize');
+            const viewport = ${JSON.stringify(viewport)};
+            const rootRight = root.x + root.el.offsetWidth;
+            // Measure the creation position using the viewport from before the app focuses the new node.
+            return {
+                centerX: (viewport.x + (root.x + root.el.offsetWidth / 2) * viewport.zoom) / viewport.width,
+                centerY: (viewport.y + (root.y + root.el.offsetHeight / 2) * viewport.zoom) / viewport.height,
+                clearOfPanel: viewport.x + rootRight * viewport.zoom <= viewport.width,
+                childToTheRight: child.x > rootRight
+            };
+        })()`);
+        assert.ok(Math.abs(placement.centerX - 0.5) < 0.15, `root horizontal position: ${placement.centerX}`);
+        assert.ok(Math.abs(placement.centerY - 0.5) < 0.2, `root vertical position: ${placement.centerY}`);
+        assert.ok(placement.clearOfPanel, 'the first node fits in the visible canvas');
+        assert.ok(placement.childToTheRight, 'the connected node stays to the right of its parent');
         await waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.type==='ImageGenerate')?.apiConfigId==='image-two')");
         assert.equal(await evaluate('window.agentRequests.length'), 1);
         for (const theme of ['light', 'dark', 'pink', 'pro', 'paper', 'glass-light', 'glass-dark']) {

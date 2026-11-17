@@ -25,7 +25,8 @@ test('MCP edits a canvas in place, restores it through history and stops a targe
         { id: 'commerce', type: 'ECommerceImageSet', x: 100, y: 350,
             commerceImageSet: { productInfo: { name: '旧名称', audience: '通勤人群' }, autoProductInfo: { name: '旧名称' } } }
     ];
-    const data = { workflowId, nodes, connections: [] };
+    const canvas = { x: -280, y: -660, zoom: 0.75 };
+    const data = { workflowId, nodes, connections: [], canvas };
     const fixture = { ...data, autoCheckUpdatesOnLoad: false, activeWorkflowName: 'Canvas operations', activeWorkflowId: workflowId,
         workflowTabs: [{ name: 'Canvas operations', workflowId, data }],
         models: [{ id: 'chat-model', modelId: 'canvas-chat', name: 'Chat', taskType: 'chat', protocol: 'openai', providerIds: ['provider'] }],
@@ -56,6 +57,12 @@ test('MCP edits a canvas in place, restores it through history and stops a targe
             };
             const scope = ({ editorId, workflowId, revision }) => ({ editorId, workflowId, revision });
             const before = await call('read_canvas');
+            const viewport = await app.evaluate(`import('/js/app/bootstrap.js').then(async module => {
+                const { x, y, zoom } = (await module.bootstrapCainFlowApp()).state.canvas;
+                const { width, height } = document.getElementById('canvas-container').getBoundingClientRect();
+                return { canvas: { x, y, zoom }, width, height };
+            })`);
+            assert.deepEqual(viewport.canvas, canvas);
             assert.ok(before.creatableTypes.includes('TextMerge'));
             const commerce = snapshot => snapshot.nodes.find(node => node.id === 'commerce');
             assert.deepEqual(commerce(before).parameters.productInfo, { name: '旧名称', audience: '通勤人群' });
@@ -74,6 +81,18 @@ test('MCP edits a canvas in place, restores it through history and stops a targe
             assert.deepEqual([source.position.x, source.position.y], [-120, 320]);
             assert.equal(edited.nodes.filter(node => node.type === 'Text').length, 1);
             assert.equal(edited.totalNodes, 4);
+            const merge = edited.nodes.find(node => node.type === 'TextMerge');
+            const placement = await app.evaluate(`import('/js/app/bootstrap.js').then(async module => {
+                const { state } = await module.bootstrapCainFlowApp();
+                const { x, y, el } = state.nodes.get(${JSON.stringify(merge.id)});
+                return { x, y, width: el.offsetWidth, height: el.offsetHeight };
+            })`);
+            assert.deepEqual([merge.position.x, merge.position.y], [placement.x, placement.y]);
+            // Applying a plan focuses the new node. Project its center into the viewport from before the edit.
+            const screenX = canvas.x + (placement.x + placement.width / 2) * canvas.zoom;
+            const screenY = canvas.y + (placement.y + placement.height / 2) * canvas.zoom;
+            assert.ok(Math.abs(screenX / viewport.width - 0.5) < 0.18, `new standalone node center x = ${screenX}`);
+            assert.ok(Math.abs(screenY / viewport.height - 0.5) < 0.18, `new standalone node center y = ${screenY}`);
             assert.deepEqual(commerce(edited).parameters.productInfo, { name: '随行杯', audience: '通勤人群', sellingPoints: ['带可拆杯盖'] });
             assert.equal(commerce(edited).parameters.copyLanguage, 'ja');
             assert.equal((await call('undo_canvas', scope(edited))).changed, true);

@@ -64,7 +64,7 @@ import { createWorkflowRunnerApi } from '../features/execution/workflow-runner.j
 import { getCanonicalImageList } from '../features/execution/execution-data-utils.js';
 import { prepareGenerationSaveTargets } from '../features/execution/generation-save-targets.js';
 import { getNodeModelConfigurationIssue } from '../features/execution/model-configuration-readiness.js';
-import { findAgentImageNodePosition } from '../features/execution/node-placement.js';
+import { findViewportNodePosition, nodeBounds, setNodePosition } from '../features/execution/node-placement.js';
 import { createSessionManagerApi } from '../features/persistence/session-manager.js';
 import { flushSessionToDisk } from '../features/persistence/flush-session-to-disk.js';
 import { installSessionPersistenceOnExit } from '../features/persistence/session-persistence-lifecycle.js';
@@ -366,6 +366,42 @@ const renderProjectionManager = createRenderProjectionManager({
     windowRef: window,
     performanceMonitor: canvasPerformanceMonitor
 });
+function activeAgentPanelBounds() {
+    const panel = document.getElementById('prompt-agent-panel');
+    return panel?.classList.contains('active') ? panel.getBoundingClientRect() : null;
+}
+
+function visibleCanvasWidth(rect, panelBounds) {
+    const width = panelBounds ? Math.min(rect.right, panelBounds.left - 12) - rect.left : rect.width;
+    return width > 0 ? width : rect.width;
+}
+
+function agentCanvasViewport() {
+    const rect = canvasContainer.getBoundingClientRect();
+    const panel = activeAgentPanelBounds();
+    const { zoom } = state.canvas;
+    return {
+        ...viewportApi.screenToCanvas(rect.left, rect.top),
+        width: visibleCanvasWidth(rect, panel) / zoom,
+        height: rect.height / zoom,
+        ...(panel ? { blockedSpan: { ...viewportApi.screenToCanvas(panel.left - 16, panel.top - 16),
+            width: (panel.width + 32) / zoom, height: (panel.height + 32) / zoom } } : {})
+    };
+}
+
+function addAgentNode(type, data, silent = false) {
+    const viewport = agentCanvasViewport();
+    const { zoom } = state.canvas;
+    const id = addNode(type, viewport.x, viewport.y, data, silent);
+    if (id) {
+        const node = state.nodes.get(id);
+        const { width, height } = nodeBounds(node, zoom);
+        const occupied = [...state.nodes.values()].filter(item => item !== node).map(item => nodeBounds(item, zoom));
+        setNodePosition(node, findViewportNodePosition({ viewport, width, height, occupied }));
+    }
+    return id;
+}
+
 function focusCanvasNode(nodeId, { avoidAgentPanel = false, selectOnFocus = true } = {}) {
     const node = state.nodes.get(nodeId);
     const rect = canvasContainer?.getBoundingClientRect?.();
@@ -373,10 +409,7 @@ function focusCanvasNode(nodeId, { avoidAgentPanel = false, selectOnFocus = true
     const zoom = Number(state.canvas.zoom) || 1;
     const width = Number(node.width) || node.el?.offsetWidth || 220;
     const height = Number(node.height) || node.el?.offsetHeight || 140;
-    const panel = avoidAgentPanel ? document.getElementById('prompt-agent-panel') : null;
-    const panelRect = panel?.classList.contains('active') ? panel.getBoundingClientRect() : null;
-    const visibleWidth = panelRect ? Math.min(rect.width, panelRect.left - rect.left - 12) : rect.width;
-    const centerX = visibleWidth > 0 ? visibleWidth / 2 : rect.width / 2;
+    const centerX = visibleCanvasWidth(rect, avoidAgentPanel ? activeAgentPanelBounds() : null) / 2;
     state.canvas.x = centerX - (Number(node.x) + width / 2) * zoom;
     state.canvas.y = rect.height / 2 - (Number(node.y) + height / 2) * zoom;
     viewportApi.updateCanvasTransform({ connectionRefreshReason: 'node-failure-focus' });
@@ -1242,16 +1275,7 @@ const promptAgentNodeAdapter = createPromptAgentNodeAdapter({
         handleNodeGraphChanged();
     },
     createImageNode: ({ model, provider, prompt }) => {
-        const rect = canvasContainer.getBoundingClientRect();
-        const panel = document.getElementById('prompt-agent-panel');
-        const panelWidth = panel?.classList.contains('active') ? panel.getBoundingClientRect().width : 0;
-        const width = NODE_CONFIGS.ImageGenerate.defaultWidth;
-        const origin = viewportApi.screenToCanvas(
-            rect.left + Math.max(32, (rect.width - panelWidth) / 2), rect.top + 48
-        );
-        const position = findAgentImageNodePosition({ centerX: origin.x, y: origin.y, width,
-            occupiedNodes: [...state.nodes.values()], zoom: state.canvas.zoom });
-        const nodeId = addNode('ImageGenerate', position.x, position.y, {
+        const nodeId = addAgentNode('ImageGenerate', {
             prompt, apiConfigId: model.id, providerId: provider.id
         });
         if (nodeId) scheduleSave();
@@ -1319,14 +1343,7 @@ const promptAgentCanvasAdapter = createPromptAgentCanvasAdapter({
     save: () => workflowManagerApi.saveActiveWorkflow({ silent: true }),
     persistInPlace: () => workflowManagerApi.persistActiveHistoryTransition({ strictRevision: true }),
     graphChanged: () => { connectionsApi.updateAllConnections(); connectionsApi.updatePortStyles(); handleNodeGraphChanged(); },
-    origin: () => {
-        const rect = canvasContainer.getBoundingClientRect();
-        const panel = document.getElementById('prompt-agent-panel');
-        const bounds = panel?.classList.contains('active') ? panel.getBoundingClientRect() : null;
-        return { ...viewportApi.screenToCanvas(rect.left + 24, rect.top + 72),
-            ...(bounds ? { blockedSpan: { ...viewportApi.screenToCanvas(bounds.left - 16, bounds.top - 16),
-                width: (bounds.width + 32) / state.canvas.zoom, height: (bounds.height + 32) / state.canvas.zoom } } : {}) };
-    },
+    origin: agentCanvasViewport,
     getImageAsset, runWorkflow: (input, options) => runWorkflow(input, { ...options, waitForCompletion: true }),
     cancelNode: cancelRunningNode, focusNode: (nodeId) => focusCanvasNode(nodeId, { avoidAgentPanel: true, selectOnFocus: false })
 });
@@ -1385,22 +1402,7 @@ const promptAgentController = createPromptAgentController({
         getWorkflowId: () => workflowManagerApi.getActiveWorkflowId(),
         discardImportNode: id => removeNode(id, { onlyId: true, skipHistory: true, showToast: false, notifyReferences: false }),
         scheduleSave, loadImageData: (id, data) => mediaControllerApi.loadImageData(id, data),
-        createImportNode: ({ name, slot, provisional }) => {
-            const rect = canvasContainer.getBoundingClientRect();
-            const panel = document.getElementById('prompt-agent-panel').getBoundingClientRect();
-            const width = NODE_CONFIGS.ImageImport.defaultWidth || 300;
-            const columns = Math.max(1, Math.floor((panel.left - rect.left - 32) / ((width + 24) * state.canvas.zoom)));
-            const origin = viewportApi.screenToCanvas(rect.left + 24, rect.top + 72);
-            const height = 320;
-            let position;
-            for (let offset = 0; offset <= state.nodes.size * columns + columns; offset++) {
-                const index = slot + offset;
-                position = { x: origin.x + (index % columns) * (width + 24), y: origin.y + Math.floor(index / columns) * (height + 24) };
-                if ([...state.nodes.values()].every(node => position.x + width + 12 <= node.x || position.x >= node.x + (node.width || width) + 12
-                    || position.y + height + 12 <= node.y || position.y >= node.y + (node.el?.offsetHeight || height) + 12)) break;
-            }
-            return addNode('ImageImport', position.x, position.y, { customTitle: name }, provisional);
-        }
+        createImportNode: ({ name, provisional }) => addAgentNode('ImageImport', { customTitle: name }, provisional)
     }),
     getPanelWidth: () => diskStorage.getItem('cainflow_prompt_agent_panel_width'),
     setPanelWidth: (width) => diskStorage.setItem('cainflow_prompt_agent_panel_width', String(width)),
