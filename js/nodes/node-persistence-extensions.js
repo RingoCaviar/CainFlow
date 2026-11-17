@@ -1,7 +1,7 @@
 // Names owned by the current node model. This catalog reserves fields only;
 // control readers and media serializers remain their sole value authorities.
 const knownFields = new Set(`
-    visualStyle styleModelId styleProviderId visualStyleSnapshot
+    visualStyle styleModelId styleProviderId styleDetailLevel visualStyleSnapshot
     id type x y width height userResized collapsed collapsedExpandedHeight collapsedCollapsedExpandedHeight enabled lastDuration
     isClone cloneSourceId customTitle defaultTitle data thinking textareaHeights chatLayoutVersion commerceImageSet productRetouch productRetouchComparison imagePromptMentions
     productRetouchAnalysis productRetouchStage

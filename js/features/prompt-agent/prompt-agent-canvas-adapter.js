@@ -1,4 +1,4 @@
-import { normalizeVisualStyle } from '../visual-style/visual-style.js';
+import { normalizeVisualStyle, normalizeVisualStyleDetailLevel } from '../visual-style/visual-style.js';
 import { batchBaseline, instantiateCanvasPlan, layoutIndependentCanvasNodes } from './prompt-agent-canvas-batches.js';
 import { prepareCanvasPlanRecreation } from './prompt-agent-canvas-recreation.js';
 import { normalizePlanInputs, projectPlanConnections, referenceManifest, assertReferenceInputsPreserved, isReferencePort, assertPromptOnlyReferenceRecipe } from './prompt-agent-reference-inputs.js';
@@ -247,7 +247,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                         const config = selected[id];
                         const staged = stagedImports.get(id);
                         const parameters = config && step.type === 'ImageGenerate'
-                            ? { prompt: step.parameters.prompt } : step.type === 'VisualStyle' ? { visualStyle: normalizeVisualStyle(step.parameters) } : step.parameters;
+                            ? { prompt: step.parameters.prompt } : step.type === 'VisualStyle' ? { visualStyle: normalizeVisualStyle(step.parameters), styleDetailLevel: normalizeVisualStyleDetailLevel(step.parameters.styleDetailLevel) } : step.parameters;
                         nodeId = addNode(step.type, viewport.x, viewport.y, { ...parameters, customTitle: step.title,
                             ...(staged ? { id: staged.nodeId, agentReferenceSource: {
                                 historyId: staged.id, historyVersion: staged.fileVersion, assetKey: step.assetKey
@@ -305,9 +305,11 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                     } else if (step.type === 'VisualStyle') {
                         if (state.isRunning) throw new Error('请等待工作流运行结束后修改画面风格。');
                         const node = state.nodes.get(nodeId);
-                        const base = Object.keys(step.parameters).length === 1 && Object.hasOwn(step.parameters, 'description')
-                            ? {} : Object.hasOwn(step.parameters, 'preset') ? normalizeVisualStyle({ preset: step.parameters.preset }) : node.data.visualStyle;
-                        node.data.visualStyle = normalizeVisualStyle({ ...base, ...step.parameters });
+                        const { styleDetailLevel, ...styleParameters } = step.parameters;
+                        if (styleDetailLevel !== undefined) node.data.styleDetailLevel = normalizeVisualStyleDetailLevel(styleDetailLevel);
+                        const base = Object.keys(styleParameters).length === 1 && Object.hasOwn(styleParameters, 'description')
+                            ? {} : Object.hasOwn(styleParameters, 'preset') ? normalizeVisualStyle({ preset: styleParameters.preset }) : node.data.visualStyle;
+                        node.data.visualStyle = normalizeVisualStyle({ ...base, ...styleParameters });
                         node.refreshVisualStyle?.();
                     } else if (step.type === 'ECommerceImageSet') {
                         const node = state.nodes.get(nodeId);

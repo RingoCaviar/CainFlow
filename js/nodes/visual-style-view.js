@@ -1,4 +1,4 @@
-import { normalizeVisualStyle, visualStyleText } from '../features/visual-style/visual-style.js';
+import { normalizeVisualStyle, visualStyleText, VISUAL_STYLE_DETAIL_LEVELS, normalizeVisualStyleDetailLevel } from '../features/visual-style/visual-style.js';
 import { getModelsForTask } from '../features/execution/provider-request-utils.js';
 
 const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -12,6 +12,7 @@ export function renderVisualStyleBody(id, restored = {}, state = {}) {
     return `<div class="visual-style-preview" data-style-preview>${escape(text || '画面风格')}</div>
         <div class="visual-style-settings">
             <textarea id="${id}-style-description" data-style-field="description" aria-label="风格描述" rows="4" maxlength="20000" placeholder="输入画面风格，或连接参考图后提取…">${escape(text)}</textarea>
+            <div class="node-field visual-style-detail"><label for="${id}-style-detail">提取精细度</label><select class="ui-select" id="${id}-style-detail" data-style-detail title="仅影响下一次提取，不修改当前风格文本">${Object.entries(VISUAL_STYLE_DETAIL_LEVELS).map(([value, { label }]) => `<option value="${value}" ${value === normalizeVisualStyleDetailLevel(restored.styleDetailLevel) ? 'selected' : ''}>${label}</option>`).join('')}</select></div>
             <details class="visual-style-model-settings"><summary>提取模型</summary>
                 <div class="visual-style-model-fields">
                     <div class="node-field"><label for="${id}-style-model">模型</label><select class="ui-select" id="${id}-style-model" data-style-model>${modelOptions(state, restored.styleModelId)}</select></div>
@@ -27,6 +28,7 @@ export function bindVisualStyleNode(node, { state, runToNode, scheduleSave, push
     // Keep the original controls: the shared parameter panel moves this subtree.
     const settings = root.querySelector('.visual-style-settings');
     const text = settings.querySelector('[data-style-field]');
+    const detailControl = settings.querySelector('[data-style-detail]');
     const preview = root.querySelector('[data-style-preview]');
     const status = settings.querySelector('[data-style-status]');
     const save = () => { scheduleSave(); pushHistory(); };
@@ -37,8 +39,14 @@ export function bindVisualStyleNode(node, { state, runToNode, scheduleSave, push
         const label = value || '画面风格';
         if (preview.textContent !== label) preview.textContent = label;
         preview.classList.toggle('is-empty', !value);
+        detailControl.value = normalizeVisualStyleDetailLevel(node.data.styleDetailLevel);
     };
     node.refreshVisualStyle = refresh;
+    detailControl.addEventListener('change', () => {
+        if (locked()) { refresh(); return; }
+        node.data.styleDetailLevel = normalizeVisualStyleDetailLevel(detailControl.value);
+        save();
+    });
     text.addEventListener('input', () => {
         if (locked()) { text.value = visualStyleText(node.data.visualStyle); return; }
         node.data.visualStyle = normalizeVisualStyle({ description: text.value });

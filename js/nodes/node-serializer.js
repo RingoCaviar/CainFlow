@@ -1,3 +1,4 @@
+import { normalizeVisualStyleDetailLevel } from '../features/visual-style/visual-style.js';
 /**
  * 负责节点与连接的序列化和反序列化，为保存、导入、撤销和工作流复制提供数据结构转换。
  */
@@ -323,6 +324,7 @@ export function createNodeSerializer({ state, documentRef }) {
                 serialized.visualStyle = structuredClone(node.data.visualStyle);
                 serialized.styleModelId = node.data.styleModelId || '';
                 serialized.styleProviderId = node.data.styleProviderId || '';
+                serialized.styleDetailLevel = normalizeVisualStyleDetailLevel(node.data.styleDetailLevel);
             }
             if (node.type === 'CustomParams') {
                 serialized.params = Array.from(documentRef.querySelectorAll(`#${id}-params-list [data-param-row]`))

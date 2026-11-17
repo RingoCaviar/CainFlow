@@ -1228,6 +1228,8 @@ export function createNodeDomBindingsApi({
             cloneNode.data.visualStyle = clonePlainValue(sourceNode.data?.visualStyle || {});
             cloneNode.data.styleModelId = sourceNode.data?.styleModelId || '';
             cloneNode.data.styleProviderId = sourceNode.data?.styleProviderId || '';
+            cloneNode.data.styleDetailLevel = sourceNode.data?.styleDetailLevel || 'medium';
+            cloneNode.refreshVisualStyle?.();
         }
 
         if (cloneNode.type === 'CameraControl') {

@@ -1,4 +1,4 @@
-import { normalizeVisualStyle } from '../visual-style/visual-style.js';
+import { normalizeVisualStyle, normalizeVisualStyleDetailLevel } from '../visual-style/visual-style.js';
 import { cleanupElementResources } from '../../core/common-utils.js';
 import { renderWorkflowRunControls } from '../ui/workflow-toolbar-status.js';
 import { createInitialState } from '../../core/state.js';
@@ -437,6 +437,7 @@ export function serializeRuntimeNode(node, doc) {
         serialized.visualStyle = structuredClone(node.data.visualStyle);
         serialized.styleModelId = node.data.styleModelId || '';
         serialized.styleProviderId = node.data.styleProviderId || '';
+        serialized.styleDetailLevel = normalizeVisualStyleDetailLevel(node.data.styleDetailLevel);
     }
     if (node.type === 'CustomParams') {
         serialized.params = Array.isArray(node.data?.params) ? clonePlainValue(node.data.params) : [];

@@ -2,6 +2,15 @@ export const VISUAL_STYLE_FIELDS = Object.freeze({
     description: '风格描述', medium: '表现形式', palette: '配色', lighting: '光影',
     texture: '质感', background: '背景氛围', composition: '构图倾向', typography: '图文排版', avoid: '避免项'
 });
+export const VISUAL_STYLE_DETAIL_LEVELS = Object.freeze({
+    low: { label: '概括', instruction: '概括档：建议用30—60字、1—2句话，只提炼最显著的画风、主色调和整体氛围，保留创作空间，不展开局部细节。' },
+    medium: { label: '标准', instruction: '标准档：建议用100—180字，描述整体画风、配色、光影、质感和构图的主要特征，保持简洁且便于复用。' },
+    high: { label: '详细', instruction: '详细档：建议用250—400字，细致描述可观察到的配色关系、饱和度与对比、光线方向与软硬、表面质感、空间层次、留白和构图节奏；信息不足时缩短，不为凑字数编造细节。' }
+});
+
+export function normalizeVisualStyleDetailLevel(value) {
+    return typeof value === 'string' && Object.hasOwn(VISUAL_STYLE_DETAIL_LEVELS, value) ? value : 'medium';
+}
 export const VISUAL_STYLE_PRESETS = Object.freeze({
     custom: { label: '自定义' },
     natural: { label: '自然生活', medium: '真实摄影', palette: '暖米色、低饱和绿色', lighting: '柔和自然光', texture: '细腻自然', background: '简洁生活环境', composition: '留白充足' },

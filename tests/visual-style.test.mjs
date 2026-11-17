@@ -8,6 +8,21 @@ import { analyzeVisualStyle } from '../js/features/visual-style/visual-style-ana
 import { createPromptAgentCanvasAdapter } from '../js/features/prompt-agent/prompt-agent-canvas-adapter.js';
 import '../js/features/execution/protocols/google.js';
 
+test('提取精细度控制请求的描述粒度，旧节点默认标准', async () => {
+    const prompts = [];
+    for (const styleDetailLevel of ['low', undefined, 'high']) {
+        await analyzeVisualStyle({ node: { data: { styleModelId: 'v', styleProviderId: 'p', styleDetailLevel } },
+            references: ['data:image/png;base64,AAAA'], fields: ['description'],
+            models: [{ id: 'v', modelId: 'gemini', taskType: 'chat', protocol: 'google', providerIds: ['p'] }],
+            providers: [{ id: 'p', endpoint: 'https://fixture.test', apikey: 'fixture' }], getProxyHeaders: () => ({}),
+            fetchRef: async (_url, options) => { prompts.push(JSON.stringify(JSON.parse(options.body))); return Response.json({ candidates: [{ content: { parts: [{ text: '{"description":"柔和自然光"}' }] } }] }); } });
+    }
+    assert.match(prompts[0], /概括.*30[—-]60/);
+    assert.match(prompts[1], /标准.*100[—-]180/);
+    assert.match(prompts[2], /详细.*250[—-]400/);
+    assert.match(prompts[2], /不.*编造/);
+});
+
 test('旧风格完整转为单文本，长文本编辑后不截断或保留隐藏的旧维度', () => {
     const legacy = normalizeVisualStyle({ preset: 'natural', description: '保留'.repeat(1000), avoid: '不要强闪光' });
     const text = visualStyleText(legacy);
@@ -87,11 +102,12 @@ test('画布方案实际创建风格并应用预设与字段，保存一次', as
         addNode(type, x, y, data) { state.nodes.set('created', { id: 'created', type, x, y, data, width: 340, height: 480 }); return 'created'; },
         session: () => ({ applyCanvasBatch: async (mutate, persist) => { const result = await mutate(); await persist(); return result; } }),
         save: async () => { saved++; return true; }, graphChanged() {}, focusNode() {}, origin: () => ({ x: 0, y: 0 }) });
-    const plan = normalizeCanvasPlan({ version: 1, steps: [{ id: 'style', type: 'VisualStyle', execute: false, parameters: { preset: 'natural', description: '自然氛围' } }] },
+    const plan = normalizeCanvasPlan({ version: 1, steps: [{ id: 'style', type: 'VisualStyle', execute: false, parameters: { preset: 'natural', description: '自然氛围', styleDetailLevel: 'high' } }] },
         createCanvasContext({ workflowId: 'w', nodes: [], connections: [] }));
     await adapter.apply(plan, '');
     assert.equal(state.nodes.get('created').data.visualStyle.lighting, '柔和自然光');
     assert.equal(state.nodes.get('created').data.visualStyle.description, '自然氛围');
+    assert.equal(state.nodes.get('created').data.styleDetailLevel, 'high');
     assert.equal(saved, 1);
     const node = state.nodes.get('created');
     let refreshed = 0;
@@ -103,4 +119,13 @@ test('画布方案实际创建风格并应用预设与字段，保存一次', as
     assert.equal(node.data.visualStyle.description, description);
     assert.equal(node.data.visualStyle.lighting, '');
     assert.equal(refreshed, 1);
+    const before = visualStyleKey(node.data.visualStyle);
+    const precisionContext = createCanvasContext({ workflowId: 'w', nodes: [node], connections: [], selectedIds: ['created'] });
+    const precisionEdit = normalizeCanvasPlan({ version: 1, steps: [{ id: 'style', nodeId: 'created', type: 'VisualStyle', execute: false, parameters: { styleDetailLevel: 'low' } }] }, precisionContext);
+    await adapter.apply(precisionEdit, '');
+    assert.equal(node.data.styleDetailLevel, 'low');
+    assert.equal(visualStyleKey(node.data.visualStyle), before);
+    const updated = createCanvasContext({ workflowId: 'w', nodes: [node], connections: [], selectedIds: ['created'] });
+    assert.equal(updated.nodes[0].parameters.styleDetailLevel, 'low');
+    assert.throws(() => normalizeCanvasPlan({ version: 1, steps: [{ id: 'style', nodeId: 'created', type: 'VisualStyle', execute: false, parameters: { styleDetailLevel: 'extreme' } }] }, updated), /不受支持/);
 });
