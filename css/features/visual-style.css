@@ -6,7 +6,10 @@
     display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5;
 }
 .visual-style-preview.is-empty { display: grid; place-items: center; min-height: 120px; padding: 0; color: var(--text-secondary); }
-.visual-style-settings { display: grid; gap: 12px; min-width: 0; }
+.visual-style-settings { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 12px; min-width: 0; }
+.visual-style-settings > textarea,
+.visual-style-settings > [data-style-status],
+.visual-style-model-settings[open] { grid-column: 1 / -1; }
 .visual-style-settings .visual-style-detail { display: flex; flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); }
 .visual-style-settings .visual-style-detail select { width: auto; min-width: 88px; appearance: auto; }
 @supports (appearance: base-select) {

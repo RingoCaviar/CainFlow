@@ -42,11 +42,16 @@ export function bindVisualStyleNode(node, { state, runToNode, scheduleSave, push
         detailControl.value = normalizeVisualStyleDetailLevel(node.data.styleDetailLevel);
     };
     node.refreshVisualStyle = refresh;
-    detailControl.addEventListener('change', () => {
+    const saveDetail = () => {
         if (locked()) { refresh(); return; }
-        node.data.styleDetailLevel = normalizeVisualStyleDetailLevel(detailControl.value);
+        const level = normalizeVisualStyleDetailLevel(detailControl.value);
+        if (level === node.data.styleDetailLevel) return;
+        node.data.styleDetailLevel = level;
         save();
-    });
+    };
+    // Native selects emit input before change; commit before the shared form refresh.
+    detailControl.addEventListener('input', saveDetail);
+    detailControl.addEventListener('change', saveDetail);
     text.addEventListener('input', () => {
         if (locked()) { text.value = visualStyleText(node.data.visualStyle); return; }
         node.data.visualStyle = normalizeVisualStyle({ description: text.value });

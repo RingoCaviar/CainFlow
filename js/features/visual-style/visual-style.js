@@ -3,9 +3,11 @@ export const VISUAL_STYLE_FIELDS = Object.freeze({
     texture: '质感', background: '背景氛围', composition: '构图倾向', typography: '图文排版', avoid: '避免项'
 });
 export const VISUAL_STYLE_DETAIL_LEVELS = Object.freeze({
+    minimal: { label: '极简', instruction: '极简档：建议用10—25字，只概括最突出的画风与整体情绪，不列举具体细节，留出最大的创作空间。' },
     low: { label: '概括', instruction: '概括档：建议用30—60字、1—2句话，只提炼最显著的画风、主色调和整体氛围，保留创作空间，不展开局部细节。' },
     medium: { label: '标准', instruction: '标准档：建议用100—180字，描述整体画风、配色、光影、质感和构图的主要特征，保持简洁且便于复用。' },
-    high: { label: '详细', instruction: '详细档：建议用250—400字，细致描述可观察到的配色关系、饱和度与对比、光线方向与软硬、表面质感、空间层次、留白和构图节奏；信息不足时缩短，不为凑字数编造细节。' }
+    high: { label: '详细', instruction: '详细档：建议用250—400字，细致描述可观察到的配色关系、饱和度与对比、光线方向与软硬、表面质感、空间层次、留白和构图节奏；信息不足时缩短，不为凑字数编造细节。' },
+    ultra: { label: '精细', instruction: '精细档：建议用500—800字，系统描述可观察到的视觉语言，包括主辅色比例、冷暖与明暗层次、光线方向和过渡、材质表现、边缘与纹理、空间深度、留白节奏及各要素的配合。只保留可复用的风格特征，不描述具体主体身份；信息不足时缩短，禁止重复堆砌或编造细节。' }
 });
 
 export function normalizeVisualStyleDetailLevel(value) {

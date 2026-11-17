@@ -5,6 +5,48 @@ import { withAppBrowser, reloadAppBrowser, waitForAutosave } from './helpers/app
 import { uploadImageOriginal } from './helpers/image-upload.mjs';
 import { configuration, originals } from './helpers/image-first-integrated-fixture.mjs';
 
+test('精细度五档支持真实键盘、鼠标选择与保存', { timeout: 30000 }, async () => {
+    await withAppBrowser({ ...configuration, nodes: [{ id: 'style', type: 'VisualStyle', x: 360, y: 80 }], connections: [] }, async app => {
+        const click = async selector => {
+            const point = await app.evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})()`);
+            await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
+            await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        };
+        await click('#style [data-style-preview]');
+        await app.evaluate("document.querySelector('[data-style-detail]').focus()");
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+        await app.waitFor("document.querySelector('[data-style-detail]').matches(':open')");
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+        assert.equal(await app.evaluate("document.querySelector('[data-style-detail]').value"), 'high');
+        await waitForAutosave(app);
+        await reloadAppBrowser(app);
+        assert.equal(await app.evaluate("document.querySelector('[data-style-detail]').value"), 'high');
+        await click('#style [data-style-preview]');
+        assert.equal(await app.evaluate("document.querySelector('[data-style-detail]').options.length"), 5);
+        for (const level of ['minimal', 'low', 'medium', 'high', 'ultra']) {
+            await click('[data-style-detail]');
+            await app.waitFor(`document.querySelector('[data-style-detail] option[value="${level}"]').getBoundingClientRect().height>0`);
+            await click(`[data-style-detail] option[value="${level}"]`);
+            assert.equal(await app.evaluate("document.querySelector('[data-style-detail]').value"), level);
+        }
+        assert.ok(await app.evaluate("(()=>{const d=document.querySelector('.visual-style-detail').getBoundingClientRect(),s=document.querySelector('.visual-style-model-settings summary').getBoundingClientRect();return Math.abs(d.top+d.height/2-s.top-s.height/2)<4;})()"), 'collapsed controls share one compact row');
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 320, height: 540, deviceScaleFactor: 1, mobile: false });
+        await app.waitFor("document.getElementById('image-parameter-panel').getBoundingClientRect().right<=innerWidth");
+        assert.ok(await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel'),f=p.querySelector('.visual-style-settings'),b=p.querySelector('[data-parameter-action=generate]').getBoundingClientRect();return f.scrollWidth<=f.clientWidth+1 && b.bottom<=innerHeight;})()"), 'collapsed controls fit a narrow window');
+        await mkdir('.scratch/visual-style/screenshots', { recursive: true });
+        const compact = await app.send('Page.captureScreenshot', { format: 'png' });
+        await writeFile('.scratch/visual-style/screenshots/compact-320.png', Buffer.from(compact.data, 'base64'));
+        await waitForAutosave(app);
+        await reloadAppBrowser(app);
+        assert.equal(await app.evaluate("document.querySelector('[data-style-detail]').value"), 'ultra');
+    });
+});
+
 test('风格浮层当场展开与重新打开有相同的完整高度', { timeout: 30000 }, async () => {
     await withAppBrowser({ ...configuration, nodes: [{ id: 'style', type: 'VisualStyle', x: 360, y: 430 }], connections: [] }, async app => {
         const click = async selector => {
