@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN" data-app-theme="paper">
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../index.css">
+<style>
+    body { overflow: auto; }
+    #settings-modal { position: static; padding: 24px; display: block; }
+    #settings-modal .modal-panel { width: 100%; max-width: 960px; margin: auto; }
+    #update-download-status { max-width: 420px; margin: 24px; }
+    #surface-result { display: none; }
+</style>
+<body>
+<div id="settings-modal" class="modal-overlay"><section class="modal-panel"><div class="modal-body"><div id="general-settings"></div></div></section></div>
+<div id="update-download-status"></div><div id="toast-container"></div>
+<pre id="surface-result"></pre>
+<script type="module">
+import { createInitialState } from '../../js/core/state.js';
+import { createGeneralSettings } from '../../js/features/settings/general-settings.js';
+import { createUpdateManager } from '../../js/features/update/update-manager.js';
+const result = { samples: [] };
+try {
+    localStorage.clear();
+    localStorage.setItem('cainflow_update_status', 'downloading');
+    let snapshot = { id: 'progress-job', status: 'downloading', downloadedBytes: 42 * 1024 ** 2,
+        totalBytes: 100 * 1024 ** 2, percent: 42, speedBytesPerSecond: 2 * 1024 ** 2 };
+    const settings = createGeneralSettings({ ctx: {
+        state: createInitialState(), appVersion: 'test', documentRef: document, windowRef: window,
+        localStorageRef: localStorage, diagnosticClient: { status: async () => ({}) },
+        showToast() {}, saveState() {}, addLog() {}, getHandle: async () => null,
+    }, dialogs: {
+        escapeHtml: value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;'),
+        renderGeneralSettingsHelpLabel: title => `<span>${title}</span>`,
+        initGeneralSettingsHelpInteractions() {}, closeGeneralSettingsHelpPopovers() {}
+    }});
+    const timers = new Map(); let timerId = 0;
+    createUpdateManager({ appVersion: 'test', githubRepo: 'test/test', showToast() {}, exportWorkflow() {},
+        getProxyHeaders: () => ({}), renderGeneralSettings: () => settings.renderGeneralSettings(),
+        setTimeoutImpl: (fn, delay) => { timers.set(++timerId, { fn, delay }); return timerId; },
+        clearTimeoutImpl: id => timers.delete(id),
+        fetchImpl: async () => ({ ok: true, json: async () => snapshot }) });
+    await [...timers.values()].find(timer => timer.delay === 0).fn();
+    document.querySelector('[data-settings-category="advanced"]').click();
+    const surfaces = { settings: '#general-settings', dialog: '#update-download-status', notice: '#toast-container' };
+    for (const theme of ['paper', 'dark', 'light', 'pro', 'pink', 'glass-dark', 'glass-light']) {
+        document.documentElement.dataset.appTheme = theme;
+        for (const [surface, selector] of Object.entries(surfaces)) {
+            const root = document.querySelector(selector);
+            const track = root.querySelector('.update-download-progress__track').getBoundingClientRect();
+            const bar = root.querySelector('.update-download-progress__bar').getBoundingClientRect();
+            result.samples.push({ theme, surface, height: track.height, barHeight: bar.height,
+                ratio: bar.width / track.width, percent: root.querySelector('.update-download-progress__percent').textContent,
+                detail: root.querySelector('.update-download-progress__detail').textContent });
+        }
+    }
+    document.documentElement.dataset.appTheme = 'paper';
+    const poll = async (updates) => {
+        snapshot = { ...snapshot, ...updates };
+        const [id, timer] = [...timers.entries()].find(([, value]) => value.delay > 0);
+        timers.delete(id);
+        await timer.fn();
+    };
+    document.documentElement.classList.add('animations-disabled');
+    result.reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    await poll({ percent: null, totalBytes: 0 });
+    result.unknown = Object.values(surfaces).map(selector => {
+        const root = document.querySelector(selector);
+        const track = root.querySelector('.update-download-progress__track');
+        const bar = root.querySelector('.update-download-progress__bar');
+        return { percent: root.querySelector('.update-download-progress__percent').textContent,
+            indeterminate: track.classList.contains('is-indeterminate'),
+            height: bar.getBoundingClientRect().height, animation: getComputedStyle(bar).animationName,
+            value: track.getAttribute('aria-valuenow') };
+    });
+    await poll({ percent: null, totalBytes: 100 * 1024 ** 2 });
+    result.derived = Object.values(surfaces).map(selector => document.querySelector(`${selector} .update-download-progress__percent`).textContent);
+    await poll({ percent: 0, downloadedBytes: 0 });
+    result.zero = Object.values(surfaces).map(selector => document.querySelector(`${selector} .update-download-progress__percent`).textContent);
+    await poll({ percent: 42, downloadedBytes: 42 * 1024 ** 2 });
+} catch (error) { result.error = error.stack || String(error); }
+document.getElementById('surface-result').textContent = JSON.stringify(result);
+</script>

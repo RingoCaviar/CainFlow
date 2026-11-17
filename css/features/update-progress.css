@@ -1,0 +1,73 @@
+/* Shared by settings, the update dialog and the persistent download notice. */
+.update-download-progress {
+    display: grid;
+    gap: 10px;
+    width: 100%;
+    min-width: 0;
+    color: var(--text-primary);
+}
+
+.update-download-progress--settings {
+    margin-top: 12px;
+}
+
+.update-download-progress__row,
+.update-download-progress__detail {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+}
+
+.update-download-progress__title {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.update-download-progress__percent {
+    color: var(--text-primary);
+    font-size: 18px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.update-download-progress__track {
+    height: 10px;
+    overflow: hidden;
+    border-radius: 5px;
+    background: var(--panel-control-bg);
+}
+
+.update-download-progress__bar {
+    height: 100%;
+    border-radius: inherit;
+    background: var(--text-link);
+}
+
+.update-download-progress__track.is-indeterminate .update-download-progress__bar {
+    width: 35%;
+    animation: update-download-indeterminate 1.4s ease-in-out infinite alternate;
+}
+
+.update-download-progress__detail {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+@keyframes update-download-indeterminate {
+    from { transform: translateX(0); }
+    to { transform: translateX(185%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .update-download-progress__track.is-indeterminate .update-download-progress__bar {
+        animation: none;
+    }
+}

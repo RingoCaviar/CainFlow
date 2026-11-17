@@ -12,6 +12,29 @@ from backend.services.desktop_bridge import DesktopBridge
 
 
 class UpdateRestartTests(unittest.TestCase):
+    def test_download_status_keeps_unknown_total_indeterminate_until_transfer_finishes(self):
+        snapshots = []
+
+        def download(repo, progress_callback, **kwargs):
+            started = time.monotonic() - 1
+            for downloaded, total in ((42, 0), (42, 100), (100, 100)):
+                progress_callback(downloaded, total, started)
+                snapshots.append(update_service.get_update_download_status())
+            return {'success': True, 'downloadedBytes': 100}
+
+        with mock.patch.object(update_service, '_UPDATE_JOB', None), \
+             mock.patch.object(update_service, 'cleanup_update_temp_files'), \
+             mock.patch.object(update_service, 'download_and_prepare_latest_update', side_effect=download):
+            update_service.start_update_download()
+            update_service._UPDATE_JOB['thread'].join(timeout=5)
+            self.assertEqual(len(snapshots), 3)
+            self.assertEqual(snapshots[0]['downloadedBytes'], 42)
+            self.assertEqual(snapshots[0]['totalBytes'], 0)
+            self.assertIsNone(snapshots[0]['percent'])
+            self.assertEqual(snapshots[1]['percent'], 42)
+            self.assertEqual(snapshots[2]['percent'], 100)
+            self.assertEqual(update_service.get_update_download_status()['status'], 'completed')
+
     def test_completed_update_arms_once_and_retry_reuses_the_waiting_helper(self):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory).resolve() / 'CainFlow.exe'

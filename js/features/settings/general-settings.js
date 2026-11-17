@@ -289,7 +289,8 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
         };
 
         const getDownloadPercent = (snapshot) => {
-            const explicitPercent = Number(snapshot?.percent);
+            const value = snapshot?.percent;
+            const explicitPercent = value === null || value === undefined || value === '' ? NaN : Number(value);
             if (Number.isFinite(explicitPercent)) return Math.max(0, Math.min(100, explicitPercent));
 
             const downloaded = Number(snapshot?.downloadedBytes) || 0;
@@ -319,7 +320,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                         <span class="update-download-progress__title">${dialogs.escapeHtml(title)}</span>
                         <span class="update-download-progress__percent">${dialogs.escapeHtml(percentLabel)}</span>
                     </div>
-                    <div class="${trackClass}">
+                    <div class="${trackClass} functional-animation" role="progressbar" aria-label="${dialogs.escapeHtml(title)}" aria-valuemin="0" aria-valuemax="100"${percent === null ? '' : ` aria-valuenow="${percent}"`}>
                         <div class="update-download-progress__bar"${barStyle}></div>
                     </div>
                     <div class="update-download-progress__detail">

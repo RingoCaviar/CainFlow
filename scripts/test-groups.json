@@ -637,6 +637,7 @@
     "tests/universal-input-execution.test.mjs": {"tier": "fast", "groups": ["nodes", "canvas"]},
     "tests/universal-input-policy.test.mjs": {"tier": "fast", "groups": ["nodes", "canvas"]},
     "tests/update-restart-browser.test.mjs": {"tier": "browser", "groups": ["update"]},
+    "tests/update-progress-browser.test.mjs": {"tier": "browser", "groups": ["update", "settings"], "sources": ["css/features/update-progress.css"]},
     "tests/video-execution-status.test.mjs": {"tier": "fast", "groups": ["media", "nodes"]},
     "tests/video-prompt-preflight.test.mjs": {"tier": "fast", "groups": ["media", "nodes"]},
     "tests/video-protocol-card-contract.test.mjs": {"tier": "fast", "groups": ["protocol", "media", "nodes"]},

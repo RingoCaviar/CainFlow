@@ -1104,7 +1104,8 @@ def _set_download_progress(job, downloaded_bytes, total_bytes, started_at):
         return
     elapsed = max(time.monotonic() - started_at, 0.001)
     speed = int(downloaded_bytes / elapsed)
-    safe_total = max(int(total_bytes or 0), int(downloaded_bytes or 0))
+    known_total = max(int(total_bytes or 0), 0)
+    safe_total = max(known_total, int(downloaded_bytes or 0)) if known_total else 0
     percent = round((downloaded_bytes / safe_total) * 100, 1) if safe_total else None
     _set_job(
         job,

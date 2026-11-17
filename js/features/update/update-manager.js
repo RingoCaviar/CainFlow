@@ -527,6 +527,7 @@ export function createUpdateManager({
     }
 
     function clampPercent(value) {
+        if (value === null || value === undefined || value === '') return null;
         const number = Number(value);
         if (!Number.isFinite(number)) return null;
         return Math.max(0, Math.min(100, number));
@@ -611,12 +612,17 @@ export function createUpdateManager({
         wrapper.appendChild(topRow);
 
         const track = documentRef.createElement('div');
-        track.className = 'update-download-progress__track';
+        track.className = 'update-download-progress__track functional-animation';
+        track.setAttribute('role', 'progressbar');
+        track.setAttribute('aria-label', title.textContent);
+        track.setAttribute('aria-valuemin', '0');
+        track.setAttribute('aria-valuemax', '100');
         const bar = documentRef.createElement('div');
         bar.className = 'update-download-progress__bar';
         if (percent === null) {
             track.classList.add('is-indeterminate');
         } else {
+            track.setAttribute('aria-valuenow', String(percent));
             bar.style.width = `${percent}%`;
         }
         track.appendChild(bar);
