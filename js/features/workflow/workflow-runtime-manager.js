@@ -2310,7 +2310,7 @@ export function createWorkflowRuntimeManager({
         const { workflowName, workflowId } = requireStableWorkflowReference(workflow);
         const stoppedBeforeStart = { started: false, executed: false, reason: 'stopped-before-start', outcome: 'stopped' };
         if (commercePanelSignal?.aborted) return stoppedBeforeStart;
-        if (commercePanelSignal && ['retry', 'replan-shot'].includes(runInput?.commerceAction)) {
+        if (commercePanelSignal && ['retry', 'generate-candidates', 'replan-shot'].includes(runInput?.commerceAction)) {
             const owner = getWorkflowRunContexts(workflow).find(context => context.activePlanNodeIds.has(runInput.commerceNodeId));
             if (owner) {
                 const shotPlan = owner.resolveExecutionPlan(runInput);

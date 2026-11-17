@@ -998,14 +998,14 @@ export function createExecutionCoreApi({
         const { commerceAction, commerceShotId, commerceCandidateKey } = runInput;
         const commerceTargeted = mode === 'selected-only' && selectedNodeIds.length === 1 && selectedNodeIds[0] === commerceNodeId
             && state.nodes.get(commerceNodeId)?.type === 'ECommerceImageSet'
-            && ['analyze', 'plan', 'replan-shot', 'generate', 'fill', 'retry', 'select-candidate'].includes(commerceAction);
+            && ['analyze', 'plan', 'replan-shot', 'generate', 'fill', 'retry', 'generate-candidates', 'select-candidate'].includes(commerceAction);
         if (commerceAction === 'analyze' && !commerceTargeted) {
             throw new Error('请选择一个需要分析商品信息的电商套图节点。');
         }
         if (commerceAction === 'replan-shot' && (!commerceTargeted || typeof runInput.commerceShotId !== 'string' || !runInput.commerceShotId)) {
             throw new Error('请选择一个需要重新规划的图位。');
         }
-        if (commerceAction === 'retry' && (!commerceTargeted || typeof runInput.commerceShotId !== 'string' || !runInput.commerceShotId)) {
+        if (['retry', 'generate-candidates'].includes(commerceAction) && (!commerceTargeted || typeof runInput.commerceShotId !== 'string' || !runInput.commerceShotId)) {
             throw new Error('请选择一个需要生图的图位。');
         }
         if (commerceAction === 'select-candidate' || commerceCandidateKey !== undefined) {
@@ -1951,7 +1951,8 @@ export function createExecutionCoreApi({
             throw new Error('画面风格已更新，请重新规划并确认；已有成图和定稿保留。');
         }
         const replanningShot = commerceAction === 'replan-shot';
-        const retryingShot = commerceAction === 'retry';
+        const appendingCandidates = commerceAction === 'generate-candidates';
+        const retryingShot = commerceAction === 'retry' || appendingCandidates;
         const selectingCandidate = commerceAction === 'select-candidate';
         const filling = commerceAction === 'fill';
         const shotTask = replanningShot || retryingShot || selectingCandidate;
@@ -2193,14 +2194,14 @@ export function createExecutionCoreApi({
                 }
             }
 
-            return await publishCommerceShots(node, { attempts, batch, firstError, workflowId, signal, commerceShotId });
+            return await publishCommerceShots(node, { attempts, batch, firstError, workflowId, signal, commerceShotId, appendCandidates: appendingCandidates });
         } catch (error) {
             if (shotTask && controller.signal.aborted) {
                 if (retryingShot && !parentSignal?.aborted) {
                     const partial = attempts.get(commerceShotId);
                     await publishCommerceShots(node, {
                         attempts: new Map([[commerceShotId, { ...partial, status: 'canceled' }]]),
-                        workflowId: getActiveWorkflowId(), commerceShotId
+                        workflowId: getActiveWorkflowId(), commerceShotId, appendCandidates: appendingCandidates
                     });
                 }
                 // Use a typed abort even when the provider mapped it to a generic network failure.
@@ -2276,7 +2277,7 @@ export function createExecutionCoreApi({
     }
 
     async function publishCommerceShots(node, {
-        attempts, batch, firstError, workflowId, signal, commerceShotId, commerceCandidateKey, approvedReferences
+        attempts, batch, firstError, workflowId, signal, commerceShotId, commerceCandidateKey, approvedReferences, appendCandidates = false
     }) {
         // Serializing only publication lets the provider requests proceed independently.
         const previous = commercePublications.get(node) || Promise.resolve();
@@ -2322,7 +2323,7 @@ export function createExecutionCoreApi({
                 }
                 const result = attempts.get(id);
                 const priorRow = priorRows.get(id);
-                const keepPrior = result?.status === 'canceled' && !!priorRow?.assetKey;
+                const keepPrior = appendCandidates || (result?.status === 'canceled' && !!priorRow?.assetKey);
                 const canStore = !superseded.has(id) && !priorRow?.finalized && result?.images?.length;
                 if (canStore) {
                     successful.push(...result.images.map((image, index) => ({
@@ -2330,7 +2331,7 @@ export function createExecutionCoreApi({
                     })));
                     if (keepPrior) {
                         const pinned = getCommerceShotCandidates(latest, id).find(candidate => (
-                            candidate.assetKey === priorRow.assetKey && candidate.planKey === priorRow.planKey
+                            candidate.assetKey === priorRow?.assetKey && candidate.planKey === priorRow?.planKey
                         ));
                         if (pinned) pinnedCandidates.push({ candidate: pinned, shot: result.shot });
                     }
@@ -2373,6 +2374,12 @@ export function createExecutionCoreApi({
             }
 
             const current = normalizeCommerceImageSetState(node.data?.commerceImageSet);
+            for (const [id, prior] of priorRows) {
+                const shot = current.plan?.shots.find(item => item.id === id);
+                if (shot?.source === 'generate' && prior.status === 'completed' && prior.assetKey
+                    && !getCommerceShotCandidates(current, id).some(item => item.assetKey === prior.assetKey && item.planKey === prior.planKey)
+                    && (!prior.planKey || prior.planKey === commerceShotPlanKey(shot))) rememberCommerceShotCandidate(current, shot, prior.assetKey);
+            }
             const savedCandidates = new Map();
             for (const [index, { id, image, shot, adopt }] of successful.entries()) {
                 const key = keys[index];
@@ -2392,6 +2399,7 @@ export function createExecutionCoreApi({
             }
             for (const [id, saved] of savedCandidates) {
                 const total = attempts.get(id)?.candidateProgress?.total;
+                if (appendCandidates) continue;
                 if (total && saved.size < total) rows.get(id).candidateProgress = { completed: saved.size, total };
                 else delete rows.get(id).candidateProgress;
             }
@@ -2401,9 +2409,14 @@ export function createExecutionCoreApi({
             const results = latest.selectedShotIds.flatMap(id => rows.has(id) ? [rows.get(id)] : []);
             const images = results.flatMap(row => row.assetKey ? [retainedImages.get(row.shotId)] : []);
             // A rerun of a finished slot supersedes that slot's still-unpublished batch result.
-            if (commerceShotId && (successful.length || selectedCandidate)) commerceBatches.get(node)?.replacedShotIds.add(commerceShotId);
+            if (commerceShotId && !appendCandidates && (successful.length || selectedCandidate)) commerceBatches.get(node)?.replacedShotIds.add(commerceShotId);
             node.data.commerceImageSet = { ...current, results };
             rememberWorkflowMediaOperation(node, assets);
+            if (appendCandidates) {
+                onNodeResultUpdated(node.id);
+                if (firstError && !successful.length) throw firstError;
+                return { image: images, images };
+            }
             if (images.length) {
                 const assetKeys = results.filter(row => row.assetKey).map(row => row.assetKey);
                 setCanonicalImageOutput(node, images, { defaultToFirst: true, assetKey: assetKeys[0], imageCount: images.length, assetReady: true });

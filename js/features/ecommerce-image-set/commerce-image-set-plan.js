@@ -8,7 +8,8 @@ export const COMMERCE_IMAGE_SET_ASPECTS = Object.freeze(['1:1', '3:4', '2:3', '4
 export const COMMERCE_IMAGE_SET_DEFAULT_ASPECTS = Object.freeze({ gallery: '1:1', detail: '9:16' });
 export const COMMERCE_IMAGE_SET_COPY_LIMITS = Object.freeze({ headline: 24, body: 64 });
 export const COMMERCE_SCENE_DESCRIPTION_LIMIT = 400;
-export const COMMERCE_SHOT_CANDIDATE_LIMIT = 4;
+export const COMMERCE_SHOT_CANDIDATE_LIMIT = 20;
+export const COMMERCE_CANDIDATE_GENERATION_LIMIT = 8;
 const COMMERCE_SCENE_SUMMARY_LIMIT = 240;
 const COMMERCE_SHOT_PLAN_KEY_PATTERN = /^v1-[0-9a-f]{1,8}-[0-9a-f]{1,8}-\d{1,5}$/;
 const COMMERCE_ASSET_KEY_PATTERN = /^media:[a-zA-Z0-9_-]+$/;
@@ -22,7 +23,7 @@ export const COMMERCE_PRODUCT_INFO_LIMITS = Object.freeze({
 });
 
 export function normalizeCommerceImageSetCandidateCount(value) {
-    return Number.isInteger(value) && value >= 1 && value <= COMMERCE_SHOT_CANDIDATE_LIMIT ? value : 1;
+    return Number.isInteger(value) && value >= 1 && value <= COMMERCE_CANDIDATE_GENERATION_LIMIT ? value : 1;
 }
 
 function normalizePartialCandidateProgress(progress) {
@@ -383,7 +384,7 @@ function normalizeCandidateDraft(input, shot) {
         } : {}) };
 }
 
-function normalizeCommerceShotCandidates(raw, selectedShots) {
+function normalizeCommerceShotCandidates(raw, selectedShots, results = []) {
     const shots = new Map(selectedShots.map(shot => [shot.id, shot]));
     const keysByShot = new Map();
     const candidates = [];
@@ -395,7 +396,7 @@ function normalizeCommerceShotCandidates(raw, selectedShots) {
         const planKey = commerceShotPlanKey({ ...shot, ...draft });
         const key = `${row.assetKey}:${planKey}`;
         const keys = keysByShot.get(shot.id) || new Set();
-        if (keys.has(key) || keys.size >= COMMERCE_SHOT_CANDIDATE_LIMIT) continue;
+        if (keys.has(key)) continue;
         keys.add(key);
         keysByShot.set(shot.id, keys);
         const referenceRevision = text(row.referenceRevision, 512);
@@ -405,16 +406,24 @@ function normalizeCommerceShotCandidates(raw, selectedShots) {
             ...(referenceRevision ? { referenceRevision } : {}), ...(referenceContentKey ? { referenceContentKey } : {}),
             ...(sceneContextKey ? { sceneContextKey } : {}) });
     }
-    return candidates;
+    const keep = new Set();
+    for (const shot of selectedShots) {
+        const versions = candidates.filter(row => row.shotId === shot.id);
+        const result = results.find(row => row.shotId === shot.id && row.status === 'completed');
+        const current = versions.find(row => row.assetKey === result?.assetKey && (!result.planKey || row.planKey === result.planKey));
+        const retained = current ? [current, ...versions.filter(row => row !== current)] : versions;
+        retained.slice(0, COMMERCE_SHOT_CANDIDATE_LIMIT).forEach(row => keep.add(row));
+    }
+    return candidates.filter(row => keep.has(row));
 }
 
 export function getCommerceShotCandidates(settings, shotId) {
     const shots = getSelectedCommerceImageSetShots(settings).filter(shot => shot.id === shotId);
-    return normalizeCommerceShotCandidates(settings?.candidates, shots);
+    return normalizeCommerceShotCandidates(settings?.candidates, shots, settings?.results);
 }
 
 export function getCommerceImageSetCandidateAssetKeys(settings) {
-    const candidates = normalizeCommerceShotCandidates(settings?.candidates, getSelectedCommerceImageSetShots(settings));
+    const candidates = normalizeCommerceShotCandidates(settings?.candidates, getSelectedCommerceImageSetShots(settings), settings?.results);
     return [...new Set(candidates.map(candidate => candidate.assetKey))];
 }
 
@@ -427,7 +436,7 @@ export function rememberCommerceShotCandidate(settings, shot, assetKey) {
     const candidate = { shotId: shot.id, assetKey, aspect: shot.aspect, draft: shot,
         referenceRevision: settings.plan?.referenceRevision, referenceContentKey: settings.plan?.referenceContentKey,
         sceneContextKey: shot.customScene ? settings.plan?.sceneContextKeys?.[shot.group] : undefined };
-    settings.candidates = normalizeCommerceShotCandidates([candidate, ...(settings.candidates || [])], getSelectedCommerceImageSetShots(settings));
+    settings.candidates = normalizeCommerceShotCandidates([candidate, ...(settings.candidates || [])], getSelectedCommerceImageSetShots(settings), settings.results);
 }
 
 export function restoreCommerceShotCandidateDraft(settings, candidate) {
@@ -551,7 +560,7 @@ export function normalizeCommerceImageSetState(raw) {
             return [];
         });
     }
-    const candidates = normalizeCommerceShotCandidates(raw?.candidates, selected);
+    const candidates = normalizeCommerceShotCandidates(raw?.candidates, selected, settings.results);
     if (candidates.length) settings.candidates = candidates;
     const previousExportResults = normalizePreviousExportResults(raw?.previousExportResults);
     if (previousExportResults.length) settings.previousExportResults = previousExportResults;

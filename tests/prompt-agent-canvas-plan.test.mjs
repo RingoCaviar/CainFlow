@@ -52,7 +52,7 @@ test('canvas plans validate explicitly targeted commerce product information and
     assert.deepEqual(context.summary.editableFields.ECommerceImageSet, ['productInfo', 'copyLanguage']);
     assert.deepEqual(context.nodes[0].parameters, { copyLanguage: 'en', productInfo: { name: '旧名称', sellingPoints: ['可见杯盖'] } });
     assert.doesNotMatch(JSON.stringify(context.summary), /archived-shot|私有候选提示词|finalized|candidateCount|commerceRunSettings/);
-    const changedCount = graph({ nodes: [{ ...node, commerceImageSet: { ...node.commerceImageSet, candidateCount: 4 } }],
+    const changedCount = graph({ nodes: [{ ...node, commerceImageSet: { ...node.commerceImageSet, candidateCount: 8 } }],
         selectedIds: [node.id] });
     assert.deepEqual(changedCount.read(), context.read());
     assert.notEqual(canvasRevisionFingerprint(changedCount), canvasRevisionFingerprint(context));
@@ -70,7 +70,7 @@ test('canvas plans validate explicitly targeted commerce product information and
     assert.match(describeCanvasPlan(plan, context).join('\n'), /图中文字语言：英[语文] → 日[语文]/);
     assert.throws(() => normalizeCanvasPlan(raw(parameters), graph({ nodes: [node] })), /选中|@节点/);
     assert.throws(() => normalizeCanvasPlan(raw(parameters, { execute: true }), context), /execute: false/);
-    assert.throws(() => normalizeCanvasPlan(raw({ candidateCount: 4 }), context), /不支持参数.*candidateCount/);
+    assert.throws(() => normalizeCanvasPlan(raw({ candidateCount: 8 }), context), /不支持参数.*candidateCount/);
     for (const invalid of [{ name: 1 }, { sellingPoints: '可见杯盖' }, { details: 'x'.repeat(4001) }, { providerId: 'other' }]) {
         assert.throws(() => normalizeCanvasPlan(raw({ productInfo: invalid }), context), /商品信息/);
     }

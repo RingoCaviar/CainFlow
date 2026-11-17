@@ -2030,6 +2030,13 @@ test('commerce finalized shots survive a whole-set redo and saved candidates res
         const earlierCandidate = `${dialog} [data-commerce-candidate^="${initial}:"]`;
         await click(app, earlierCandidate);
         await app.waitFor(isUsing(candidateImage, initial));
+        assert.equal(await app.evaluate(`${query(earlierCandidate)}.getAttribute('aria-pressed')`), 'true');
+        await click(app, `${dialog} [data-commerce-candidate-preview] button`);
+        await app.waitFor("document.querySelector('.fullscreen-overlay')?.checkVisibility()");
+        await key(app, 'ArrowRight');
+        await key(app, 'Escape');
+        await app.waitFor(`${query(dialog)}?.open && !document.querySelector('.fullscreen-overlay')`);
+        assert.equal(await app.evaluate(`${query(earlierCandidate)}.getAttribute('aria-pressed')`), 'true', 'preview preserves selection');
         const comparison = await app.evaluate(`(()=>{
             const current=${query(currentImage)}.getBoundingClientRect();
             const candidate=${query(candidateImage)}.getBoundingClientRect();
@@ -2068,6 +2075,31 @@ test('commerce finalized shots survive a whole-set redo and saved candidates res
         assert.deepEqual(await app.evaluate('candidateTestRequests'), ['feature', 'feature', 'feature']);
         assert.deepEqual((await app.evaluate(saved)).mediaAssetKeys, [newer, ordered[1]], 'candidate images do not add output positions');
 
+        await click(app, compare);
+        await app.waitFor(`${query(dialog)}?.open`);
+        const generateMore = `${dialog} [data-commerce-candidate-generate]`;
+        await app.evaluate(`(() => {
+            ${query(`${dialog} [data-commerce-candidate-quantity]`)}.value = '8';
+            window.candidateTestRequests = [];
+            window.candidateBatchImages = Array.from({length:8}, (_, index) => {
+                const canvas = document.createElement('canvas'); canvas.width=96; canvas.height=96;
+                const context = canvas.getContext('2d'); context.fillStyle='hsl('+index*40+',70%,55%)';
+                context.fillRect(0,0,96,96); return canvas.toDataURL('image/png').split(',')[1];
+            });
+        })()`);
+        await click(app, generateMore);
+        await app.waitFor(`${query(generateMore)} && !${query(generateMore)}.disabled && window.candidateTestRequests.length===8`);
+        assert.equal(await app.evaluate(`${query(dialog)}.open`), true);
+        assert.equal(await app.evaluate(`${query(`${dialog} [data-commerce-candidate-cancel]`)}.checkVisibility()`), false);
+        assert.ok(await app.evaluate(`document.querySelectorAll('${dialog} [data-commerce-candidate]').length >= 8`));
+        await captureCommerceInspector(app, { name: 'candidate-gallery-many', surface: dialog });
+        await captureCommerceInspector(app, { name: 'candidate-gallery-many-narrow', width: 390, surface: dialog });
+        assert.deepEqual((await app.evaluate(saved)).mediaAssetKeys, [newer, ordered[1]], 'append does not adopt a new image');
+        await click(app, `${dialog} [data-commerce-candidate-close]`);
+        await app.evaluate(`(() => {
+            const count = ${query(candidateCount)};
+            count.value = '3'; count.dispatchEvent(new Event('change', { bubbles: true }));
+        })()`);
         await app.evaluate('window.pauseCandidateStorage=true');
         await click(app, action('generate'));
         await app.waitFor("typeof window.releaseCandidateStorage==='function'");

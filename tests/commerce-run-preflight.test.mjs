@@ -227,13 +227,13 @@ test('canvas run approval counts every commerce candidate request and excludes o
     const initial = preview();
     assert.equal(initial.commerce[0].generateCount, 2);
 
-    settings.candidateCount = 3;
+    settings.candidateCount = 8;
     const expanded = preview();
-    assert.deepEqual([expanded.commerce[0].shotCount, expanded.commerce[0].generateCount, expanded.commerce[0].referenceCount], [3, 6, 1]);
+    assert.deepEqual([expanded.commerce[0].shotCount, expanded.commerce[0].generateCount, expanded.commerce[0].referenceCount], [3, 16, 1]);
     assert.notEqual(expanded.scopeKey, initial.scopeKey);
 
     settings.results = [{ shotId: 'angle', status: 'completed', assetKey: 'media:locked-angle', finalized: true }];
-    assert.deepEqual([inspect().generateCount, inspect().referenceCount, inspect().finalizedCount], [3, 1, 1]);
+    assert.deepEqual([inspect().generateCount, inspect().referenceCount, inspect().finalizedCount], [8, 1, 1]);
     settings.results.push({ shotId: 'feature', status: 'completed', assetKey: 'media:locked-feature', finalized: true });
     assert.equal(inspect().generateCount, 0);
     const finalized = preview();

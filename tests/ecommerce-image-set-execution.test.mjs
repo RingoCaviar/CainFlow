@@ -316,7 +316,7 @@ test('canceling a commerce slot stops future requests and saves only successful 
         ['success', 'success', 'canceled']);
     assert.deepEqual(node.data.mediaAssetKeys, ['media:18']);
     assert.deepEqual(getCommerceShotCandidates(node.data.commerceImageSet, 'detail').map(item => item.assetKey).sort(),
-        ['media:18', 'media:1b', 'media:1c', 'media:1d']);
+        ['media:18', 'media:19', 'media:1a', 'media:1b', 'media:1c', 'media:1d']);
 });
 
 test('the same commerce image asset can restore either of its distinct captured drafts', async () => {
@@ -1180,4 +1180,60 @@ test('appending eight candidates retains the adopted output and bounds history t
     await execute('select-candidate', null, 'detail', undefined, versions[0].key);
     assert.equal(node.data.commerceImageSet.results[0].assetKey, versions[0].assetKey);
     assert.ok(getCommerceShotCandidates(node.data.commerceImageSet, 'detail').some(version => version.assetKey === original.assetKey));
+});
+
+
+test('appending candidates without an adopted output saves history without automatically adopting', async () => {
+    let variant = 1;
+    const { node, execute } = createCommerceExecutionFixture({ selectedShotIds: ['detail'],
+        responseImageData: () => Buffer.from([variant++]).toString('base64') });
+    await execute('plan');
+    node.data.commerceImageSet.plan.confirmed = true;
+    await execute('generate');
+    node.data.commerceImageSet.results = [];
+    node.data.mediaAssetKeys = [];
+    node.data.commerceImageSet.candidateCount = 2;
+    await execute('generate-candidates', reference, 'detail');
+    assert.equal(getCommerceShotCandidates(node.data.commerceImageSet, 'detail').length, 3);
+    assert.deepEqual(node.data.commerceImageSet.results, []);
+    assert.deepEqual(node.data.mediaAssetKeys, []);
+});
+
+
+test('appending candidates does not propagate an unchanged output to downstream previews', async () => {
+    let updates = 0;
+    let variant = 1;
+    const { node, execute } = createCommerceExecutionFixture({ selectedShotIds: ['detail'],
+        syncImagePreviewNode: () => { if (++updates > 1) throw new Error('unavailable preview'); },
+        responseImageData: () => Buffer.from([variant++]).toString('base64') });
+    await execute('plan');
+    node.data.commerceImageSet.plan.confirmed = true;
+    await execute('generate');
+    await execute('generate-candidates', reference, 'detail');
+    assert.equal(updates, 1);
+    assert.equal(getCommerceShotCandidates(node.data.commerceImageSet, 'detail').length, 2);
+});
+
+test('canceling appended candidates preserves completed versions and the adopted output', async () => {
+    let attempt = 0;
+    let variant = 1;
+    const blocked = Promise.withResolvers();
+    const { node, execute } = createCommerceExecutionFixture({ selectedShotIds: ['detail'],
+        async beforeImageRequest(_, signal) {
+            if (++attempt !== 4) return;
+            blocked.resolve();
+            await new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+        }, responseImageData: () => Buffer.from([variant++]).toString('base64') });
+    await execute('plan');
+    node.data.commerceImageSet.plan.confirmed = true;
+    await execute('generate');
+    const original = structuredClone(node.data.commerceImageSet.results);
+    node.data.commerceImageSet.candidateCount = 8;
+    const generating = execute('generate-candidates', reference, 'detail');
+    await blocked.promise;
+    node.commerceShotCancelHandlers.get('detail')();
+    await assert.rejects(generating, { name: 'AbortError' });
+    assert.equal(attempt, 4);
+    assert.deepEqual(node.data.commerceImageSet.results, original);
+    assert.equal(getCommerceShotCandidates(node.data.commerceImageSet, 'detail').length, 3);
 });

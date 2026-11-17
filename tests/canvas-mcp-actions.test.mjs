@@ -100,9 +100,9 @@ test('MCP uses the normal workflow run for commerce and projects only selected r
     const canvas = await dispatch('read_canvas');
     assert.doesNotMatch(JSON.stringify(canvas), /media:older|候选草稿|finalized|candidateCount|commerceRunSettings/);
     await assert.rejects(dispatch('edit_canvas', { workflowId, revision: canvas.revision, plan: { version: 1, steps: [
-        { id: 'edit', type: node.type, nodeId: node.id, parameters: { candidateCount: 4 }, execute: false }
+        { id: 'edit', type: node.type, nodeId: node.id, parameters: { candidateCount: 8 }, execute: false }
     ] } }), /不支持参数.*candidateCount/);
-    node.commerceImageSet.candidateCount = 4;
+    node.commerceImageSet.candidateCount = 8;
     await assert.rejects(dispatch('run_workflow', { workflowId, revision: canvas.revision, nodeIds: [node.id] }), { code: 'stale_revision' });
     const updated = await dispatch('read_canvas');
     node.commerceImageSet.results[0].finalized = true;

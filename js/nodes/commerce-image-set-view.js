@@ -2,7 +2,7 @@ import { resolveVisualStyle, visualStyleKey } from '../features/visual-style/vis
 import {
     COMMERCE_IMAGE_SET_ASPECTS, COMMERCE_IMAGE_SET_COPY_LANGUAGES, COMMERCE_IMAGE_SET_COPY_LIMITS,
     COMMERCE_IMAGE_SET_DEFAULT_ASPECTS, COMMERCE_IMAGE_SET_PRESETS, COMMERCE_PRODUCT_INFO_LIMITS,
-    COMMERCE_SCENE_DESCRIPTION_LIMIT, COMMERCE_SHOT_CANDIDATE_LIMIT,
+    COMMERCE_SCENE_DESCRIPTION_LIMIT, COMMERCE_CANDIDATE_GENERATION_LIMIT,
     appendCommerceSceneShot, confirmCommerceSceneShot, getCommerceProductInfo, getCommerceSceneSummary, getCommerceShotCandidates,
     getGeneratableCommerceImageSetShots, getRunnableCommerceImageSetShots, getSelectedCommerceImageSetShots,
     getUnfinishedCommerceImageSetShots, isCommerceShotImageStale,
@@ -22,7 +22,7 @@ import { getOpenAIChatCapabilities } from '../features/execution/openai-chat-cap
 import { confirmAction } from '../features/ui/app-dialogs.js';
 
 const shotGroups = [['gallery', '主副图'], ['detail', '详情图']];
-const candidateCountOptions = Array.from({ length: COMMERCE_SHOT_CANDIDATE_LIMIT }, (_, index) => [String(index + 1), `${index + 1} 张`]);
+const candidateCountOptions = Array.from({ length: COMMERCE_CANDIDATE_GENERATION_LIMIT }, (_, index) => [String(index + 1), `${index + 1} 张`]);
 const selectControl = (field, label = '') => `<select class="ui-select" data-commerce-field="${field}"${label ? ` aria-label="${label}"` : ''}></select>`;
 const stopIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
 const addIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
@@ -511,7 +511,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             const { current, candidates } = shotVersions(shot.id, savedResult);
             const alternatives = candidates.length;
             row.resultActions.hidden = active || (!current && !alternatives);
-            row.compareShot.hidden = !alternatives;
+            row.compareShot.hidden = !alternatives && !(current && shot.source === 'generate');
             row.compareShot.disabled = resultsLocked || referenceChanged;
             const compareLabel = `候选 ${alternatives}`;
             if (row.compareShot.textContent !== compareLabel) row.compareShot.textContent = compareLabel;
@@ -1059,10 +1059,25 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             const shot = value.plan?.shots.find(item => item.id === shotId);
             const result = value.results?.find(item => item.shotId === shotId && item.status === 'completed');
             const { current, candidates } = shotVersions(shotId, result);
-            if (!shot || !candidates.length) return;
+            if (!shot || (!current && !candidates.length)) return;
             try {
                 closeCandidateDialog = openCommerceShotCandidates({
                     documentRef, opener: button, shot, current, candidates, finalized: result?.finalized === true, getAssetUrl: assetUrl,
+                    openPreview: openResultPreview,
+                    candidateCount: normalizeCommerceImageSetCandidateCount(value.candidateCount),
+                    onCancel: () => cancel(shotId),
+                    onGenerate: async count => {
+                        const latest = config();
+                        latest.candidateCount = count;
+                        node.data.commerceImageSet = latest;
+                        onChange();
+                        const outcome = await run('generate-candidates', shotId);
+                        const updated = config();
+                        const versions = shotVersions(shotId, updated.results?.find(row => row.shotId === shotId));
+                        if (outcome?.outcome === 'failed') throw new Error(runError(outcome) || '候选生成失败。');
+                        if (outcome?.outcome !== 'completed' && outcome?.outcome !== 'stopped') throw new Error(runError(outcome) || '未能开始生成候选。');
+                        return { ...versions, message: outcome?.outcome === 'stopped' ? '已停止生成，已保存的候选可继续选择。' : '' };
+                    },
                     onApply: async key => {
                         const outcome = await run('select-candidate', shotId, key);
                         if (outcome?.outcome !== 'completed') throw new Error(runError(outcome) || '采用版本已取消。');

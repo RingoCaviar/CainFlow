@@ -1925,3 +1925,23 @@ html:root #canvas-container .node.node-text .text-node-editor:not(:focus)::-webk
     /* Give references and the prompt the available height in short windows. */
     body .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-context { display: none; }
 }
+
+/* Candidate browsing keeps the adopted image and comparison visible above a scrollable gallery. */
+.commerce-candidates-dialog { width: min(940px, calc(100vw - 24px)); }
+.commerce-candidate-gallery h3 { margin: 4px 0 8px; font-size: 13px; }
+.commerce-candidate-gallery h3 span { font-weight: 400; color: var(--text-secondary); }
+.commerce-candidate-options:not([hidden]) { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; max-height: 240px; overflow-y: auto; padding: 3px; }
+.commerce-candidate-options button { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 6px; text-align: left; }
+.commerce-candidate-options img { width: 100%; height: 88px; object-fit: contain; border-radius: 4px; background: var(--surface-control); }
+.commerce-candidate-options span { overflow-wrap: anywhere; }
+.commerce-candidate-image { width: 100%; padding: 0; cursor: zoom-in; }
+.commerce-candidate-image:disabled { cursor: default; }
+.commerce-candidate-image [role="status"] { margin: 4px; color: var(--text-secondary); text-align: center; }
+.commerce-candidate-generation { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.commerce-candidate-generation[hidden] { display: none; }
+.commerce-candidate-generation label { display: flex; align-items: center; gap: 6px; }
+.commerce-candidate-generation select { min-height: 34px; color: var(--text-primary); background: var(--surface-control); border: 1px solid var(--panel-border); border-radius: 6px; padding: 4px 8px; }
+.commerce-candidate-generation > span { color: var(--text-secondary); font-size: 12px; }
+.commerce-candidate-progress { margin: 0; color: var(--text-secondary); }
+
+.commerce-candidates-dialog [hidden] { display: none !important; }

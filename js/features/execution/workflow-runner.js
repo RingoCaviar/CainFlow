@@ -2466,7 +2466,7 @@ export function createWorkflowRunnerApi({
     async function runCommerceShot(plan, { signal } = {}) {
         const node = state.nodes.get(plan.commerceNodeId);
         if (node?.type !== 'ECommerceImageSet' || node.enabled === false || node.isClone
-            || !plan.commerceShotId || !['retry', 'replan-shot'].includes(plan.commerceAction)) {
+            || !plan.commerceShotId || !['retry', 'generate-candidates', 'replan-shot'].includes(plan.commerceAction)) {
             return { started: false, executed: false, reason: 'no-plan' };
         }
         if (signal?.aborted) return { started: false, executed: false, outcome: 'stopped' };

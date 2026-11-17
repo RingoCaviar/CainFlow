@@ -19,15 +19,15 @@ const models = [{ id: 'vision', modelId: 'gpt-4o', taskType: 'chat', protocol: '
 const providers = [{ id: 'provider', endpoint: 'https://fixture.test/v1', apikey: 'test' }];
 
 test('commerce candidate counts are bounded and do not change the approved plan identity', async () => {
-    for (const invalid of [undefined, 0, 5, 2.5, '3', Infinity]) {
+    for (const invalid of [undefined, 0, 9, 2.5, '3', Infinity]) {
         assert.equal(normalizeCommerceImageSetState({ ...settings, candidateCount: invalid }).candidateCount, undefined);
     }
-    assert.equal(normalizeCommerceImageSetState({ ...settings, candidateCount: 4 }).candidateCount, 4);
+    assert.equal(normalizeCommerceImageSetState({ ...settings, candidateCount: 8 }).candidateCount, 8);
     assert.equal(await commerceImageSetSourceKey({ settings: { ...settings, candidateCount: 3 }, references }),
         await commerceImageSetSourceKey({ settings, references }));
     const saved = normalizeCommerceImageSetState({ ...settings, results: [
         { shotId: 'detail', status: 'completed', assetKey: 'media:partial', candidateProgress: { completed: 1, total: 3 } },
-        { shotId: 'feature', status: 'completed', assetKey: 'media:invalid', candidateProgress: { completed: 1, total: 5 } }
+        { shotId: 'feature', status: 'completed', assetKey: 'media:invalid', candidateProgress: { completed: 1, total: 9 } }
     ] });
     assert.deepEqual(saved.results[0].candidateProgress, { completed: 1, total: 3 });
     assert.equal(saved.results[1].candidateProgress, undefined);
@@ -81,8 +81,8 @@ test('commerce persists bounded candidate history and a finalization only for th
     assert.equal(setCommerceShotFinalized(restored, 'detail', true), true);
     assert.equal(normalizeCommerceImageSetState(restored).results[0].finalized, true);
     assert.deepEqual(getGeneratableCommerceImageSetShots(restored).map(shot => shot.id), ['main', 'feature']);
-    assert.deepEqual(getCommerceImageSetCandidateAssetKeys(restored), ['media:A', 'media:F', 'media:B', 'media:C', 'media:D']);
-    assert.equal(getCommerceShotCandidates(restored, 'detail').length, COMMERCE_SHOT_CANDIDATE_LIMIT);
+    assert.deepEqual(getCommerceImageSetCandidateAssetKeys(restored), ['media:A', 'media:F', 'media:B', 'media:C', 'media:D', 'media:E']);
+    assert.equal(getCommerceShotCandidates(restored, 'detail').length, 5);
     assert.equal(getCommerceShotCandidates(restored, 'detail')[0].draft.prompt, '保留A');
     assert.equal(setCommerceShotFinalized(restored, 'detail', false), true);
     assert.deepEqual(getGeneratableCommerceImageSetShots(restored).map(shot => shot.id), ['main', 'detail', 'feature']);
