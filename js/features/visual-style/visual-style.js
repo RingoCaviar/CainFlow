@@ -14,11 +14,18 @@ export function normalizeVisualStyle(raw = {}) {
     const preset = Object.hasOwn(VISUAL_STYLE_PRESETS, raw?.preset) ? raw.preset : 'custom';
     const defaults = VISUAL_STYLE_PRESETS[preset];
     return { version: 1, preset, ...Object.fromEntries(Object.keys(VISUAL_STYLE_FIELDS).map(key => [key,
-        typeof raw?.[key] === 'string' ? raw[key].trim().slice(0, 2000) : defaults[key] || ''])) };
+        typeof raw?.[key] === 'string' ? raw[key].trim().slice(0, key === 'description' ? 20000 : 2000) : defaults[key] || ''])) };
 }
 
 export function visualStyleKey(style) {
     return style ? JSON.stringify(normalizeVisualStyle(style)) : '';
+}
+
+/** Flatten legacy structured styles for the single editable style description. */
+export function visualStyleText(style) {
+    const normalized = normalizeVisualStyle(style);
+    return Object.entries(VISUAL_STYLE_FIELDS).filter(([key]) => normalized[key])
+        .map(([key, label]) => key === 'description' ? normalized[key] : `${label}：${normalized[key]}`).join('\n');
 }
 
 export function buildVisualStylePrompt(style, { lettering = false } = {}) {

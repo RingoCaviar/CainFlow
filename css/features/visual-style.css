@@ -1,11 +1,19 @@
+.node-visual-style .node-body { min-height: 120px; }
+.visual-style-preview {
+    flex: 1 1 auto; min-height: 0; max-height: 100%; box-sizing: border-box;
+    padding: 16px; font-size: 14px; line-height: 1.65; color: var(--text-primary);
+    white-space: pre-wrap; overflow-wrap: anywhere; overflow: hidden;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5;
+}
+.visual-style-preview.is-empty { display: grid; place-items: center; min-height: 120px; padding: 0; color: var(--text-secondary); }
 .visual-style-settings { display: grid; gap: 12px; min-width: 0; }
-.visual-style-settings summary { cursor: pointer; padding: 8px 0; font-size: 14px; font-weight: 600; }
-.visual-style-settings details { min-width: 0; }
-.visual-style-settings select { max-width: 100%; background: var(--bg-input); color: var(--text-primary); }
-.visual-style-settings details > .node-field { margin-top: 10px; }
-.visual-style-settings textarea { width: 100%; box-sizing: border-box; resize: vertical; }
-.visual-style-settings p { color: var(--text-secondary); font-size: 12px; line-height: 1.6; margin: 0; overflow-wrap: anywhere; }
-.visual-style-scope { display: flex; flex-wrap: wrap; gap: 8px 12px; margin: 10px 0; }
-.visual-style-scope label { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
-.visual-style-scope input { accent-color: var(--text-link); }
-.visual-style-settings [data-style-extract] { width: 100%; margin-top: 10px; }
+.visual-style-settings textarea {
+    width: 100%; box-sizing: border-box; resize: vertical; min-height: 100px;
+    padding: 6px 8px; font: inherit; font-size: 14px; line-height: 1.65;
+    background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px;
+}
+.visual-style-settings summary { cursor: pointer; padding: 6px 0; font-size: 13px; color: var(--text-secondary); }
+.visual-style-model-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-top: 8px; }
+.visual-style-settings select { width: 100%; max-width: 100%; background: var(--bg-input); color: var(--text-primary); }
+.visual-style-settings [data-style-status] { margin: 0; font-size: 13px; line-height: 1.6; color: var(--text-secondary); overflow-wrap: anywhere; }
+.visual-style-settings [data-style-status]:empty { display: none; }

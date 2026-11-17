@@ -11,10 +11,10 @@ test('画布菜单创建画面风格节点并保存恢复', { timeout: 30000 }, 
             {bubbles:true,cancelable:true,clientX:400,clientY:300}));
             document.querySelector('.context-menu-item[data-type=VisualStyle]').click();`);
         assert.doesNotMatch(await app.evaluate('document.body.innerText'), /创建节点失败/);
-        await app.waitFor("document.querySelector('#nodes-layer [data-style-field=preset]') !== null");
+        await app.waitFor("document.querySelector('#nodes-layer [data-style-preview]') !== null");
         await waitForAutosave(app);
         await reloadAppBrowser(app);
-        assert.equal(await app.evaluate("document.querySelectorAll('#nodes-layer [data-style-field=preset]').length"), 1);
+        assert.equal(await app.evaluate("document.querySelectorAll('#nodes-layer [data-style-preview]').length"), 1);
     });
 });
 
@@ -32,7 +32,7 @@ test('画面风格编辑、显式提取、普通生图与保存恢复', { timeou
             if(url==='/proxy' && options?.body){
                 const body=options.body instanceof FormData?Object.fromEntries(options.body):JSON.parse(options.body);
                 styleRequests.push(body);
-                if(body.messages) return Promise.resolve(Response.json({choices:[{message:{content:JSON.stringify({palette:'暖棕色'})}}]}));
+                if(body.messages) return Promise.resolve(Response.json({choices:[{message:{content:JSON.stringify({description:'暖棕色，柔和自然光，细腻质感。'})}}]}));
                 const response=()=>Response.json({data:[{b64_json:${JSON.stringify(originals[1].split(',')[1])}}]});
                 return new Promise(resolve=>window.releaseStyleImage=()=>resolve(response()));
             }
@@ -40,46 +40,73 @@ test('画面风格编辑、显式提取、普通生图与保存恢复', { timeou
         };`;
     await withAppBrowser(fixture, async app => {
         await uploadImageOriginal(app, 'reference', originals[0]);
-        assert.equal(await app.evaluate("document.querySelector('#style-style-preset').value"), 'natural');
-        assert.equal(await app.evaluate("document.getElementById('style-style-preset').getAttribute('aria-hidden')"), null, 'native style selector remains accessible');
-        await app.evaluate("import('/js/app/bootstrap.js').then(async module=>{const app=await module.bootstrapCainFlowApp();app.state.models.find(model=>model.id==='chat').name='风格分析模型';document.querySelector('#style [data-style-model]').dispatchEvent(new Event('focus'));})");
-        assert.match(await app.evaluate("document.querySelector('#style [data-style-model]').selectedOptions[0].textContent"), /风格分析模型/);
-        await app.evaluate("var field=document.getElementById('style-style-description');field.value='温暖的生活感';field.dispatchEvent(new Event('change',{bubbles:true}));");
-        await app.evaluate("document.querySelectorAll('#style [data-style-scope]').forEach(el=>el.checked=el.dataset.styleScope==='palette');document.querySelector('#style [data-style-extract]').click()");
-        await app.waitFor("document.getElementById('style-style-palette').value==='暖棕色'");
+        assert.equal(await app.evaluate("document.querySelectorAll('#style textarea, #style select, #style details').length"), 0);
+        assert.match(await app.evaluate("document.querySelector('#style [data-style-preview]').textContent"), /柔和自然光/);
+        await app.evaluate("document.querySelector('#style [data-style-preview]').click()");
+        await app.waitFor("!document.getElementById('image-parameter-panel').hidden");
+        assert.equal(await app.evaluate("document.querySelectorAll('#image-parameter-panel textarea').length"), 1);
+        assert.ok(await app.evaluate("document.getElementById('style').offsetHeight <= 180"), 'style preview remains compact');
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel details').open"), false);
+        await app.evaluate("var field=document.getElementById('style-style-description');field.value='温暖的生活感';field.dispatchEvent(new Event('input',{bubbles:true}));");
+        assert.equal(await app.evaluate("document.querySelector('#style [data-style-preview]').textContent"), '温暖的生活感');
+        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=generate]').click()");
+        await app.waitFor("document.getElementById('style-style-description').value.includes('暖棕色')");
         assert.equal(await app.evaluate('styleRequests.length'), 1);
-        assert.equal(await app.evaluate("document.getElementById('style-style-description').value"), '温暖的生活感');
-        await app.waitFor("!document.querySelector('#style [data-style-extract]').disabled && document.getElementById('btn-stop').disabled");
+        await app.waitFor("document.getElementById('btn-stop').disabled");
+        await app.evaluate("var field=document.getElementById('style-style-description');field.value+=' 留白充足。';field.dispatchEvent(new Event('input',{bubbles:true}));");
         await app.evaluate("document.getElementById('btn-run').click()");
         await app.waitFor("typeof releaseStyleImage==='function'");
         assert.equal(await app.evaluate("document.getElementById('style-style-description').disabled"), true, 'style stays locked while downstream generation is running');
-        await app.evaluate("var field=document.getElementById('style-style-description');field.value='不应写入';field.dispatchEvent(new Event('change',{bubbles:true}));releaseStyleImage()");
+        await app.evaluate("var field=document.getElementById('style-style-description');field.value='不应写入';field.dispatchEvent(new Event('input',{bubbles:true}));releaseStyleImage()");
         await app.waitFor("styleRequests.length===2 && document.getElementById('btn-stop').disabled");
         assert.match(await app.evaluate('styleRequests[1].prompt'), /暖棕色/);
         await waitForAutosave(app);
         const saved = await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(d=>d.value.nodes)");
-        assert.equal(saved.find(node => node.id === 'image').visualStyleSnapshot.palette, '暖棕色');
-        assert.equal(saved.find(node => node.id === 'style').visualStyle.description, '温暖的生活感');
+        assert.equal(saved.find(node => node.id === 'image').visualStyleSnapshot.description, '暖棕色，柔和自然光，细腻质感。 留白充足。');
+        assert.equal(saved.find(node => node.id === 'style').visualStyle.description, '暖棕色，柔和自然光，细腻质感。 留白充足。');
         await reloadAppBrowser(app);
-        assert.equal(await app.evaluate("document.getElementById('style-style-palette').value"), '暖棕色');
+        assert.equal(await app.evaluate("document.getElementById('style-style-description').value"), '暖棕色，柔和自然光，细腻质感。 留白充足。');
+        await app.evaluate("document.querySelector('#style [data-style-preview]').click()");
         assert.equal(await app.evaluate('styleRequests.length'), 0, 'reload does not analyze or generate');
         await mkdir('.scratch/visual-style/screenshots', { recursive: true });
-        for (const theme of ['light', 'dark']) {
+        for (const theme of ['light', 'dark', 'paper', 'pro', 'pink', 'glass-light', 'glass-dark']) {
             await app.evaluate(`document.documentElement.dataset.appTheme='${theme}'`);
             const { data } = await app.send('Page.captureScreenshot', { format: 'png' });
             await writeFile(`.scratch/visual-style/screenshots/${theme}.png`, Buffer.from(data, 'base64'));
         }
-        await app.evaluate("document.querySelector('#style details:last-of-type').open=true");
-        await app.waitFor("document.querySelector('#style [data-style-extract]').getBoundingClientRect().height>0");
+        await app.evaluate("document.querySelector('#image-parameter-panel details').open=true");
+        await app.waitFor("document.querySelector('#image-parameter-panel [data-style-model]').getBoundingClientRect().height>0");
         const expanded = await app.send('Page.captureScreenshot', { format: 'png' });
         await writeFile('.scratch/visual-style/screenshots/expanded.png', Buffer.from(expanded.data, 'base64'));
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 520, height: 560, deviceScaleFactor: 1, mobile: false });
+        await app.waitFor("document.getElementById('image-parameter-panel').getBoundingClientRect().right <= innerWidth");
+        const bounds = await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel'), b=p.querySelector('[data-parameter-action=generate]').getBoundingClientRect();return {left:p.getBoundingClientRect().left,bottom:b.bottom,width:p.scrollWidth,client:p.clientWidth};})()");
+        assert.ok(bounds.left >= 0 && bounds.bottom <= 560 && bounds.width <= bounds.client + 1);
+        const narrow = await app.send('Page.captureScreenshot', { format: 'png' });
+        await writeFile('.scratch/visual-style/screenshots/narrow.png', Buffer.from(narrow.data, 'base64'));
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 1100, height: 820, deviceScaleFactor: 1, mobile: false });
         await app.evaluate("document.getElementById('style').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:650,clientY:230}));document.getElementById('context-menu-clone-node').click()");
         await app.evaluate("document.getElementById('clone-node-count-input').value='1';document.getElementById('clone-node-include-upstream').checked=false;document.getElementById('btn-confirm-clone-node-count').click()");
-        await app.evaluate("var field=document.getElementById('style-style-palette');field.value='深蓝';field.dispatchEvent(new Event('change',{bubbles:true}));");
+        await app.evaluate("var field=document.getElementById('style-style-description');field.value='深蓝';field.dispatchEvent(new Event('input',{bubbles:true}));");
         await waitForAutosave(app);
         const changed = await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(d=>d.value.nodes)");
-        assert.equal(changed.find(node => node.cloneSourceId === 'style').visualStyle.palette, '深蓝');
+        assert.equal(changed.find(node => node.cloneSourceId === 'style').visualStyle.description, '深蓝');
         assert.equal(changed.find(node => node.id === 'image').generationRevision.dirty, true);
-        assert.equal(changed.find(node => node.id === 'image').visualStyleSnapshot.palette, '暖棕色', 'old result retains its generation snapshot');
+        assert.equal(changed.find(node => node.id === 'image').visualStyleSnapshot.description, '暖棕色，柔和自然光，细腻质感。 留白充足。', 'old result retains its generation snapshot');
     }, { initScript });
+});
+
+test('风格手动输入无需模型；提取失败保留文本并显示原因', { timeout: 30000 }, async () => {
+    await withAppBrowser({ ...configuration, nodes: [{ id: 'style', type: 'VisualStyle', x: 150, y: 80 }], connections: [] }, async app => {
+        await app.evaluate("document.querySelector('#style [data-style-preview]').click();var field=document.getElementById('style-style-description');field.value='我的风格';field.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('#image-parameter-panel [data-parameter-action=generate]').click()");
+        assert.match(await app.evaluate("document.querySelector('[data-style-status]').textContent"), /请选择/);
+        assert.equal(await app.evaluate("document.getElementById('style-style-description').value"), '我的风格');
+        await app.evaluate("var model=document.querySelector('[data-style-model]');model.value='chat';model.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('#image-parameter-panel [data-parameter-action=generate]').click()");
+        await app.waitFor("document.getElementById('btn-stop').disabled && document.querySelector('[data-style-status]').textContent.includes('参考图')");
+        assert.equal(await app.evaluate("document.getElementById('style-style-description').value"), '我的风格');
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+        await app.waitFor("document.getElementById('image-parameter-panel').hidden");
+        await app.evaluate("document.querySelector('#style [data-style-preview]').click();var field=document.getElementById('style-style-description');field.value='柔和自然光，暖棕色，简洁背景，细腻质感。\\n'.repeat(30);field.dispatchEvent(new Event('input',{bubbles:true}));");
+        assert.ok(await app.evaluate("(()=>{const node=document.getElementById('style').getBoundingClientRect(),preview=document.querySelector('#style [data-style-preview]').getBoundingClientRect();return preview.bottom<=node.bottom+1;})()"), 'long style stays inside its compact card');
+    });
 });

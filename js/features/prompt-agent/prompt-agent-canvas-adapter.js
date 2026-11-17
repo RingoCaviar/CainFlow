@@ -305,8 +305,10 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                     } else if (step.type === 'VisualStyle') {
                         if (state.isRunning) throw new Error('请等待工作流运行结束后修改画面风格。');
                         const node = state.nodes.get(nodeId);
-                        node.data.visualStyle = normalizeVisualStyle({ ...(Object.hasOwn(step.parameters, 'preset') ? normalizeVisualStyle({ preset: step.parameters.preset }) : node.data.visualStyle), ...step.parameters });
-                        for (const control of node.el?.querySelectorAll('[data-style-field]') || []) control.value = node.data.visualStyle[control.dataset.styleField] || '';
+                        const base = Object.keys(step.parameters).length === 1 && Object.hasOwn(step.parameters, 'description')
+                            ? {} : Object.hasOwn(step.parameters, 'preset') ? normalizeVisualStyle({ preset: step.parameters.preset }) : node.data.visualStyle;
+                        node.data.visualStyle = normalizeVisualStyle({ ...base, ...step.parameters });
+                        node.refreshVisualStyle?.();
                     } else if (step.type === 'ECommerceImageSet') {
                         const node = state.nodes.get(nodeId);
                         if (Object.hasOwn(step.parameters, 'copyLanguage')) {

@@ -360,7 +360,7 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
             }
             if (rule?.type && rule.type !== 'integer' && typeof value !== rule.type) fail(`参数 ${key} 的类型无效`);
             if (!rule && typeof value === 'number' && (!Number.isFinite(value) || value < 0)) fail(`参数 ${key} 无效`);
-            if (typeof value === 'string' && value.length > (step.type === 'VisualStyle' ? 2000 : 25000)) fail(`参数 ${key} 过长`);
+            if (typeof value === 'string' && value.length > (step.type === 'VisualStyle' ? (key === 'description' ? 20000 : 2000) : 25000)) fail(`参数 ${key} 过长`);
         }
         if (parameters.inputCount !== undefined && (!Number.isInteger(parameters.inputCount) || parameters.inputCount < 1 || parameters.inputCount > 20)) fail('合并输入数量必须在 1 至 20 之间');
         if (step.type === 'ImageGenerate' && !existing && (execute || Object.keys(parameters).length) && !String(parameters.prompt || '').trim()) fail('新建生图步骤缺少提示词');

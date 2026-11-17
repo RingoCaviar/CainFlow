@@ -286,7 +286,7 @@
   ],
   "tests": {
     "tests/visual-style.test.mjs": {"tier": "fast", "groups": ["nodes", "agent", "canvas"]},
-    "tests/visual-style-app-browser.test.mjs": {"tier": "browser", "groups": ["nodes", "canvas", "workflow"], "sources": ["css/features/visual-style.css", "js/nodes/visual-style-view.js", "js/nodes/types/visual-style.js", "js/features/visual-style/visual-style-analysis.js"]},
+    "tests/visual-style-app-browser.test.mjs": {"tier": "browser", "groups": ["nodes", "canvas", "workflow"], "sources": ["css/features/visual-style.css", "js/nodes/visual-style-view.js", "js/nodes/types/visual-style.js", "js/features/visual-style/visual-style-analysis.js", "js/features/ui/image-first-canvas.js", "js/nodes/image-first-presentation.js", "js/nodes/node-lifecycle.js"]},
     "tests/text-node-ux-app-browser.test.mjs": {"tier": "browser", "groups": ["nodes", "canvas", "ui"], "sources": ["js/nodes/text-node-reader.js", "js/nodes/text-node-tools.js", "js/nodes/node-lifecycle.js", "js/features/execution/execution-core.js", "css/features/text-node-reader.css", "js/nodes/node-view-factory.js", "js/nodes/node-dom-bindings.js", "css/features/image-first-canvas.css"]},
     "tests/media-history-id-browser.test.mjs": {"tier": "browser", "groups": ["media", "history"]},
     "tests/browser-operation-diagnostics.test.mjs": {"tier": "browser", "groups": ["tooling", "media"]},

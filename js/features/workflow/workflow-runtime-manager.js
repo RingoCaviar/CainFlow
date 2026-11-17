@@ -984,7 +984,7 @@ export function createWorkflowRuntimeManager({
         if (runtimeNode.data?.visualStyleSnapshot !== undefined) node.data.visualStyleSnapshot = clonePlainValue(runtimeNode.data.visualStyleSnapshot);
         if (runtimeNode.type === 'VisualStyle') {
             node.data.visualStyle = clonePlainValue(runtimeNode.data.visualStyle);
-            for (const control of node.el?.querySelectorAll('[data-style-field]') || []) control.value = node.data.visualStyle[control.dataset.styleField] || '';
+            node.refreshVisualStyle?.();
         }
         if (runtimeNode.type === 'ImagePreview') {
             const images = getCanonicalImageList(runtimeNode, { includeResizePreview: false });

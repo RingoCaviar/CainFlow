@@ -14,7 +14,7 @@ import { createCommerceImageSetView } from '../../nodes/commerce-image-set-view.
 import { createProductRetouchView } from '../../nodes/product-retouch-view.js';
 import { createImageGenerationBatchView } from './image-generation-batch.js';
 
-const nodeLabels = { ImageGenerate: '图片生成', ECommerceImageSet: '电商套图', ProductRetouch: '产品精修', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比', ImageMerge: '多图合一', ImageSave: '保存节点', CameraControl: '视角控制' };
+const nodeLabels = { VisualStyle: '画面风格', ImageGenerate: '图片生成', ECommerceImageSet: '电商套图', ProductRetouch: '产品精修', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比', ImageMerge: '多图合一', ImageSave: '保存节点', CameraControl: '视角控制' };
 const dockWidthKeys = new Map([
     ['ECommerceImageSet', 'cainflow_ecommerce_image_set_dock_width'],
     ['ProductRetouch', 'cainflow_product_retouch_dock_width']
@@ -602,6 +602,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             }
         }
         let mergeSourceCount = 0, mergeHasEnabledSource = false, mergeFeedback = '';
+        node.refreshVisualStyle?.();
         view.commerce?.refresh();
         view.retouch?.refresh();
         if (view.referenceDetails) {
@@ -708,6 +709,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 : node.type === 'ImageCompare' ? (running ? '更新中' : '更新对比')
                 : node.type === 'ImageMerge' ? (running ? '合并中' : '更新合并')
                 : node.type === 'ImageSave' ? (running ? '更新中' : '更新媒体')
+                : node.type === 'VisualStyle' ? (running ? '提取中…' : '提取风格')
                 : node.type === 'CameraControl' ? '编辑视角'
                 : node.type === 'ImageResize' ? (running ? '处理中' : '处理图片')
                     : node.type === 'ColorReset' ? (running ? '调色中' : '应用调色') : (generationCount > 1 ? `生成 ×${generationCount}` : '生成'));
@@ -721,6 +723,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             configuration.hidden = !issue;
             setText(configurationMessage, issue?.message || '');
             generate.disabled = !!issue || running || node.enabled === false
+                || (node.type === 'VisualStyle' && (state.isRunning || state.runningNodeIds?.size > 0 || node.isClone))
                 || (node.type === 'ImageMerge' && !mergeHasEnabledSource)
                 || (node.type === 'CameraControl' && (node.isClone || view.cameraOpen?.disabled));
             setText(feedback, node.type === 'ImageImport' ? '在卡片选择文件，或切换 URL 输入链接。'
@@ -735,7 +738,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 'B 为必需输入；A 可选，移动指针调整分界。',
                 '修改文件名后，使用卡片上的保存按钮保存媒体。', '在独立编辑器调整相机；参数即时保存，输出为相机提示词。',
                 '修改即时预览；点击按钮执行当前节点。'];
-            const hasFeedback = node.type !== 'ImageGenerate' && node.type !== 'ProductRetouch'
+            const hasFeedback = node.type !== 'VisualStyle' && node.type !== 'ImageGenerate' && node.type !== 'ProductRetouch'
                 && !!feedback.textContent && !passiveFeedback.includes(feedback.textContent);
             feedback.hidden = !hasFeedback;
             panel.dataset.hasFeedback = String(hasFeedback);
@@ -1124,6 +1127,14 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections: [], inputs, commerce, referenceDetails,
             footerTools: commerce.actions }, []);
     }
+    function installVisualStyle(node) {
+        const form = documentRef.createElement('div');
+        form.className = 'node-body image-first-parameter-content';
+        form.dataset.nodeId = node.id;
+        form.append(node.el.querySelector('.visual-style-settings'));
+        node.el.classList.add('image-first-media');
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections: [] }, []);
+    }
     function installProductRetouch(node) {
         const form = documentRef.createElement('div');
         form.className = 'node-body image-first-parameter-content';
@@ -1148,6 +1159,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (!isImageFirstCardNode(node) || views.has(node)) return;
         if (node.type === 'ECommerceImageSet') { installCommerce(node); return; }
         if (node.type === 'ProductRetouch') { installProductRetouch(node); return; }
+        if (node.type === 'VisualStyle') { installVisualStyle(node); return; }
         if (node.type === 'ImageImport' || node.type === 'ImagePreview' || node.type === 'ImageCompare' || node.type === 'ImageMerge' || node.type === 'ImageSave' || node.type === 'CameraControl') { installMedia(node); return; }
         if (node.type === 'ImageResize' || node.type === 'ColorReset') { installProcessing(node); return; }
         if (node.type !== 'ImageGenerate') return;
@@ -1325,6 +1337,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     generate.addEventListener('click', () => {
         if (!current) return;
         if (generate.disabled) return;
+        if (current.type === 'VisualStyle') { void current.extractVisualStyle?.(); return; }
         if (current.type === 'CameraControl') { views.get(current)?.cameraOpen?.click(); return; }
         runCurrentNode(current.id);
     });

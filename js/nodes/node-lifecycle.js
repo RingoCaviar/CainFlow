@@ -918,6 +918,7 @@ export function createNodeLifecycleApi({
         }
         const config = nodeConfigs[node.type] || null;
         if (isImageFirstCardNode(node) && node.el?.classList.contains('image-first-card')) {
+            if (node.type === 'VisualStyle') return { minWidth: config.minWidth, minHeight: config.minHeight };
             const generation = node.type === 'ImageGenerate';
             const restored = getImageFirstRestoredSize(node);
             const originalWidth = node.el.style.width;
