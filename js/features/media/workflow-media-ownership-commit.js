@@ -1,11 +1,13 @@
 import { createMediaOwnershipTransition } from './media-ownership-transition.js';
 import { readProductRetouchComparison } from '../product-retouch/product-retouch-comparison.js';
+import { getCommerceImageSetHistoryAssetKeys } from '../ecommerce-image-set/commerce-image-set-plan.js';
 
 const MEDIA_OWNER_TYPES = Object.freeze({
     ImageImport: 'workflow-import'
 });
 const MEDIA_OWNER_NODE_TYPES = new Set([
-    'ImageGenerate', 'ImagePreview', 'ImageImport', 'ImageResize', 'ImageSave', 'ImageCompare', 'ImageMerge', 'VideoGenerate', 'ProductRetouch'
+    'ImageGenerate', 'ImagePreview', 'ImageImport', 'ImageResize', 'ImageSave', 'ImageCompare', 'ImageMerge', 'VideoGenerate',
+    'ECommerceImageSet', 'ProductRetouch'
 ]);
 
 function readMediaAssetKeys(node) {
@@ -17,6 +19,12 @@ function readMediaAssetKeys(node) {
         .filter((key) => typeof key === 'string' && key.startsWith('media:'));
     const comparison = readProductRetouchComparison(node);
     if (comparison) result.push(comparison.originalAssetKey);
+    if (node?.type === 'ECommerceImageSet') {
+        const live = new Set(result);
+        for (const key of getCommerceImageSetHistoryAssetKeys(node.commerceImageSet ?? node.data?.commerceImageSet)) {
+            if (!live.has(key)) result.push(key);
+        }
+    }
     const videos = node?.data?.videos ?? node?.videos;
     const single = node?.data?.video ?? node?.video;
     const videoKeys = (Array.isArray(videos) && videos.length ? videos.map(video => video?.assetKey)

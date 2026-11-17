@@ -60,6 +60,7 @@ import { createImagePainterApi } from '../features/media/image-painter.js';
 import { createEditedImageImport } from '../features/media/image-painter-output.js';
 import { createCameraControlNodeApi } from '../features/camera/camera-control-node-proxy.js';
 import { createExecutionCoreApi } from '../features/execution/execution-core.js';
+import { getRunnableCommerceImageSetShots, getUnfinishedCommerceImageSetShots } from '../features/ecommerce-image-set/commerce-image-set-plan.js';
 import { createWorkflowRunnerApi } from '../features/execution/workflow-runner.js';
 import { getCanonicalImageList } from '../features/execution/execution-data-utils.js';
 import { prepareGenerationSaveTargets } from '../features/execution/generation-save-targets.js';
@@ -839,13 +840,15 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
     },
     openAgent: () => promptAgentController.open(),
     openModelSettings: target => settingsControllerApi.openModelSettings(target),
-    runCurrentNode: (nodeId, { commerceAction, commerceShotId, imageRetryIndex, imageRetryBatchId } = {}) => commerceAction
-        ? runCommerceImageSetAction(nodeId, commerceAction, commerceShotId)
+    runCurrentNode: (nodeId, { commerceAction, commerceShotId, commerceCandidateKey, imageRetryIndex, imageRetryBatchId } = {}) => commerceAction
+        ? runCommerceImageSetAction(nodeId, commerceAction, commerceShotId, commerceCandidateKey)
         : runWorkflow({
             mode: 'selected-only', selectedNodeIds: [nodeId],
             ...(Number.isInteger(imageRetryIndex) ? { imageRetryNodeId: nodeId, imageRetryIndex, imageRetryBatchId } : {})
         }, { waitForCompletion: Number.isInteger(imageRetryIndex) }),
     cancelCommerceImageSet,
+    removeCommerceScene,
+    readReferenceAsset: getImageAsset,
     waitForNodeRun: nodeId => {
         const workflowId = workflowManagerApi.getActiveWorkflowId();
         return !workflowId || getWorkflowRuntimeManagerApi().waitForNodeRun({ workflowId }, nodeId);
@@ -1079,7 +1082,7 @@ function resumeWorkflowNode(nodeId) {
     return runWorkflow({ mode: 'target-node', targetNodeId: nodeId }, { waitForCompletion: true, resumeNodeId: nodeId });
 }
 
-function runCommerceImageSetAction(nodeId, commerceAction, commerceShotId) {
+function runCommerceImageSetAction(nodeId, commerceAction, commerceShotId, commerceCandidateKey) {
     const node = state.nodes.get(nodeId);
     if (node?.type !== 'ECommerceImageSet' || node.enabled === false || node.isClone) return false;
     const controller = new AbortController();
@@ -1088,7 +1091,7 @@ function runCommerceImageSetAction(nodeId, commerceAction, commerceShotId) {
     getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();
     run.promise = runWorkflow({
         mode: 'selected-only', selectedNodeIds: [nodeId],
-        commerceNodeId: nodeId, commerceAction, commerceShotId
+        commerceNodeId: nodeId, commerceAction, commerceShotId, commerceCandidateKey
     }, { waitForCompletion: true, commercePanelRun: run }).finally(() => {
         commercePanelRuns.delete(run);
         getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();
@@ -1108,6 +1111,33 @@ function cancelCommerceImageSet(nodeId, shotId) {
     }
     if (canceled) getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();
     return canceled;
+}
+
+async function removeCommerceScene(nodeId, shotId) {
+    const node = state.nodes.get(nodeId);
+    const workflowId = workflowManagerApi.getActiveWorkflowId();
+    const canEdit = () => node?.type === 'ECommerceImageSet' && node.enabled !== false && !node.isClone
+        && state.nodes.get(nodeId) === node && workflowManagerApi.getActiveWorkflowId() === workflowId
+        && !state.isRunStarting && !state.canvasPlanApplying && !state.historyTransitionInProgress
+        && !state.runningNodeIds?.has(nodeId) && ![...commercePanelRuns].some(run => run.node === node)
+        && (!workflowId || !getWorkflowRuntimeManagerApi().getPlanOverlapNodeIds({ workflowId }, [nodeId]).length);
+    if (!canEdit()) return false;
+    const outputs = node.data.mediaAssetKeys;
+    const integrity = node.data.mediaIntegrity;
+    await getNodeLifecycleApi().waitForImageRestores([nodeId]);
+    if (!await getExecutionCoreApi().removeCommerceScene(node, shotId, canEdit)) return false;
+    if (node.commerceRunPartial) {
+        const settings = node.data.commerceImageSet;
+        const total = getRunnableCommerceImageSetShots(settings).length;
+        const completed = total - getUnfinishedCommerceImageSetShots(settings).length;
+        node.commerceRunPartial = completed > 0 && completed < total ? { completed, total } : undefined;
+    }
+    if (node.data.mediaIntegrity !== integrity) workflowManagerApi.refreshActiveWorkflowIntegrityState();
+    if (node.data.mediaAssetKeys !== outputs) {
+        nodeDomBindingsApi.refreshDependentReferenceSources(nodeId);
+    }
+    registry.imageFirstCanvasApi.refreshSource(nodeId);
+    return true;
 }
 
 function getCanvasRunScopePreview(runInput) {

@@ -118,6 +118,7 @@ export function createImageNodeResults({ state, documentRef, createActions = () 
             sourceNodeId: nodeId, sourcePort: 'image', sourceImageIndex: index, isCurrent, readOriginal,
             restoreFocus: () => documentRef.getElementById(`${nodeId}-image-results`)?.querySelector('[data-result-action=preview]')?.focus({ preventScroll: true }) });
         const preview = documentRef.createElement('button'); preview.type = 'button'; preview.className = 'image-node-result-preview';
+        if (!missing) preview.dataset.previewLoading = 'true';
         preview.dataset.nodeReadAction = 'true'; preview.setAttribute('aria-label', `放大第 ${index + 1} 张生成结果`);
         let pointerDragged = false;
         preview.addEventListener('mousedown', event => {
@@ -145,6 +146,7 @@ export function createImageNodeResults({ state, documentRef, createActions = () 
             void actions?.execute('preview');
         });
         const image = documentRef.createElement('img'); image.alt = `生成结果 ${index + 1}`; image.decoding = 'async';
+        for (const event of ['load', 'error']) image.addEventListener(event, () => { delete preview.dataset.previewLoading; });
         if (/^data:image\//i.test(original || '')) {
             preview.append(image);
             observePreview(host, view);
@@ -165,7 +167,7 @@ export function createImageNodeResults({ state, documentRef, createActions = () 
                     if (result.original && host.isConnected && isCurrent()) rememberThumbnail(nodeId, result.original, result.thumbnail);
                 }).catch(() => {
                     if (!canPaint()) return;
-                    missingSlots.add(index); preview.textContent = '原图缺失，请从媒体管理恢复';
+                    missingSlots.add(index); delete preview.dataset.previewLoading; preview.textContent = '原图缺失，请从媒体管理恢复';
                 }).finally(() => {
                     if (retainedView() && !canPaint()) view.onPreviewVisible = loadVisiblePreview;
                     else view.stopPreviewVisibility?.();

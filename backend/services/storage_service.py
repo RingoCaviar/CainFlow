@@ -5,6 +5,7 @@ import heapq
 import json
 import mimetypes
 import os
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -24,8 +25,21 @@ from backend.services.undo_media import UndoMediaMixin
 SCHEMA_VERSION = 10
 MEDIA_TRANSITION_INTENTS = {'save', 'delete', 'undo', 'redo'}
 MEDIA_OWNER_NODE_TYPES = {
-    'ImageGenerate', 'ImagePreview', 'ImageImport', 'ImageResize', 'ImageSave', 'ImageCompare', 'ImageMerge', 'ProductRetouch'
+    'ImageGenerate', 'ImagePreview', 'ImageImport', 'ImageResize', 'ImageSave', 'ImageCompare', 'ImageMerge',
+    'ECommerceImageSet', 'ProductRetouch'
 }
+COMMERCE_CANDIDATE_LIMIT = 4
+COMMERCE_CANDIDATE_ASSET = re.compile(r'media:[a-zA-Z0-9_-]+')
+COMMERCE_CANDIDATE_PLAN = re.compile(r'v1-[0-9a-f]{1,8}-[0-9a-f]{1,8}-[0-9]{1,5}')
+COMMERCE_PRESET_GALLERY_SLOTS = {
+    'taobao': {'main', 'detail', 'feature', 'scene', 'white'},
+    'jd': {'main', 'angle', 'detail', 'feature', 'scene'},
+    'pinduoduo': {'main', 'angle', 'detail', 'feature', 'scene'},
+    'douyin': {'main', 'angle', 'detail', 'feature', 'scene'},
+    'amazon': {'main', 'angle', 'detail', 'feature', 'scene', 'included'},
+}
+COMMERCE_PRESET_DETAIL_SLOTS = {'detail-overview', 'detail-feature', 'detail-closeup', 'detail-scene'}
+COMMERCE_SCENE_ID = re.compile(r'scene-[a-z0-9_-]{1,64}')
 STORAGE_MODE_VERSION = 1
 INTEGRITY_REPORT_VERSION = 1
 INTEGRITY_SCANNER_VERSION = 2
@@ -346,13 +360,88 @@ class StorageService(UndoMediaMixin):
                 os.remove(temporary_path)
 
     @staticmethod
-    def _workflow_node_output_and_comparison_keys(node):
+    def _commerce_candidate_asset_keys(commerce):
+        """Read canonical candidate records emitted by workflow serialization."""
+        if not isinstance(commerce, dict):
+            return []
+        selected = commerce.get('selectedShotIds')
+        candidates = commerce.get('candidates')
+        if not isinstance(selected, list) or not isinstance(candidates, list):
+            return []
+        selected_ids = {shot_id for shot_id in selected if isinstance(shot_id, str)}
+        aspect_groups = (commerce.get('galleryAspect'), commerce.get('detailAspect'))
+        plan = commerce.get('plan')
+        plan_shots = plan.get('shots') if isinstance(plan, dict) else None
+        planned = None
+        if isinstance(plan_shots, list):
+            planned = {shot['id']: shot for shot in plan_shots
+                       if isinstance(shot, dict) and isinstance(shot.get('id'), str)}
+        versions_by_shot = {}
+        asset_keys = []
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            shot_id, asset_key, aspect = (candidate.get(field) for field in ('shotId', 'assetKey', 'aspect'))
+            if (not isinstance(shot_id, str) or shot_id not in selected_ids
+                    or not isinstance(asset_key, str) or not COMMERCE_CANDIDATE_ASSET.fullmatch(asset_key)
+                    or not isinstance(aspect, str) or aspect not in aspect_groups):
+                continue
+            if planned is not None:
+                shot = planned.get(shot_id, {})
+                if shot.get('source') != 'generate' or shot.get('aspect') != aspect:
+                    continue
+            draft, plan_key = candidate.get('draft'), candidate.get('planKey')
+            prompt = draft.get('prompt') if isinstance(draft, dict) else None
+            version_key = candidate.get('key')
+            if (not isinstance(prompt, str) or not prompt.strip()
+                    or not isinstance(plan_key, str) or not COMMERCE_CANDIDATE_PLAN.fullmatch(plan_key)
+                    or version_key != f'{asset_key}:{plan_key}'):
+                continue
+            versions = versions_by_shot.setdefault(shot_id, set())
+            if version_key not in versions and len(versions) < COMMERCE_CANDIDATE_LIMIT:
+                versions.add(version_key)
+                asset_keys.append(asset_key)
+        return list(dict.fromkeys(asset_keys))
+
+    @staticmethod
+    def _commerce_previous_export_asset_keys(commerce):
+        """Read previous export records with explicit ownership distinct from current output."""
+        rows = commerce.get('previousExportResults') if isinstance(commerce, dict) else None
+        if not isinstance(rows, list):
+            return []
+        by_slot = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            platform, slot, key, order = (row.get(field) for field in ('platformId', 'shotId', 'outputKey', 'order'))
+            if (not isinstance(platform, str) or platform not in COMMERCE_PRESET_GALLERY_SLOTS
+                    or not isinstance(slot, str) or not isinstance(key, str) or not COMMERCE_CANDIDATE_ASSET.fullmatch(key)
+                    or type(order) is not int or not 0 <= order <= 2**53 - 1):
+                continue
+            if slot not in COMMERCE_PRESET_GALLERY_SLOTS[platform] and slot not in COMMERCE_PRESET_DETAIL_SLOTS:
+                label = row.get('label')
+                if (not COMMERCE_SCENE_ID.fullmatch(slot) or row.get('group') not in ('gallery', 'detail')
+                        or not isinstance(label, str) or not label.strip()):
+                    continue
+            by_slot.setdefault((platform, slot), (key, row.get('retained') is True))
+        return list(dict.fromkeys(key for key, retained in by_slot.values() if retained))
+
+    @classmethod
+    def _workflow_node_owned_keys(cls, node):
         data = node.get('data') if isinstance(node.get('data'), dict) else {}
         keys = data.get('mediaAssetKeys') if isinstance(data.get('mediaAssetKeys'), list) else node.get('mediaAssetKeys')
-        if not isinstance(keys, list):
-            return []
-
+        keys = keys if isinstance(keys, list) else []
         normalized = [key for key in keys if isinstance(key, str) and key.startswith('media:')]
+        if node.get('type') == 'ECommerceImageSet':
+            commerce = node.get('commerceImageSet')
+            if commerce is None:
+                commerce = data.get('commerceImageSet')
+            active = set(normalized)
+            history = dict.fromkeys([
+                *cls._commerce_candidate_asset_keys(commerce), *cls._commerce_previous_export_asset_keys(commerce)
+            ])
+            normalized.extend(key for key in history if key not in active)
+            return normalized
         if node.get('type') != 'ProductRetouch' or len(keys) != 1:
             return normalized
         comparison = node.get('productRetouchComparison')
@@ -372,8 +461,8 @@ class StorageService(UndoMediaMixin):
         node_id = str(node.get('id') or '').strip() if isinstance(node, dict) else ''
         if not workflow_id or not node_id:
             return None
-        if node.get('type') == 'ProductRetouch':
-            ordered = cls._workflow_node_output_and_comparison_keys(node)
+        if node.get('type') in {'ProductRetouch', 'ECommerceImageSet'}:
+            ordered = cls._workflow_node_owned_keys(node)
         elif node.get('type') == 'PromptAgentResult':
             ordered = list(node.get('data', {}).get('mediaAssetKeys') or [])
         else:
@@ -2498,14 +2587,20 @@ class StorageService(UndoMediaMixin):
                 for node in self._workflow_media_consumers(workflow):
                     node_id = str(node.get('id') or '').strip()
                     data = node.get('data') if isinstance(node.get('data'), dict) else {}
-                    keys = self._workflow_node_output_and_comparison_keys(node)
+                    keys = self._workflow_node_owned_keys(node)
                     if not node_id or (node.get('type') not in MEDIA_OWNER_NODE_TYPES and node.get('type') != 'PromptAgentResult' and not keys):
                         continue
                     owner_type = ('prompt-agent-result' if node.get('type') == 'PromptAgentResult'
                                   else 'workflow-import' if node.get('type') == 'ImageImport' else 'workflow-node')
                     owner_lists.append({'ownerType': owner_type, 'ownerId': node_id, 'assetKeys': keys})
+                    owned_keys = set(keys)
                     for temporary in data.get('mediaOwnershipTemporaryOwners') or []:
-                        if not isinstance(temporary, dict) or temporary.get('assetKeys') != keys:
+                        temporary_keys = temporary.get('assetKeys') if isinstance(temporary, dict) else None
+                        # One commerce run may materialize a subset of the images retained by the document.
+                        commerce_subset = (node.get('type') == 'ECommerceImageSet' and isinstance(temporary_keys, list)
+                                           and bool(temporary_keys) and all(isinstance(key, str) and key in owned_keys
+                                                                           for key in temporary_keys))
+                        if temporary_keys != keys and not commerce_subset:
                             result['unresolved'] += 1
                             continue
                         identity = json.loads(str(temporary.get('ownerId') or ''))
@@ -2520,7 +2615,7 @@ class StorageService(UndoMediaMixin):
                         if len(epochs) != 1:
                             result['unresolved'] += 1
                             continue
-                        recoverable.append((owner_type, node_id, temporary['ownerId'], keys, epochs.pop()))
+                        recoverable.append((owner_type, node_id, temporary['ownerId'], temporary_keys, epochs.pop()))
                 if not recoverable:
                     continue
                 epoch = str(self.get_storage_safety_status()['storageEpoch'])
@@ -2552,7 +2647,7 @@ class StorageService(UndoMediaMixin):
                     temporary_owners = [item for item in recoverable
                                         if item[0] == owner_type and item[1] == node_id]
                     for temporary_owner in temporary_owners:
-                        for key in dict.fromkeys(keys):
+                        for key in dict.fromkeys(temporary_owner[3]):
                             self.remove_media_reference('workflow-operation', temporary_owner[2], key)
                     result['completed'] += 1
             except (StorageError, ValueError, TypeError, AttributeError, json.JSONDecodeError):

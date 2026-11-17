@@ -48,6 +48,30 @@ test('export scopes keep the plan order and numbering, including missing and sup
     assert.equal(projectCommerceImageSetExport(input).title, '_CON.txt');
 });
 
+test('replacing the product references separates the last set from the current ZIP, including after replanning', () => {
+    const input = fixture();
+    input.settings.plan.referenceRevision = 'old-references';
+    const referenceRevision = 'new-references';
+    const manifest = () => projectCommerceImageSetExport({ ...input, referenceRevision });
+    const previous = () => projectCommerceImageSetExport({ ...input, referenceRevision, version: 'previous' });
+    assert.deepEqual(manifest().rows.map(row => row.status), ['missing', 'missing', 'missing', 'missing']);
+    assert.deepEqual(previous().rows.map(row => row.assetKey), ['media:original', 'media:overview']);
+
+    preserveCommerceImageSetExportResults(input.settings);
+    input.settings.plan.referenceRevision = referenceRevision;
+    input.settings.results = [{ shotId: 'main', status: 'completed', assetKey: 'media:new-original' }];
+    input.mediaAssetKeys = ['media:new-original'];
+    preserveCommerceImageSetExportResults(input.settings);
+    assert.deepEqual(manifest().rows.map(row => row.assetKey), ['media:new-original', null, null, null]);
+    assert.deepEqual(previous().rows.map(row => row.assetKey), ['media:original', 'media:overview']);
+
+    preserveCommerceImageSetExportResults(input.settings, { replacingReferences: true });
+    input.settings.plan.referenceRevision = 'third-references';
+    input.settings.results = [];
+    input.mediaAssetKeys = [];
+    assert.deepEqual(projectCommerceImageSetExport({ ...input, version: 'previous' }).rows.map(row => row.assetKey), ['media:new-original']);
+});
+
 test('export marks stale drafts and missing owned references without inventing shot identities', () => {
     const input = fixture();
     input.settings.plan.shots.at(-1).prompt = '新版本构图';
@@ -71,8 +95,10 @@ test('export keeps owned old images attached to their original slots after reset
         ['main', 'previous', 'media:original'],
         ['feature', 'missing', null],
         ['scene-extra', 'missing', null],
-        ['detail-overview', 'previous', 'media:overview']
+        ['detail-overview', 'missing', null]
     ]);
+    assert.deepEqual(projectCommerceImageSetExport({ ...input, settings: restored, version: 'previous' }).rows
+        .map(row => row.assetKey), ['media:original', 'media:overview']);
 
     restored.platformId = 'taobao';
     restored.selectedShotIds = ['main', 'detail-overview'];

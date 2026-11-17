@@ -10,6 +10,7 @@ import { createPromptAgentInput } from '../js/features/prompt-agent/prompt-agent
 import { createPromptAgentModelReply } from '../js/features/prompt-agent/prompt-agent-model.js';
 import { projectPlanConnections } from '../js/features/prompt-agent/prompt-agent-reference-inputs.js';
 import { createPromptAgentCanvasAdapter } from '../js/features/prompt-agent/prompt-agent-canvas-adapter.js';
+import { canvasRevisionFingerprint } from '../js/features/canvas-mcp/cainflow-app-actions.js';
 
 const graph = (extra = {}) => createCanvasContext({ workflowId: 'workflow-a', nodes: [
     { id: 'source', type: 'ImageImport', customTitle: '产品图', mediaAssetKeys: ['media:source'], data: { apikey: 'secret' }, imageUrl: 'https://private.test/token' },
@@ -38,11 +39,27 @@ test('the current selection can be revised or deleted while new work remains ind
 
 test('canvas plans validate explicitly targeted commerce product information and copy language edits', () => {
     const node = { id: 'commerce', type: 'ECommerceImageSet',
-        commerceImageSet: { productInfo: { name: '旧名称', sellingPoints: ['可见杯盖'] },
-            copyLanguage: 'en', autoProductInfo: { name: '旧名称' }, plannerProviderId: 'private-config' } };
+        mediaAssetKeys: ['media:current'],
+        commerceImageSet: { platformId: 'amazon', selectedShotIds: ['feature'],
+            productInfo: { name: '旧名称', sellingPoints: ['可见杯盖'] },
+            copyLanguage: 'en', autoProductInfo: { name: '旧名称' }, plannerProviderId: 'private-config',
+            candidateCount: 3,
+            plan: { version: 1, platformId: 'amazon', sourceKey: 'references', confirmed: true,
+                sellingPoints: [], shots: [{ id: 'feature', prompt: '当前方案' }], copyLanguage: 'en' },
+            results: [{ shotId: 'feature', status: 'completed', assetKey: 'media:current', finalized: true }],
+            candidates: [{ shotId: 'feature', assetKey: 'media:archived-shot', aspect: '1:1', draft: { prompt: '私有候选提示词' } }] } };
     const context = graph({ nodes: [node], selectedIds: [node.id] });
     assert.deepEqual(context.summary.editableFields.ECommerceImageSet, ['productInfo', 'copyLanguage']);
     assert.deepEqual(context.nodes[0].parameters, { copyLanguage: 'en', productInfo: { name: '旧名称', sellingPoints: ['可见杯盖'] } });
+    assert.doesNotMatch(JSON.stringify(context.summary), /archived-shot|私有候选提示词|finalized|candidateCount|commerceRunSettings/);
+    const changedCount = graph({ nodes: [{ ...node, commerceImageSet: { ...node.commerceImageSet, candidateCount: 4 } }],
+        selectedIds: [node.id] });
+    assert.deepEqual(changedCount.read(), context.read());
+    assert.notEqual(canvasRevisionFingerprint(changedCount), canvasRevisionFingerprint(context));
+    const unlocked = graph({ nodes: [{ ...node, commerceImageSet: { ...node.commerceImageSet,
+        results: node.commerceImageSet.results.map(result => ({ ...result, finalized: false })) } }], selectedIds: [node.id] });
+    assert.deepEqual(unlocked.summary, context.summary);
+    assert.notEqual(canvasRevisionFingerprint(unlocked), canvasRevisionFingerprint(context));
     assert.ok(context.nodes[0].parameterOptions.copyLanguage.includes('ja'));
     const raw = (parameters, options = {}) => ({ version: 1, steps: [{ id: 'edit', type: node.type,
         nodeId: node.id, parameters, execute: false, ...options }] });
@@ -53,6 +70,7 @@ test('canvas plans validate explicitly targeted commerce product information and
     assert.match(describeCanvasPlan(plan, context).join('\n'), /图中文字语言：英[语文] → 日[语文]/);
     assert.throws(() => normalizeCanvasPlan(raw(parameters), graph({ nodes: [node] })), /选中|@节点/);
     assert.throws(() => normalizeCanvasPlan(raw(parameters, { execute: true }), context), /execute: false/);
+    assert.throws(() => normalizeCanvasPlan(raw({ candidateCount: 4 }), context), /不支持参数.*candidateCount/);
     for (const invalid of [{ name: 1 }, { sellingPoints: '可见杯盖' }, { details: 'x'.repeat(4001) }, { providerId: 'other' }]) {
         assert.throws(() => normalizeCanvasPlan(raw({ productInfo: invalid }), context), /商品信息/);
     }
@@ -438,6 +456,26 @@ test('canvas vision reads only requested local originals and stops on missing me
     const controller = new AbortController();
     await assert.rejects(run(async () => { controller.abort(); return pixels; }, controller.signal), /取消/);
     assert.equal(requests.length, 1);
+});
+
+test('canvas vision cannot read commerce output from different reference originals', async () => {
+    const commerce = { id: 'commerce', type: 'ECommerceImageSet', mediaAssetKeys: ['media:previous-result'], imageCount: 1,
+        commerceImageSet: { plan: { sourceKey: 'saved-plan', referenceRevision: 'v1:["media:old-reference"]' } } };
+    const source = { id: 'reference', type: 'ImageImport', data: { imageImportAssetKey: 'media:new-reference' } };
+    const connections = [{ id: 'ref', from: { nodeId: source.id, port: 'image' },
+        to: { nodeId: commerce.id, port: 'referenceImages' } }];
+    const context = graph({ nodes: [source, commerce], connections });
+    assert.equal(context.read({ nodeIds: [commerce.id] }).nodes[0].assetCount, 0);
+    const images = [];
+    await assert.rejects(createPromptAgentModelReply({
+        model: { id: 'chat', modelId: 'test', protocol: 'openai', providerIds: ['p'], autoCompactTokenLimit: 100000 },
+        canvasContext: context, providerId: 'p',
+        providers: [{ id: 'p', endpoint: 'https://example.test/v1', apikey: 'controlled-key' }],
+        getCanvasImage: async key => { images.push(key); return null; },
+        fetchRef: async () => Response.json({ choices: [{ message: { content: JSON.stringify({ canvasRead:
+            { nodeIds: [commerce.id], images: [{ nodeId: commerce.id, index: 0 }] } }) } }] })
+    }), /画布图片不存在/);
+    assert.deepEqual(images, []);
 });
 
 test('model graphs reject unused imports and forbidden reference input before materializing assets', () => {

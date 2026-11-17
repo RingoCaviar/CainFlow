@@ -36,10 +36,10 @@ const emptyPreviewMessages = new Set(['无输入图片', '无输入视频', '运
 
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
-    runCurrentNode, waitForNodeRun, cancelCommerceImageSet, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
+    runCurrentNode, waitForNodeRun, cancelCommerceImageSet, removeCommerceScene, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
     panelManager = null, openModelSettings = () => {}, openResultPreview = () => {},
     openShotError = () => {}, openNodeFailureLog = () => false, openNodeRunError = null, openReferencePreview = null, bindReferencePrompt = null,
-    uploadRetouchReference, onNativeClipboardWrite }) {
+    uploadRetouchReference, onNativeClipboardWrite, readReferenceAsset }) {
     const views = new Map();
     const geometryClasses = new Set(['selected', 'is-interacting', 'connection-insert-candidate', 'connection-shake-armed',
         'is-virtualized', 'render-refresh']);
@@ -1097,9 +1097,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         installUniversalInput(node);
         const inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, onChange: () => refreshNode(node.id) });
         const commerce = createCommerceImageSetView({
-            node, state, documentRef, openResultPreview, openShotError, bindReferencePrompt,
-            run: (commerceAction, commerceShotId) => runCurrentNode(node.id, { commerceAction, commerceShotId }),
+            node, state, documentRef, openResultPreview, openShotError, bindReferencePrompt, readReferenceAsset,
+            run: (commerceAction, commerceShotId, commerceCandidateKey) => runCurrentNode(node.id, { commerceAction, commerceShotId, commerceCandidateKey }),
             cancel: commerceShotId => cancelCommerceImageSet(node.id, commerceShotId),
+            removeScene: shotId => removeCommerceScene(node.id, shotId),
             onChange: change => onSettingsChanged(node.id, change)
         });
         (node.el._cleanupFns ||= []).push(commerce.destroy);

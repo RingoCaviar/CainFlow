@@ -153,7 +153,10 @@ export function createCanvasRunScopeMenu({ state, documentRef, getWorkflowId, ge
         commerceSection.hidden = rows.length === 0;
         commerceRows.replaceChildren();
         for (const [index, row] of rows.entries()) {
-            const { nodeId, issue, shotCount, generateCount, referenceCount, upstreamWillRun, hasCompleted, unfinishedCount } = row;
+            const {
+                nodeId, issue, shotCount, generateCount, candidateCount, referenceCount, finalizedCount, upstreamWillRun,
+                hasCompleted, unfinishedCount
+            } = row;
             const name = names[index];
             const article = documentRef.createElement('div');
             article.className = 'canvas-run-scope-commerce-row';
@@ -162,11 +165,14 @@ export function createCanvasRunScopeMenu({ state, documentRef, getWorkflowId, ge
             title.textContent = name;
             const counts = documentRef.createElement('p');
             counts.className = 'canvas-run-scope-commerce-counts';
-            counts.textContent = `${shotCount} 个图位 · 模型生成 ${generateCount} 张 · 复用原图 ${referenceCount} 张`;
+            const generation = `模型生成 ${generateCount} 张${candidateCount > 1 ? '候选' : ''}`;
+            counts.textContent = `${shotCount} 个图位 · ${generation} · 复用原图 ${referenceCount} 张`;
+            if (finalizedCount) counts.textContent += ` · 保留定稿 ${finalizedCount} 张`;
             article.append(title, counts);
             const notes = [
                 upstreamWillRun ? '本次也会运行上游节点，商品参考图可能变化。参考图变化后需重新规划并确认套图。' : '',
-                !issue && hasCompleted ? '重做整套会重新处理已完成的图位。' : '',
+                !issue && hasCompleted && shotCount > finalizedCount
+                    ? (finalizedCount ? '重做整套时只会重新处理未定稿的图位。' : '重做整套会重新处理已完成的图位。') : '',
                 issue?.message
             ].filter(Boolean);
             for (const text of notes) {

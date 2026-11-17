@@ -2474,7 +2474,8 @@ export function createNodeDomBindingsApi({
             target === textEditor || (!target.closest('.node-header, button, input, textarea, select, .port, .node-resize-handle, .text-multi-nav')
                 && (target === el || target.closest('.node-body, .node-glass-bg')))
         );
-        if (textEditor) {
+        // Background execution uses a windowless document and needs no interactive text tools.
+        if (textEditor && documentRef.defaultView) {
             const title = el.querySelector('.node-title');
             if (title) { title.id = `${id}-text-title`; el.setAttribute('aria-labelledby', title.id); }
             else el.setAttribute('aria-label', '文本节点');

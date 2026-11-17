@@ -118,7 +118,7 @@ export function createNodeSerializer({ state, documentRef }) {
                 const comparison = readProductRetouchComparison(node);
                 if (comparison) serialized.productRetouchComparison = comparison;
             }
-            if (['ProductRetouch', 'ImageImport'].includes(node.type) && node.data?.mediaOwnershipTemporaryOwners?.length) {
+            if (['ECommerceImageSet', 'ProductRetouch', 'ImageImport'].includes(node.type) && node.data?.mediaOwnershipTemporaryOwners?.length) {
                 serialized.data = { mediaOwnershipTemporaryOwners: JSON.parse(JSON.stringify(node.data.mediaOwnershipTemporaryOwners)) };
             }
 

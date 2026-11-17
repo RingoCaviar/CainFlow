@@ -50,6 +50,7 @@ import { createAsyncMediaExecutionApi } from './async-media-execution.js';
 import { getProtocolSnapshot } from './protocols/index.js';
 import { compileVideoProtocol, redactProtocolPreview } from './protocols/video-protocol-compiler.js';
 import { rememberWorkflowMediaOperation } from '../media/workflow-media-operation.js';
+import { projectMissingMediaAssets } from '../media/missing-media-integrity.js';
 import { persistVideoResultForNode } from '../media/video/video-result-persistence.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
 import { getNodeImageResultPersistence, IMAGE_RESULT_PERSISTENCE } from '../../nodes/registry.js';
@@ -59,11 +60,19 @@ import {
     analyzeCommerceImageSetProduct,
     buildCommerceImageSetImagePrompt,
     commerceImageSetPlanningSettingsKey,
+    commerceImageSetReferenceContentKey,
     commerceImageSetSourceKey,
     commerceShotPlanKey,
     createCommerceImageSetPlan,
-    getRunnableCommerceImageSetShots, getUnfinishedCommerceImageSetShots, normalizeCommerceImageSetState
+    getCommerceShotCandidates, getGeneratableCommerceImageSetShots, getRunnableCommerceImageSetShots,
+    getUnfinishedCommerceImageSetShots, isCommerceShotFinalized, normalizeCommerceImageSetState,
+    rememberCommerceShotCandidate, removeCommerceSceneShot, restoreCommerceShotCandidateDraft
 } from '../ecommerce-image-set/commerce-image-set-plan.js';
+import {
+    COMMERCE_REFERENCE_CHANGED_MESSAGE, getCommerceReferenceRevision,
+    hasCommerceReferenceChange, needsCommerceReferenceVerification, projectCommerceReferences,
+    sameCommerceReferenceProjection, verifyCommerceReferenceContent
+} from '../ecommerce-image-set/commerce-reference-revision.js';
 import {
     buildProductRetouchPrompt,
     createProductRetouchAnalysisRequest,
@@ -72,6 +81,55 @@ import {
     normalizeProductRetouchSettings,
     parseProductRetouchAnalysis
 } from '../product-retouch/product-retouch-settings.js';
+
+function getRemainingCommerceOutputPositions(settings, shotId, assetKeys) {
+    const current = (settings.results || []).filter(row => row.status === 'completed')
+        .map(row => ({ shotId: row.shotId, key: row.assetKey }));
+    const previous = (settings.previousExportResults || []).slice().sort((a, b) => a.order - b.order)
+        .map(row => ({ shotId: row.shotId, key: row.outputKey }));
+    const ordered = [current, previous].find(rows =>
+        rows.length === assetKeys.length && rows.every((row, index) => row.key === assetKeys[index]));
+    const keep = new Set();
+    const remove = new Set();
+    for (const row of [...current, ...previous]) {
+        (row.shotId === shotId ? remove : keep).add(row.key);
+    }
+    return assetKeys.flatMap((key, index) => {
+        const deleted = ordered ? ordered[index].shotId === shotId : remove.has(key) && !keep.has(key);
+        return deleted ? [] : [index];
+    });
+}
+
+function setRemainingCommerceOutput(node, positions, assetKeys, images) {
+    clearCanonicalImageOutput(node);
+    node.data.mediaAssetKeys = assetKeys;
+    const integrity = node.data.mediaIntegrity;
+    const missingItems = (integrity?.missingItems || []).flatMap(item => {
+        const position = positions.indexOf(item.position);
+        return position < 0 ? [] : [{ ...item, position }];
+    });
+    if (missingItems.length) node.data.mediaIntegrity = { ...integrity, itemCount: assetKeys.length, missingItems };
+    else delete node.data.mediaIntegrity;
+    if (images.length && images.every(Boolean)) {
+        setCanonicalImageOutput(node, images, { defaultToFirst: true, assetKey: assetKeys[0],
+            imageCount: assetKeys.length, assetReady: true });
+    } else if (assetKeys.length) {
+        node.data.imageAssetKey = assetKeys[0];
+        node.data.imageCount = assetKeys.length;
+        node.data.imageAssetReady = true;
+        node.data.imageMemoryReleased = true;
+    }
+}
+
+function syncReplannedCommerceOutput(node, results) {
+    const currentKeys = node.data.mediaAssetKeys || [];
+    const targetKeys = results.filter(row => row.assetKey).map(row => row.assetKey);
+    const cached = projectImageOutput(node, getCanonicalImageList(node)).images;
+    if (currentKeys.length === targetKeys.length && targetKeys.every((key, index) => key === currentKeys[index])
+        && (targetKeys.length || !cached.length)) return;
+    const positions = targetKeys.map(key => currentKeys.indexOf(key));
+    setRemainingCommerceOutput(node, positions, targetKeys, positions.map(index => cached[index]));
+}
 
 export function createExecutionCoreApi({
     state,
@@ -934,9 +992,10 @@ export function createExecutionCoreApi({
             ? runInput.mode
             : 'all';
         const commerceNodeId = runInput.commerceNodeId;
-        const commerceAction = runInput.commerceAction;
+        const { commerceAction, commerceShotId, commerceCandidateKey } = runInput;
         const commerceTargeted = mode === 'selected-only' && selectedNodeIds.length === 1 && selectedNodeIds[0] === commerceNodeId
-            && state.nodes.get(commerceNodeId)?.type === 'ECommerceImageSet' && ['analyze', 'plan', 'replan-shot', 'generate', 'fill', 'retry'].includes(commerceAction);
+            && state.nodes.get(commerceNodeId)?.type === 'ECommerceImageSet'
+            && ['analyze', 'plan', 'replan-shot', 'generate', 'fill', 'retry', 'select-candidate'].includes(commerceAction);
         if (commerceAction === 'analyze' && !commerceTargeted) {
             throw new Error('请选择一个需要分析商品信息的电商套图节点。');
         }
@@ -945,6 +1004,13 @@ export function createExecutionCoreApi({
         }
         if (commerceAction === 'retry' && (!commerceTargeted || typeof runInput.commerceShotId !== 'string' || !runInput.commerceShotId)) {
             throw new Error('请选择一个需要生图的图位。');
+        }
+        if (commerceAction === 'select-candidate' || commerceCandidateKey !== undefined) {
+            const settings = state.nodes.get(commerceNodeId)?.data?.commerceImageSet;
+            if (commerceAction !== 'select-candidate' || !commerceTargeted
+                || !getCommerceShotCandidates(settings, commerceShotId).some(candidate => candidate.key === commerceCandidateKey)) {
+                throw new Error('找不到所选图位的候选图片，请重新打开候选。');
+            }
         }
         if (commerceAction === 'fill') {
             if (!commerceTargeted || runInput.commerceShotId !== undefined) throw new Error('请选择一个需要补齐的电商套图节点。');
@@ -968,7 +1034,8 @@ export function createExecutionCoreApi({
             ...(runInput.requestSource === 'agent' ? { requestSource: 'agent' } : {}),
             ...(commerceTargeted ? {
                 commerceNodeId, commerceAction,
-                ...(typeof runInput.commerceShotId === 'string' ? { commerceShotId: runInput.commerceShotId } : {})
+                ...(typeof commerceShotId === 'string' ? { commerceShotId } : {}),
+                ...(commerceAction === 'select-candidate' ? { commerceCandidateKey } : {})
             } : {}),
             ...(imageRetry ? { imageRetryNodeId, imageRetryIndex, imageRetryBatchId } : {}),
             ...(Array.isArray(runInput.includedAutoSaveNodeIds) ? {
@@ -1174,6 +1241,13 @@ export function createExecutionCoreApi({
             return getImageImportOutputValue(node);
         }
         if (portName === 'image') {
+            if (node.type === 'ECommerceImageSet') {
+                const settings = node.data?.commerceImageSet ?? node.commerceImageSet;
+                const projection = projectCommerceReferences(state, node.id);
+                if (hasCommerceReferenceChange(settings, projection) || needsCommerceReferenceVerification(settings, projection)) {
+                    return undefined;
+                }
+            }
             const imageList = getCanonicalImageList(node);
             if (imageList.length > 1) return imageList;
             if (imageList.length === 1) return imageList[0];
@@ -1406,10 +1480,11 @@ export function createExecutionCoreApi({
         return result;
     }
 
-    function startCommerceRequestLog(node, request, { action, shot, signal }) {
+    function startCommerceRequestLog(node, request, { action, shot, signal, candidateIndex, candidateCount }) {
         const { model } = request;
         const label = { analyze: '分析产品', plan: '生成方案', 'replan-shot': '重做方案', generate: '生成图片', fill: '补齐图片', retry: '重试图片' }[action];
-        const title = `电商套图 · ${label}${shot ? `「${shot.label}」` : ''} · ${model.name || model.modelId}`;
+        const candidate = candidateCount > 1 ? ` · 候选 ${candidateIndex}/${candidateCount}` : '';
+        const title = `电商套图 · ${label}${shot ? `「${shot.label}」` : ''}${candidate} · ${model.name || model.modelId}`;
         return startWorkflowImageRequestLog(node, request, { title, operation: action, shotId: shot?.id, signal });
     }
 
@@ -1853,21 +1928,32 @@ export function createExecutionCoreApi({
         return entries.flatMap(([, value]) => normalizeImageList(value));
     }
 
-    async function executeCommerceImageSet(node, inputs, parentSignal, { commerceAction = 'generate', commerceShotId } = {}) {
+    async function executeCommerceImageSet(node, inputs, parentSignal, {
+        commerceAction = 'generate', commerceShotId, commerceCandidateKey
+    } = {}) {
         parentSignal?.throwIfAborted();
         const settings = normalizeCommerceImageSetState(node.data?.commerceImageSet);
         const replanningShot = commerceAction === 'replan-shot';
         const retryingShot = commerceAction === 'retry';
+        const selectingCandidate = commerceAction === 'select-candidate';
         const filling = commerceAction === 'fill';
-        const shotTask = replanningShot || retryingShot;
+        const shotTask = replanningShot || retryingShot || selectingCandidate;
         const planning = replanningShot || ['analyze', 'plan'].includes(commerceAction);
         const target = settings.plan?.shots.find(shot => shot.id === commerceShotId);
+        const referenceProjection = projectCommerceReferences(state, node.id);
+        const referenceRevision = getCommerceReferenceRevision(referenceProjection);
+        if (!['analyze', 'plan'].includes(commerceAction) && hasCommerceReferenceChange(settings, referenceProjection)) {
+            throw new Error(COMMERCE_REFERENCE_CHANGED_MESSAGE);
+        }
         if (shotTask && target?.source !== 'generate') throw new Error('请选择一个需要生图的图位。');
+        if (commerceShotId && isCommerceShotFinalized(settings, commerceShotId)) throw new Error('图位已定稿，请先解锁。');
+        if (selectingCandidate && typeof commerceCandidateKey !== 'string') throw new Error('请选择一个候选图片。');
         if (!planning && commerceShotId && !target) throw new Error('找不到所选图位。');
-        if (!planning && target?.customScene && !target.sceneConfirmed) throw new Error('请先确认这张场景图的方案。');
+        if (!planning && !selectingCandidate && target?.customScene && !target.sceneConfirmed) throw new Error('请先确认这张场景图的方案。');
 
         const shots = filling ? getUnfinishedCommerceImageSetShots(settings)
-            : planning ? [] : getRunnableCommerceImageSetShots(settings).filter(shot => !commerceShotId || shot.id === commerceShotId);
+            : planning || selectingCandidate ? []
+                : getGeneratableCommerceImageSetShots(settings).filter(shot => !commerceShotId || shot.id === commerceShotId);
         if (filling && settings.plan?.confirmed && !shots.length) throw new Error('所有图位已完成。');
         const claimedIds = shotTask ? [commerceShotId] : shots.map(shot => shot.id);
         const handlers = node.commerceShotCancelHandlers ??= new Map();
@@ -1877,9 +1963,12 @@ export function createExecutionCoreApi({
         const controller = shotTask ? new AbortController() : null;
         const signal = controller ? AbortSignal.any([controller.signal, parentSignal].filter(Boolean)) : parentSignal;
         const batch = !planning && !shotTask
-            ? { replacedShotIds: new Set(), previews: new Map(), controllers: new Map(shots.map(shot => [shot.id, new AbortController()])) }
+            ? { redo: commerceAction === 'generate', replacedShotIds: new Set(), previews: new Map(),
+                controllers: new Map(shots.map(shot => [shot.id, new AbortController()])) }
             : null;
         const previews = batch?.previews || new Map();
+        const candidateCount = settings.candidateCount ?? 1;
+        const attempts = new Map();
         function reportProgress(shotId, preview) {
             if (shotId) {
                 previews.set(shotId, preview);
@@ -1895,7 +1984,7 @@ export function createExecutionCoreApi({
         }
         const ownHandlers = new Map();
         if (shotTask) {
-            (node.commerceShotTasks ??= {})[commerceShotId] = replanningShot ? 'planning' : 'running';
+            (node.commerceShotTasks ??= {})[commerceShotId] = selectingCandidate ? 'selecting' : replanningShot ? 'planning' : 'running';
             ownHandlers.set(commerceShotId, () => {
                 if (controller.signal.aborted) return false;
                 controller.abort();
@@ -1924,7 +2013,26 @@ export function createExecutionCoreApi({
         else if (shotTask) onNodeResultUpdated(node.id, { progressOnly: true });
 
         try {
+            const allFinalized = commerceAction === 'generate' && !commerceShotId && !shots.length
+                && getRunnableCommerceImageSetShots(settings).length > 0;
             const sourceImages = normalizeImageList(inputs.referenceImages);
+            if (selectingCandidate || allFinalized) {
+                const referenceContentKey = settings.plan?.referenceContentKey;
+                const requiresVerification = needsCommerceReferenceVerification(settings, referenceProjection);
+                if (requiresVerification) {
+                    const verification = await verifyCommerceReferenceContent({
+                        settings, projection: referenceProjection, readAsset: getImageAsset
+                    });
+                    if (verification.status !== 'matched') throw new Error(COMMERCE_REFERENCE_CHANGED_MESSAGE);
+                }
+                if (referenceContentKey && sourceImages.length && sourceImages.every(isInlineImageData)
+                    && referenceContentKey !== await commerceImageSetReferenceContentKey(sourceImages)) {
+                    throw new Error(COMMERCE_REFERENCE_CHANGED_MESSAGE);
+                }
+                return await publishCommerceShots(node, { attempts: new Map(), batch, signal, commerceShotId,
+                    commerceCandidateKey: selectingCandidate ? commerceCandidateKey : undefined,
+                    approvedReferences: referenceProjection.groups.some(group => group.enabled) ? referenceProjection : null });
+            }
             if (!sourceImages.length || sourceImages.length > 5) throw new Error('请连接 1 至 5 张商品参考图。');
             const readCommerceImage = async (image, requestSignal) => {
                 if (isInlineImageData(image)) return image;
@@ -1935,7 +2043,7 @@ export function createExecutionCoreApi({
             signal?.throwIfAborted();
             if (planning) {
                 const operation = commerceAction === 'analyze' ? analyzeCommerceImageSetProduct : createCommerceImageSetPlan;
-                const updated = await operation({ settings, references, models: state.models,
+                const updated = await operation({ settings, references, referenceRevision, models: state.models,
                     providers: state.providers, fetchRef, getProxyHeaders, signal,
                     shotId: replanningShot ? commerceShotId : undefined,
                     runRequest: (request, execute, shot) => {
@@ -1951,10 +2059,11 @@ export function createExecutionCoreApi({
                 assertCommercePlanningCurrent(node.id, commerceShotId);
                 if (replanningShot) {
                     const replacement = updated.plan.shots.find(shot => shot.id === commerceShotId);
-                    node.data.commerceImageSet = { ...current, plan: { ...current.plan, confirmed: target.customScene ? current.plan.confirmed : false,
+                    node.data.commerceImageSet = { ...current, plan: { ...updated.plan, confirmed: target.customScene ? current.plan.confirmed : false,
                         shots: current.plan.shots.map(shot => shot.id === commerceShotId ? replacement : shot) } };
                 } else {
                     node.data.commerceImageSet = updated;
+                    if (commerceAction === 'plan') syncReplannedCommerceOutput(node, updated.results);
                 }
                 onNodeResultUpdated(node.id);
                 return;
@@ -1982,21 +2091,27 @@ export function createExecutionCoreApi({
             }
 
             if (retryingShot || filling) await readRetainedCommerceImages(settings, commerceShotId, signal);
-            const attempts = new Map();
+            else if (settings.results.some(row => row.finalized)) {
+                await readRetainedCommerceImages({ ...settings, results: settings.results.filter(row => row.finalized) }, undefined, signal);
+            }
             let firstError;
             for (const shot of shots) {
                 signal?.throwIfAborted();
                 const shotController = batch?.controllers.get(shot.id);
                 const shotSignal = shotController ? AbortSignal.any([shotController.signal, signal].filter(Boolean)) : signal;
+                const images = [];
+                const total = shot.source === 'generate' ? candidateCount : 1;
+                const planKey = commerceShotPlanKey(shot);
+                const candidateProgress = () => total > 1 ? { candidateProgress: { completed: images.length, total } } : {};
+                const reportRunning = () => reportProgress(shot.id, { status: 'running', ...candidateProgress() });
                 try {
                     shotSignal?.throwIfAborted();
-                    reportProgress(shot.id, { status: 'running' });
-                    const planKey = commerceShotPlanKey(shot);
-                    let image;
+                    reportRunning();
                     if (shot.source === 'reference') {
-                        image = references[0];
+                        const image = references[0];
                         await saveImageGenerationHistoryEntry({ nodeId: node.id, image, prompt: shot.label,
                             model: '商品原图', generationDurationSeconds: getNodeGenerationDurationSeconds(node) });
+                        images.push(image);
                     } else {
                         const shotPrompt = buildCommerceImageSetImagePrompt({ shot, plan, productInfo: settings.productInfo });
                         const resolved = await resolveRequestMentions(node, { referenceImages: sourceImages }, [shotPrompt], { signal: shotSignal });
@@ -2009,27 +2124,43 @@ export function createExecutionCoreApi({
                         // Keep 4:5 exact at roughly 1K, using dimensions aligned to 16 pixels.
                         const size = imageSettings.resolution === '1K' && shot.aspect === '4:5'
                             ? { resolution: 'custom', customWidth: '832', customHeight: '1040' } : { aspect: shot.aspect };
-                        const { image: generated } = await nodeHandlers.ImageGenerate(node, shotInputs, shotSignal, {
-                            preparedImageRequest: {
-                                prompt: resolved.prompts[0],
-                                settings: { ...imageSettings, ...size },
-                                startRequestLog: request => startCommerceRequestLog(node, request, { action: commerceAction, shot, signal: shotSignal })
+                        let candidateError;
+                        for (let index = 1; index <= total; index++) {
+                            shotSignal?.throwIfAborted();
+                            try {
+                                const { image } = await nodeHandlers.ImageGenerate(node, shotInputs, shotSignal, {
+                                    preparedImageRequest: {
+                                        prompt: resolved.prompts[0],
+                                        settings: { ...imageSettings, ...size },
+                                        startRequestLog: request => startCommerceRequestLog(node, request, {
+                                            action: commerceAction, shot, signal: shotSignal, candidateIndex: index, candidateCount: total
+                                        })
+                                    }
+                                });
+                                if (!image) throw new Error('供应商未返回图片，请重试。');
+                                if (!images.includes(image)) images.push(image);
+                            } catch (error) {
+                                if (isAbortLikeError(error, shotSignal)) throw error;
+                                candidateError ||= error;
                             }
-                        });
-                        if (!generated) throw new Error('供应商未返回图片，请重试。');
-                        image = generated;
+                            if (total > 1 && index < total) reportRunning();
+                        }
+                        if (!images.length) throw candidateError;
                     }
                     shotSignal?.throwIfAborted();
-                    const result = { status: 'completed', image, ...(planKey ? { planKey } : {}) };
-                    attempts.set(shot.id, result);
+                    const result = { status: 'completed', image: images[0], ...(planKey ? { planKey } : {}), ...candidateProgress() };
+                    attempts.set(shot.id, { ...result, images, shot });
                     reportProgress(shot.id, result);
                 } catch (error) {
+                    if (total > 1 && images.length && shotSignal?.aborted && !parentSignal?.aborted) {
+                        attempts.set(shot.id, { status: 'canceled', images, shot, planKey, ...candidateProgress() });
+                    }
                     if (isAbortLikeError(error, signal)) {
                         if (!batch || signal?.aborted || !shotController.signal.aborted) throw error;
                     }
                     if (shotController?.signal.aborted) {
                         const result = { status: 'canceled' };
-                        attempts.set(shot.id, result);
+                        if (!attempts.has(shot.id)) attempts.set(shot.id, result);
                         if (handlers.get(shot.id) === ownHandlers.get(shot.id)) reportProgress(shot.id, result);
                     } else {
                         if (retryingShot && settings.results.some(row => row.shotId === shot.id && row.status === 'completed')) throw error;
@@ -2047,8 +2178,9 @@ export function createExecutionCoreApi({
         } catch (error) {
             if (shotTask && controller.signal.aborted) {
                 if (retryingShot && !parentSignal?.aborted) {
+                    const partial = attempts.get(commerceShotId);
                     await publishCommerceShots(node, {
-                        attempts: new Map([[commerceShotId, { status: 'canceled' }]]),
+                        attempts: new Map([[commerceShotId, { ...partial, status: 'canceled' }]]),
                         workflowId: getActiveWorkflowId(), commerceShotId
                     });
                 }
@@ -2075,6 +2207,35 @@ export function createExecutionCoreApi({
         }
     }
 
+    async function removeCommerceScene(node, shotId, canEdit) {
+        if (!canEdit()) return false;
+        const settings = node.data.commerceImageSet;
+        if (!settings) return false;
+        const assetKeys = node.data.mediaAssetKeys || [];
+        const positions = getRemainingCommerceOutputPositions(settings, shotId, assetKeys);
+        if (positions.length === assetKeys.length) return removeCommerceSceneShot(settings, shotId);
+
+        const remainingKeys = positions.map(position => assetKeys[position]);
+        const cached = projectImageOutput(node, getCanonicalImageList(node)).images;
+        const restored = { id: node.id, data: {} };
+        const hasCachedBatch = cached.length === assetKeys.length;
+        const images = hasCachedBatch ? positions.map(position => cached[position])
+            : (await projectMissingMediaAssets({
+                workflowId: getActiveWorkflowId(), node: restored, assetKeys: remainingKeys,
+                loadAsset: async key => {
+                    try { return await getImageAsset(key); } catch { return null; }
+                }
+            })).map(item => item.value);
+        if (!canEdit() || node.data.commerceImageSet !== settings || node.data.mediaAssetKeys !== assetKeys
+            || !removeCommerceSceneShot(settings, shotId)) return false;
+        setRemainingCommerceOutput(node, positions, remainingKeys, images);
+        if (!hasCachedBatch) {
+            if (restored.data.mediaIntegrity) node.data.mediaIntegrity = restored.data.mediaIntegrity;
+            else delete node.data.mediaIntegrity;
+        }
+        return true;
+    }
+
     async function readRetainedCommerceImages(settings, excludedShotId, signal) {
         const images = new Map();
         for (const row of settings.results) {
@@ -2095,14 +2256,32 @@ export function createExecutionCoreApi({
         return images;
     }
 
-    async function publishCommerceShots(node, { attempts, batch, firstError, workflowId, signal, commerceShotId }) {
+    async function publishCommerceShots(node, {
+        attempts, batch, firstError, workflowId, signal, commerceShotId, commerceCandidateKey, approvedReferences
+    }) {
         // Serializing only publication lets the provider requests proceed independently.
         const previous = commercePublications.get(node) || Promise.resolve();
         const publication = previous.catch(() => {}).then(async () => {
             signal?.throwIfAborted();
             const latest = normalizeCommerceImageSetState(node.data?.commerceImageSet);
             const priorRows = new Map(latest.results.map(row => [row.shotId, row]));
-            if (commerceShotId && attempts.get(commerceShotId)?.status === 'canceled') {
+            const selectedCandidate = commerceCandidateKey === undefined ? null
+                : getCommerceShotCandidates(latest, commerceShotId).find(candidate => candidate.key === commerceCandidateKey);
+            if (commerceCandidateKey !== undefined && !selectedCandidate) throw new Error('找不到所选图位的候选图片，请重新打开候选。');
+            if (selectedCandidate && latest.plan?.referenceContentKey) {
+                const contentKey = selectedCandidate.referenceContentKey;
+                const revision = selectedCandidate.referenceRevision;
+                if (contentKey && contentKey !== latest.plan.referenceContentKey) {
+                    throw new Error('此候选来自旧参考图，请按当前参考图重新生图。');
+                }
+                if (!contentKey && (!revision || revision !== latest.plan.referenceRevision)
+                    && priorRows.get(commerceShotId)?.assetKey !== selectedCandidate.assetKey) {
+                    throw new Error('无法确认此候选的参考图版本，请按当前参考图重新生图。');
+                }
+            }
+            if (commerceShotId && isCommerceShotFinalized(latest, commerceShotId)) throw new Error('图位已定稿，请先解锁。');
+            const scopedAttempt = attempts.get(commerceShotId);
+            if (scopedAttempt?.status === 'canceled' && !scopedAttempt.images?.length) {
                 if (state.nodes.get(node.id) !== node || priorRows.get(commerceShotId)?.assetKey) return;
                 priorRows.set(commerceShotId, { shotId: commerceShotId, status: 'canceled' });
                 const results = latest.selectedShotIds.flatMap(id => priorRows.has(id) ? [priorRows.get(id)] : []);
@@ -2114,26 +2293,48 @@ export function createExecutionCoreApi({
             const superseded = batch?.replacedShotIds || new Set();
             const successful = [];
             const retained = [];
+            const pinnedCandidates = [];
             for (const id of latest.selectedShotIds) {
+                if (selectedCandidate?.shotId === id) {
+                    const selectedRow = { shotId: id, status: 'completed', assetKey: selectedCandidate.assetKey, planKey: selectedCandidate.planKey };
+                    rows.set(id, selectedRow);
+                    retained.push(selectedRow);
+                    continue;
+                }
                 const result = attempts.get(id);
-                if (superseded.has(id) || !result || (result.status === 'canceled' && priorRows.get(id)?.assetKey)) {
-                    const priorRow = priorRows.get(id);
+                const priorRow = priorRows.get(id);
+                const keepPrior = result?.status === 'canceled' && !!priorRow?.assetKey;
+                const canStore = !superseded.has(id) && !priorRow?.finalized && result?.images?.length;
+                if (canStore) {
+                    successful.push(...result.images.map((image, index) => ({
+                        id, image, shot: result.shot, adopt: !keepPrior && index === 0
+                    })));
+                    if (keepPrior) {
+                        const pinned = getCommerceShotCandidates(latest, id).find(candidate => (
+                            candidate.assetKey === priorRow.assetKey && candidate.planKey === priorRow.planKey
+                        ));
+                        if (pinned) pinnedCandidates.push({ candidate: pinned, shot: result.shot });
+                    }
+                }
+                const retainOnFailure = batch?.redo && !superseded.has(id) && !priorRow?.finalized
+                    && result?.status === 'failed' && priorRow?.assetKey;
+                if (retainOnFailure || superseded.has(id) || !result || priorRow?.finalized || keepPrior) {
                     if (priorRow) {
-                        rows.set(id, priorRow);
-                        retained.push(priorRow);
+                        const row = retainOnFailure ? { ...priorRow, replacementError: result.error } : priorRow;
+                        rows.set(id, row);
+                        retained.push(row);
                     }
                     continue;
                 }
-                rows.set(id, { shotId: id, status: result.status, ...(result.error ? { error: result.error } : {}),
+                rows.set(id, { shotId: id, status: canStore ? 'completed' : result.status, ...(result.error ? { error: result.error } : {}),
                     ...(result.planKey ? { planKey: result.planKey } : {}) });
-                if (result.image) successful.push([id, result.image]);
             }
 
             if (!successful.length && batch && firstError && !retained.some(row => row.assetKey) && latest.results.some(row => row.assetKey)) {
                 throw firstError;
             }
             const retainedImages = await readRetainedCommerceImages({ ...latest, results: retained }, undefined, signal);
-            const imagesToStore = successful.map(([, image]) => image);
+            const imagesToStore = successful.map(({ image }) => image);
             const assets = imagesToStore.length ? await saveWorkflowNodeMediaAssets(imagesToStore, workflowId, node.id,
                 batch ? node.activeMediaOperationId : undefined) : [];
             const keys = assets.map(asset => asset?.asset_key);
@@ -2142,21 +2343,46 @@ export function createExecutionCoreApi({
                 if (keys.length !== imagesToStore.length || keys.some(key => !key?.startsWith('media:')) || state.nodes.get(node.id) !== node) {
                     throw new Error('套图生成完成，但工作流媒体保存失败。');
                 }
-                if (commerceShotId) assertCommercePlanningCurrent(node.id, commerceShotId);
+                if (approvedReferences && !sameCommerceReferenceProjection(approvedReferences, projectCommerceReferences(state, node.id))) {
+                    throw new Error(COMMERCE_REFERENCE_CHANGED_MESSAGE);
+                }
+                if (commerceShotId) assertCommercePlanningCurrent(node.id, commerceShotId,
+                    selectedCandidate && !approvedReferences ? { ignoreReferences: true } : undefined);
             } catch (error) {
                 if (assets.length) await releaseWorkflowNodeMediaAssets(assets, workflowId, node.id);
                 throw error;
             }
 
-            successful.forEach(([id, image], index) => {
-                rows.get(id).assetKey = keys[index];
-                retainedImages.set(id, image);
-            });
+            const current = normalizeCommerceImageSetState(node.data?.commerceImageSet);
+            const savedCandidates = new Map();
+            for (const [index, { id, image, shot, adopt }] of successful.entries()) {
+                const key = keys[index];
+                if (adopt) {
+                    rows.get(id).assetKey = key;
+                    retainedImages.set(id, image);
+                }
+                rememberCommerceShotCandidate(current, shot, key);
+                const saved = savedCandidates.get(id) || new Set();
+                saved.add(key);
+                savedCandidates.set(id, saved);
+            }
+            for (const { candidate, shot } of pinnedCandidates) {
+                if (!getCommerceShotCandidates(current, shot.id).some(item => item.key === candidate.key)) {
+                    rememberCommerceShotCandidate(current, { ...shot, ...candidate.draft }, candidate.assetKey);
+                }
+            }
+            for (const [id, saved] of savedCandidates) {
+                const total = attempts.get(id)?.candidateProgress?.total;
+                if (total && saved.size < total) rows.get(id).candidateProgress = { completed: saved.size, total };
+                else delete rows.get(id).candidateProgress;
+            }
+            if (selectedCandidate && !restoreCommerceShotCandidateDraft(current, selectedCandidate)) {
+                throw new Error('该图位方案已更新，请重新打开候选。');
+            }
             const results = latest.selectedShotIds.flatMap(id => rows.has(id) ? [rows.get(id)] : []);
             const images = results.flatMap(row => row.assetKey ? [retainedImages.get(row.shotId)] : []);
             // A rerun of a finished slot supersedes that slot's still-unpublished batch result.
-            if (commerceShotId && successful.length) commerceBatches.get(node)?.replacedShotIds.add(commerceShotId);
-            const current = normalizeCommerceImageSetState(node.data?.commerceImageSet);
+            if (commerceShotId && (successful.length || selectedCandidate)) commerceBatches.get(node)?.replacedShotIds.add(commerceShotId);
             node.data.commerceImageSet = { ...current, results };
             rememberWorkflowMediaOperation(node, assets);
             if (images.length) {
@@ -2164,13 +2390,21 @@ export function createExecutionCoreApi({
                 setCanonicalImageOutput(node, images, { defaultToFirst: true, assetKey: assetKeys[0], imageCount: images.length, assetReady: true });
                 node.data.mediaAssetKeys = assetKeys;
                 const completedIds = new Set(results.filter(row => row.assetKey).map(row => row.shotId));
-                node.generationAttemptIncomplete = getRunnableCommerceImageSetShots(current).some(shot => !completedIds.has(shot.id));
+                node.generationAttemptIncomplete = results.some(row => !row.finalized && (row.replacementError || row.candidateProgress))
+                    || getRunnableCommerceImageSetShots(current).some(shot => !completedIds.has(shot.id));
                 try {
                     await propagateImagesToDownstreamPreview(node.id, images);
+                } catch (error) {
+                    if (!selectedCandidate) throw error;
+                    const message = '已采用候选，部分下游预览更新失败。';
+                    addLog?.('warning', message, error?.message || String(error), { nodeId: node.id, shotId: commerceShotId });
+                    showToast?.(message, 'warning');
                 } finally {
                     onNodeResultUpdated(node.id, { downstreamImageResults: true });
                 }
                 if (getImageHistorySidebarActive()) renderHistoryList();
+                if (batch?.redo && firstError && !successful.length
+                    && ![...attempts.values()].some(row => row.status === 'completed')) throw firstError;
                 return { image: images, images };
             }
             onNodeResultUpdated(node.id);
@@ -3262,6 +3496,7 @@ export function createExecutionCoreApi({
         resumeAsyncImageGeneration: asyncMediaExecution.resumeAsyncImageGeneration,
         recoverAsyncImageTaskMedia: asyncMediaExecution.recoverAsyncImageTaskMedia,
         recoverVideoTaskMedia: asyncMediaExecution.recoverVideoTaskMedia,
+        removeCommerceScene,
         executeNode,
         nodeHandlers
     };

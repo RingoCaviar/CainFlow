@@ -1311,7 +1311,7 @@ export function createNodeLifecycleApi({
             isClone: effectiveRestoreData?.isClone === true && typeof effectiveRestoreData?.cloneSourceId === 'string' && !!effectiveRestoreData.cloneSourceId,
             cloneSourceId: typeof effectiveRestoreData?.cloneSourceId === 'string' ? effectiveRestoreData.cloneSourceId : ''
         };
-        if (['ProductRetouch', 'ImageImport'].includes(normalizedType) && effectiveRestoreData?.data?.mediaOwnershipTemporaryOwners) {
+        if (['ECommerceImageSet', 'ProductRetouch', 'ImageImport'].includes(normalizedType) && effectiveRestoreData?.data?.mediaOwnershipTemporaryOwners) {
             // Operation owners stay with their original workflow and node when copied.
             const { mediaOwnershipTemporaryOwners, ...otherFields } = effectiveRestoreData.data;
             const workflowId = getActiveWorkflowId();

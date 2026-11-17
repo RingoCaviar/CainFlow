@@ -1,10 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    COMMERCE_IMAGE_SET_PRESETS, appendCommerceSceneShot, buildCommerceImageSetImagePrompt, confirmCommerceSceneShot,
+    COMMERCE_IMAGE_SET_PRESETS, COMMERCE_SHOT_CANDIDATE_LIMIT, appendCommerceSceneShot,
+    buildCommerceImageSetImagePrompt, confirmCommerceSceneShot,
     createCommerceImageSetPlan, commerceImageSetPlanningSettingsKey, commerceImageSetSourceKey, commerceShotPlanKey,
+    getCommerceImageSetCandidateAssetKeys, getCommerceImageSetHistoryAssetKeys, getCommerceSceneSummary,
+    getCommerceShotCandidates, getGeneratableCommerceImageSetShots,
     getRunnableCommerceImageSetShots, getUnfinishedCommerceImageSetShots, normalizeCommerceImageSetPlan,
-    isCommerceShotImageStale, normalizeCommerceImageSetState, updateCommerceSceneDescription
+    isCommerceShotImageStale, normalizeCommerceImageSetState, preserveCommerceImageSetExportResults,
+    rememberCommerceShotCandidate, removeCommerceSceneShot, setCommerceShotFinalized,
+    updateCommerceProductInfoField, updateCommerceSceneDescription
 } from '../js/features/ecommerce-image-set/commerce-image-set-plan.js';
 
 const references = ['data:image/png;base64,aGVsbG8='];
@@ -12,6 +17,76 @@ const settings = { platformId: 'amazon', productNotes: '白色马克杯', planne
     selectedShotIds: ['feature', 'main', 'detail'] };
 const models = [{ id: 'vision', modelId: 'gpt-4o', taskType: 'chat', protocol: 'openai', providerIds: ['provider'] }];
 const providers = [{ id: 'provider', endpoint: 'https://fixture.test/v1', apikey: 'test' }];
+
+test('commerce candidate counts are bounded and do not change the approved plan identity', async () => {
+    for (const invalid of [undefined, 0, 5, 2.5, '3', Infinity]) {
+        assert.equal(normalizeCommerceImageSetState({ ...settings, candidateCount: invalid }).candidateCount, undefined);
+    }
+    assert.equal(normalizeCommerceImageSetState({ ...settings, candidateCount: 4 }).candidateCount, 4);
+    assert.equal(await commerceImageSetSourceKey({ settings: { ...settings, candidateCount: 3 }, references }),
+        await commerceImageSetSourceKey({ settings, references }));
+    const saved = normalizeCommerceImageSetState({ ...settings, results: [
+        { shotId: 'detail', status: 'completed', assetKey: 'media:partial', candidateProgress: { completed: 1, total: 3 } },
+        { shotId: 'feature', status: 'completed', assetKey: 'media:invalid', candidateProgress: { completed: 1, total: 5 } }
+    ] });
+    assert.deepEqual(saved.results[0].candidateProgress, { completed: 1, total: 3 });
+    assert.equal(saved.results[1].candidateProgress, undefined);
+});
+
+test('replanning with a different reference keeps candidates without passing an identical draft off as a current image', async () => {
+    let detectedName = '马克杯';
+    const options = {
+        models, providers, getProxyHeaders: (_url, _method, headers) => headers,
+        fetchRef: async () => Response.json({ choices: [{ message: {
+            content: JSON.stringify({ productInfo: { name: detectedName }, shots: [{ id: 'feature', prompt: '突出商品主体' }] })
+        } }] })
+    };
+    const saved = await createCommerceImageSetPlan({ ...options, settings: { ...settings, selectedShotIds: ['feature'] }, references });
+    const shot = saved.plan.shots[0];
+    rememberCommerceShotCandidate(saved, shot, 'media:old-product');
+    saved.results = [{ shotId: shot.id, status: 'completed', assetKey: 'media:old-product', planKey: commerceShotPlanKey(shot) }];
+    detectedName = '白色陶瓷杯';
+    const reanalyzed = await createCommerceImageSetPlan({ ...options, settings: saved, references });
+    assert.notEqual(reanalyzed.plan.sourceKey, saved.plan.sourceKey);
+    assert.equal(reanalyzed.results[0]?.assetKey, 'media:old-product', 'AI rephrasing with the same reference retains the output');
+    assert.equal(reanalyzed.results[0]?.previousVersion, true);
+    const replanned = await createCommerceImageSetPlan({ ...options, settings: saved, references: ['data:image/png;base64,d29ybGQ='] });
+    assert.equal(commerceShotPlanKey(replanned.plan.shots[0]), commerceShotPlanKey(shot));
+    assert.deepEqual(getUnfinishedCommerceImageSetShots(replanned).map(item => item.id), ['feature']);
+    assert.equal(getCommerceShotCandidates(replanned, 'feature')[0].assetKey, 'media:old-product');
+    assert.equal(replanned.previousExportResults[0].outputKey, 'media:old-product');
+    assert.equal(replanned.previousExportResults[0].retained, true);
+    assert.deepEqual(getCommerceImageSetHistoryAssetKeys(replanned), ['media:old-product']);
+    const legacy = { ...replanned, candidates: [], previousExportResults: replanned.previousExportResults
+        .map(({ retained, ...row }) => row) };
+    assert.deepEqual(getCommerceImageSetHistoryAssetKeys(legacy), [], 'legacy export metadata does not claim ownership');
+});
+
+test('commerce persists bounded candidate history and a finalization only for the exact completed shot', () => {
+    const plan = normalizeCommerceImageSetPlan({ sellingPoints: [], shots: [
+        { id: 'detail', prompt: '保留杯盖特写' }, { id: 'feature', prompt: '产品全貌' }
+    ] }, 'amazon', settings.selectedShotIds);
+    Object.assign(plan, { sourceKey: 'valid-key', confirmed: true });
+    const candidate = (shotId, key, aspect = '1:1') => ({
+        shotId, assetKey: `media:${key}`, aspect, draft: { prompt: `保留${key}`, headline: '候选标题', body: '候选正文' }
+    });
+    const restored = normalizeCommerceImageSetState({ ...settings, plan,
+        results: [{ shotId: 'detail', status: 'completed', assetKey: 'media:A' },
+            { shotId: 'feature', status: 'failed', error: '未完成', finalized: true }],
+        candidates: [candidate('detail', 'A'), candidate('detail', 'A'), candidate('feature', 'F'),
+            candidate('detail', 'wrong-aspect', '9:16'), candidate('detail', 'B'), candidate('detail', 'C'),
+            candidate('detail', 'D'), candidate('detail', 'E'), candidate('unknown', 'X')]
+    });
+    assert.equal(setCommerceShotFinalized(restored, 'feature', true), false);
+    assert.equal(setCommerceShotFinalized(restored, 'detail', true), true);
+    assert.equal(normalizeCommerceImageSetState(restored).results[0].finalized, true);
+    assert.deepEqual(getGeneratableCommerceImageSetShots(restored).map(shot => shot.id), ['main', 'feature']);
+    assert.deepEqual(getCommerceImageSetCandidateAssetKeys(restored), ['media:A', 'media:F', 'media:B', 'media:C', 'media:D']);
+    assert.equal(getCommerceShotCandidates(restored, 'detail').length, COMMERCE_SHOT_CANDIDATE_LIMIT);
+    assert.equal(getCommerceShotCandidates(restored, 'detail')[0].draft.prompt, '保留A');
+    assert.equal(setCommerceShotFinalized(restored, 'detail', false), true);
+    assert.deepEqual(getGeneratableCommerceImageSetShots(restored).map(shot => shot.id), ['main', 'detail', 'feature']);
+});
 
 test('the platform-aware planner sends the original product photo and returns an unconfirmed plan with a real Amazon main image', async () => {
     assert.deepEqual(Object.keys(COMMERCE_IMAGE_SET_PRESETS), ['taobao', 'jd', 'pinduoduo', 'douyin', 'amazon']);
@@ -233,6 +308,43 @@ test('supplemental scenes persist in each group without changing an existing sou
     assert.deepEqual(getUnfinishedCommerceImageSetShots(restored), []);
 });
 
+test('deleting an unlocked supplemental scene removes its output records and keeps the other slots in order', async () => {
+    const state = await baseScenePlan();
+    const original = structuredClone(state);
+    const removed = appendCommerceSceneShot(state, 'gallery', 'scene-removed');
+    const kept = appendCommerceSceneShot(state, 'gallery', 'scene-kept');
+    const detail = appendCommerceSceneShot(state, 'detail', 'scene-detail');
+    Object.assign(removed, { prompt: '窗边马克杯', sceneSummary: '窗边展示商品' });
+    assert.equal(confirmCommerceSceneShot(state, removed.id), true);
+    state.results.push({ shotId: removed.id, status: 'completed', assetKey: 'media:removed', planKey: commerceShotPlanKey(removed) });
+    rememberCommerceShotCandidate(state, removed, 'media:candidate');
+    rememberCommerceShotCandidate(state, original.plan.shots[0], 'media:presetCandidate');
+    preserveCommerceImageSetExportResults(state);
+
+    assert.equal(setCommerceShotFinalized(state, removed.id, true), true);
+    const locked = structuredClone(state);
+    assert.equal(removeCommerceSceneShot(state, removed.id), false);
+    assert.equal(removeCommerceSceneShot(state, 'scene'), false, 'the preset scene is still selected');
+    assert.deepEqual(state, locked);
+
+    assert.equal(setCommerceShotFinalized(state, removed.id, false), true);
+    assert.equal(removeCommerceSceneShot(state, removed.id), true);
+    assert.equal(removeCommerceSceneShot(state, removed.id), false);
+    assert.deepEqual(state.customScenes.map(({ id }) => id), [kept.id, detail.id]);
+    assert.deepEqual(state.selectedShotIds, ['scene', kept.id, 'detail-overview', detail.id]);
+    assert.deepEqual(state.plan.shots.map(({ id, label }) => [id, label]), [
+        ['scene', original.plan.shots[0].label], [kept.id, '场景图 1'],
+        ['detail-overview', original.plan.shots[1].label], [detail.id, '场景图 1']
+    ]);
+    assert.deepEqual(state.plan.shots.filter(shot => !shot.customScene), original.plan.shots);
+    assert.equal(state.plan.confirmed, true);
+    assert.equal(await commerceImageSetSourceKey({ settings: state, references }), original.plan.sourceKey);
+    assert.deepEqual(state.results, original.results);
+    assert.deepEqual(getCommerceImageSetCandidateAssetKeys(state), ['media:presetCandidate']);
+    assert.deepEqual(state.previousExportResults.map(({ shotId }) => shotId), ['scene', 'detail-overview']);
+    assert.deepEqual(normalizeCommerceImageSetState(state), state);
+});
+
 test('a scene planner takes the optional brief, sees existing scenes and needs explicit confirmation', async () => {
     const state = await baseScenePlan();
     const current = appendCommerceSceneShot(state, 'gallery');
@@ -249,11 +361,18 @@ test('a scene planner takes the optional brief, sees existing scenes and needs e
         }) } }] });
     } };
     const first = await createCommerceImageSetPlan({ ...options, settings: state, shotId: current.id });
-    const second = await createCommerceImageSetPlan({ ...options, settings: first, shotId: suggested.id });
+    const reviewed = first.plan.shots.find(({ id }) => id === current.id);
+    assert.equal(reviewed.sceneSummary, '窗边柔光衬托杯身');
+    assert.equal(getCommerceSceneSummary(reviewed), '窗边柔光衬托杯身');
+    reviewed.prompt = '办公室桌面展示随行杯';
+    const saved = normalizeCommerceImageSetState(first);
+    rememberCommerceShotCandidate(saved, saved.plan.shots.find(({ id }) => id === current.id), 'media:office');
+    assert.equal(getCommerceSceneSummary(getCommerceShotCandidates(saved, current.id)[0].draft), '办公室桌面展示随行杯');
+    const second = await createCommerceImageSetPlan({ ...options, settings: saved, shotId: suggested.id });
     assert.deepEqual(requests.map(({ input }) => [input.sceneDescription, input.shots[0].group, input.shots[0].aspect]),
         [['咖啡店窗边的工作桌', 'gallery', '4:5'], ['', 'detail', '3:4']]);
     assert.deepEqual(requests[0].input.existingScenes.map(({ summary }) => summary), ['厨房台面展示马克杯']);
-    assert.deepEqual(requests[1].input.existingScenes.map(({ summary }) => summary), ['厨房台面展示马克杯', '窗边柔光衬托杯身']);
+    assert.deepEqual(requests[1].input.existingScenes.map(({ summary }) => summary), ['厨房台面展示马克杯', '办公室桌面展示随行杯']);
     assert.match(requests[1].system, /sceneSummary/);
     assert.equal(first.plan.confirmed, true);
     assert.equal(first.plan.shots.find(({ id }) => id === current.id).sceneSummary, '窗边柔光衬托杯身');
@@ -264,22 +383,23 @@ test('a scene planner takes the optional brief, sees existing scenes and needs e
     assert.deepEqual(getUnfinishedCommerceImageSetShots(second).map(({ id }) => id), [suggested.id]);
     assert.equal(updateCommerceSceneDescription(second, suggested.id, '早餐桌边'), true);
     const reset = second.plan.shots.find(({ id }) => id === suggested.id);
-    assert.deepEqual([reset.sceneSummary, reset.prompt, reset.sceneConfirmed], ['', '', false]);
+    assert.deepEqual([reset.sceneSummary, reset.prompt, reset.sceneConfirmed, reset.sceneNeedsReview],
+        ['窗边柔光衬托杯身', '将商品置于画面中部的桌面', false, true]);
     assert.deepEqual(getUnfinishedCommerceImageSetShots(second), []);
     assert.equal(second.plan.confirmed, true);
 });
 
-test('replanning preset shots keeps supplemental scene briefs and only reuses scene plans for matching inputs', async () => {
+test('replanning keeps scene drafts and only revokes approval when that scene’s inputs change', async () => {
     const state = await baseScenePlan();
     const scene = appendCommerceSceneShot(state, 'detail');
     updateCommerceSceneDescription(state, scene.id, '书桌旁');
     const options = { references, models, providers, fetchRef: async (_path, { body }) => {
         const { messages } = JSON.parse(body);
         const input = JSON.parse(messages.at(-1).content[0].text);
-        if (!input.currentShot) assert.deepEqual(input.shots.map(({ id }) => id), ['scene', 'detail-overview']);
+        if (!input.currentShot) assert.ok(input.shots.every(({ id }) => id !== scene.id), 'bulk planning only requests presets');
         return Response.json({ choices: [{ message: { content: JSON.stringify({
             ...(input.currentShot ? {} : { sellingPoints: input.productInfo.sellingPoints }),
-            shots: input.shots.map(({ id }) => ({ id, prompt: '柔光照在杯身上', sceneSummary: '窗边马克杯' }))
+            shots: input.shots.map(({ id }) => ({ id, prompt: '柔光照在杯身上', sceneSummary: '窗边马克杯', headline: '保留此标题' }))
         }) } }] });
     } };
     const planned = await createCommerceImageSetPlan({ ...options, settings: state, shotId: scene.id });
@@ -289,11 +409,34 @@ test('replanning preset shots keeps supplemental scene briefs and only reuses sc
     planned.results.push(completed);
     const refreshed = await createCommerceImageSetPlan({ ...options, settings: planned });
     assert.deepEqual(refreshed.plan.shots.find(({ id }) => id === scene.id), approved);
-    assert.deepEqual(refreshed.results, [completed]);
+    assert.deepEqual(refreshed.results.map(({ assetKey }) => assetKey), ['media:gallery', 'media:detail', completed.assetKey]);
+    const unrelated = await createCommerceImageSetPlan({ ...options, settings: {
+        ...planned, selectedShotIds: [...planned.selectedShotIds, 'feature'], galleryAspect: '1:1'
+    } });
+    assert.deepEqual(unrelated.plan.shots.find(({ id }) => id === scene.id), approved);
+    const relevantSettings = structuredClone(planned);
+    updateCommerceProductInfoField(relevantSettings, 'details', '带有可拆洗杯盖');
+    const relevant = await createCommerceImageSetPlan({ ...options, settings: relevantSettings });
+    const updated = relevant.plan.shots.find(({ id }) => id === scene.id);
+    assert.equal(updated.headline, approved.headline);
+    assert.equal(updated.prompt, approved.prompt);
+    assert.equal(updated.sceneConfirmed, false);
+    assert.equal(updated.sceneNeedsReview, true);
+    assert.equal(relevant.results.find(({ shotId }) => shotId === scene.id)?.previousVersion, true);
+    const resized = await createCommerceImageSetPlan({ ...options, settings: { ...planned, detailAspect: '9:16' } });
+    const resizedDraft = resized.plan.shots.find(({ id }) => id === scene.id);
+    assert.equal(resizedDraft.aspect, '9:16');
+    assert.equal(resizedDraft.prompt, approved.prompt);
+    assert.equal(resizedDraft.sceneNeedsReview, true);
+    assert.equal(resized.results.some(({ shotId }) => shotId === scene.id), false);
+    assert.equal(resized.previousExportResults.find(({ shotId }) => shotId === scene.id)?.aspect, '3:4');
     const changed = await createCommerceImageSetPlan({ ...options, settings: planned, references: ['data:image/png;base64,d29ybGQ='] });
     const pending = changed.plan.shots.find(({ id }) => id === scene.id);
     assert.equal(pending.description, '书桌旁');
-    assert.equal(pending.prompt, '');
+    assert.equal(pending.prompt, approved.prompt);
+    assert.equal(pending.headline, approved.headline);
     assert.equal(pending.sceneConfirmed, false);
+    assert.equal(pending.sceneNeedsReview, true);
     assert.deepEqual(changed.results, []);
+    assert.equal(changed.previousExportResults.find(row => row.shotId === scene.id)?.referenceContentKey, planned.plan.referenceContentKey);
 });

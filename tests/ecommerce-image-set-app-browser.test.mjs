@@ -1367,7 +1367,7 @@ test('commerce shots run independently and can be canceled individually or from 
     }, { initScript });
 });
 
-test('custom commerce scenes can be added to both groups and require individual review before generation', { timeout: 30000 }, async () => {
+test('custom commerce scenes can be added, reviewed, generated, and deleted independently', { timeout: 30000 }, async () => {
     const reference = (await readFile(new URL('./fixtures/reference-red.png', import.meta.url))).toString('base64');
     const sceneImage = (await readFile(new URL('./fixtures/reference-blue.png', import.meta.url))).toString('base64');
     const presetIds = ['detail', 'detail-overview'];
@@ -1442,8 +1442,9 @@ test('custom commerce scenes can be added to both groups and require individual 
     const pending = key => `typeof pendingCommerceRequests[${JSON.stringify(key)}]==='function'`;
     const release = (app, key) => app.evaluate(`pendingCommerceRequests[${JSON.stringify(key)}]()`);
     const state = (id, status) => `${query(row(id))}?.dataset.resultStatus===${JSON.stringify(status)}`;
-    const saved = `fetch('/api/storage/documents/session').then(response=>response.json())
-        .then(document=>document.value.nodes.find(node=>node.id==='commerce').commerceImageSet)`;
+    const savedNode = `fetch('/api/storage/documents/session').then(response=>response.json())
+        .then(document=>document.value.nodes.find(node=>node.id==='commerce'))`;
+    const saved = `${savedNode}.then(node=>node.commerceImageSet)`;
     const customImages = "sceneCalls.filter(call=>call.kind==='image'&&call.id?.startsWith('scene-'))";
     const openScene = async (app, id) => {
         if (!await app.evaluate(visible(field(id, 'description')))) await click(app, `${row(id)} .commerce-image-set-shot-toggle`);
@@ -1470,6 +1471,16 @@ test('custom commerce scenes can be added to both groups and require individual 
         assert.equal(input.sceneDescription, description);
         return id;
     };
+    const confirmRemoval = async (app, id, accept = true) => {
+        await click(app, action('remove-scene', id));
+        const confirm = '#app-action-dialog button[data-dialog-style-1-action=confirm]';
+        await app.waitFor(visible(confirm));
+        assert.equal(await app.evaluate(`${query(confirm)}.textContent`), '删除场景图');
+        if (accept) await click(app, confirm);
+        else await key(app, 'Escape');
+        await app.waitFor(`!${visible('#app-action-dialog')}`);
+        if (accept) await app.waitFor(`!${query(row(id))}`);
+    };
 
     await withAppBrowser(fixture, async app => {
         await uploadImageOriginal(app, 'product', `data:image/png;base64,${reference}`);
@@ -1491,6 +1502,7 @@ test('custom commerce scenes can be added to both groups and require individual 
         assert.deepEqual(await app.evaluate(groupIds('gallery')), galleryIds);
         assert.deepEqual(await app.evaluate(groupIds('detail')), detailIds);
         assert.ok(await app.evaluate(`${pending(`plan:${first}`)} && ${pending(`plan:${second}`)}`));
+        assert.equal(await app.evaluate(`${query(action('remove-scene', first))}?.disabled`), true);
         await click(app, action('cancel-shot', detail));
         await app.waitFor(`canceledCommerceRequests.includes(${JSON.stringify(`plan:${detail}`)})`);
         assert.ok(await app.evaluate(`${pending(`plan:${first}`)} && ${pending(`plan:${second}`)}`));
@@ -1542,14 +1554,166 @@ test('custom commerce scenes can be added to both groups and require individual 
             ['detail', second, 'detail-overview']);
         assert.deepEqual(await app.evaluate(`${customImages}.map(call=>call.id)`), [first, second]);
 
+        await app.waitFor(ready(action('remove-scene', detail)));
+        for (const presetId of presetIds) assert.equal(await app.evaluate(`!!${query(action('remove-scene', presetId))}`), false);
+        const callsBeforeRemoval = await app.evaluate('sceneCalls.length');
+        await confirmRemoval(app, detail);
+        assert.deepEqual(await app.evaluate(groupIds('detail')), ['detail-overview']);
+
+        await click(app, action('toggle-final', second));
+        assert.equal(await app.evaluate(`${query(action('remove-scene', second))}.disabled`), true);
+        await click(app, action('toggle-final', second));
+        await confirmRemoval(app, second, false);
+        assert.deepEqual(await app.evaluate(groupIds('gallery')), galleryIds);
+        await confirmRemoval(app, second);
+        assert.deepEqual(await app.evaluate(groupIds('gallery')), ['detail', first]);
+
+        const removedIds = JSON.stringify([second, detail]);
+        const removedAsset = current.results.find(result => result.shotId === second).assetKey;
+        await app.waitFor(`${savedNode}.then(node => !node.mediaAssetKeys.includes(${JSON.stringify(removedAsset)})
+            && !node.commerceImageSet.selectedShotIds.some(id => ${removedIds}.includes(id)))`);
+        const afterRemoval = await app.evaluate(savedNode);
+        assert.deepEqual(afterRemoval.mediaAssetKeys, original.results.map(result => result.assetKey));
+        assert.deepEqual(afterRemoval.commerceImageSet.customScenes.map(scene => scene.id), [first]);
+        assert.deepEqual(afterRemoval.commerceImageSet.plan.shots, current.plan.shots.filter(shot => ![second, detail].includes(shot.id)));
+        assert.deepEqual(afterRemoval.commerceImageSet.results, current.results.filter(result => ![second, detail].includes(result.shotId)));
+        assert.equal(afterRemoval.commerceImageSet.plan.confirmed, current.plan.confirmed);
+        assert.equal(await app.evaluate('sceneCalls.length'), callsBeforeRemoval);
+
         await reloadAppBrowser(app);
         await openParameters(app, 'commerce');
-        assert.deepEqual(await app.evaluate(groupIds('gallery')), galleryIds);
-        assert.deepEqual(await app.evaluate(groupIds('detail')), detailIds);
-        await app.waitFor(`${query(`${row(second)} img`)}?.naturalWidth>0 && ${state(second, 'completed')}`);
+        assert.deepEqual(await app.evaluate(groupIds('gallery')), ['detail', first]);
+        assert.deepEqual(await app.evaluate(groupIds('detail')), ['detail-overview']);
+        await app.waitFor(`${query(`${row('detail')} img`)}?.naturalWidth>0 && ${state('detail', 'completed')}`);
         await openScene(app, first);
         assert.equal(await app.evaluate(`${query(field(first, 'description'))}.value`), galleryBrief);
         assert.deepEqual(await app.evaluate('sceneCalls'), []);
+    }, { initScript });
+});
+
+test('supplemental scenes survive unrelated replanning and keep the previous reference set out of the current ZIP', { timeout: 45000 }, async () => {
+    const [original, replacement, closeup, sceneImage] = await Promise.all(['red', 'green', 'blue', 'yellow'].map(async color =>
+        (await readFile(new URL(`./fixtures/reference-${color}.png`, import.meta.url))).toString('base64')));
+    const fixture = {
+        autoCheckUpdatesOnLoad: false,
+        autoRetry: false,
+        nodes: [
+            { id: 'product', type: 'ImageImport', x: 40, y: 100 },
+            { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100, commerceImageSet: {
+                platformId: 'amazon', selectedShotIds: ['main', 'detail'], plannerModelId: 'vision',
+                plannerProviderId: 'p', imageModelId: 'image', imageProviderId: 'p'
+            } }
+        ],
+        connections: [{ id: 'product-reference', from: { nodeId: 'product', port: 'image' },
+            to: { nodeId: 'commerce', port: 'referenceImages' }, type: 'image', order: 0 }],
+        models: [{ id: 'vision', modelId: 'gpt-4o', taskType: 'chat', protocol: 'openai', providerIds: ['p'] },
+            { id: 'image', modelId: 'gpt-image-2', taskType: 'image', protocol: 'openai', providerIds: ['p'] }],
+        providers: [{ id: 'p', endpoint: 'https://fixture.test/v1', apikey: 'test' }]
+    };
+    const editPrompt = '办公室白色书桌上的随行杯';
+    const initScript = `window.commerceRepairRequests=[];
+        const actualFetch = fetch.bind(window);
+        window.fetch = async (url, options) => {
+            if (url !== '/proxy' || !options?.body) return actualFetch(url, options);
+            if (options.body instanceof FormData) {
+                const prompt = options.body.get('prompt');
+                commerceRepairRequests.push(prompt);
+                return Response.json({data:[{b64_json:prompt.includes(${JSON.stringify(editPrompt)})
+                    ? ${JSON.stringify(sceneImage)} : ${JSON.stringify(closeup)}}]});
+            }
+            const message = JSON.parse(options.body).messages.at(-1);
+            const input = JSON.parse(message.content[0].text);
+            if (window.holdCommerceRepairDetail && input.shots.length === 1 && input.shots[0].id === 'detail') {
+                await new Promise(resolve => { window.releaseCommerceRepairDetail = resolve; });
+            }
+            const plan = {sellingPoints:['杯盖可拆'], shots: input.shots.map(({id}) => ({
+                id, prompt: id.startsWith('scene-') ? '在露营桌旁展示随行杯' : '展示随行杯和杯盖',
+                headline: '方便取下杯盖', body: '', sceneSummary: '露营桌旁的随行杯'
+            }))};
+            return Response.json({choices:[{message:{content:JSON.stringify(plan)}}]});
+        };`;
+    const panel = '#image-parameter-panel';
+    const query = selector => `document.querySelector(${JSON.stringify(selector)})`;
+    const action = (name, scope = panel) => `${scope} [data-commerce-action=${name}]`;
+    const row = `${panel} [data-commerce-scene-shot]`;
+    const prompt = `${row} [data-commerce-shot-field=prompt]`;
+    const add = `${action('add-scene')}[data-commerce-scene-group=detail]`;
+    const edit = (app, selector, value) => app.evaluate(`(() => {
+        const control = ${query(selector)};
+        control.value = ${JSON.stringify(value)};
+        control.dispatchEvent(new Event('input', {bubbles:true}));
+    })()`);
+    const click = async (app, selector) => {
+        await app.waitFor(`${query(selector)}?.checkVisibility() && !${query(selector)}.disabled`);
+        await app.evaluate(`${query(selector)}.scrollIntoView({block:'nearest'})`);
+        await nativeClick(app, selector);
+    };
+    const storedNode = `fetch('/api/storage/documents/session').then(response => response.json())
+        .then(doc => doc.value.nodes.find(node => node.id === 'commerce'))`;
+    const closeDialog = '#commerce-export-dialog [data-commerce-export-close]';
+    const download = '#commerce-export-dialog [data-commerce-export-download]';
+    const archiveToggle = '#commerce-export-dialog label:has([name=commerce-export-version][value=previous])';
+
+    await withAppBrowser(fixture, async app => {
+        await uploadImageOriginal(app, 'product', `data:image/png;base64,${original}`);
+        await openParameters(app, 'commerce');
+        await click(app, action('plan'));
+        await click(app, action('generate'));
+        await app.waitFor(`${storedNode}.then(node => node.mediaAssetKeys?.length === 2)`);
+        const base = await app.evaluate(storedNode);
+
+        await click(app, add);
+        await click(app, action('replan-shot', row));
+        await app.waitFor(`${query(prompt)}?.checkVisibility()`);
+        await edit(app, prompt, editPrompt);
+        await app.waitFor(`${query(row + ' .commerce-image-set-scene-summary')}.textContent.includes(${JSON.stringify(editPrompt)})`);
+
+        const setup = `${panel} .commerce-image-set-setup`;
+        if (!await app.evaluate(`${query(setup)}.open`)) await click(app, `${setup} > summary`);
+        await click(app, `${panel} label:has([data-commerce-select-shot=feature])`);
+        await click(app, action('plan'));
+        await app.waitFor(`${query(add)}.disabled === false`);
+        await app.waitFor(`${storedNode}.then(node => node.commerceImageSet.plan.shots.some(shot =>
+            shot.customScene && shot.prompt === ${JSON.stringify(editPrompt)} && !shot.sceneNeedsReview)
+            && node.commerceImageSet.selectedShotIds.includes('feature'))`);
+        await edit(app, commerceProductField('name'), '新品随行杯');
+        await click(app, action('plan'));
+        await app.waitFor(`${query(row)}?.dataset.resultStatus === 'review-update' && !${query(add)}.disabled`);
+        if (!await app.evaluate(`${query(prompt)}?.checkVisibility()`)) await click(app, `${row} .commerce-image-set-shot-toggle`);
+        assert.equal(await app.evaluate(`${query(prompt)}.value`), editPrompt);
+        await app.evaluate('window.holdCommerceRepairDetail = true');
+        await click(app, action('replan-shot', `${panel} [data-commerce-shot-id=detail]`));
+        await app.waitFor("typeof window.releaseCommerceRepairDetail === 'function'");
+        await click(app, action('retry', row));
+        await app.waitFor(`${storedNode}.then(node => node.mediaAssetKeys?.length === 3)`);
+        await app.evaluate('window.releaseCommerceRepairDetail()');
+        await app.waitFor("document.getElementById('btn-stop').disabled");
+        const withScene = await app.evaluate(storedNode);
+        assert.deepEqual(withScene.mediaAssetKeys.slice(0, 2), base.mediaAssetKeys);
+        assert.equal(await app.evaluate('commerceRepairRequests.length'), 2);
+
+        await uploadImageOriginal(app, 'product', `data:image/png;base64,${replacement}`);
+        await openParameters(app, 'commerce');
+        await app.waitFor(`${query(panel + ' .commerce-image-set-status')}.textContent.includes('商品参考图已变更')`);
+        assert.equal(await app.evaluate(`${query(add)}.disabled`), true);
+        assert.ok(await app.evaluate(`${query(action('preview-previous'))}.checkVisibility()`));
+        await click(app, action('export'));
+        await app.waitFor(`${query('#commerce-export-dialog .commerce-export-summary')}.textContent.includes('可导出 0 张')`);
+        assert.equal(await app.evaluate(`${query(download)}.disabled`), true);
+        await click(app, archiveToggle);
+        await app.waitFor(`${query(download)}.disabled === false`);
+        await app.waitFor(`${query('#commerce-export-dialog .commerce-export-summary')}.textContent.includes('可导出 3 张')`);
+        await captureCommerceInspector(app, { name: 'previous-reference-export', width: 390, surface: '#commerce-export-dialog' });
+        await click(app, closeDialog);
+
+        await click(app, action('plan'));
+        await app.waitFor(`${storedNode}.then(node => !node.mediaAssetKeys?.length
+            && node.commerceImageSet.previousExportResults?.length === 3)`);
+        await reloadAppBrowser(app);
+        await openParameters(app, 'commerce');
+        await click(app, action('export'));
+        await click(app, archiveToggle);
+        await app.waitFor(`${query('#commerce-export-dialog .commerce-export-summary')}.textContent.includes('可导出 3 张')`);
     }, { initScript });
 });
 
@@ -1696,5 +1860,221 @@ test('commerce ZIP export lists missing and previous images and keeps shot numbe
         await app.waitFor(`!${query(dialog)}?.checkVisibility() && document.activeElement===${query(action('export'))}`);
         assert.deepEqual(await app.evaluate('commerceExportProviderRequests'), providerRequests,
             'reviewing and downloading saved images never reruns planning or generation');
+    }, { initScript });
+});
+
+test('commerce finalized shots survive a whole-set redo and saved candidates restore their matching drafts', { timeout: 30000 }, async () => {
+    const [initialImage, middleImage, newerImage, detailImage] = await Promise.all(['red', 'orange', 'blue', 'green'].map(async color =>
+        (await readFile(new URL(`./fixtures/reference-${color}.png`, import.meta.url))).toString('base64')));
+    const firstDraft = {
+        prompt: '候选卖点初版，采用自然侧光与近景构图。',
+        headline: '可拆杯盖',
+        body: '拆下杯盖后清洗。'
+    };
+    const revisedDraft = {
+        prompt: '候选卖点新版，采用暖光与俯拍构图。',
+        headline: '便于清洗',
+        body: '俯拍展示杯盖拆下后的状态。'
+    };
+    const middleDraft = {
+        prompt: '候选卖点中间版，杯盖放在杯身旁。',
+        headline: '拆卸便捷',
+        body: '画面展示杯身与杯盖。'
+    };
+    const detailDraft = { prompt: '候选详情首屏，完整展示带盖随行杯。', headline: '带盖随行杯', body: '' };
+    const fixture = {
+        autoCheckUpdatesOnLoad: false,
+        autoRetry: false,
+        models: [{ id: 'vision', modelId: 'gpt-4o', taskType: 'chat', protocol: 'openai', providerIds: ['p'] },
+            { id: 'image', modelId: 'gpt-image-2', taskType: 'image', protocol: 'openai', providerIds: ['p'] }],
+        providers: [{ id: 'p', endpoint: 'https://fixture.test/v1', apikey: 'test' }],
+        nodes: [
+            { id: 'product', type: 'ImageImport', x: 40, y: 100 },
+            { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100, commerceImageSet: {
+                platformId: 'amazon', selectedShotIds: ['feature', 'detail-overview'], plannerModelId: 'vision',
+                plannerProviderId: 'p', imageModelId: 'image', imageProviderId: 'p'
+            } },
+            { id: 'preview', type: 'ImagePreview', x: 40, y: 470 }
+        ],
+        connections: [
+            { id: 'product-reference', from: { nodeId: 'product', port: 'image' },
+                to: { nodeId: 'commerce', port: 'referenceImages' }, type: 'image', order: 0 },
+            { id: 'set-preview', from: { nodeId: 'commerce', port: 'image' },
+                to: { nodeId: 'preview', port: 'image' }, type: 'image' }
+        ]
+    };
+    const initScript = `window.candidateTestRequests=[];
+        const actualFetch=window.fetch.bind(window);
+        window.fetch=async (url, options)=>{
+            if(window.pauseCandidateStorage && url==='/api/storage/media-assets' &&
+                JSON.parse(options?.body || '{}').action==='materialize-owner-list'){
+                window.pauseCandidateStorage=false;
+                await new Promise(resolve=>{ window.releaseCandidateStorage=resolve; });
+            }
+            if (url!=='/proxy'||!options?.body) return actualFetch(url,options);
+            if (!(options.body instanceof FormData)) {
+                candidateTestRequests.push('plan');
+                const plan={sellingPoints:[],shots:${JSON.stringify([
+                    { id: 'feature', ...firstDraft }, { id: 'detail-overview', ...detailDraft }
+                ])}};
+                return Response.json({choices:[{message:{content:JSON.stringify(plan)}}]});
+            }
+            const prompt=options.body.get('prompt');
+            const shot=prompt.includes('候选详情首屏')?'detail-overview':'feature';
+            candidateTestRequests.push(shot);
+            const image=window.candidateBatchImages?.shift() ?? (shot==='detail-overview'?${JSON.stringify(detailImage)}:
+                prompt.includes('候选卖点新版')?${JSON.stringify(newerImage)}:
+                prompt.includes('候选卖点中间版')?${JSON.stringify(middleImage)}:${JSON.stringify(initialImage)});
+            return Response.json({data:[{b64_json:image}]});
+        };`;
+    const panel = '#image-parameter-panel';
+    const feature = `${panel} [data-commerce-shot-id=feature]`;
+    const dialog = '#commerce-candidates-dialog';
+    const action = (name, root = panel) => `${root} [data-commerce-action=${name}]`;
+    const query = selector => `document.querySelector(${JSON.stringify(selector)})`;
+    const ready = selector => `${query(selector)}?.checkVisibility() && !${query(selector)}.disabled
+        && ${query(selector)}.getAttribute('aria-disabled')!=='true'`;
+    const click = async (app, selector) => {
+        await app.waitFor(ready(selector));
+        await app.evaluate(`${query(selector)}.scrollIntoView({block:'nearest'})`);
+        await nativeClick(app, selector);
+    };
+    const lock = action('toggle-final', feature);
+    const compare = action('compare-shot', feature);
+    const retry = action('retry', feature);
+    const toggle = `${feature} .commerce-image-set-shot-toggle`;
+    const field = name => `${feature} [data-commerce-shot-field=${name}]`;
+    const resultPreview = `${action('preview', feature)} img`;
+    const candidateCount = `${panel} [data-commerce-field=candidateCount]`;
+    const lockState = locked => `${query(lock)}?.getAttribute('aria-pressed')===${JSON.stringify(String(locked))}`;
+    const node = id => `fetch('/api/storage/documents/session').then(response=>response.json())
+        .then(document=>document.value.nodes.find(node=>node.id===${JSON.stringify(id)}))`;
+    const saved = node('commerce');
+    const detailSlot = 'detail-overview';
+    const asset = (settings, id) => settings.results.find(result => result.shotId === id)?.assetKey;
+    const planDraft = settings => {
+        const { prompt, headline, body } = settings.plan.shots.find(shot => shot.id === 'feature');
+        return { prompt, headline, body };
+    };
+    const isUsing = (selector, key) => `${query(selector)}?.naturalWidth>0 &&
+        decodeURIComponent(new URL(${query(selector)}.src).pathname.split('/').at(-1))===${JSON.stringify(key)}`;
+
+    await withAppBrowser(fixture, async app => {
+        await uploadImageOriginal(app, 'product', `data:image/png;base64,${detailImage}`);
+        await openParameters(app, 'commerce');
+        assert.equal(await app.evaluate(`${query(candidateCount)}.value`), '1');
+        await click(app, action('plan'));
+        await click(app, action('generate'));
+        await app.waitFor(`${saved}.then(node=>node.commerceImageSet.results.filter(row=>row.status==='completed').length===2)`);
+        const original = (await app.evaluate(saved)).commerceImageSet;
+        const initial = asset(original, 'feature');
+        assert.deepEqual(planDraft(original), firstDraft);
+
+        await click(app, toggle);
+        const regenerate = async (draft, previous) => {
+            for (const [name, value] of Object.entries(draft)) {
+                await app.evaluate(`(()=>{
+                    const input=${query(field(name))};
+                    input.value=${JSON.stringify(value)};
+                    input.dispatchEvent(new Event('input',{bubbles:true}));
+                })()`);
+            }
+            await click(app, retry);
+            await app.waitFor(`${saved}.then(node=>node.commerceImageSet.results.some(row=>row.shotId==='feature' &&
+                row.status==='completed' && row.assetKey!==${JSON.stringify(previous)}))`);
+            const settings = (await app.evaluate(saved)).commerceImageSet;
+            assert.deepEqual(planDraft(settings), draft);
+            return asset(settings, 'feature');
+        };
+        const middle = await regenerate(middleDraft, initial);
+        const newer = await regenerate(revisedDraft, middle);
+        assert.equal(new Set([initial, middle, newer]).size, 3);
+
+        await click(app, lock);
+        await app.waitFor(lockState(true));
+        assert.equal(Boolean(await app.evaluate(ready(retry))), false, 'a finalized shot cannot be replaced until unlocked');
+        await click(app, action('generate'));
+        await app.waitFor("candidateTestRequests.length>=6 && document.getElementById('btn-stop').disabled");
+        assert.deepEqual(await app.evaluate('candidateTestRequests'),
+            ['plan', 'feature', detailSlot, 'feature', 'feature', detailSlot], 'batch redo requests only the unlocked shot');
+        const afterRedo = (await app.evaluate(saved)).commerceImageSet;
+        assert.equal(asset(afterRedo, 'feature'), newer);
+
+        await reloadAppBrowser(app);
+        await openParameters(app, 'commerce');
+        await app.waitFor(`${lockState(true)} && ${isUsing(resultPreview, newer)}`);
+        assert.equal(Boolean(await app.evaluate(ready(retry))), false);
+        await captureCommerceInspector(app, { name: 'finalized-shot', shotId: 'feature' });
+        const currentImage = `${dialog} .commerce-candidate-comparison [data-commerce-current-preview] img`;
+        const candidateImage = `${dialog} .commerce-candidate-comparison [data-commerce-candidate-preview] img`;
+        const apply = `${dialog} [data-commerce-candidate-apply]`;
+        await click(app, compare);
+        await app.waitFor(`${query(dialog)}?.checkVisibility() && ${isUsing(candidateImage, middle)}`);
+        assert.equal(await app.evaluate(`${query(apply)}.disabled`), true, 'candidate comparison cannot replace the finalized shot');
+        await key(app, 'Escape');
+        await app.waitFor(`!${query(dialog)}?.checkVisibility() && document.activeElement===${query(compare)}`);
+
+        await click(app, lock);
+        await app.waitFor(`${lockState(false)} && ${ready(retry)}`);
+        await app.evaluate(`${query(`${panel} .commerce-image-set-setup`)}.open=true`);
+        await click(app, `${panel} label:has([data-commerce-select-shot=main])`);
+        assert.equal(await app.evaluate(isUsing(resultPreview, newer)), true, 'adding a compatible slot keeps the current image');
+        await click(app, action('plan'));
+        await app.waitFor(`${saved}.then(node=>node.commerceImageSet.plan?.shots.some(shot=>shot.id==='main') &&
+            !node.commerceImageSet.plan.stale && node.commerceImageSet.results.filter(row=>row.status==='completed').length===2)`);
+        await app.evaluate('candidateTestRequests=[]');
+
+        await app.evaluate(`${query(compare)}.focus()`);
+        await key(app, 'Enter');
+        await app.waitFor(`${query(dialog)}?.checkVisibility() && ${isUsing(currentImage, newer)} && ${isUsing(candidateImage, middle)}`);
+        const earlierCandidate = `${dialog} [data-commerce-candidate^="${initial}:"]`;
+        await click(app, earlierCandidate);
+        await app.waitFor(isUsing(candidateImage, initial));
+        const comparison = await app.evaluate(`(()=>{
+            const current=${query(currentImage)}.getBoundingClientRect();
+            const candidate=${query(candidateImage)}.getBoundingClientRect();
+            return {currentX:current.x,candidateX:candidate.x,currentY:current.y,candidateY:candidate.y};
+        })()`);
+        assert.notEqual(comparison.currentX, comparison.candidateX, 'both alternative images are displayed side by side');
+        assert.ok(Math.abs(comparison.currentY - comparison.candidateY) < 4);
+        await captureCommerceInspector(app, { name: 'candidate-comparison', surface: dialog });
+        await captureCommerceInspector(app, { name: 'candidate-comparison-narrow', width: 390, surface: dialog });
+        await click(app, apply);
+        await app.waitFor(`${saved}.then(node=>node.commerceImageSet.results.some(row=>row.shotId==='feature' &&
+            row.assetKey===${JSON.stringify(initial)}))`);
+        const restored = await app.evaluate(saved);
+        assert.deepEqual(planDraft(restored.commerceImageSet), firstDraft);
+        const ordered = [initial, asset(afterRedo, detailSlot)];
+        assert.deepEqual(restored.mediaAssetKeys, ordered);
+        await app.waitFor(`${node('preview')}.then(node=>JSON.stringify(node.mediaAssetKeys)===${JSON.stringify(JSON.stringify(ordered))})`);
+        await app.waitFor(isUsing(resultPreview, initial));
+        assert.deepEqual(await app.evaluate('candidateTestRequests'), [], 'comparing and restoring a saved candidate never call a provider');
+
+        await app.evaluate(`(() => {
+            ${query(`${panel} .commerce-image-set-setup`)}.open = true;
+            const count = ${query(candidateCount)};
+            count.value = '3';
+            count.dispatchEvent(new Event('change', { bubbles: true }));
+            window.candidateBatchImages = ${JSON.stringify([newerImage, middleImage, initialImage])};
+        })()`);
+        await captureCommerceInspector(app, { name: 'candidate-generation-settings', selector: candidateCount });
+        await click(app, retry);
+        await app.waitFor(`${saved}.then(node=>{
+            const settings=node.commerceImageSet;
+            const feature=settings.results.find(row=>row.shotId==='feature');
+            return settings.candidateCount===3 && feature?.assetKey===${JSON.stringify(newer)} &&
+                settings.candidates.filter(version=>version.shotId==='feature'&&version.planKey===feature.planKey).length===3;
+        })`);
+        assert.deepEqual(await app.evaluate('candidateTestRequests'), ['feature', 'feature', 'feature']);
+        assert.deepEqual((await app.evaluate(saved)).mediaAssetKeys, [newer, ordered[1]], 'candidate images do not add output positions');
+
+        await app.evaluate('window.pauseCandidateStorage=true');
+        await click(app, action('generate'));
+        await app.waitFor("typeof window.releaseCandidateStorage==='function'");
+        const footerCancel = action('cancel-all');
+        await app.waitFor(`${query(footerCancel)}?.getAttribute('aria-disabled')==='true' &&
+            ${query(`${panel} .commerce-image-set-status`)}?.textContent.includes('正在保存成图')`);
+        await app.evaluate(`${query(footerCancel)}.click(); window.releaseCandidateStorage()`);
+        await app.waitFor(`${saved}.then(node=>node.commerceImageSet.results.find(row=>row.shotId==='feature')?.assetKey===${JSON.stringify(initial)})`);
     }, { initScript });
 });

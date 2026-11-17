@@ -16,7 +16,7 @@ const canvasActionMethods = new Set(['import_history', 'apply_prompt', 'run_canv
 
 export function canvasRevisionFingerprint(context) {
     const nodes = context.nodes.map(({ running, ...node }) => node);
-    return JSON.stringify([context.workflowId, nodes, context.connections, context.summary.selectedIds]);
+    return JSON.stringify([context.workflowId, nodes, context.connections, context.summary.selectedIds, context.commerceRunSettings]);
 }
 
 export function resolveCanvasRunInput(context, { nodeIds, targetNodeId }) {

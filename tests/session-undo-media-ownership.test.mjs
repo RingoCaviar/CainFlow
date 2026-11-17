@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createSessionManagerApi } from '../js/features/persistence/session-manager.js';
+import {
+    getCommerceShotCandidates, getUnfinishedCommerceImageSetShots, normalizeCommerceImageSetPlan
+} from '../js/features/ecommerce-image-set/commerce-image-set-plan.js';
 
 function moveHistoryFixture() {
     const node={id:'image',type:'ImageImport',x:10,y:20,data:{mediaAssetKeys:['media:original']},el:{style:{},remove(){},querySelectorAll:()=>[]}};
@@ -250,6 +253,63 @@ test('Undo keeps surviving images in a batch and updates the image count', async
     assert.equal(restored.imageAssetKey, 'media:surviving');
     assert.equal(restored.imageCount, 1);
     assert.equal(restored.imagePreviewIndex, 0);
+});
+
+test('Undo releases a missing finalized commerce image while preserving the ordered outputs and usable candidates', async () => {
+    const selectedShotIds = ['angle', 'detail', 'feature', 'scene', 'included'];
+    const plan = normalizeCommerceImageSetPlan({ sellingPoints: [], shots: selectedShotIds.map(id => ({ id, prompt: '展示原图商品' })) },
+        'amazon', selectedShotIds);
+    const candidate = (shotId, assetKey) => ({ shotId, assetKey, aspect: '1:1', draft: { prompt: '商品候选' } });
+    const results = [
+        { shotId: 'angle', status: 'completed', assetKey: 'media:gone-active', finalized: true },
+        { shotId: 'detail', status: 'completed', assetKey: 'media:surviving-detail' },
+        { shotId: 'feature', status: 'failed', error: '生成失败' },
+        { shotId: 'scene', status: 'completed', assetKey: 'media:surviving-scene' },
+        { shotId: 'included', status: 'completed', assetKey: 'media:surviving-detail' }
+    ];
+    const previousExportResults = [
+        { shotId: 'angle', outputKey: 'media:gone-active', platformId: 'amazon', group: 'gallery', order: 0 },
+        { shotId: 'detail', outputKey: 'media:surviving-detail', platformId: 'amazon', group: 'gallery', order: 1 }
+    ];
+    const state = {
+        nodes: new Map(), selectedNodes: new Set(), connections: [], redoStack: [],
+        workflowTabs: [], workflowOrder: [], workflowFolders: [], undoStack: [JSON.stringify({ nodes: [{
+            id: 'commerce', type: 'ECommerceImageSet', x: 0, y: 0,
+            imageAssetKey: 'media:gone-active', imageCount: 4,
+            mediaAssetKeys: ['media:gone-active', 'media:surviving-detail', 'media:surviving-scene', 'media:surviving-detail'],
+            mediaIntegrity: { state: 'missing', itemCount: 4, missingItems: [{ position: 0, assetKey: 'media:gone-active' }] },
+            commerceImageSet: {
+                platformId: 'amazon', selectedShotIds, plan: { ...plan, sourceKey: 'valid', confirmed: true }, results,
+                candidates: [candidate('angle', 'media:gone-active'), candidate('angle', 'media:surviving-alternate'),
+                    candidate('detail', 'media:gone-candidate')],
+                previousExportResults
+            }
+        }], connections: [] })]
+    };
+    const manager = createSessionManagerApi({
+        state, storageKey: 'session',
+        nodeSerializer: { buildStatePayload: () => ({ nodes: [], connections: [] }), serializeNodes: () => [] },
+        localStorageRef: { setItem() {}, getItem: () => null, length: 0 },
+        documentRef: { getElementById: () => null }, showToast() {},
+        addNode(_type, _x, _y, data) {
+            state.nodes.set(data.id, { ...data, el: { remove() {}, querySelectorAll: () => [] } });
+        },
+        updateAllConnections() {}, updatePortStyles() {},
+        mediaAssetExists: async key => key.startsWith('media:surviving-')
+    });
+
+    await manager.undo();
+
+    const restored = state.nodes.get('commerce');
+    assert.deepEqual(restored.mediaAssetKeys, ['media:surviving-detail', 'media:surviving-scene', 'media:surviving-detail']);
+    assert.equal(restored.imageAssetKey, 'media:surviving-detail');
+    assert.equal(restored.imageCount, 3, 'identical image content still occupies two different output positions');
+    assert.equal(restored.mediaIntegrity, undefined);
+    assert.deepEqual(restored.commerceImageSet.results, results.slice(1));
+    assert.deepEqual(restored.commerceImageSet.previousExportResults, previousExportResults.slice(1));
+    assert.deepEqual(getCommerceShotCandidates(restored.commerceImageSet, 'angle').map(row => row.assetKey),
+        ['media:surviving-alternate']);
+    assert.deepEqual(getUnfinishedCommerceImageSetShots(restored.commerceImageSet).map(shot => shot.id), ['angle', 'feature']);
 });
 
 test('Undo removes missing video references without using a surviving video as an image', async () => {

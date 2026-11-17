@@ -1333,6 +1333,123 @@ else:
                 workflow['nodes'][0]['productRetouchComparison']['resultAssetKey'] = 'media:previous'
                 self.assertEqual(keys[:1], service._workflow_media_references([workflow])[0]['assetKeys'])
 
+    @staticmethod
+    def commerce_candidate(shot_id, asset_key, prompt, plan_key, aspect='1:1'):
+        return {'shotId': shot_id, 'assetKey': asset_key, 'key': f'{asset_key}:{plan_key}', 'aspect': aspect,
+                'draft': {'prompt': prompt, 'headline': '', 'body': ''}, 'planKey': plan_key}
+
+    def test_startup_promotes_commerce_output_and_history_references(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            owner_id = '["workflow","commerce","operation"]'
+            older = service.put_media_asset(b'older', 'image/png', 'history', 'older')['asset_key']
+            exported = service.put_media_asset(b'old-export', 'image/png', 'history', 'old-export')['asset_key']
+            current = service.put_media_asset_list(
+                ['data:image/png;base64,Y3VycmVudA=='], 'workflow-operation', owner_id)[0]['asset_key']
+            workflow = {'workflowId': 'workflow', 'mediaOwnershipRevision': 1, 'nodes': [{
+                'id': 'commerce', 'type': 'ECommerceImageSet', 'mediaAssetKeys': [current],
+                'commerceImageSet': {
+                    'platformId': 'jd', 'galleryAspect': '1:1', 'detailAspect': '9:16', 'selectedShotIds': ['angle'],
+                    'plan': {'version': 1, 'platformId': 'jd', 'sourceKey': 'source', 'confirmed': True, 'sellingPoints': [],
+                             'shots': [{'id': 'angle', 'source': 'generate', 'aspect': '1:1', 'prompt': 'current'}]},
+                    'candidates': [
+                        self.commerce_candidate('angle', current, 'current', 'v1-aa371420-1016f2b1-17'),
+                        self.commerce_candidate('angle', older, 'older', 'v1-74061dfb-f243277f-15'),
+                    ],
+                    'previousExportResults': [
+                        {'platformId': 'jd', 'shotId': 'main', 'label': '商品主图', 'group': 'gallery',
+                         'order': 0, 'outputKey': exported, 'retained': True},
+                        {'platformId': 'jd', 'shotId': 'angle', 'label': '多角度', 'group': 'gallery',
+                         'order': 1, 'outputKey': older, 'retained': True},
+                        {'platformId': 'jd', 'shotId': 'feature', 'label': '卖点图', 'group': 'gallery',
+                         'order': 2, 'outputKey': 'media:unowned-legacy'},
+                        {'platformId': 'jd', 'shotId': 'feature', 'label': '卖点图', 'group': 'gallery',
+                         'order': 3, 'outputKey': 'media:later-duplicate', 'retained': True},
+                    ],
+                },
+                'data': {'mediaOwnershipTemporaryOwners': [{'ownerId': owner_id, 'assetKeys': [current]}]},
+            }]}
+            self.assertEqual({'completed': 1, 'unresolved': 0},
+                             service.recover_workflow_operation_owners([workflow]))
+            owner = service.get_media_owner_reference_list('workflow', 'workflow-node', 'commerce')
+            self.assertEqual([current, older, exported], owner['assetKeys'])
+            self.assertEqual([current, older, exported], service._workflow_media_references([workflow])[0]['assetKeys'])
+            self.assertEqual([current], workflow['nodes'][0]['mediaAssetKeys'])
+            with service._connect() as database:
+                self.assertEqual(0, database.execute('''SELECT COUNT(*) FROM media_asset_refs
+                    WHERE owner_type='workflow-operation' AND owner_id=?''', (owner_id,)).fetchone()[0])
+
+    def test_commerce_candidate_ownership_validates_records_and_caps_versions_per_shot(self):
+        current = self.commerce_candidate('angle', 'media:one', 'current', 'v1-aa371420-1016f2b1-17')
+        older = self.commerce_candidate('angle', 'media:two', 'older', 'v1-74061dfb-f243277f-15')
+        same_pixels = self.commerce_candidate('angle', 'media:one', 'same bytes', 'v1-c4c07aac-ee106659-20')
+        fourth = self.commerce_candidate('angle', 'media:four', 'fourth', 'v1-78d3bb61-44a19e7c-16')
+        fifth = self.commerce_candidate('angle', 'media:five', 'fifth', 'v1-ab19084-928778de-15')
+        invalid = self.commerce_candidate('angle', 'media:invalid', 'unknown', 'v1-a58df607-e95bb20a-17')
+        reference = self.commerce_candidate('main', 'media:reference', 'unknown', 'v1-a58df607-e95bb20a-17')
+        unknown = self.commerce_candidate('unknown', 'media:unknown', 'unknown', 'v1-a58df607-e95bb20a-17')
+        workflow = {'workflowId': 'workflow', 'mediaOwnershipRevision': 1, 'nodes': [{
+            'id': 'commerce', 'type': 'ECommerceImageSet', 'mediaAssetKeys': ['media:one', 'media:one'],
+            'commerceImageSet': {
+                'platformId': 'amazon', 'galleryAspect': '1:1', 'detailAspect': '9:16', 'selectedShotIds': ['main', 'angle'],
+                'plan': {'version': 1, 'platformId': 'amazon', 'sourceKey': 'source', 'confirmed': True, 'sellingPoints': [],
+                         'shots': [{'id': 'main', 'source': 'reference', 'aspect': '1:1'},
+                                   {'id': 'angle', 'source': 'generate', 'aspect': '1:1', 'prompt': 'current'}]},
+                'candidates': [
+                    reference, unknown, {**invalid, 'aspect': '9:16'}, {**invalid, 'key': 'bad-identity'},
+                    {**invalid, 'draft': {'prompt': '   '}}, current, current, same_pixels, older, fourth, fifth,
+                ],
+            },
+        }]}
+        self.assertEqual(['media:one', 'media:one', 'media:two', 'media:four'],
+                         StorageService._workflow_media_references([workflow])[0]['assetKeys'])
+
+    def test_startup_retains_operation_whose_key_occurs_only_in_a_malformed_commerce_candidate(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            owner_id = '["workflow","commerce","operation"]'
+            candidate = service.put_media_asset_list(
+                ['data:image/png;base64,bm90IHN1ZmZpY2llbnQ='], 'workflow-operation', owner_id)[0]['asset_key']
+            workflow = {'workflowId': 'workflow', 'mediaOwnershipRevision': 1, 'nodes': [{
+                'id': 'commerce', 'type': 'ECommerceImageSet',
+                'commerceImageSet': {'platformId': 'jd', 'galleryAspect': '1:1', 'detailAspect': '9:16',
+                                     'selectedShotIds': ['angle'], 'plan': None,
+                                     'candidates': [{'shotId': 'angle', 'assetKey': candidate}]},
+                'data': {'mediaOwnershipTemporaryOwners': [{'ownerId': owner_id, 'assetKeys': [candidate]}]},
+            }]}
+            self.assertEqual({'completed': 0, 'unresolved': 1},
+                             service.recover_workflow_operation_owners([workflow]))
+            with service._connect() as database:
+                self.assertEqual(1, database.execute('''SELECT COUNT(*) FROM media_asset_refs
+                    WHERE owner_type='workflow-operation' AND owner_id=? AND asset_key=?''', (owner_id, candidate)).fetchone()[0])
+
+    def test_commerce_recovery_does_not_replace_a_conflicting_recorded_owner_manifest(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.make_service(root)
+            owner_id = '["workflow","commerce","operation"]'
+            active = service.put_media_asset_list(
+                ['data:image/png;base64,Y3VycmVudA=='], 'workflow-operation', owner_id)[0]['asset_key']
+            extra = service.put_media_asset(b'extra', 'image/png', 'history', 'extra')['asset_key']
+            epoch = service.get_storage_safety_status()['storageEpoch']
+            service.record_media_workflow_revision('workflow', 1, epoch, [{
+                'ownerType': 'workflow-node', 'ownerId': 'commerce', 'assetKeys': [active],
+            }])
+            workflow = {'workflowId': 'workflow', 'mediaOwnershipRevision': 1, 'nodes': [{
+                'id': 'commerce', 'type': 'ECommerceImageSet', 'mediaAssetKeys': [active],
+                'commerceImageSet': {
+                    'platformId': 'jd', 'galleryAspect': '1:1', 'detailAspect': '9:16',
+                    'selectedShotIds': ['angle', 'unknown'], 'plan': None,
+                    'candidates': [self.commerce_candidate('unknown', extra, 'unknown', 'v1-a58df607-e95bb20a-17')],
+                },
+                'data': {'mediaOwnershipTemporaryOwners': [{'ownerId': owner_id, 'assetKeys': [active]}]},
+            }]}
+            self.assertEqual({'completed': 0, 'unresolved': 1},
+                             service.recover_workflow_operation_owners([workflow]))
+            self.assertIsNone(service.get_media_owner_reference_list('workflow', 'workflow-node', 'commerce'))
+            with service._connect() as database:
+                self.assertEqual(1, database.execute('''SELECT COUNT(*) FROM media_asset_refs
+                    WHERE owner_type='workflow-operation' AND owner_id=? AND asset_key=?''', (owner_id, active)).fetchone()[0])
+
     def test_startup_retains_unassociated_operation_owner(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)

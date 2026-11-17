@@ -43,7 +43,8 @@ import { readColorResetConfig } from '../media/color-reset-config.js';
 import { normalizeProductRetouchSettings, readProductRetouchAnalysis } from '../product-retouch/product-retouch-settings.js';
 import {
     appendCommerceSceneShot, commerceImageSetPlanningSettingsKey,
-    getRunnableCommerceImageSetShots, getUnfinishedCommerceImageSetShots, normalizeCommerceImageSetState
+    getRunnableCommerceImageSetShots, getUnfinishedCommerceImageSetShots, normalizeCommerceImageSetState,
+    setCommerceShotFinalized
 } from '../ecommerce-image-set/commerce-image-set-plan.js';
 import { readProductRetouchComparison } from '../product-retouch/product-retouch-comparison.js';
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
@@ -151,10 +152,10 @@ function cloneWorkflowData(data = {}) {
     };
 }
 
-export function commercePlanningPublicationKey(nodeId, connections, getNode, shotId) {
+export function commercePlanningPublicationKey(nodeId, connections, getNode, shotId, { ignoreReferences = false } = {}) {
     const target = getNode(nodeId);
     if (target?.type !== 'ECommerceImageSet' || target.enabled === false) return null;
-    const links = orderInputConnections(target.type, connections.filter(connection =>
+    const links = ignoreReferences ? [] : orderInputConnections(target.type, connections.filter(connection =>
         connection.to.nodeId === nodeId && connection.to.port === REFERENCE_IMAGES_PORT));
     const references = links.flatMap(({ from }) => {
         const source = getNode(from.nodeId);
@@ -441,9 +442,9 @@ export function serializeRuntimeNode(node, doc) {
         if (node.data?.mediaIntegrity?.state === 'missing') {
             serialized.mediaIntegrity = clonePlainValue(node.data.mediaIntegrity);
         }
-        if (node.data?.mediaOwnershipTemporaryOwners?.length) {
-            serialized.data = { mediaOwnershipTemporaryOwners: clonePlainValue(node.data.mediaOwnershipTemporaryOwners) };
-        }
+    }
+    if (['ECommerceImageSet', 'ProductRetouch'].includes(node.type) && node.data?.mediaOwnershipTemporaryOwners?.length) {
+        serialized.data = { mediaOwnershipTemporaryOwners: clonePlainValue(node.data.mediaOwnershipTemporaryOwners) };
     }
     if (node.type === 'CameraControl') {
         serialized.pitch = Number(node.data?.pitch ?? 12);
@@ -1102,6 +1103,9 @@ export function createWorkflowRuntimeManager({
                 node.data.imageCount = assetKeys.length;
                 node.data.imageAssetReady = true;
                 node.data.imageMemoryReleased = true;
+            } else if (runtimeNode.type === 'ECommerceImageSet') {
+                clearCanonicalImageOutput(node);
+                delete node.data.mediaIntegrity;
             }
             node.data.mediaAssetKeys = assetKeys.slice();
             if (runtimeNode.type === 'ProductRetouch') {
@@ -1114,7 +1118,7 @@ export function createWorkflowRuntimeManager({
                 if (runtimeNode.data?.mediaIntegrity) node.data.mediaIntegrity = clonePlainValue(runtimeNode.data.mediaIntegrity);
                 else delete node.data.mediaIntegrity;
             }
-            if (runtimeNode.type === 'ProductRetouch' && runtimeNode.data?.mediaOwnershipTemporaryOwners?.length) {
+            if (runtimeNode.data?.mediaOwnershipTemporaryOwners?.length) {
                 node.data.mediaOwnershipTemporaryOwners = clonePlainValue(runtimeNode.data.mediaOwnershipTemporaryOwners);
             }
             syncVisibleGenerationProgress(node, runtimeNode);
@@ -1996,20 +2000,20 @@ export function createWorkflowRuntimeManager({
             fitNodeToContent: () => {},
             scheduleSave: () => syncRuntimeWorkflowSnapshot(context),
             getActiveWorkflowId: () => workflowId,
-            assertCommercePlanningCurrent(nodeId, shotId) {
+            assertCommercePlanningCurrent(nodeId, shotId, options) {
                 if (!shotId && context.commercePrimaryPlan?.commerceNodeId !== nodeId) return;
                 const original = commercePlanningPublicationKey(nodeId, data.connections,
                     id => {
                         const node = data.nodes.find(item => item.id === id);
                         return publishedCommerceSettings.has(id) ? { ...node, commerceImageSet: publishedCommerceSettings.get(id) } : node;
-                    }, shotId);
+                    }, shotId, options);
                 const isActive = isActiveWorkflow({ workflowId, workflowName });
                 const tabData = isActive ? null : state.workflowTabs.find(tab => tab.workflowId === workflowId)?.data;
                 const current = commercePlanningPublicationKey(nodeId, isActive ? state.connections : tabData?.connections || [], id => {
                     if (!isActive) return tabData?.nodes?.find(node => node.id === id);
                     const node = state.nodes.get(id);
                     return node ? serializeRuntimeNode(node, documentRef) : null;
-                }, shotId);
+                }, shotId, options);
                 if (current === null || current !== original) {
                     throw new Error('商品参考图已改变，或节点设置已更新，请根据当前画布重新执行。');
                 }
@@ -2073,13 +2077,21 @@ export function createWorkflowRuntimeManager({
             waitForPendingImageAssetSaves() {
                 return runtimeExecutionCoreApi.waitForPendingImageAssetSaves();
             },
-            updateCommerceShotDraft(visibleCommerce, node, shotId, field, sceneChanged) {
+            updateCommerceShotDraft(visibleCommerce, node, {
+                commerceShotId: shotId, commerceShotField: field, commerceSceneChanged: sceneChanged,
+                commerceFinalizedChanged: finalizedChanged
+            }) {
                 const visible = normalizeCommerceImageSetState(visibleCommerce);
                 const current = normalizeCommerceImageSetState(node.data?.commerceImageSet);
                 if (!current.plan || visible.plan?.sourceKey !== current.plan.sourceKey) return;
                 const edited = visible.plan.shots.find(shot => shot.id === shotId);
                 const target = current.plan.shots.find(shot => shot.id === shotId);
-                if (sceneChanged) {
+                if (finalizedChanged) {
+                    const edited = visible.results.find(result => result.shotId === shotId);
+                    const retained = current.results.find(result => result.shotId === shotId);
+                    if (!edited?.assetKey || edited.assetKey !== retained?.assetKey
+                        || !setCommerceShotFinalized(current, shotId, edited.finalized === true)) return;
+                } else if (sceneChanged) {
                     const scene = visible.customScenes?.find(item => item.id === shotId);
                     if (!scene || !edited?.customScene) return;
                     const draft = target || appendCommerceSceneShot(current, scene.group, shotId);
@@ -2087,6 +2099,8 @@ export function createWorkflowRuntimeManager({
                     if (!draft?.customScene || !existing) return;
                     existing.description = scene.description;
                     Object.assign(draft, edited);
+                    if (!edited.sceneNeedsReview) delete draft.sceneNeedsReview;
+                    if (!edited.sceneSummaryPromptKey) delete draft.sceneSummaryPromptKey;
                 } else {
                     if (target?.source !== 'generate' || !edited) return;
                     const revokedSceneConfirmation = target.customScene && target.sceneConfirmed && !edited.sceneConfirmed;
@@ -2304,7 +2318,7 @@ export function createWorkflowRuntimeManager({
         context.executionStarted = false;
         context.workflowHandle = getWorkflowDesk?.().workflow(context.workflowId);
         context.state.requestSource = runInput?.requestSource === 'agent' || runInput?.agentSequential ? 'agent' : 'canvas';
-        if (runInput?.agentSequential || runInput?.imageBatch) context.state.autoRetry = false;
+        if (runInput?.agentSequential || runInput?.imageBatch || runInput?.commerceAction === 'select-candidate') context.state.autoRetry = false;
         if (typeof createRunContext === 'function') {
             const dispose = context.dispose?.bind(context) || (() => {});
             context.dispose = () => {
@@ -2373,10 +2387,12 @@ export function createWorkflowRuntimeManager({
                 ? AbortSignal.any([context.stopController.signal, context.commercePrimaryController.signal, commercePanelSignal])
                 : context.stopController.signal;
             try {
-                await context.waitForImageRestores(getPlanImageRestoreNodeIds(plan, context.state));
-                if (!signal.aborted) {
-                    const capture = context.captureSceneReferenceImages?.(plan, signal);
-                    if (capture) await capture;
+                if (plan.commerceAction !== 'select-candidate') {
+                    await context.waitForImageRestores(getPlanImageRestoreNodeIds(plan, context.state));
+                    if (!signal.aborted) {
+                        const capture = context.captureSceneReferenceImages?.(plan, signal);
+                        if (capture) await capture;
+                    }
                 }
                 if (signal.aborted) {
                     executionResult = stoppedBeforeStart;
@@ -2573,7 +2589,7 @@ export function createWorkflowRuntimeManager({
         if (node?.type !== 'ECommerceImageSet') return false;
         const handlers = node.commerceShotCancelHandlers;
         const batchGenerating = [...(handlers?.keys() || [])]
-            .some(id => !['planning', 'running'].includes(node.commerceShotTasks?.[id]));
+            .some(id => !['planning', 'running', 'selecting'].includes(node.commerceShotTasks?.[id]));
         const cancelHandlers = new Map([...(handlers || [])].filter(([id]) => !shotId || id === shotId));
         let canceled = false;
         for (const cancel of cancelHandlers.values()) canceled = cancel() || canceled;
@@ -2587,13 +2603,20 @@ export function createWorkflowRuntimeManager({
         if (primaryCanStillRunCommerceNode(context, nodeId)) {
             const primary = context.commercePrimaryPlan;
             const controller = context.commercePrimaryController;
-            const coreOwnsPrimaryCancellation = primary?.commerceShotId ? cancelHandlers.has(primary.commerceShotId) : batchGenerating;
+            const primaryAction = primary?.commerceNodeId === nodeId ? primary.commerceAction : 'generate';
+            // A batch keeps its previews while it publishes, after its slot handlers have been removed.
+            const batchPublishing = ['generate', 'fill'].includes(primaryAction) && !batchGenerating
+                && Object.entries(node.commerceShotPreviews || {}).some(([id, preview]) => !node.commerceShotTasks?.[id]
+                    && ['completed', 'failed', 'canceled'].includes(preview.status));
+            const coreOwnsBatchCancellation = batchGenerating || batchPublishing;
+            const coreOwnsPrimaryCancellation = primary?.commerceShotId
+                ? cancelHandlers.has(primary.commerceShotId) : coreOwnsBatchCancellation;
             if (primary?.commerceNodeId === nodeId && (!shotId || shotId === primary.commerceShotId)
                 && (stopBranch || !coreOwnsPrimaryCancellation) && controller && !controller.signal.aborted) {
                 controller.abort('manual');
                 canceled = true;
             }
-            if (!shotId && (stopBranch || (!controller && !batchGenerating))) {
+            if (!shotId && (stopBranch || (!controller && !coreOwnsBatchCancellation))) {
                 canceled = context.runner.cancelRunningNode(nodeId) || canceled;
             }
         }
@@ -2601,13 +2624,13 @@ export function createWorkflowRuntimeManager({
     }
 
     function updateCommerceShotDraft(workflow, visibleNode, change) {
-        const { commerceShotId: shotId, commerceShotField: field, commerceSceneChanged: sceneChanged } = change;
-        if (!sceneChanged && !['prompt', 'headline', 'body'].includes(field)) return;
+        const { commerceShotId: shotId, commerceShotField: field, commerceSceneChanged: sceneChanged, commerceFinalizedChanged: finalizedChanged } = change;
+        if (!sceneChanged && !finalizedChanged && !['prompt', 'headline', 'body'].includes(field)) return;
         const context = getWorkflowRunContexts(workflow).find(entry => entry.activePlanNodeIds.has(visibleNode.id));
         if (!context) return;
         const runtimeNode = context.state.nodes.get(visibleNode.id);
         if (runtimeNode?.type !== 'ECommerceImageSet' || runtimeNode.commerceShotCancelHandlers?.has(shotId)) return;
-        context.updateCommerceShotDraft?.(visibleNode.data?.commerceImageSet, runtimeNode, shotId, field, sceneChanged);
+        context.updateCommerceShotDraft?.(visibleNode.data?.commerceImageSet, runtimeNode, change);
     }
 
     function cancelRunningNode(workflow, nodeId) {

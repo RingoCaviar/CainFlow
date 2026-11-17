@@ -7,6 +7,7 @@ import {
     createWorkflowMediaOwnershipCommitter,
     prepareWorkflowMediaOwnershipCommit
 } from '../js/features/media/workflow-media-ownership-commit.js';
+import { getSnapshotMediaKeys } from '../js/features/persistence/snapshot-media-keys.js';
 
 test('mixed Save owners retain ordered image and video assets without duplicating the compatibility video', () => {
     const videos = [{ assetKey: 'media:v1' }, { assetKey: 'media:v2' }, { assetKey: 'media:v2' }];
@@ -47,6 +48,28 @@ test('retouch promotes both matching assets while output snapshots retain one im
         node.productRetouchComparison.resultAssetKey = 'media:previous';
         assert.deepEqual(collectWorkflowMediaOwnerLists(workflow)[0].assetKeys, [resultAssetKey]);
     }
+});
+
+test('commerce candidate and export history are protected by the node owner and undo outside ordered output', () => {
+    const node = { id: 'commerce', type: 'ECommerceImageSet', mediaAssetKeys: ['media:current', 'media:current'],
+        commerceImageSet: { platformId: 'jd', selectedShotIds: ['angle', 'main', 'feature'], candidates: [
+            { shotId: 'angle', assetKey: 'media:current', aspect: '1:1', draft: { prompt: '当前角度' } },
+            { shotId: 'angle', assetKey: 'media:old-angle', aspect: '1:1', draft: { prompt: '原有角度' } },
+            { shotId: 'main', assetKey: 'media:old-main', aspect: '1:1', draft: { prompt: '原有主图' } },
+            { shotId: 'feature', assetKey: 'media:old-angle', aspect: '1:1', draft: { prompt: '共用素材' } }
+        ], previousExportResults: [
+            { platformId: 'jd', shotId: 'angle', label: '多角度', group: 'gallery', order: 0, outputKey: 'media:old-angle', retained: true },
+            { platformId: 'jd', shotId: 'main', label: '商品主图', group: 'gallery', order: 1, outputKey: 'media:prior-export', retained: true },
+            { platformId: 'jd', shotId: 'feature', label: '卖点图', group: 'gallery', order: 2, outputKey: 'media:unowned-legacy' },
+            { platformId: 'jd', shotId: 'feature', label: '卖点图', group: 'gallery', order: 3, outputKey: 'media:later-duplicate', retained: true }
+        ] } };
+    assert.deepEqual(collectWorkflowMediaOwnerLists({ nodes: [node] }), [{
+        ownerType: 'workflow-node', ownerId: 'commerce',
+        assetKeys: ['media:current', 'media:current', 'media:old-angle', 'media:old-main', 'media:prior-export']
+    }]);
+    assert.deepEqual(getSnapshotMediaKeys(node), ['media:current', 'media:old-angle', 'media:old-main', 'media:prior-export']);
+    assert.deepEqual(getSnapshotMediaKeys(node, { includeCommerceHistory: false }), ['media:current']);
+    assert.deepEqual(node.mediaAssetKeys, ['media:current', 'media:current']);
 });
 
 test('Agent archived and current results retain ordered independent owners after source deletion', async () => {

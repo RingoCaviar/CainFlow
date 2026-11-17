@@ -41,6 +41,7 @@ import { applyWorkflowPersistenceExtensions } from '../../nodes/node-persistence
 import { remapCopiedPromptImageMentions } from '../../nodes/prompt-image-mentions.js';
 import { createLegacyMediaMigrationCoordinator } from '../media/legacy-media-migration.js';
 import { readProductRetouchComparison } from '../product-retouch/product-retouch-comparison.js';
+import { getCommerceImageSetHistoryAssetKeys } from '../ecommerce-image-set/commerce-image-set-plan.js';
 import {
     createMediaOwnershipCoordinator,
     getPromptAgentResultRuns,
@@ -145,7 +146,9 @@ export function createWorkflowManagerApi({
             const comparison = readProductRetouchComparison(node);
             const keys = comparison ? [comparison.resultAssetKey, comparison.originalAssetKey]
                 : mediaKeys?.length > 0 ? mediaKeys : [importKey];
-            for (const key of new Set(keys.filter((key) => typeof key === 'string' && key.startsWith('media:')))) {
+            const history = node.type === 'ECommerceImageSet'
+                ? getCommerceImageSetHistoryAssetKeys(node.commerceImageSet ?? node.data?.commerceImageSet) : [];
+            for (const key of new Set([...keys, ...history].filter(key => typeof key === 'string' && key.startsWith('media:')))) {
                 if (!await referenceMediaAsset(ownerType, `${workflowId}:${node.id}`, key)) {
                     await Promise.all(appliedRefs.map(({ ownerType: appliedOwnerType, ownerId, assetKey }) =>
                         removeMediaReference(appliedOwnerType, ownerId, assetKey)));

@@ -50,6 +50,87 @@ test('edits the live graph in place and rejects stale and wrong-workflow writes'
     await assert.rejects(dispatch('edit_canvas', { workflowId: 'wf-a', revision: edited.revision, plan }), { code: 'wrong_workflow' });
 });
 
+test('MCP uses the normal workflow run for commerce and projects only selected results', async () => {
+    const workflowId = 'commerce-workflow';
+    const node = { id: 'commerce', type: 'ECommerceImageSet', mediaAssetKeys: ['media:current'],
+        commerceImageSet: { platformId: 'amazon', selectedShotIds: ['feature'], candidateCount: 3,
+            plan: { version: 1, platformId: 'amazon', sourceKey: 'references', confirmed: true,
+                sellingPoints: [], shots: [{ id: 'feature', prompt: '当前方案' }] },
+            results: [{ shotId: 'feature', status: 'completed', assetKey: 'media:current' }],
+            candidates: [{ shotId: 'feature', assetKey: 'media:older', aspect: '1:1', draft: { prompt: '候选草稿' } }] } };
+    let startCount = 0;
+    const { dispatch } = createCanvasMcpActions({
+        canvasAdapter: { context: () => createCanvasContext({ workflowId, nodes: [node], connections: [] }) },
+        async runWorkflow(input, options) {
+            options.validateBeforeRun();
+            startCount++;
+            assert.equal(input.mode, 'selected-only');
+            assert.deepEqual(input.selectedNodeIds, [node.id]);
+            assert.equal(input.commerceAction, undefined);
+            assert.equal(input.candidateCount, undefined);
+            return { workflowId, outcome: 'completed', started: true, executed: true,
+                nodeResults: [{ nodeId: node.id, succeeded: true, imageCount: 1, mediaAssetKeys: node.mediaAssetKeys }] };
+        }
+    });
+    const canvas = await dispatch('read_canvas');
+    assert.doesNotMatch(JSON.stringify(canvas), /media:older|候选草稿|finalized|candidateCount|commerceRunSettings/);
+    await assert.rejects(dispatch('edit_canvas', { workflowId, revision: canvas.revision, plan: { version: 1, steps: [
+        { id: 'edit', type: node.type, nodeId: node.id, parameters: { candidateCount: 4 }, execute: false }
+    ] } }), /不支持参数.*candidateCount/);
+    node.commerceImageSet.candidateCount = 4;
+    await assert.rejects(dispatch('run_workflow', { workflowId, revision: canvas.revision, nodeIds: [node.id] }), { code: 'stale_revision' });
+    const updated = await dispatch('read_canvas');
+    node.commerceImageSet.results[0].finalized = true;
+    await assert.rejects(dispatch('run_workflow', { workflowId, revision: updated.revision, nodeIds: [node.id] }), { code: 'stale_revision' });
+    const locked = await dispatch('read_canvas');
+    delete node.commerceImageSet.results[0].finalized;
+    await assert.rejects(dispatch('run_workflow', { workflowId, revision: locked.revision, nodeIds: [node.id] }), { code: 'stale_revision' });
+    const unlocked = await dispatch('read_canvas');
+    assert.deepEqual([updated.nodes, locked.nodes, unlocked.nodes], [canvas.nodes, canvas.nodes, canvas.nodes]);
+    assert.equal(startCount, 0);
+    const run = await dispatch('run_workflow', { workflowId, revision: unlocked.revision, nodeIds: [node.id] });
+    await new Promise(resolve => setImmediate(resolve));
+    const result = await dispatch('get_workflow_run', run);
+    assert.equal(result.status, 'completed');
+    assert.equal(startCount, 1);
+    assert.deepEqual(result.nodeResults[0].mediaAssetKeys, ['media:current']);
+});
+
+test('MCP omits stale or unverified commerce output from canvas reads and batch selection', async () => {
+    const workflowId = 'commerce-references';
+    const source = { id: 'source', type: 'ImageImport', mediaAssetKeys: ['media:original'] };
+    const commerce = { id: 'commerce', type: 'ECommerceImageSet', mediaAssetKeys: ['media:result'], imageCount: 1,
+        commerceImageSet: { plan: { sourceKey: 'saved-plan', referenceRevision: 'v1:["media:original"]' } } };
+    const edge = { id: 'ref', from: { nodeId: source.id, port: 'image' }, to: { nodeId: commerce.id, port: 'referenceImages' } };
+    const { dispatch } = createCanvasMcpActions({ canvasAdapter: { context: () => createCanvasContext({
+        workflowId, nodes: [source, commerce], connections: [edge], selectedIds: [commerce.id] }) } });
+
+    const initial = await dispatch('read_canvas');
+    assert.deepEqual(initial.nodes[1].assets, ['media:result']);
+    assert.equal(initial.nodes[1].imageCount, 1);
+    source.mediaAssetKeys = ['media:replacement'];
+    const stale = await dispatch('read_canvas');
+    assert.deepEqual(stale.nodes[1].assets, []);
+    assert.equal(stale.nodes[1].assetCount, 0);
+    assert.equal(stale.nodes[1].imageCount, undefined);
+    await assert.rejects(dispatch('generate_image_batch', { workflowId, revision: stale.revision, prompt: '批处理' }), /没有可用原图/);
+
+    delete commerce.commerceImageSet.plan.referenceRevision;
+    const legacy = await dispatch('read_canvas');
+    assert.deepEqual(legacy.nodes[1].assets, []);
+    assert.equal(legacy.nodes[1].imageCount, undefined);
+    source.enabled = false;
+    assert.deepEqual((await dispatch('read_canvas')).nodes[1].assets, []);
+    source.enabled = true;
+
+    commerce.commerceImageSet.plan = null;
+    commerce.commerceImageSet.previousExportResults = [{ outputKey: 'media:result', referenceRevision: 'v1:["media:original"]' }];
+    const archived = await dispatch('read_canvas');
+    assert.deepEqual(archived.nodes[1].assets, []);
+    source.mediaAssetKeys = ['media:original'];
+    assert.deepEqual((await dispatch('read_canvas')).nodes[1].assets, ['media:result']);
+});
+
 test('MCP applies ordinary scalar edits through the native controls and preserves node identity', async () => {
     const workflowId = 'scalar-edit';
     const edits = [

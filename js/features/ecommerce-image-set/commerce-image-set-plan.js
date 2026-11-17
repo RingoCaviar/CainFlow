@@ -7,8 +7,10 @@ export const COMMERCE_IMAGE_SET_ASPECTS = Object.freeze(['1:1', '3:4', '2:3', '4
 export const COMMERCE_IMAGE_SET_DEFAULT_ASPECTS = Object.freeze({ gallery: '1:1', detail: '9:16' });
 export const COMMERCE_IMAGE_SET_COPY_LIMITS = Object.freeze({ headline: 24, body: 64 });
 export const COMMERCE_SCENE_DESCRIPTION_LIMIT = 400;
+export const COMMERCE_SHOT_CANDIDATE_LIMIT = 4;
 const COMMERCE_SCENE_SUMMARY_LIMIT = 240;
 const COMMERCE_SHOT_PLAN_KEY_PATTERN = /^v1-[0-9a-f]{1,8}-[0-9a-f]{1,8}-\d{1,5}$/;
+const COMMERCE_ASSET_KEY_PATTERN = /^media:[a-zA-Z0-9_-]+$/;
 export const COMMERCE_IMAGE_SET_COPY_LANGUAGES = Object.freeze({
     auto: '自动', 'zh-CN': '简体中文', 'zh-TW': '繁体中文', en: '英语', ja: '日语', ko: '韩语',
     de: '德语', fr: '法语', es: '西班牙语', it: '意大利语', pt: '葡萄牙语', nl: '荷兰语',
@@ -17,6 +19,16 @@ export const COMMERCE_IMAGE_SET_COPY_LANGUAGES = Object.freeze({
 export const COMMERCE_PRODUCT_INFO_LIMITS = Object.freeze({
     name: 160, sellingPoint: 160, sellingPoints: 8, audience: 400, useCases: 800, details: 4000
 });
+
+export function normalizeCommerceImageSetCandidateCount(value) {
+    return Number.isInteger(value) && value >= 1 && value <= COMMERCE_SHOT_CANDIDATE_LIMIT ? value : 1;
+}
+
+function normalizePartialCandidateProgress(progress) {
+    const { completed, total } = progress || {};
+    return Number.isInteger(completed) && completed > 0 && completed < total
+        && total === normalizeCommerceImageSetCandidateCount(total) ? { completed, total } : null;
+}
 
 const shot = (id, label, purpose, { group = 'gallery', source = 'generate', allowCopy = false } = {}) => Object.freeze({
     id, role: id, label, group, aspect: COMMERCE_IMAGE_SET_DEFAULT_ASPECTS[group], source, purpose, allowCopy
@@ -70,6 +82,7 @@ export function updateCommerceImageSetCopyLanguage(settings, value) {
     if (settings.plan) {
         settings.plan.confirmed = false;
         settings.plan.stale = true;
+        settings.plan.shots?.forEach(markCommerceSceneForReview);
     }
     return true;
 }
@@ -113,6 +126,7 @@ export function updateCommerceProductInfoField(settings, key, value) {
         settings.plan.confirmed = false;
         if (key === 'sellingPoints') settings.plan.sellingPoints = next.sellingPoints;
         else settings.plan.stale = true;
+        settings.plan.shots?.forEach(markCommerceSceneForReview);
     }
     return true;
 }
@@ -158,11 +172,26 @@ function customSceneShot(item, groupIndex, aspect) {
         customScene: true, description: item.description };
 }
 
+function scenePromptKey(prompt) {
+    const value = text(prompt, 2000);
+    return value ? changeFingerprint(value) : '';
+}
+
+export function getCommerceSceneSummary(shot, limit = COMMERCE_SCENE_SUMMARY_LIMIT) {
+    const promptKey = scenePromptKey(shot?.prompt);
+    if (!promptKey) return '';
+    return copyText(shot.sceneSummaryPromptKey === promptKey ? shot.sceneSummary || shot.prompt : shot.prompt, limit);
+}
+
 function scenePlanFields(input, prompt, restoring) {
+    const summary = copyText(input?.sceneSummary, COMMERCE_SCENE_SUMMARY_LIMIT);
+    const summaryPromptKey = restoring ? text(input?.sceneSummaryPromptKey, 64) : scenePromptKey(prompt);
+    const needsReview = restoring && !!prompt && input?.sceneNeedsReview === true;
     return {
-        sceneSummary: copyText(input?.sceneSummary, COMMERCE_SCENE_SUMMARY_LIMIT)
-            || copyText(prompt, COMMERCE_SCENE_SUMMARY_LIMIT),
-        sceneConfirmed: restoring && !!prompt && input?.sceneConfirmed === true
+        sceneSummary: summary || copyText(prompt, COMMERCE_SCENE_SUMMARY_LIMIT),
+        ...(summaryPromptKey ? { sceneSummaryPromptKey: summaryPromptKey } : {}),
+        ...(needsReview ? { sceneNeedsReview: true } : {}),
+        sceneConfirmed: restoring && !!prompt && !needsReview && input?.sceneConfirmed === true
     };
 }
 
@@ -210,26 +239,72 @@ export function appendCommerceSceneShot(settings, group, id = `scene-${globalThi
     return added;
 }
 
+export function removeCommerceSceneShot(settings, shotId) {
+    const scenes = normalizeCustomScenes(settings?.customScenes);
+    if (!scenes.some(scene => scene.id === shotId) || isCommerceShotFinalized(settings, shotId)) return false;
+
+    settings.customScenes = scenes.filter(scene => scene.id !== shotId);
+    if (Array.isArray(settings.selectedShotIds)) {
+        settings.selectedShotIds = settings.selectedShotIds.filter(id => id !== shotId);
+    }
+    if (Array.isArray(settings.plan?.shots)) {
+        const labels = new Map(getSelectedCommerceImageSetShots(settings)
+            .filter(shot => shot.customScene).map(shot => [shot.id, shot.label]));
+        const shots = settings.plan.shots.filter(shot => shot.id !== shotId).map(shot => {
+            const label = labels.get(shot.id);
+            return label && label !== shot.label ? { ...shot, label } : shot;
+        });
+        settings.plan = { ...settings.plan, shots };
+    }
+    for (const field of ['results', 'candidates', 'previousExportResults']) {
+        if (Array.isArray(settings[field])) {
+            settings[field] = settings[field].filter(row => row?.shotId !== shotId);
+        }
+    }
+    return true;
+}
+
 export function updateCommerceSceneDescription(settings, shotId, value) {
     const metadata = settings?.customScenes?.find(item => item.id === shotId);
     const shot = settings?.plan?.shots?.find(item => item.id === shotId);
     const description = text(value, COMMERCE_SCENE_DESCRIPTION_LIMIT);
     if (!metadata || !shot?.customScene || description === metadata.description) return false;
     metadata.description = description;
-    Object.assign(shot, { description, prompt: '', headline: '', body: '', sceneSummary: '', sceneConfirmed: false });
+    shot.description = description;
+    markCommerceSceneForReview(shot);
     return true;
+}
+
+function markCommerceSceneForReview(shot) {
+    if (!shot.customScene || !text(shot.prompt, 2000)) return;
+    shot.sceneConfirmed = false;
+    shot.sceneNeedsReview = true;
 }
 
 export function confirmCommerceSceneShot(settings, shotId) {
     const shot = settings?.plan?.shots?.find(item => item.id === shotId);
-    if (settings?.plan?.stale || !shot?.customScene || !text(shot.prompt, 2000)
-        || !copyText(shot.sceneSummary, COMMERCE_SCENE_SUMMARY_LIMIT)) return false;
+    if (settings?.plan?.stale || !shot?.customScene || !getCommerceSceneSummary(shot)) return false;
+    delete shot.sceneNeedsReview;
     shot.sceneConfirmed = true;
     return true;
 }
 
 function isCompletedCommerceResult(row) {
-    return row?.status === 'completed' && /^media:[a-zA-Z0-9_-]+$/.test(row.assetKey || '');
+    return row?.status === 'completed' && typeof row.assetKey === 'string' && COMMERCE_ASSET_KEY_PATTERN.test(row.assetKey);
+}
+
+export function isCommerceShotFinalized(settings, shotId) {
+    return Array.isArray(settings?.results)
+        && settings.results.some(row => row?.shotId === shotId && row.finalized === true && isCompletedCommerceResult(row));
+}
+
+export function setCommerceShotFinalized(settings, shotId, finalized) {
+    if (!Array.isArray(settings?.results) || typeof finalized !== 'boolean') return false;
+    const row = settings.results.find(row => row?.shotId === shotId && isCompletedCommerceResult(row));
+    if (!row || (row.finalized === true) === finalized) return false;
+    if (finalized) row.finalized = true;
+    else delete row.finalized;
+    return true;
 }
 
 function normalizePreviousExportResults(raw) {
@@ -244,25 +319,42 @@ function normalizePreviousExportResults(raw) {
         if (!group || !label) continue;
         const key = `${preset.id}:${row.shotId}`;
         if (!results.has(key)) {
-            // This metadata associates a slot with a node-owned output; it does not own the media.
-            results.set(key, { platformId: preset.id, shotId: row.shotId, label, group, order: row.order, outputKey: row.outputKey });
+            const referenceRevision = text(row.referenceRevision, 512);
+            const referenceContentKey = text(row.referenceContentKey, 128);
+            const aspect = COMMERCE_IMAGE_SET_ASPECTS.includes(row.aspect) ? row.aspect : '';
+            results.set(key, { platformId: preset.id, shotId: row.shotId, label, group, order: row.order, outputKey: row.outputKey,
+                ...(referenceRevision ? { referenceRevision } : {}), ...(referenceContentKey ? { referenceContentKey } : {}),
+                ...(aspect ? { aspect } : {}), ...(row.retained === true ? { retained: true } : {}) });
         }
     }
     return [...results.values()];
 }
 
-export function preserveCommerceImageSetExportResults(settings) {
+export function preserveCommerceImageSetExportResults(settings, { previousAspects, replacingReferences = false } = {}) {
     if (!Array.isArray(settings?.plan?.shots) || !Array.isArray(settings.results)) return;
-    const platformId = settings.plan.platformId;
+    const { platformId, referenceRevision, referenceContentKey, shots } = settings.plan;
     const completed = new Map(settings.results.filter(isCompletedCommerceResult).map(row => [row.shotId, row.assetKey]));
     const previous = Array.isArray(settings.previousExportResults) ? settings.previousExportResults : [];
-    const previousOutputs = new Map(previous.filter(row => row?.platformId === platformId)
-        .map(row => [row.shotId, row.outputKey]));
-    const retained = normalizePreviousExportResults(settings.plan.shots.flatMap(({ id, label, group }, order) => completed.has(id)
-        ? [{ platformId, shotId: id, label, group, order, outputKey: completed.get(id) }] : []));
-    if (retained.some(row => previousOutputs.get(row.shotId) !== row.outputKey)) {
+    const hasOtherReferences = previous.some(row => row.retained && (row.referenceContentKey && referenceContentKey
+        ? row.referenceContentKey !== referenceContentKey
+        : row.referenceRevision && referenceRevision && row.referenceRevision !== referenceRevision));
+    if (!replacingReferences && hasOtherReferences) return;
+    const previousOutputs = new Map(previous.filter(row => row?.platformId === platformId).map(row => [row.shotId, row]));
+    const retained = normalizePreviousExportResults(shots.flatMap(({ id, label, group, aspect }, order) => completed.has(id)
+        ? [{ platformId, shotId: id, label, group, aspect: previousAspects?.get(id) ?? aspect, order, outputKey: completed.get(id),
+            referenceRevision, referenceContentKey, retained: true }] : []));
+    if (retained.some(row => {
+        const prior = previousOutputs.get(row.shotId);
+        return prior?.outputKey !== row.outputKey || prior.referenceContentKey !== row.referenceContentKey
+            || prior.referenceRevision !== row.referenceRevision || prior.aspect !== row.aspect || !prior.retained;
+    })) {
         settings.previousExportResults = retained;
     }
+}
+
+export function getCommerceImageSetPreviousAssetKeys(settings) {
+    return [...new Set(normalizePreviousExportResults(settings?.previousExportResults)
+        .filter(row => row.retained === true).map(row => row.outputKey))];
 }
 
 function normalizeCommerceShotCopy(input, allowCopy) {
@@ -278,15 +370,92 @@ export function commerceShotPlanKey(shot) {
     return `v1-${changeFingerprint(JSON.stringify([text(shot.prompt, 2000), headline, body]))}`;
 }
 
+function normalizeCandidateDraft(input, shot) {
+    const prompt = text(input?.prompt, 2000);
+    if (!prompt || shot?.source !== 'generate') return null;
+    return { prompt, ...normalizeCommerceShotCopy(input, shot.allowCopy),
+        ...(shot.customScene ? {
+            description: text(input.description, COMMERCE_SCENE_DESCRIPTION_LIMIT),
+            ...scenePlanFields(input, prompt, true)
+        } : {}) };
+}
+
+function normalizeCommerceShotCandidates(raw, selectedShots) {
+    const shots = new Map(selectedShots.map(shot => [shot.id, shot]));
+    const keysByShot = new Map();
+    const candidates = [];
+    for (const row of Array.isArray(raw) ? raw : []) {
+        const shot = shots.get(row?.shotId);
+        if (!shot || row.aspect !== shot.aspect || typeof row.assetKey !== 'string' || !COMMERCE_ASSET_KEY_PATTERN.test(row.assetKey)) continue;
+        const draft = normalizeCandidateDraft(row.draft, shot);
+        if (!draft) continue;
+        const planKey = commerceShotPlanKey({ ...shot, ...draft });
+        const key = `${row.assetKey}:${planKey}`;
+        const keys = keysByShot.get(shot.id) || new Set();
+        if (keys.has(key) || keys.size >= COMMERCE_SHOT_CANDIDATE_LIMIT) continue;
+        keys.add(key);
+        keysByShot.set(shot.id, keys);
+        const referenceRevision = text(row.referenceRevision, 512);
+        const referenceContentKey = text(row.referenceContentKey, 128);
+        const sceneContextKey = text(row.sceneContextKey, 128);
+        candidates.push({ shotId: shot.id, key, assetKey: row.assetKey, aspect: shot.aspect, draft, planKey,
+            ...(referenceRevision ? { referenceRevision } : {}), ...(referenceContentKey ? { referenceContentKey } : {}),
+            ...(sceneContextKey ? { sceneContextKey } : {}) });
+    }
+    return candidates;
+}
+
+export function getCommerceShotCandidates(settings, shotId) {
+    const shots = getSelectedCommerceImageSetShots(settings).filter(shot => shot.id === shotId);
+    return normalizeCommerceShotCandidates(settings?.candidates, shots);
+}
+
+export function getCommerceImageSetCandidateAssetKeys(settings) {
+    const candidates = normalizeCommerceShotCandidates(settings?.candidates, getSelectedCommerceImageSetShots(settings));
+    return [...new Set(candidates.map(candidate => candidate.assetKey))];
+}
+
+export function getCommerceImageSetHistoryAssetKeys(settings) {
+    return [...new Set([...getCommerceImageSetCandidateAssetKeys(settings), ...getCommerceImageSetPreviousAssetKeys(settings)])];
+}
+
+export function rememberCommerceShotCandidate(settings, shot, assetKey) {
+    if (shot.source !== 'generate') return;
+    const candidate = { shotId: shot.id, assetKey, aspect: shot.aspect, draft: shot,
+        referenceRevision: settings.plan?.referenceRevision, referenceContentKey: settings.plan?.referenceContentKey,
+        sceneContextKey: shot.customScene ? settings.plan?.sceneContextKeys?.[shot.group] : undefined };
+    settings.candidates = normalizeCommerceShotCandidates([candidate, ...(settings.candidates || [])], getSelectedCommerceImageSetShots(settings));
+}
+
+export function restoreCommerceShotCandidateDraft(settings, candidate) {
+    const shot = settings.plan?.shots.find(item => item.id === candidate.shotId);
+    if (!shot) return false;
+    Object.assign(shot, candidate.draft);
+    if (shot.customScene) {
+        if (candidate.draft.sceneNeedsReview !== true) delete shot.sceneNeedsReview;
+        if (!candidate.draft.sceneSummaryPromptKey) delete shot.sceneSummaryPromptKey;
+        if (candidate.sceneContextKey && candidate.sceneContextKey !== settings.plan.sceneContextKeys?.[shot.group]) {
+            markCommerceSceneForReview(shot);
+        }
+        const scene = settings.customScenes?.find(item => item.id === shot.id);
+        if (scene) scene.description = shot.description;
+    }
+    return true;
+}
+
 export function isCommerceShotImageStale(shot, result) {
-    return shot?.source === 'generate' && result?.status === 'completed' && !!result.planKey
-        && result.planKey !== commerceShotPlanKey(shot);
+    return shot?.source === 'generate' && result?.status === 'completed'
+        && (result.previousVersion === true || (!!result.planKey && result.planKey !== commerceShotPlanKey(shot)));
 }
 
 export function getRunnableCommerceImageSetShots(settings) {
     if (!Array.isArray(settings?.plan?.shots)) return [];
     const selected = new Set(getSelectedCommerceImageSetShots(settings).map(shot => shot.id));
     return settings.plan.shots.filter(shot => selected.has(shot.id) && (!shot.customScene || shot.sceneConfirmed === true));
+}
+
+export function getGeneratableCommerceImageSetShots(settings) {
+    return getRunnableCommerceImageSetShots(settings).filter(shot => !isCommerceShotFinalized(settings, shot.id));
 }
 
 export function getUnfinishedCommerceImageSetShots(settings) {
@@ -324,6 +493,7 @@ export function normalizeCommerceImageSetPlan(raw, platformId, selectedShotIds, 
 
 export function normalizeCommerceImageSetState(raw) {
     const selected = getSelectedCommerceImageSetShots(raw);
+    const candidateCount = normalizeCommerceImageSetCandidateCount(raw?.candidateCount);
     const settings = {
         platformId: getCommerceImageSetPreset(raw?.platformId)?.id || 'taobao',
         selectedShotIds: selected.map(item => item.id),
@@ -335,6 +505,7 @@ export function normalizeCommerceImageSetState(raw) {
         autoProductInfo: normalizeCommerceProductInfo(raw?.autoProductInfo),
         plannerModelId: text(raw?.plannerModelId, 200), plannerProviderId: text(raw?.plannerProviderId, 200),
         imageModelId: text(raw?.imageModelId, 200), imageProviderId: text(raw?.imageProviderId, 200),
+        ...(candidateCount > 1 ? { candidateCount } : {}),
         plan: null, results: []
     };
     const sourceKey = text(raw?.plan?.sourceKey, 128);
@@ -344,7 +515,15 @@ export function normalizeCommerceImageSetState(raw) {
             const stale = raw.plan.stale === true || copyLanguage !== settings.copyLanguage;
             const plan = normalizeCommerceImageSetPlan(raw.plan, settings.platformId, settings.selectedShotIds,
                 { ...settings, copyLanguage }, { allowBlankPrompts: true });
-            settings.plan = { ...plan, sourceKey, confirmed: raw.plan.confirmed === true && !stale, ...(stale ? { stale: true } : {}) };
+            const productContextKey = text(raw.plan.productContextKey, 128);
+            const referenceRevision = text(raw.plan.referenceRevision, 512);
+            const referenceContentKey = text(raw.plan.referenceContentKey, 128);
+            const sceneContextKeys = Object.fromEntries(Object.keys(COMMERCE_IMAGE_SET_DEFAULT_ASPECTS)
+                .map(group => [group, text(raw.plan.sceneContextKeys?.[group], 128)]).filter(([, key]) => key));
+            settings.plan = { ...plan, sourceKey, ...(productContextKey ? { productContextKey } : {}),
+                ...(referenceRevision ? { referenceRevision } : {}), ...(referenceContentKey ? { referenceContentKey } : {}),
+                ...(Object.keys(sceneContextKeys).length ? { sceneContextKeys } : {}),
+                confirmed: raw.plan.confirmed === true && !stale, ...(stale ? { stale: true } : {}) };
         } catch { /* Invalid stored plans can be replaced by planning again. */ }
     }
     if (Array.isArray(raw?.results)) {
@@ -358,11 +537,18 @@ export function normalizeCommerceImageSetState(raw) {
                 // Older workflows can track changes starting from their restored draft.
                 const storedKey = typeof row.planKey === 'string' && COMMERCE_SHOT_PLAN_KEY_PATTERN.test(row.planKey) ? row.planKey : '';
                 const planKey = source === 'generate' ? storedKey || commerceShotPlanKey(planned.get(id)) : '';
-                return [{ shotId: id, status: 'completed', assetKey: row.assetKey, ...(planKey ? { planKey } : {}) }];
+                const replacementError = text(row.replacementError, 300);
+                const candidateProgress = source === 'generate' ? normalizePartialCandidateProgress(row.candidateProgress) : null;
+                return [{ shotId: id, status: 'completed', assetKey: row.assetKey, ...(planKey ? { planKey } : {}),
+                    ...(row.finalized === true ? { finalized: true } : {}), ...(replacementError ? { replacementError } : {}),
+                    ...(row.previousVersion === true ? { previousVersion: true } : {}),
+                    ...(candidateProgress ? { candidateProgress } : {}) }];
             }
             return [];
         });
     }
+    const candidates = normalizeCommerceShotCandidates(raw?.candidates, selected);
+    if (candidates.length) settings.candidates = candidates;
     const previousExportResults = normalizePreviousExportResults(raw?.previousExportResults);
     if (previousExportResults.length) settings.previousExportResults = previousExportResults;
     return settings;
@@ -371,10 +557,11 @@ export function normalizeCommerceImageSetState(raw) {
 export function commerceImageSetPlanningSettingsKey(raw, shotId) {
     const settings = normalizeCommerceImageSetState(raw);
     if (!shotId) return JSON.stringify(settings);
-    const { plan, results, customScenes, selectedShotIds, ...shared } = settings;
+    const { plan, results, candidates, customScenes, selectedShotIds, ...shared } = settings;
     const presetShotIds = selectedShotIds.filter(id => !isCommerceSceneId(id));
     const shot = plan?.shots.find(item => item.id === shotId);
-    return JSON.stringify([{ ...shared, selectedShotIds: presetShotIds }, plan?.sourceKey, plan?.stale, plan?.sellingPoints, shot]);
+    const finalized = results.some(row => row.shotId === shotId && row.finalized === true);
+    return JSON.stringify([{ ...shared, selectedShotIds: presetShotIds }, plan?.sourceKey, plan?.stale, plan?.sellingPoints, shot, finalized]);
 }
 
 function normalizeReferences(references) {
@@ -404,8 +591,15 @@ async function sourceFingerprint(value) {
     return `lan-${changeFingerprint(value)}`;
 }
 
-export async function commerceImageSetSourceKey({ settings, references }) {
-    const { platformId, productInfo, plannerModelId, plannerProviderId, selectedShotIds, galleryAspect, detailAspect, copyLanguage } = normalizeCommerceImageSetState(settings);
+export async function commerceImageSetReferenceContentKey(references) {
+    const hashes = await Promise.all(normalizeReferences(references).map(sourceFingerprint));
+    return sourceFingerprint(JSON.stringify(hashes));
+}
+
+async function commerceImageSetKeys({ settings, references }) {
+    const normalized = normalizeCommerceImageSetState(settings);
+    const { platformId, productInfo, plannerModelId, plannerProviderId, selectedShotIds,
+        galleryAspect, detailAspect, copyLanguage } = normalized;
     const images = normalizeReferences(references);
     const hashes = await Promise.all(images.map(sourceFingerprint));
     const { name, details, audience, useCases } = productInfo;
@@ -422,7 +616,20 @@ export async function commerceImageSetSourceKey({ settings, references }) {
         inputs.push({ galleryAspect, detailAspect });
     }
     if (copyLanguage !== 'auto') inputs.push({ copyLanguage });
-    return sourceFingerprint(JSON.stringify(inputs));
+    const manual = getManualProductInfo(normalized);
+    const [sourceKey, productContextKey, referenceContentKey] = await Promise.all([
+        sourceFingerprint(JSON.stringify(inputs)),
+        sourceFingerprint(JSON.stringify([hashes, manual.name, manual.details, manual.audience, manual.useCases])),
+        sourceFingerprint(JSON.stringify(hashes))
+    ]);
+    const sceneContextKeys = Object.fromEntries(await Promise.all(Object.entries({ gallery: galleryAspect, detail: detailAspect })
+        .map(async ([group, aspect]) => [group, await sourceFingerprint(JSON.stringify([referenceContentKey, platformId,
+            productInfo, copyLanguage, aspect]))])));
+    return { sourceKey, productContextKey, referenceContentKey, sceneContextKeys };
+}
+
+export async function commerceImageSetSourceKey(input) {
+    return (await commerceImageSetKeys(input)).sourceKey;
 }
 
 export function buildCommerceImageSetImagePrompt({ shot, plan, productInfo, productNotes }) {
@@ -521,18 +728,30 @@ export async function analyzeCommerceImageSetProduct({ settings, references, ...
             confirmed: input.plan.confirmed && !stale && sameProductValue(sellingPoints, input.plan.sellingPoints),
             ...(stale ? { stale: true } : {})
         };
+        if (!sameProductValue(input.productInfo, updated.productInfo)) updated.plan.shots.forEach(markCommerceSceneForReview);
     }
     return updated;
 }
 
-export async function createCommerceImageSetPlan({ settings, references, shotId, ...requestOptions }) {
+export async function createCommerceImageSetPlan({ settings, references, shotId, referenceRevision, ...requestOptions }) {
     const input = normalizeCommerceImageSetState(settings);
+    // A newly selected preset may have no draft yet. Full replanning can still
+    // recover the previously planned scenes from the last set of slots.
+    if (shotId === undefined && !input.plan && Array.isArray(settings?.plan?.shots)) {
+        const oldPlan = normalizeCommerceImageSetState({ ...settings,
+            platformId: settings.plan.platformId || input.platformId,
+            selectedShotIds: settings.plan.shots.map(shot => shot?.id)
+        }).plan;
+        if (oldPlan) input.plan = oldPlan;
+    }
     const images = normalizeReferences(references);
     const currentShot = shotId === undefined ? null : input.plan?.shots.find(shot => shot.id === shotId);
     const selectedShotIds = currentShot ? [currentShot.id] : input.selectedShotIds.filter(id => !isCommerceSceneId(id));
     if (!selectedShotIds.length) throw new Error('请至少选择一个图位。');
     if (shotId !== undefined && currentShot?.source !== 'generate') throw new Error('请选择一个需要生图的图位。');
-    if (currentShot && (input.plan.stale || input.plan.sourceKey !== await commerceImageSetSourceKey({ settings: input, references: images }))) {
+    if (currentShot && isCommerceShotFinalized(input, shotId)) throw new Error('图位已定稿，请解锁后重新规划。');
+    const keysForCurrentShot = currentShot ? await commerceImageSetKeys({ settings: input, references: images }) : null;
+    if (currentShot && (input.plan.stale || input.plan.sourceKey !== keysForCurrentShot.sourceKey)) {
         throw new Error('商品资料、参考图或生成设置已改变，请重新规划整套方案。');
     }
     const platform = getCommerceImageSetPreset(input.platformId);
@@ -541,7 +760,7 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
     const supplemental = currentShot?.customScene === true;
     const existingScenes = supplemental ? input.plan.shots.filter(shot => shot.id !== shotId
         && (shot.customScene || shot.role === 'scene' || shot.role === 'detail-scene'))
-        .map(shot => ({ id: shot.id, group: shot.group, summary: copyText(shot.sceneSummary || shot.prompt, COMMERCE_SCENE_SUMMARY_LIMIT) }))
+        .map(shot => ({ id: shot.id, group: shot.group, summary: getCommerceSceneSummary(shot, 2000) }))
         .filter(({ summary }) => summary) : [];
     const responseError = '规划模型未返回有效套图方案，请重试。';
     const { raw, plan, product } = await requestCommerceJson({
@@ -596,15 +815,51 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
             usedHeadlines.add(fallback);
         }
     }
-    if (currentShot) return { ...input, plan: { ...input.plan, confirmed: supplemental && input.plan.confirmed,
+    const revision = text(referenceRevision, 512);
+    if (currentShot) return { ...input, plan: { ...input.plan,
+        ...keysForCurrentShot, ...(revision ? { referenceRevision: revision } : {}),
+        confirmed: supplemental && input.plan.confirmed,
         shots: input.plan.shots.map(shot => shot.id === currentShot.id ? plan.shots[0] : shot) } };
     const updated = { ...input, ...product };
-    preserveCommerceImageSetExportResults(updated);
-    const sourceKey = await commerceImageSetSourceKey({ settings: updated, references: images });
-    const preserveScenes = input.plan?.sourceKey === sourceKey && !input.plan.stale;
-    const keptScenes = preserveScenes ? input.plan.shots.filter(shot => shot.customScene) : [];
-    const combined = normalizeCommerceImageSetPlan({ ...plan, shots: [...plan.shots, ...keptScenes] },
+    const previousAspects = new Map((Array.isArray(settings?.plan?.shots) ? settings.plan.shots : [])
+        .filter(shot => COMMERCE_IMAGE_SET_ASPECTS.includes(shot?.aspect)).map(shot => [shot.id, shot.aspect]));
+    const keys = await commerceImageSetKeys({ settings: updated, references: images });
+    const { sourceKey, productContextKey, referenceContentKey, sceneContextKeys } = keys;
+    const sameProductContext = input.plan?.productContextKey
+        ? input.plan.productContextKey === productContextKey : input.plan?.sourceKey === sourceKey;
+    const sameReferences = input.plan?.referenceContentKey
+        ? input.plan.referenceContentKey === referenceContentKey
+        : revision && input.plan?.referenceRevision ? input.plan.referenceRevision === revision : sameProductContext;
+    preserveCommerceImageSetExportResults(updated, { previousAspects, replacingReferences: !sameReferences });
+    const previousShots = new Map((input.plan?.shots || []).map(shot => [shot.id, shot]));
+    const hasCompatibleAspect = shot => previousShots.get(shot.id)?.source === shot.source
+        && (shot.source === 'reference' || (previousAspects.get(shot.id) ?? previousShots.get(shot.id)?.aspect) === shot.aspect);
+    const hasMatchingSceneContext = shot => sameReferences && (input.plan?.sceneContextKeys?.[shot.group]
+        ? input.plan.sceneContextKeys[shot.group] === sceneContextKeys[shot.group]
+        : sameProductContext && input.plan.copyLanguage === updated.copyLanguage && hasCompatibleAspect(shot));
+    const finalizedShots = new Map((input.plan?.shots || []).filter(shot =>
+        sameReferences && hasCompatibleAspect(shot) && isCommerceShotFinalized(input, shot.id))
+        .map(shot => [shot.id, shot]));
+    const keptScenes = [...previousShots.values()]
+        .filter(shot => shot.customScene && input.selectedShotIds.includes(shot.id)).map(shot => {
+            if (hasMatchingSceneContext(shot)) return shot;
+            const draft = { ...shot };
+            markCommerceSceneForReview(draft);
+            return draft;
+        });
+    const combinedShots = [...plan.shots.map(shot => finalizedShots.get(shot.id) || shot), ...keptScenes];
+    const combined = normalizeCommerceImageSetPlan({ ...plan, shots: combinedShots },
         platform.id, updated.selectedShotIds, updated, { allowBlankPrompts: true });
-    return { ...updated, plan: { ...combined, sourceKey, confirmed: false },
-        results: preserveScenes ? input.results.filter(row => isCommerceSceneId(row.shotId)) : [] };
+    const compatibleShots = new Map(combined.shots.filter(hasCompatibleAspect).map(shot => [shot.id, shot]));
+    const results = sameReferences ? input.results.flatMap(row => {
+        const shot = compatibleShots.get(row.shotId);
+        if (!shot) return [];
+        const matchingContext = hasMatchingSceneContext(shot);
+        if (!isCompletedCommerceResult(row)) return shot.customScene && matchingContext ? [row] : [];
+        return [shot.source === 'generate' && !matchingContext ? { ...row, previousVersion: true } : row];
+    }) : [];
+    const currentReferenceRevision = revision || (sameReferences ? input.plan?.referenceRevision : '');
+    return { ...updated,
+        plan: { ...combined, ...keys, ...(currentReferenceRevision ? { referenceRevision: currentReferenceRevision } : {}), confirmed: false },
+        results };
 }

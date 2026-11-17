@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { createExecutionCoreApi } from '../js/features/execution/execution-core.js';
 import { createWorkflowRunnerApi } from '../js/features/execution/workflow-runner.js';
+import { commerceImageSetSourceKey } from '../js/features/ecommerce-image-set/commerce-image-set-plan.js';
 import { applyImageSaveMediaState } from '../js/features/workflow/workflow-runtime-manager.js';
 import { createNodeElement as element } from './helpers/node-element-fixture.mjs';
 
@@ -18,17 +19,20 @@ function documentRef() {
     };
 }
 
-function createRunner({ nodes, connections, executeNode, getCachedOutputValue }) {
+function createRunner({ nodes, connections, executeNode, getCachedOutputValue, getImageAsset, selectedNodeIds }) {
+    const mode = selectedNodeIds ? 'selected-only' : 'all';
+    const nodeIds = selectedNodeIds ?? nodes.map(node => node.id);
     const state = {
         nodes: new Map(nodes.map((node) => [node.id, node])),
         connections,
-        providers: [], models: [], selectedNodes: new Set(),
+        providers: [], models: [], selectedNodes: new Set(selectedNodeIds),
         runningNodeIds: new Set(), runningNodeCancelHandlers: new Map()
     };
     const inputs = Object.fromEntries(nodes.map((node) => [
         node.id,
         connections.filter((connection) => connection.to.nodeId === node.id)
     ]));
+    const incoming = Object.fromEntries(nodeIds.map(id => [id, inputs[id].filter(edge => nodeIds.includes(edge.from.nodeId))]));
     return createWorkflowRunnerApi({
         state,
         nodeConfigs: Object.fromEntries(nodes.map((node) => [node.type, {
@@ -40,12 +44,12 @@ function createRunner({ nodes, connections, executeNode, getCachedOutputValue })
         documentRef: documentRef(),
         confirmRef: () => true,
         resolveExecutionPlan: () => ({
-            mode: 'all', nodeIds: nodes.map((node) => node.id), executionOrder: nodes.map((node) => node.id),
-            scopeNodeSet: new Set(nodes.map((node) => node.id)), inputConnectionsByNode: inputs,
-            incomingConnectionsByNode: inputs, externalInputsByNode: {}
+            mode, nodeIds, executionOrder: nodeIds, scopeNodeSet: new Set(nodeIds), inputConnectionsByNode: inputs,
+            incomingConnectionsByNode: incoming, externalInputsByNode: {}
         }),
-        normalizeRunOptions: () => ({ mode: 'all' }),
+        normalizeRunOptions: () => ({ mode, selectedNodeIds }),
         getCachedOutputValue,
+        getImageAsset,
         executeNode,
         addNode: () => null,
         generateId: () => 'unused',
@@ -75,6 +79,69 @@ test('preview with no current input keeps its image batch available to downstrea
     assert.deepEqual(preview.data.imageList, ['image-one', 'image-two']);
     assert.equal(preview.data.imageAssetKey, 'preview');
     assert.deepEqual(received, [['image-one', 'image-two']]);
+});
+
+test('a downstream-only run restores every commerce output in order from its retained media keys', async () => {
+    const assets = new Map([['media:one', 'image-one'], ['media:two', 'image-two']]);
+    for (const imageList of [[], ['image-two']]) {
+        const commerce = { id: 'commerce', type: 'ECommerceImageSet', enabled: true, el: element(),
+            data: { imageList, imageAssetKey: 'media:one', mediaAssetKeys: ['media:one', 'media:two'], imageCount: 2 } };
+        const downstream = { id: 'downstream', type: 'ImageSave', enabled: true, el: element(), data: {} };
+        const received = [];
+        const runner = createRunner({
+            nodes: [commerce, downstream], selectedNodeIds: [downstream.id],
+            connections: [{ id: 'image', type: 'image', from: { nodeId: commerce.id, port: 'image' },
+                to: { nodeId: downstream.id, port: 'image' } }],
+            getCachedOutputValue: (node, port) => port === 'image' ? node.data.imageList : undefined,
+            getImageAsset: async key => assets.get(key),
+            executeNode: async (node, inputs) => {
+                assert.equal(node.id, downstream.id);
+                received.push(inputs.image);
+            }
+        });
+
+        assert.equal((await runner.runWorkflow()).reason, 'finished');
+        assert.deepEqual(received, [['image-one', 'image-two']]);
+    }
+});
+
+test('downstream-only reuse verifies legacy commerce output against the connected product reference', async () => {
+    const original = 'data:image/png;base64,AAAA';
+    const replacement = 'data:image/png;base64,AAAB';
+    const reference = { id: 'reference', type: 'ImageImport', enabled: true,
+        data: { mediaAssetKeys: ['media:source'], imageCount: 1 } };
+    const commerce = { id: 'commerce', type: 'ECommerceImageSet', enabled: true, el: element(),
+        data: { imageList: ['suite-image'], mediaAssetKeys: ['media:result'], imageCount: 1,
+            commerceImageSet: { platformId: 'amazon', selectedShotIds: ['main'], plan: {} } } };
+    const settings = commerce.data.commerceImageSet;
+    settings.plan.sourceKey = await commerceImageSetSourceKey({ settings, references: [original] });
+    const downstream = { id: 'downstream', type: 'ImageSave', enabled: true, el: element(), data: {} };
+    const received = [];
+    let referenceImage = original;
+    const runner = createRunner({
+        nodes: [reference, commerce, downstream], selectedNodeIds: [downstream.id],
+        connections: [
+            { id: 'source', type: 'image', from: { nodeId: reference.id, port: 'image' },
+                to: { nodeId: commerce.id, port: 'referenceImages' } },
+            { id: 'output', type: 'image', from: { nodeId: commerce.id, port: 'image' },
+                to: { nodeId: downstream.id, port: 'image' } }
+        ],
+        getCachedOutputValue: () => undefined,
+        getImageAsset: async key => key === 'media:source' ? referenceImage : '',
+        executeNode: async (_node, inputs) => { received.push(inputs.image); }
+    });
+
+    assert.equal((await runner.runWorkflow()).reason, 'finished');
+    assert.deepEqual(received, ['suite-image']);
+    for (const unapproved of [replacement, '']) {
+        referenceImage = unapproved;
+        await assert.rejects(runner.runWorkflow(), /参考图.*变更.*重新规划/);
+    }
+    settings.plan = null;
+    settings.previousExportResults = [{ outputKey: 'media:result', referenceRevision: 'v1:["media:source"]' }];
+    reference.data.mediaAssetKeys = [];
+    await assert.rejects(runner.runWorkflow(), /参考图.*变更.*重新规划/);
+    assert.deepEqual(received, ['suite-image']);
 });
 
 test('save node with no current input keeps its video available to downstream nodes', async () => {

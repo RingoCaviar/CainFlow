@@ -1,9 +1,11 @@
-import { projectImageReferences } from '../../nodes/image-reference-projection.js';
 import { projectImageOutput } from '../../nodes/image-output-projection.js';
-import { REFERENCE_IMAGES_PORT } from '../../nodes/reference-image-ports.js';
 import { resolveImageGenerationInputContract } from '../../nodes/universal-input-policy.js';
 import {
-    getRunnableCommerceImageSetShots, getSelectedCommerceImageSetShots,
+    COMMERCE_REFERENCE_CHANGED_MESSAGE, getCommerceReferenceRevision, hasCommerceNodeReferenceChange,
+    hasCommerceReferenceChange, projectCommerceReferences
+} from '../ecommerce-image-set/commerce-reference-revision.js';
+import {
+    getGeneratableCommerceImageSetShots, getRunnableCommerceImageSetShots, getSelectedCommerceImageSetShots,
     getUnfinishedCommerceImageSetShots, normalizeCommerceImageSetState
 } from '../ecommerce-image-set/commerce-image-set-plan.js';
 import { getCanonicalImageList } from './execution-data-utils.js';
@@ -58,6 +60,15 @@ function referenceSourceMayChange(source, { state, plan, scope }) {
     });
 }
 
+export function usesCommerceRunReferences(node, plan) {
+    if (node?.type !== 'ECommerceImageSet') return true;
+    const action = plan?.commerceNodeId === node.id ? plan.commerceAction : 'generate';
+    if (action === 'select-candidate') return false;
+    if (action !== 'generate') return true;
+    const settings = node.data?.commerceImageSet ?? node.commerceImageSet;
+    return !getRunnableCommerceImageSetShots(settings).length || getGeneratableCommerceImageSetShots(settings).length > 0;
+}
+
 /** Checks only facts available from the planned graph and stored configuration. */
 export function getCommerceRunPreflight({ state, plan }) {
     if (!plan) return [];
@@ -67,25 +78,29 @@ export function getCommerceRunPreflight({ state, plan }) {
         const node = state.nodes.get(nodeId);
         if (node?.type !== 'ECommerceImageSet' || node.enabled === false) return [];
         const settings = normalizeCommerceImageSetState(node.data?.commerceImageSet ?? node.commerceImageSet);
-        const shots = settings.plan ? getRunnableCommerceImageSetShots(settings)
+        const runnableShots = settings.plan ? getRunnableCommerceImageSetShots(settings)
             : getSelectedCommerceImageSetShots(settings).filter(shot => !shot.customScene);
+        const shots = settings.plan ? getGeneratableCommerceImageSetShots(settings) : runnableShots;
+        const finalizedCount = runnableShots.length - shots.length;
+        const reusesFinalized = finalizedCount > 0 && shots.length === 0;
         const generatedShots = shots.filter(shot => shot.source === 'generate');
-        const shotIds = new Set(shots.map(shot => shot.id));
-        const completed = settings.results.filter(row => row.status === 'completed' && row.assetKey && shotIds.has(row.shotId))
-            .map(row => row.shotId);
+        const candidateCount = generatedShots.length ? (settings.candidateCount ?? 1) : 0;
+        const shotIds = new Set(runnableShots.map(shot => shot.id));
+        const completed = settings.results.filter(row => row.status === 'completed' && row.assetKey && shotIds.has(row.shotId));
         const inputConnections = plan.inputConnectionsByNode?.[nodeId] || [];
-        const references = projectImageReferences({ state, targetId: nodeId,
-            connections: inputConnections.filter(edge => edge.to.port === REFERENCE_IMAGES_PORT) });
+        const references = projectCommerceReferences(state, nodeId, inputConnections);
         const sources = references.groups.filter(group => group.enabled);
         const changingSources = new Set(sources.filter(group => referenceSourceMayChange(group.source, { state, plan, scope })));
-        const upstreamWillRun = changingSources.size > 0;
+        const upstreamWillRun = !reusesFinalized && changingSources.size > 0;
         const retainedSources = sources.filter(group => !changingSources.has(group) && !group.running);
         const retainedReferenceCount = retainedSources.reduce((count, group) => count + group.count, 0);
         const missingImages = retainedSources.some(group => !group.count || group.missing || group.missingPositions.length
             || references.slots.some(slot => slot.connection === group.connection && slot.missing));
         let issue = null;
         const panelAction = plan.commerceNodeId === nodeId && plan.commerceAction;
-        if (!panelAction) {
+        if (panelAction !== 'plan' && panelAction !== 'analyze' && hasCommerceReferenceChange(settings, references)) {
+            issue = { action: 'plan', message: COMMERCE_REFERENCE_CHANGED_MESSAGE };
+        } else if (!panelAction && !reusesFinalized) {
             if (!settings.plan || settings.plan.stale) {
                 issue = { action: 'plan', message: settings.plan ? '套图方案已过期，请重新规划并确认。' : '请先规划电商套图。' };
             } else if (!settings.plan.confirmed) {
@@ -102,18 +117,38 @@ export function getCommerceRunPreflight({ state, plan }) {
                 }
             }
         }
-        return [{ nodeId, issue, shotCount: shots.length, generateCount: generatedShots.length,
-            referenceCount: shots.length - generatedShots.length, upstreamWillRun,
+        return [{ nodeId, issue, shotCount: runnableShots.length, generateCount: generatedShots.length * candidateCount, candidateCount,
+            referenceCount: shots.length - generatedShots.length, finalizedCount, upstreamWillRun,
             hasCompleted: completed.length > 0, unfinishedCount: getUnfinishedCommerceImageSetShots(settings).length,
-            approvalKey: JSON.stringify([settings.plan?.sourceKey || '', settings.imageModelId, settings.imageProviderId,
-                shots.map(shot => [shot.id, shot.source, shot.aspect, shot.prompt, shot.headline, shot.body]), completed]) }];
+            approvalKey: JSON.stringify([settings.plan?.sourceKey || '', getCommerceReferenceRevision(references),
+                settings.imageModelId, settings.imageProviderId, candidateCount,
+                shots.map(shot => [shot.id, shot.source, shot.aspect, shot.prompt, shot.headline, shot.body]),
+                completed.map(row => [row.shotId, row.assetKey, row.finalized === true])]) }];
     });
 }
 
 export function getCommerceRunBlocker({ state, plan }) {
-    const blocked = getCommerceRunPreflight({ state, plan }).find(row => row.issue);
+    const blocked = getCommerceRunPreflight({ state, plan }).find(row => row.issue)
+        || getReusedCommerceReferenceBlocker(state, plan);
     if (!blocked) return null;
     const node = state.nodes.get(blocked.nodeId);
     const error = `「${node.customTitle || '电商套图'}」${blocked.issue.message}`;
     return { started: false, executed: false, reason: 'commerce-preflight', nodeId: blocked.nodeId, error };
+}
+
+function getReusedCommerceReferenceBlocker(state, plan) {
+    const pending = plan?.executionOrder || plan?.nodeIds || [];
+    const scope = plan?.scopeNodeSet || new Set(pending);
+    for (const nodeId of pending) {
+        const consumer = state.nodes.get(nodeId);
+        if (!consumer || consumer.enabled === false || !usesCommerceRunReferences(consumer, plan)) continue;
+        for (const edge of plan.inputConnectionsByNode?.[nodeId] || []) {
+            const sourceId = edge.from?.nodeId;
+            if (edge.from?.port !== 'image' || scope.has(sourceId)) continue;
+            if (hasCommerceNodeReferenceChange(state, state.nodes.get(sourceId))) {
+                return { nodeId: sourceId, issue: { action: 'plan', message: COMMERCE_REFERENCE_CHANGED_MESSAGE } };
+            }
+        }
+    }
+    return null;
 }

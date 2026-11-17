@@ -1,6 +1,10 @@
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
 import { getNodeModelConfigurationIssue } from './model-configuration-readiness.js';
-import { getCommerceRunBlocker } from './commerce-run-preflight.js';
+import { getCommerceRunBlocker, usesCommerceRunReferences } from './commerce-run-preflight.js';
+import {
+    COMMERCE_REFERENCE_CHANGED_MESSAGE, hasCommerceReferenceChange, needsCommerceReferenceVerification,
+    projectCommerceReferences, sameCommerceReferenceProjection, verifyCommerceReferenceContent
+} from '../ecommerce-image-set/commerce-reference-revision.js';
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
 import { readImageSaveFilename } from '../../nodes/image-save-settings.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
@@ -725,7 +729,7 @@ export function createWorkflowRunnerApi({
         return node?.type === 'ImagePreview' || node?.type === 'ImageSave';
     }
 
-    function getDisplayNodeImageCount(node) {
+    function getKnownImageOutputCount(node) {
         const explicitCount = Math.max(0, parseInt(node?.data?.imageCount || '0', 10) || 0);
         const durableCount = Array.isArray(node?.data?.mediaAssetKeys) ? node.data.mediaAssetKeys.length : 0;
         const inMemoryCount = Math.max(
@@ -802,9 +806,9 @@ export function createWorkflowRunnerApi({
         return false;
     }
 
-    async function restoreDisplayNodeImageOutput(node) {
-        if (!isDisplayImageNode(node)) return null;
+    async function restoreStoredImageBatch(node) {
         const keys = Array.isArray(node.data?.mediaAssetKeys) ? node.data.mediaAssetKeys : [];
+        if (!isDisplayImageNode(node) && !(node.type === 'ECommerceImageSet' && keys.length)) return null;
         if (keys.length) {
             const images = await Promise.all(keys.map(async (key, index) => {
                 let image = '';
@@ -815,7 +819,7 @@ export function createWorkflowRunnerApi({
                 if (!image) throw new Error(`节点「${getNodeDisplayTitle(node)}」第 ${index + 1} 张原图缺失，请恢复原图后重试。`);
                 return image;
             }));
-            if (images.length < getDisplayNodeImageCount(node)) throw new Error(`节点「${getNodeDisplayTitle(node)}」原图批次不完整，请恢复后重试。`);
+            if (images.length < getKnownImageOutputCount(node)) throw new Error(`节点「${getNodeDisplayTitle(node)}」原图批次不完整，请恢复后重试。`);
             return images;
         }
         const assetKey = typeof node?.data?.imageAssetKey === 'string' && node.data.imageAssetKey
@@ -1081,6 +1085,20 @@ export function createWorkflowRunnerApi({
             if (videos) return videos;
         }
         if (portName === 'image') {
+            if (fromNode.type === 'ECommerceImageSet') {
+                const settings = fromNode.data?.commerceImageSet ?? fromNode.commerceImageSet;
+                const projection = projectCommerceReferences(state, fromNode.id);
+                const unavailable = () => new Error(`「${getNodeDisplayTitle(fromNode)}」${COMMERCE_REFERENCE_CHANGED_MESSAGE}`);
+                if (hasCommerceReferenceChange(settings, projection)) throw unavailable();
+                if (needsCommerceReferenceVerification(settings, projection)) {
+                    const sourceKey = settings.plan?.sourceKey;
+                    const verification = await verifyCommerceReferenceContent({ settings, projection, readAsset: getImageAsset });
+                    const currentSettings = fromNode.data?.commerceImageSet ?? fromNode.commerceImageSet;
+                    if (verification.status !== 'matched' || state.nodes.get(fromNode.id) !== fromNode
+                        || currentSettings?.plan?.sourceKey !== sourceKey
+                        || !sameCommerceReferenceProjection(projection, projectCommerceReferences(state, fromNode.id))) throw unavailable();
+                }
+            }
             if (toNode?.type === 'ProductRetouch') {
                 if (fromNode.type === 'ImageImport') {
                     return fromNode.importMode === 'url'
@@ -1106,16 +1124,17 @@ export function createWorkflowRunnerApi({
                 if (importedImage) return importedImage;
             }
             const images = getNodeImageOutputList(fromNode);
-            const completeDisplayBatch = isDisplayImageNode(fromNode) && images.length === getDisplayNodeImageCount(fromNode)
-                && !fromNode.data?.mediaIntegrity?.missingItems?.length;
-            const shouldRestoreDisplayBatch = isDisplayImageNode(fromNode) && getDisplayNodeImageCount(fromNode) > 1 && !completeDisplayBatch;
-            if (!shouldRestoreDisplayBatch) {
+            const durableCommerceBatch = fromNode.type === 'ECommerceImageSet' && !!fromNode.data?.mediaAssetKeys?.length;
+            const outputCount = getKnownImageOutputCount(fromNode);
+            const completeBatch = images.length === outputCount && !fromNode.data?.mediaIntegrity?.missingItems?.length;
+            const shouldRestoreBatch = !completeBatch && (durableCommerceBatch || (isDisplayImageNode(fromNode) && outputCount > 1));
+            if (!shouldRestoreBatch) {
                 if (images?.length > 1) return images;
                 if (images?.length === 1) return images[0];
             }
-            const restoredDisplayImages = await restoreDisplayNodeImageOutput(fromNode);
-            if (restoredDisplayImages?.length > 1) return restoredDisplayImages;
-            if (restoredDisplayImages?.length === 1) return restoredDisplayImages[0];
+            const restoredBatch = await restoreStoredImageBatch(fromNode);
+            if (restoredBatch?.length > 1) return restoredBatch;
+            if (restoredBatch?.length === 1) return restoredBatch[0];
             if (images?.length > 1) return images;
             if (images?.length === 1) return images[0];
             const restoredImages = await restoreReleasedImageOutput(fromNode);
@@ -1218,12 +1237,13 @@ export function createWorkflowRunnerApi({
         plan.externalInputRecipesByNode = Object.create(null);
 
         for (const nodeId of plan.nodeIds || []) {
+            const toNode = state.nodes.get(nodeId);
+            if (!usesCommerceRunReferences(toNode, plan)) continue;
             for (const connection of plan.inputConnectionsByNode[nodeId] || []) {
                 if (plan.scopeNodeSet.has(connection.from.nodeId)) continue;
 
                 const fromNode = state.nodes.get(connection.from.nodeId);
                 if (fromNode?.enabled === false) continue;
-                const toNode = state.nodes.get(nodeId);
                 const outputValue = await getEnabledNodeOutputValue(fromNode, toNode, connection.from.port);
                 if ((plan.agentSequential || plan.imageBatch)
                     && (outputValue === undefined || outputValue === null || outputValue === '' || (Array.isArray(outputValue) && outputValue.length === 0))) {
@@ -1326,6 +1346,7 @@ export function createWorkflowRunnerApi({
         const outputsByConnection = new Map();
         const identities = new Map();
         const node = state.nodes.get(nodeId);
+        if (!usesCommerceRunReferences(node, plan)) return inputs;
         const connections = orderInputConnections(node?.type, plan.inputConnectionsByNode[nodeId]);
 
         for (const connection of connections) {
@@ -1909,7 +1930,7 @@ export function createWorkflowRunnerApi({
     async function executeNodeWithInputBatches(node, inputs, signal, connections = [], plan, recipe) {
         if (node?.type === 'ECommerceImageSet') {
             const action = plan?.commerceNodeId === node.id
-                ? { commerceAction: plan.commerceAction, commerceShotId: plan.commerceShotId } : {};
+                ? { commerceAction: plan.commerceAction, commerceShotId: plan.commerceShotId, commerceCandidateKey: plan.commerceCandidateKey } : {};
             await executeNode(node, inputs, signal, action);
             return inputs;
         }

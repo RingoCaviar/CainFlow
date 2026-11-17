@@ -6,7 +6,7 @@ const scopes = { all: '全套', gallery: '主副图', detail: '详情图' };
 const assetUrl = key => `/api/storage/assets/${encodeURIComponent(key)}`;
 const imageExtension = mime => getImageExtension(`data:${(mime || '').split(';')[0].trim().toLowerCase()};`);
 
-export function openCommerceImageSetExport({ manifest, documentRef, opener, onClose }) {
+export function openCommerceImageSetExport({ manifest, previousManifest, documentRef, opener, onClose }) {
     const windowRef = documentRef.defaultView;
     const dialog = documentRef.createElement('dialog');
     dialog.id = 'commerce-export-dialog';
@@ -19,6 +19,13 @@ export function openCommerceImageSetExport({ manifest, documentRef, opener, onCl
                 <button type="button" class="dialog-style-1-close" aria-label="关闭导出套图">×</button>
             </header>
             <div class="dialog-style-1-body">
+                ${previousManifest ? `<fieldset class="commerce-export-scopes">
+                    <legend>套图版本</legend>
+                    <div>
+                        <label><input type="radio" name="commerce-export-version" value="current" checked><span>当前套图</span></label>
+                        <label><input type="radio" name="commerce-export-version" value="previous"><span>上次套图</span></label>
+                    </div>
+                </fieldset>` : ''}
                 <fieldset class="commerce-export-scopes">
                     <legend>导出范围</legend>
                     <div>${Object.entries(scopes).map(([id, label]) => `
@@ -35,14 +42,10 @@ export function openCommerceImageSetExport({ manifest, documentRef, opener, onCl
                 <button type="button" class="btn btn-primary" data-commerce-export-download disabled>导出 ZIP</button>
             </footer>
         </div>`;
-    const scopeInputs = [...dialog.querySelectorAll('[name="commerce-export-scope"]')];
+    const filterInputs = dialog.querySelectorAll('[name="commerce-export-scope"], [name="commerce-export-version"]');
     const summary = dialog.querySelector('.commerce-export-summary');
     const list = dialog.querySelector('.commerce-export-rows');
     const unmapped = dialog.querySelector('.commerce-export-unmapped');
-    if (manifest.unmappedCount) {
-        unmapped.textContent = `有 ${manifest.unmappedCount} 张已保存图片缺少图位记录，已跳过。`;
-        unmapped.hidden = false;
-    }
     const feedback = dialog.querySelector('.commerce-export-error');
     const closeButtons = dialog.querySelectorAll('.dialog-style-1-close, [data-commerce-export-close]');
     const download = dialog.querySelector('[data-commerce-export-download]');
@@ -51,11 +54,12 @@ export function openCommerceImageSetExport({ manifest, documentRef, opener, onCl
     const { signal } = controller;
     const surfaces = getSurfaceCoordinator(documentRef);
     let scope = 'all';
+    let selectedManifest = manifest;
     let checking = true;
     let saving = false;
 
     function selectedRows() {
-        return scope === 'all' ? manifest.rows : manifest.rows.filter(row => row.group === scope);
+        return scope === 'all' ? selectedManifest.rows : selectedManifest.rows.filter(row => row.group === scope);
     }
 
     function render(message = '') {
@@ -64,7 +68,9 @@ export function openCommerceImageSetExport({ manifest, documentRef, opener, onCl
         const previous = ready.filter(row => row.status === 'previous').length;
         const missing = rows.length - ready.length;
         closeButtons.forEach(button => { button.disabled = saving; });
-        scopeInputs.forEach(input => { input.disabled = saving; });
+        filterInputs.forEach(input => { input.disabled = saving; });
+        unmapped.hidden = !selectedManifest.unmappedCount || selectedManifest === previousManifest;
+        if (!unmapped.hidden) unmapped.textContent = `有 ${selectedManifest.unmappedCount} 张已保存图片缺少图位记录，已跳过。`;
         download.disabled = checking || saving || !ready.length;
         summary.textContent = message || (checking ? '正在检查本地成图…' : !rows.length ? '此范围没有图位。'
             : [`可导出 ${ready.length} 张`, missing && `缺图 ${missing} 张`, previous && `含上一版 ${previous} 张`].filter(Boolean).join(' · '));
@@ -109,7 +115,7 @@ export function openCommerceImageSetExport({ manifest, documentRef, opener, onCl
     }
 
     async function checkAssets() {
-        const keys = new Set(manifest.rows.map(row => row.assetKey).filter(Boolean));
+        const keys = new Set([...manifest.rows, ...(previousManifest?.rows || [])].map(row => row.assetKey).filter(Boolean));
         await Promise.all([...keys].map(async key => {
             try {
                 const response = await windowRef.fetch(assetUrl(key), { method: 'HEAD', cache: 'no-store', signal });
@@ -147,8 +153,11 @@ export function openCommerceImageSetExport({ manifest, documentRef, opener, onCl
     }
 
     dialog.addEventListener('change', event => {
-        if (event.target.name !== 'commerce-export-scope' || saving) return;
-        scope = event.target.value;
+        if (saving) return;
+        if (event.target.name === 'commerce-export-scope') scope = event.target.value;
+        else if (event.target.name === 'commerce-export-version') {
+            selectedManifest = event.target.value === 'previous' ? previousManifest : manifest;
+        } else return;
         showError('');
         render();
     });
@@ -165,7 +174,7 @@ export function openCommerceImageSetExport({ manifest, documentRef, opener, onCl
         summary.focus({ preventScroll: true });
         let message = '';
         try {
-            const result = await saveZipArchive(`${manifest.title}_${scopes[scope]}.zip`, () => readArchiveEntries(rows), { windowRef, documentRef });
+            const result = await saveZipArchive(`${selectedManifest.title}_${scopes[scope]}.zip`, () => readArchiveEntries(rows), { windowRef, documentRef });
             if (result === 'saved') message = `已保存 ZIP，包含 ${rows.length} 张图。`;
             if (result === 'started') message = `已开始下载 ZIP，包含 ${rows.length} 张图。`;
         } catch (error) {

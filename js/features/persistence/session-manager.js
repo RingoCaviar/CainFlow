@@ -82,10 +82,32 @@ export function createSessionManagerApi({
             ]));
             const comparison = readProductRetouchComparison(original);
             const auxiliaryKey = comparison && comparison.originalAssetKey !== comparison.resultAssetKey ? comparison.originalAssetKey : '';
-            const retained = originalKeys.filter(key => key !== auxiliaryKey && !videoKeys.has(key) && available.has(key));
+            // Commerce history owns media without contributing images to the current output.
+            const commerceOutputs = node.type === 'ECommerceImageSet'
+                ? (original.data?.mediaAssetKeys ?? original.mediaAssetKeys) : null;
+            const outputKeys = Array.isArray(commerceOutputs) ? commerceOutputs
+                : getSnapshotMediaKeys(original, { includeCommerceHistory: false });
+            const retained = outputKeys
+                .filter(key => key !== auxiliaryKey && !videoKeys.has(key) && available.has(key));
             const incompleteComparison = comparison && (!available.has(comparison.originalAssetKey) || !available.has(comparison.resultAssetKey));
             for (const holder of [node, node.data].filter(Boolean)) {
                 if (incompleteComparison) delete holder.productRetouchComparison;
+                const commerce = holder.commerceImageSet;
+                if (node.type === 'ECommerceImageSet' && commerce) {
+                    // Retained output keys are all available; old missing positions no longer apply.
+                    delete holder.mediaIntegrity;
+                    const retainedCommerce = { ...commerce };
+                    if (Array.isArray(commerce.results)) {
+                        retainedCommerce.results = commerce.results.filter(row => row?.status !== 'completed' || available.has(row.assetKey));
+                    }
+                    if (Array.isArray(commerce.candidates)) {
+                        retainedCommerce.candidates = commerce.candidates.filter(row => available.has(row?.assetKey));
+                    }
+                    if (Array.isArray(commerce.previousExportResults)) {
+                        retainedCommerce.previousExportResults = commerce.previousExportResults.filter(row => available.has(row?.outputKey));
+                    }
+                    holder.commerceImageSet = retainedCommerce;
+                }
                 if (Array.isArray(holder.mediaAssetKeys)) {
                     holder.mediaAssetKeys = holder.mediaAssetKeys.filter((key) => (
                         typeof key !== 'string' || !key.startsWith('media:') || available.has(key)

@@ -48,8 +48,8 @@ test('canvas navigation keeps add and run scope reachable when a node is selecte
         assert.deepEqual(await readCanvasNavigation(app), { rows: 1, inside: true, clear: true });
 
         const point = await app.evaluate(`(() => {
-            const text = document.getElementById('navigation-text-text').getBoundingClientRect();
-            return { x: text.left + 40, y: text.top + 40 };
+            const card = document.getElementById('navigation-text').getBoundingClientRect();
+            return { x: card.left + 4, y: card.top + 40 };
         })()`);
         await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
         await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });

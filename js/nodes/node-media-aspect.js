@@ -30,6 +30,12 @@ export function syncNodeMediaAspect(node) {
         break;
     }
     const previous = activeSurfaces.get(node);
+    if (!selected && node.type === 'ImageGenerate') {
+        const surface = node.el.querySelector('.image-node-result-preview[data-preview-loading]');
+        const ratio = previous?.style.getPropertyValue('--node-media-aspect');
+        // Keep the measured geometry while a replacement batch preview is loading.
+        if (surface && ratio) selected = { surface, ratio };
+    }
     if (previous && previous !== selected?.surface) {
         previous.classList.remove('node-media-aspect-surface');
         previous.style.removeProperty('--node-media-aspect');

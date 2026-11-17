@@ -3,7 +3,11 @@ import { publicImageProtocolFields } from './prompt-agent-parameters.js';
 import { listNodeDefinitions } from '../../nodes/registry.js';
 import { getDynamicNodePorts } from '../../nodes/node-view-factory.js';
 import { DOUBAO_VIDEO_RATIO_OPTIONS } from '../execution/provider-request-utils.js';
-import { COMMERCE_IMAGE_SET_COPY_LANGUAGES, getCommerceProductInfo, normalizeCommerceImageSetCopyLanguage } from '../ecommerce-image-set/commerce-image-set-plan.js';
+import { hasCommerceReferenceChange, needsCommerceReferenceVerification, projectCommerceReferences } from '../ecommerce-image-set/commerce-reference-revision.js';
+import {
+    COMMERCE_IMAGE_SET_COPY_LANGUAGES, getCommerceProductInfo, getRunnableCommerceImageSetShots,
+    isCommerceShotFinalized, normalizeCommerceImageSetCopyLanguage, normalizeCommerceImageSetState
+} from '../ecommerce-image-set/commerce-image-set-plan.js';
 
 const colorAdjustment = { type: 'integer', min: -100, max: 100 };
 export const CANVAS_SCALAR_RULES = Object.freeze({
@@ -66,7 +70,45 @@ export function projectCanvasNode(node, running = false) {
 
 export function createCanvasContext({ workflowId, nodes, connections, selectedIds = [], mentionedIds = [], runningIds = [], getGenerationContext = null,
     getVideoAspects = null }) {
-    const projected = nodes.map(node => projectCanvasNode(node, runningIds.includes(node.id)));
+    const runningNodeIds = new Set(runningIds);
+    const commerceWithReferences = nodes.filter(node => {
+        if (node.type !== 'ECommerceImageSet') return false;
+        const settings = node.commerceImageSet ?? node.data?.commerceImageSet;
+        return settings?.plan?.sourceKey || (!settings?.plan && settings?.previousExportResults?.some(row => row?.referenceRevision));
+    });
+    const unavailableCommerceOutputs = new Set();
+    if (commerceWithReferences.length) {
+        // The shared reference projection accepts live nodes. Serialized snapshots keep media fields at the top level.
+        const referenceState = { connections, runningNodeIds, nodes: new Map(nodes.map(node => [node.id, { ...node, data: {
+            ...node.data, mediaAssetKeys: node.mediaAssetKeys ?? node.data?.mediaAssetKeys,
+            imageAssetKey: node.imageAssetKey ?? node.data?.imageAssetKey,
+            imageCount: node.imageCount ?? node.data?.imageCount, mediaIntegrity: node.mediaIntegrity ?? node.data?.mediaIntegrity
+        } }])) };
+        for (const node of commerceWithReferences) {
+            const settings = node.commerceImageSet ?? node.data.commerceImageSet;
+            const references = projectCommerceReferences(referenceState, node.id);
+            if (hasCommerceReferenceChange(settings, references) || needsCommerceReferenceVerification(settings, references)) {
+                unavailableCommerceOutputs.add(node.id);
+            }
+        }
+    }
+    const projected = nodes.map(node => {
+        const output = projectCanvasNode(node, runningNodeIds.has(node.id));
+        if (unavailableCommerceOutputs.has(node.id)) {
+            output.assets = [];
+            delete output.imageCount;
+        }
+        return output;
+    });
+    const commerceRunSettings = nodes.flatMap(node => {
+        if (node.type !== 'ECommerceImageSet') return [];
+        const settings = normalizeCommerceImageSetState(node.commerceImageSet ?? node.data?.commerceImageSet);
+        const candidateCount = settings.candidateCount ?? 1;
+        const finalizedShotIds = getRunnableCommerceImageSetShots(settings)
+            .filter(shot => shot.source === 'generate' && isCommerceShotFinalized(settings, shot.id))
+            .map(shot => shot.id);
+        return candidateCount > 1 || finalizedShotIds.length ? [[node.id, candidateCount, finalizedShotIds]] : [];
+    });
     const links = connections.map(link => ({ id: link.id, ...(Number.isInteger(link.order)?{order:link.order}:{}), from: { nodeId: link.from?.nodeId, port: link.from?.port }, to: { nodeId: link.to?.nodeId, port: link.to?.port } }));
     for (const node of projected) {
         const fields = CANVAS_SCALAR_RULES[node.type];
@@ -135,7 +177,7 @@ export function createCanvasContext({ workflowId, nodes, connections, selectedId
             missingIds: nodeIds.filter(id => !projected.some(node => node.id === id)),
             total: candidates.length, nextOffset: offset + page.length < candidates.length ? offset + page.length : null };
     };
-    return { workflowId, nodes: projected, connections: links, read,
+    return { workflowId, nodes: projected, connections: links, read, commerceRunSettings,
         summary: { workflowId, totalNodes: projected.length, totalConnections: links.length,
             types: projected.reduce((counts, node) => ({ ...counts, [node.type]: (counts[node.type] || 0) + 1 }), {}),
             selectedIds, mentionedIds, page: read(), readOnlyTool: 'canvasRead: {offset?:number,nodeIds?:string[],connectionOffset?:number,textOffset?:number,assetOffset?:number,images?:{nodeId:string,index:number}[]}',

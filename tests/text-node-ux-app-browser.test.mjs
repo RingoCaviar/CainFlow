@@ -13,6 +13,18 @@ const key = async (app, key, code = key) => {
     await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key, code });
 };
 
+test('text nodes execute in a windowless workflow document and publish their output to the visible card', { timeout: 30000 }, async () => {
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes: [
+        { id: 'source-text', type: 'Text', x: 80, y: 80, text: '后台文本运行结果' },
+        { id: 'sink-text', type: 'Text', x: 420, y: 80, text: '' }
+    ], connections: [{ id: 'text-link', from: { nodeId: 'source-text', port: 'text' },
+        to: { nodeId: 'sink-text', port: 'text' }, type: 'text' }] }, async app => {
+        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.waitFor("document.getElementById('sink-text-text').value==='后台文本运行结果' && document.getElementById('btn-stop').disabled");
+        assert.equal(await app.evaluate("document.getElementById('sink-text').querySelectorAll('.text-node-tools').length"), 1);
+    });
+});
+
 test('text cards expose their identity and keyboard editing instructions without hover', { timeout: 30000 }, async () => {
     await withAppBrowser(session, async app => {
         const info = await app.evaluate(`(() => {
