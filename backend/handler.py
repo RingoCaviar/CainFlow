@@ -77,8 +77,17 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
     def do_HEAD(self):
-        if not canvas_mcp_routes.handle(self):
+        if canvas_mcp_routes.handle(self):
+            return
+        if not storage_routes.is_asset_download_path(self.path):
             super().do_HEAD()
+            return
+        self._begin_request_log()
+        try:
+            if self._authorize_desktop_api():
+                storage_routes.handle_asset_head(self)
+        except Exception as error:
+            self._handle_unexpected_error(error)
 
     def send_head(self):
         # The source tree can also be the static root. Keep the MCP credential

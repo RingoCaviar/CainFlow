@@ -1,10 +1,15 @@
+import io
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from backend import desktop_security
+from backend.handler import ProxyHTTPRequestHandler
 from backend.routes import storage_routes
 from backend.routes.storage_routes import _is_authorized_local_request
-from backend.services.storage_service import StorageDocumentConflict
+from backend.services.storage_service import StorageDocumentConflict, StorageService
 
 
 def make_handler(client='127.0.0.1', origin='http://127.0.0.1:8767'):
@@ -12,6 +17,45 @@ def make_handler(client='127.0.0.1', origin='http://127.0.0.1:8767'):
 
 
 class StorageRouteSecurityTests(unittest.TestCase):
+    def test_asset_head_checks_readable_file_with_the_same_desktop_and_origin_guards(self):
+        def probe(*, cookie='', origin='', client='127.0.0.1'):
+            handler = ProxyHTTPRequestHandler.__new__(ProxyHTTPRequestHandler)
+            handler.command = 'HEAD'
+            handler.path = '/api/storage/assets/media%3Aexport'
+            handler.client_address = (client, 50000)
+            handler.headers = {'Cookie': cookie, 'Origin': origin}
+            handler.wfile = io.BytesIO()
+            handler.send_response = mock.Mock()
+            handler.send_header = mock.Mock()
+            handler.end_headers = mock.Mock()
+            handler._begin_request_log = mock.Mock()
+            handler.do_HEAD()
+            self.assertEqual(handler.wfile.getvalue(), b'')
+            return handler.send_response.call_args.args[0], dict(
+                call.args for call in handler.send_header.call_args_list
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            service = StorageService(database_path=root / 'test.db', assets_dir=root / 'assets',
+                                     temp_dir=root / 'tmp', exports_dir=root / 'exports')
+            original = b'original asset'
+            asset = service.put_asset('media:export', original, 'image/webp')
+            with mock.patch.object(storage_routes, 'storage_service', service), \
+                    mock.patch.object(desktop_security, '_session_token', 'test-session'):
+                cookie = 'cainflow_desktop_session=test-session'
+                self.assertEqual(probe()[0], 403)
+                self.assertEqual(probe(cookie=cookie, origin='https://example.invalid')[0], 403)
+                self.assertEqual(probe(cookie=cookie, client='192.168.1.10')[0], 403)
+                status, headers = probe(cookie=cookie)
+                self.assertEqual(status, 200)
+                self.assertEqual(headers['Content-Type'], 'image/webp')
+                self.assertEqual(headers['Content-Length'], str(len(original)))
+                self.assertEqual(headers['Cache-Control'], 'no-store')
+                (root / 'assets' / asset['relative_path']).unlink()
+                self.assertIsNotNone(service.get_asset_info('media:export'))
+                self.assertEqual(probe(cookie=cookie)[0], 404)
+
     def test_prompt_library_conflict_requests_a_fresh_document_instead_of_overwriting(self):
         handler = make_handler()
         handler.path = '/api/storage/documents/prompt_library'

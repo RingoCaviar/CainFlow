@@ -20,6 +20,10 @@ def _asset_key(path):
     return unquote(path[len(prefix):]) if path.startswith(prefix) else ''
 
 
+def is_asset_download_path(raw_path):
+    return urlparse(raw_path).path.startswith('/api/storage/assets/')
+
+
 def _is_authorized_local_request(handler):
     try:
         if not ipaddress.ip_address(handler.client_address[0]).is_loopback:
@@ -40,6 +44,26 @@ def _authorize_storage_path(handler, path):
         return True
     write_error(handler, 403, 'Storage API is available only to the local CainFlow origin')
     return False
+
+
+def _write_asset(handler, path, *, read_body=True):
+    result = storage_service.get_asset(_asset_key(path), read_body=read_body)
+    if not result:
+        write_error(handler, 404, 'Asset not found')
+        return
+    info, body = result
+    headers = {'X-CainFlow-Asset-Size': str(info['size_bytes'])}
+    if read_body:
+        headers['Cache-Control'] = 'private, max-age=31536000, immutable'
+    else:
+        headers.update({'Cache-Control': 'no-store', 'Content-Length': str(info['size_bytes'])})
+    write_bytes(handler, body, content_type=info['mime_type'], headers=headers)
+
+
+def handle_asset_head(handler):
+    path = urlparse(handler.path).path
+    if _authorize_storage_path(handler, path):
+        _write_asset(handler, path, read_body=False)
 
 
 def handle_get(handler):
@@ -86,15 +110,7 @@ def handle_get(handler):
             write_json(handler, storage_service.get_document(name))
         return True
     if path.startswith('/api/storage/assets/'):
-        result = storage_service.get_asset(_asset_key(path))
-        if not result:
-            write_error(handler, 404, 'Asset not found')
-        else:
-            info, body = result
-            write_bytes(handler, body, content_type=info['mime_type'], headers={
-                'Cache-Control': 'private, max-age=31536000, immutable',
-                'X-CainFlow-Asset-Size': str(info['size_bytes']),
-            })
+        _write_asset(handler, path)
         return True
     if path == '/api/storage/history':
         query = parse_qs(parsed.query)

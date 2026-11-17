@@ -2086,14 +2086,16 @@ class StorageService(UndoMediaMixin):
             row = db.execute('SELECT * FROM assets WHERE asset_key=?', (str(asset_key),)).fetchone()
         return dict(row) if row else None
 
-    def get_asset(self, asset_key):
+    def get_asset(self, asset_key, *, read_body=True):
         info = self.get_asset_info(asset_key)
         if not info:
             return None
         path = os.path.join(self.assets_dir, *info['relative_path'].split('/'))
         try:
             with open(path, 'rb') as file:
-                return info, file.read()
+                if read_body:
+                    return info, file.read()
+                return {**info, 'size_bytes': os.fstat(file.fileno()).st_size}, b''
         except OSError:
             return None
 

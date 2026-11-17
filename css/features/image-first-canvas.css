@@ -773,7 +773,7 @@ html:root #canvas-container .node.node-commerce-image-set.node-media-aspect.runn
     padding-top: 14px;
     border-top: 1px solid var(--node-control-border);
 }
-.commerce-image-set-plan-heading { display: grid; gap: 4px; }
+.commerce-image-set-plan-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; }
 .commerce-image-set-settings .commerce-image-set-plan-heading h3 { font-size: 15px; }
 .commerce-image-set-group-heading {
     display: flex;
@@ -784,7 +784,8 @@ html:root #canvas-container .node.node-commerce-image-set.node-media-aspect.runn
 }
 .commerce-image-set-result-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; }
 .commerce-image-set-result-count { color: var(--text-secondary); font-size: 12px; }
-.commerce-image-set-add-scene {
+.commerce-image-set-add-scene,
+.commerce-image-set-export-trigger:not([hidden]) {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -799,11 +800,18 @@ html:root #canvas-container .node.node-commerce-image-set.node-media-aspect.runn
     white-space: nowrap;
     cursor: pointer;
 }
-.commerce-image-set-add-scene:hover:enabled {
+.commerce-image-set-add-scene:hover:enabled,
+.commerce-image-set-export-trigger:hover:enabled {
     border-color: var(--node-control-border);
     background: var(--surface-control-hover);
 }
 .commerce-image-set-add-scene:disabled { color: var(--text-secondary); opacity: .6; cursor: default; }
+.commerce-image-set-export-trigger:not([hidden]) {
+    gap: 6px;
+    padding-inline: 8px;
+    border-color: var(--node-control-border);
+    background: var(--surface-control);
+}
 .commerce-image-set-references h3,
 .commerce-image-set-settings :is(h3, h4) { margin: 0; color: var(--text-primary); font-size: 13px; font-weight: 600; }
 .commerce-image-set-choice-group { display: grid; gap: 6px; }
@@ -1026,6 +1034,71 @@ html:root #canvas-container .node.node-commerce-image-set.node-media-aspect.runn
 .image-parameter-panel .commerce-image-set-actions .btn-primary { flex: 1 1 auto; }
 .image-parameter-panel :is(.commerce-image-set-actions, .commerce-image-set-scene-actions) .btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--panel-primary-action-bg) 90%, #000); }
 .commerce-image-set-progress { width: 100%; height: 6px; accent-color: var(--panel-primary-action-bg); }
+.commerce-export-dialog {
+    --settings-dialog-panel-border: var(--panel-border);
+    --settings-dialog-divider: var(--panel-border);
+    width: min(480px, calc(100vw - 32px));
+    max-width: none;
+    margin: auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+.commerce-export-dialog::backdrop { background: var(--overlay-backdrop); }
+.commerce-export-dialog .dialog-style-1-panel { width: 100%; }
+.commerce-export-dialog .dialog-style-1-body { gap: 12px; font-size: 13px; }
+.commerce-export-dialog button:focus-visible,
+.commerce-export-scopes label:has(input:focus-visible) { outline: 2px solid var(--text-link); outline-offset: 2px; }
+.commerce-export-dialog .btn-primary:enabled {
+    background: var(--panel-primary-action-bg);
+    color: var(--panel-primary-action-text);
+}
+.commerce-export-dialog .btn-primary:enabled:hover {
+    background: color-mix(in srgb, var(--panel-primary-action-bg) 90%, #000);
+}
+.commerce-export-dialog .btn-secondary:enabled { color: var(--text-primary); }
+.commerce-export-scopes { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+.commerce-export-scopes legend { margin-bottom: 6px; padding: 0; font-weight: 600; }
+.commerce-export-scopes > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.commerce-export-scopes label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 34px;
+    padding: 0 9px;
+    border: 1px solid var(--border-input);
+    border-radius: 6px;
+    background: var(--surface-control);
+    cursor: pointer;
+}
+.commerce-export-scopes label:has(input:checked) { border-color: var(--text-link); }
+.commerce-export-scopes label:has(input:enabled):hover { background: var(--surface-control-hover); }
+.commerce-export-scopes label:has(input:disabled) { cursor: default; }
+.commerce-export-scopes input { margin: 0; accent-color: var(--accent-primary); }
+.commerce-export-summary,
+.commerce-export-unmapped,
+.commerce-export-error { margin: 0; color: var(--text-secondary); }
+.commerce-export-rows {
+    margin: 0;
+    padding: 0;
+    border-block: 1px solid var(--panel-border);
+    list-style: none;
+}
+.commerce-export-rows > li {
+    display: grid;
+    grid-template-columns: 2ch minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: 8px;
+    padding: 8px 0;
+}
+.commerce-export-rows > li + li { border-top: 1px solid var(--panel-border); }
+.commerce-export-number,
+.commerce-export-row-status { color: var(--text-secondary); font-size: 12px; }
+.commerce-export-number { font-variant-numeric: tabular-nums; }
+.commerce-export-rows [data-export-status="previous"] .commerce-export-row-status,
+.commerce-export-unmapped { color: var(--text-warning); }
+.commerce-export-rows [data-export-status="missing"] .commerce-export-row-status,
+.commerce-export-error { color: var(--text-danger); }
 /* Full errors remain available through the details dialog; show one summary here.
    Override the legacy renderer's inline display without changing its error state. */
 .image-first-parameter-content > .node-error-msg { display: none !important; }

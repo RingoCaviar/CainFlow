@@ -232,6 +232,39 @@ function isCompletedCommerceResult(row) {
     return row?.status === 'completed' && /^media:[a-zA-Z0-9_-]+$/.test(row.assetKey || '');
 }
 
+function normalizePreviousExportResults(raw) {
+    const results = new Map();
+    for (const row of Array.isArray(raw) ? raw : []) {
+        const preset = getCommerceImageSetPreset(row?.platformId);
+        if (!preset || typeof row.outputKey !== 'string' || !/^media:[a-zA-Z0-9_-]+$/.test(row.outputKey)
+            || !Number.isSafeInteger(row.order) || row.order < 0) continue;
+        const shot = preset.shots.find(item => item.id === row.shotId);
+        const group = shot?.group ?? (isCommerceSceneId(row.shotId) && isCommerceShotGroup(row.group) ? row.group : '');
+        const label = shot?.label ?? text(row.label, 100);
+        if (!group || !label) continue;
+        const key = `${preset.id}:${row.shotId}`;
+        if (!results.has(key)) {
+            // This metadata associates a slot with a node-owned output; it does not own the media.
+            results.set(key, { platformId: preset.id, shotId: row.shotId, label, group, order: row.order, outputKey: row.outputKey });
+        }
+    }
+    return [...results.values()];
+}
+
+export function preserveCommerceImageSetExportResults(settings) {
+    if (!Array.isArray(settings?.plan?.shots) || !Array.isArray(settings.results)) return;
+    const platformId = settings.plan.platformId;
+    const completed = new Map(settings.results.filter(isCompletedCommerceResult).map(row => [row.shotId, row.assetKey]));
+    const previous = Array.isArray(settings.previousExportResults) ? settings.previousExportResults : [];
+    const previousOutputs = new Map(previous.filter(row => row?.platformId === platformId)
+        .map(row => [row.shotId, row.outputKey]));
+    const retained = normalizePreviousExportResults(settings.plan.shots.flatMap(({ id, label, group }, order) => completed.has(id)
+        ? [{ platformId, shotId: id, label, group, order, outputKey: completed.get(id) }] : []));
+    if (retained.some(row => previousOutputs.get(row.shotId) !== row.outputKey)) {
+        settings.previousExportResults = retained;
+    }
+}
+
 function normalizeCommerceShotCopy(input, allowCopy) {
     return {
         headline: allowCopy ? copyText(input?.headline, COMMERCE_IMAGE_SET_COPY_LIMITS.headline) : '',
@@ -330,6 +363,8 @@ export function normalizeCommerceImageSetState(raw) {
             return [];
         });
     }
+    const previousExportResults = normalizePreviousExportResults(raw?.previousExportResults);
+    if (previousExportResults.length) settings.previousExportResults = previousExportResults;
     return settings;
 }
 
@@ -564,6 +599,7 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
     if (currentShot) return { ...input, plan: { ...input.plan, confirmed: supplemental && input.plan.confirmed,
         shots: input.plan.shots.map(shot => shot.id === currentShot.id ? plan.shots[0] : shot) } };
     const updated = { ...input, ...product };
+    preserveCommerceImageSetExportResults(updated);
     const sourceKey = await commerceImageSetSourceKey({ settings: updated, references: images });
     const preserveScenes = input.plan?.sourceKey === sourceKey && !input.plan.stale;
     const keptScenes = preserveScenes ? input.plan.shots.filter(shot => shot.customScene) : [];

@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 import { uploadImageOriginal } from './helpers/image-upload.mjs';
 import { key, nativeClick, openParameters } from './helpers/image-first-integrated-fixture.mjs';
@@ -47,7 +49,7 @@ function assertProductFieldRows(measurement, rows, description) {
         `${description}: expected ${rows} rows, got ${JSON.stringify(measurement)}`);
 }
 
-async function captureCommerceInspector(app, { name = 'product', width = 1120, shotId, selector } = {}) {
+async function captureCommerceInspector(app, { name = 'product', width = 1120, shotId, selector, surface = '#image-parameter-panel' } = {}) {
     const directory = process.env.CAINFLOW_QA_SCREENSHOT_DIR;
     if (!directory) return;
     await mkdir(directory, { recursive: true });
@@ -62,7 +64,7 @@ async function captureCommerceInspector(app, { name = 'product', width = 1120, s
                     : "document.querySelector('#image-parameter-panel .image-parameter-scroll').scrollTop=0;"}
                 document.fonts.ready.then(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))`);
             const clip = await app.evaluate(`(()=>{
-                const {x,y,width,height}=document.getElementById('image-parameter-panel').getBoundingClientRect();
+                const {x,y,width,height}=document.querySelector(${JSON.stringify(surface)}).getBoundingClientRect();
                 return {x,y,width,height,scale:1};
             })()`);
             const { data } = await app.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false, clip });
@@ -1548,5 +1550,151 @@ test('custom commerce scenes can be added to both groups and require individual 
         await openScene(app, first);
         assert.equal(await app.evaluate(`${query(field(first, 'description'))}.value`), galleryBrief);
         assert.deepEqual(await app.evaluate('sceneCalls'), []);
+    }, { initScript });
+});
+
+test('commerce ZIP export lists missing and previous images and keeps shot numbering across scopes', { timeout: 30000 }, async () => {
+    const galleryImage = await readFile(new URL('./fixtures/reference-red.png', import.meta.url));
+    const detailImage = await readFile(new URL('./fixtures/reference-blue.png', import.meta.url));
+    const shotIds = ['angle', 'feature', 'detail-overview'];
+    const fixture = {
+        autoCheckUpdatesOnLoad: false,
+        autoRetry: false,
+        models: [{ id: 'vision', modelId: 'gpt-4o', taskType: 'chat', protocol: 'openai', providerIds: ['p'] },
+            { id: 'image', modelId: 'gpt-image-2', taskType: 'image', protocol: 'openai', providerIds: ['p'] }],
+        providers: [{ id: 'p', endpoint: 'https://fixture.test/v1', apikey: 'test' }],
+        nodes: [{ id: 'product', type: 'ImageImport', x: 40, y: 100 },
+            { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100, commerceImageSet: {
+                platformId: 'amazon', selectedShotIds: shotIds, plannerModelId: 'vision', plannerProviderId: 'p',
+                imageModelId: 'image', imageProviderId: 'p'
+            } }],
+        connections: [{ id: 'product-reference', from: { nodeId: 'product', port: 'image' },
+            to: { nodeId: 'commerce', port: 'referenceImages' }, type: 'image', order: 0 }]
+    };
+    const initScript = `window.commerceExportProviderRequests=[];
+        Object.defineProperty(window, 'showSaveFilePicker', { configurable:true, value:undefined });
+        const actualFetch=window.fetch.bind(window);
+        window.fetch=async (url, options)=>{
+            const missingAsset=options?.method==='HEAD' ? window.unavailableCommerceExportAsset : window.lateUnavailableCommerceExportAsset;
+            if (missingAsset && new URL(url, location.origin).pathname===missingAsset) {
+                return new Response(null, {status:404});
+            }
+            if (url!=='/proxy'||!options?.body) return actualFetch(url,options);
+            if (!(options.body instanceof FormData)) {
+                commerceExportProviderRequests.push('plan');
+                const plan={sellingPoints:['可见杯盖'],shots:${JSON.stringify(shotIds)}.map(id=>({
+                    id,prompt:'导出测试图位 '+id+'\\n商品靠右，近景构图与柔和光线。'
+                }))};
+                return Response.json({choices:[{message:{content:JSON.stringify(plan)}}]});
+            }
+            const shot=options.body.get('prompt').match(/^画面设计：导出测试图位 ([a-z-]+)$/m)?.[1];
+            commerceExportProviderRequests.push(shot);
+            if (shot==='angle') return Response.json({error:{message:'Fixture missing angle'}},{status:400});
+            const rgb=shot==='feature' ? ${JSON.stringify(galleryImage.toString('base64'))} : ${JSON.stringify(detailImage.toString('base64'))};
+            return Response.json({data:[{b64_json:rgb}]});
+        };`;
+    const panel = '#image-parameter-panel';
+    const dialog = '#commerce-export-dialog';
+    const download = `${dialog} [data-commerce-export-download]`;
+    const row = id => `${panel} [data-commerce-shot-id=${id}]`;
+    const exportRow = id => `${dialog} [data-commerce-export-shot=${id}]`;
+    const action = name => `${panel} [data-commerce-action=${name}]`;
+    const query = selector => `document.querySelector(${JSON.stringify(selector)})`;
+    const ready = selector => `${query(selector)}?.checkVisibility() && !${query(selector)}.disabled`;
+    const exportRows = `Array.from(document.querySelectorAll('${dialog} [data-commerce-export-shot]'),
+        element => element.dataset.commerceExportShot)`;
+    const chooseScope = async (app, scope, expectedIds) => {
+        await app.evaluate(`${query(`${dialog} [data-commerce-export-scope=${scope}]`)}.click()`);
+        await app.waitFor(`JSON.stringify(${exportRows})===${JSON.stringify(JSON.stringify(expectedIds))}`);
+        assert.equal(await app.evaluate(`${query(`${dialog} [data-commerce-export-scope=${scope}]`)}.checked`), true);
+    };
+
+    await withAppBrowser(fixture, async app => {
+        await uploadImageOriginal(app, 'product', `data:image/png;base64,${galleryImage.toString('base64')}`);
+        await openParameters(app, 'commerce');
+        await app.evaluate(`${query(action('plan'))}.click()`);
+        await app.waitFor(ready(action('generate')));
+        await nativeClick(app, action('generate'));
+        await app.waitFor(`${query(row('angle'))}.dataset.resultStatus==='failed' &&
+            ${query(`${row('feature')} img`)}.naturalWidth>0 &&
+            ${query(`${row('detail-overview')} img`)}.naturalWidth>0 && ${ready(action('fill'))}`);
+        await app.evaluate(`(() => {
+            const card = ${query(row('detail-overview'))};
+            const toggle = card.querySelector('.commerce-image-set-shot-toggle');
+            toggle.click();
+            const field = card.querySelector('[data-commerce-shot-field=prompt]');
+            field.value += '\\n新版画面采用斜侧光。';
+            field.dispatchEvent(new Event('input', { bubbles:true }));
+            toggle.click();
+        })()`);
+        await app.waitFor(showsPreviousCommerceImage(row('detail-overview')));
+
+        const providerRequests = await app.evaluate('commerceExportProviderRequests');
+        assert.ok(await app.evaluate(ready(action('export'))), 'a partially completed set can be exported');
+        await nativeClick(app, action('export'));
+        await app.waitFor(`${query(dialog)}?.checkVisibility() && ${ready(download)}`);
+        assert.deepEqual(await app.evaluate(exportRows), shotIds);
+        assert.match(await app.evaluate(`${query(exportRow('angle'))}.innerText`), /缺图/);
+        assert.match(await app.evaluate(`${query(exportRow('detail-overview'))}.innerText`), /旧图|上一版/);
+        await captureCommerceInspector(app, { name: 'export-review', surface: dialog });
+        await captureCommerceInspector(app, { name: 'export-review-narrow', width: 390, surface: dialog });
+
+        const downloadDirectory = join(app.server.dataDir, 'commerce-exports');
+        await mkdir(downloadDirectory, { recursive: true });
+        await app.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloadDirectory });
+        const readArchive = async (scope, label, ids) => {
+            if (!await app.evaluate(`${query(dialog)}?.checkVisibility()`)) await nativeClick(app, action('export'));
+            await chooseScope(app, scope, ids);
+            await app.waitFor(ready(download));
+            const before = await readdir(downloadDirectory);
+            await nativeClick(app, download);
+            let name;
+            await app.waitFor(async () => {
+                name = (await readdir(downloadDirectory)).find(file => file.endsWith('.zip') && !before.includes(file));
+                return Boolean(name);
+            });
+            assert.equal(name, `电商套图_${label}.zip`);
+            const { stdout } = await promisify(execFile)(process.env.CAINFLOW_PYTHON || 'python', ['-c',
+                'import base64,json,sys,zipfile\nwith zipfile.ZipFile(sys.argv[1]) as z: print(json.dumps([(n,base64.b64encode(z.read(n)).decode()) for n in z.namelist()]))',
+                join(downloadDirectory, name)
+            ]);
+            return JSON.parse(stdout).map(([path, bytes]) => [path, Buffer.from(bytes, 'base64')]);
+        };
+        assert.deepEqual(await readArchive('gallery', '主副图', ['angle', 'feature']), [['02_卖点图.png', galleryImage]]);
+        assert.deepEqual(await readArchive('detail', '详情图', ['detail-overview']), [['03_详情首屏.png', detailImage]]);
+        assert.deepEqual(await readArchive('all', '全套', shotIds), [
+            ['02_卖点图.png', galleryImage], ['03_详情首屏.png', detailImage]
+        ]);
+
+        if (!await app.evaluate(`${query(dialog)}?.checkVisibility()`)) await nativeClick(app, action('export'));
+        await chooseScope(app, 'all', shotIds);
+        await app.waitFor(ready(download));
+        assert.equal(await app.evaluate(`${query(exportRow('detail-overview'))}.dataset.exportStatus`), 'previous',
+            'the detail image passed the pre-export check');
+        const beforeFailedExport = (await readdir(downloadDirectory)).sort();
+        await app.evaluate(`window.lateUnavailableCommerceExportAsset=new URL(${query(`${row('detail-overview')} img`)}.src).pathname`);
+        await nativeClick(app, download);
+        const alert = query(`${dialog} [role=alert]`);
+        await app.waitFor(`${alert}.checkVisibility() && ${query(exportRow('detail-overview'))}.dataset.exportStatus==='missing' && ${ready(download)}`);
+        assert.match(await app.evaluate(`${alert}.innerText`), /无法读取.+详情首屏/);
+        assert.match(await app.evaluate(`${query(exportRow('detail-overview'))}.innerText`), /无法读取/);
+        assert.deepEqual((await readdir(downloadDirectory)).sort(), beforeFailedExport,
+            'a file disappearing after preflight aborts the archive instead of saving the remaining files');
+        await app.evaluate("window.lateUnavailableCommerceExportAsset=''");
+
+        if (await app.evaluate(`${query(dialog)}?.checkVisibility()`)) {
+            await key(app, 'Escape');
+            await app.waitFor(`!${query(dialog)}?.checkVisibility()`);
+        }
+        await app.evaluate(`window.unavailableCommerceExportAsset=new URL(${query(`${row('feature')} img`)}.src).pathname`);
+        await nativeClick(app, action('export'));
+        await app.waitFor(`${query(dialog)}?.checkVisibility()`);
+        await chooseScope(app, 'gallery', ['angle', 'feature']);
+        await app.waitFor(`/缺图|文件不可用/.test(${query(exportRow('feature'))}?.innerText)`);
+        assert.equal(await app.evaluate(ready(download)), false, 'a scope with no readable images cannot be downloaded');
+        await key(app, 'Escape');
+        await app.waitFor(`!${query(dialog)}?.checkVisibility() && document.activeElement===${query(action('export'))}`);
+        assert.deepEqual(await app.evaluate('commerceExportProviderRequests'), providerRequests,
+            'reviewing and downloading saved images never reruns planning or generation');
     }, { initScript });
 });

@@ -50,7 +50,8 @@ def write_bytes(handler, body, status=200, content_type='application/octet-strea
             handler.send_header(key, value)
         handler.end_headers()
         handler.close_connection = True
-        handler.wfile.write(body)
+        if getattr(handler, 'command', None) != 'HEAD':
+            handler.wfile.write(body)
     except Exception as error:
         set_response_data(
             handler,

@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { startHistoryDownload } from '../js/features/history/history-download.js';
 import { downloadPreviewImage } from '../js/features/media/preview-image-download.js';
+import { saveZipArchive } from '../js/features/media/zip-download.js';
 
 test('preview saves original bytes and format through desktop and browser pickers', async () => {
     const blob = new Blob(['original jpeg bytes'], { type: 'image/jpeg' });
@@ -56,6 +57,66 @@ test('preview falls back to a blob download with the original extension', async 
     assert.equal(link.download, 'cainflow_export.webp');
     assert.equal(link.clicked, true);
     assert.match(link.href, /^blob:/);
+});
+
+test('ZIP export passes ordered Unicode entries and their original bytes to native save', async () => {
+    const entries = [
+        { path: '01_主图.jpg', bytes: Buffer.from('unmodified JPEG') },
+        { path: '03_详情图.webp', bytes: Buffer.from('unmodified WebP') }
+    ];
+    let savedArchive;
+    const windowRef = {
+        __cainflowDesktop: { saveFile: async (filename, mime, blob) => {
+            assert.equal(filename, '商品套图.zip');
+            assert.equal(mime, 'application/zip');
+            savedArchive = Buffer.from(await blob.arrayBuffer());
+            return 'chosen/商品套图.zip';
+        } },
+        showSaveFilePicker: () => assert.fail('desktop should use native save')
+    };
+
+    assert.equal(await saveZipArchive('商品套图.zip', async () => entries, { windowRef, documentRef: {} }), 'saved');
+    assert.equal(savedArchive.readUInt32LE(0), 0x04034b50);
+    assert.ok(savedArchive.readUInt16LE(6) & 0x0800, 'ZIP entry names use UTF-8');
+    for (const entry of entries) assert.ok(savedArchive.includes(Buffer.concat([Buffer.from(entry.path), entry.bytes])));
+    assert.ok(savedArchive.indexOf(entries[0].path) < savedArchive.indexOf(entries[1].path));
+});
+
+test('browser ZIP export reserves its picker before reading and skips reading on cancel', async () => {
+    const events = [];
+    const options = { documentRef: {}, windowRef: {
+        showSaveFilePicker: async ({ suggestedName }) => {
+            assert.equal(suggestedName, 'suite.zip');
+            events.push('picker');
+            return { createWritable: async () => ({
+                write: async blob => events.push(blob.type),
+                close: async () => events.push('close')
+            }) };
+        }
+    } };
+    const readEntries = async () => {
+        events.push('read');
+        return [{ path: 'main.png', bytes: Buffer.from('image') }];
+    };
+    assert.equal(await saveZipArchive('suite.zip', readEntries, options), 'saved');
+    assert.deepEqual(events, ['picker', 'read', 'application/zip', 'close']);
+
+    options.windowRef.showSaveFilePicker = async () => { throw new DOMException('Cancelled', 'AbortError'); };
+    assert.equal(await saveZipArchive('suite.zip', () => assert.fail('cancel must skip reads'), options), 'cancelled');
+});
+
+test('failed ZIP writes abort their writable stream and preserve the original error', async () => {
+    let aborted = false;
+    const failure = new Error('disk full');
+    await assert.rejects(saveZipArchive('suite.zip', async () => [{ path: 'main.png', bytes: Buffer.from('image') }], {
+        documentRef: {}, windowRef: { showSaveFilePicker: async () => ({
+            createWritable: async () => ({
+                write: async () => { throw failure; },
+                abort: async () => { aborted = true; }
+            })
+        }) }
+    }), failure);
+    assert.equal(aborted, true);
 });
 
 test('history image download reports a started request', async () => {

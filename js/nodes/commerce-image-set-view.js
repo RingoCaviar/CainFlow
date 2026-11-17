@@ -3,8 +3,10 @@ import {
     COMMERCE_IMAGE_SET_DEFAULT_ASPECTS, COMMERCE_IMAGE_SET_PRESETS, COMMERCE_PRODUCT_INFO_LIMITS, COMMERCE_SCENE_DESCRIPTION_LIMIT,
     appendCommerceSceneShot, confirmCommerceSceneShot, getCommerceProductInfo, getRunnableCommerceImageSetShots,
     getSelectedCommerceImageSetShots, getUnfinishedCommerceImageSetShots, isCommerceShotImageStale, normalizeCommerceImageSetCopyLanguage,
-    updateCommerceImageSetCopyLanguage, updateCommerceProductInfoField, updateCommerceSceneDescription
+    preserveCommerceImageSetExportResults, updateCommerceImageSetCopyLanguage, updateCommerceProductInfoField, updateCommerceSceneDescription
 } from '../features/ecommerce-image-set/commerce-image-set-plan.js';
+import { hasCommerceImageSetExportMedia, projectCommerceImageSetExport } from '../features/ecommerce-image-set/commerce-image-set-export.js';
+import { openCommerceImageSetExport } from '../features/ecommerce-image-set/commerce-image-set-export-dialog.js';
 import { getEffectiveProtocol, getModelProviders, getModelsForTask } from '../features/execution/provider-request-utils.js';
 import { getOpenAIChatCapabilities } from '../features/execution/openai-chat-capabilities.js';
 import { projectImageReferences } from './image-reference-projection.js';
@@ -13,6 +15,7 @@ const shotGroups = [['gallery', '主副图'], ['detail', '详情图']];
 const selectControl = (field, label = '') => `<select class="ui-select" data-commerce-field="${field}"${label ? ` aria-label="${label}"` : ''}></select>`;
 const stopIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
 const addIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+const exportIcon = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 15v5h14v-5"/></svg>';
 const isActiveShot = status => ['pending', 'running', 'planning'].includes(status);
 let panelSequence = 0;
 
@@ -100,7 +103,10 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         </div>
     </details>
     <section class="commerce-image-set-plan" aria-label="套图方案" hidden>
-        <header class="commerce-image-set-plan-heading"><h3>套图方案</h3></header>
+        <header class="commerce-image-set-plan-heading">
+            <h3>套图方案</h3>
+            <button type="button" class="commerce-image-set-export-trigger" data-commerce-action="export" data-node-read-action aria-haspopup="dialog" hidden>${exportIcon}<span>导出套图</span></button>
+        </header>
         <div class="commerce-image-set-shots">
             ${shotGroups.map(([group, title]) => `<section class="commerce-image-set-result-group" data-commerce-result-group="${group}">
                 <header class="commerce-image-set-group-heading">
@@ -138,6 +144,8 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
     const choiceGroups = new Map(shotGroups.map(([group]) => [group, shotSelection.querySelector(`[data-commerce-choice-group="${group}"]`)]));
     const shotSelectionHint = shotSelection.querySelector('.commerce-image-set-selection-hint');
     const planSection = element.querySelector('.commerce-image-set-plan');
+    const planHeading = planSection.querySelector('h3');
+    const exportButton = planSection.querySelector('[data-commerce-action="export"]');
     const shots = element.querySelector('.commerce-image-set-shots');
     const resultGroups = new Map(shotGroups.map(([group]) => {
         const section = shots.querySelector(`[data-commerce-result-group="${group}"]`);
@@ -166,6 +174,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
     let choicePlatform = '';
     let activeShotId = '';
     let planSourceKey = null;
+    let closeExportDialog = null;
 
     function setOptions(control, entries, selected, placeholder) {
         const key = JSON.stringify(entries);
@@ -556,7 +565,14 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         if (analyzeLabel.textContent !== analysisLabel) analyzeLabel.textContent = analysisLabel;
         guide.textContent = Array.isArray(preset.guide) ? preset.guide.join(' ') : (preset.guide || '');
         renderShotChoices(preset, selectedPresetShots, locked);
-        planSection.hidden = !plan;
+        exportButton.hidden = !hasCommerceImageSetExportMedia(node.data.mediaAssetKeys);
+        planSection.hidden = !plan && exportButton.hidden;
+        shots.hidden = !plan;
+        const planTitle = plan ? '套图方案' : '上次套图';
+        if (planHeading.textContent !== planTitle) {
+            planHeading.textContent = planTitle;
+            planSection.setAttribute('aria-label', planTitle);
+        }
         planButton.textContent = plan ? '重新规划' : '生成方案';
         planButton.classList.toggle('btn-primary', !currentPlan);
         planButton.classList.toggle('btn-secondary', currentPlan);
@@ -619,6 +635,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
     }
 
     function setShotSelection(value, ids) {
+        preserveCommerceImageSetExportResults(value);
         value.selectedShotIds = getSelectedCommerceImageSetShots({ ...value, selectedShotIds: ids }).map(shot => shot.id);
         value.plan = null;
         value.results = [];
@@ -821,6 +838,19 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         const action = button.dataset.commerceAction;
         const shotRow = button.closest('[data-commerce-shot-id]');
         const shotId = shotRow?.dataset.commerceShotId;
+        if (action === 'export') {
+            if (closeExportDialog || documentRef.getElementById('commerce-export-dialog')) return;
+            const manifest = projectCommerceImageSetExport({ settings: config(), mediaAssetKeys: node.data.mediaAssetKeys });
+            try {
+                closeExportDialog = openCommerceImageSetExport({
+                    manifest, documentRef, opener: button, onClose: () => { closeExportDialog = null; }
+                });
+            } catch (error) {
+                runMessage = error?.message || '无法打开导出套图。';
+                refresh();
+            }
+            return;
+        }
         if (action === 'add-scene') {
             const scene = appendCommerceSceneShot(config(), button.dataset.commerceSceneGroup);
             if (!scene) return;
@@ -870,5 +900,5 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
     }
     element.addEventListener('click', handleAction);
     actions.addEventListener('click', handleAction);
-    return { element, actions, refresh, destroy: clearShotRows };
+    return { element, actions, refresh, destroy() { closeExportDialog?.(); clearShotRows(); } };
 }
