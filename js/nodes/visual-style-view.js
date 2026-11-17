@@ -7,6 +7,7 @@ const modelOptions = (state, selected) => '<option value="">选择模型</option
     .map(model => `<option value="${escape(model.id)}" ${selected === model.id ? 'selected' : ''}>${escape(model.name || model.modelId)}</option>`).join('');
 
 export function renderVisualStyleBody(id, restored = {}, state = {}) {
+    restored = restored || {};
     const style = normalizeVisualStyle(restored.visualStyle);
     const field = key => `<div class="node-field"><label for="${id}-style-${key}">${VISUAL_STYLE_FIELDS[key]}</label><textarea id="${id}-style-${key}" data-style-field="${key}" rows="2" maxlength="2000">${escape(style[key])}</textarea></div>`;
     return `<div class="visual-style-settings">

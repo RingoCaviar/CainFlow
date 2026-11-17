@@ -5,6 +5,19 @@ import { withAppBrowser, reloadAppBrowser, waitForAutosave } from './helpers/app
 import { uploadImageOriginal } from './helpers/image-upload.mjs';
 import { configuration, originals } from './helpers/image-first-integrated-fixture.mjs';
 
+test('画布菜单创建画面风格节点并保存恢复', { timeout: 30000 }, async () => {
+    await withAppBrowser({ ...configuration, nodes: [], connections: [] }, async app => {
+        await app.evaluate(`document.getElementById('canvas-container').dispatchEvent(new MouseEvent('contextmenu',
+            {bubbles:true,cancelable:true,clientX:400,clientY:300}));
+            document.querySelector('.context-menu-item[data-type=VisualStyle]').click();`);
+        assert.doesNotMatch(await app.evaluate('document.body.innerText'), /创建节点失败/);
+        await app.waitFor("document.querySelector('#nodes-layer [data-style-field=preset]') !== null");
+        await waitForAutosave(app);
+        await reloadAppBrowser(app);
+        assert.equal(await app.evaluate("document.querySelectorAll('#nodes-layer [data-style-field=preset]').length"), 1);
+    });
+});
+
 test('画面风格编辑、显式提取、普通生图与保存恢复', { timeout: 90000 }, async () => {
     const fixture = { ...configuration, nodes: [
         { id: 'reference', type: 'ImageImport', x: 30, y: 80 },
