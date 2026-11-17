@@ -782,7 +782,28 @@ html:root #canvas-container .node.node-commerce-image-set.node-media-aspect.runn
     flex-wrap: wrap;
     gap: 6px;
 }
-.commerce-image-set-group-heading > span { color: var(--text-secondary); font-size: 12px; }
+.commerce-image-set-result-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; }
+.commerce-image-set-result-count { color: var(--text-secondary); font-size: 12px; }
+.commerce-image-set-add-scene {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 32px;
+    padding: 0 6px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-link);
+    font: inherit;
+    font-weight: 550;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.commerce-image-set-add-scene:hover:enabled {
+    border-color: var(--node-control-border);
+    background: var(--surface-control-hover);
+}
+.commerce-image-set-add-scene:disabled { color: var(--text-secondary); opacity: .6; cursor: default; }
 .commerce-image-set-references h3,
 .commerce-image-set-settings :is(h3, h4) { margin: 0; color: var(--text-primary); font-size: 13px; font-weight: 600; }
 .commerce-image-set-choice-group { display: grid; gap: 6px; }
@@ -911,12 +932,26 @@ html:root #canvas-container .node.node-commerce-image-set.node-media-aspect.runn
     .commerce-image-set-shot-toggle { grid-column: 1 / -1; }
 }
 .commerce-image-set-shot:is([data-result-status="running"], [data-result-status="planning"]) .commerce-image-set-shot-status { color: var(--text-link); }
+.commerce-image-set-shot[data-result-status="review"] .commerce-image-set-shot-status { color: var(--text-link); }
 .commerce-image-set-shot[data-result-status="completed"] .commerce-image-set-shot-status { color: var(--text-success); }
 .commerce-image-set-shot:is([data-result-status="plan-failed"], [data-result-status="retry-failed"]) .commerce-image-set-shot-status { color: var(--text-danger); }
-.commerce-image-set-shot .commerce-image-set-shot-notice { grid-column: 1 / -1; overflow-wrap: anywhere; }
+.commerce-image-set-shot :is(.commerce-image-set-shot-notice, .commerce-image-set-scene-summary) {
+    grid-column: 1 / -1;
+    overflow-wrap: anywhere;
+}
+.commerce-image-set-shot .commerce-image-set-version-note {
+    grid-column: 1 / -1;
+    color: var(--text-warning);
+    font-weight: 550;
+}
 .commerce-image-set-copy-summary { grid-column: 1 / -1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .commerce-image-set-shot-editor { display: grid; gap: 8px; padding-top: 8px; border-top: 1px solid var(--node-control-border); }
 .commerce-image-set-shot-editor { cursor: auto; }
+.commerce-image-set-scene-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
+.commerce-image-set-scene-actions .btn { min-height: 32px; }
+@container (max-width: 280px) {
+    .commerce-image-set-scene-actions .btn { flex: 1 1 auto; padding-inline: 8px; }
+}
 .commerce-image-set-shot-tools { display: flex; align-items: center; gap: 2px; }
 .commerce-image-set-shot-action {
     display: inline-grid;
@@ -984,12 +1019,12 @@ html:root #canvas-container .node.node-commerce-image-set.node-media-aspect.runn
 .commerce-image-set-footer .commerce-image-set-stop:focus-visible { outline: 2px solid var(--text-link); outline-offset: 2px; }
 .commerce-image-set-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .commerce-image-set-actions .btn { min-height: 36px; }
-.image-parameter-panel .commerce-image-set-actions .btn-primary {
-    flex: 1 1 auto;
+.image-parameter-panel :is(.commerce-image-set-actions, .commerce-image-set-scene-actions) .btn-primary {
     background: var(--panel-primary-action-bg);
     color: var(--panel-primary-action-text);
 }
-.image-parameter-panel .commerce-image-set-actions .btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--panel-primary-action-bg) 90%, #000); }
+.image-parameter-panel .commerce-image-set-actions .btn-primary { flex: 1 1 auto; }
+.image-parameter-panel :is(.commerce-image-set-actions, .commerce-image-set-scene-actions) .btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--panel-primary-action-bg) 90%, #000); }
 .commerce-image-set-progress { width: 100%; height: 6px; accent-color: var(--panel-primary-action-bg); }
 /* Full errors remain available through the details dialog; show one summary here.
    Override the legacy renderer's inline display without changing its error state. */

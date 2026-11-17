@@ -9,6 +9,29 @@ import { commerceImageSetSourceKey, normalizeCommerceImageSetPlan } from '../js/
 
 const commerceProductField = field => `#image-parameter-panel [data-commerce-product-field=${field}]`;
 const commerceProductValue = field => `document.querySelector('${commerceProductField(field)}').value`;
+const showsPreviousCommerceImage = selector => `(() => {
+    const text = document.querySelector(${JSON.stringify(selector)})?.innerText || '';
+    return text.includes('方案已更新') && text.includes('当前为上一版');
+})()`;
+
+const commerceRequestGates = `window.pendingCommerceRequests = Object.create(null);
+    window.canceledCommerceRequests = [];
+    function holdCommerceRequest(key, signal) {
+        return new Promise((resolve, reject) => {
+            const cancel = () => {
+                delete pendingCommerceRequests[key];
+                canceledCommerceRequests.push(key);
+                reject(signal.reason);
+            };
+            if (signal?.aborted) { cancel(); return; }
+            signal?.addEventListener('abort', cancel, { once: true });
+            pendingCommerceRequests[key] = () => {
+                delete pendingCommerceRequests[key];
+                signal?.removeEventListener('abort', cancel);
+                resolve();
+            };
+        });
+    }`;
 
 const measureProductField = (app, field) => app.evaluate(`(() => {
     const input = document.querySelector(${JSON.stringify(commerceProductField(field))});
@@ -24,17 +47,18 @@ function assertProductFieldRows(measurement, rows, description) {
         `${description}: expected ${rows} rows, got ${JSON.stringify(measurement)}`);
 }
 
-async function captureCommerceInspector(app, { name = 'product', width = 1120, shotId } = {}) {
+async function captureCommerceInspector(app, { name = 'product', width = 1120, shotId, selector } = {}) {
     const directory = process.env.CAINFLOW_QA_SCREENSHOT_DIR;
     if (!directory) return;
     await mkdir(directory, { recursive: true });
     const currentTheme = await app.evaluate('document.documentElement.dataset.appTheme');
     const viewport = await app.evaluate('({width:innerWidth,height:innerHeight,deviceScaleFactor:devicePixelRatio,mobile:false})');
+    const anchor = selector || (shotId && `[data-commerce-shot-id=${shotId}]`);
     await app.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
     try {
         for (const theme of ['light', 'dark']) {
             await app.evaluate(`document.documentElement.dataset.appTheme='${theme}';
-                ${shotId ? `document.querySelector('[data-commerce-shot-id=${shotId}]').scrollIntoView({block:'start'});`
+                ${anchor ? `document.querySelector(${JSON.stringify(anchor)}).scrollIntoView({block:'start'});`
                     : "document.querySelector('#image-parameter-panel .image-parameter-scroll').scrollTop=0;"}
                 document.fonts.ready.then(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))`);
             const clip = await app.evaluate(`(()=>{
@@ -705,6 +729,10 @@ test('the commerce node generates selected shots, accepts a retry during generat
         await waitForShotEditor(app, 'detail-overview', true);
         await app.waitFor(`document.querySelector(${JSON.stringify(headlineField)}).value==='重新规划的标题'`);
         await app.waitFor(`!document.querySelector('${replan}').disabled&&!document.querySelector('${regenerate}').disabled`);
+        assert.equal(await app.evaluate(showsPreviousCommerceImage(shotCard('detail-overview'))), true,
+            'a new plan marks the retained image as the previous version');
+        assert.equal(await app.evaluate(showsPreviousCommerceImage(shotCard('feature'))), false,
+            'replanning has no effect on another completed shot');
         await app.evaluate(`const headline=document.querySelector(${JSON.stringify(headlineField)});
             headline.value='方便取下杯盖';headline.dispatchEvent(new Event('input',{bubbles:true}));`);
         await toggleShotEditor(app, 'detail-overview', false);
@@ -731,6 +759,8 @@ test('the commerce node generates selected shots, accepts a retry during generat
         await app.waitFor(`${previewKeys}.then(keys=>JSON.stringify(keys)===${JSON.stringify(JSON.stringify(regenerated.mediaAssetKeys))})`);
         await app.waitFor(`document.activeElement===document.querySelector('${regenerate}')&&
             document.querySelector('${detailThumbnail} img').src!==${JSON.stringify(originalThumbnail)}`);
+        assert.equal(await app.evaluate(showsPreviousCommerceImage(shotCard('detail-overview'))), false,
+            'successful generation with the updated plan clears the version notice');
         await app.evaluate(`document.querySelector('${detailThumbnail}').scrollIntoView({block:'nearest'});`);
         await nativeClick(app, detailThumbnail);
         await app.waitFor(`(()=>{const image=document.querySelector('${fullscreenImage}');
@@ -1115,6 +1145,7 @@ test('commerce analysis saves editable fields and rejects a response for a repla
 
 test('failed commerce generation and retries leave error details closed until requested', { timeout: 25000 }, async () => {
     const reference = (await readFile(new URL('./fixtures/reference-red.png', import.meta.url))).toString('base64');
+    const replacement = (await readFile(new URL('./fixtures/reference-blue.png', import.meta.url))).toString('base64');
     const nodes = [
         { id: 'product', type: 'ImageImport', x: 40, y: 100 },
         { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100,
@@ -1124,19 +1155,27 @@ test('failed commerce generation and retries leave error details closed until re
     const connections = [{ id: 'photo', from: { nodeId: 'product', port: 'image' },
         to: { nodeId: 'commerce', port: 'referenceImages' }, type: 'image', order: 0 }];
     const failure = 'Fixture commerce generation failure';
-    const initScript = `window.commerceImageFailure=true;
+    const initScript = `${commerceRequestGates}
+        window.commerceImageFailure=true;
         const actualFetch=window.fetch.bind(window);
         window.fetch=async (url, options)=>{
             if (url!=='/proxy'||!options?.body) return actualFetch(url,options);
             if (options.body instanceof FormData) {
-                return window.commerceImageFailure
-                    ? Response.json({error:{message:${JSON.stringify(failure)}}},{status:500})
-                    : Response.json({data:[{b64_json:${JSON.stringify(reference)}}]});
+                if (window.commerceImageFailure) return Response.json({error:{message:${JSON.stringify(failure)}}},{status:500});
+                if (window.deferCommerceUpdate) await holdCommerceRequest('image:detail', options.signal);
+                const image = window.useReplacement ? ${JSON.stringify(replacement)} : ${JSON.stringify(reference)};
+                return Response.json({data:[{b64_json:image}]});
             }
             const plan={sellingPoints:[],shots:[{id:'detail',prompt:'近景展示杯盖，使用柔和侧光。',headline:'',body:''}]};
             return Response.json({choices:[{message:{content:JSON.stringify(plan)}}]});
         };`;
-    const row = "document.querySelector('#image-parameter-panel [data-commerce-shot-id=detail]')";
+    const rowSelector = '#image-parameter-panel [data-commerce-shot-id=detail]';
+    const row = `document.querySelector('${rowSelector}')`;
+    const showsPrevious = showsPreviousCommerceImage(rowSelector);
+    const thumbnailSrc = `${row}.querySelector('img').src`;
+    const newPrompt = '俯拍展示杯盖和倒角。';
+    const saved = `fetch('/api/storage/documents/session').then(r=>r.json())
+        .then(d=>d.value.nodes.find(node=>node.id==='commerce')?.commerceImageSet)`;
     const status = "document.querySelector('.commerce-image-set-status').textContent";
     const modal = "document.getElementById('modal-error')";
     const retry = `${row}.querySelector('[data-commerce-action=retry]')`;
@@ -1161,12 +1200,46 @@ test('failed commerce generation and retries leave error details closed until re
         await app.waitFor(`!${modal}.classList.contains('active')`);
 
         await app.evaluate(`window.commerceImageFailure=false; ${retry}.click()`);
-        await app.waitFor(`${row}.dataset.resultStatus==='completed' && !${retry}.disabled && ${row}.querySelector('img').naturalWidth>0`);
-        const original = await app.evaluate(`${row}.querySelector('img').src`);
+        await app.waitFor(`${row}.dataset.resultStatus==='completed' && !${retry}.disabled &&
+            ${thumbnailSrc}.startsWith(location.origin+'/api/storage/assets/') && ${row}.querySelector('img').naturalWidth>0`);
+        assert.equal(await app.evaluate(showsPrevious), false);
+        const original = await app.evaluate(thumbnailSrc);
+        await app.evaluate(`(() => {
+            const card = ${row};
+            const toggle = card.querySelector('.commerce-image-set-shot-toggle');
+            toggle.click();
+            const prompt = card.querySelector('[data-commerce-shot-field=prompt]');
+            prompt.value = ${JSON.stringify(newPrompt)};
+            prompt.dispatchEvent(new Event('input', {bubbles:true}));
+            toggle.click();
+        })()`);
+        await captureCommerceInspector(app, { name: 'previous-version', shotId: 'detail' });
+        await captureCommerceInspector(app, { name: 'previous-version-narrow', width: 390, shotId: 'detail' });
+        assert.equal(await app.evaluate(showsPrevious), true, 'editing a prompt marks its existing image as the previous version');
+        assert.equal(await app.evaluate(thumbnailSrc), original);
         await app.evaluate(`window.commerceImageFailure=true; ${retry}.click()`);
         await app.waitFor(`!${retry}.disabled && ${row}.innerText.includes(${JSON.stringify(failure)})`);
         assert.equal(await app.evaluate(`${modal}.classList.contains('active')`), false, 'a failed regeneration also keeps the error dialog closed');
-        assert.equal(await app.evaluate(`${row}.querySelector('img').src`), original, 'a failed regeneration preserves the previous image');
+        assert.equal(await app.evaluate(thumbnailSrc), original, 'a failed regeneration preserves the previous image');
+        assert.equal(await app.evaluate(showsPrevious), true, 'failure preserves the version notice');
+
+        await app.evaluate(`window.commerceImageFailure=false; window.deferCommerceUpdate=true; ${retry}.click()`);
+        await app.waitFor("typeof pendingCommerceRequests['image:detail']==='function'");
+        assert.equal(await app.evaluate(showsPrevious), true, 'the notice remains while the previous image is visible during generation');
+        await app.evaluate(`${row}.querySelector('[data-commerce-action=cancel-shot]').click()`);
+        await app.waitFor(`${row}.dataset.resultStatus==='canceled' && !${retry}.disabled`);
+        assert.equal(await app.evaluate(showsPrevious), true, 'cancellation preserves the version notice');
+        assert.equal(await app.evaluate(thumbnailSrc), original, 'cancellation preserves the previous image');
+        await app.waitFor(`${saved}.then(state=>state?.plan?.shots[0].prompt===${JSON.stringify(newPrompt)})`);
+
+        await reloadAppBrowser(app);
+        await openParameters(app, 'commerce');
+        await app.waitFor(`${row}?.querySelector('img')?.naturalWidth>0 && !${retry}.disabled`);
+        assert.equal(await app.evaluate(showsPrevious), true, 'the version notice survives a reload');
+        assert.equal(await app.evaluate(thumbnailSrc), original);
+        await app.evaluate(`window.commerceImageFailure=false; window.useReplacement=true; ${retry}.click()`);
+        await app.waitFor(`${row}.dataset.resultStatus==='completed' && !${retry}.disabled && ${thumbnailSrc}!==${JSON.stringify(original)}`);
+        assert.equal(await app.evaluate(showsPrevious), false, 'replacing the image with the current plan clears the notice');
     }, { initScript });
 });
 
@@ -1187,25 +1260,8 @@ test('commerce shots run independently and can be canceled individually or from 
             { id: 'image', modelId: 'gpt-image-2', taskType: 'image', protocol: 'openai', providerIds: ['p'] }],
         providers: [{ id: 'p', endpoint: 'https://fixture.test/v1', apikey: 'test' }]
     };
-    const initScript = `window.pendingCommerceRequests = Object.create(null);
-        window.canceledCommerceRequests = [];
+    const initScript = `${commerceRequestGates}
         window.commerceImagePrompts = Object.create(null);
-        function holdCommerceRequest(key, signal) {
-            return new Promise((resolve, reject) => {
-                const cancel = () => {
-                    delete pendingCommerceRequests[key];
-                    canceledCommerceRequests.push(key);
-                    reject(signal.reason);
-                };
-                if (signal?.aborted) { cancel(); return; }
-                signal?.addEventListener('abort', cancel, { once: true });
-                pendingCommerceRequests[key] = () => {
-                    delete pendingCommerceRequests[key];
-                    signal?.removeEventListener('abort', cancel);
-                    resolve();
-                };
-            });
-        }
         const actualFetch = window.fetch.bind(window);
         window.fetch = async (url, options) => {
             if (url!=='/proxy'||!options?.body) return actualFetch(url, options);
@@ -1306,5 +1362,191 @@ test('commerce shots run independently and can be canceled individually or from 
             settings.plan.shots.some(shot=>shot.id==='detail-overview'&&shot.headline===${JSON.stringify(overviewHeadline)}))`);
         assert.equal(await app.evaluate("canceledCommerceRequests.filter(key=>key==='image:feature').length"), 2);
         assert.equal(await app.evaluate(`${featurePreview}.src`), original);
+    }, { initScript });
+});
+
+test('custom commerce scenes can be added to both groups and require individual review before generation', { timeout: 30000 }, async () => {
+    const reference = (await readFile(new URL('./fixtures/reference-red.png', import.meta.url))).toString('base64');
+    const sceneImage = (await readFile(new URL('./fixtures/reference-blue.png', import.meta.url))).toString('base64');
+    const presetIds = ['detail', 'detail-overview'];
+    const fixture = {
+        autoCheckUpdatesOnLoad: false,
+        autoRetry: false,
+        nodes: [
+            { id: 'product', type: 'ImageImport', x: 40, y: 100 },
+            { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100,
+                commerceImageSet: { platformId: 'amazon', selectedShotIds: presetIds,
+                    plannerModelId: 'vision', plannerProviderId: 'p', imageModelId: 'image', imageProviderId: 'p' } }
+        ],
+        connections: [{ id: 'photo', from: { nodeId: 'product', port: 'image' },
+            to: { nodeId: 'commerce', port: 'referenceImages' }, type: 'image', order: 0 }],
+        models: [{ id: 'vision', modelId: 'gpt-4o', taskType: 'chat', protocol: 'openai', providerIds: ['p'] },
+            { id: 'image', modelId: 'gpt-image-2', taskType: 'image', protocol: 'openai', providerIds: ['p'] }],
+        providers: [{ id: 'p', endpoint: 'https://fixture.test/v1', apikey: 'test' }]
+    };
+    const summary = '在露营折叠桌旁展示随行杯';
+    const initScript = `${commerceRequestGates}
+        window.sceneCalls = [];
+        const plannedDesigns = new Map();
+        const actualFetch = window.fetch.bind(window);
+        window.fetch = async (url, options) => {
+            if (url!=='/proxy'||!options?.body) return actualFetch(url, options);
+            if (options.body instanceof FormData) {
+                const prompt = options.body.get('prompt');
+                const id = [...plannedDesigns].find(([,design])=>prompt.includes('画面设计：'+design))?.[0];
+                if (!id) throw new Error('Unexpected image request without a reviewed design.');
+                sceneCalls.push({kind:'image',id,prompt});
+                const isScene = id?.startsWith('scene-');
+                if (isScene) await holdCommerceRequest('image:'+id, options.signal);
+                return Response.json({data:[{b64_json:isScene?${JSON.stringify(sceneImage)}:${JSON.stringify(reference)}}]});
+            }
+            const message = JSON.parse(options.body).messages.at(-1);
+            const input = JSON.parse(message.content[0].text);
+            sceneCalls.push({kind:'plan',input});
+            const slot = input.shots[0];
+            if (slot.id.startsWith('scene-')) await holdCommerceRequest('plan:'+slot.id, options.signal);
+            const shots = input.shots.map(({id,group}) => {
+                const sceneSummary = id==='detail' ? '近景展示可拆卸杯盖'
+                    : id==='detail-overview' ? '由杯身和杯盖组成的商品全貌'
+                        : group==='detail' ? '在办公桌上展示通勤随行杯'
+                            : input.sceneDescription ? ${JSON.stringify(summary)} : '窗边晨光下的木桌饮水场景';
+                const prompt = sceneSummary+'。采用柔和自然侧光，突出杯身和可拆掉的杯盖。';
+                plannedDesigns.set(id, prompt);
+                return {id,prompt,headline:'方便取下杯盖',body:'',sceneSummary};
+            });
+            const plan = {sellingPoints:['杯盖可拆'],shots};
+            return Response.json({choices:[{message:{content:JSON.stringify(plan)}}]});
+        };`;
+    const panel = '#image-parameter-panel';
+    const row = id => `${panel} [data-commerce-shot-id=${id}]`;
+    const action = (name, id) => `${id ? row(id) : panel} [data-commerce-action=${name}]`;
+    const field = (id, name) => `${row(id)} [data-commerce-shot-field=${name}]`;
+    const query = selector => `document.querySelector(${JSON.stringify(selector)})`;
+    const visible = selector => `${query(selector)}?.checkVisibility()`;
+    const ready = selector => `${visible(selector)} && !${query(selector)}.disabled && ${query(selector)}.getAttribute('aria-disabled')!=='true'`;
+    const click = async (app, selector) => {
+        assert.ok(await app.evaluate(ready(selector)), `${selector} is actionable`);
+        await app.evaluate(`${query(selector)}.scrollIntoView({block:'nearest'})`);
+        await nativeClick(app, selector);
+    };
+    const edit = (app, selector, value) => app.evaluate(`(()=>{
+        const input=${query(selector)};
+        input.value=${JSON.stringify(value)};
+        input.dispatchEvent(new Event('input',{bubbles:true}));
+    })()`);
+    const add = group => `${action('add-scene')}[data-commerce-scene-group=${group}]`;
+    const groupIds = group => `Array.from(${query(add(group))}.closest('.commerce-image-set-result-group')
+        .querySelectorAll('[data-commerce-shot-id]'), row=>row.dataset.commerceShotId)`;
+    const pending = key => `typeof pendingCommerceRequests[${JSON.stringify(key)}]==='function'`;
+    const release = (app, key) => app.evaluate(`pendingCommerceRequests[${JSON.stringify(key)}]()`);
+    const state = (id, status) => `${query(row(id))}?.dataset.resultStatus===${JSON.stringify(status)}`;
+    const saved = `fetch('/api/storage/documents/session').then(response=>response.json())
+        .then(document=>document.value.nodes.find(node=>node.id==='commerce').commerceImageSet)`;
+    const customImages = "sceneCalls.filter(call=>call.kind==='image'&&call.id?.startsWith('scene-'))";
+    const openScene = async (app, id) => {
+        if (!await app.evaluate(visible(field(id, 'description')))) await click(app, `${row(id)} .commerce-image-set-shot-toggle`);
+    };
+    const addScene = async (app, group, description) => {
+        const before = await app.evaluate(groupIds(group));
+        const requests = await app.evaluate('sceneCalls.length');
+        await click(app, add(group));
+        await app.waitFor(`${groupIds(group)}.length===${before.length+1}`);
+        const ids = await app.evaluate(groupIds(group));
+        const id = ids.at(-1);
+        assert.deepEqual(ids.slice(0, -1), before);
+        assert.ok(await app.evaluate(`${query(row(id))}.hasAttribute('data-commerce-scene-shot')`));
+        await app.waitFor(`document.activeElement===${query(field(id, 'description'))}`);
+        assert.equal(await app.evaluate(`${query(field(id, 'description'))}.value`), '');
+        assert.equal(await app.evaluate('sceneCalls.length'), requests, 'adding a scene creates a draft without a provider request');
+        if (description) await edit(app, field(id, 'description'), description);
+        await click(app, action('replan-shot', id));
+        await app.waitFor(`${state(id, 'planning')} && ${pending(`plan:${id}`)}`);
+        const input = await app.evaluate(`sceneCalls.find(call=>call.kind==='plan'&&call.input.shots[0].id===${JSON.stringify(id)}).input`);
+        assert.equal(input.shots.length, 1);
+        assert.equal(input.shots[0].group, group);
+        assert.equal(input.shots[0].aspect, group === 'gallery' ? '1:1' : '9:16');
+        assert.equal(input.sceneDescription, description);
+        return id;
+    };
+
+    await withAppBrowser(fixture, async app => {
+        await uploadImageOriginal(app, 'product', `data:image/png;base64,${reference}`);
+        await openParameters(app, 'commerce');
+        await click(app, action('plan'));
+        await app.waitFor(ready(action('generate')));
+        await click(app, action('generate'));
+        await app.waitFor(`${saved}.then(settings=>settings.results.filter(row=>row.status==='completed').length===2)`);
+        const original = await app.evaluate(saved);
+        assert.ok(await app.evaluate(ready(add('gallery'))), '主副图 offers an add-scene action');
+        assert.ok(await app.evaluate(ready(add('detail'))), '详情图 offers an add-scene action');
+
+        const galleryBrief = '户外露营时在折叠桌旁饮水';
+        const first = await addScene(app, 'gallery', galleryBrief);
+        const second = await addScene(app, 'gallery', '');
+        const detail = await addScene(app, 'detail', '通勤上班时放在办公桌上');
+        const galleryIds = ['detail', first, second];
+        const detailIds = ['detail-overview', detail];
+        assert.deepEqual(await app.evaluate(groupIds('gallery')), galleryIds);
+        assert.deepEqual(await app.evaluate(groupIds('detail')), detailIds);
+        assert.ok(await app.evaluate(`${pending(`plan:${first}`)} && ${pending(`plan:${second}`)}`));
+        await click(app, action('cancel-shot', detail));
+        await app.waitFor(`canceledCommerceRequests.includes(${JSON.stringify(`plan:${detail}`)})`);
+        assert.ok(await app.evaluate(`${pending(`plan:${first}`)} && ${pending(`plan:${second}`)}`));
+
+        await release(app, `plan:${first}`);
+        await release(app, `plan:${second}`);
+        await app.waitFor(`${state(first, 'review')} && ${state(second, 'review')}`);
+        assert.deepEqual(await app.evaluate(customImages), [], 'AI planning and canceling a pending plan issue no image request');
+        await app.waitFor(ready(action('generate')));
+        const imageCalls = "sceneCalls.filter(call=>call.kind==='image').length";
+        const previousImageCalls = await app.evaluate(imageCalls);
+        await click(app, action('generate'));
+        await app.waitFor(`${imageCalls}===${previousImageCalls + 2} && document.getElementById('btn-stop').disabled`);
+        assert.doesNotMatch(await app.evaluate("document.querySelector('#commerce > .node-card-run-status:not([hidden])')?.textContent || ''"),
+            /部分完成/, 'unconfirmed scene plans do not count as missing images in the base run');
+        assert.deepEqual(await app.evaluate(customImages), [], 'whole-set generation excludes unconfirmed supplemental plans');
+        await captureCommerceInspector(app, { name: 'scene-groups', selector: `${panel} .commerce-image-set-plan-heading` });
+        await openScene(app, first);
+        assert.match(await app.evaluate(`${query(row(first))}.innerText`), new RegExp(summary));
+        assert.match(await app.evaluate(`${query(action('retry', first))}.textContent`), /确认并生图/);
+        await captureCommerceInspector(app, { name: 'scene-review', shotId: first });
+        await captureCommerceInspector(app, { name: 'scene-review-narrow', width: 390, shotId: first });
+
+        await click(app, action('retry', first));
+        await app.waitFor(`${state(first, 'running')} && ${pending(`image:${first}`)}`);
+        await openScene(app, second);
+        const prompt = await app.evaluate(`${query(field(second, 'prompt'))}.value`);
+        await edit(app, field(second, 'prompt'), `${prompt}\n杯身靠近画面中央。`);
+        await click(app, action('retry', second));
+        await app.waitFor(`${state(second, 'running')} && ${pending(`image:${second}`)}`);
+        assert.match(await app.evaluate(`${customImages}.at(-1).prompt`), /杯身靠近画面中央/);
+        await openScene(app, first);
+        await click(app, action('cancel-shot', first));
+        await app.waitFor(`canceledCommerceRequests.includes(${JSON.stringify(`image:${first}`)})`);
+        assert.ok(await app.evaluate(pending(`image:${second}`)));
+        await app.waitFor(`${state(first, 'canceled')} && ${ready(field(first, 'prompt'))}`);
+        const firstPrompt = await app.evaluate(`${query(field(first, 'prompt'))}.value`);
+        await edit(app, field(first, 'prompt'), `${firstPrompt} `);
+        await release(app, `image:${second}`);
+        await app.waitFor(`${saved}.then(settings=>settings.results.some(row=>row.shotId===${JSON.stringify(second)}&&row.status==='completed'))`);
+
+        const current = await app.evaluate(saved);
+        assert.deepEqual(current.plan.shots.filter(shot=>presetIds.includes(shot.id)), original.plan.shots);
+        assert.deepEqual(current.results.filter(result=>presetIds.includes(result.shotId)), original.results);
+        assert.deepEqual(current.plan.shots.map(shot=>shot.id), [...galleryIds, ...detailIds]);
+        assert.equal(current.plan.shots.find(shot=>shot.id===first).sceneConfirmed, false,
+            'sibling completion preserves the confirmation reset from a normalized edit');
+        assert.deepEqual(current.results.filter(result=>result.status==='completed').map(result=>result.shotId),
+            ['detail', second, 'detail-overview']);
+        assert.deepEqual(await app.evaluate(`${customImages}.map(call=>call.id)`), [first, second]);
+
+        await reloadAppBrowser(app);
+        await openParameters(app, 'commerce');
+        assert.deepEqual(await app.evaluate(groupIds('gallery')), galleryIds);
+        assert.deepEqual(await app.evaluate(groupIds('detail')), detailIds);
+        await app.waitFor(`${query(`${row(second)} img`)}?.naturalWidth>0 && ${state(second, 'completed')}`);
+        await openScene(app, first);
+        assert.equal(await app.evaluate(`${query(field(first, 'description'))}.value`), galleryBrief);
+        assert.deepEqual(await app.evaluate('sceneCalls'), []);
     }, { initScript });
 });

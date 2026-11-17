@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { appendCommerceSceneShot, confirmCommerceSceneShot } from '../js/features/ecommerce-image-set/commerce-image-set-plan.js';
 import { getCommerceRunPreflight } from '../js/features/execution/commerce-run-preflight.js';
 import { createWorkflowRunnerApi } from '../js/features/execution/workflow-runner.js';
 import { createWorkflowRuntimeManager } from '../js/features/workflow/workflow-runtime-manager.js';
@@ -87,6 +88,26 @@ test('commerce preflight respects dedicated phases and fingerprints approved sho
     assert.equal(f.inspect().issue.action, 'configure');
     f.settings.plan.stale = true;
     assert.equal(f.inspect().issue.action, 'plan');
+});
+
+test('a supplemental scene changes the canvas run scope only after individual confirmation', () => {
+    const { settings, inspect } = fixture();
+    settings.results = [
+        { shotId: 'main', status: 'completed', assetKey: 'media:original' },
+        { shotId: 'angle', status: 'completed', assetKey: 'media:angle-result' }
+    ];
+    const baseline = inspect();
+    const scene = appendCommerceSceneShot(settings, 'gallery');
+    assert.ok(scene);
+    assert.deepEqual(inspect(), baseline);
+    scene.prompt = '在窗边展示商品的真实外观。';
+    scene.sceneSummary = '自然光窗边';
+    assert.deepEqual(inspect(), baseline, 'a drafted scene is outside the pending paid run');
+    assert.equal(confirmCommerceSceneShot(settings, scene.id), true);
+    const ready = inspect();
+    assert.equal(ready.issue, null);
+    assert.deepEqual([ready.shotCount, ready.generateCount, ready.unfinishedCount], [3, 2, 1]);
+    assert.notEqual(ready.approvalKey, baseline.approvalKey);
 });
 
 test('the shared runner rejects unconfirmed commerce before executing its paid upstream', async () => {

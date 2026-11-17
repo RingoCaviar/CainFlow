@@ -60,8 +60,9 @@ import {
     buildCommerceImageSetImagePrompt,
     commerceImageSetPlanningSettingsKey,
     commerceImageSetSourceKey,
+    commerceShotPlanKey,
     createCommerceImageSetPlan,
-    getUnfinishedCommerceImageSetShots, normalizeCommerceImageSetState
+    getRunnableCommerceImageSetShots, getUnfinishedCommerceImageSetShots, normalizeCommerceImageSetState
 } from '../ecommerce-image-set/commerce-image-set-plan.js';
 import {
     buildProductRetouchPrompt,
@@ -1863,9 +1864,10 @@ export function createExecutionCoreApi({
         const target = settings.plan?.shots.find(shot => shot.id === commerceShotId);
         if (shotTask && target?.source !== 'generate') throw new Error('请选择一个需要生图的图位。');
         if (!planning && commerceShotId && !target) throw new Error('找不到所选图位。');
+        if (!planning && target?.customScene && !target.sceneConfirmed) throw new Error('请先确认这张场景图的方案。');
 
         const shots = filling ? getUnfinishedCommerceImageSetShots(settings)
-            : planning ? [] : settings.plan?.shots.filter(shot => !commerceShotId || shot.id === commerceShotId) || [];
+            : planning ? [] : getRunnableCommerceImageSetShots(settings).filter(shot => !commerceShotId || shot.id === commerceShotId);
         if (filling && settings.plan?.confirmed && !shots.length) throw new Error('所有图位已完成。');
         const claimedIds = shotTask ? [commerceShotId] : shots.map(shot => shot.id);
         const handlers = node.commerceShotCancelHandlers ??= new Map();
@@ -1949,7 +1951,7 @@ export function createExecutionCoreApi({
                 assertCommercePlanningCurrent(node.id, commerceShotId);
                 if (replanningShot) {
                     const replacement = updated.plan.shots.find(shot => shot.id === commerceShotId);
-                    node.data.commerceImageSet = { ...current, plan: { ...current.plan, confirmed: false,
+                    node.data.commerceImageSet = { ...current, plan: { ...current.plan, confirmed: target.customScene ? current.plan.confirmed : false,
                         shots: current.plan.shots.map(shot => shot.id === commerceShotId ? replacement : shot) } };
                 } else {
                     node.data.commerceImageSet = updated;
@@ -1989,6 +1991,7 @@ export function createExecutionCoreApi({
                 try {
                     shotSignal?.throwIfAborted();
                     reportProgress(shot.id, { status: 'running' });
+                    const planKey = commerceShotPlanKey(shot);
                     let image;
                     if (shot.source === 'reference') {
                         image = references[0];
@@ -2017,7 +2020,7 @@ export function createExecutionCoreApi({
                         image = generated;
                     }
                     shotSignal?.throwIfAborted();
-                    const result = { status: 'completed', image };
+                    const result = { status: 'completed', image, ...(planKey ? { planKey } : {}) };
                     attempts.set(shot.id, result);
                     reportProgress(shot.id, result);
                 } catch (error) {
@@ -2121,7 +2124,8 @@ export function createExecutionCoreApi({
                     }
                     continue;
                 }
-                rows.set(id, { shotId: id, status: result.status, ...(result.error ? { error: result.error } : {}) });
+                rows.set(id, { shotId: id, status: result.status, ...(result.error ? { error: result.error } : {}),
+                    ...(result.planKey ? { planKey: result.planKey } : {}) });
                 if (result.image) successful.push([id, result.image]);
             }
 
@@ -2152,13 +2156,15 @@ export function createExecutionCoreApi({
             const images = results.flatMap(row => row.assetKey ? [retainedImages.get(row.shotId)] : []);
             // A rerun of a finished slot supersedes that slot's still-unpublished batch result.
             if (commerceShotId && successful.length) commerceBatches.get(node)?.replacedShotIds.add(commerceShotId);
-            node.data.commerceImageSet = { ...normalizeCommerceImageSetState(node.data?.commerceImageSet), results };
+            const current = normalizeCommerceImageSetState(node.data?.commerceImageSet);
+            node.data.commerceImageSet = { ...current, results };
             rememberWorkflowMediaOperation(node, assets);
             if (images.length) {
                 const assetKeys = results.filter(row => row.assetKey).map(row => row.assetKey);
                 setCanonicalImageOutput(node, images, { defaultToFirst: true, assetKey: assetKeys[0], imageCount: images.length, assetReady: true });
                 node.data.mediaAssetKeys = assetKeys;
-                node.generationAttemptIncomplete = images.length !== latest.selectedShotIds.length;
+                const completedIds = new Set(results.filter(row => row.assetKey).map(row => row.shotId));
+                node.generationAttemptIncomplete = getRunnableCommerceImageSetShots(current).some(shot => !completedIds.has(shot.id));
                 try {
                     await propagateImagesToDownstreamPreview(node.id, images);
                 } finally {

@@ -2,7 +2,10 @@ import { projectImageReferences } from '../../nodes/image-reference-projection.j
 import { projectImageOutput } from '../../nodes/image-output-projection.js';
 import { REFERENCE_IMAGES_PORT } from '../../nodes/reference-image-ports.js';
 import { resolveImageGenerationInputContract } from '../../nodes/universal-input-policy.js';
-import { getSelectedCommerceImageSetShots, getUnfinishedCommerceImageSetShots, normalizeCommerceImageSetState } from '../ecommerce-image-set/commerce-image-set-plan.js';
+import {
+    getRunnableCommerceImageSetShots, getSelectedCommerceImageSetShots,
+    getUnfinishedCommerceImageSetShots, normalizeCommerceImageSetState
+} from '../ecommerce-image-set/commerce-image-set-plan.js';
 import { getCanonicalImageList } from './execution-data-utils.js';
 import { getImageAspectOptionsForProtocol, usesOpenAiImageSize } from './image-generation-size.js';
 import { getEffectiveProtocol, getModelsForTask, getResolvedProviderForModel, getResolvedProviderIdForModel } from './provider-request-utils.js';
@@ -64,9 +67,12 @@ export function getCommerceRunPreflight({ state, plan }) {
         const node = state.nodes.get(nodeId);
         if (node?.type !== 'ECommerceImageSet' || node.enabled === false) return [];
         const settings = normalizeCommerceImageSetState(node.data?.commerceImageSet ?? node.commerceImageSet);
-        const shots = settings.plan?.shots || getSelectedCommerceImageSetShots(settings);
+        const shots = settings.plan ? getRunnableCommerceImageSetShots(settings)
+            : getSelectedCommerceImageSetShots(settings).filter(shot => !shot.customScene);
         const generatedShots = shots.filter(shot => shot.source === 'generate');
-        const completed = settings.results.filter(row => row.status === 'completed' && row.assetKey).map(row => row.shotId);
+        const shotIds = new Set(shots.map(shot => shot.id));
+        const completed = settings.results.filter(row => row.status === 'completed' && row.assetKey && shotIds.has(row.shotId))
+            .map(row => row.shotId);
         const inputConnections = plan.inputConnectionsByNode?.[nodeId] || [];
         const references = projectImageReferences({ state, targetId: nodeId,
             connections: inputConnections.filter(edge => edge.to.port === REFERENCE_IMAGES_PORT) });

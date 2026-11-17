@@ -859,9 +859,7 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
         const node = state.nodes.get(id);
         const workflowId = workflowManagerApi.getActiveWorkflowId();
         if (node?.type === 'ECommerceImageSet' && workflowId && change?.commerceShotId) {
-            getWorkflowRuntimeManagerApi().updateCommerceShotDraft(
-                { workflowId }, node, change.commerceShotId, change.commerceShotField
-            );
+            getWorkflowRuntimeManagerApi().updateCommerceShotDraft({ workflowId }, node, change);
         }
         if (node?.type === 'ProductRetouch' && !node.isClone) {
             nodeDomBindingsApi.syncClonesFromSource(id, registry.imageFirstCanvasApi.refreshNode);
@@ -1190,14 +1188,14 @@ async function runWorkflow(runInput = null, {
             return false;
         }
         if (commercePanelRun) {
-            const { node } = commercePanelRun;
+            const { node, shotId } = commercePanelRun;
             const workflow = { workflowId: effectiveRequestedWorkflowId };
             const runtime = getWorkflowRuntimeManagerApi();
             while (true) {
                 if (startSignal.aborted || workflowManagerApi.getActiveWorkflowId() !== workflow.workflowId
                     || state.nodes.get(node.id) !== node || node.enabled === false) return stopped;
-                // A finished row can become actionable before its owning runtime has finished saving.
-                const settling = runtime.waitForSettlingCommerceRun(workflow, node.id, startSignal);
+                // The panel can become actionable before its owning runtime has finished saving.
+                const settling = runtime.waitForSettlingCommerceRun(workflow, node.id, startSignal, { exclusive: !shotId });
                 if (!settling) break;
                 if (!await settling) return stopped;
             }

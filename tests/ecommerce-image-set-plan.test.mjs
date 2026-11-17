@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    COMMERCE_IMAGE_SET_PRESETS, buildCommerceImageSetImagePrompt, createCommerceImageSetPlan,
-    commerceImageSetSourceKey, normalizeCommerceImageSetPlan, normalizeCommerceImageSetState
+    COMMERCE_IMAGE_SET_PRESETS, appendCommerceSceneShot, buildCommerceImageSetImagePrompt, confirmCommerceSceneShot,
+    createCommerceImageSetPlan, commerceImageSetPlanningSettingsKey, commerceImageSetSourceKey, commerceShotPlanKey,
+    getRunnableCommerceImageSetShots, getUnfinishedCommerceImageSetShots, normalizeCommerceImageSetPlan,
+    isCommerceShotImageStale, normalizeCommerceImageSetState, updateCommerceSceneDescription
 } from '../js/features/ecommerce-image-set/commerce-image-set-plan.js';
 
 const references = ['data:image/png;base64,aGVsbG8='];
@@ -160,6 +162,28 @@ test('restoring a draft allows a cleared prompt while planner responses and miss
     assert.equal(normalizeCommerceImageSetState({ ...saved, plan: { ...saved.plan, shots: [{ id: 'detail' }, raw.shots[1]] } }).plan, null);
 });
 
+test('restoring older completed images records a stable baseline for each generated shot', () => {
+    const restored = normalizeCommerceImageSetState({ ...settings,
+        plan: { version: 1, sourceKey: 'saved-key', sellingPoints: [],
+            shots: [{ id: 'main' }, { id: 'detail', prompt: '展示杯身', headline: '商品细节', body: '保留纹理' },
+                { id: 'feature', prompt: '展示杯柄' }] },
+        results: ['main', 'detail', 'feature'].map(shotId => ({ shotId, status: 'completed', assetKey: `media:${shotId}` }))
+    });
+    const [originalPhoto, detail, feature] = restored.results;
+    assert.equal(originalPhoto.planKey, undefined);
+    assert.ok(detail.planKey);
+    assert.ok(feature.planKey);
+
+    const [, detailShot, featureShot] = restored.plan.shots;
+    assert.equal(isCommerceShotImageStale(detailShot, detail), false);
+    assert.equal(isCommerceShotImageStale({ ...detailShot, prompt: ' 展示杯身 ', headline: '商品细节 ' }, detail), false);
+    detailShot.body = '新版本正文';
+    const reopened = normalizeCommerceImageSetState(JSON.parse(JSON.stringify(restored)));
+    assert.deepEqual(reopened.results, restored.results);
+    assert.equal(isCommerceShotImageStale(reopened.plan.shots[1], reopened.results[1]), true);
+    assert.equal(isCommerceShotImageStale(featureShot, feature), false);
+});
+
 test('platform slots reject an unexpected AI-generated shot and retain real-product first images', () => {
     for (const id of ['taobao', 'jd', 'pinduoduo', 'douyin', 'amazon']) {
         const platform = COMMERCE_IMAGE_SET_PRESETS[id];
@@ -175,4 +199,101 @@ test('platform slots reject an unexpected AI-generated shot and retain real-prod
         assert.ok(detailShots.every(shot => shot.aspect === '9:16' && shot.headline === '商品 标题' && shot.body.length === 64));
         assert.throws(() => normalizeCommerceImageSetPlan({ sellingPoints: [], shots: [...shots, { id: 'other', prompt: '新增' }] }, id), /未知图位/);
     }
+});
+
+async function baseScenePlan() {
+    const input = { ...settings, selectedShotIds: ['scene', 'detail-overview'], galleryAspect: '4:5', detailAspect: '3:4' };
+    const sourceKey = await commerceImageSetSourceKey({ settings: input, references });
+    return normalizeCommerceImageSetState({ ...input, plan: { version: 1, sourceKey, confirmed: true,
+        sellingPoints: ['好拿取'], shots: [{ id: 'scene', prompt: '厨房台面展示马克杯' }, { id: 'detail-overview', prompt: '侧光展示杯柄' }] },
+        results: [{ shotId: 'scene', status: 'completed', assetKey: 'media:gallery' },
+            { shotId: 'detail-overview', status: 'completed', assetKey: 'media:detail' }] });
+}
+
+test('supplemental scenes persist in each group without changing an existing source key, plan or results', async () => {
+    const state = await baseScenePlan();
+    const original = structuredClone(state);
+    const gallery = appendCommerceSceneShot(state, 'gallery');
+    const detail = appendCommerceSceneShot(state, 'detail');
+    const focusedKey = commerceImageSetPlanningSettingsKey(state, gallery.id);
+    const secondGallery = appendCommerceSceneShot(state, 'gallery');
+    assert.notEqual(secondGallery.id, gallery.id);
+    assert.match(gallery.id, /^scene-/);
+    assert.equal(commerceImageSetPlanningSettingsKey(state, gallery.id), focusedKey);
+    const restored = normalizeCommerceImageSetState(JSON.parse(JSON.stringify(state)));
+    assert.equal(restored.plan.sourceKey, original.plan.sourceKey);
+    assert.equal(restored.plan.confirmed, true);
+    assert.equal(await commerceImageSetSourceKey({ settings: restored, references }), original.plan.sourceKey);
+    assert.deepEqual(restored.plan.shots.map(({ id, aspect }) => [id, aspect]), [
+        ['scene', '4:5'], [gallery.id, '4:5'], [secondGallery.id, '4:5'], ['detail-overview', '3:4'], [detail.id, '3:4']
+    ]);
+    assert.deepEqual(restored.plan.shots.filter(shot => !shot.customScene), original.plan.shots);
+    assert.deepEqual(restored.results, original.results);
+    assert.deepEqual(getRunnableCommerceImageSetShots(restored), original.plan.shots);
+    assert.deepEqual(getUnfinishedCommerceImageSetShots(restored), []);
+});
+
+test('a scene planner takes the optional brief, sees existing scenes and needs explicit confirmation', async () => {
+    const state = await baseScenePlan();
+    const current = appendCommerceSceneShot(state, 'gallery');
+    const suggested = appendCommerceSceneShot(state, 'detail');
+    updateCommerceSceneDescription(state, current.id, '  咖啡店窗边的工作桌  ');
+    assert.equal(confirmCommerceSceneShot(state, current.id), false);
+    const requests = [];
+    const options = { references, models, providers, fetchRef: async (_path, { body }) => {
+        const { messages } = JSON.parse(body);
+        const input = JSON.parse(messages.at(-1).content[0].text);
+        requests.push({ input, system: messages[0].content });
+        return Response.json({ choices: [{ message: { content: JSON.stringify({
+            shots: [{ id: input.shots[0].id, prompt: '将商品置于画面中部的桌面', sceneSummary: '窗边柔光衬托杯身', headline: '日常用杯' }]
+        }) } }] });
+    } };
+    const first = await createCommerceImageSetPlan({ ...options, settings: state, shotId: current.id });
+    const second = await createCommerceImageSetPlan({ ...options, settings: first, shotId: suggested.id });
+    assert.deepEqual(requests.map(({ input }) => [input.sceneDescription, input.shots[0].group, input.shots[0].aspect]),
+        [['咖啡店窗边的工作桌', 'gallery', '4:5'], ['', 'detail', '3:4']]);
+    assert.deepEqual(requests[0].input.existingScenes.map(({ summary }) => summary), ['厨房台面展示马克杯']);
+    assert.deepEqual(requests[1].input.existingScenes.map(({ summary }) => summary), ['厨房台面展示马克杯', '窗边柔光衬托杯身']);
+    assert.match(requests[1].system, /sceneSummary/);
+    assert.equal(first.plan.confirmed, true);
+    assert.equal(first.plan.shots.find(({ id }) => id === current.id).sceneSummary, '窗边柔光衬托杯身');
+    assert.equal(second.plan.shots.find(({ id }) => id === suggested.id).sceneConfirmed, false);
+    assert.deepEqual(second.results, state.results);
+    assert.deepEqual(getUnfinishedCommerceImageSetShots(second), []);
+    assert.equal(confirmCommerceSceneShot(second, suggested.id), true);
+    assert.deepEqual(getUnfinishedCommerceImageSetShots(second).map(({ id }) => id), [suggested.id]);
+    assert.equal(updateCommerceSceneDescription(second, suggested.id, '早餐桌边'), true);
+    const reset = second.plan.shots.find(({ id }) => id === suggested.id);
+    assert.deepEqual([reset.sceneSummary, reset.prompt, reset.sceneConfirmed], ['', '', false]);
+    assert.deepEqual(getUnfinishedCommerceImageSetShots(second), []);
+    assert.equal(second.plan.confirmed, true);
+});
+
+test('replanning preset shots keeps supplemental scene briefs and only reuses scene plans for matching inputs', async () => {
+    const state = await baseScenePlan();
+    const scene = appendCommerceSceneShot(state, 'detail');
+    updateCommerceSceneDescription(state, scene.id, '书桌旁');
+    const options = { references, models, providers, fetchRef: async (_path, { body }) => {
+        const { messages } = JSON.parse(body);
+        const input = JSON.parse(messages.at(-1).content[0].text);
+        if (!input.currentShot) assert.deepEqual(input.shots.map(({ id }) => id), ['scene', 'detail-overview']);
+        return Response.json({ choices: [{ message: { content: JSON.stringify({
+            ...(input.currentShot ? {} : { sellingPoints: input.productInfo.sellingPoints }),
+            shots: input.shots.map(({ id }) => ({ id, prompt: '柔光照在杯身上', sceneSummary: '窗边马克杯' }))
+        }) } }] });
+    } };
+    const planned = await createCommerceImageSetPlan({ ...options, settings: state, shotId: scene.id });
+    assert.equal(confirmCommerceSceneShot(planned, scene.id), true);
+    const approved = planned.plan.shots.find(({ id }) => id === scene.id);
+    const completed = { shotId: scene.id, status: 'completed', assetKey: 'media:supplemental', planKey: commerceShotPlanKey(approved) };
+    planned.results.push(completed);
+    const refreshed = await createCommerceImageSetPlan({ ...options, settings: planned });
+    assert.deepEqual(refreshed.plan.shots.find(({ id }) => id === scene.id), approved);
+    assert.deepEqual(refreshed.results, [completed]);
+    const changed = await createCommerceImageSetPlan({ ...options, settings: planned, references: ['data:image/png;base64,d29ybGQ='] });
+    const pending = changed.plan.shots.find(({ id }) => id === scene.id);
+    assert.equal(pending.description, '书桌旁');
+    assert.equal(pending.prompt, '');
+    assert.equal(pending.sceneConfirmed, false);
+    assert.deepEqual(changed.results, []);
 });

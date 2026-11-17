@@ -1,3 +1,4 @@
+import { generateId } from '../../core/common-utils.js';
 import { createChatRequestPlan, requestChatCompletion } from '../execution/chat-request-plan.js';
 import { getEffectiveProtocol, getModelsForTask } from '../execution/provider-request-utils.js';
 import { resolveAgentProvider } from '../prompt-agent/prompt-agent-provider.js';
@@ -5,6 +6,9 @@ import { resolveAgentProvider } from '../prompt-agent/prompt-agent-provider.js';
 export const COMMERCE_IMAGE_SET_ASPECTS = Object.freeze(['1:1', '3:4', '2:3', '4:5', '9:16', '4:3', '3:2', '16:9']);
 export const COMMERCE_IMAGE_SET_DEFAULT_ASPECTS = Object.freeze({ gallery: '1:1', detail: '9:16' });
 export const COMMERCE_IMAGE_SET_COPY_LIMITS = Object.freeze({ headline: 24, body: 64 });
+export const COMMERCE_SCENE_DESCRIPTION_LIMIT = 400;
+const COMMERCE_SCENE_SUMMARY_LIMIT = 240;
+const COMMERCE_SHOT_PLAN_KEY_PATTERN = /^v1-[0-9a-f]{1,8}-[0-9a-f]{1,8}-\d{1,5}$/;
 export const COMMERCE_IMAGE_SET_COPY_LANGUAGES = Object.freeze({
     auto: '自动', 'zh-CN': '简体中文', 'zh-TW': '繁体中文', en: '英语', ja: '日语', ko: '韩语',
     de: '德语', fr: '法语', es: '西班牙语', it: '意大利语', pt: '葡萄牙语', nl: '荷兰语',
@@ -131,6 +135,37 @@ function normalizeAspect(value, group) {
     return COMMERCE_IMAGE_SET_ASPECTS.includes(value) ? value : COMMERCE_IMAGE_SET_DEFAULT_ASPECTS[group];
 }
 
+function isCommerceShotGroup(group) {
+    return typeof group === 'string' && Object.hasOwn(COMMERCE_IMAGE_SET_DEFAULT_ASPECTS, group);
+}
+
+function isCommerceSceneId(id) {
+    return typeof id === 'string' && /^scene-[a-z0-9_-]{1,64}$/.test(id);
+}
+
+function normalizeCustomScenes(raw) {
+    const scenes = new Map();
+    for (const item of Array.isArray(raw) ? raw : []) {
+        if (!isCommerceSceneId(item?.id) || !isCommerceShotGroup(item.group) || scenes.has(item.id)) continue;
+        scenes.set(item.id, { id: item.id, group: item.group, description: text(item.description, COMMERCE_SCENE_DESCRIPTION_LIMIT) });
+    }
+    return [...scenes.values()];
+}
+
+function customSceneShot(item, groupIndex, aspect) {
+    const design = item.group === 'gallery' ? scene : detailModules.at(-1);
+    return { ...design, id: item.id, label: `场景图 ${groupIndex + 1}`, aspect,
+        customScene: true, description: item.description };
+}
+
+function scenePlanFields(input, prompt, restoring) {
+    return {
+        sceneSummary: copyText(input?.sceneSummary, COMMERCE_SCENE_SUMMARY_LIMIT)
+            || copyText(prompt, COMMERCE_SCENE_SUMMARY_LIMIT),
+        sceneConfirmed: restoring && !!prompt && input?.sceneConfirmed === true
+    };
+}
+
 export function getCommerceImageSetPreset(platformId) {
     return Object.hasOwn(COMMERCE_IMAGE_SET_PRESETS, platformId) ? COMMERCE_IMAGE_SET_PRESETS[platformId] : null;
 }
@@ -144,19 +179,86 @@ export function getSelectedCommerceImageSetShots(settings) {
         gallery: normalizeAspect(settings?.galleryAspect, 'gallery'),
         detail: normalizeAspect(settings?.detailAspect, 'detail')
     };
-    return Array.isArray(ids) ? platform.shots.filter(item => ids.includes(item.id))
-        .map(item => ({ ...item, aspect: aspects[item.group] })) : [];
+    if (!Array.isArray(ids)) return [];
+    const selected = new Set(ids);
+    const customScenes = normalizeCustomScenes(settings?.customScenes);
+    return Object.entries(aspects).flatMap(([group, aspect]) => [
+        ...platform.shots.filter(item => item.group === group && selected.has(item.id)).map(item => ({ ...item, aspect })),
+        ...customScenes.filter(item => item.group === group)
+            .map((item, index) => customSceneShot(item, index, aspect)).filter(item => selected.has(item.id))
+    ]);
+}
+
+export function appendCommerceSceneShot(settings, group, id = `scene-${globalThis.crypto.randomUUID?.() || generateId()}`) {
+    const plan = settings?.plan;
+    if (!plan?.sourceKey || plan.stale || !Array.isArray(plan.shots) || !isCommerceShotGroup(group) || !isCommerceSceneId(id)) return null;
+    const customScenes = normalizeCustomScenes(settings.customScenes);
+    if (customScenes.some(item => item.id === id)) return null;
+    const selectedShotIds = getSelectedCommerceImageSetShots(settings).map(item => item.id);
+    const metadata = { id, group, description: '' };
+    const added = { ...customSceneShot(metadata, customScenes.filter(item => item.group === group).length,
+        normalizeAspect(settings[`${group}Aspect`], group)),
+        prompt: '', headline: '', body: '', ...scenePlanFields(null, '', true) };
+    const existing = new Map(plan.shots.map(item => [item.id, item]));
+    if (selectedShotIds.some(shotId => !existing.has(shotId))) return null;
+    existing.set(id, added);
+    const nextScenes = [...customScenes, metadata];
+    const selected = getSelectedCommerceImageSetShots({ ...settings, selectedShotIds: [...selectedShotIds, id], customScenes: nextScenes });
+    settings.customScenes = nextScenes;
+    settings.selectedShotIds = selected.map(item => item.id);
+    settings.plan = { ...plan, shots: selected.map(item => existing.get(item.id)) };
+    return added;
+}
+
+export function updateCommerceSceneDescription(settings, shotId, value) {
+    const metadata = settings?.customScenes?.find(item => item.id === shotId);
+    const shot = settings?.plan?.shots?.find(item => item.id === shotId);
+    const description = text(value, COMMERCE_SCENE_DESCRIPTION_LIMIT);
+    if (!metadata || !shot?.customScene || description === metadata.description) return false;
+    metadata.description = description;
+    Object.assign(shot, { description, prompt: '', headline: '', body: '', sceneSummary: '', sceneConfirmed: false });
+    return true;
+}
+
+export function confirmCommerceSceneShot(settings, shotId) {
+    const shot = settings?.plan?.shots?.find(item => item.id === shotId);
+    if (settings?.plan?.stale || !shot?.customScene || !text(shot.prompt, 2000)
+        || !copyText(shot.sceneSummary, COMMERCE_SCENE_SUMMARY_LIMIT)) return false;
+    shot.sceneConfirmed = true;
+    return true;
 }
 
 function isCompletedCommerceResult(row) {
     return row?.status === 'completed' && /^media:[a-zA-Z0-9_-]+$/.test(row.assetKey || '');
 }
 
-export function getUnfinishedCommerceImageSetShots(settings) {
+function normalizeCommerceShotCopy(input, allowCopy) {
+    return {
+        headline: allowCopy ? copyText(input?.headline, COMMERCE_IMAGE_SET_COPY_LIMITS.headline) : '',
+        body: allowCopy ? copyText(input?.body, COMMERCE_IMAGE_SET_COPY_LIMITS.body) : ''
+    };
+}
+
+export function commerceShotPlanKey(shot) {
+    if (shot?.source !== 'generate') return '';
+    const { headline, body } = normalizeCommerceShotCopy(shot, shot.allowCopy);
+    return `v1-${changeFingerprint(JSON.stringify([text(shot.prompt, 2000), headline, body]))}`;
+}
+
+export function isCommerceShotImageStale(shot, result) {
+    return shot?.source === 'generate' && result?.status === 'completed' && !!result.planKey
+        && result.planKey !== commerceShotPlanKey(shot);
+}
+
+export function getRunnableCommerceImageSetShots(settings) {
     if (!Array.isArray(settings?.plan?.shots)) return [];
     const selected = new Set(getSelectedCommerceImageSetShots(settings).map(shot => shot.id));
-    const results = new Map((Array.isArray(settings.results) ? settings.results : []).map(row => [row?.shotId, row]));
-    return settings.plan.shots.filter(shot => selected.has(shot.id) && !isCompletedCommerceResult(results.get(shot.id)));
+    return settings.plan.shots.filter(shot => selected.has(shot.id) && (!shot.customScene || shot.sceneConfirmed === true));
+}
+
+export function getUnfinishedCommerceImageSetShots(settings) {
+    const results = new Map((Array.isArray(settings?.results) ? settings.results : []).map(row => [row?.shotId, row]));
+    return getRunnableCommerceImageSetShots(settings).filter(shot => !isCompletedCommerceResult(results.get(shot.id)));
 }
 
 export function normalizeCommerceImageSetPlan(raw, platformId, selectedShotIds, settings, { allowBlankPrompts = false } = {}) {
@@ -177,12 +279,11 @@ export function normalizeCommerceImageSetPlan(raw, platformId, selectedShotIds, 
     const shots = selected.map(item => {
         const input = planned.get(item.id);
         const prompt = item.source === 'generate' ? text(input?.prompt, 2000) : '';
-        if (item.source === 'generate' && !prompt && !(allowBlankPrompts && typeof input?.prompt === 'string')) {
+        if (item.source === 'generate' && !prompt && !(allowBlankPrompts && (typeof input?.prompt === 'string' || item.customScene))) {
             throw new Error(`套图方案缺少「${item.label}」的画面说明。`);
         }
-        return { ...item, prompt,
-            headline: item.allowCopy ? copyText(input?.headline, COMMERCE_IMAGE_SET_COPY_LIMITS.headline) : '',
-            body: item.allowCopy ? copyText(input?.body, COMMERCE_IMAGE_SET_COPY_LIMITS.body) : '' };
+        return { ...item, prompt, ...normalizeCommerceShotCopy(input, item.allowCopy),
+            ...(item.customScene ? scenePlanFields(input, prompt, allowBlankPrompts) : {}) };
     });
     return { version: 1, platformId: platform.id, copyLanguage: normalizeCommerceImageSetCopyLanguage(settings?.copyLanguage),
         sellingPoints: normalizeCommerceProductInfo(raw).sellingPoints, shots };
@@ -193,6 +294,7 @@ export function normalizeCommerceImageSetState(raw) {
     const settings = {
         platformId: getCommerceImageSetPreset(raw?.platformId)?.id || 'taobao',
         selectedShotIds: selected.map(item => item.id),
+        customScenes: normalizeCustomScenes(raw?.customScenes),
         galleryAspect: normalizeAspect(raw?.galleryAspect, 'gallery'),
         detailAspect: normalizeAspect(raw?.detailAspect, 'detail'),
         copyLanguage: normalizeCommerceImageSetCopyLanguage(raw?.copyLanguage),
@@ -214,12 +316,16 @@ export function normalizeCommerceImageSetState(raw) {
     }
     if (Array.isArray(raw?.results)) {
         const results = new Map(raw.results.map(item => [item?.shotId, item]));
-        settings.results = selected.flatMap(({ id }) => {
+        const planned = new Map(settings.plan?.shots.map(shot => [shot.id, shot]));
+        settings.results = selected.flatMap(({ id, source }) => {
             const row = results.get(id);
             if (row?.status === 'failed') return [{ shotId: id, status: 'failed', error: text(row.error, 300) }];
             if (row?.status === 'canceled') return [{ shotId: id, status: 'canceled' }];
             if (isCompletedCommerceResult(row)) {
-                return [{ shotId: id, status: 'completed', assetKey: row.assetKey }];
+                // Older workflows can track changes starting from their restored draft.
+                const storedKey = typeof row.planKey === 'string' && COMMERCE_SHOT_PLAN_KEY_PATTERN.test(row.planKey) ? row.planKey : '';
+                const planKey = source === 'generate' ? storedKey || commerceShotPlanKey(planned.get(id)) : '';
+                return [{ shotId: id, status: 'completed', assetKey: row.assetKey, ...(planKey ? { planKey } : {}) }];
             }
             return [];
         });
@@ -230,9 +336,10 @@ export function normalizeCommerceImageSetState(raw) {
 export function commerceImageSetPlanningSettingsKey(raw, shotId) {
     const settings = normalizeCommerceImageSetState(raw);
     if (!shotId) return JSON.stringify(settings);
-    const { plan, results, ...shared } = settings;
+    const { plan, results, customScenes, selectedShotIds, ...shared } = settings;
+    const presetShotIds = selectedShotIds.filter(id => !isCommerceSceneId(id));
     const shot = plan?.shots.find(item => item.id === shotId);
-    return JSON.stringify([shared, plan?.sourceKey, plan?.stale, plan?.sellingPoints, shot]);
+    return JSON.stringify([{ ...shared, selectedShotIds: presetShotIds }, plan?.sourceKey, plan?.stale, plan?.sellingPoints, shot]);
 }
 
 function normalizeReferences(references) {
@@ -243,19 +350,23 @@ function normalizeReferences(references) {
     return references;
 }
 
-async function sourceFingerprint(value) {
-    if (globalThis.crypto?.subtle) {
-        const bytes = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
-        return Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, '0')).join('');
-    }
-    // LAN browser sessions can lack SubtleCrypto. This key only detects edited inputs.
+function changeFingerprint(value) {
     let a = 2166136261, b = 0;
     for (let index = 0; index < value.length; index++) {
         const code = value.charCodeAt(index);
         a = Math.imul(a ^ code, 16777619);
         b = Math.imul(b ^ code, 31) + index;
     }
-    return `lan-${(a >>> 0).toString(16)}-${(b >>> 0).toString(16)}-${value.length}`;
+    return `${(a >>> 0).toString(16)}-${(b >>> 0).toString(16)}-${value.length}`;
+}
+
+async function sourceFingerprint(value) {
+    if (globalThis.crypto?.subtle) {
+        const bytes = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+        return Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, '0')).join('');
+    }
+    // LAN browser sessions can lack SubtleCrypto. This key only detects edited inputs.
+    return `lan-${changeFingerprint(value)}`;
 }
 
 export async function commerceImageSetSourceKey({ settings, references }) {
@@ -267,10 +378,11 @@ export async function commerceImageSetSourceKey({ settings, references }) {
     // Selling points remain editable in the approved draft without changing its image inputs.
     if (name || audience || useCases) inputs.push({ name, audience, useCases });
     const platform = getCommerceImageSetPreset(platformId);
-    const includesDetail = platform.shots.some(shot => shot.group === 'detail' && selectedShotIds.includes(shot.id));
+    const presetShotIds = selectedShotIds.filter(id => !isCommerceSceneId(id));
+    const includesDetail = platform.shots.some(shot => shot.group === 'detail' && presetShotIds.includes(shot.id));
     const galleryCount = platform.shots.filter(shot => shot.group === 'gallery').length;
     // Older plans only had gallery shots. Full sets saved before slot selection omitted the ID list.
-    if (includesDetail || selectedShotIds.length !== galleryCount) inputs.push(selectedShotIds);
+    if (includesDetail || presetShotIds.length !== galleryCount) inputs.push(presetShotIds);
     if (includesDetail || galleryAspect !== COMMERCE_IMAGE_SET_DEFAULT_ASPECTS.gallery || detailAspect !== COMMERCE_IMAGE_SET_DEFAULT_ASPECTS.detail) {
         inputs.push({ galleryAspect, detailAspect });
     }
@@ -281,8 +393,7 @@ export async function commerceImageSetSourceKey({ settings, references }) {
 export function buildCommerceImageSetImagePrompt({ shot, plan, productInfo, productNotes }) {
     const platform = getCommerceImageSetPreset(plan.platformId);
     const { name, details, audience, useCases } = normalizeCommerceProductInfo({ details: productNotes, ...productInfo });
-    const headline = shot.allowCopy ? copyText(shot.headline, COMMERCE_IMAGE_SET_COPY_LIMITS.headline) : '';
-    const body = shot.allowCopy ? copyText(shot.body, COMMERCE_IMAGE_SET_COPY_LIMITS.body) : '';
+    const { headline, body } = normalizeCommerceShotCopy(shot, shot.allowCopy);
     const onImageCopy = [headline && `标题：${JSON.stringify(headline)}`, body && `正文：${JSON.stringify(body)}`].filter(Boolean);
     const copyLanguage = normalizeCommerceImageSetCopyLanguage(plan.copyLanguage);
     const lettering = onImageCopy.length ? [
@@ -381,17 +492,22 @@ export async function analyzeCommerceImageSetProduct({ settings, references, ...
 
 export async function createCommerceImageSetPlan({ settings, references, shotId, ...requestOptions }) {
     const input = normalizeCommerceImageSetState(settings);
-    if (!input.selectedShotIds.length) throw new Error('请至少选择一个图位。');
     const images = normalizeReferences(references);
     const currentShot = shotId === undefined ? null : input.plan?.shots.find(shot => shot.id === shotId);
+    const selectedShotIds = currentShot ? [currentShot.id] : input.selectedShotIds.filter(id => !isCommerceSceneId(id));
+    if (!selectedShotIds.length) throw new Error('请至少选择一个图位。');
     if (shotId !== undefined && currentShot?.source !== 'generate') throw new Error('请选择一个需要生图的图位。');
     if (currentShot && (input.plan.stale || input.plan.sourceKey !== await commerceImageSetSourceKey({ settings: input, references: images }))) {
         throw new Error('商品资料、参考图或生成设置已改变，请重新规划整套方案。');
     }
     const platform = getCommerceImageSetPreset(input.platformId);
-    const selectedShotIds = currentShot ? [currentShot.id] : input.selectedShotIds;
     const slots = getSelectedCommerceImageSetShots({ ...input, selectedShotIds }).filter(item => item.source === 'generate');
     const productInfo = currentShot ? input.productInfo : getManualProductInfo(input);
+    const supplemental = currentShot?.customScene === true;
+    const existingScenes = supplemental ? input.plan.shots.filter(shot => shot.id !== shotId
+        && (shot.customScene || shot.role === 'scene' || shot.role === 'detail-scene'))
+        .map(shot => ({ id: shot.id, group: shot.group, summary: copyText(shot.sceneSummary || shot.prompt, COMMERCE_SCENE_SUMMARY_LIMIT) }))
+        .filter(({ summary }) => summary) : [];
     const responseError = '规划模型未返回有效套图方案，请重试。';
     const { raw, plan, product } = await requestCommerceJson({
         ...requestOptions, settings: input, references: images, responseError, shot: currentShot,
@@ -402,7 +518,10 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
             '保持同一商品的外观、颜色、商标、包装和销售数量。图中不得添加虚构标签、促销标识或其他商品。不使用逼真的生成式人物。',
             '按各图位的用途和宽高比设计不同的画面。主副图用于商品列表和轮播展示，详情图各自说明一个主题，依次组成详情页内容。',
             currentShot ? '输出纯 JSON，根对象仅含 shots。' : '输出纯 JSON，根对象包含 productInfo 和 shots。',
-            'shots 是对象数组，每项仅含 id、prompt、headline、body。只为给定 id 编写方案。',
+            supplemental
+                ? 'shots 只返回指定的场景图位，包含 id、sceneSummary、prompt、headline、body。sceneSummary 用简体中文简述实际画面与展示重点。'
+                : 'shots 是对象数组，每项仅含 id、prompt、headline、body。只为给定 id 编写方案。',
+            supplemental && 'sceneDescription 是用户对场景的要求。优先依据它构图，留空时结合参考图和商品用途推荐一个场景。参考 existingScenes 避免与其他图位重复。',
             '每个 prompt 都应写清画面内容、构图和摄影风格，具体到展示的商品部位、场景、景别、拍摄角度、主体位置、光线和色调。全套图片协调统一，每个图位有自己的构图重点。',
             'allowCopy 为 true 且有文案时，在 prompt 中描述与商品构图融为一体的文字布局，指定标题和正文的位置、对齐、层级、字体风格和字色，保证阅读对比度，不遮挡实物。用“标题”“正文”指代，不在 prompt 中重复实际文案。',
             'headline 和 body 分别填写要出现在图上的短标题和辅助说明，具体、自然，贴合本图用途。避免多张图重复同样的文案。缺少合适证据时留空。',
@@ -416,6 +535,7 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
             copyLimits: COMMERCE_IMAGE_SET_COPY_LIMITS,
             ...(currentShot ? { currentShot: { prompt: currentShot.prompt, headline: currentShot.headline, body: currentShot.body },
                 sellingPoints: input.plan.sellingPoints } : {}),
+            ...(supplemental ? { sceneDescription: currentShot.description, existingScenes } : {}),
             shots: slots.map(({ id, label, group, aspect, purpose, allowCopy }) => ({ id, label, group, aspect, purpose, allowCopy })) },
         validate(raw) {
             const product = currentShot ? null
@@ -441,9 +561,14 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
             usedHeadlines.add(fallback);
         }
     }
-    if (currentShot) return { ...input, plan: { ...input.plan, confirmed: false,
+    if (currentShot) return { ...input, plan: { ...input.plan, confirmed: supplemental && input.plan.confirmed,
         shots: input.plan.shots.map(shot => shot.id === currentShot.id ? plan.shots[0] : shot) } };
     const updated = { ...input, ...product };
-    return { ...updated, plan: { ...plan, sourceKey: await commerceImageSetSourceKey({ settings: updated, references: images }), confirmed: false },
-        results: [] };
+    const sourceKey = await commerceImageSetSourceKey({ settings: updated, references: images });
+    const preserveScenes = input.plan?.sourceKey === sourceKey && !input.plan.stale;
+    const keptScenes = preserveScenes ? input.plan.shots.filter(shot => shot.customScene) : [];
+    const combined = normalizeCommerceImageSetPlan({ ...plan, shots: [...plan.shots, ...keptScenes] },
+        platform.id, updated.selectedShotIds, updated, { allowBlankPrompts: true });
+    return { ...updated, plan: { ...combined, sourceKey, confirmed: false },
+        results: preserveScenes ? input.results.filter(row => isCommerceSceneId(row.shotId)) : [] };
 }

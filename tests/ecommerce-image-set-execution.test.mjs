@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { normalizeCommerceImageSetState, updateCommerceImageSetCopyLanguage, updateCommerceProductInfoField } from '../js/features/ecommerce-image-set/commerce-image-set-plan.js';
+import {
+    appendCommerceSceneShot, confirmCommerceSceneShot, isCommerceShotImageStale,
+    normalizeCommerceImageSetState, updateCommerceImageSetCopyLanguage, updateCommerceProductInfoField
+} from '../js/features/ecommerce-image-set/commerce-image-set-plan.js';
 import test from 'node:test';
 import { createExecutionCoreApi } from '../js/features/execution/execution-core.js';
 import '../js/features/execution/protocols/google.js';
@@ -342,8 +345,56 @@ test('replanning a commerce shot changes only its draft and preserves existing i
             prompt: '窗边自然光，桌面场景。', headline: '清晨一杯', body: '自然光下展示杯身' }
     ] });
     assert.deepEqual(results, priorResults);
+    assert.deepEqual(plan.shots.filter((shot, index) => isCommerceShotImageStale(shot, results[index])).map(shot => shot.id), ['scene']);
     assert.deepEqual(node.data.mediaAssetKeys, priorKeys);
     assert.equal(history.length, historyCount);
+});
+
+test('a supplemental scene can be planned during base generation and is only generated after confirmation', async () => {
+    const started = Promise.withResolvers();
+    const release = Promise.withResolvers();
+    const selectedShotIds = ['main', 'detail-overview'];
+    const { node, execute, apiCalls } = createCommerceExecutionFixture({
+        selectedShotIds,
+        responseImageData: role => role === 'detail-overview' ? 'AQ==' : 'Ag==',
+        async beforeImageRequest(role) {
+            if (role === 'detail-overview') {
+                started.resolve();
+                await release.promise;
+            }
+        },
+        beforePlanRequest(input) {
+            const id = input.shots[0]?.id;
+            if (!id?.startsWith('scene-')) return;
+            return { shots: [{ id, sceneSummary: '清晨窗边', prompt: '窗边自然光，左侧展示商品', headline: '清晨一杯' }] };
+        }
+    });
+    await execute('plan');
+    node.data.commerceImageSet.plan.confirmed = true;
+    const base = execute('generate');
+    let id;
+    try {
+        await Promise.race([started.promise, base]);
+        id = appendCommerceSceneShot(node.data.commerceImageSet, 'gallery').id;
+        await execute('replan-shot', reference, id);
+        assert.equal(node.data.commerceImageSet.plan.confirmed, true);
+        assert.equal(node.data.commerceImageSet.plan.shots.find(shot => shot.id === id).headline, '清晨一杯');
+        await assert.rejects(execute('retry', reference, id), /确认.*方案/);
+    } finally {
+        release.resolve();
+        await base;
+    }
+    const before = structuredClone(node.data.commerceImageSet.results);
+    assert.deepEqual(before.map(row => row.shotId), selectedShotIds);
+    assert.equal(node.generationAttemptIncomplete, false);
+    await assert.rejects(execute('fill'), /所有图位已完成/);
+    assert.deepEqual(apiCalls.filter(call => call.type === 'image').map(call => call.role), ['detail-overview']);
+
+    assert.equal(confirmCommerceSceneShot(node.data.commerceImageSet, id), true);
+    await execute('retry', reference, id);
+    assert.deepEqual(node.data.commerceImageSet.results.map(row => row.shotId), ['main', id, 'detail-overview']);
+    assert.deepEqual(node.data.commerceImageSet.results.filter(row => row.shotId !== id), before);
+    assert.deepEqual(apiCalls.filter(call => call.type === 'image').map(call => call.role), ['detail-overview', '窗边自然光，左侧展示商品']);
 });
 
 test('replanning validates its target and source and preserves the draft when canceled or when the response is invalid', async () => {
@@ -389,11 +440,19 @@ test('regenerating a completed commerce shot replaces only its own image after a
     const originalKeys = node.data.mediaAssetKeys.slice();
     const originalResults = structuredClone(node.data.commerceImageSet.results);
     const callCount = apiCalls.length;
+    const { plan } = node.data.commerceImageSet;
+    const detail = plan.shots.find(shot => shot.id === 'detail');
+    const originalDetail = originalResults.find(row => row.shotId === 'detail');
+    assert.equal(isCommerceShotImageStale(detail, originalDetail), false);
+    plan.confirmed = false;
+    detail.headline = '新的标题';
+    assert.equal(isCommerceShotImageStale(detail, originalDetail), true);
 
     setFailure('detail');
     await assert.rejects(execute('retry', reference, 'detail'));
     assert.deepEqual(node.data.mediaAssetKeys, originalKeys);
     assert.deepEqual(node.data.commerceImageSet.results, originalResults);
+    assert.equal(isCommerceShotImageStale(detail, node.data.commerceImageSet.results.at(-1)), true);
     assert.equal(history.length, 3);
 
     clearFailure();
@@ -415,9 +474,6 @@ test('regenerating a completed commerce shot replaces only its own image after a
 
     interruptRetry = false;
     regenerate = true;
-    const { plan } = node.data.commerceImageSet;
-    plan.confirmed = false;
-    plan.shots.find(shot => shot.id === 'detail').headline = '新的标题';
     const updated = await execute('retry', reference, 'detail');
     assert.deepEqual(apiCalls.slice(callCount).map(call => call.role), ['detail', 'detail', 'detail']);
     assert.deepEqual(updated.images, [original.images[0], original.images[1], changedArtwork]);
@@ -425,6 +481,8 @@ test('regenerating a completed commerce shot replaces only its own image after a
     assert.equal(node.data.mediaAssetKeys[0], originalKeys[0]);
     assert.equal(node.data.mediaAssetKeys[1], originalKeys[1]);
     assert.deepEqual(node.data.commerceImageSet.results.map(row => row.shotId), ['main', 'angle', 'detail']);
+    assert.equal(isCommerceShotImageStale(detail, node.data.commerceImageSet.results.at(-1)), false);
+    assert.deepEqual(node.data.commerceImageSet.results.slice(0, -1), originalResults.slice(0, -1));
     assert.equal(history.length, 4);
 });
 
@@ -540,10 +598,19 @@ test('commerce shows model results and failure rows before the remaining image f
     await execute('plan');
     node.data.commerceImageSet.plan.confirmed = true;
     const generation = execute('generate');
+    let previewPlanKey;
     try {
         await Promise.race([waiting.promise, generation]);
         assert.deepEqual(node.commerceShotPreviews.main, { status: 'completed', image: reference });
-        assert.deepEqual(node.commerceShotPreviews.angle, { status: 'completed', image: finishedArtwork });
+        const preview = node.commerceShotPreviews.angle;
+        assert.equal(preview.status, 'completed');
+        assert.equal(preview.image, finishedArtwork);
+        previewPlanKey = preview.planKey;
+        assert.ok(previewPlanKey);
+        const angle = node.data.commerceImageSet.plan.shots.find(shot => shot.id === 'angle');
+        assert.equal(isCommerceShotImageStale(angle, preview), false);
+        angle.prompt += '\n改用俯拍。';
+        assert.equal(isCommerceShotImageStale(angle, preview), true);
         assert.equal(node.commerceShotPreviews.detail.status, 'failed');
         assert.equal(node.commerceShotPreviews.scene.status, 'running');
         assert.deepEqual(node.data.commerceImageSet.results, []);
@@ -553,7 +620,11 @@ test('commerce shows model results and failure rows before the remaining image f
         await generation;
     }
     assert.equal(node.commerceShotPreviews, undefined);
-    assert.equal(node.data.commerceImageSet.results.find(row => row.shotId === 'angle').assetKey, 'media:020000');
+    const angleResult = node.data.commerceImageSet.results.find(row => row.shotId === 'angle');
+    assert.equal(angleResult.assetKey, 'media:020000');
+    assert.equal(angleResult.planKey, previewPlanKey);
+    const angle = node.data.commerceImageSet.plan.shots.find(shot => shot.id === 'angle');
+    assert.equal(isCommerceShotImageStale(angle, angleResult), true);
 });
 
 test('stopping during progressive commerce generation retains the prior workflow output and archived completed images', async () => {
