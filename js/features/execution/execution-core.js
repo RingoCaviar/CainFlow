@@ -3121,6 +3121,7 @@ export function createExecutionCoreApi({
             const counter = documentRef.getElementById(`${node.id}-text-counter`);
             if (nav) nav.classList.toggle('hidden', texts.length <= 1);
             if (counter) counter.textContent = texts.length > 1 ? `1/${texts.length}` : '';
+            node.el?._refreshTextReader?.();
             connectionProjection?.nodeGeometryChanged(node.id);
         },
         CameraControl: async (node, inputs = {}) => {

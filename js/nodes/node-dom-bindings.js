@@ -1,4 +1,6 @@
 import { createThinkingControl } from '../features/execution/thinking-control.js';
+import { bindTextNodeReader } from './text-node-reader.js';
+import { bindTextNodeTools } from './text-node-tools.js';
 import { createImageReferenceOverview } from './image-reference-overview.js';
 import { createImageNodeResults } from './image-node-results.js';
 import { renderImageNodeRunState } from './image-node-run-state.js';
@@ -440,9 +442,11 @@ export function createNodeDomBindingsApi({
             node.textPreviewIndex = index;
             node.data.texts[index] = textarea.value;
             node.data.text = textarea.value;
+            node.el?._refreshTextReader?.();
             return;
         }
         node.data.text = textarea.value;
+        node.el?._refreshTextReader?.();
     }
 
     function normalizeTextList(value) {
@@ -470,6 +474,7 @@ export function createNodeDomBindingsApi({
             nav?.classList.add('hidden');
             if (counter) counter.textContent = '';
             if (texts.length === 1 && textarea.value !== texts[0]) textarea.value = texts[0];
+            node.el?._refreshTextReader?.();
             return;
         }
 
@@ -478,6 +483,7 @@ export function createNodeDomBindingsApi({
         if (textarea.value !== texts[index]) textarea.value = texts[index];
         nav?.classList.remove('hidden');
         if (counter) counter.textContent = `${index + 1}/${texts.length}`;
+        node.el?._refreshTextReader?.();
     }
 
     function stepTextPreview(id, delta) {
@@ -2463,45 +2469,85 @@ export function createNodeDomBindingsApi({
         el.addEventListener('click', stopBatchConnectionFollowupClick, true);
         el.addEventListener('dblclick', stopBatchConnectionFollowupClick, true);
 
-        if (type === 'Text') {
-            const text = el.querySelector('textarea');
-            if (text) {
-                const finishEditing = () => {
-                    el.classList.remove('is-text-editing');
-                    text.readOnly = true;
-                    text.tabIndex = -1;
-                };
-                const beginEditing = () => {
-                    const node = state.nodes.get(id);
-                    if (!node || node.isClone || isNodeRunning(id) || state.batchConnectionMode?.sourceNodeId) return;
-                    selectNode(id, false);
-                    el.classList.add('is-text-editing');
-                    text.readOnly = false;
-                    text.tabIndex = 0;
-                    text.focus({ preventScroll: true });
-                };
-                finishEditing();
-                el.tabIndex = 0;
-                el.addEventListener('dblclick', event => {
-                    if (!event.target.closest('.node-field-expand')) return;
+        const textEditor = type === 'Text' ? el.querySelector('.text-node-editor') : null;
+        const isTextEditingSurface = target => textEditor && (
+            target === textEditor || (!target.closest('.node-header, button, input, textarea, select, .port, .node-resize-handle, .text-multi-nav')
+                && (target === el || target.closest('.node-body, .node-glass-bg')))
+        );
+        if (textEditor) {
+            const title = el.querySelector('.node-title');
+            if (title) { title.id = `${id}-text-title`; el.setAttribute('aria-labelledby', title.id); }
+            else el.setAttribute('aria-label', '文本节点');
+            el.setAttribute('role', 'group');
+            const tools = documentRef.createElement('div');
+            tools.className = 'text-node-tools';
+            const mode = documentRef.createElement('span');
+            mode.className = 'text-node-mode';
+            mode.id = `${id}-text-help`;
+            const updateMode = () => {
+                const node = state.nodes.get(id);
+                const locked = node?.isClone ? '克隆只读 · 可查看全文'
+                    : isNodeRunning(id) ? '运行中 · 暂不可编辑'
+                    : textEditor.disabled || textEditor.readOnly ? '只读 · 可查看全文' : '';
+                mode.textContent = locked || (documentRef.activeElement === textEditor ? '编辑中 · Esc 结束' : '预览 · 双击编辑');
+                mode.title = locked || '双击正文或聚焦节点后按 Enter / F2 编辑，Esc 结束';
+            };
+            updateMode();
+            textEditor.addEventListener('focus', updateMode);
+            textEditor.addEventListener('blur', updateMode);
+            el.addEventListener('pointerenter', updateMode);
+            el.addEventListener('focusin', updateMode);
+            const modeObserver = new documentRef.defaultView.MutationObserver(updateMode);
+            modeObserver.observe(textEditor, { attributes: true, attributeFilter: ['disabled', 'readonly'] });
+            modeObserver.observe(el, { attributes: true, attributeFilter: ['class'] });
+            (el._cleanupFns ||= []).push(() => modeObserver.disconnect());
+            const instructions = documentRef.createElement('span');
+            instructions.id = `${id}-text-keys`;
+            instructions.hidden = true;
+            instructions.textContent = '可编辑时，双击正文或聚焦节点后按 Enter / F2 编辑，Esc 结束。';
+            el.append(instructions);
+            el.setAttribute('aria-describedby', `${mode.id} ${instructions.id}`);
+            textEditor.setAttribute('aria-describedby', `${mode.id} ${instructions.id}`);
+            tools.append(mode);
+            el.append(tools);
+            const disposeReader = bindTextNodeReader({ el, editor: textEditor, id, documentRef,
+                getTexts: () => normalizeTextList(state.nodes.get(id)?.data?.texts),
+                getIndex: () => state.nodes.get(id)?.textPreviewIndex || 0,
+                setIndex: index => { const node = state.nodes.get(id); if (!node) return; node.textPreviewIndex = index; renderTextMultiPreview(id); scheduleSave(); },
+                showToast });
+            (el._cleanupFns ||= []).push(disposeReader);
+            el._cleanupFns.push(bindTextNodeTools({ el, tools, documentRef }));
+            const beginEditing = () => {
+                const node = state.nodes.get(id);
+                if (!node || node.isClone || isNodeRunning(id) || textEditor.disabled || textEditor.readOnly || state.batchConnectionMode?.sourceNodeId) return;
+                textEditor.focus({ preventScroll: true });
+            };
+            el.tabIndex = 0;
+            textEditor.tabIndex = -1;
+            el.addEventListener('dblclick', event => {
+                if (!isTextEditingSurface(event.target) || event.altKey || state.batchConnectionMode?.sourceNodeId) return;
+                event.stopPropagation();
+                if (documentRef.activeElement === textEditor) return;
+                event.preventDefault();
+                beginEditing();
+            });
+            el.addEventListener('click', event => {
+                if (documentRef.activeElement === textEditor && isTextEditingSurface(event.target) && !event.altKey) {
+                    event.stopPropagation();
+                }
+            });
+            el.addEventListener('keydown', event => {
+                if (event.isComposing) return;
+                if (event.target === el && (event.key === 'Enter' || event.key === 'F2')) {
                     event.preventDefault();
                     event.stopPropagation();
                     beginEditing();
-                });
-                el.addEventListener('keydown', event => {
-                    if (event.target === el && (event.key === 'Enter' || event.key === 'F2')) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        beginEditing();
-                    } else if (event.target === text && event.key === 'Escape') {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        text.blur();
-                        el.focus({ preventScroll: true });
-                    }
-                });
-                text.addEventListener('blur', finishEditing);
-            }
+                } else if (event.target === textEditor && event.key === 'Escape') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    el.focus({ preventScroll: true });
+                }
+            });
         }
 
         el.addEventListener('mousedown', (e) => {
@@ -2514,6 +2560,13 @@ export function createNodeDomBindingsApi({
 
             const target = e.target;
 
+            // Editing owns the body and its padding; retain native caret/selection gestures.
+            if (documentRef.activeElement === textEditor && isTextEditingSurface(target) && !e.altKey) {
+                if (target !== textEditor) e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+
             if (target.closest('.node-delete, .node-bypass-btn')) return;
 
             const interactiveSelector = 'input, textarea, select, button, label, .toggle-switch, .toggle-slider, .node-select, .port, .node-resize-handle, [contenteditable="true"], .chat-response-area, .preview-controls, .workflow-action-btn';
@@ -2525,13 +2578,15 @@ export function createNodeDomBindingsApi({
             const dragAreaSelector = '.node-header, .node-glass-bg';
             const isForceDrag = target.matches(dragAreaSelector) || (target.parentElement && target.parentElement.matches(dragAreaSelector));
 
-            if (isInteractive && !isForceDrag && !imageResultSurface) return;
+            if (isInteractive && !isForceDrag && !imageResultSurface && target !== textEditor) return;
 
             const node = state.nodes.get(id);
             if (!(node?.parameterRoot && node.type === 'ImagePreview' && mediaSurface)) canvasContainer.focus();
 
             const isPanAction = e.button === 1 || (e.button === 0 && e.altKey);
             if (isPanAction) return;
+
+            if (target === textEditor) el.focus({ preventScroll: true });
 
             e.preventDefault();
             e.stopPropagation();

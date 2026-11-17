@@ -1103,7 +1103,7 @@ function renderTextBody(id, restoreData) {
                 <span class="text-multi-counter" id="${id}-text-counter">${texts.length > 1 ? `${previewIndex + 1}/${texts.length}` : ''}</span>
                 <button type="button" class="text-multi-nav-btn" data-direction="1" title="下一条">›</button>
             </div>
-            <textarea id="${id}-text" placeholder="输入文本，或运行后预览上游文本..." rows="6"${getTextareaHeightStyle(rd, 'text')}>${escapeHtml(textValue)}</textarea>
+            <textarea id="${id}-text" class="text-node-editor" aria-label="文本内容" placeholder="双击输入文本"${getTextareaHeightStyle(rd, 'text')}>${escapeHtml(textValue)}</textarea>
         </div>
     `;
 }

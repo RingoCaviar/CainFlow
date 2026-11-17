@@ -29,5 +29,6 @@
 /* CainFlow 的样式总入口，聚合基础层、布局层、组件层和遗留样式。 */
 
 @import './css/features/image-first-canvas.css';
+@import './css/features/text-node-reader.css';
 @import './css/features/product-retouch.css';
 @import './css/components/form-controls.css';

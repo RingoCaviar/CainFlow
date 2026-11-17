@@ -1575,7 +1575,8 @@ html:root #canvas-container .node { border-color: transparent; }
 html:root #canvas-container .node > .node-glass-bg { border-style: none; }
 html:root #canvas-container .node.running { outline: 2px solid var(--node-border-running); outline-offset: 2px; }
 html:root #canvas-container .node.error { outline: 2px solid var(--node-border-error); outline-offset: 2px; }
-html:root #canvas-container .node:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+html:root #canvas-container .node:focus-visible,
+html:root #canvas-container .node.node-text:has(.text-node-editor:focus-visible) { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 html:root #canvas-container .node.image-first-card { background: var(--node-surface, var(--bg-node)); box-shadow: none; }
 #canvas-container #nodes-layer > .node.image-first-card > .node-glass-bg {
     background: var(--node-surface, var(--bg-node));
@@ -1669,17 +1670,30 @@ html:root #canvas-container .node.node-text .node-field-expand textarea {
     line-height: 1.65;
     box-shadow: none;
 }
-html:root #canvas-container .node.node-text textarea:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
+html:root #canvas-container .node.node-text textarea:not(.text-node-editor):focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
 html:root #canvas-container .node.node-text .text-multi-nav:not(.hidden) { padding: 6px 8px 0; margin: 0; }
 
-/* A text card is a canvas selection surface until editing is explicit. */
-#canvas-container .node.node-text:not(.is-text-editing) .node-field-expand textarea {
-    pointer-events: none;
-    user-select: none;
-    caret-color: transparent;
+/* Leave both sides of the text card available for moving the node. */
+html:root #canvas-container .node.node-text .node-field-expand:has(> .text-node-editor) {
+    padding-inline: 8px;
+    cursor: grab;
 }
-#canvas-container .node.node-text:not(.is-text-editing) .node-field-expand { cursor: grab; }
-#canvas-container .node.node-text.is-text-editing textarea { pointer-events: auto; user-select: text; caret-color: var(--text-primary); cursor: text; }
+html:root #canvas-container .node.node-text .node-field-expand .text-node-editor {
+    padding-inline: 4px;
+    outline: none;
+    user-select: text;
+    cursor: grab;
+}
+html:root #canvas-container .node.node-text .node-field-expand .text-node-editor:focus {
+    cursor: text;
+}
+html:root #canvas-container .node.node-text:has(.text-node-editor):is(:hover, :focus-within) > .node-header { display: flex; }
+html:root #canvas-container .node.node-text:has(.text-node-editor):not(.selected) > .node-header .header-right { visibility: hidden; }
+html:root #canvas-container .node.node-text > .node-header { display: flex; }
+html:root #canvas-container .node.node-text .text-node-editor:not(:focus) { scrollbar-width: none; }
+html:root #canvas-container .node.node-text .text-node-editor:not(:focus)::-webkit-scrollbar { display: none; }
+.text-node-tools { position: absolute; top: 100%; left: 0; display: flex; align-items: center; gap: 8px; padding-top: 6px; white-space: nowrap; transform-origin: top left; color: var(--text-secondary); font-size: 12px; z-index: 5; }
+.node-text:not(.selected):not(:focus-within):not(:hover) .text-node-tools { visibility: hidden; }
 
 /* Prompt above, one compact action row below. */
 .image-parameter-panel[data-node-type="ImageGenerate"] .image-parameter-footer-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex: 1 1 auto; min-width: 0; }

@@ -1433,7 +1433,9 @@ export function createCanvasInteractionsApi({
                 return;
             }
 
-            if (hasScrollableNodeAncestor(e.target)) return;
+            const textEditor = e.target?.closest?.('.text-node-editor');
+            const idleText = textEditor && documentRef.activeElement !== textEditor;
+            if (!idleText && hasScrollableNodeAncestor(e.target)) return;
 
             e.preventDefault();
             canvasContainer.classList.add('is-zooming');

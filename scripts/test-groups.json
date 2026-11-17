@@ -285,6 +285,7 @@
     }
   ],
   "tests": {
+    "tests/text-node-ux-app-browser.test.mjs": {"tier": "browser", "groups": ["nodes", "canvas", "ui"], "sources": ["js/nodes/text-node-reader.js", "js/nodes/text-node-tools.js", "js/nodes/node-lifecycle.js", "js/features/execution/execution-core.js", "css/features/text-node-reader.css", "js/nodes/node-view-factory.js", "js/nodes/node-dom-bindings.js", "css/features/image-first-canvas.css"]},
     "tests/media-history-id-browser.test.mjs": {"tier": "browser", "groups": ["media", "history"]},
     "tests/browser-operation-diagnostics.test.mjs": {"tier": "browser", "groups": ["tooling", "media"]},
     "tests/test-plan.test.mjs": {"tier": "fast", "groups": ["tooling"], "inferSources": false, "sources": ["scripts/test-plan.mjs", "scripts/run-tests.mjs", "scripts/run-browser-tests.mjs", "scripts/test-groups.json", "tests/helpers/browser-theme-fixture.mjs"]},
@@ -431,7 +432,7 @@
     "tests/image-merge-memory-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"]},
     "tests/image-merge-memory-budget.test.mjs": {"tier": "fast", "groups": ["media", "nodes"]},
     "tests/image-painter-output.test.mjs": {"tier": "fast", "groups": ["media", "nodes"]},
-    "tests/image-parameter-compact-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"], "sources": ["js/features/ui/image-input-detail.js"]},
+    "tests/image-parameter-compact-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"], "sources": ["js/features/ui/image-input-detail.js", "js/nodes/node-dom-bindings.js", "js/nodes/node-lifecycle.js", "js/nodes/node-view-factory.js", "css/components/form-controls.css", "css/features/image-first-canvas.css"]},
     "tests/image-parameter-overflow-app-browser.test.mjs": {"tier": "browser", "groups": ["media", "nodes"], "sources": ["css/components/form-controls.css", "js/nodes/image-parameter-controls.js"]},
     "tests/image-paste-global-interactions.test.mjs": {"tier": "fast", "groups": ["media", "nodes"]},
     "tests/image-node-results-preview.test.mjs": {"tier": "fast", "groups": ["media", "nodes"]},

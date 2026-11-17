@@ -74,22 +74,227 @@ test('parameter popup supports keyboard entry, named controls and visible batch 
     });
 });
 
-test('text cards select and drag before explicit editing, then Escape restores canvas interaction', { timeout: 30000 }, async () => {
-    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes: [{ id: 'text-card', type: 'Text', x: 80, y: 80, width: 260, height: 190, text: 'original draft' }], connections: [] }, async app => {
-        const point = await app.evaluate("(()=>{const r=document.getElementById('text-card-text').getBoundingClientRect();return {x:r.left+40,y:r.top+40}})()");
-        const mouse = (type, extra = {}) => app.send('Input.dispatchMouseEvent', { type, ...point, button: 'left', clickCount: 1, ...extra });
-        await mouse('mousePressed'); await mouse('mouseReleased');
-        assert.ok(await app.evaluate("document.getElementById('text-card').classList.contains('selected')&&document.activeElement!==document.getElementById('text-card-text')"), 'one click selects without entering the textarea');
-        const before = await app.evaluate("document.getElementById('text-card').style.left");
-        await mouse('mousePressed'); await mouse('mouseMoved', { x: point.x + 50, y: point.y + 30, buttons: 1 }); await mouse('mouseReleased', { x: point.x + 50, y: point.y + 30 });
-        assert.notEqual(await app.evaluate("document.getElementById('text-card').style.left"), before, 'dragging the text surface moves the node');
-        await mouse('mousePressed', { x: point.x + 50, y: point.y + 30, clickCount: 2 }); await mouse('mouseReleased', { x: point.x + 50, y: point.y + 30, clickCount: 2 });
-        assert.ok(await app.evaluate("document.activeElement===document.getElementById('text-card-text')&&!document.getElementById('text-card-text').readOnly"), 'double click enters editing');
-        await app.send('Input.insertText', { text: 'edited' });
-        assert.ok(await app.evaluate("document.getElementById('text-card-text').value.includes('edited')"));
+test('unselected text cards can be clicked and dragged from the top of the card at 50% zoom', { timeout: 30000 }, async () => {
+    const nodes = [
+        { id: 'click-text', type: 'Text', x: 80, y: 180, width: 260, height: 190, text: 'Click fixture' },
+        { id: 'drag-text', type: 'Text', x: 420, y: 180, width: 260, height: 190, text: 'Drag fixture' }
+    ];
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes, connections: [] }, async app => {
+        await app.evaluate(`document.querySelector('#canvas-navigation [data-zoom="0.5"]').click()`);
+        await settle(app);
+        const titlePoint = id => app.evaluate(`(() => {
+            const card = document.getElementById('${id}');
+            const rect = card.getBoundingClientRect();
+            return { x: rect.left + rect.width / 2, y: rect.top + 8 };
+        })()`);
+        const mouse = (type, point, buttons) => app.send('Input.dispatchMouseEvent', { type, ...point, button: 'left', clickCount: 1, buttons });
+        const selection = () => app.evaluate("[...document.querySelectorAll('#nodes-layer > .node.selected')].map(node => node.id)");
+        assert.deepEqual(await selection(), []);
+
+        const click = await titlePoint('click-text');
+        await mouse('mousePressed', click, 1);
+        await mouse('mouseReleased', click, 0);
+        assert.deepEqual(await selection(), ['click-text'], 'a direct click at the top selects the node');
+
+        const start = await titlePoint('drag-text');
+        const end = { x: start.x + 40, y: start.y + 32 };
+        await mouse('mousePressed', start, 1);
+        await mouse('mouseMoved', end, 1);
+        await mouse('mouseReleased', end, 0);
+        assert.deepEqual(await selection(), ['drag-text']);
+        assert.deepEqual(await app.evaluate("[document.getElementById('drag-text').style.left, document.getElementById('drag-text').style.top]"), ['500px', '244px']);
+    });
+});
+
+test('text cards select on one click, edit on double click and keep internal clicks in the editor', { timeout: 30000 }, async () => {
+    const nodes = [
+        { id: 'text-card', type: 'Text', x: 80, y: 80, width: 260, height: 190, text: 'original draft' },
+        { id: 'other-card', type: 'Text', x: 420, y: 80, width: 260, height: 190, text: 'other draft' }
+    ];
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes, connections: [] }, async app => {
+        const mouse = (type, point, extra = {}) => app.send('Input.dispatchMouseEvent', { type, ...point, button: 'left', clickCount: 1, ...extra });
+        const edge = id => app.evaluate(`(() => {
+            const card = document.getElementById('${id}').getBoundingClientRect();
+            return { x: card.left + 4, y: card.top + 48 };
+        })()`);
+        const otherEdge = await edge('other-card');
+        await mouse('mousePressed', otherEdge);
+        await mouse('mouseReleased', otherEdge);
+        const selectedNodes = () => app.evaluate("[...document.querySelectorAll('#nodes-layer > .node.selected')].map(node => node.id)");
+        assert.deepEqual(await selectedNodes(), ['other-card']);
+
+        const textPoint = await app.evaluate(`(() => {
+            const input = document.getElementById('text-card-text');
+            const bounds = input.getBoundingClientRect();
+            const styles = getComputedStyle(input);
+            return { x: bounds.left + parseFloat(styles.paddingLeft) + 2, y: bounds.top + parseFloat(styles.paddingTop) + 8 };
+        })()`);
+        await mouse('mouseMoved', textPoint, { button: 'none' });
+        assert.ok(await app.evaluate("document.querySelector('#text-card > .node-header').checkVisibility()"), 'hover exposes the text card drag title');
+        assert.equal(await app.evaluate("document.querySelector('#text-card .node-delete').checkVisibility({ checkVisibilityCSS: true })"), false, 'node actions remain hidden until selected');
+        await mouse('mousePressed', textPoint);
+        await mouse('mouseReleased', textPoint);
+        assert.deepEqual(await selectedNodes(), ['text-card'], 'one click selects the text node');
+        assert.notEqual(await app.evaluate('document.activeElement.id'), 'text-card-text', 'one click does not enter editing');
+        await mouse('mousePressed', textPoint, { clickCount: 2 });
+        await mouse('mouseReleased', textPoint, { clickCount: 2 });
+        assert.equal(await app.evaluate('document.activeElement.id'), 'text-card-text', 'double click enters editing');
+
+        // Observe every selection call: reselecting the same node also violates the editing boundary.
+        await app.evaluate(`(async () => {
+            const { bootstrapCainFlowApp } = await import('/js/app/bootstrap.js');
+            const { registry } = await bootstrapCainFlowApp();
+            const original = registry.imageFirstCanvasApi.selectionChanged;
+            window.textSelectionEvents = 0;
+            registry.imageFirstCanvasApi.selectionChanged = (...args) => {
+                window.textSelectionEvents++;
+                return original(...args);
+            };
+        })()`);
+        await mouse('mousePressed', textPoint);
+        await mouse('mouseReleased', textPoint);
+        assert.equal(await app.evaluate('document.activeElement.id'), 'text-card-text', 'an editor click keeps the caret active');
+        await mouse('mousePressed', textPoint, { clickCount: 2 });
+        await mouse('mouseReleased', textPoint, { clickCount: 2 });
+        assert.ok(await app.evaluate('document.activeElement.selectionEnd > document.activeElement.selectionStart'), 'double click while editing retains native word selection');
+        const insidePadding = await edge('text-card');
+        await mouse('mousePressed', insidePadding);
+        await mouse('mouseReleased', insidePadding);
+        assert.equal(await app.evaluate('document.activeElement.id'), 'text-card-text', 'internal card padding does not exit editing');
+        assert.equal(await app.evaluate('window.textSelectionEvents'), 0, 'internal clicks do not reselect the node');
+
+        const end = { x: textPoint.x + 45, y: textPoint.y };
+        const originalPosition = await app.evaluate("document.getElementById('text-card').style.left");
+        await mouse('mousePressed', textPoint);
+        await mouse('mouseMoved', end, { buttons: 1 });
+        await mouse('mouseReleased', end);
+        assert.ok(await app.evaluate('document.activeElement.selectionEnd > document.activeElement.selectionStart'), 'dragging in the editor selects text');
+        assert.equal(await app.evaluate("document.getElementById('text-card').style.left"), originalPosition);
+        await app.send('Input.insertText', { text: '输入成功' });
+        assert.match(await app.evaluate('document.activeElement.value'), /输入成功/);
+        await app.waitFor("fetch('/api/storage/documents/session').then(r => r.json()).then(r => r.value?.nodes.find(node => node.id === 'text-card')?.text.includes('输入成功'))");
+
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+        assert.equal(await app.evaluate('document.activeElement.id'), 'text-card');
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
+        const title = await app.evaluate(`(() => {
+            const card = document.querySelector('#text-card > .node-header').getBoundingClientRect();
+            return { x: card.left + 50, y: card.top + card.height / 2 };
+        })()`);
+        const movedTitle = { x: title.x + 50, y: title.y + 30 };
+        await mouse('mousePressed', title);
+        await mouse('mouseMoved', movedTitle, { buttons: 1 });
+        await mouse('mouseReleased', movedTitle);
+        assert.deepEqual(await selectedNodes(), ['text-card']);
+        assert.notEqual(await app.evaluate("document.getElementById('text-card').style.left"), originalPosition, 'dragging the title moves the node');
+
+        await app.evaluate("document.getElementById('text-card').focus()");
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'F2', code: 'F2' });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'F2', code: 'F2' });
+        assert.equal(await app.evaluate('document.activeElement.id'), 'text-card-text', 'F2 reenters editing');
+        await mouse('mousePressed', otherEdge);
+        await mouse('mouseReleased', otherEdge);
+        assert.deepEqual(await selectedNodes(), ['other-card'], 'an external click can select another node');
+        assert.notEqual(await app.evaluate('document.activeElement.id'), 'text-card-text', 'an external click exits editing');
+    });
+});
+
+test('text cards preserve their reading scroll position when selected', { timeout: 30000 }, async () => {
+    const text = Array.from({ length: 100 }, (_, index) => `Line ${index + 1}: long text for scrolling`).join('\n');
+    const node = { id: 'scroll-text', type: 'Text', x: 80, y: 80, width: 260, height: 190, userResized: true, text };
+    const other = { id: 'other-scroll-text', type: 'Text', x: 420, y: 80, width: 260, height: 190, text: 'Other node' };
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes: [node, other], connections: [] }, async app => {
+        const mouse = (type, point) => app.send('Input.dispatchMouseEvent', { type, ...point, button: 'left', clickCount: 1 });
+        const scrollTop = () => app.evaluate("document.getElementById('scroll-text-text').scrollTop");
+        for (const surface of ['body', 'edge', 'title']) {
+            const otherPoint = await app.evaluate(`(() => {
+                const rect = document.getElementById('other-scroll-text').getBoundingClientRect();
+                return { x: rect.left + 50, y: rect.top + 65 };
+            })()`);
+            await mouse('mousePressed', otherPoint);
+            await mouse('mouseReleased', otherPoint);
+            await app.evaluate(`document.getElementById('canvas-container').focus();
+                document.getElementById('scroll-text-text').scrollTop = 750;`);
+            await settle(app);
+            const before = await scrollTop();
+            assert.ok(before > 500, 'fixture is scrolled well beyond the first page');
+            const bodyPoint = await app.evaluate(`(() => {
+                const rect = document.getElementById('scroll-text').getBoundingClientRect();
+                return { x: rect.left + 50, y: rect.top + 65 };
+            })()`);
+            await mouse('mouseMoved', bodyPoint);
+            const point = await app.evaluate(`(() => {
+                const card = document.getElementById('scroll-text');
+                const rect = card.getBoundingClientRect();
+                const title = card.querySelector('.node-header').getBoundingClientRect();
+                return ${JSON.stringify(surface)} === 'body' ? { x: rect.left + 50, y: rect.top + 65 }
+                    : ${JSON.stringify(surface)} === 'edge' ? { x: rect.left + 4, y: rect.top + 65 }
+                    : { x: title.left + 50, y: title.top + title.height / 2 };
+            })()`);
+            await mouse('mousePressed', point);
+            await mouse('mouseReleased', point);
+            await settle(app);
+            assert.equal(await scrollTop(), before, `${surface} selection preserves the text reading position`);
+            assert.ok(await app.evaluate("document.getElementById('scroll-text').classList.contains('selected')"));
+            assert.equal(await app.evaluate("document.getElementById('nodes-layer').lastElementChild.id"), 'scroll-text', 'selection still brings the node to the front');
+            assert.notEqual(await app.evaluate('document.activeElement.id'), 'scroll-text-text');
+        }
+    });
+});
+
+test('text cards only scroll with the wheel while editing', { timeout: 30000 }, async () => {
+    const text = Array.from({ length: 100 }, (_, i) => `Line ${i}`).join('\n');
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes: [{ id: 'wheel-text', type: 'Text', x: 80, y: 80, width: 260, height: 190, userResized: true, text }], connections: [] }, async app => {
+        const wheel = async () => {
+            const point = await app.evaluate(`(() => { const r = document.getElementById('wheel-text-text').getBoundingClientRect(); return { x: r.left + 50, y: r.top + 50 }; })()`);
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseWheel', ...point, deltaX: 0, deltaY: 120 });
+            await app.evaluate('new Promise(resolve => setTimeout(resolve, 300))');
+        };
+        const position = () => app.evaluate("document.getElementById('wheel-text-text').scrollTop");
+        await wheel();
+        assert.equal(await position(), 0, 'idle wheel does not scroll text');
+        await app.evaluate("document.getElementById('wheel-text-text').focus()");
+        await wheel();
+        assert.ok(await position() > 0, 'editing wheel scrolls text');
+        await app.evaluate("document.getElementById('wheel-text').focus()");
+        const before = await position();
+        await wheel();
+        assert.equal(await position(), before, 'leaving editing restores the wheel boundary');
+    });
+});
+
+test('text cards show an editing cursor only while editing', { timeout: 30000 }, async () => {
+    const node = { id: 'cursor-text', type: 'Text', x: 80, y: 80, width: 260, height: 190, text: 'cursor fixture' };
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes: [node], connections: [] }, async app => {
+        const cursor = () => app.evaluate("getComputedStyle(document.getElementById('cursor-text-text')).cursor");
+        assert.equal(await cursor(), 'grab', 'idle text uses the node drag cursor');
+        await app.evaluate("document.getElementById('cursor-text').focus()");
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter' });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter' });
+        assert.equal(await cursor(), 'text', 'editing text uses the caret cursor');
         await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
         await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
-        assert.ok(await app.evaluate("document.getElementById('text-card-text').readOnly&&!document.getElementById('text-card').classList.contains('is-text-editing')"));
+        assert.equal(await cursor(), 'grab', 'leaving editing restores the node cursor');
+    });
+});
+
+test('focused text cards use the full node height without an inner frame', { timeout: 30000 }, async () => {
+    const text = Array.from({ length: 10 }, (_, index) => `Line ${index + 1}`).join('\n');
+    const node = { id: 'tall-text', type: 'Text', x: 80, y: 80, width: 260, height: 300, userResized: true, text };
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes: [node], connections: [] }, async app => {
+        await app.evaluate("document.getElementById('tall-text').focus()");
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter' });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter' });
+        assert.equal(await app.evaluate('document.activeElement.id'), 'tall-text-text');
+        const style = await app.evaluate(`(() => {
+            const input = document.activeElement;
+            const css = getComputedStyle(input);
+            return { outline: css.outlineStyle, border: css.borderTopWidth, shadow: css.boxShadow,
+                height: input.clientHeight, scrollHeight: input.scrollHeight, value: input.value };
+        })()`);
+        assert.equal(style.value, text);
+        assert.equal(style.height, style.scrollHeight, 'all ten lines fit in a tall card');
+        assert.deepEqual([style.outline, style.border, style.shadow], ['none', '0px', 'none']);
     });
 });
 

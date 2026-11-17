@@ -149,7 +149,7 @@ section.node-model-settings { display: grid; gap: 8px; flex: none; }
 /* Use the native editor for both soft wrapping and programmatic value changes.
    The layout overrides also cover existing node, dialog and composer sizes. */
 @supports (field-sizing: content) {
-    textarea:not([readonly]) {
+    textarea:not([readonly], .text-node-editor) {
         box-sizing: border-box;
         field-sizing: content;
         padding-block: 6px !important;
@@ -159,11 +159,11 @@ section.node-model-settings { display: grid; gap: 8px; flex: none; }
         resize: var(--textarea-resize, vertical) !important;
         flex-grow: 0 !important;
     }
-    textarea:not([readonly], [style^="height:"], [style*="; height:"]) {
+    textarea:not([readonly], .text-node-editor, [style^="height:"], [style*="; height:"]) {
         height: auto !important;
     }
     /* Native resizing and the keyboard grip author an inline height. */
-    textarea:not([readonly]):is([style^="height:"], [style*="; height:"]) {
+    textarea:not([readonly], .text-node-editor):is([style^="height:"], [style*="; height:"]) {
         field-sizing: fixed;
         max-height: var(--textarea-manual-max, none) !important;
     }

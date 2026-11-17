@@ -2121,7 +2121,17 @@ export function createNodeLifecycleApi({
             state.activeNodeId = id;
             const node = state.nodes.get(id);
             if (node?.el && node.el.parentElement === nodesLayer) {
+                // Reattaching a textarea resets its scroll even when its value is unchanged.
+                const textEditor = node.type === 'Text' ? node.el.querySelector('.text-node-editor') : null;
+                const scrollTop = textEditor?.scrollTop;
+                const scrollLeft = textEditor?.scrollLeft;
+                const focused = textEditor && node.el.contains(documentRef.activeElement) ? documentRef.activeElement : null;
                 nodesLayer.appendChild(node.el);
+                focused?.focus({ preventScroll: true });
+                if (textEditor) {
+                    textEditor.scrollTop = scrollTop;
+                    textEditor.scrollLeft = scrollLeft;
+                }
             }
             scheduleSave();
         }
