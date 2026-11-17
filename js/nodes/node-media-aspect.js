@@ -1,9 +1,15 @@
 import { isImageFirstCardNode } from './image-first-presentation.js';
+import { TRANSPARENT_PREVIEW_PIXEL } from '../features/media/media-preview-cache.js';
 
 const surfaces = '.image-node-result-preview, .file-drop-zone, .preview-container, .save-preview-container, .image-compare-container, .camera-control-node-preview, .commerce-image-set-card, .product-retouch-compare-stage';
 const mediaSelector = surfaces.split(', ').map(surface => `${surface} img, ${surface} video`).join(', ');
 const mediaEvents = ['load', 'error', 'loadedmetadata', 'resize'];
 const activeSurfaces = new WeakMap();
+
+export function isPendingImagePreview(media) {
+    return media?.tagName === 'IMG' && media.getAttribute('src') === TRANSPARENT_PREVIEW_PIXEL &&
+        media.dataset?.originalSrc !== TRANSPARENT_PREVIEW_PIXEL;
+}
 
 /** Only decoded primary previews determine geometry; reference thumbnails never do. */
 export function syncNodeMediaAspect(node) {
@@ -16,7 +22,7 @@ export function syncNodeMediaAspect(node) {
         if (!['IMG', 'VIDEO'].includes(media.tagName)) continue;
         if (node.type === 'ImageCompare' && !media.classList.contains('image-compare-b')) continue;
         if (node.type === 'ProductRetouch' && !media.hasAttribute('data-retouch-result')) continue;
-        if (media.error || media.closest('[hidden], .hidden') || !media.getClientRects().length) continue;
+        if (media.error || isPendingImagePreview(media) || media.closest('[hidden], .hidden') || !media.getClientRects().length) continue;
         const width = media.videoWidth || media.naturalWidth;
         const height = media.videoHeight || media.naturalHeight;
         if (!(width > 0 && height > 0)) continue;
@@ -44,7 +50,7 @@ export function bindNodeMediaAspect(node, { fitNode, windowRef }) {
     if (!node?.el || !windowRef?.requestAnimationFrame || !isImageFirstCardNode(node) && node.type !== 'VideoGenerate') return;
     let frame = null;
     const schedule = event => {
-        if (event && !['IMG', 'VIDEO'].includes(event.target?.tagName)) return;
+        if (event && (!['IMG', 'VIDEO'].includes(event.target?.tagName) || isPendingImagePreview(event.target))) return;
         if (event && !event.target.closest(surfaces) && !event.target.matches('.node-video-result-field video')) return;
         if (frame !== null) return;
         frame = windowRef.requestAnimationFrame(() => {

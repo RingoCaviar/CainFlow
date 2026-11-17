@@ -1164,6 +1164,7 @@ export function createMediaControllerApi({
     async function clearImageImportBadge(nodeId) {
         const badge = getNodeElement(nodeId, 'res');
         if (badge) {
+            delete badge.dataset.resolutionToken;
             badge.textContent = '';
             badge.style.display = 'none';
         }
@@ -1238,11 +1239,13 @@ export function createMediaControllerApi({
 
         if (imageData) {
             dropZone.classList.add('has-image');
-            dropZone.innerHTML = '';
-            const img = documentRef.createElement('img');
-            img.style.pointerEvents = 'none';
+            let img = dropZone.firstElementChild;
+            if (img?.tagName !== 'IMG') {
+                img = documentRef.createElement('img');
+                img.style.pointerEvents = 'none';
+                dropZone.replaceChildren(img);
+            }
             setImageElementSource(img, imageData, '已导入图片', { preferImmediateSrc: true });
-            dropZone.appendChild(img);
             showResolutionBadge(nodeId, imageData);
             void cacheNodePreviewThumbnail(nodeId, imageData);
         } else {
@@ -1324,8 +1327,9 @@ export function createMediaControllerApi({
         if (!badge) return;
         const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         badge.dataset.resolutionToken = token;
-        const res = await previewCache.resolveImageResolution(dataUrl);
-        if (badge.dataset.resolutionToken !== token) return;
+        const isCurrent = () => badge.dataset.resolutionToken === token && (badge.isConnected || badge.parentNode);
+        const res = await previewCache.resolveImageResolution(dataUrl, { isCurrent });
+        if (!isCurrent()) return;
         if (res) {
             badge.textContent = `尺寸 ${res}`;
             badge.style.display = 'block';
@@ -3950,7 +3954,7 @@ export function createMediaControllerApi({
                     });
 
                     const thumbImage = documentRef.createElement('img');
-                    setImageElementSource(thumbImage, imageSrc, `缩略图 ${index + 1}`);
+                    setImageElementSource(thumbImage, imageSrc, `缩略图 ${index + 1}`, { thumbnailMaxEdge: 160 });
                     thumbImage.alt = `缩略图 ${index + 1}`;
                     button.appendChild(thumbImage);
 
@@ -4225,8 +4229,9 @@ export function createMediaControllerApi({
         renderImageSavePreview,
         renderImageComparePreview,
         getNodeFullscreenImageContext,
+        displayPreviewCache: previewCache,
         createReferenceThumbnail: source => previewCache.createDisplayMipmap(source, 96),
-        createResultThumbnail: source => previewCache.createDisplayMipmap(source, 480),
+        createResultThumbnail: (source, options) => previewCache.createDisplayMipmap(source, 480, options),
         rememberResultThumbnail: (nodeId, source, thumbnail) => {
             const node = getNodeById(nodeId);
             if (!node) return;

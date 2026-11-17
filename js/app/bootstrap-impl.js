@@ -865,7 +865,7 @@ const nodeDomBindingsApi = createNodeDomBindingsApi({
         else panelManager.toggle('logs');
     },
     readResultAsset: key => getImageAsset(key),
-    createResultThumbnail: source => mediaControllerApi.createResultThumbnail(source),
+    createResultThumbnail: (source, options) => mediaControllerApi.createResultThumbnail(source, options),
     rememberResultThumbnail: (nodeId, source, thumbnail) => mediaControllerApi.rememberResultThumbnail(nodeId, source, thumbnail),
     getPortPosition: (nodeId, portName, direction) => getPortPosition(nodeId, portName, direction),
     pushHistory,
@@ -2098,6 +2098,7 @@ function getWorkflowRuntimeManagerApi() {
             getSystemNotificationApi,
             getImageAsset,
             getImageAssetList,
+            displayPreviewCache: mediaControllerApi.displayPreviewCache,
             deleteImageImportAsset,
             deleteImageAsset,
             saveWorkflowNodeMediaAsset,

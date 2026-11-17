@@ -22,6 +22,7 @@ export function createThumbnailCacheManager({
     getNodeById,
     scheduleSave
 }) {
+    const pendingByNode = new WeakMap();
     /**
      * 选择要持久化的预览缩略图
      * @param {string} source - 原始图片源
@@ -65,6 +66,7 @@ export function createThumbnailCacheManager({
      */
     function clearNodePreviewThumbnail(nodeOrId) {
         const node = typeof nodeOrId === 'string' ? getNodeById(nodeOrId) : nodeOrId;
+        pendingByNode.delete(node);
         if (!node?.data?.imagePreviewThumbnail) return false;
         delete node.data.imagePreviewThumbnail;
         return true;
@@ -85,31 +87,24 @@ export function createThumbnailCacheManager({
             return Promise.resolve('');
         }
 
-        const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        node.previewThumbnailToken = token;
-        const previousThumbnail = typeof node.data?.imagePreviewThumbnail === 'string' ? node.data.imagePreviewThumbnail : '';
+        const current = pendingByNode.get(node);
+        if (current?.source === normalizedSource) return current.promise;
 
-        return Promise.resolve(previewCache.createPreviewThumbnail(normalizedSource))
-            .then((thumbnail) => {
-                const latestNode = getNodeById(node.id);
-                if (!latestNode || latestNode !== node || latestNode.previewThumbnailToken !== token) {
-                    return '';
-                }
-                const nextThumbnail = setNodePreviewThumbnailValue(latestNode, normalizedSource, thumbnail);
-                if (nextThumbnail !== previousThumbnail) {
-                    scheduleSave();
-                }
-                return nextThumbnail;
-            })
-            .catch(() => {
-                const latestNode = getNodeById(node.id);
-                if (!latestNode || latestNode !== node || latestNode.previewThumbnailToken !== token) {
-                    return '';
-                }
-                const nextThumbnail = setNodePreviewThumbnailValue(latestNode, normalizedSource, '');
-                if (nextThumbnail !== previousThumbnail) scheduleSave();
-                return nextThumbnail;
-            });
+        const request = { source: normalizedSource };
+        pendingByNode.set(node, request);
+        const isCurrent = () => pendingByNode.get(node) === request && getNodeById(node.id) === node;
+        function finish(thumbnail) {
+            if (!isCurrent()) return '';
+            pendingByNode.delete(node);
+            const previousThumbnail = node.data?.imagePreviewThumbnail || '';
+            const nextThumbnail = setNodePreviewThumbnailValue(node, normalizedSource, thumbnail);
+            if (nextThumbnail !== previousThumbnail) scheduleSave();
+            return nextThumbnail;
+        }
+        request.promise = Promise.resolve()
+            .then(() => isCurrent() ? previewCache.createPreviewThumbnail(normalizedSource, undefined, { isCurrent }) : '')
+            .then(finish, () => finish(''));
+        return request.promise;
     }
 
     return {

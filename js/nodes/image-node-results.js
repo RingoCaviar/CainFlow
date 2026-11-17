@@ -1,12 +1,41 @@
 import { getCanonicalImageList, getCanonicalImageIndex } from '../features/execution/execution-data-utils.js';
 import { getImageOutputAssets, projectImageOutput } from './image-output-projection.js';
 import { getSurfaceCoordinator } from '../features/ui/surface-coordinator.js';
+import { createPreviewPriority } from '../features/media/media-preview-cache.js';
 
 export function createImageNodeResults({ state, documentRef, createActions = () => null, readAsset = async () => '',
     readSourceImages = async () => [], createThumbnail = async source => source, rememberThumbnail = () => {},
     scheduleSave = () => {}, onLayout = () => {}, showToast = () => {} }) {
     const views = new WeakMap();
     const surfaces = getSurfaceCoordinator(documentRef);
+    const Observer = documentRef.defaultView?.IntersectionObserver;
+    let previewObserver;
+    function observePreview(host, view, onVisible) {
+        if (!Observer) {
+            onVisible?.();
+            return;
+        }
+        previewObserver ||= new Observer(entries => {
+            for (const { target, isIntersecting } of entries) {
+                const current = views.get(target);
+                if (!current?.stopPreviewVisibility) continue;
+                current.priority.set(isIntersecting && target.isConnected ? 1 : 0);
+                if (isIntersecting) {
+                    const load = current.onPreviewVisible;
+                    current.onPreviewVisible = null;
+                    load?.();
+                }
+            }
+        }, { root: documentRef.getElementById('canvas-container') });
+        view.onPreviewVisible = onVisible;
+        view.stopPreviewVisibility = () => {
+            previewObserver.unobserve(host);
+            view.priority.set(0);
+            view.stopPreviewVisibility = null;
+            view.onPreviewVisible = null;
+        };
+        previewObserver.observe(host);
+    }
     const same = (left, right) => left.length === right.length && left.every((value, index) => value === right[index]);
     function render(nodeId) {
         const node = state.nodes.get(nodeId), host = documentRef.getElementById(`${nodeId}-image-results`);
@@ -32,8 +61,15 @@ export function createImageNodeResults({ state, documentRef, createActions = () 
         previous?.dispose?.();
         const menuId = `image-node-batch-${nodeId}`;
         const view = { node, images, assets, count, index, thumbnail, missing, missingSlots, galleryOpen,
+            priority: createPreviewPriority(host.isConnected && (!Observer || node.el?.dataset?.renderProjection === 'full') ? 1 : 0),
             thumbnails: sameBatch ? previous.thumbnails : new Map(), thumbnailRequests: sameBatch ? previous.thumbnailRequests : new Map() };
-        view.dispose = () => { view.stopTracking?.(); view.thumbnailObserver?.disconnect(); surfaces?.forgetPopover(menuId); };
+        view.dispose = () => {
+            view.disposed = true;
+            view.stopTracking?.();
+            view.stopPreviewVisibility?.();
+            view.thumbnailObserver?.disconnect();
+            surfaces?.forgetPopover(menuId);
+        };
         if (!previous) {
             host._cleanupFns ||= [];
             host._cleanupFns.push(() => views.get(host)?.dispose?.());
@@ -42,9 +78,12 @@ export function createImageNodeResults({ state, documentRef, createActions = () 
         host.replaceChildren(); host.hidden = count === 0;
         if (!count) { onLayout(nodeId); return; }
         const assetKey = assets[index], original = images[index], legacyKey = node.data?.imageAssetKey;
-        const isCurrent = () => state.nodes.get(nodeId) === node && !['waiting','error','aborted'].includes(node.runStatus) && !state.runningNodeIds?.has(nodeId)
+        const sameResult = () => !['waiting','error','aborted'].includes(node.runStatus) && node.isFailed !== true
             && (assetKey ? getImageOutputAssets(node)[index] === assetKey : original
                 ? getCanonicalImageList(node)[index] === original : node.data?.imageAssetKey === legacyKey);
+        const isCurrent = () => state.nodes.get(nodeId) === node && !state.runningNodeIds?.has(nodeId) && sameResult();
+        const retainedView = () => !view.disposed && views.get(host) === view && (host.isConnected || host.parentNode) && sameResult();
+        const canPaint = () => retainedView() && (isCurrent() || Boolean(original || assetKey?.startsWith('media:')));
         const readOriginalAt = async slot => {
             const key = assets[slot], source = images[slot];
             if (key?.startsWith('media:')) return readAsset(key);
@@ -60,9 +99,17 @@ export function createImageNodeResults({ state, documentRef, createActions = () 
             if (!view.thumbnailRequests.has(slot)) view.thumbnailRequests.set(slot, (async () => {
                 const source = await readOriginalAt(slot);
                 if (!/^data:image\//i.test(source || '')) throw new Error('原图缺失');
-                const result = { original: source, thumbnail: await createThumbnail(source) };
+                const isInterested = () => {
+                    const current = views.get(host);
+                    return (host.isConnected || host.parentNode) && !current?.disposed &&
+                        current?.thumbnailRequests === view.thumbnailRequests && (current.index === slot || current.galleryOpen);
+                };
+                if (!isInterested()) return { original: '', thumbnail: '' };
+                const result = { original: source, thumbnail: await createThumbnail(source, {
+                    priority: views.get(host).priority, isCurrent: isInterested
+                }) };
                 // Retain only display-sized pixels; the media owner controls originals.
-                view.thumbnails.set(slot, result.thumbnail);
+                if (isInterested()) view.thumbnails.set(slot, result.thumbnail);
                 return result;
             })().finally(() => view.thumbnailRequests.delete(slot)));
             return view.thumbnailRequests.get(slot);
@@ -98,24 +145,33 @@ export function createImageNodeResults({ state, documentRef, createActions = () 
             void actions?.execute('preview');
         });
         const image = documentRef.createElement('img'); image.alt = `生成结果 ${index + 1}`; image.decoding = 'async';
-        const source = /^data:image\//i.test(original || '') ? original : thumbnail;
-        if (source) {
+        if (/^data:image\//i.test(original || '')) {
             preview.append(image);
-            void createThumbnail(source).then(src => {
-                if (views.get(host) !== view || !image.isConnected) return;
+            observePreview(host, view);
+            void createThumbnail(original, { priority: view.priority, isCurrent: retainedView }).then(src => {
+                if (!src || !canPaint()) return;
                 image.src = src;
-                rememberThumbnail(nodeId, source, src);
-            }).catch(() => {});
+                if (host.isConnected && isCurrent()) rememberThumbnail(nodeId, original, src);
+            }).catch(() => {}).finally(() => view.stopPreviewVisibility?.());
+        } else if (thumbnail) {
+            image.src = thumbnail;
+            preview.append(image);
         } else {
             preview.textContent = missing ? '原图缺失，请从媒体管理恢复' : '载入图片预览…';
-            if (!missing) void loadThumbnail(index).then(result => {
-                if (views.get(host) !== view || !isCurrent()) return;
-                image.src = result.thumbnail; preview.replaceChildren(image);
-                if (result.original) rememberThumbnail(nodeId, result.original, result.thumbnail);
-            }).catch(() => {
-                if (views.get(host) !== view) return;
-                missingSlots.add(index); preview.textContent = '原图缺失，请从媒体管理恢复';
-            });
+            const loadVisiblePreview = () => {
+                void loadThumbnail(index).then(result => {
+                    if (!result.thumbnail || !canPaint()) return;
+                    image.src = result.thumbnail; preview.replaceChildren(image);
+                    if (result.original && host.isConnected && isCurrent()) rememberThumbnail(nodeId, result.original, result.thumbnail);
+                }).catch(() => {
+                    if (!canPaint()) return;
+                    missingSlots.add(index); preview.textContent = '原图缺失，请从媒体管理恢复';
+                }).finally(() => {
+                    if (retainedView() && !canPaint()) view.onPreviewVisible = loadVisiblePreview;
+                    else view.stopPreviewVisibility?.();
+                });
+            };
+            if (!missing) observePreview(host, view, loadVisiblePreview);
         }
         const media = documentRef.createElement('div'); media.className = 'image-node-result-media';
         media.append(preview); host.append(media);
@@ -190,7 +246,6 @@ export function createImageNodeResults({ state, documentRef, createActions = () 
                 });
             };
             view.thumbnailObserver?.disconnect();
-            const Observer = documentRef.defaultView?.IntersectionObserver;
             if (Observer) {
                 view.thumbnailObserver = new Observer(entries => {
                     for (const entry of entries) if (entry.isIntersecting) { view.thumbnailObserver.unobserve(entry.target); loadItem(entry.target); }

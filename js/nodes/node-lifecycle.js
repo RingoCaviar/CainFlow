@@ -26,7 +26,7 @@ import { definitionHasCapability, NODE_CAPABILITIES } from './node-capabilities.
 import { isImageFirstCardNode, rememberImageFirstRestoredSize, getImageFirstRestoredSize } from './image-first-presentation.js';
 import { captureNodePersistenceExtensions } from './node-persistence-extensions.js';
 import { readGenerationRevision } from './image-generation-revision.js';
-import { syncNodeMediaAspect } from './node-media-aspect.js';
+import { isPendingImagePreview, syncNodeMediaAspect } from './node-media-aspect.js';
 
 export function createNodeLifecycleApi({
     state,
@@ -1668,7 +1668,7 @@ export function createNodeLifecycleApi({
         if (!nodeData.enabled) el.classList.add('disabled');
         state.nodes.set(id, nodeData);
         el.addEventListener('load', (event) => {
-            if (event.target?.tagName === 'IMG') {
+            if (event.target?.tagName === 'IMG' && !isPendingImagePreview(event.target)) {
                 if (normalizedType === 'ImageImport' && nodeData.importMode === 'url') return;
                 scheduleEnsureNodeContentVisible(id, restoreLayoutOptions);
             }

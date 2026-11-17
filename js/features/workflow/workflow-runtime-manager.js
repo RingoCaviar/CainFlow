@@ -587,6 +587,7 @@ export function createWorkflowRuntimeManager({
     getSystemNotificationApi,
     getImageAsset,
     getImageAssetList,
+    displayPreviewCache = null,
     deleteImageImportAsset,
     deleteImageAsset,
     saveWorkflowNodeMediaAsset,
@@ -1516,7 +1517,7 @@ export function createWorkflowRuntimeManager({
             updatePlaceholderText
         } = createDisplayImageRenderer({
             documentRef: doc,
-            previewCache: {
+            previewCache: displayPreviewCache || {
                 getCachedPreviewThumbnail: () => '',
                 createPreviewThumbnail: () => Promise.resolve('')
             },

@@ -2,10 +2,51 @@
  * Shared DOM renderer for image preview/save style display nodes.
  */
 import { normalizeImageList } from '../execution/execution-data-utils.js';
-import { TRANSPARENT_PREVIEW_PIXEL } from './media-preview-cache.js';
+import { createPreviewPriority, TRANSPARENT_PREVIEW_PIXEL } from './media-preview-cache.js';
 
 function defaultIsInlineImageData(value) {
     return typeof value === 'string' && /^data:image\//i.test(value);
+}
+
+function readInlineImageBytes(source, start, offset, count) {
+    // Base64 groups encode three bytes. Skip large metadata chunks by seeking to their next header.
+    const skip = offset % 3;
+    const first = start + Math.floor(offset / 3) * 4;
+    const end = first + Math.ceil((skip + count) / 3) * 4;
+    return atob(source.slice(first, end)).slice(skip, skip + count);
+}
+
+function needsOriginalDisplay(source) {
+    const header = /^data:image\/([^;,]+)[^,]*,/i.exec(source.slice(0, 256));
+    const type = header?.[1].toLowerCase();
+    if (['gif', 'apng', 'avif', 'svg+xml'].includes(type)) return true;
+    if (type !== 'png' && type !== 'webp') return false;
+    if (!/;base64,$/i.test(header[0])) return true;
+
+    const start = header[0].length;
+    try {
+        if (type === 'webp') {
+            const bytes = readInlineImageBytes(source, start, 0, 21);
+            // Extended WebP puts the animation bit in the first byte of VP8X.
+            return bytes.startsWith('RIFF') && bytes.slice(8, 16) === 'WEBPVP8X' && (bytes.charCodeAt(20) & 2) !== 0;
+        }
+        if (readInlineImageBytes(source, start, 0, 8) !== '\x89PNG\r\n\x1a\n') return false;
+        // APNG declares its animation before the first IDAT. Keep the original if the bounded scan is inconclusive.
+        let offset = 8;
+        for (let index = 0; index < 24; index += 1) {
+            const chunk = readInlineImageBytes(source, start, offset, 8);
+            if (chunk.length < 8) break;
+            const name = chunk.slice(4);
+            if (name === 'acTL') return true;
+            if (name === 'IDAT' || name === 'IEND') return false;
+            const length = chunk.charCodeAt(0) * 0x1000000 + chunk.charCodeAt(1) * 0x10000 +
+                chunk.charCodeAt(2) * 0x100 + chunk.charCodeAt(3);
+            offset += 12 + length;
+        }
+        return true;
+    } catch {
+        return true;
+    }
 }
 
 function clampIndex(value, total) {
@@ -19,6 +60,76 @@ export function createDisplayImageRenderer({
     isInlineImageData = defaultIsInlineImageData,
     normalizeImages = normalizeImageList
 } = {}) {
+    const previewsByImage = new WeakMap();
+    let visibilityObserver = null;
+
+    function observePreviewVisibility(img) {
+        const Observer = documentRef.defaultView?.IntersectionObserver;
+        if (!Observer) return;
+        visibilityObserver ??= new Observer(entries => {
+            for (const { target, isIntersecting } of entries) {
+                const preview = previewsByImage.get(target);
+                preview?.priority?.set(isIntersecting && target.isConnected ? 1 : 0);
+            }
+        });
+        visibilityObserver.observe(img);
+    }
+
+    function stopObservingPreview(img, preview) {
+        if (!preview?.priority) return;
+        visibilityObserver?.unobserve(img);
+        preview.priority.set(0);
+        preview.priority = null;
+    }
+
+    function setInlineImagePreview(img, source, maxEdge, sameOriginal, keepOriginal) {
+        const previous = previewsByImage.get(img);
+        const displayed = img.getAttribute('src');
+        const samePreview = sameOriginal && previous && displayed === (previous.displayed ?? source);
+        if (samePreview && previous.maxEdge === maxEdge && previous.keepOriginal === keepOriginal) return;
+
+        stopObservingPreview(img, previous);
+        const cached = keepOriginal ? '' : previewCache.getCachedPreviewThumbnail?.(source, maxEdge);
+        const canPrepare = typeof (keepOriginal ? previewCache.resolveImageResolution : previewCache.createPreviewThumbnail) === 'function';
+        const next = cached || (canPrepare ? ((samePreview && displayed) || TRANSPARENT_PREVIEW_PIXEL) : source);
+        // The DOM's original-source attribute is cleared when intermediate image memory is released.
+        const preview = { maxEdge, keepOriginal, displayed: next === source ? null : next, priority: null };
+        previewsByImage.set(img, preview);
+        if (displayed !== next) img.src = next;
+        if (cached || !canPrepare) return;
+
+        const alreadyProjected = img.isConnected && img.closest?.('.node')?.dataset?.renderProjection === 'full';
+        const priority = createPreviewPriority(alreadyProjected ? 1 : 0);
+        preview.priority = priority;
+        observePreviewVisibility(img);
+        const isCurrent = () => {
+            // Cached workflow DOM retains the image's parent while its canvas is detached.
+            if (previewsByImage.get(img) !== preview || (!img.isConnected && !img.parentNode)) return false;
+            const original = img.dataset.originalSrc;
+            return original === source || (!keepOriginal && original === undefined &&
+                img.getAttribute('src') === TRANSPARENT_PREVIEW_PIXEL);
+        };
+        const finish = (thumbnail) => {
+            if (previewsByImage.get(img) !== preview) return;
+            stopObservingPreview(img, preview);
+            const ready = keepOriginal ? source : (thumbnail || source);
+            if (!isCurrent() || (ready === source && img.dataset.originalSrc !== source)) {
+                previewsByImage.delete(img);
+                return;
+            }
+            preview.displayed = ready === source ? null : ready;
+            if (img.getAttribute('src') !== ready) img.src = ready;
+        };
+        let pending;
+        try {
+            pending = keepOriginal ? previewCache.resolveImageResolution(source, { priority, isCurrent })
+                : previewCache.createPreviewThumbnail(source, maxEdge, { priority, isCurrent });
+        } catch {
+            pending = source;
+        }
+        void Promise.resolve(pending).then(finish, () => finish(source));
+    }
+
     function createSvgElement(tagName) {
         return documentRef.createElementNS('http://www.w3.org/2000/svg', tagName);
     }
@@ -42,6 +153,7 @@ export function createDisplayImageRenderer({
             cursor = '',
             className = '',
             useThumbnail = true,
+            thumbnailMaxEdge,
             preferImmediateSrc = false
         } = options;
         const shouldUseThumbnail = Boolean(previewCache)
@@ -53,33 +165,16 @@ export function createDisplayImageRenderer({
         img.loading = preferImmediateSrc ? 'eager' : 'lazy';
         img.decoding = 'async';
         img.alt = alt;
-        if (shouldUseThumbnail) img.dataset.originalSrc = src;
-        else delete img.dataset.originalSrc;
         if (cursor) img.style.cursor = cursor;
         else img.style.removeProperty('cursor');
         if (shouldUseThumbnail) {
-            const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-            img.dataset.previewThumbnailToken = token;
-            const cachedThumbnail = previewCache.getCachedPreviewThumbnail?.(src) || '';
-            const hasCachedThumbnail = Boolean(cachedThumbnail);
-            const initialSrc = cachedThumbnail || (preferImmediateSrc ? src : TRANSPARENT_PREVIEW_PIXEL);
-            if (img.getAttribute('src') !== initialSrc) {
-                img.src = initialSrc;
-            }
-            const pendingThumbnail = previewCache.createPreviewThumbnail?.(src);
-            if (pendingThumbnail && typeof pendingThumbnail.then === 'function') {
-                void pendingThumbnail.then((thumbnail) => {
-                    if (!img.isConnected) return;
-                    if (img.dataset.previewThumbnailToken !== token) return;
-                    if (preferImmediateSrc && !hasCachedThumbnail) return;
-                    const nextSrc = thumbnail || src;
-                    if (nextSrc && img.getAttribute('src') !== nextSrc) {
-                        img.src = nextSrc;
-                    }
-                });
-            }
+            const sameOriginal = img.dataset.originalSrc === src;
+            if (!sameOriginal) img.dataset.originalSrc = src;
+            setInlineImagePreview(img, src, thumbnailMaxEdge, sameOriginal, preferImmediateSrc && needsOriginalDisplay(src));
         } else {
-            delete img.dataset.previewThumbnailToken;
+            delete img.dataset.originalSrc;
+            stopObservingPreview(img, previewsByImage.get(img));
+            previewsByImage.delete(img);
             if (img.getAttribute('src') !== src) {
                 img.src = src;
             }
@@ -376,7 +471,8 @@ export function createDisplayImageRenderer({
         removeElements(container, '.preview-placeholder');
         const existingImage = container.querySelector('img');
         const imageElement = ensureElement(container, 'img', () => documentRef.createElement('img'));
-        setImageElementSource(imageElement, image, '复位颜色结果预览', { preferImmediateSrc: true });
+        // Each interactive adjustment already has a finished frame to display.
+        setImageElementSource(imageElement, image, '复位颜色结果预览', { useThumbnail: false, preferImmediateSrc: true });
         const overlay = ensureElement(container, '.color-reset-picker-overlay', () => {
             const element = documentRef.createElement('div');
             element.className = 'color-reset-picker-overlay';
