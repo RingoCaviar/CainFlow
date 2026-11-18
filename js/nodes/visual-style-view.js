@@ -1,4 +1,4 @@
-import { normalizeVisualStyle, visualStyleText, VISUAL_STYLE_DETAIL_LEVELS, normalizeVisualStyleDetailLevel } from '../features/visual-style/visual-style.js';
+import { normalizeVisualStyle, visualStyleText, VISUAL_STYLE_DETAIL_LEVELS, VISUAL_STYLE_PRESETS, normalizeVisualStyleDetailLevel } from '../features/visual-style/visual-style.js';
 import { getModelsForTask } from '../features/execution/provider-request-utils.js';
 
 const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -16,6 +16,7 @@ export function renderVisualStyleBody(id, restored = {}, state = {}) {
     const text = visualStyleText(restored.visualStyle);
     return `<div class="visual-style-preview" data-style-preview>${escape(text || '画面风格')}</div>
         <div class="visual-style-settings">
+            <div class="node-field visual-style-preset"><label for="${id}-style-preset">风格预设</label><select class="ui-select" id="${id}-style-preset" data-style-preset aria-label="选择风格预设，替换当前文本"><option value="">选择预设，替换当前文本</option>${Object.entries(VISUAL_STYLE_PRESETS).filter(([key]) => key !== 'custom').map(([key, preset]) => `<option value="${key}">${escape(preset.label)}</option>`).join('')}</select></div>
             <textarea id="${id}-style-description" data-style-field="description" aria-label="风格描述" rows="4" maxlength="20000" placeholder="输入画面风格，或连接参考图后提取…">${escape(text)}</textarea>
             <div class="node-field visual-style-detail"><label for="${id}-style-detail">提取精细度</label><select class="ui-select" id="${id}-style-detail" data-style-detail title="仅影响下一次提取，不修改当前风格文本">${Object.entries(VISUAL_STYLE_DETAIL_LEVELS).map(([value, { label }]) => `<option value="${value}" ${value === normalizeVisualStyleDetailLevel(restored.styleDetailLevel) ? 'selected' : ''}>${label}</option>`).join('')}</select></div>
             <details class="visual-style-model-settings"><summary>提取模型</summary>
@@ -51,6 +52,20 @@ export function bindVisualStyleNode(node, { state, runToNode, scheduleSave, push
         detailControl.value = normalizeVisualStyleDetailLevel(node.data.styleDetailLevel);
     };
     node.refreshVisualStyle = refresh;
+    const presetControl = settings.querySelector('[data-style-preset]');
+    const applyPreset = () => {
+        const preset = presetControl.value;
+        presetControl.value = '';
+        if (locked() || !preset || preset === 'custom' || !Object.hasOwn(VISUAL_STYLE_PRESETS, preset)) return;
+        const description = visualStyleText({ preset });
+        node.data.visualStyle = normalizeVisualStyle({ description });
+        text.value = description;
+        status.textContent = '';
+        refresh();
+        save();
+    };
+    presetControl.addEventListener('input', applyPreset);
+    presetControl.addEventListener('change', applyPreset);
     const saveDetail = () => {
         if (locked()) { refresh(); return; }
         const level = normalizeVisualStyleDetailLevel(detailControl.value);

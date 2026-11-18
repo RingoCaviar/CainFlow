@@ -27,3 +27,7 @@
 .visual-style-settings [data-style-status]:empty { display: none; }
 
 .visual-style-settings > [hidden] { display: none; }
+
+.visual-style-preset { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
+.visual-style-preset label { flex-shrink: 0; }
+.visual-style-preset select { min-width: 0; }

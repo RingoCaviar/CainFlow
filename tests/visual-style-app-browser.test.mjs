@@ -218,3 +218,30 @@ test('无参考图时隐藏提取功能并保留手动风格编辑', { timeout: 
         assert.ok(await app.evaluate("(()=>{const node=document.getElementById('style').getBoundingClientRect(),preview=document.querySelector('#style [data-style-preview]').getBoundingClientRect();return preview.bottom<=node.bottom+1;})()"), 'long style stays inside its compact card');
     });
 });
+
+test('风格预设通过真实键盘替换文本，允许编辑、重复选择并保存', { timeout: 30000 }, async () => {
+    await withAppBrowser({ ...configuration, nodes: [{ id: 'style', type: 'VisualStyle', x: 150, y: 80,
+        visualStyle: { description: '旧风格', palette: '旧配色' } }], connections: [] }, async app => {
+        await app.evaluate("document.querySelector('#style [data-style-preview]').click()");
+        assert.equal(await app.evaluate("document.querySelectorAll('#style select').length"), 0);
+        const selectNatural = async () => {
+            await app.evaluate("document.querySelector('[data-style-preset]').focus()");
+            for (const [key, code] of [['ArrowDown', 40], ['Enter', 13]]) {
+                await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key, windowsVirtualKeyCode: code });
+                await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key, windowsVirtualKeyCode: code });
+            }
+        };
+        await selectNatural();
+        await app.waitFor("document.querySelector('[data-style-field]').value.includes('柔和自然光')");
+        const preset = await app.evaluate("document.querySelector('[data-style-field]').value");
+        assert.doesNotMatch(preset, /旧风格|旧配色/);
+        await app.evaluate("var f=document.querySelector('[data-style-field]');f.value='用户修改';f.dispatchEvent(new Event('input',{bubbles:true}))");
+        await selectNatural();
+        await app.waitFor("document.querySelector('[data-style-field]').value.includes('柔和自然光')");
+        assert.equal(await app.evaluate("document.querySelector('[data-style-field]').value"), preset);
+        await waitForAutosave(app);
+        await reloadAppBrowser(app);
+        assert.equal(await app.evaluate("document.querySelector('[data-style-field]').value"), preset);
+        assert.equal(await app.evaluate("document.querySelector('#style [data-style-preview]').textContent"), preset);
+    });
+});
