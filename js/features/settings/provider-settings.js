@@ -93,11 +93,14 @@ export function createProviderSettings({ ctx, store, dialogs, getDeps }) {
     }
 
     function getModelFetchProtocol(provider) {
-        if (getEndpointHost(provider?.endpoint) === 'api.openai.com') return 'openai';
+        const host = getEndpointHost(provider?.endpoint);
+        if (host === 'api.openai.com') return 'openai';
+        if (host === 'generativelanguage.googleapis.com') return 'google';
         if (isVectorEngineEndpoint(provider?.endpoint)) return 'openai';
         if (isTtapiOpenAiEndpoint(provider?.endpoint)) return 'ttapi-openai';
         if (isTtapiEndpoint(provider?.endpoint)) return 'ttapi';
-        return normalizeProviderType(provider?.type, provider, 'openai') || 'openai';
+        const protocol = normalizeProviderType(provider?.type, provider, 'openai');
+        return ['google', 'ttapi', 'ttapi-openai'].includes(protocol) ? protocol : 'openai';
     }
 
     function syncModelProviderBindings(model) {

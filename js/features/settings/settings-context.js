@@ -110,6 +110,7 @@ export function createSettingsContext({
             query: '',
             loading: false,
             error: '',
+            warning: '',
             status: ''
         },
         networkProxyStatusState: {

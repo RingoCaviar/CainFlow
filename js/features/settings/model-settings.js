@@ -10,6 +10,7 @@ import {
     normalizeAutoCompleteBase,
     normalizeModelProtocol,
     normalizeModelTaskType,
+    normalizeProviderEndpointUrl,
     resolveProviderUrl,
     validateOpenAiImageSize
 } from '../execution/provider-request-utils.js';
@@ -31,6 +32,8 @@ import {
 import { bindSettingsCardOrder, reorderItemsById, toggleOrderedId } from './settings-card-order.js';
 import { bindCardToggleGestureGuard } from './card-toggle-gesture.js';
 import { getModelConfigurationIssue } from '../execution/model-configuration-readiness.js';
+
+const MAX_MODEL_CATALOG_PAGES = 20;
 
 export function createModelSettings({ ctx, store, dialogs, providerSettings, getDeps }) {
     const {
@@ -95,20 +98,35 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
     }
 
     function getProviderModelListUrl(provider, protocol) {
-        const endpoint = String(provider?.endpoint || '').trim().replace(/\/+$/, '');
+        const endpoint = normalizeProviderEndpointUrl(provider?.endpoint);
         if (!endpoint) return '';
-        let base = normalizeAutoCompleteBase(endpoint.replace(/\/models\/?$/i, ''), protocol);
-        if (protocol === 'google') {
-            const query = provider?.apikey ? `?key=${encodeURIComponent(provider.apikey)}` : '';
-            return `${base}/v1beta/models${query}`;
-        }
-        if (protocol === 'ttapi' || protocol === 'ttapi-openai') {
+        let url;
+        try {
+            url = new URL(endpoint);
+        } catch {
             return '';
         }
-        if (!/\/v\d+(?:beta)?$/i.test(base)) {
-            base = `${base}/v1`;
+        if (!['http:', 'https:'].includes(url.protocol)) return '';
+        const path = url.pathname.replace(/\/+$/, '');
+        const googlePath = /\/v\d+(?:beta\d*)?\/models\/[^/]+$|\/v\d+beta\d*(?:\/models)?$/i;
+        const openAiCompatPath = /\/v\d+beta\d*\/openai(?:\/models|\/chat\/completions|\/responses)?$/i;
+        url.hash = '';
+        url.searchParams.delete('key');
+        if (protocol === 'google') {
+            const basePath = path.replace(openAiCompatPath, '').replace(/\/models$/i, '');
+            const base = normalizeAutoCompleteBase(`${url.origin}${basePath}`, 'google');
+            url.pathname = `${new URL(base).pathname.replace(/\/$/, '')}/v1beta/models`;
+            if (provider?.apikey) url.searchParams.set('key', provider.apikey);
+            return url.href;
         }
-        return `${base}/models`;
+        if (protocol === 'ttapi' || protocol === 'ttapi-openai') return '';
+        const basePath = path.replace(googlePath, '');
+        if (/\/models$/i.test(basePath)) url.pathname = basePath;
+        else if (openAiCompatPath.test(basePath)) {
+            url.pathname = `${basePath.replace(/\/(?:chat\/completions|responses)$/i, '')}/models`;
+        }
+        else url.pathname = `${new URL(normalizeAutoCompleteBase(`${url.origin}${basePath}`, 'openai')).pathname}/models`;
+        return url.href;
     }
 
     function shouldFetchVectorEnginePricing(provider, protocol) {
@@ -199,20 +217,16 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
     }
 
     function parseFetchedModels(payload, protocol) {
-        const rawModels = protocol === 'google'
-            ? (Array.isArray(payload?.models) ? payload.models : [])
-            : (Array.isArray(payload?.data)
-                ? payload.data
-                : Array.isArray(payload?.models)
-                    ? payload.models
-                    : Array.isArray(payload)
-                        ? payload
-                        : []);
+        const collections = protocol === 'google'
+            ? [payload?.models, payload?.data]
+            : [payload?.data, payload?.models];
+        const rawModels = [...collections, payload?.data?.models, payload].find(Array.isArray) || [];
 
         const seen = new Set();
         return rawModels
-            .map((item) => {
-                const rawId = protocol === 'google' ? item?.name : (item?.id || item?.name);
+            .map((entry) => {
+                const item = typeof entry === 'string' ? { id: entry } : entry;
+                const rawId = protocol === 'google' ? (item?.name || item?.id) : (item?.id || item?.name);
                 const modelId = normalizeFetchedModelId(rawId);
                 if (!modelId || seen.has(modelId)) return null;
                 seen.add(modelId);
@@ -277,6 +291,31 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
             `获取 VectorEngine 完整模型价格表超时（${constants.MODEL_FETCH_CLIENT_TIMEOUT_SECONDS} 秒）。请检查供应商地址、代理设置或 /api/pricing 接口是否可用`
         );
         return parseFetchedModels(parseNewApiPricingModels(payload), 'openai');
+    }
+
+    async function fetchProviderModelPages(url, protocol, provider, isCurrent) {
+        const pages = [];
+        const seenTokens = new Set();
+        const target = new URL(url);
+        try {
+            for (let page = 0; page < MAX_MODEL_CATALOG_PAGES && isCurrent(); page++) {
+                const payload = await fetchProviderModelPayload(
+                    target.href,
+                    protocol,
+                    provider,
+                    `获取模型列表超时（${constants.MODEL_FETCH_CLIENT_TIMEOUT_SECONDS} 秒）。请检查供应商地址、密钥或代理设置`
+                );
+                pages.push(parseFetchedModels(payload, protocol));
+                const token = protocol === 'google' ? payload?.nextPageToken : '';
+                if (typeof token !== 'string' || !token) return { models: mergeFetchedModels(...pages) };
+                if (seenTokens.has(token)) break;
+                seenTokens.add(token);
+                target.searchParams.set('pageToken', token);
+            }
+            return { models: mergeFetchedModels(...pages), incomplete: true };
+        } catch (error) {
+            return { models: mergeFetchedModels(...pages), incomplete: pages.length > 0, error };
+        }
     }
 
     function findMatchingModelConfig(modelId, protocol, taskType) {
@@ -359,9 +398,12 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
         store.activeModelFetchRequestId = requestId;
         const protocol = providerSettings.getModelFetchProtocol(provider);
         const url = getProviderModelListUrl(provider, protocol);
+        const isCurrent = () => requestId === store.activeModelFetchRequestId && modelFetchDialogState.providerId === providerId;
+        if (modelFetchDialogState.providerId !== providerId) modelFetchDialogState.query = '';
         modelFetchDialogState.providerId = providerId;
         modelFetchDialogState.models = [];
         modelFetchDialogState.error = '';
+        modelFetchDialogState.warning = '';
         modelFetchDialogState.status = '正在准备模型列表请求...';
         modelFetchDialogState.loading = true;
         dialogs.renderProviderModelsDialog();
@@ -370,50 +412,40 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
         try {
             if (protocol === 'ttapi' || protocol === 'ttapi-openai') throw new Error('TTAPI 请求格式暂不支持自动获取模型列表，请在模型卡片里手动填写模型 ID');
             if (!url) throw new Error('请先填写供应商 API 地址');
-            if (!provider.apikey && protocol === 'google') throw new Error('请先填写供应商 API 密钥');
+            const googleOnly = protocol === 'google' && new URL(url).hostname === 'generativelanguage.googleapis.com';
+            if (googleOnly && !provider.apikey) throw new Error('请先填写供应商 API 密钥');
 
             modelFetchDialogState.status = '正在请求供应商模型列表...';
             dialogs.renderProviderModelsDialog();
-            let primaryModels = [];
-            let primaryError = null;
-            try {
-                const payload = await fetchProviderModelPayload(
-                    url,
-                    protocol,
-                    provider,
-                    `获取模型列表超时（${constants.MODEL_FETCH_CLIENT_TIMEOUT_SECONDS} 秒）。请检查供应商地址、密钥、代理设置或该供应商的 /models 接口是否可用`
-                );
-                if (requestId !== store.activeModelFetchRequestId || modelFetchDialogState.providerId !== providerId) return;
-                modelFetchDialogState.status = '正在解析供应商返回...';
-                dialogs.renderProviderModelsDialog();
-                primaryModels = parseFetchedModels(payload, protocol);
-            } catch (error) {
-                primaryError = error;
+            const catalogs = [];
+            if (!googleOnly) {
+                catalogs.push(fetchProviderModelPages(getProviderModelListUrl(provider, 'openai'), 'openai', provider, isCurrent));
             }
-
-            if (requestId !== store.activeModelFetchRequestId || modelFetchDialogState.providerId !== providerId) return;
-            const extraStatus = primaryModels.length
-                ? '正在补充 VectorEngine 完整模型列表...'
-                : '正在尝试从 VectorEngine 完整模型表兜底...';
-            const shouldFetchPricing = shouldFetchVectorEnginePricing(provider, protocol);
-            if (shouldFetchPricing) {
-                modelFetchDialogState.status = extraStatus;
-                dialogs.renderProviderModelsDialog();
+            if (protocol === 'google' && provider.apikey) {
+                catalogs.push(fetchProviderModelPages(url, 'google', provider, isCurrent));
             }
-            const pricingModels = shouldFetchPricing
-                ? await fetchVectorEnginePricingModels(provider, protocol)
-                : [];
-            const models = mergeFetchedModels(primaryModels, pricingModels);
-            if (!models.length && primaryError) throw primaryError;
-            if (requestId !== store.activeModelFetchRequestId || modelFetchDialogState.providerId !== providerId) return;
+            if (shouldFetchVectorEnginePricing(provider, protocol)) {
+                catalogs.push(fetchVectorEnginePricingModels(provider, protocol)
+                    .then(models => ({ models }), error => ({ models: [], error })));
+            }
+            const results = await Promise.all(catalogs);
+            if (!isCurrent()) return;
+            const models = mergeFetchedModels(...results.map(result => result.models));
+            const failure = results.find(result => result.error);
+            if (!models.length && failure) throw failure.error;
             modelFetchDialogState.models = models;
             modelFetchDialogState.error = models.length ? '' : '供应商返回的模型列表为空';
+            if (models.length && results.some(result => result.incomplete)) {
+                modelFetchDialogState.warning = '部分分页未能读取，已保留获取到的模型。';
+            } else if (models.length && !googleOnly && !results[0].models.length) {
+                modelFetchDialogState.warning = 'OpenAI 兼容接口未返回模型，当前显示其他接口的结果。';
+            }
             modelFetchDialogState.status = '';
             modelFetchDialogState.loading = false;
             dialogs.renderProviderModelsDialog();
             showToast(`已获取 ${models.length} 个模型`, models.length ? 'success' : 'info');
         } catch (error) {
-            if (requestId !== store.activeModelFetchRequestId || modelFetchDialogState.providerId !== providerId) return;
+            if (!isCurrent()) return;
             const message = error?.message || String(error);
             modelFetchDialogState.error = `获取失败：${message}`;
             modelFetchDialogState.models = [];
@@ -422,11 +454,7 @@ export function createModelSettings({ ctx, store, dialogs, providerSettings, get
             dialogs.renderProviderModelsDialog();
             showToast(modelFetchDialogState.error, 'error');
         } finally {
-            if (
-                requestId === store.activeModelFetchRequestId &&
-                modelFetchDialogState.providerId === providerId &&
-                modelFetchDialogState.loading
-            ) {
+            if (isCurrent() && modelFetchDialogState.loading) {
                 modelFetchDialogState.status = '';
                 modelFetchDialogState.loading = false;
                 dialogs.renderProviderModelsDialog();

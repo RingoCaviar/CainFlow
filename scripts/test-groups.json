@@ -472,7 +472,7 @@
     "tests/missing-media-action-browser.test.mjs": {"tier": "fast", "groups": ["media"]},
     "tests/missing-media-actions.test.mjs": {"tier": "fast", "groups": ["media"]},
     "tests/missing-media-integrity.test.mjs": {"tier": "fast", "groups": ["media"]},
-    "tests/model-settings-simplification-browser.test.mjs": {"tier": "browser", "groups": ["protocol", "settings"]},
+    "tests/model-settings-simplification-browser.test.mjs": {"tier": "browser", "groups": ["protocol", "settings"], "sources": ["js/features/settings/settings-dialogs.js"]},
     "tests/modeless-canvas-shortcuts.test.mjs": {"tier": "fast", "groups": ["protocol", "settings", "canvas", "ui"]},
     "tests/modeless-panel-policy.test.mjs": {"tier": "fast", "groups": ["protocol", "settings", "ui"]},
     "tests/modeless-surface-coordination-browser.test.mjs": {"tier": "browser", "groups": ["protocol", "settings", "ui"]},

@@ -4,6 +4,83 @@ import test from 'node:test';
 import { createModelSettings } from '../js/features/settings/model-settings.js';
 import { createProviderSettings } from '../js/features/settings/provider-settings.js';
 
+async function fetchCatalog(provider, routes) {
+    const state = { providers: [provider], models: [], proxy: { enabled: false } };
+    const dialog = { query: 'gemini' };
+    const requests = [];
+    const providerSettings = createProviderSettings({ ctx: { state }, store: {}, dialogs: {}, getDeps: () => ({}) });
+    const settings = createModelSettings({
+        ctx: {
+            state,
+            fetchImpl: async (url, options) => {
+                const request = JSON.parse(options.body);
+                requests.push(request);
+                const payload = routes(request);
+                return new Response(JSON.stringify(payload || { error: 'unavailable' }), { status: payload ? 200 : 404 });
+            },
+            windowRef: { AbortController, setTimeout, clearTimeout },
+            showToast() {}
+        },
+        store: { modelFetchDialogState: dialog, constants: { MODEL_FETCH_CLIENT_TIMEOUT_SECONDS: 1 }, activeModelFetchRequestId: 0 },
+        dialogs: { renderProviderModelsDialog() {} },
+        providerSettings,
+        getDeps: () => ({})
+    });
+    await settings.fetchProviderModels(provider.id);
+    return { requests, dialog };
+}
+
+test('a relay saved with the default Google type merges both catalogs and follows Gemini pages', async () => {
+    const provider = {
+        id: 'relay', type: 'google', name: '云雾海外',
+        endpoint: 'https://relay.test/gateway/v1beta/models/gemini:generateContent?key=stale',
+        apikey: 'test-key'
+    };
+    const { requests, dialog } = await fetchCatalog(provider, ({ url, protocol }) => {
+        const target = new URL(url);
+        if (target.pathname === '/gateway/v1/models' && protocol === 'openai') {
+            assert.equal(target.searchParams.has('key'), false);
+            return { data: [{ id: 'gpt-4o' }, { id: 'claude-sonnet-4' }, { id: 'gemini-2.5-flash' }] };
+        }
+        if (target.pathname !== '/gateway/v1beta/models' || protocol !== 'google') return null;
+        assert.equal(target.searchParams.get('key'), 'test-key');
+        if (target.searchParams.has('pageToken')) {
+            assert.equal(target.searchParams.get('pageToken'), 'next + /');
+            return { models: [{ name: 'models/imagen-4' }] };
+        }
+        return { models: [{ name: 'models/gemini-2.5-flash' }], nextPageToken: 'next + /' };
+    });
+
+    assert.equal(requests.length, 3);
+    assert.ok(requests.every(({ apikey }) => apikey === 'test-key'));
+    assert.deepEqual(dialog.models.map(({ id }) => id), ['claude-sonnet-4', 'gemini-2.5-flash', 'gpt-4o', 'imagen-4']);
+    assert.equal(dialog.error, '');
+    assert.equal(dialog.query, '');
+});
+
+test('Google official discovery uses its own catalog and preserves earlier pages on failure', async () => {
+    const { requests, dialog } = await fetchCatalog({
+        id: 'google', type: 'openai', endpoint: 'https://generativelanguage.googleapis.com/v1beta', apikey: 'test-key'
+    }, ({ url, protocol }) => {
+        if (protocol !== 'google' || new URL(url).searchParams.has('pageToken')) return null;
+        return { models: [{ name: 'models/gemini-2.5-flash' }], nextPageToken: 'unavailable' };
+    });
+
+    assert.equal(requests.length, 2);
+    assert.ok(requests.every(({ protocol, url }) => protocol === 'google' && new URL(url).pathname === '/v1beta/models'));
+    assert.deepEqual(dialog.models.map(({ id }) => id), ['gemini-2.5-flash']);
+    assert.equal(dialog.error, '');
+    assert.match(dialog.warning, /部分/);
+});
+
+test('a relay can list models when its Gemini catalog is unavailable', async () => {
+    const { dialog } = await fetchCatalog({
+        id: 'relay', type: 'google', endpoint: 'https://relay.test/v1', apikey: 'test-key'
+    }, ({ protocol }) => protocol === 'openai' ? { data: [{ id: 'gpt-image-1' }] } : null);
+    assert.deepEqual(dialog.models.map(({ id, taskType }) => [id, taskType]), [['gpt-image-1', 'image']]);
+    assert.equal(dialog.error, '');
+});
+
 function modelListUrl(endpoint) {
     const settings = createModelSettings({
         ctx: { state: { providers: [], models: [] } },

@@ -362,6 +362,7 @@ export function createSettingsDialogs({ ctx, store, getDeps }) {
         modelFetchDialogState.query = '';
         modelFetchDialogState.loading = false;
         modelFetchDialogState.error = '';
+        modelFetchDialogState.warning = '';
         modelFetchDialogState.status = '';
     }
 
@@ -525,7 +526,6 @@ export function createSettingsDialogs({ ctx, store, getDeps }) {
             return;
         }
 
-        const providerProtocol = deps.getModelFetchProtocol(provider);
         const query = modelFetchDialogState.query.trim().toLowerCase();
         const filteredModels = query
             ? modelFetchDialogState.models.filter((model) => (
@@ -569,7 +569,7 @@ export function createSettingsDialogs({ ctx, store, getDeps }) {
                 <div class="provider-models-header">
                     <div>
                         <h3 id="provider-models-title">获取模型列表</h3>
-                        <div class="provider-models-subtitle">${escapeHtml(deps.getSafeProviderName(provider))} · ${providerProtocol === 'google' ? 'Google / Gemini' : 'OpenAI 兼容'}</div>
+                        <div class="provider-models-subtitle">${escapeHtml(deps.getSafeProviderName(provider))}</div>
                     </div>
                     <button type="button" class="provider-models-close" data-close-models="true" title="关闭">×</button>
                 </div>
@@ -577,7 +577,7 @@ export function createSettingsDialogs({ ctx, store, getDeps }) {
                     <input id="provider-models-search" type="search" value="${escapeHtml(modelFetchDialogState.query)}" placeholder="搜索模型 ID 或名称" autocomplete="off" />
                     <button type="button" class="btn btn-secondary btn-sm" id="provider-models-refresh" ${modelFetchDialogState.loading ? 'disabled' : ''}>重新获取</button>
                 </div>
-                <div class="provider-models-count">${escapeHtml(countText)}</div>
+                <div class="provider-models-count" role="status">${escapeHtml(countText)}${modelFetchDialogState.warning ? ` · ${escapeHtml(modelFetchDialogState.warning)}` : ''}</div>
                 <div class="provider-models-list">
                     ${modelRows || `<div class="provider-models-empty">${escapeHtml(emptyText)}</div>`}
                 </div>

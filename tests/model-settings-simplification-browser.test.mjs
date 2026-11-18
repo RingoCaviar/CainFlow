@@ -2,6 +2,34 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { withAppBrowser, reloadAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
 
+test('a Google-configured relay lists and adds models from its OpenAI-compatible catalog', { timeout: 30000 }, async () => {
+    await withAppBrowser({
+        autoCheckUpdatesOnLoad: false,
+        providers: [{ id: 'relay', name: '兼容中转', type: 'google', endpoint: 'https://relay.test/v1', apikey: 'fixture' }]
+    }, async app => {
+        await app.evaluate("document.getElementById('btn-settings').click();document.querySelector('[data-provider-id=relay] .card-btn-fetch-models').click()");
+        await app.waitFor("document.querySelector('.provider-models-count')?.textContent.includes('共获取 2 个模型')");
+        const ids = await app.evaluate("[...document.querySelectorAll('.provider-models-row-id')].map(row => row.textContent)");
+        assert.deepEqual(ids, ['gemini-2.5-flash', 'gpt-4o']);
+        await app.evaluate("document.querySelector('.provider-models-add[data-model-id=gpt-4o]').click()");
+        await app.waitFor("document.querySelector('.provider-models-add[data-model-id=gpt-4o]').disabled");
+        assert.equal(await app.evaluate(`[...document.querySelectorAll('#models-list [data-field=modelId]')].find(input => input.value === 'gpt-4o')
+            .closest('.model-config-card').querySelector('[data-field=protocol]').value`), 'openai');
+    }, {
+        initScript: `
+            const originalFetch = window.fetch.bind(window);
+            window.fetch = (url, options) => {
+                if (url !== '/api/provider_models') return originalFetch(url, options);
+                const request = JSON.parse(options.body);
+                const path = new URL(request.url).pathname;
+                if (path === '/v1/models' && request.protocol === 'openai') return Promise.resolve(Response.json({ data: [{ id: 'gpt-4o' }] }));
+                if (path === '/v1beta/models' && request.protocol === 'google') return Promise.resolve(Response.json({ models: [{ name: 'models/gemini-2.5-flash' }] }));
+                return Promise.resolve(new Response('unknown catalog', { status: 404 }));
+            };
+        `
+    });
+});
+
 test('Agent context settings default to no compression and retain threshold, model and switch after reload', { timeout: 30000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false,
         models: [{ id: 'chat', name: '受控对话', modelId: 'chat', protocol: 'openai', taskType: 'chat', providerIds: ['p'],

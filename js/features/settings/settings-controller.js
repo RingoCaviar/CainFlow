@@ -25,7 +25,6 @@ export function createSettingsControllerApi(options) {
         getModelProviderIds,
         getVisibleSettingsProviders: (...args) => providerSettingsApi.getVisibleSettingsProviders(...args),
         getSafeProviderName: (...args) => providerSettingsApi.getSafeProviderName(...args),
-        getModelFetchProtocol: (...args) => providerSettingsApi.getModelFetchProtocol(...args),
         inferFetchedModelProtocol: (...args) => modelSettingsApi.inferFetchedModelProtocol(...args),
         modelAlreadyExists: (...args) => modelSettingsApi.modelAlreadyExists(...args),
         getFetchedModelTaskTypeLabel: (...args) => modelSettingsApi.getFetchedModelTaskTypeLabel(...args),
