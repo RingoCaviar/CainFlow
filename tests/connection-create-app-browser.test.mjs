@@ -172,7 +172,7 @@ test('dragging an image output onto blank canvas creates a node with an immediat
     });
 });
 
-const allTypes = ['ImageImport', 'ImageCompare', 'ImageMerge', 'ImageResize', 'ColorReset', 'ImageGenerate', 'ECommerceImageSet', 'ProductRetouch', 'VideoGenerate', 'CameraControl', 'CustomParams', 'TextChat', 'Text', 'TextMerge', 'TextSplit', 'ImagePreview'];
+const allTypes = ['ImageImport', 'ImageCompare', 'ImageMerge', 'ImageResize', 'ColorReset', 'ImageGenerate', 'ECommerceImageSet', 'ProductRetouch', 'VideoGenerate', 'CameraControl', 'CustomParams', 'TextChat', 'Text', 'TextMerge', 'TextSplit', 'ImagePreview', 'VisualStyle'];
 
 test('a connection created under a hovered node loses emphasis when the pointer leaves', { timeout: 30000 }, async () => {
     await withAppBrowser({ ...session, nodes: [...session.nodes, { id: 'hover-target', type: 'ImageGenerate', x: 620, y: 240 }] }, async app => {
@@ -191,14 +191,14 @@ test('a connection created under a hovered node loses emphasis when the pointer 
 });
 
 const inputCandidates = {
-    image: ['ImageCompare', 'ImageMerge', 'ImageResize', 'ColorReset', 'ImageGenerate', 'ECommerceImageSet', 'ProductRetouch', 'VideoGenerate', 'CameraControl', 'TextChat', 'ImagePreview'],
+    image: ['ImageCompare', 'ImageMerge', 'ImageResize', 'ColorReset', 'ImageGenerate', 'ECommerceImageSet', 'ProductRetouch', 'VideoGenerate', 'CameraControl', 'TextChat', 'ImagePreview', 'VisualStyle'],
     text: ['ImageGenerate', 'VideoGenerate', 'TextChat', 'Text', 'TextMerge', 'TextSplit'],
-    params: ['ImageGenerate', 'VideoGenerate', 'TextChat'], video: []
+    params: ['ImageGenerate', 'VideoGenerate', 'TextChat'], video: [], style: ['ImageGenerate', 'ECommerceImageSet']
 };
 const outputCandidates = {
     image: ['ImageImport', 'ImageCompare', 'ImageMerge', 'ImageResize', 'ColorReset', 'ImageGenerate', 'ECommerceImageSet', 'ProductRetouch', 'ImagePreview'],
     text: ['CameraControl', 'TextChat', 'Text', 'TextMerge', 'TextSplit'],
-    params: ['CustomParams'], video: ['VideoGenerate'], any: allTypes
+    params: ['CustomParams'], video: ['VideoGenerate'], style: ['VisualStyle'], any: allTypes
 };
 const retained = [
     { id: 'retained-b', from: { nodeId: 'old-b', port: 'image' }, to: { nodeId: 'old-target', port: 'referenceImages' }, type: 'image', order: 0 },
@@ -234,7 +234,8 @@ for (const type of allTypes) for (const direction of ['input', 'output']) {
                 const expected = direction === 'input' && type === 'ImageGenerate' && port.name === 'auto'
                     ? allTypes.filter(type => type !== 'VideoGenerate')
                     : direction === 'input' && type === 'ImageSave' && port.name === 'auto' ? [...new Set([...outputCandidates.image, ...outputCandidates.video])]
-                    : direction === 'input' && ['ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge', 'CameraControl', 'ECommerceImageSet', 'ProductRetouch'].includes(type) && port.name === 'auto' ? outputCandidates.image
+                    : direction === 'input' && type === 'ECommerceImageSet' && port.name === 'auto' ? [...outputCandidates.image, ...outputCandidates.style]
+                    : direction === 'input' && ['ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge', 'CameraControl', 'ProductRetouch'].includes(type) && port.name === 'auto' ? outputCandidates.image
                     : (direction === 'output' ? inputCandidates : outputCandidates)[port.type];
                 assert.ok(Array.isArray(expected), `known compatibility contract for ${type}.${port.name}`);
                 if (!expected.length) {

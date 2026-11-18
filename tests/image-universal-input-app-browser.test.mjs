@@ -58,7 +58,8 @@ test('generation has one visible input and compact reference controls preserve a
         await app.waitFor("!!document.querySelector('#target .universal-input')");
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#target .node-port[data-direction=input]')].filter(port=>port.getClientRects().length).map(port=>({port:port.dataset.port,type:port.dataset.type,label:port.querySelector('.port-label')?.textContent}))"),
             [{ port: 'auto', type: 'any', label: '输入' }], await app.evaluate("document.querySelector('#target .node-ports-row').outerHTML"));
-        assert.equal(await app.evaluate("document.querySelectorAll('#target .node-port[data-direction=input]:not([data-port=auto])').length"), 5,
+        assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#target .node-port[data-direction=input]:not([data-port=auto])')].map(port => port.dataset.port).sort()"),
+            ['camera_prompt', 'mask', 'params', 'prompt', 'referenceImages', 'style'],
             'canonical inputs stay available for existing logical endpoint adapters');
         assert.ok(await app.evaluate("[...document.querySelectorAll('.image-first-card .node-port')].filter(p=>p.getClientRects().length).every(p=>getComputedStyle(p.querySelector('.port-label')).display==='none'&&p.title&&p.getAttribute('aria-label')&&p.querySelector('.port-dot').getClientRects().length)"), 'image ports keep their dots and accessible hover names without visible labels');
         assert.equal(await app.evaluate("getComputedStyle(document.querySelector('#words .port-label')).display"), 'none', 'text ports hide labels under the shared node style');
