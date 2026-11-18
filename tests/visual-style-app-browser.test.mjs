@@ -243,5 +243,12 @@ test('风格预设通过真实键盘替换文本，允许编辑、重复选择�
         await reloadAppBrowser(app);
         assert.equal(await app.evaluate("document.querySelector('[data-style-field]').value"), preset);
         assert.equal(await app.evaluate("document.querySelector('#style [data-style-preview]').textContent"), preset);
+        await app.evaluate("document.querySelector('#style [data-style-preview]').click(); var c=document.querySelector('[data-style-category]');c.value='painting';c.dispatchEvent(new Event('input',{bubbles:true}));c.dispatchEvent(new Event('change',{bubbles:true}))");
+        assert.equal(await app.evaluate("document.querySelector('[data-style-field]').value"), preset, 'category browsing preserves text');
+        assert.equal(await app.evaluate("document.querySelector('[data-style-preset]').options.length"), 8);
+        await selectNatural(); // The first painting option is watercolor; use the same real keyboard interaction.
+        await app.waitFor("document.querySelector('[data-style-field]').value.includes('透明色层')");
+        assert.doesNotMatch(await app.evaluate("document.querySelector('[data-style-field]').value"), /柔和自然光/);
+
     });
 });

@@ -1,6 +1,7 @@
+import { ADDITIONAL_VISUAL_STYLE_PRESETS, VISUAL_STYLE_CATEGORIES } from '../js/features/visual-style/visual-style-presets.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildVisualStylePrompt, normalizeVisualStyle, resolveVisualStyle, visualStyleKey, visualStyleText } from '../js/features/visual-style/visual-style.js';
+import { VISUAL_STYLE_PRESETS, buildVisualStylePrompt, normalizeVisualStyle, resolveVisualStyle, visualStyleKey, visualStyleText } from '../js/features/visual-style/visual-style.js';
 import { resolveUniversalInput } from '../js/nodes/universal-input-policy.js';
 import { createCanvasContext } from '../js/features/prompt-agent/prompt-agent-canvas-context.js';
 import { normalizeCanvasPlan } from '../js/features/prompt-agent/prompt-agent-canvas-plan.js';
@@ -130,4 +131,22 @@ test('画布方案实际创建风格并应用预设与字段，保存一次', as
     const updated = createCanvasContext({ workflowId: 'w', nodes: [node], connections: [], selectedIds: ['created'] });
     assert.equal(updated.nodes[0].parameters.styleDetailLevel, 'low');
     assert.throws(() => normalizeCanvasPlan({ version: 1, steps: [{ id: 'style', nodeId: 'created', type: 'VisualStyle', execute: false, parameters: { styleDetailLevel: 'extreme' } }] }, updated), /不受支持/);
+});
+
+
+test('风格库提供八类六十种独立预设，Agent/MCP 使用同一枚举', () => {
+    const entries = Object.entries(VISUAL_STYLE_PRESETS).filter(([key]) => key !== 'custom');
+    assert.equal(entries.length, 60);
+    assert.equal(Object.keys(ADDITIONAL_VISUAL_STYLE_PRESETS).length, 56);
+    assert.equal(Object.keys(VISUAL_STYLE_CATEGORIES).length, 8);
+    assert.equal(new Set(entries.map(([, item]) => item.label)).size, entries.length);
+    assert.equal(new Set(entries.map(([key]) => visualStyleText({ preset: key }))).size, entries.length);
+    const context = createCanvasContext({ workflowId: 'w', nodes: [], connections: [] });
+    for (const [key, item] of entries) {
+        assert.ok(Object.hasOwn(VISUAL_STYLE_CATEGORIES, item.category));
+        assert.ok(visualStyleText({ preset: key }).length >= 30);
+        assert.doesNotThrow(() => normalizeCanvasPlan({ version: 1, steps: [
+            { id: 'style', type: 'VisualStyle', execute: false, parameters: { preset: key } }
+        ] }, context));
+    }
 });

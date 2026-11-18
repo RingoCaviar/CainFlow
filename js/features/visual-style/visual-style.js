@@ -1,3 +1,5 @@
+import { ADDITIONAL_VISUAL_STYLE_PRESETS } from './visual-style-presets.js';
+export { VISUAL_STYLE_CATEGORIES } from './visual-style-presets.js';
 export const VISUAL_STYLE_FIELDS = Object.freeze({
     description: '风格描述', medium: '表现形式', palette: '配色', lighting: '光影',
     texture: '质感', background: '背景氛围', composition: '构图倾向', typography: '图文排版', avoid: '避免项'
@@ -15,10 +17,11 @@ export function normalizeVisualStyleDetailLevel(value) {
 }
 export const VISUAL_STYLE_PRESETS = Object.freeze({
     custom: { label: '自定义' },
-    natural: { label: '自然生活', medium: '真实摄影', palette: '暖米色、低饱和绿色', lighting: '柔和自然光', texture: '细腻自然', background: '简洁生活环境', composition: '留白充足' },
-    studio: { label: '极简棚拍', medium: '商业摄影', palette: '中性色', lighting: '柔和棚拍布光', texture: '真实清晰', background: '干净简洁', composition: '主体突出' },
-    technology: { label: '科技冷调', medium: '商业摄影', palette: '冷蓝与深灰', lighting: '清晰轮廓光', texture: '精细材质', background: '简洁抽象空间' },
-    illustration: { label: '手绘插画', medium: '手绘插画', palette: '低饱和协调配色', texture: '自然笔触', composition: '简洁清晰' }
+    natural: { category: 'lifestyle', label: '自然生活', medium: '真实摄影', palette: '暖米色、低饱和绿色', lighting: '柔和自然光', texture: '细腻自然', background: '简洁生活环境', composition: '留白充足' },
+    studio: { category: 'commercial', label: '极简棚拍', medium: '商业摄影', palette: '中性色', lighting: '柔和棚拍布光', texture: '真实清晰', background: '干净简洁', composition: '主体突出' },
+    technology: { category: 'fantasy', label: '科技冷调', medium: '商业摄影', palette: '冷蓝与深灰', lighting: '清晰轮廓光', texture: '精细材质', background: '简洁抽象空间' },
+    illustration: { category: 'illustrated', label: '手绘插画', medium: '手绘插画', palette: '低饱和协调配色', texture: '自然笔触', composition: '简洁清晰' },
+    ...ADDITIONAL_VISUAL_STYLE_PRESETS
 });
 
 export function normalizeVisualStyle(raw = {}) {
