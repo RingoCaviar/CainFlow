@@ -40,7 +40,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     runCurrentNode, waitForNodeRun, cancelCommerceImageSet, removeCommerceScene, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
     panelManager = null, openModelSettings = () => {}, openResultPreview = () => {},
     openShotError = () => {}, openNodeFailureLog = () => false, openNodeRunError = null, openReferencePreview = null, bindReferencePrompt = null,
-    uploadRetouchReference, onNativeClipboardWrite, readReferenceAsset }) {
+    uploadRetouchReference, uploadCommerceShotReference, onNativeClipboardWrite, readReferenceAsset }) {
     const views = new Map();
     const geometryClasses = new Set(['selected', 'is-interacting', 'connection-insert-candidate', 'connection-shake-armed',
         'is-virtualized', 'render-refresh']);
@@ -1108,7 +1108,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         installUniversalInput(node);
         const inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, onChange: () => refreshNode(node.id) });
         const commerce = createCommerceImageSetView({
-            node, state, documentRef, openResultPreview, openShotError, bindReferencePrompt, readReferenceAsset,
+            node, state, documentRef, openResultPreview, openShotError, bindReferencePrompt, readReferenceAsset, uploadCommerceShotReference,
             run: (commerceAction, commerceShotId, commerceCandidateKey) => runCurrentNode(node.id, { commerceAction, commerceShotId, commerceCandidateKey }),
             cancel: commerceShotId => cancelCommerceImageSet(node.id, commerceShotId),
             removeScene: shotId => removeCommerceScene(node.id, shotId),

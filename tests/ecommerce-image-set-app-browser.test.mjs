@@ -7,11 +7,15 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 import { uploadImageOriginal } from './helpers/image-upload.mjs';
-import { key, nativeClick, openParameters } from './helpers/image-first-integrated-fixture.mjs';
+import { key, nativeClick as clickVisibleControl, openParameters } from './helpers/image-first-integrated-fixture.mjs';
 import { commerceImageSetSourceKey, normalizeCommerceImageSetPlan } from '../js/features/ecommerce-image-set/commerce-image-set-plan.js';
 
 const commerceProductField = field => `#image-parameter-panel [data-commerce-product-field=${field}]`;
 const commerceProductValue = field => `document.querySelector('${commerceProductField(field)}').value`;
+async function nativeClick(app, selector, options) {
+    await app.evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'nearest',inline:'nearest'})`);
+    return clickVisibleControl(app, selector, options);
+}
 const showsPreviousCommerceImage = selector => `(() => {
     const text = document.querySelector(${JSON.stringify(selector)})?.innerText || '';
     return text.includes('方案已更新') && text.includes('当前为上一版');
@@ -109,7 +113,7 @@ test('whole-workflow run reports an unplanned commerce set before sending an ups
 
 test('a confirmed original-only commerce set runs from canvas scope without a generation provider', { timeout: 30000 }, async () => {
     const reference = `data:image/png;base64,${(await readFile(new URL('./fixtures/reference-red.png', import.meta.url))).toString('base64')}`;
-    const settings = { platformId: 'amazon', selectedShotIds: ['main'] };
+    const settings = { platformId: 'amazon', mainImageMode: 'original', selectedShotIds: ['main'] };
     const normalizedPlan = normalizeCommerceImageSetPlan({ sellingPoints: [], shots: [{ id: 'main' }] },
         settings.platformId, settings.selectedShotIds, settings);
     const plan = { ...normalizedPlan, confirmed: true,
@@ -137,7 +141,7 @@ test('a confirmed original-only commerce set runs from canvas scope without a ge
 });
 
 test('canvas run scope shows commerce slot counts, changing upstream references, and keyboard recovery', { timeout: 30000 }, async () => {
-    const settings = { platformId: 'amazon', selectedShotIds: ['main', 'detail'] };
+    const settings = { platformId: 'amazon', mainImageMode: 'original', selectedShotIds: ['main', 'detail'] };
     const nodes = [
         { id: 'scope-upstream', type: 'ImageGenerate', x: 40, y: 100, apiConfigId: 'image', providerId: 'p', prompt: '上游产品图' },
         { id: 'scope-commerce', type: 'ECommerceImageSet', x: 390, y: 100, customTitle: '杯具套图', commerceImageSet: settings },
@@ -193,7 +197,7 @@ test('commerce footer fills only unfinished slots and keeps an explicit whole-se
         providers: [{ id: 'p', endpoint: 'https://fixture.test/v1', apikey: 'test' }],
         nodes: [{ id: 'product', type: 'ImageImport', x: 40, y: 100 },
             { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100, commerceImageSet: {
-                platformId: 'amazon', selectedShotIds: ['main', 'angle', 'detail'], plannerModelId: 'vision', plannerProviderId: 'p',
+                platformId: 'amazon', mainImageMode: 'original', selectedShotIds: ['main', 'angle', 'detail'], plannerModelId: 'vision', plannerProviderId: 'p',
                 imageModelId: 'image', imageProviderId: 'p'
             } }],
         connections: [{ id: 'product-reference', from: { nodeId: 'product', port: 'image' },
@@ -284,7 +288,7 @@ test('the commerce node generates selected shots, accepts a retry during generat
     const nodes = [
         { id: 'product', type: 'ImageImport', x: 40, y: 100 },
         { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100,
-            commerceImageSet: { platformId: 'amazon', plannerModelId: 'vision', plannerProviderId: 'p',
+            commerceImageSet: { platformId: 'amazon', mainImageMode: 'original', plannerModelId: 'vision', plannerProviderId: 'p',
                 imageModelId: 'image', imageProviderId: 'p', productNotes: '商品含一个杯盖' } },
         { id: 'set-preview', type: 'ImagePreview', x: 850, y: 100 }
     ];
@@ -450,7 +454,7 @@ test('the commerce node generates selected shots, accepts a retry during generat
         assert.equal(await app.evaluate(commerceProductValue('audience')), '通勤人群');
         assert.equal(await app.evaluate(commerceProductValue('details')), '商品含一个杯盖');
         const instructions = await app.evaluate('commerceCalls[0].instructions');
-        for (const requirement of [/画面内容/, /构图/, /摄影风格/, /文字布局/, /层级/, /字体/, /字色/]) {
+        for (const requirement of [/展示目标/, /构图/, /视觉表达/, /文字布局/, /层级/, /字体/, /字色/]) {
             assert.match(instructions, requirement);
         }
         assert.deepEqual(await app.evaluate(planned), ['main', 'detail']);
@@ -908,7 +912,7 @@ test('deselecting a planned commerce shot keeps the remaining drafts ready after
     const nodes = [
         { id: 'product', type: 'ImageImport', x: 40, y: 100 },
         { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100,
-            commerceImageSet: { platformId: 'amazon', selectedShotIds: ['main', 'detail', 'scene'],
+            commerceImageSet: { platformId: 'amazon', mainImageMode: 'original', selectedShotIds: ['main', 'detail', 'scene'],
                 plannerModelId: 'vision', plannerProviderId: 'p', imageModelId: 'image', imageProviderId: 'p' } }
     ];
     const initScript = `window.commerceSelectionRequests=[];
@@ -966,7 +970,7 @@ test('commerce copy language persists and reaches planning, generation and retry
     const nodes = [
         { id: 'product', type: 'ImageImport', x: 40, y: 100 },
         { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100,
-            commerceImageSet: { platformId: 'amazon', selectedShotIds: ['detail'], productInfo: { name: '带盖随行杯' },
+            commerceImageSet: { platformId: 'amazon', mainImageMode: 'original', selectedShotIds: ['detail'], productInfo: { name: '带盖随行杯' },
                 plannerModelId: 'vision', plannerProviderId: 'p', imageModelId: 'image', imageProviderId: 'p' } }
     ];
     const connections = [{ id: 'photo', from: { nodeId: 'product', port: 'image' },
@@ -1102,7 +1106,7 @@ test('commerce analysis saves editable fields and rejects a response for a repla
     const nodes = [
         { id: 'product', type: 'ImageImport', x: 40, y: 100 },
         { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100,
-            commerceImageSet: { platformId: 'amazon', plannerModelId: 'vision', plannerProviderId: 'p',
+            commerceImageSet: { platformId: 'amazon', mainImageMode: 'original', plannerModelId: 'vision', plannerProviderId: 'p',
                 imageModelId: 'image', imageProviderId: 'p' } }
     ];
     const connections = [{ id: 'photo', from: { nodeId: 'product', port: 'image' },
@@ -1210,7 +1214,7 @@ test('failed commerce generation and retries leave error details closed until re
     const nodes = [
         { id: 'product', type: 'ImageImport', x: 40, y: 100 },
         { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100,
-            commerceImageSet: { platformId: 'amazon', selectedShotIds: ['detail'],
+            commerceImageSet: { platformId: 'amazon', mainImageMode: 'original', selectedShotIds: ['detail'],
                 plannerModelId: 'vision', plannerProviderId: 'p', imageModelId: 'image', imageProviderId: 'p' } }
     ];
     const connections = [{ id: 'photo', from: { nodeId: 'product', port: 'image' },
@@ -1312,7 +1316,7 @@ test('commerce shots run independently and can be canceled individually or from 
         nodes: [
             { id: 'product', type: 'ImageImport', x: 40, y: 100 },
             { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100,
-                commerceImageSet: { platformId: 'amazon', selectedShotIds: ['detail', 'feature', 'detail-overview'],
+                commerceImageSet: { platformId: 'amazon', mainImageMode: 'original', selectedShotIds: ['detail', 'feature', 'detail-overview'],
                     plannerModelId: 'vision', plannerProviderId: 'p', imageModelId: 'image', imageProviderId: 'p' } }
         ],
         connections: [{ id: 'photo', from: { nodeId: 'product', port: 'image' },
@@ -1436,7 +1440,7 @@ test('custom commerce scenes can be added, reviewed, generated, and deleted inde
         nodes: [
             { id: 'product', type: 'ImageImport', x: 40, y: 100 },
             { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100,
-                commerceImageSet: { platformId: 'amazon', selectedShotIds: presetIds,
+                commerceImageSet: { platformId: 'amazon', mainImageMode: 'original', selectedShotIds: presetIds,
                     plannerModelId: 'vision', plannerProviderId: 'p', imageModelId: 'image', imageProviderId: 'p' } }
         ],
         connections: [{ id: 'photo', from: { nodeId: 'product', port: 'image' },
@@ -1669,7 +1673,7 @@ test('supplemental scenes survive unrelated replanning and keep the previous ref
         nodes: [
             { id: 'product', type: 'ImageImport', x: 40, y: 100 },
             { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100, commerceImageSet: {
-                platformId: 'amazon', selectedShotIds: ['main', 'detail'], plannerModelId: 'vision',
+                platformId: 'amazon', mainImageMode: 'original', selectedShotIds: ['main', 'detail'], plannerModelId: 'vision',
                 plannerProviderId: 'p', imageModelId: 'image', imageProviderId: 'p'
             } }
         ],
@@ -1798,7 +1802,7 @@ test('commerce ZIP export lists missing and previous images and keeps shot numbe
         providers: [{ id: 'p', endpoint: 'https://fixture.test/v1', apikey: 'test' }],
         nodes: [{ id: 'product', type: 'ImageImport', x: 40, y: 100 },
             { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100, commerceImageSet: {
-                platformId: 'amazon', selectedShotIds: shotIds, plannerModelId: 'vision', plannerProviderId: 'p',
+                platformId: 'amazon', mainImageMode: 'original', selectedShotIds: shotIds, plannerModelId: 'vision', plannerProviderId: 'p',
                 imageModelId: 'image', imageProviderId: 'p'
             } }],
         connections: [{ id: 'product-reference', from: { nodeId: 'product', port: 'image' },
@@ -1960,7 +1964,7 @@ test('commerce finalized shots survive a whole-set redo and saved candidates res
         nodes: [
             { id: 'product', type: 'ImageImport', x: 40, y: 100 },
             { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100, commerceImageSet: {
-                platformId: 'amazon', selectedShotIds: ['feature', 'detail-overview'], plannerModelId: 'vision',
+                platformId: 'amazon', mainImageMode: 'original', selectedShotIds: ['feature', 'detail-overview'], plannerModelId: 'vision',
                 plannerProviderId: 'p', imageModelId: 'image', imageProviderId: 'p'
             } },
             { id: 'preview', type: 'ImagePreview', x: 40, y: 470 }

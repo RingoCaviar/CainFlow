@@ -1,4 +1,5 @@
 import { buildVisualStylePrompt, normalizeVisualStyle, resolveVisualStyle, visualStyleKey, VISUAL_STYLE_FIELDS } from '../visual-style/visual-style.js';
+import { resolveCommerceImageSetStyle } from '../ecommerce-image-set/commerce-art-direction.js';
 import { analyzeVisualStyle } from '../visual-style/visual-style-analysis.js';
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
@@ -52,6 +53,7 @@ import { createAsyncMediaExecutionApi } from './async-media-execution.js';
 import { getProtocolSnapshot } from './protocols/index.js';
 import { compileVideoProtocol, redactProtocolPreview } from './protocols/video-protocol-compiler.js';
 import { rememberWorkflowMediaOperation } from '../media/workflow-media-operation.js';
+import { buildCommerceShotReferenceInstructions, readCommerceShotReferences } from '../ecommerce-image-set/commerce-shot-references.js';
 import { projectMissingMediaAssets } from '../media/missing-media-integrity.js';
 import { persistVideoResultForNode } from '../media/video/video-result-persistence.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
@@ -1944,7 +1946,7 @@ export function createExecutionCoreApi({
     } = {}) {
         parentSignal?.throwIfAborted();
         const settings = normalizeCommerceImageSetState(node.data?.commerceImageSet);
-        const visualStyle = resolveVisualStyle(state, node.id, inputs);
+        const visualStyle = resolveCommerceImageSetStyle(settings, resolveVisualStyle(state, node.id, inputs));
         settings.visualStyle = visualStyle;
         if (!['plan', 'analyze', 'select-candidate'].includes(commerceAction) && settings.plan
             && visualStyleKey(settings.plan.visualStyle) !== visualStyleKey(visualStyle)) {
@@ -2062,6 +2064,7 @@ export function createExecutionCoreApi({
             if (planning) {
                 const operation = commerceAction === 'analyze' ? analyzeCommerceImageSetProduct : createCommerceImageSetPlan;
                 const updated = await operation({ settings, references, referenceRevision, models: state.models,
+                    readReferenceAsset: getImageAsset,
                     providers: state.providers, fetchRef, getProxyHeaders, signal,
                     shotId: replanningShot ? commerceShotId : undefined,
                     runRequest: (request, execute, shot) => {
@@ -2070,7 +2073,7 @@ export function createExecutionCoreApi({
                     } });
                 signal?.throwIfAborted();
                 const current = normalizeCommerceImageSetState(node.data?.commerceImageSet);
-                current.visualStyle = resolveVisualStyle(state, node.id, inputs);
+                current.visualStyle = resolveCommerceImageSetStyle(current, resolveVisualStyle(state, node.id, inputs));
                 if (state.nodes.get(node.id) !== node ||
                     commerceImageSetPlanningSettingsKey(settings, commerceShotId) !== commerceImageSetPlanningSettingsKey(current, commerceShotId)) {
                     throw new Error('商品设置已改变，请根据当前设置重新执行。');
@@ -2132,12 +2135,14 @@ export function createExecutionCoreApi({
                             model: '商品原图', generationDurationSeconds: getNodeGenerationDurationSeconds(node) });
                         images.push(image);
                     } else {
-                        const shotPrompt = buildCommerceImageSetImagePrompt({ shot, plan, productInfo: settings.productInfo });
+                        const designReferences = await readCommerceShotReferences(settings, shot.id, getImageAsset, shotSignal);
+                        const shotPrompt = [buildCommerceImageSetImagePrompt({ shot, plan, productInfo: settings.productInfo }),
+                            buildCommerceShotReferenceInstructions(references.length, designReferences.length)].filter(Boolean).join('\n');
                         const resolved = await resolveRequestMentions(node, { referenceImages: sourceImages }, [shotPrompt], { signal: shotSignal });
                         const extraImages = resolved.inputs.referenceImages.slice(sourceImages.length);
-                        if (references.length + extraImages.length > 5) throw new Error('每个图位最多使用 5 张参考图，请减少提示词引用或上游输入。');
-                        const shotInputs = extraImages.length
-                            ? { referenceImages: [...references, ...await Promise.all(extraImages.map(image => readCommerceImage(image, shotSignal)))] }
+                        if (references.length + designReferences.length + extraImages.length > 5) throw new Error('每个图位最多使用 5 张参考图，请减少设计参考、提示词引用或上游输入。');
+                        const shotInputs = extraImages.length || designReferences.length
+                            ? { referenceImages: [...references, ...designReferences, ...await Promise.all(extraImages.map(image => readCommerceImage(image, shotSignal)))] }
                             : generationInputs;
                         assertImageInputCompatibility(node, shotInputs, imageSettings);
                         // Keep 4:5 exact at roughly 1K, using dimensions aligned to 16 pixels.

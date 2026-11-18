@@ -3,6 +3,8 @@ import { generateId } from '../../core/common-utils.js';
 import { createChatRequestPlan, requestChatCompletion } from '../execution/chat-request-plan.js';
 import { getEffectiveProtocol, getModelsForTask } from '../execution/provider-request-utils.js';
 import { resolveAgentProvider } from '../prompt-agent/prompt-agent-provider.js';
+import { commerceArtDirectionForPlan, normalizeCommerceArtDirection, resolveCommerceImageSetStyle } from './commerce-art-direction.js';
+import { buildCommercePlanningReferenceInput, getCommerceShotReferenceAssetKeys, normalizeCommerceShotReferences } from './commerce-shot-references.js';
 
 export const COMMERCE_IMAGE_SET_ASPECTS = Object.freeze(['1:1', '3:4', '2:3', '4:5', '9:16', '4:3', '3:2', '16:9']);
 export const COMMERCE_IMAGE_SET_DEFAULT_ASPECTS = Object.freeze({ gallery: '1:1', detail: '9:16' });
@@ -37,13 +39,9 @@ const shot = (id, label, purpose, { group = 'gallery', source = 'generate', allo
 });
 const cleanMain = '干净背景下完整展示实际销售商品，产品居中且轮廓清晰，避免遮挡、道具干扰和装饰元素，不添加文案。';
 const taobaoMain = shot('main', '商品主图', [
-    '按国内电商商业主视觉设计：结合商品类目、受众和已核实卖点，先确定一个鲜明的视觉主题及统一配色，围绕它组织商品、环境、装饰与信息，形成完整的设计。',
-    '商品是视觉锚点，明确其大小、位置与透视，用合适的角度、光影、材质表现和接触阴影增强存在感，保持商品实际外形、颜色、包装与销售数量。',
-    '通过前景、中景、后景组织空间层次，明确统一光向、前后景虚实及商品与背景的材质反差；按主题选择立体展台、真实场景或抽象空间，搭配有用途的弧线、光带、几何形或与商品相关的装饰形成视觉动线。选择相互协调的元素，不把所有手法堆在同一张图上。',
-    '按类目选择表现手法：食品可突出真实食物的质感、餐具与食用场景，美妆可用材质和光影营造氛围，数码可用结构特写、光轨或使用环境表达科技感。展台与道具按商品需要择用。',
-    '划分主标题、辅助卖点、商品展示与可选底部信息带：标题负责吸引注意，卖点以较小标签或信息卡承接，商品完整清晰，各区用对齐、留白、字重和对比色建立阅读层级。品牌区仅在资料确认品牌时安排。',
-    '根据商品名称或类目拟定简短标题，以已核实卖点撰写辅助说明，信息带只承载已确认的文案，全部文字不遮挡商品。根据类目选择适度氛围，不把所有商品都做成促销海报。',
-    '不编造功效、销量、价格、优惠或认证；装饰不暗示未经证实的成分、配件或功效。遵循连接的画面风格规范，用适合该风格的方式表达空间和材质。'
+    '根据商品类目、受众和已核实卖点，自由设计有识别度的商业主视觉。沿用整套美术风格，自主决定视觉主题、商品透视、背景、材质表达与信息层级，突出真实商品和本图重点。',
+    '前景、中景、后景、展台、真实场景、装饰动线、卖点标签或底部信息带都是可选手法，按需要取舍，不指定固定位置、固定视觉动线或必选组件。与其他图位变化构图和节奏，不机械重复版式。',
+    '标题和辅助说明依据商品名称及可核实卖点，清楚易读且不遮挡商品。不编造功效、销量、价格、优惠或认证；保持商品外形、固有颜色、包装和实际销售数量。'
 ].join('\n'), { allowCopy: true });
 const angle = shot('angle', '多角度图', '选择与首图不同的真实角度，展示商品的侧面、背面或结构，保留商品实际造型，不添加文案。');
 const detail = shot('detail', '商品特写', '用近距离构图展示参考图中可核实的纹理、结构或做工，让文案与画面所展示的细节呼应。', { allowCopy: true });
@@ -73,9 +71,9 @@ export const COMMERCE_IMAGE_SET_PRESETS = Object.freeze({
     douyin: preset('douyin', '抖音电商', '将清晰、方形且至少 600 × 600 的实物图作为第一张参考图。首图保留原图。',
         'https://school.jinritemai.com/doudian/web/articlev0/ahean96xqddv',
         [shot('main', '实物首图', '直接使用第一张商品实物参考图。', { source: 'reference' }), angle, detail, feature, scene]),
-    amazon: preset('amazon', '亚马逊', '将纯白底、商品完整且无叠字的实拍图放在第一张。MAIN 保留原图，建议最长边至少 1000 像素。',
+    amazon: preset('amazon', '亚马逊', '以第一张商品原图精修生成纯白底 MAIN，保留商品身份、实际数量及包装文字，不叠加文案。副图与详情图使用整套美术风格。发布时按站点与类目核对要求。',
         'https://sellercentral.amazon.com/help/hub/reference/external/G1881?locale=en_us',
-        [shot('main', '白底实拍 MAIN', '直接使用第一张商品白底实拍参考图。', { source: 'reference' }), angle, detail, feature, scene,
+        [shot('main', '白底主图 MAIN', '以第一张商品原图为主要依据进行保真精修，生成专业商品摄影效果。完整、单次展示实际售卖的商品，保留真实外形、比例、固有颜色、商标、包装文字和数量；仅展示确实随售的配件。纯白背景 RGB 255,255,255，商品约占画面 85%，不裁切。通过清晰边缘、合理曝光、柔和主光与补光、克制的接触阴影突出真实材质，不添加文案、边框、水印、道具或场景。'), angle, detail, feature, scene,
             shot('included', '商品组成展示', '仅展示参考图或商品资料确认在包装内的商品和配件，清晰体现实际销售数量，不添加文案。')])
 });
 
@@ -210,6 +208,11 @@ export function getCommerceImageSetPreset(platformId) {
     return Object.hasOwn(COMMERCE_IMAGE_SET_PRESETS, platformId) ? COMMERCE_IMAGE_SET_PRESETS[platformId] : null;
 }
 
+export function getCommerceAmazonMainMode(settings) {
+    if (['generate', 'original'].includes(settings?.mainImageMode)) return settings.mainImageMode;
+    return settings?.plan?.version === 1 && (!settings.plan.platformId || settings.plan.platformId === 'amazon') ? 'original' : 'generate';
+}
+
 export function getSelectedCommerceImageSetShots(settings) {
     const platform = getCommerceImageSetPreset(settings?.platformId) || COMMERCE_IMAGE_SET_PRESETS.taobao;
     const legacyPlan = settings?.selectedShotIds === undefined && settings?.plan?.version === 1 && settings.plan.platformId === platform.id;
@@ -223,7 +226,9 @@ export function getSelectedCommerceImageSetShots(settings) {
     const selected = new Set(ids);
     const customScenes = normalizeCustomScenes(settings?.customScenes);
     return Object.entries(aspects).flatMap(([group, aspect]) => [
-        ...platform.shots.filter(item => item.group === group && selected.has(item.id)).map(item => ({ ...item, aspect })),
+        ...platform.shots.filter(item => item.group === group && selected.has(item.id)).map(item => ({ ...item, aspect,
+            ...(platform.id === 'amazon' && item.id === 'main' && getCommerceAmazonMainMode(settings) === 'original'
+                ? { source: 'reference', label: '白底实拍 MAIN', purpose: '直接使用第一张商品白底实拍参考图。' } : {}) })),
         ...customScenes.filter(item => item.group === group)
             .map((item, index) => customSceneShot(item, index, aspect)).filter(item => selected.has(item.id))
     ]);
@@ -311,12 +316,21 @@ export function isCommerceShotFinalized(settings, shotId) {
         && settings.results.some(row => row?.shotId === shotId && row.finalized === true && isCompletedCommerceResult(row));
 }
 
+function useCurrentCommerceShotStyle(settings, shot) {
+    if (shot?.source === 'generate' && settings.plan?.artDirection && settings.plan.visualStyle) {
+        shot.visualStyleSnapshot = normalizeVisualStyle(settings.plan.visualStyle);
+    }
+}
+
 export function setCommerceShotFinalized(settings, shotId, finalized) {
     if (!Array.isArray(settings?.results) || typeof finalized !== 'boolean') return false;
     const row = settings.results.find(row => row?.shotId === shotId && isCompletedCommerceResult(row));
     if (!row || (row.finalized === true) === finalized) return false;
     if (finalized) row.finalized = true;
-    else delete row.finalized;
+    else {
+        delete row.finalized;
+        useCurrentCommerceShotStyle(settings, settings.plan?.shots.find(shot => shot.id === shotId));
+    }
     return true;
 }
 
@@ -328,7 +342,7 @@ function normalizePreviousExportResults(raw) {
             || !Number.isSafeInteger(row.order) || row.order < 0) continue;
         const shot = preset.shots.find(item => item.id === row.shotId);
         const group = shot?.group ?? (isCommerceSceneId(row.shotId) && isCommerceShotGroup(row.group) ? row.group : '');
-        const label = shot?.label ?? text(row.label, 100);
+        const label = text(row.label, 100) || shot?.label;
         if (!group || !label) continue;
         const key = `${preset.id}:${row.shotId}`;
         if (!results.has(key)) {
@@ -380,13 +394,14 @@ function normalizeCommerceShotCopy(input, allowCopy) {
 export function commerceShotPlanKey(shot) {
     if (shot?.source !== 'generate') return '';
     const { headline, body } = normalizeCommerceShotCopy(shot, shot.allowCopy);
-    return `v1-${changeFingerprint(JSON.stringify([text(shot.prompt, 2000), headline, body, ...(shot.visualStyleSnapshot ? [visualStyleKey(shot.visualStyleSnapshot)] : [])]))}`;
+    return `v1-${changeFingerprint(JSON.stringify([text(shot.prompt, 2000), headline, body, ...(shot.visualStyleSnapshot ? [visualStyleKey(shot.visualStyleSnapshot)] : []), ...(shot.referenceAssetKeys?.length ? [shot.referenceAssetKeys] : [])]))}`;
 }
 
 function normalizeCandidateDraft(input, shot) {
     const prompt = text(input?.prompt, 2000);
     if (!prompt || shot?.source !== 'generate') return null;
-    return { prompt, visualStyleSnapshot: input?.visualStyleSnapshot ? normalizeVisualStyle(input.visualStyleSnapshot) : null, ...normalizeCommerceShotCopy(input, shot.allowCopy),
+    return { prompt, visualStyleSnapshot: input?.visualStyleSnapshot ? normalizeVisualStyle(input.visualStyleSnapshot) : null,
+        referenceAssetKeys: normalizeCommerceShotReferences({ reference: input?.referenceAssetKeys }, ['reference']).reference || [], ...normalizeCommerceShotCopy(input, shot.allowCopy),
         ...(shot.customScene ? {
             description: text(input.description, COMMERCE_SCENE_DESCRIPTION_LIMIT),
             ...scenePlanFields(input, prompt, true)
@@ -437,7 +452,9 @@ export function getCommerceImageSetCandidateAssetKeys(settings) {
 }
 
 export function getCommerceImageSetHistoryAssetKeys(settings) {
-    return [...new Set([...getCommerceImageSetCandidateAssetKeys(settings), ...getCommerceImageSetPreviousAssetKeys(settings)])];
+    const candidates = normalizeCommerceShotCandidates(settings?.candidates, getSelectedCommerceImageSetShots(settings), settings?.results);
+    return [...new Set([...candidates.map(candidate => candidate.assetKey), ...getCommerceImageSetPreviousAssetKeys(settings),
+        ...getCommerceShotReferenceAssetKeys(settings), ...candidates.flatMap(candidate => candidate.draft.referenceAssetKeys || [])])];
 }
 
 export function rememberCommerceShotCandidate(settings, shot, assetKey) {
@@ -452,6 +469,11 @@ export function restoreCommerceShotCandidateDraft(settings, candidate) {
     const shot = settings.plan?.shots.find(item => item.id === candidate.shotId);
     if (!shot) return false;
     Object.assign(shot, candidate.draft);
+    useCurrentCommerceShotStyle(settings, shot);
+    const references = { ...settings.shotReferences };
+    if (candidate.draft.referenceAssetKeys?.length) references[shot.id] = [...candidate.draft.referenceAssetKeys];
+    else delete references[shot.id];
+    settings.shotReferences = references;
     if (shot.customScene) {
         if (candidate.draft.sceneNeedsReview !== true) delete shot.sceneNeedsReview;
         if (!candidate.draft.sceneSummaryPromptKey) delete shot.sceneSummaryPromptKey;
@@ -505,7 +527,8 @@ export function normalizeCommerceImageSetPlan(raw, platformId, selectedShotIds, 
         if (item.source === 'generate' && !prompt && !(allowBlankPrompts && (typeof input?.prompt === 'string' || item.customScene))) {
             throw new Error(`套图方案缺少「${item.label}」的画面说明。`);
         }
-        return { ...item, prompt, ...(input?.visualStyleSnapshot ? { visualStyleSnapshot: normalizeVisualStyle(input.visualStyleSnapshot) } : {}), ...normalizeCommerceShotCopy(input, item.allowCopy),
+        const referenceAssetKeys = normalizeCommerceShotReferences(settings?.shotReferences, [item.id])[item.id];
+        return { ...item, prompt, ...(referenceAssetKeys?.length ? { referenceAssetKeys } : {}), ...(input?.visualStyleSnapshot ? { visualStyleSnapshot: normalizeVisualStyle(input.visualStyleSnapshot) } : {}), ...normalizeCommerceShotCopy(input, item.allowCopy),
             ...(item.customScene ? scenePlanFields(input, prompt, allowBlankPrompts) : {}) };
     });
     return { version: 1, platformId: platform.id, copyLanguage: normalizeCommerceImageSetCopyLanguage(settings?.copyLanguage),
@@ -517,6 +540,7 @@ export function normalizeCommerceImageSetState(raw) {
     const candidateCount = normalizeCommerceImageSetCandidateCount(raw?.candidateCount);
     const settings = {
         platformId: getCommerceImageSetPreset(raw?.platformId)?.id || 'taobao',
+        ...(raw?.platformId === 'amazon' ? { mainImageMode: getCommerceAmazonMainMode(raw) } : {}),
         selectedShotIds: selected.map(item => item.id),
         customScenes: normalizeCustomScenes(raw?.customScenes),
         galleryAspect: normalizeAspect(raw?.galleryAspect, 'gallery'),
@@ -526,6 +550,9 @@ export function normalizeCommerceImageSetState(raw) {
         autoProductInfo: normalizeCommerceProductInfo(raw?.autoProductInfo),
         plannerModelId: text(raw?.plannerModelId, 200), plannerProviderId: text(raw?.plannerProviderId, 200),
         imageModelId: text(raw?.imageModelId, 200), imageProviderId: text(raw?.imageProviderId, 200),
+        ...(Object.keys(normalizeCommerceShotReferences(raw?.shotReferences, selected.map(shot => shot.id))).length
+            ? { shotReferences: normalizeCommerceShotReferences(raw.shotReferences, selected.map(shot => shot.id)) } : {}),
+        ...(typeof raw?.artDirection === 'string' ? { artDirection: normalizeCommerceArtDirection(raw.artDirection) } : {}),
         ...(candidateCount > 1 ? { candidateCount } : {}),
         ...(raw?.visualStyle ? { visualStyle: normalizeVisualStyle(raw.visualStyle) } : {}),
         plan: null, results: []
@@ -560,7 +587,7 @@ export function normalizeCommerceImageSetState(raw) {
             const referenceContentKey = text(raw.plan.referenceContentKey, 128);
             const sceneContextKeys = Object.fromEntries(Object.keys(COMMERCE_IMAGE_SET_DEFAULT_ASPECTS)
                 .map(group => [group, text(raw.plan.sceneContextKeys?.[group], 128)]).filter(([, key]) => key));
-            settings.plan = { ...plan, plannedShotIds, ...(raw.plan.visualStyle ? { visualStyle: normalizeVisualStyle(raw.plan.visualStyle) } : {}), sourceKey, ...(productContextKey ? { productContextKey } : {}),
+            settings.plan = { ...plan, plannedShotIds, ...(normalizeCommerceArtDirection(raw.plan.artDirection) ? { artDirection: normalizeCommerceArtDirection(raw.plan.artDirection) } : {}), ...(raw.plan.visualStyle ? { visualStyle: normalizeVisualStyle(raw.plan.visualStyle) } : {}), sourceKey, ...(productContextKey ? { productContextKey } : {}),
                 ...(referenceRevision ? { referenceRevision } : {}), ...(referenceContentKey ? { referenceContentKey } : {}),
                 ...(Object.keys(sceneContextKeys).length ? { sceneContextKeys } : {}),
                 confirmed: raw.plan.confirmed === true && !stale, ...(stale ? { stale: true } : {}) };
@@ -644,6 +671,7 @@ async function commerceImageSetKeys({ settings, references, preservePlannedSelec
     const hashes = await Promise.all(images.map(sourceFingerprint));
     const { name, details, audience, useCases } = productInfo;
     const inputs = [platformId, details, plannerModelId, plannerProviderId, hashes];
+    if (platformId === 'amazon' && getCommerceAmazonMainMode(normalized) === 'generate') inputs.push({ mainImageMode: 'generate' });
     // Selling points remain editable in the approved draft without changing its image inputs.
     if (name || audience || useCases) inputs.push({ name, audience, useCases });
     const platform = getCommerceImageSetPreset(platformId);
@@ -656,7 +684,8 @@ async function commerceImageSetKeys({ settings, references, preservePlannedSelec
     if (includesDetail || galleryAspect !== COMMERCE_IMAGE_SET_DEFAULT_ASPECTS.gallery || detailAspect !== COMMERCE_IMAGE_SET_DEFAULT_ASPECTS.detail) {
         inputs.push({ galleryAspect, detailAspect });
     }
-    if (normalized.visualStyle) inputs.push({ visualStyle: normalized.visualStyle });
+    const visualStyle = normalized.visualStyle || resolveCommerceImageSetStyle(normalized);
+    if (visualStyle) inputs.push({ visualStyle });
     if (copyLanguage !== 'auto') inputs.push({ copyLanguage });
     const manual = getManualProductInfo(normalized);
     const [sourceKey, productContextKey, referenceContentKey] = await Promise.all([
@@ -666,7 +695,7 @@ async function commerceImageSetKeys({ settings, references, preservePlannedSelec
     ]);
     const sceneContextKeys = Object.fromEntries(await Promise.all(Object.entries({ gallery: galleryAspect, detail: detailAspect })
         .map(async ([group, aspect]) => [group, await sourceFingerprint(JSON.stringify([referenceContentKey, platformId,
-            productInfo, copyLanguage, aspect, ...(normalized.visualStyle ? [normalized.visualStyle] : [])]))])));
+            productInfo, copyLanguage, aspect, ...(visualStyle ? [visualStyle] : [])]))])));
     return { sourceKey, productContextKey, referenceContentKey, sceneContextKeys };
 }
 
@@ -687,6 +716,7 @@ function buildCommerceStylePrompt(style, lettering = true) {
 export function buildCommerceImageSetImagePrompt({ shot, plan, productInfo, productNotes }) {
     const platform = getCommerceImageSetPreset(plan.platformId);
     const isTaobaoMain = platform?.id === 'taobao' && shot.id === 'main';
+    const isAmazonMain = platform?.id === 'amazon' && shot.id === 'main';
     const { name, details, audience, useCases } = normalizeCommerceProductInfo({ details: productNotes, ...productInfo });
     const { headline, body } = normalizeCommerceShotCopy(shot, shot.allowCopy);
     const onImageCopy = [headline && `标题：${JSON.stringify(headline)}`, body && `正文：${JSON.stringify(body)}`].filter(Boolean);
@@ -694,9 +724,8 @@ export function buildCommerceImageSetImagePrompt({ shot, plan, productInfo, prod
     const lettering = onImageCopy.length ? [
         copyLanguage !== 'auto' && `图中文字语言：${COMMERCE_IMAGE_SET_COPY_LANGUAGES[copyLanguage]}。`,
         '在同一次出图中完成商品画面与文案排版。有画面风格规范时按规范安排文字位置、对齐、字体风格和字色，否则遵循画面设计，让文字融入背景与留白，和商品主体共同构图。',
-        isTaobaoMain
-            ? '主图可按画面设计使用卖点标签、信息卡和底部信息带，它们与背景、商品和视觉动线共同设计，配色、圆角、光影和间距统一。正文可按已有短句或分隔符分组排版，各段逐字保留且只出现一次。只承载下方已确认文案，不自动添加价格牌、促销语或认证徽章。'
-            : '避免独立于画面的底部色条和贴片。',
+        '文字的位置、对齐、字体、字色及信息载体由画面设计和整套风格决定，不强制固定版式。正文可按已有短句或分隔符分组排版，各段逐字保留且只出现一次。',
+        isTaobaoMain && '卖点标签、信息卡及底部信息带可按需要选用，不为填满版面添加价格牌、促销语或认证徽章。',
         '标题为主要文字，正文使用较小字号并保持合适的行距。文字与背景对比清晰，不遮挡商品，四周留足安全边距。仅有一项文案时按该项重新平衡布局，不保留空文字区。',
         '以以下文案为准，每项只渲染一次，逐字保留，不翻译、不改写，不画出引号、字段名、商品资料或其他说明。禁止额外标语、装饰性假字和水印。',
         ...onImageCopy
@@ -715,7 +744,8 @@ export function buildCommerceImageSetImagePrompt({ shot, plan, productInfo, prod
         plan.sellingPoints.length > 0 && `已确认的卖点：${plan.sellingPoints.join('；')}`,
         '以下文字规则优先于画面设计里的旧文案或排字要求。',
         ...lettering,
-        buildCommerceStylePrompt(shot.visualStyleSnapshot ?? plan.visualStyle, onImageCopy.length > 0)
+        !isAmazonMain && buildCommerceStylePrompt(shot.visualStyleSnapshot ?? plan.visualStyle, onImageCopy.length > 0),
+        isAmazonMain && '亚马逊 MAIN 主图要求始终优先：以真实商品原图做摄影级精修，保持纯白背景 RGB 255,255,255、完整商品、约 85% 占比与真实材质。整套风格中的海报背景、图文排版、装饰和插画效果不应用于 MAIN，不添加任何叠字或虚构部件。'
     ].filter(Boolean).join('\n');
 }
 
@@ -790,8 +820,9 @@ export async function analyzeCommerceImageSetProduct({ settings, references, ...
     return updated;
 }
 
-export async function createCommerceImageSetPlan({ settings, references, shotId, referenceRevision, ...requestOptions }) {
+export async function createCommerceImageSetPlan({ settings, references, shotId, referenceRevision, readReferenceAsset, ...requestOptions }) {
     const input = normalizeCommerceImageSetState(settings);
+    if (input.artDirection && !input.visualStyle) input.visualStyle = normalizeVisualStyle({ description: input.artDirection });
     // A newly selected preset may have no draft yet. Full replanning can still
     // recover the previously planned scenes from the last set of slots.
     if (shotId === undefined && !input.plan && Array.isArray(settings?.plan?.shots)) {
@@ -820,24 +851,28 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
         .map(shot => ({ id: shot.id, group: shot.group, summary: getCommerceSceneSummary(shot, 2000) }))
         .filter(({ summary }) => summary) : [];
     const responseError = '规划模型未返回有效套图方案，请重试。';
+    const planningReferences = await buildCommercePlanningReferenceInput(input, slots, images, readReferenceAsset, requestOptions.signal);
     const { raw, plan, product } = await requestCommerceJson({
-        ...requestOptions, settings: input, references: images, responseError, shot: currentShot,
+        ...requestOptions, settings: input, references: planningReferences.references, responseError, shot: currentShot,
         systemPrompt: [
             '你负责规划电商商品主副图和详情页图片。只提取参考图可观察到或商品资料明确提供的卖点。不要推断尺寸、材质、功效、认证、销量或价格。',
             buildCommerceStylePrompt(input.visualStyle),
             !currentShot && PRODUCT_ANALYSIS_INSTRUCTIONS,
             !currentShot && '先完成产品分析，再用用户提供或本次分析的商品信息规划各图位与文案。',
+            !currentShot && '先确定整套共用的美术风格，在根对象 artDirection 中用简洁自然语言写明表现形式、主辅色、光影、材质和整体氛围；用户已提供风格时沿用。各图位共享这套视觉语言，但构图、景别、角度及信息节奏应按用途变化，不把相同版式重复到每一张。',
             '保持同一商品的外观、颜色、商标、包装和销售数量。图中不得添加虚构标签、促销标识或其他商品。不使用逼真的生成式人物。',
+            Object.keys(planningReferences.shotReferenceMap).length > 0
+                && 'productReferenceCount 标记前面的商品原图数量；shotReferenceMap 为每个图位指定设计参考的附图序号（从1开始）。设计参考仅用于对应图位的布局、色彩与视觉节奏，不复制其中商品、文字或宣传信息。商品身份以商品原图为准，已设美术风格和图位约束优先，不机械照抄参考版式。',
             '按各图位的用途和宽高比设计不同的画面。主副图用于商品列表和轮播展示，详情图各自说明一个主题，依次组成详情页内容。',
             platform.id === 'taobao' && slots.some(shot => shot.id === 'main')
-                && '淘宝／天猫商品主图的 prompt 必须落实图位用途中的视觉主题、空间层次、商品表现和信息分区，写明商品与标题的位置及大小关系、背景与展台或场景的构成、装饰元素的作用、视觉动线、配色和光影。为具体商品选择一套协调的设计，不只给出产品加文字的简单排布。卖点标签和底部信息带按需要使用，仅安排有已确认文案的模块。',
-            currentShot ? '输出纯 JSON，根对象仅含 shots。' : '输出纯 JSON，根对象包含 productInfo 和 shots。',
+                && '淘宝／天猫商品主图可自主选择视觉主题、空间层次、商品表现和信息分区，为具体商品提出有辨识度的设计。展台、标签、装饰或底部信息带只是可选手法，不要求全部出现，不固定产品和标题位置，避免不同图位反复套用同一种版式。',
+            currentShot ? '输出纯 JSON，根对象仅含 shots，沿用当前整套美术风格，不重新设定。' : '输出纯 JSON，根对象包含 productInfo、artDirection 和 shots。',
             supplemental
                 ? 'shots 只返回指定的场景图位，包含 id、sceneSummary、prompt、headline、body。sceneSummary 用简体中文简述实际画面与展示重点。'
                 : 'shots 是对象数组，每项仅含 id、prompt、headline、body。只为给定 id 编写方案。',
             supplemental && 'sceneDescription 是用户对场景的要求。优先依据它构图，留空时结合参考图和商品用途推荐一个场景。参考 existingScenes 避免与其他图位重复。',
-            (buildCommerceStylePrompt(input.visualStyle) ? '每个 prompt 都应写清符合画面风格规范的画面内容、构图和视觉表现，不限定为摄影。' : '每个 prompt 都应写清画面内容、构图和摄影风格，') + '具体到展示的商品部位、场景、景别、拍摄角度、主体位置、光线和色调。全套图片协调统一，每个图位有自己的构图重点。',
-            'allowCopy 为 true 且有文案时，在 prompt 中描述与商品构图融为一体的文字布局，指定标题和正文的位置、对齐、层级、字体风格和字色，保证阅读对比度，不遮挡实物。用“标题”“正文”指代，不在 prompt 中重复实际文案。',
+            '每个 prompt 写清本图的展示目标、核心构图意图和符合整套风格的视觉表达，按需要补充场景、视角、光影或材质细节，不将全部设计维度逐项填成同一种模板。全套协调统一，每个图位有自己的构图重点与阅读节奏。',
+            'allowCopy 为 true 且有文案时，文字布局与商品构图共同设计，自主选择位置、对齐、层级、字体风格和字色，保证阅读对比度，不遮挡实物。用“标题”“正文”指代，不在 prompt 中重复实际文案。',
             'headline 和 body 分别填写要出现在图上的短标题和辅助说明，具体、自然，贴合本图用途。避免多张图重复同样的文案。缺少合适证据时留空。',
             'allowCopy 为 false 的图位两项留空，画面不添加额外文字。',
             input.copyLanguage === 'auto'
@@ -846,6 +881,7 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
             currentShot && '只重新规划指定图位。以现有商品卖点为依据，参考当前草稿提出新的构图或文案。'
         ].filter(Boolean).join('\n'),
         message: { platform: platform.label, productInfo, copyLanguage: input.copyLanguage,
+            ...(Object.keys(planningReferences.shotReferenceMap).length ? { productReferenceCount: images.length, shotReferenceMap: planningReferences.shotReferenceMap } : {}),
             copyLimits: COMMERCE_IMAGE_SET_COPY_LIMITS,
             ...(currentShot ? { currentShot: { prompt: currentShot.prompt, headline: currentShot.headline, body: currentShot.body },
                 sellingPoints: input.plan.sellingPoints } : {}),
@@ -875,13 +911,16 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
             usedHeadlines.add(fallback);
         }
     }
-    for (const shot of plan.shots) if (shot.source === 'generate' && input.visualStyle) shot.visualStyleSnapshot = normalizeVisualStyle(input.visualStyle);
+    const hasStyle = !input.plan || input.visualStyle || Object.hasOwn(input, 'artDirection') || input.plan?.artDirection || normalizeCommerceArtDirection(raw.artDirection);
+    const artDirection = hasStyle ? commerceArtDirectionForPlan(input, raw.artDirection, { rewriting: !!currentShot }) : '';
+    const visualStyle = input.visualStyle || (artDirection ? normalizeVisualStyle({ description: artDirection }) : null);
+    for (const shot of plan.shots) if (shot.source === 'generate' && visualStyle) shot.visualStyleSnapshot = normalizeVisualStyle(visualStyle);
     const revision = text(referenceRevision, 512);
-    if (currentShot) return { ...input, plan: { ...input.plan,
+    if (currentShot) return { ...input, plan: { ...input.plan, artDirection,
         ...keysForCurrentShot, ...(revision ? { referenceRevision: revision } : {}),
         confirmed: supplemental && input.plan.confirmed,
         shots: input.plan.shots.map(shot => shot.id === currentShot.id ? plan.shots[0] : shot) } };
-    const updated = { ...input, ...product };
+    const updated = { ...input, ...product, visualStyle };
     const previousAspects = new Map((Array.isArray(settings?.plan?.shots) ? settings.plan.shots : [])
         .filter(shot => COMMERCE_IMAGE_SET_ASPECTS.includes(shot?.aspect)).map(shot => [shot.id, shot.aspect]));
     const keys = await commerceImageSetKeys({ settings: updated, references: images, preservePlannedSelection: false });
@@ -921,6 +960,6 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
     }) : [];
     const currentReferenceRevision = revision || (sameReferences ? input.plan?.referenceRevision : '');
     return { ...updated,
-        plan: { ...combined, ...(input.visualStyle ? { visualStyle: normalizeVisualStyle(input.visualStyle) } : {}), ...keys, ...(currentReferenceRevision ? { referenceRevision: currentReferenceRevision } : {}), confirmed: false },
+        plan: { ...combined, ...(artDirection ? { artDirection } : {}), ...(visualStyle ? { visualStyle: normalizeVisualStyle(visualStyle) } : {}), ...keys, ...(currentReferenceRevision ? { referenceRevision: currentReferenceRevision } : {}), confirmed: false },
         results };
 }

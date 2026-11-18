@@ -28,7 +28,7 @@ export function openCommerceShotCandidates({ documentRef, opener, shot, current,
                 <div class="commerce-candidate-options" role="group" aria-label="选择对比候选"></div>
             </div>
             <div class="commerce-candidate-generation">
-                <label>生成张数 <select data-commerce-candidate-quantity aria-label="生成张数"></select></label>
+                <label>生成张数 <select class="ui-select" data-commerce-candidate-quantity aria-label="生成张数"></select></label>
                 <button type="button" class="btn btn-secondary" data-commerce-candidate-generate>再生成</button>
                 <button type="button" class="btn btn-secondary" data-commerce-candidate-cancel hidden>停止生成</button>
                 <span>每张调用一次模型，生成后手动采用</span>

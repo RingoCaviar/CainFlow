@@ -60,6 +60,7 @@ import { createImagePainterApi } from '../features/media/image-painter.js';
 import { createEditedImageImport } from '../features/media/image-painter-output.js';
 import { createCameraControlNodeApi } from '../features/camera/camera-control-node-proxy.js';
 import { createExecutionCoreApi } from '../features/execution/execution-core.js';
+import { rememberWorkflowMediaOperation } from '../features/media/workflow-media-operation.js';
 import { getRunnableCommerceImageSetShots, getUnfinishedCommerceImageSetShots } from '../features/ecommerce-image-set/commerce-image-set-plan.js';
 import { createWorkflowRunnerApi } from '../features/execution/workflow-runner.js';
 import { getCanonicalImageList } from '../features/execution/execution-data-utils.js';
@@ -849,6 +850,29 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
     cancelCommerceImageSet,
     removeCommerceScene,
     readReferenceAsset: getImageAsset,
+    uploadCommerceShotReference: async (target, file) => {
+        const workflowId = workflowManagerApi.getActiveWorkflowId();
+        const operationId = generateId();
+        const isCurrent = () => state.nodes.get(target.id) === target && workflowManagerApi.getActiveWorkflowId() === workflowId
+            && target.enabled !== false && !target.isClone && !state.runningNodeIds.has(target.id);
+        if (!workflowId || !isCurrent()) throw new Error('节点已变化，请重新选择参考图。');
+        const dataUrl = await blobToDataUrl(file);
+        const image = new Image();
+        image.src = dataUrl;
+        try { await image.decode(); }
+        catch { throw new Error('无法读取这张图片，请选择有效的图片文件。'); }
+        let asset;
+        try {
+            asset = await saveWorkflowNodeMediaAsset(dataUrl, workflowId, target.id, operationId, { isCurrent });
+            if (!asset?.asset_key || !isCurrent()) throw new Error('参考图保存失败或节点已变化，请重新上传。');
+            rememberWorkflowMediaOperation(target, [asset]);
+            scheduleSave();
+            return asset.asset_key;
+        } catch (error) {
+            await cancelWorkflowNodeMediaOperation(workflowId, target.id, operationId).catch(() => {});
+            throw error;
+        }
+    },
     waitForNodeRun: nodeId => {
         const workflowId = workflowManagerApi.getActiveWorkflowId();
         return !workflowId || getWorkflowRuntimeManagerApi().waitForNodeRun({ workflowId }, nodeId);

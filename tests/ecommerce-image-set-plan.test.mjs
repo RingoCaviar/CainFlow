@@ -13,7 +13,7 @@ import {
 } from '../js/features/ecommerce-image-set/commerce-image-set-plan.js';
 
 const references = ['data:image/png;base64,aGVsbG8='];
-const settings = { platformId: 'amazon', productNotes: '白色马克杯', plannerModelId: 'vision', plannerProviderId: 'provider',
+const settings = { platformId: 'amazon', mainImageMode: 'original', productNotes: '白色马克杯', plannerModelId: 'vision', plannerProviderId: 'provider',
     selectedShotIds: ['feature', 'main', 'detail'] };
 const models = [{ id: 'vision', modelId: 'gpt-4o', taskType: 'chat', protocol: 'openai', providerIds: ['provider'] }];
 const providers = [{ id: 'provider', endpoint: 'https://fixture.test/v1', apikey: 'test' }];
@@ -62,7 +62,7 @@ test('淘宝主图将商业主视觉的空间、商品表现和信息分区贯�
     assert.match(restoredPrompt, /^画面设计：杯子置于蓝色展台，水彩弧线引导视线，左上标题，下部卖点信息带。$/m);
 
     const feature = buildCommerceImageSetImagePrompt({ shot: plan.shots.find(shot => shot.id === 'feature'), plan });
-    assert.match(feature, /避免独立于画面的底部色条和贴片/);
+    assert.match(feature, /不强制固定版式/);
     const white = buildCommerceImageSetImagePrompt({ shot: plan.shots.find(shot => shot.id === 'white'), plan });
     assert.match(white, /纯白背景/);
     assert.match(white, /画面不添加标题、正文、标签/);
@@ -197,7 +197,7 @@ test('replanning with a different reference keeps candidates without passing an 
 test('commerce persists bounded candidate history and a finalization only for the exact completed shot', () => {
     const plan = normalizeCommerceImageSetPlan({ sellingPoints: [], shots: [
         { id: 'detail', prompt: '保留杯盖特写' }, { id: 'feature', prompt: '产品全貌' }
-    ] }, 'amazon', settings.selectedShotIds);
+    ] }, 'amazon', settings.selectedShotIds, settings);
     Object.assign(plan, { sourceKey: 'valid-key', confirmed: true });
     const candidate = (shotId, key, aspect = '1:1') => ({
         shotId, assetKey: `media:${key}`, aspect, draft: { prompt: `保留${key}`, headline: '候选标题', body: '候选正文' }
@@ -240,7 +240,7 @@ test('the platform-aware planner sends the original product photo and returns an
     assert.equal(request.path, '/proxy');
     assert.equal(request.headers.Authorization, 'Bearer test');
     const systemPrompt = request.body.messages.find(message => message.role === 'system').content;
-    assert.match(systemPrompt, /画面内容、构图和摄影风格/);
+    assert.match(systemPrompt, /展示目标、核心构图意图/);
     assert.match(systemPrompt, /文字布局.*位置、对齐、层级、字体风格和字色/);
     assert.match(systemPrompt, /不在 prompt 中重复实际文案/);
     const input = request.body.messages.at(-1).content;
@@ -261,7 +261,7 @@ test('the platform-aware planner sends the original product photo and returns an
     assert.notEqual(plan.sourceKey, await commerceImageSetSourceKey({ settings: mixedSettings, references: ['data:image/png;base64,d29ybGQ='] }));
     assert.notEqual(plan.sourceKey, await commerceImageSetSourceKey({ settings: { ...mixedSettings, selectedShotIds: ['detail'] }, references }));
     assert.notEqual(plan.sourceKey, await commerceImageSetSourceKey({ settings: { ...mixedSettings, detailAspect: '3:4' }, references }));
-    assert.equal(plan.sourceKey, await commerceImageSetSourceKey({ settings: { ...mixedSettings, imageModelId: 'choose-after-planning' }, references }));
+    assert.equal(plan.sourceKey, await commerceImageSetSourceKey({ settings: { ...mixedSettings, visualStyle: plan.visualStyle, imageModelId: 'choose-after-planning' }, references }));
     const restored = normalizeCommerceImageSetState({ ...mixedSettings, plan });
     assert.deepEqual(restored.plan.shots, plan.shots);
 });
@@ -432,7 +432,7 @@ test('platform slots reject an unexpected AI-generated shot and retain real-prod
         const shots = platform.shots.map(item => ({ id: item.id, source: 'generate', aspect: '3:2', group: 'unexpected',
             prompt: '展示商品', headline: '  商品\n标题  ', body: '句'.repeat(70) }));
         const plan = normalizeCommerceImageSetPlan({ sellingPoints: [], shots }, id);
-        assert.equal(plan.shots[0].source, ['douyin', 'amazon'].includes(id) ? 'reference' : 'generate');
+        assert.equal(plan.shots[0].source, id === 'douyin' ? 'reference' : 'generate');
         assert.equal(plan.shots[0].headline, id === 'taobao' ? '商品 标题' : '');
         assert.equal(plan.shots[0].body, id === 'taobao' ? '句'.repeat(64) : '');
         assert.ok(plan.shots.filter(shot => shot.group === 'gallery').every(shot => shot.aspect === '1:1'));

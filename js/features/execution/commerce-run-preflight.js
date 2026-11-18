@@ -1,4 +1,5 @@
 import { resolveVisualStyle, visualStyleKey } from '../visual-style/visual-style.js';
+import { resolveCommerceImageSetStyle } from '../ecommerce-image-set/commerce-art-direction.js';
 import { projectImageOutput } from '../../nodes/image-output-projection.js';
 import { resolveImageGenerationInputContract } from '../../nodes/universal-input-policy.js';
 import {
@@ -32,7 +33,8 @@ export function resolveCommerceImageGenerationSettings({ state, settings, genera
         resolution: usesOpenAiImageSize(protocol) ? '1K' : '', protocolParams: {} };
 }
 
-function getImageConfigurationIssue(state, node, settings, generatedShots, retainedReferenceCount) {
+export function getCommerceImageConfigurationIssue({ state, node, settings, generatedShots, referenceCount }) {
+    if (!generatedShots.length) return '';
     let imageSettings;
     try {
         imageSettings = resolveCommerceImageGenerationSettings({ state, settings, generatedShots });
@@ -41,9 +43,12 @@ function getImageConfigurationIssue(state, node, settings, generatedShots, retai
     }
     const contract = resolveImageGenerationInputContract(state, { ...node, apiConfigId: imageSettings.apiConfigId });
     if (contract.error) return contract.error;
-    if (!contract.supportsReferences || !contract.maxReferences) return '当前生图模型协议不支持商品参考图。';
-    if (retainedReferenceCount > contract.maxReferences) {
-        return `当前生图模型最多接收 ${contract.maxReferences} 张参考图。`;
+    if (!contract.supportsReferences || !contract.maxReferences) return '当前生图模型不支持商品参考图，请选择兼容模型。';
+    const designReferenceCount = Math.max(0, ...generatedShots.map(shot => settings.shotReferences?.[shot.id]?.length || 0));
+    const maximum = Math.min(5, contract.maxReferences);
+    if (referenceCount + designReferenceCount > maximum) {
+        return designReferenceCount ? `商品原图与图位设计参考合计最多 ${maximum} 张，请减少对应图位的参考图。`
+            : `当前生图模型最多接收 ${maximum} 张参考图。`;
     }
     return '';
 }
@@ -100,7 +105,7 @@ export function getCommerceRunPreflight({ state, plan }) {
         let issue = null;
         const panelAction = plan.commerceNodeId === nodeId && plan.commerceAction;
         let styleChanged = false;
-        try { styleChanged = !!settings.plan && visualStyleKey(settings.plan.visualStyle) !== visualStyleKey(resolveVisualStyle(state, nodeId)); }
+        try { styleChanged = !!settings.plan && visualStyleKey(settings.plan.visualStyle) !== visualStyleKey(resolveCommerceImageSetStyle(settings, resolveVisualStyle(state, nodeId))); }
         catch { styleChanged = true; }
         if (!['plan', 'analyze', 'select-candidate'].includes(panelAction) && styleChanged) {
             issue = { action: 'plan', message: '画面风格已更新，请重新规划并确认。' };
@@ -118,7 +123,7 @@ export function getCommerceRunPreflight({ state, plan }) {
                 const missingPrompt = generatedShots.find(shot => !shot.prompt);
                 if (missingPrompt) issue = { action: 'prompt', message: `「${missingPrompt.label}」缺少生图提示词。` };
                 else if (generatedShots.length) {
-                    const message = getImageConfigurationIssue(state, node, settings, generatedShots, retainedReferenceCount);
+                    const message = getCommerceImageConfigurationIssue({ state, node, settings, generatedShots, referenceCount: retainedReferenceCount });
                     if (message) issue = { action: 'configure', message };
                 }
             }

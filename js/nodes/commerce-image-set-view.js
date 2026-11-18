@@ -1,10 +1,12 @@
 import { resolveVisualStyle, visualStyleKey } from '../features/visual-style/visual-style.js';
+import { COMMERCE_ART_DIRECTION_LIMIT, resolveCommerceImageSetStyle, updateCommerceArtDirection } from '../features/ecommerce-image-set/commerce-art-direction.js';
+import { visualStyleText } from '../features/visual-style/visual-style.js';
 import {
     COMMERCE_IMAGE_SET_ASPECTS, COMMERCE_IMAGE_SET_COPY_LANGUAGES, COMMERCE_IMAGE_SET_COPY_LIMITS,
     COMMERCE_IMAGE_SET_DEFAULT_ASPECTS, COMMERCE_IMAGE_SET_PRESETS, COMMERCE_PRODUCT_INFO_LIMITS,
     COMMERCE_SCENE_DESCRIPTION_LIMIT, COMMERCE_CANDIDATE_GENERATION_LIMIT,
     appendCommerceSceneShot, confirmCommerceSceneShot, getCommerceProductInfo, getCommerceSceneSummary, getCommerceShotCandidates,
-    getGeneratableCommerceImageSetShots, getRunnableCommerceImageSetShots, getSelectedCommerceImageSetShots,
+    getCommerceAmazonMainMode, getGeneratableCommerceImageSetShots, getRunnableCommerceImageSetShots, getSelectedCommerceImageSetShots,
     getUnfinishedCommerceImageSetShots, isCommerceShotImageStale,
     normalizeCommerceImageSetCandidateCount, normalizeCommerceImageSetCopyLanguage, normalizeCommerceImageSetState,
     preserveCommerceImageSetExportResults, setCommerceShotFinalized,
@@ -17,6 +19,7 @@ import {
     projectCommerceReferences, sameCommerceReferenceProjection, verifyCommerceReferenceContent
 } from '../features/ecommerce-image-set/commerce-reference-revision.js';
 import { openCommerceShotCandidates } from '../features/ecommerce-image-set/commerce-shot-candidates-dialog.js';
+import { createCommerceShotReferenceControls } from '../features/ecommerce-image-set/commerce-shot-reference-controls.js';
 import { getEffectiveProtocol, getModelProviders, getModelsForTask } from '../features/execution/provider-request-utils.js';
 import { getOpenAIChatCapabilities } from '../features/execution/openai-chat-capabilities.js';
 import { confirmAction } from '../features/ui/app-dialogs.js';
@@ -50,7 +53,7 @@ function setImage(element, url) {
     element.hidden = !url;
 }
 
-export function createCommerceImageSetView({ node, state, documentRef, run, cancel, removeScene, onChange, openResultPreview, openShotError, bindReferencePrompt, readReferenceAsset }) {
+export function createCommerceImageSetView({ node, state, documentRef, run, cancel, removeScene, onChange, openResultPreview, openShotError, bindReferencePrompt, readReferenceAsset, uploadCommerceShotReference }) {
     const card = node.el.querySelector('.commerce-image-set-card');
     const cover = card.querySelector('img');
     const cardTitle = card.querySelector('.commerce-image-set-card-title');
@@ -82,11 +85,19 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             </div>
         </details>
     </section>
+    <section class="commerce-image-set-art-direction" aria-labelledby="${panelId}-art-heading">
+        <h3 id="${panelId}-art-heading">整套美术风格</h3>
+        <label for="${panelId}-art-direction">风格描述</label>
+        <textarea id="${panelId}-art-direction" data-commerce-art-direction rows="3" maxlength="${COMMERCE_ART_DIRECTION_LIMIT}" placeholder="留空由 AI 在规划时确定；也可填写表现形式、配色、光影和整体氛围。"></textarea>
+        <p class="commerce-image-set-product-hint" data-commerce-art-direction-status role="status"></p>
+        <button type="button" class="btn btn-secondary" data-commerce-art-direction-reset>重新由 AI 设定</button>
+    </section>
     <details class="commerce-image-set-setup" open>
         <summary><strong>生成设置</strong><span></span></summary>
         <div class="commerce-image-set-setup-fields">
             <div class="commerce-image-set-platform">
                 <label>平台${selectControl('platformId')}</label>
+                <label data-commerce-main-mode>亚马逊 MAIN${selectControl('mainImageMode')}</label>
                 <p class="commerce-image-set-guide"></p>
                 <label>图中文字语言${selectControl('copyLanguage')}</label>
                 <label>每图位生成${selectControl('candidateCount')}</label>
@@ -178,6 +189,10 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
     const actionButtons = actions.querySelector('.commerce-image-set-actions');
     const defaultPlatformId = Object.keys(COMMERCE_IMAGE_SET_PRESETS)[0];
     const config = () => (node.data.commerceImageSet ??= { platformId: defaultPlatformId, selectedShotIds: [] });
+    const designReferences = createCommerceShotReferenceControls({ documentRef, node, getSettings: config,
+        uploadReference: uploadCommerceShotReference, readAsset: readReferenceAsset, openPreview: openResultPreview,
+        onChange: change => { onChange(change); refresh(); } });
+    element.insertBefore(designReferences.element, element.querySelector('.node-model-settings'));
     const shotRows = new Map();
     const optionKeys = new WeakMap();
     const pendingShots = new Map();
@@ -613,7 +628,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
                 : referenceVerificationPending ? '正在核对商品参考图…' : '';
         const plan = value.plan;
         let styleChanged = false;
-        try { styleChanged = !!plan && visualStyleKey(plan.visualStyle) !== visualStyleKey(resolveVisualStyle(state, node.id)); }
+        try { styleChanged = !!plan && visualStyleKey(plan.visualStyle) !== visualStyleKey(resolveCommerceImageSetStyle(value, resolveVisualStyle(state, node.id))); }
         catch { styleChanged = true; }
         const activeShots = plan?.shots.filter(shot => isActiveShot(shotTaskStatus(shot.id))) || [];
         const activeShotLabel = activeShots.length ? `${activeShots.length} 个图位进行中` : '';
@@ -624,6 +639,22 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         if (!busy) cancelingAll = false;
         const unavailable = node.enabled === false || node.isClone === true;
         const locked = busy || unavailable;
+        designReferences.update(selectedShots, { locked,
+            activeShotIds: activeShots.map(shot => shot.id),
+            finalizedShotIds: (value.results || []).filter(row => row.finalized).map(row => row.shotId) });
+        const artInput = element.querySelector('[data-commerce-art-direction]');
+        const artReset = element.querySelector('[data-commerce-art-direction-reset]');
+        const artStatus = element.querySelector('[data-commerce-art-direction-status]');
+        let connectedStyle = null;
+        try { connectedStyle = resolveVisualStyle(state, node.id); } catch { /* The normal style issue reports an unavailable source. */ }
+        const artText = connectedStyle ? visualStyleText(connectedStyle) : value.artDirection || plan?.artDirection || '';
+        if ((documentRef.activeElement !== artInput || !value.artDirection) && artInput.value !== artText) artInput.value = artText;
+        artInput.disabled = locked || !!connectedStyle;
+        artReset.disabled = locked;
+        artReset.hidden = !!connectedStyle || !artText;
+        artStatus.textContent = connectedStyle ? '沿用已连接的画面风格。'
+            : value.artDirection ? '使用自定风格；各图位按用途变化构图。'
+                : plan?.artDirection ? 'AI 已确定本套风格，可直接修改。' : '规划时先确定统一风格，再分别设计各图位。';
         const shotsLocked = unavailable || cancelingAll || (busy && !activeShots.length && !node.commerceShotPreviews)
             || ['analyze', 'plan'].includes(pendingAction?.action);
         const copyLanguageChanged = !!plan && (plan.copyLanguage ?? 'auto') !== copyLanguage;
@@ -658,6 +689,8 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         const readyToReplan = currentPlan && !referenceIssue && planner.ready;
         const canRetry = currentPlan && !referenceIssue && image.ready;
         setOptions(fields.platformId, Object.values(COMMERCE_IMAGE_SET_PRESETS).map(item => [item.id, item.label]), platformId);
+        setOptions(fields.mainImageMode, [['generate', '生成白底图'], ['original', '沿用原图']], getCommerceAmazonMainMode(value));
+        element.querySelector('[data-commerce-main-mode]').hidden = platformId !== 'amazon';
         setOptions(fields.copyLanguage, Object.entries(COMMERCE_IMAGE_SET_COPY_LANGUAGES), copyLanguage);
         setOptions(fields.candidateCount, candidateCountOptions, String(candidateCount));
         fields.candidateCount.title = '仅生图图位生效，每张候选调用一次生图模型';
@@ -671,6 +704,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         }
         for (const control of Object.values(fields)) control.disabled = locked;
         fields.platformId.disabled ||= finalizedIds.size > 0;
+        fields.mainImageMode.disabled ||= finalizedIds.has('main');
         fields.platformId.title = finalizedIds.size ? '解锁定稿图位后可切换平台' : '';
         for (const [group] of shotGroups) {
             const hasFinalized = selectedShots.some(shot => shot.group === group && shot.source === 'generate' && finalizedIds.has(shot.id));
@@ -886,11 +920,22 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         runMessage = '';
     }
 
+    element.querySelector('[data-commerce-art-direction-reset]').addEventListener('click', () => {
+        updateCommerceArtDirection(config(), '', { automatic: true });
+        onChange();
+        refresh();
+        element.querySelector('[data-commerce-art-direction]').focus();
+    });
     element.addEventListener('change', event => {
         if (event.target.tagName === 'SELECT') updateSelect(event.target);
         else if (event.target.hasAttribute('data-commerce-select-shot')) updateShotSelection(event.target);
     });
     element.addEventListener('input', event => {
+        if (event.target.hasAttribute('data-commerce-art-direction')) {
+            if (updateCommerceArtDirection(config(), event.target.value)) onChange();
+            refresh();
+            return;
+        }
         if (event.target.tagName === 'SELECT') {
             updateSelect(event.target);
             return;
@@ -1187,6 +1232,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
     return {
         element, actions, refresh,
         destroy() {
+            designReferences.destroy();
             closeExportDialog?.();
             closeCandidateDialog?.();
             clearShotRows();

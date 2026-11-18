@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {
     appendCommerceSceneShot, confirmCommerceSceneShot, getCommerceShotCandidates, isCommerceShotImageStale,
-    normalizeCommerceImageSetState, updateCommerceImageSetCopyLanguage, updateCommerceProductInfoField
+    normalizeCommerceImageSetState, setCommerceShotFinalized, updateCommerceImageSetCopyLanguage, updateCommerceProductInfoField
 } from '../js/features/ecommerce-image-set/commerce-image-set-plan.js';
 import test from 'node:test';
 import { createExecutionCoreApi } from '../js/features/execution/execution-core.js';
@@ -15,9 +15,9 @@ const roles = ['angle', 'detail', 'feature', 'scene', 'included'];
 
 function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main', ...roles], beforeImageRequest, beforePlanRequest,
     galleryAspect, imageModel = 'gemini-2.5-flash-image', imageProtocol = 'google', responseImageData,
-    referenceImageCatalog, syncImagePreviewNode, visualStyle, platformId = 'amazon' } = {}) {
+    referenceImageCatalog, syncImagePreviewNode, visualStyle, platformId = 'amazon', mainImageMode = 'original' } = {}) {
     const node = { id: 'commerce', type: 'ECommerceImageSet', data: { commerceImageSet: {
-        platformId, productNotes: '杯盖可拆卸', plannerModelId: 'vision', plannerProviderId: 'provider',
+        platformId, mainImageMode, productNotes: '杯盖可拆卸', plannerModelId: 'vision', plannerProviderId: 'provider',
         imageModelId: 'image', imageProviderId: 'provider', selectedShotIds, galleryAspect
     } } };
     const apiCalls = [];
@@ -110,6 +110,32 @@ function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main',
         getCachedOutputValue: core.getCachedOutputValue, apiCalls, requestLogs, requestStatistics, imagePrompts, history, assets, warnings,
         setConnectedReference, setFailure: role => { failedRole = role; }, clearFailure: () => { failedRole = undefined; } };
 }
+
+test('亚马逊 MAIN 使用第一张商品原图生成白底精修结果并支持单图重试', async () => {
+    let variant = 1;
+    const { node, execute, apiCalls, imagePrompts, assets } = createCommerceExecutionFixture({
+        mainImageMode: 'generate', selectedShotIds: ['main', 'feature'],
+        beforePlanRequest: input => ({ artDirection: '冷蓝摄影，柔和布光', sellingPoints: ['杯盖可拆卸'],
+            shots: input.shots.map(({ id }) => ({ id, prompt: `${id}\n完整展示实际商品，正确曝光。`, headline: '不应叠在 MAIN 上', body: '' })) }),
+        responseImageData: () => Buffer.from([variant++]).toString('base64')
+    });
+    await execute('plan');
+    assert.equal(node.data.commerceImageSet.plan.shots[0].source, 'generate');
+    node.data.commerceImageSet.plan.confirmed = true;
+    const result = await execute('generate');
+    assert.deepEqual(apiCalls.filter(call => call.type === 'image').map(call => call.role), ['main', 'feature']);
+    assert.notEqual(result.image[0], reference);
+    assert.match(imagePrompts.get('main'), /RGB 255,255,255/);
+    assert.match(imagePrompts.get('main'), /第一张商品原图/);
+    assert.match(imagePrompts.get('main'), /画面不添加标题/);
+    assert.doesNotMatch(imagePrompts.get('main'), /标题：|正文：/);
+    const first = node.data.commerceImageSet.results[0].assetKey;
+    assert.ok(assets.has(first));
+    node.data.commerceImageSet = normalizeCommerceImageSetState(JSON.parse(JSON.stringify(node.data.commerceImageSet)));
+    await execute('retry', reference, 'main');
+    assert.notEqual(node.data.commerceImageSet.results[0].assetKey, first);
+    assert.equal(node.data.commerceImageSet.plan.artDirection, '冷蓝摄影，柔和布光');
+});
 
 test('deselecting planned commerce shots preserves the remaining approved drafts and generates without replanning', async () => {
     const { node, execute, apiCalls } = createCommerceExecutionFixture({ selectedShotIds: ['main', 'detail', 'scene'] });
@@ -1235,6 +1261,11 @@ test('共用风格参与套图规划和生图，变更后保留旧结果与定�
     assert.equal(fixture.node.data.commerceImageSet.plan.visualStyle.palette, '深蓝');
     assert.equal(fixture.node.data.commerceImageSet.plan.shots.find(shot => shot.id === 'detail').visualStyleSnapshot.palette, '苔藓绿');
     assert.equal(fixture.node.data.commerceImageSet.results[1].assetKey, before[1].assetKey);
+    setCommerceShotFinalized(fixture.node.data.commerceImageSet, 'detail', false);
+    fixture.node.data.commerceImageSet.plan.confirmed = true;
+    await fixture.execute('retry', reference, 'detail');
+    assert.match(fixture.imagePrompts.get('detail'), /深蓝/);
+    assert.doesNotMatch(fixture.imagePrompts.get('detail'), /苔藓绿/);
 });
 
 test('旧追加场景在风格变更并重规划后重新确认，使用当前风格', async () => {

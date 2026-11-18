@@ -743,6 +743,9 @@ html:root #canvas-container .node.node-commerce-image-set.node-media-aspect.runn
 }
 @keyframes commerce-image-set-analysis-spin { to { transform: rotate(1turn); } }
 .commerce-image-set-product-fields { display: grid; gap: 8px; min-width: 0; }
+.commerce-image-set-art-direction { display: grid; gap: 8px; min-width: 0; padding-block: 12px; }
+.commerce-image-set-art-direction h3 { margin: 0; font-size: 15px; font-weight: 650; }
+.commerce-image-set-art-direction [data-commerce-art-direction-reset] { justify-self: start; }
 .commerce-image-set-product-fields label { font-weight: 550; }
 .commerce-image-set-product-fields :is(input, textarea) { font-weight: 400; }
 .commerce-image-set-product-fields textarea { min-height: 56px; }
@@ -1097,6 +1100,7 @@ html:root #canvas-container .node.node-commerce-image-set.node-media-aspect.runn
 .commerce-candidate-comparison figcaption { margin-bottom: 6px; font-weight: 600; color: var(--text-primary); }
 .commerce-candidate-image {
     display: grid;
+    grid-template: minmax(0, 1fr) / minmax(0, 1fr);
     place-items: center;
     block-size: clamp(108px, 32dvh, 272px);
     overflow: hidden;
@@ -1108,7 +1112,7 @@ html:root #canvas-container .node.node-commerce-image-set.node-media-aspect.runn
 @media (max-width: 480px) {
     .commerce-candidate-image { block-size: auto; aspect-ratio: 4 / 5; }
 }
-.commerce-candidate-image img { width: 100%; height: 100%; object-fit: contain; visibility: hidden; }
+.commerce-candidate-image img { width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: contain; visibility: hidden; }
 .commerce-candidate-image img.is-available { visibility: visible; }
 .commerce-candidate-image p { margin: 4px; color: var(--text-secondary); text-align: center; }
 .commerce-candidate-copy,
@@ -1927,7 +1931,7 @@ html:root #canvas-container .node.node-text .text-node-editor:not(:focus)::-webk
 }
 
 /* Candidate browsing keeps the adopted image and comparison visible above a scrollable gallery. */
-.commerce-candidates-dialog { width: min(940px, calc(100vw - 24px)); }
+.commerce-candidates-dialog { width: min(940px, calc(100vw - 24px)); max-block-size: calc(100dvh - 24px); }
 .commerce-candidate-gallery h3 { margin: 4px 0 8px; font-size: 13px; }
 .commerce-candidate-gallery h3 span { font-weight: 400; color: var(--text-secondary); }
 .commerce-candidate-options:not([hidden]) { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; max-height: 240px; overflow-y: auto; padding: 3px; }
@@ -1945,3 +1949,26 @@ html:root #canvas-container .node.node-text .text-node-editor:not(:focus)::-webk
 .commerce-candidate-progress { margin: 0; color: var(--text-secondary); }
 
 .commerce-candidates-dialog [hidden] { display: none !important; }
+
+.commerce-shot-references { margin-block: 12px; }
+.commerce-shot-references > summary { cursor: pointer; font-weight: 600; }
+.commerce-shot-references > summary span { margin-inline-start: 8px; color: var(--text-secondary); font-size: 12px; font-weight: 400; }
+.commerce-shot-references > p { margin: 10px 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+.commerce-shot-reference-list { display: grid; gap: 14px; margin-top: 12px; }
+.commerce-shot-reference-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.commerce-shot-reference-heading strong { min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+.commerce-shot-references .btn { color: var(--text-primary); background: var(--bg-input); border: 1px solid var(--border-input); border-radius: 6px; box-shadow: none; }
+.commerce-shot-references .btn:hover:not(:disabled) { background: var(--panel-hover-bg); }
+.commerce-shot-references .btn:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.commerce-shot-references .btn:disabled { opacity: .5; cursor: default; }
+.commerce-shot-reference-heading > button { flex: 0 0 auto; min-height: 28px; padding: 4px 8px; font-size: 13px; white-space: nowrap; }
+.commerce-shot-reference-images { display: flex; flex-wrap: wrap; gap: 10px; }
+.commerce-shot-reference-images:not(:empty) { margin-top: 8px; }
+.commerce-shot-reference-image { width: 76px; }
+.commerce-shot-reference-image > button { display: block; width: 76px; height: 76px; padding: 3px; background: var(--bg-input); border: 1px solid var(--border-input); border-radius: 6px; cursor: pointer; }
+.commerce-shot-reference-image img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.commerce-shot-reference-image > div { display: flex; justify-content: space-between; gap: 4px; margin-top: 4px; }
+.commerce-shot-reference-image > div button { flex: 1; min-width: 0; min-height: 26px; padding: 3px; font-size: 13px; white-space: nowrap; }
+.commerce-shot-reference-image > button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.commerce-shot-reference-status { margin: 6px 0 0; font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+.commerce-shot-reference-row [hidden], .commerce-shot-references[hidden] { display: none !important; }
