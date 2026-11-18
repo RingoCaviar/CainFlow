@@ -866,7 +866,6 @@ export function createContextMenuControllerApi({
     function initContextMenu() {
         const emptyState = documentRef.getElementById('canvas-empty-state');
         const nodesLayer = documentRef.getElementById('nodes-layer');
-        const addTrigger = documentRef.getElementById('canvas-add-node');
         const canvasIsReady = () => (documentRef.documentElement?.dataset.canvasLoadState || 'ready') === 'ready';
         const openFromTrigger = e => {
             const trigger = e.currentTarget;
@@ -878,7 +877,6 @@ export function createContextMenuControllerApi({
                 const ready = canvasIsReady();
                 const hasNodes = nodesLayer.childElementCount > 0;
                 emptyState.hidden = !ready || hasNodes;
-                if (addTrigger) addTrigger.hidden = !ready || !hasNodes;
                 if (!ready) nodePicker.close();
             };
             refreshEmptyState();
@@ -888,7 +886,6 @@ export function createContextMenuControllerApi({
             documentRef.getElementById('canvas-open-agent').addEventListener('click', () => documentRef.getElementById('btn-prompt-agent').click());
             documentRef.getElementById('canvas-configure-models').addEventListener('click', () => documentRef.getElementById('btn-settings').click());
         }
-        addTrigger?.addEventListener('click', openFromTrigger);
         documentRef.querySelectorAll('#toolbar, #side-bar').forEach((chromeElement) => {
             chromeElement.addEventListener('contextmenu', (e) => {
                 e.preventDefault();

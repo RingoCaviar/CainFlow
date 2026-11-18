@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { withAppBrowser, reloadAppBrowser, delay, waitForAutosave } from './helpers/app-browser.mjs';
@@ -272,7 +273,7 @@ test('background camera execution uses A settings while a same-ID B camera and c
         await activate(app, 'Run Camera A');
         await waitForAutosave(app);
         const before = (await saved(app)).nodes.find(node => node.id === 'camera');
-        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.evaluate(runWorkflowShortcut);
         await app.waitFor('cameraPending===true');
         await app.evaluate("document.getElementById('camera-camera-open').click()");
         await delay(150);

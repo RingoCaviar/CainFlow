@@ -74,7 +74,13 @@ export function createViewportApi({
         setCustomStyle(canvasGrid.style, '--canvas-dot-offset-y', `${y}px`);
         if (elements.zoomLevel) {
             const label = `${Math.round(zoom * 100)}%`;
-            if (elements.zoomLevel.textContent !== label) elements.zoomLevel.textContent = label;
+            if (elements.zoomLevel.textContent !== label) {
+                const text = elements.zoomLevel.firstChild;
+                // Replacing the child invalidates ancestor :has() selectors and
+                // unrelated node styles on every zoom frame. Keep the text node.
+                if (text?.nodeType === 3 && text === elements.zoomLevel.lastChild) text.data = label;
+                else elements.zoomLevel.textContent = label;
+            }
         }
         if (options.dispatchTransformEvent !== false) {
             elements.canvasContainer?.ownerDocument?.dispatchEvent(new CustomEvent('cainflow:canvas-transform', {

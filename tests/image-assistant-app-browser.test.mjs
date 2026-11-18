@@ -1,4 +1,5 @@
 import { readFile, mkdir, writeFile, unlink } from 'node:fs/promises';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -148,7 +149,7 @@ test('content-first image card keeps common parameters aligned with the real req
         await change(evaluate, `${id}-custom-resolution-height`, '1024');
         await change(evaluate, `${id}-quality`, 'high');
         await change(evaluate, `${id}-generation-count`, '2');
-        await evaluate("document.getElementById('btn-run').click()");
+        await evaluate(runWorkflowShortcut);
         await waitFor('imageRequests.length===2');
         await waitFor(`!document.getElementById('${id}-prompt').disabled`);
         assert.deepEqual(await evaluate('imageRequests.map(r=>({prompt:r.prompt,size:r.size,quality:r.quality}))'), [
@@ -202,11 +203,11 @@ test('advanced settings retain values and each node expansion across save and re
         await change(evaluate, 'one-apiconfig', 'google');
         await change(evaluate, 'one-apiconfig', 'image');
         assert.equal(await evaluate("document.getElementById('one-background').value"), 'transparent');
-        await evaluate("document.getElementById('btn-run').click()");
+        await evaluate(runWorkflowShortcut);
         await waitFor('imageRequests.length===2');
         assert.equal(await evaluate("imageRequests.find(r=>r.prompt==='one').background"), 'transparent');
         await waitFor("!document.getElementById('one-prompt').disabled");
-        await waitFor("!document.getElementById('two-prompt').disabled && !document.getElementById('btn-run').disabled");
+        await waitFor("!document.getElementById('two-prompt').disabled");
         await delay(300);
         await evaluate("document.querySelector('#one-advanced-parameters > summary').click();document.getElementById('one').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:180,clientY:180}));document.getElementById('context-menu-run-to-here').click()");
         await waitFor('imageRequests.length===3');
@@ -228,7 +229,7 @@ test('connected prompt shows its existing source while keeping the inactive loca
         assert.match(await evaluate("document.getElementById('prompt-image-prompt-source').textContent"), /上游 A/);
         await change(evaluate, 'upstream-text', '上游 A 更新');
         assert.match(await evaluate("document.getElementById('prompt-image-prompt-source').textContent"), /上游 A 更新/);
-        await evaluate("document.getElementById('btn-run').click()");
+        await evaluate(runWorkflowShortcut);
         await waitFor('imageRequests.length===1');
         assert.equal(await evaluate('imageRequests[0].prompt'), '上游 A 更新');
         await waitFor("!document.getElementById('prompt-image-prompt').disabled");
@@ -457,7 +458,8 @@ test('assistant batch result generates with the parameter editor closed, selects
         const blankCanvas = await evaluate(`(() => {
             const canvas = document.getElementById('canvas-container');
             const rect = canvas.getBoundingClientRect();
-            const x = rect.left + 24, y = rect.top + 48;
+            const toolbarBottom = document.getElementById('toolbar').getBoundingClientRect().bottom;
+            const x = rect.left + 24, y = Math.max(rect.top + 48, toolbarBottom + 12);
             const target = document.elementFromPoint(x, y);
             return canvas.contains(target) && !target.closest('.node') ? { x, y } : null;
         })()`);
@@ -587,7 +589,8 @@ test('a queued image node clears its old failure while errors outside the new ru
         await evaluate("window.releasePromptResponse();window.holdPrompt=''");
         await waitFor("document.getElementById('queued-target-run-status').textContent==='完成'");
         await waitFor("document.getElementById('btn-stop').disabled");
-        await evaluate("document.querySelector('#outside-error .node-bypass-btn').click();window.holdPrompt='queued-source';document.getElementById('btn-run').click()");
+        await evaluate("document.querySelector('#modal-error.active .modal-close')?.click()");
+        await evaluate(`document.querySelector('#outside-error .node-bypass-btn').click();window.holdPrompt='queued-source';${runWorkflowShortcut}`);
         await waitFor("document.getElementById('queued-source-run-status').textContent==='运行中' && Boolean(window.releasePromptResponse)");
         assert.equal(await evaluate("document.getElementById('outside-error').classList.contains('disabled')"), true);
         assert.equal(await evaluate("document.querySelector('[data-node-id=outside-error] .node-failure-summary').classList.contains('hidden')"), false, 'disabled nodes do not join a full workflow run or lose their previous failure');
@@ -600,7 +603,7 @@ test('automatic image retry clears the failed attempt before the next response a
     await withAppBrowser({ ...session, autoRetry:true, maxRetries:1, nodes:[{id:'auto-retry-image',type:'ImageGenerate',x:100,y:100,apiConfigId:'image',providerId:'p',prompt:'automatic retry'}], connections:[] }, async app => {
         const { evaluate, waitFor } = app;
         await controlImages(app);
-        await evaluate("window.failImage=true;document.getElementById('btn-run').click()");
+        await evaluate(`window.failImage=true;${runWorkflowShortcut}`);
         await waitFor("document.getElementById('auto-retry-image-run-status').textContent==='失败'");
         assert.match(await evaluate("document.querySelector('[data-node-id=auto-retry-image] .node-failure-summary').textContent"), /受控失败/);
         await evaluate("window.failImage=false;window.holdPrompt='automatic retry'");
@@ -1072,7 +1075,7 @@ test('image-first generation opens one fixed-size editor below the card without 
         await change(app.evaluate,'first-image-prompt','saved from lower editor');
         await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]').click()");
         assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').hidden"),true);
-        await app.evaluate("window.holdPrompt='saved from lower editor';document.getElementById('btn-run').click()");
+        await app.evaluate(`window.holdPrompt='saved from lower editor';${runWorkflowShortcut}`);
         await app.waitFor('imageRequests.length===1 && Boolean(window.releasePromptResponse)');
         assert.equal(await app.evaluate("document.getElementById('first-image-prompt').disabled && document.getElementById('first-image-apiconfig').disabled"),true,'running locks also protect the lower editor');
         await app.evaluate("document.getElementById('first-image').click()");
@@ -1083,7 +1086,7 @@ test('image-first generation opens one fixed-size editor below the card without 
         assert.equal(await app.evaluate("document.getElementById('first-image-prompt').disabled"), true, 'a simple footer click cannot bypass the protected cancellation gesture');
         await app.evaluate("window.releasePromptResponse();window.holdPrompt=''");
         assert.equal(await app.evaluate('imageRequests[0].prompt'),'saved from lower editor');
-        await app.waitFor("!document.getElementById('btn-run').disabled");
+        await app.waitFor("document.getElementById('toolbar-workflow-run-status').hidden");
         await delay(1000); await reloadApp(app);
         assert.equal(await app.evaluate("document.getElementById('first-image-prompt').value"),'saved from lower editor');
     });

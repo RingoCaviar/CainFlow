@@ -27,15 +27,27 @@ try {
     decide('confirm'); await accepted; result.downloadsAfterConfirm = downloads;
 
     let imports = 0;
-    const api = createProjectIoApi({ state: { nodes: new Map(), providers: [], models: [] },
+    const importState = { nodes: new Map(), providers: [], models: [], canvasGpuAccelerationEnabled: false };
+    let savedSettings = {};
+    let mergedSettings;
+    const api = createProjectIoApi({ state: importState,
         storageKey: 'test-import', nodeSerializer: {}, selectionApi: { reset: noop },
-        localStorageRef: { getItem: () => '{}', setItem: () => { imports++; } }, windowRef: { location: { reload: noop } }, getHandle: noop, addLog: noop, addNode: noop,
+        localStorageRef: { getItem: () => JSON.stringify(savedSettings), setItem: (_key, value) => { imports++; mergedSettings = JSON.parse(value); } }, windowRef: { location: { reload: noop } }, getHandle: noop, addLog: noop, addNode: noop,
         applyHistoryGridCols: noop, connectionProjectionMaintenance: {}, updatePortStyles: noop,
         viewportApi: {}, showToast: noop, activateRestoredWorkflowState: async () => {} });
     const file = new File([JSON.stringify({ nodes: [], connections: [] })], 'test.json');
     api.importWorkflow(file); await waitDialog(); result.importsBeforeConfirm = imports;
     decide('cancel'); await settle(); result.importsAfterCancel = imports;
     api.importWorkflow(file); await waitDialog(); decide('confirm'); await settle(); result.importsAfterConfirm = imports;
+    result.gpuImportPreferences = [];
+    for (const stored of [undefined, false]) {
+        savedSettings = { canvasGpuAccelerationEnabled: stored };
+        for (const imported of [undefined, true]) {
+            const workflow = new File([JSON.stringify({ nodes: [], connections: [], canvasGpuAccelerationEnabled: imported })], 'gpu.json');
+            api.importWorkflow(workflow); await waitDialog(); decide('confirm'); await settle();
+            result.gpuImportPreferences.push(mergedSettings.canvasGpuAccelerationEnabled);
+        }
+    }
 } catch (error) { result.error = error.stack || String(error); }
 document.getElementById('surface-result').textContent = JSON.stringify(result);
 </script>

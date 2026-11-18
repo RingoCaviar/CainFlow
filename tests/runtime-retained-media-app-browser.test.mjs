@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import test from 'node:test';
 import { withAppBrowser } from './helpers/app-browser.mjs';
 import { configuration, recordPlayableVideo, controlProviders, upload, openParameters, runNode, saved } from './helpers/image-first-integrated-fixture.mjs';
@@ -26,7 +27,7 @@ for (const omitted of ['video', 'image']) {
             const video = await recordPlayableVideo(app);
             await controlProviders(app, { video });
             await upload(app);
-            await app.evaluate("document.getElementById('btn-run').click()");
+            await app.evaluate(runWorkflowShortcut);
             await app.waitFor("document.getElementById('btn-stop').disabled && fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>{const node=document.value.nodes.find(node=>node.id==='save');return node?.mediaAssetKeys?.length===1&&node?.videos?.length===1})");
             const initial = (await saved(app)).nodes.find(node => node.id === 'save');
             assert.equal(await app.evaluate("document.getElementById('save-save-preview').dataset.saveState"), 'current');

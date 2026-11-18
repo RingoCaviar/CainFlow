@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -111,7 +112,7 @@ test('nine image node types coexist with live Text, Params and Video through a c
         await openParameters(app, 'generate', 'reference');
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('#generate-reference-sources .image-reference-group')].map(row=>row.dataset.referenceConnection)"), ['source-reference','color-reference']);
         assert.match(await app.evaluate("document.getElementById('generate-prompt-source').textContent"), /integrated upstream prompt/);
-        await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=close]').click();document.getElementById('text').click();document.getElementById('btn-run').click()");
+        await app.evaluate(`document.querySelector('#image-parameter-panel [data-parameter-action=close]').click();document.getElementById('text').click();${runWorkflowShortcut}`);
         await app.waitFor("integrationRequests.filter(request=>request.kind==='image').length===3&&document.getElementById('btn-stop').disabled");
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='save')?.mediaAssetKeys?.length===5&&document.value.nodes.find(node=>node.id==='save')?.videos?.length===1)");
         const generated = await persist(app);

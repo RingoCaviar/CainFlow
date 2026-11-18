@@ -61,14 +61,6 @@ html:root .node-picker-panel :is(.node-picker-result, .node-picker-close):is(:ho
     background: var(--menu-hover-bg); border-color: var(--menu-hover-border);
 }
 .node-picker-panel :is(button,input):focus-visible { outline: 2px solid var(--menu-focus-ring); outline-offset: -2px; }
-#canvas-navigation > #canvas-add-node { gap: 4px; font-size: 13px; }
-#canvas-navigation > #canvas-add-node[hidden] { display: none; }
-@media (max-width: 370px) {
-    #canvas-add-node span { display: none; }
-}
-@media (max-width: 640px) {
-    #main-layout:has(.prompt-agent-panel.active) #canvas-add-node span { display: none; }
-}
 :root {
     --menu-surface: var(--panel-bg-strong);
     --menu-border: var(--panel-border-strong);

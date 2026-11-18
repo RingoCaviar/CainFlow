@@ -81,7 +81,7 @@ test('canvas navigation remains one horizontal row beside an open and resized Ag
             for (let i = 0; i < 12; i++) document.getElementById('prompt-agent-resize').dispatchEvent(
                 new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));`);
         assert.deepEqual(await readCanvasNavigation(app), { rows: 1, inside: true, clear: true });
-        assert.equal(await app.evaluate("document.getElementById('canvas-add-node').hidden && document.querySelector('.canvas-run-scope-trigger').hidden"), true);
+        assert.equal(await app.evaluate("document.querySelector('.canvas-run-scope-trigger').hidden"), true);
         for (const width of [1440, 1280, 1201, 1200, 1085, 801, 800, 760, 480, 360]) {
             await app.send('Emulation.setDeviceMetricsOverride', { width, height: 878, deviceScaleFactor: 1, mobile: false });
             await resizeAgentToMaximum(app);
@@ -93,7 +93,7 @@ test('canvas navigation remains one horizontal row beside an open and resized Ag
     });
 });
 
-test('canvas navigation keeps add and run scope reachable when a node is selected beside Agent', { timeout: 30000 }, async () => {
+test('canvas navigation keeps run scope reachable before and after selecting a node beside Agent', { timeout: 30000 }, async () => {
     const nodes = [{ id: 'navigation-text', type: 'Text', x: 80, y: 140, width: 260, height: 190, text: 'Fixture' }];
     await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes, connections: [] }, async app => {
         const size = width => app.send('Emulation.setDeviceMetricsOverride', { width, height: 878, deviceScaleFactor: 1, mobile: false });
@@ -101,6 +101,7 @@ test('canvas navigation keeps add and run scope reachable when a node is selecte
         await app.evaluate("document.getElementById('btn-prompt-agent').click()");
         await resizeAgentToMaximum(app);
         assert.deepEqual(await readCanvasNavigation(app), { rows: 1, inside: true, clear: true });
+        assert.equal(await app.evaluate("document.querySelector('.canvas-run-scope-trigger').checkVisibility()"), true);
 
         const point = await app.evaluate(`(() => {
             const card = document.getElementById('navigation-text').getBoundingClientRect();
@@ -110,7 +111,7 @@ test('canvas navigation keeps add and run scope reachable when a node is selecte
         await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
         await app.waitFor("document.querySelector('.canvas-run-scope-trigger').checkVisibility()");
         await app.evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
-        assert.deepEqual(await readCanvasNavigation(app), { rows: 1, inside: true, clear: true }, 'selecting another node can widen navigation while Agent is already open');
+        assert.deepEqual(await readCanvasNavigation(app), { rows: 1, inside: true, clear: true });
 
         for (const width of [1440, 1201, 1200, 1085, 801, 800, 480, 360]) {
             await size(width);
@@ -120,9 +121,8 @@ test('canvas navigation keeps add and run scope reachable when a node is selecte
                 assert.deepEqual(await readCanvasNavigation(app), { rows: 1, inside: true, clear: true }, `${theme} at ${width}px`);
             }
         }
-        assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('#canvas-add-node, .canvas-run-scope-trigger')].map(button => ({
-            name: button.getAttribute('aria-label'), visible: button.checkVisibility()
-        }))`), [{ name: '预览并选择运行范围', visible: true }, { name: '添加节点', visible: true }]);
+        assert.equal(await app.evaluate("document.querySelector('#canvas-navigation #canvas-add-node')"), null);
+        assert.equal(await app.evaluate("document.querySelector('.canvas-run-scope-trigger').checkVisibility()"), true);
     });
 });
 
@@ -186,7 +186,8 @@ test('canvas toolbar keeps action groups together across themes and wrapped widt
             for (const width of [1424, 1100, 700, 480]) {
                 await send('Emulation.setDeviceMetricsOverride', { width, height: 820, deviceScaleFactor: 1, mobile: false });
                 const layout = await evaluate(`(() => {
-                    const groups = [...document.querySelectorAll('#toolbar .toolbar-action-group')];
+                    const groups = [...document.querySelectorAll('#toolbar .toolbar-action-group')]
+                        .filter(group => group.checkVisibility());
                     return groups.map(group => {
                         const groupRect = group.getBoundingClientRect();
                         const children = [...group.children].filter(child => child.tagName !== 'INPUT');
@@ -194,12 +195,11 @@ test('canvas toolbar keeps action groups together across themes and wrapped widt
                             childRows: [...new Set(children.map(child => Math.round(child.getBoundingClientRect().top)))] };
                     });
                 })()`);
-                assert.equal(layout.length, 4);
+                assert.equal(layout.length, 3);
                 if (width > 520) assert.ok(layout.every(group => group.childRows.length === 1), `${theme} at ${width}px split a group`);
                 assert.ok(layout.every(group => group.left >= 0 && group.right <= width + 1), `${theme} at ${width}px overflows`);
                 assert.ok(layout.every((group, index) => index === 0 || group.top >= layout[index - 1].top), `${theme} at ${width}px reordered groups`);
                 if (width === 1100) assert.ok(layout.every(group => group.top === layout[0].top), `${theme} should fit the unified toolbar on one row`);
-                if (width === 480) assert.ok(layout[3].top > layout[0].top, `${theme} should wrap a complete group`);
             }
         }
 
@@ -212,7 +212,8 @@ test('canvas toolbar keeps action groups together across themes and wrapped widt
                 && theme.previousElementSibling.id === 'toolbar-workflow-more'
                 && theme.nextElementSibling.id === 'btn-settings';
         })()`), true, 'theme selection stays directly between More and Settings');
-        for (const id of ['btn-toggle-workflow', 'btn-run', 'btn-stop', 'btn-history', 'btn-prompt-agent', 'btn-settings']) {
+        assert.equal(await evaluate("document.querySelector('#toolbar #btn-run')"), null);
+        for (const id of ['btn-toggle-workflow', 'btn-stop', 'btn-history', 'btn-prompt-agent', 'btn-settings']) {
             assert.equal(await evaluate(`Boolean(document.querySelector('#toolbar > .toolbar-action-group > #${id}'))`), true, `${id} must remain directly accessible`);
         }
         await evaluate("document.querySelector('#toolbar-workflow-more summary').click()");

@@ -33,7 +33,9 @@
     container-type: inline-size;
     --node-drag-x: 0px;
     --node-drag-y: 0px;
-    transform: translate3d(var(--node-drag-x), var(--node-drag-y), 0);
+    /* Keep idle cards out of permanent 3D layers. Active cards are promoted
+       below; the browser can raster text at its final scale after settling. */
+    transform: translate(var(--node-drag-x), var(--node-drag-y));
     -webkit-font-smoothing: none;
     font-smooth: never;
 }
@@ -105,6 +107,14 @@
 .node.is-interacting {
     transition: none !important;
     z-index: var(--layer-canvas-popup);
+}
+
+/* Reuse card rasters during motion without promoting the unbounded world
+   layer for zoom. Removing the gesture class releases the hint and lets
+   settled text rasterize at the final scale. Hidden shells stay cheap. */
+#canvas-container:not(.canvas-gpu-disabled) .node.is-interacting,
+#canvas-container:not(.canvas-gpu-disabled).is-zooming .node:not(.is-virtualized) {
+    will-change: transform;
 }
 
 .node.is-interacting,

@@ -1635,7 +1635,6 @@ function getToolbarControllerApi() {
             selectionApi,
             canvasContainer,
             viewportApi,
-            runWorkflow,
             stopCurrentWorkflow,
             saveState,
             undo,

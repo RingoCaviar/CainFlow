@@ -11,4 +11,5 @@ test('update downloads and workflow imports wait for explicit project-dialog con
     assert.equal(result.importsBeforeConfirm, 0);
     assert.equal(result.importsAfterCancel, 0);
     assert.equal(result.importsAfterConfirm, 1);
+    assert.deepEqual(result.gpuImportPreferences, [false, false, false, false], 'workflow import preserves disabled local GPU preferences, including old saved sessions');
 });

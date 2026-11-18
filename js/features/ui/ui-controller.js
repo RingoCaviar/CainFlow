@@ -415,6 +415,9 @@ export function createUiControllerApi({
             }
         }
 
+        if (settings.canvasGpuAccelerationEnabled !== undefined) {
+            state.canvasGpuAccelerationEnabled = settings.canvasGpuAccelerationEnabled !== false;
+        }
         applyCanvasUiSetting();
 
         if (settings.globalAnimationEnabled !== undefined || settings.connectionFlowAnimationEnabled !== undefined) {
@@ -498,6 +501,7 @@ export function createUiControllerApi({
                 toolbarPinned: state.toolbarPinned === true,
                 sidebarPinned: state.sidebarPinned === true,
                 globalAnimationEnabled: state.globalAnimationEnabled,
+                canvasGpuAccelerationEnabled: state.canvasGpuAccelerationEnabled !== false,
                 connectionFlowAnimationEnabled: state.globalAnimationEnabled,
                 canvasRender: { denseModeOverride: state.canvasRender?.denseModeOverride || 'auto' },
                 proxy: state.proxy ? { ...state.proxy } : null,

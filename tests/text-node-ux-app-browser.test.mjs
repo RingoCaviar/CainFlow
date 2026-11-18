@@ -19,7 +19,7 @@ test('text nodes execute in a windowless workflow document and publish their out
         { id: 'sink-text', type: 'Text', x: 420, y: 80, text: '' }
     ], connections: [{ id: 'text-link', from: { nodeId: 'source-text', port: 'text' },
         to: { nodeId: 'sink-text', port: 'text' }, type: 'text' }] }, async app => {
-        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.evaluate(runWorkflowShortcut);
         await app.waitFor("document.getElementById('sink-text-text').value==='后台文本运行结果' && document.getElementById('btn-stop').disabled");
         assert.equal(await app.evaluate("document.getElementById('sink-text').querySelectorAll('.text-node-tools').length"), 1);
     });
@@ -52,7 +52,7 @@ test('text cards expose their identity and keyboard editing instructions without
 
 test('open readers follow Text execution results without disturbing unchanged reading selection', { timeout: 30000 }, async () => {
     await withAppBrowser(session, async app => {
-        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.evaluate(runWorkflowShortcut);
         await app.waitFor("import('/js/app/bootstrap.js').then(m => m.bootstrapCainFlowApp()).then(app => !!app.registry.executionCoreApi)");
         await app.evaluate("document.getElementById('batch-text').focus(); document.querySelector('#batch-text .text-node-reader-open').click()");
         await app.waitFor("document.querySelector('#batch-text-text-reader').matches(':popover-open')");
@@ -139,3 +139,4 @@ test('full text reader stays readable at half zoom and closes back to its opener
         assert.ok(await app.evaluate('document.activeElement === window.readerOpener'), 'closing restores the exact opener');
     });
 });
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';

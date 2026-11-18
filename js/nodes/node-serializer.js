@@ -372,6 +372,7 @@ export function createNodeSerializer({ state, documentRef }) {
             toolbarPinned: state.toolbarPinned === true,
             sidebarPinned: state.sidebarPinned === true,
             globalAnimationEnabled: state.globalAnimationEnabled,
+            canvasGpuAccelerationEnabled: state.canvasGpuAccelerationEnabled !== false,
             connectionFlowAnimationEnabled: state.globalAnimationEnabled,
             canvasRender: { denseModeOverride: state.canvasRender?.denseModeOverride || 'auto' },
             proxy: state.proxy,

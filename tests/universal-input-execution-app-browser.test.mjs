@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
@@ -50,10 +51,10 @@ test('a new single-image mask cannot silently consume a later multi-image batch,
         const { evaluate, waitFor } = app;
         await waitFor("Boolean(document.getElementById('mask-source')) && Boolean(document.getElementById('mask-target'))");
         await controlImages(app);
-        await evaluate("document.getElementById('btn-run').click()");
+        await evaluate(runWorkflowShortcut);
         await waitFor("imageRequests.some(r=>r.prompt==='masked target') && document.getElementById('btn-stop').disabled");
         assert.equal(await evaluate("imageRequests.find(r=>r.prompt==='masked target').mask"), true);
-        await evaluate("(()=>{const field=document.getElementById('mask-source-generation-count');field.value='2';field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));document.getElementById('btn-run').click()})()");
+        await evaluate(`(()=>{const field=document.getElementById('mask-source-generation-count');field.value='2';field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));${runWorkflowShortcut}})()`);
         await waitFor("imageRequests.filter(r=>r.prompt==='mask source').length===3 && document.getElementById('btn-stop').disabled");
         assert.equal(await evaluate("imageRequests.filter(r=>r.prompt==='masked target').length"), 1, 'changed mask batch is blocked before a new provider request');
         assert.match(await evaluate("document.querySelector('.image-first-parameter-content[data-node-id=mask-target] .node-failure-summary').textContent"), /单图/);
@@ -65,7 +66,7 @@ test('a new single-image mask cannot silently consume a later multi-image batch,
         assert.equal(await evaluate('window.mergedErrorTarget'), 'mask-target');
         await waitFor("(async()=>{const saved=(await fetch('/api/storage/documents/session').then(r=>r.json())).value;return saved?.connections?.find(c=>c.id==='single-mask')?.maskConsumption==='single' && saved.nodes.find(n=>n.id==='mask-source')?.generationCount===2})()");
         await reloadAppBrowser(app);
-        await evaluate("document.getElementById('btn-run').click()");
+        await evaluate(runWorkflowShortcut);
         await waitFor("imageRequests.filter(r=>r.prompt==='mask source').length===2 && document.getElementById('btn-stop').disabled");
         assert.equal(await evaluate("imageRequests.filter(r=>r.prompt==='masked target').length"), 0, 'saved consumption rule cannot be downgraded into legacy compatibility');
         assert.match(await evaluate("document.querySelector('.image-first-parameter-content[data-node-id=mask-target] .node-failure-summary').textContent"), /单图/);
@@ -79,10 +80,10 @@ test('generation validates the complete real reference batch against its model c
     }, async app => {
         const { evaluate, waitFor } = app;
         await controlImages(app, { distinctSourceImages: true });
-        await evaluate("document.getElementById('btn-run').click()");
+        await evaluate(runWorkflowShortcut);
         await waitFor("imageRequests.some(r=>r.prompt==='masked target') && document.getElementById('btn-stop').disabled");
         assert.equal(await evaluate("imageRequests.find(r=>r.prompt==='masked target').references"), 16, 'all sixteen originals reach the real edit request');
-        await evaluate("(()=>{const field=document.getElementById('mask-source-generation-count');field.value='17';field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));document.getElementById('btn-run').click()})()");
+        await evaluate(`(()=>{const field=document.getElementById('mask-source-generation-count');field.value='17';field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));${runWorkflowShortcut}})()`);
         await waitFor("imageRequests.filter(r=>r.prompt==='mask source').length===33 && document.getElementById('btn-stop').disabled");
         assert.equal(await evaluate("imageRequests.filter(r=>r.prompt==='masked target').length"), 1, 'a seventeen-image source is retained and blocked before the next request');
         assert.match(await evaluate("document.querySelector('.image-first-parameter-content[data-node-id=mask-target] .node-failure-summary').textContent"), /最多.*16.*17/);
@@ -99,7 +100,7 @@ test('legacy multi-image masks keep their first original and persist that compat
     }, async app => {
         const { evaluate, waitFor } = app;
         await controlImages(app);
-        await evaluate("document.getElementById('btn-run').click()");
+        await evaluate(runWorkflowShortcut);
         await waitFor("imageRequests.some(r=>r.prompt==='masked target') && document.getElementById('btn-stop').disabled");
         assert.deepEqual(await evaluate("imageRequests.filter(r=>r.prompt==='masked target').map(r=>({mask:r.maskData,references:r.references}))"),
             [{ mask: png, references: 2 }], 'legacy mask uses exactly the first original in one request');

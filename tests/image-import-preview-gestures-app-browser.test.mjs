@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { withAppBrowser, delay } from './helpers/app-browser.mjs';
@@ -53,9 +54,9 @@ test('import and preview picture gestures distinguish node dragging, parameter s
     ], connections: [{ id: 'image-edge', from: { nodeId: 'media-import', port: 'image' }, to: { nodeId: 'preview', port: 'image' }, type: 'image' }] }, async app => {
         await app.waitFor("document.getElementById('media-import').classList.contains('image-first-card') && document.getElementById('preview').classList.contains('image-first-card')");
         await importImage(app);
-        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.evaluate(runWorkflowShortcut);
         await app.waitFor("document.querySelector('#preview-preview img')?.naturalWidth>0");
-        await app.waitFor("!document.getElementById('btn-run').disabled && !document.getElementById('media-import').classList.contains('running') && !document.getElementById('preview').classList.contains('running') && !document.getElementById('media-import-file').disabled");
+        await app.waitFor("!document.getElementById('media-import').classList.contains('running') && !document.getElementById('preview').classList.contains('running') && !document.getElementById('media-import-file').disabled");
         await app.waitFor("import('/js/app/bootstrap.js').then(m=>m.bootstrapCainFlowApp()).then(app=>app.state.runningNodeIds.size===0 && ['media-import','preview'].every(id=>app.state.nodes.get(id)?.isSucceeded===true))");
         for (const [id, surface] of [['media-import', '#media-import-drop'], ['preview', '#preview-preview']]) {
             await closeParameters(app);

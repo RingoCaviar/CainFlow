@@ -1624,13 +1624,21 @@ export function createConnectionsApi({
         observeEndpoint(toNode);
         const measurement = { conn, fromNode, toNode };
         if (!fromNode || !toNode || !connectionBoundsOverlapViewport(fromNode, toNode, viewport)) return measurement;
-        const endpointsVisible = isConnectionEndpointVisible(conn.from.nodeId, conn.from.port, 'output') &&
-            isConnectionEndpointVisible(conn.to.nodeId, conn.to.port, 'input');
-        if (!endpointsVisible) return measurement;
+        const endpoint = (nodeId, port, direction) => {
+            const key = getPortKey(nodeId, port, direction);
+            if (!context.endpoints.has(key)) {
+                const visible = isConnectionEndpointVisible(nodeId, port, direction);
+                context.endpoints.set(key, visible ? getPortPosition(nodeId, port, direction, containerRect) : null);
+            }
+            return context.endpoints.get(key);
+        };
+        const from = endpoint(conn.from.nodeId, conn.from.port, 'output');
+        const to = from && endpoint(conn.to.nodeId, conn.to.port, 'input');
+        if (!from || !to) return measurement;
         return {
             ...measurement,
-            from: getPortPosition(conn.from.nodeId, conn.from.port, 'output', containerRect),
-            to: getPortPosition(conn.to.nodeId, conn.to.port, 'input', containerRect),
+            from,
+            to,
             pathOptions: getConnectionPathOptions(conn, laneById)
         };
     }
@@ -1639,7 +1647,10 @@ export function createConnectionsApi({
         // A path write can invalidate layout for the next endpoint read, even
         // when both edges share a node. Snapshot this synchronous batch first;
         // the next batch must observe its own current port geometry/visibility.
-        const measurements = connections.map(conn => measureConnectionPath(conn, context));
+        // Fan-out edges share a port. Its visibility and position cannot change
+        // during this read phase, but must be measured afresh in the next batch.
+        const batch = { ...context, endpoints: new Map() };
+        const measurements = connections.map(conn => measureConnectionPath(conn, batch));
         for (const measurement of measurements) renderConnectionPath(measurement);
     }
 

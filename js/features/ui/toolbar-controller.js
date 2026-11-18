@@ -11,7 +11,6 @@ export function createToolbarControllerApi({
     viewportApi,
     documentRef = document,
     confirmRef = confirm,
-    runWorkflow,
     stopCurrentWorkflow = () => {},
     saveState,
     undo,
@@ -142,7 +141,6 @@ export function createToolbarControllerApi({
         });
         initCanvasNavigation({ state, canvasContainer, viewportApi, zoomToFit, focusNode,
             scheduleSave: () => saveViewportState ? saveViewportState() : scheduleSave({ dirty: false }), documentRef });
-        documentRef.getElementById('btn-run')?.addEventListener('click', () => runWorkflow());
         documentRef.getElementById('btn-stop')?.addEventListener('click', () => stopCurrentWorkflow());
         documentRef.getElementById('btn-undo')?.addEventListener('click', undo);
         documentRef.getElementById('btn-redo')?.addEventListener('click', redo);

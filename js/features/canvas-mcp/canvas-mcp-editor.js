@@ -41,21 +41,25 @@ export function startCanvasMcpEditor({ dispatch, fetchImpl = globalThis.fetch, w
         timer = windowRef.setTimeout(poll, delay);
     }
 
-    const errorBody = (id, error) => JSON.stringify({ action: 'complete', editorId, id, error });
+    const errorBody = (id, error, errorCode) => JSON.stringify({ action: 'complete', editorId, id, error, errorCode });
 
     async function dispatchCommand({ id, method, args, expiresAt }, isCurrent) {
         const withinDeadline = () => expiresAt === undefined || Number.isSafeInteger(expiresAt) && Date.now() < expiresAt;
         let body;
         try {
-            if (!withinDeadline()) throw new Error('CainFlow 命令已过期，请重新读取画布。');
+            if (!withinDeadline()) {
+                return { id, body: errorBody(id, 'CainFlow 命令已过期，请重新读取画布。', 'command_expired') };
+            }
             const result = await dispatch(method, args, { isCurrent: () => withinDeadline() && isCurrent() });
             body = JSON.stringify({ action: 'complete', editorId, id, result: result ?? null });
             if (body.length > MAX_EDITOR_BYTES || new TextEncoder().encode(body).byteLength > MAX_EDITOR_BYTES) {
-                body = errorBody(id, RESULT_TOO_LARGE);
+                body = errorBody(id, RESULT_TOO_LARGE, 'result_too_large');
             }
         } catch (error) {
             const message = typeof error?.message === 'string' && error.message ? error.message.slice(0, 2000) : '画布命令执行失败';
-            body = errorBody(id, message);
+            const code = typeof error?.code === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(error.code)
+                ? error.code : 'command_failed';
+            body = errorBody(id, message, code);
         }
         return { id, body };
     }

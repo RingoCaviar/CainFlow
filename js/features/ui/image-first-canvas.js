@@ -155,7 +155,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         // toolbar must not consume the editor's usable height in small windows.
         const toolbarActive = toolbar && (documentRef.body.matches('.toolbar-pinned, .toolbar-peek-active')
             || toolbar.matches(':hover, :has(:focus-visible)')
-            || toolbar.querySelector('details[open], .btn.active:not(#btn-prompt-agent), [aria-expanded="true"]:not(#btn-prompt-agent)'));
+            || toolbar.querySelector('details[open], .btn.active:not(#btn-prompt-agent), [aria-expanded="true"]:not(#btn-prompt-agent), #btn-stop:not([hidden])'));
         const top = toolbarActive
             ? Math.min(toolbar.offsetHeight + 12, Math.max(12, windowRef.innerHeight - 12)) : 12;
         const canvas = canvasContainer?.getBoundingClientRect();
@@ -1306,7 +1306,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     const toolbar = documentRef.getElementById('toolbar');
     if (toolbar) {
         for (const event of ['focusin', 'focusout', 'pointerenter', 'pointerleave', 'transitionend']) toolbar.addEventListener(event, schedulePosition);
-        new windowRef.MutationObserver(schedulePosition).observe(toolbar, { attributes: true, subtree: true, attributeFilter: ['class', 'aria-expanded', 'open'] });
+        new windowRef.MutationObserver(schedulePosition).observe(toolbar, { attributes: true, subtree: true, attributeFilter: ['class', 'aria-expanded', 'open', 'hidden'] });
         new windowRef.MutationObserver(schedulePosition).observe(documentRef.body, { attributes: true, attributeFilter: ['class'] });
     }
     function sidebarChanged() {

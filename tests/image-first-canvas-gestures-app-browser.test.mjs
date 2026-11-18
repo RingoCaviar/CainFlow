@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import assert from 'node:assert/strict';
 import { withAppBrowser, delay, reloadAppBrowser } from './helpers/app-browser.mjs';
 
@@ -286,7 +287,7 @@ test('image card supports drag to move, single click parameters and double click
             return nativeFetch(url,options);
         };` });
         await reloadAppBrowser(app);
-        await evaluate("document.getElementById('btn-run').click()");
+        await evaluate(runWorkflowShortcut);
         await waitFor("Boolean(document.querySelector('#gesture-image .image-node-result-preview')) && !document.getElementById('gesture-image-prompt').disabled");
         assert.equal(await evaluate("document.querySelector('#gesture-image [data-result-action=preview]').checkVisibility()"), false);
         const initial = await evaluate(`(()=>{const node=document.getElementById('gesture-image'),rect=node.querySelector('.image-node-result-preview').getBoundingClientRect();return {left:parseFloat(node.style.left),top:parseFloat(node.style.top),x:rect.x+rect.width/2,y:rect.y+rect.height/2}})()`);

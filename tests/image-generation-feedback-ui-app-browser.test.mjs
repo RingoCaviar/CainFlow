@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -97,7 +98,7 @@ test('failure feedback appears once in parameters and preserves complete modal d
 
 test('a processing card failure reopens its current execution error', { timeout: 30000 }, async () => {
     await withAppBrowser({ ...configuration, nodes: [{ id: 'resize-error', type: 'ImageResize', x: 70, y: 90 }], connections: [] }, async app => {
-        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.evaluate(runWorkflowShortcut);
         const status = '#resize-error > .node-card-run-status[data-status="error"]:not([hidden])';
         await app.waitFor(`document.querySelector(${JSON.stringify(status)}) && document.getElementById('btn-stop').disabled`);
         if (await app.evaluate("document.getElementById('modal-error').classList.contains('active')")) {

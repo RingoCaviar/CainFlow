@@ -36,6 +36,9 @@ test('MCP edits a canvas in place, restores it through history and stops a targe
         window.fetch = (url, options={}) => {
             if (String(url) !== '/proxy' || !options.body || JSON.parse(options.body).model !== 'canvas-chat') return nativeFetch(url, options);
             window.canvasRunRequests++;
+            if (window.canvasRunRequests > 1) {
+                return Promise.resolve(Response.json({ error: { message: 'Incorrect API key provided: private-provider-detail' } }, { status: 401 }));
+            }
             return new Promise((resolve,reject) => {
                 const abort = () => reject(new DOMException('Cancelled', 'AbortError'));
                 if (options.signal?.aborted) abort();
@@ -57,6 +60,9 @@ test('MCP edits a canvas in place, restores it through history and stops a targe
             };
             const scope = ({ editorId, workflowId, revision }) => ({ editorId, workflowId, revision });
             const before = await call('read_canvas');
+            const next = await call('read_canvas', { ...scope(before), offset: 1 });
+            assert.equal(next.revision, before.revision);
+            assert.deepEqual(next.nodes.map(node => node.id), before.nodes.slice(1).map(node => node.id));
             const viewport = await app.evaluate(`import('/js/app/bootstrap.js').then(async module => {
                 const { x, y, zoom } = (await module.bootstrapCainFlowApp()).state.canvas;
                 const { width, height } = document.getElementById('canvas-container').getBoundingClientRect();
@@ -74,6 +80,9 @@ test('MCP edits a canvas in place, restores it through history and stops a targe
                 { id: 'edit-product', type: 'ECommerceImageSet', nodeId: 'commerce', execute: false,
                     parameters: { productInfo: { name: '随行杯', sellingPoints: ['带可拆杯盖'] }, copyLanguage: 'ja' } }
             ] } });
+            const stalePage = await callCanvas(app.server, token, 'read_canvas', { ...scope(before), offset: 1 });
+            assert.equal(stalePage.errorCode, 'stale_revision');
+            assert.match(stalePage.error, /画布已修改/);
             const edited = await call('read_canvas');
             const source = edited.nodes.find(node => node.id === 'source');
             assert.equal(source.name, '已改名');
@@ -107,13 +116,22 @@ test('MCP edits a canvas in place, restores it through history and stops a targe
             const run = await call('run_workflow', { ...scope(redone), targetNodeId: 'chat' });
             await app.waitFor('window.canvasRunRequests === 1');
             assert.ok((await call('stop_workflow', scope(await call('read_canvas')))).stopped > 0);
-            let result;
-            for (let attempt = 0; attempt < 30; attempt++) {
-                result = await call('get_workflow_run', { editorId: redone.editorId, workflowId, runId: run.runId });
-                if (result.status !== 'running') break;
-                await delay(150);
-            }
+            const waitForRun = async runId => {
+                for (let attempt = 0; attempt < 30; attempt++) {
+                    const result = await call('get_workflow_run', { editorId: redone.editorId, workflowId, runId });
+                    if (result.status !== 'running') return result;
+                    await delay(150);
+                }
+                assert.fail('MCP run did not finish');
+            };
+            const result = await waitForRun(run.runId);
             assert.ok(['stopped', 'cancelled'].includes(result.status), result.status);
+            const failed = await call('run_workflow', { ...scope(await call('read_canvas')), targetNodeId: 'chat' });
+            const failure = (await waitForRun(failed.runId)).nodeResults.find(node => node.nodeId === 'chat');
+            assert.equal(failure.succeeded, false);
+            assert.equal(failure.errorCode, 'node_invalid_api_key');
+            assert.match(failure.error, /检查配置/);
+            assert.ok(!JSON.stringify(failure).includes('private-provider-detail'));
         }, { initScript });
     } finally {
         if (previousToken === undefined) delete process.env.CAINFLOW_MCP_TOKEN;

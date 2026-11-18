@@ -35,6 +35,7 @@ function createHarness(state = { providers: [], models: [], workflowTabs: [] }) 
     const documentRef = {
         getElementById: (id) => elements.get(id) || null,
         querySelector: () => ({ value: 'replace' }),
+        dispatchEvent() {},
         createElement: () => createElement()
     };
     const saved = [];
@@ -97,4 +98,23 @@ test('configuration ZIP export/import retains declared search abilities, compact
     assert.ok(restored.models.every(model => model.autoCompactTokenLimit === 23456));
     assert.equal(restored.providers[0].responsesEndpoint, providers[0].responsesEndpoint);
     assert.equal(restored.providers[0].autoComplete, false);
+});
+
+
+test('configuration ZIP export/import retains a disabled canvas GPU preference', async () => {
+    const source = createHarness({ models: [], providers: [], workflowTabs: [], canvasGpuAccelerationEnabled: false });
+    source.elements.get('btn-export-config').click();
+    await source.elements.get('config-modal-action').click();
+    const file = new File([source.saved[0].blob], 'config.zip', { type: 'application/zip' });
+    const entries = await readConfigArchive(file);
+    assert.equal(readJsonEntry(entries, 'settings/settings.json').canvasGpuAccelerationEnabled, false);
+    const restored = { models: [], providers: [], workflowTabs: [], canvasGpuAccelerationEnabled: true };
+    const destination = createHarness(restored);
+    destination.elements.get('btn-import-config').click();
+    await destination.elements.get('config-modal-action').click();
+    const input = destination.elements.get('input-config-file');
+    input.files = [file]; input.change();
+    const outcome = await destination.imported;
+    assert.equal(outcome.type, 'success', outcome.message);
+    assert.equal(restored.canvasGpuAccelerationEnabled, false);
 });

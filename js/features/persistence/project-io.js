@@ -203,6 +203,8 @@ export function createProjectIoApi({
                     imageMaxPixels: currentState.imageMaxPixels !== undefined ? currentState.imageMaxPixels : state.imageMaxPixels,
                     connectionLineType: currentState.connectionLineType !== undefined ? currentState.connectionLineType : state.connectionLineType,
                     toolbarPinned: currentState.toolbarPinned !== undefined ? currentState.toolbarPinned : state.toolbarPinned,
+                    canvasGpuAccelerationEnabled: currentState.canvasGpuAccelerationEnabled !== undefined
+                        ? currentState.canvasGpuAccelerationEnabled : state.canvasGpuAccelerationEnabled !== false,
                     sidebarPinned: currentState.sidebarPinned !== undefined ? currentState.sidebarPinned : state.sidebarPinned,
                     globalAnimationEnabled: currentState.globalAnimationEnabled !== undefined
                         ? currentState.globalAnimationEnabled
@@ -344,6 +346,7 @@ export function createProjectIoApi({
             if (data.sidebarPinned !== undefined) {
                 state.sidebarPinned = data.sidebarPinned === true;
             }
+            state.canvasGpuAccelerationEnabled = data.canvasGpuAccelerationEnabled !== false;
             applyCanvasUiSetting();
             if (data.globalAnimationEnabled !== undefined || data.connectionFlowAnimationEnabled !== undefined) {
                 state.globalAnimationEnabled = data.globalAnimationEnabled !== undefined

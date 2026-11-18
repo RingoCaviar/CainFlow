@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import assert from 'node:assert/strict';
 import { readFile, readdir, unlink, access } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -117,7 +118,7 @@ test('real backend restarts retain background A originals, ordered roles and own
         await app.evaluate("document.getElementById('save').click()");
         await app.waitFor("document.getElementById('image-parameter-panel').dataset.nodeId==='save'&&!document.getElementById('image-parameter-panel').hidden");
         assert.equal(await app.evaluate("document.getElementById('save-filename').value"), 'archive-A');
-        await app.evaluate("document.querySelector('[data-parameter-action=close]').click();document.getElementById('btn-run').click()"); await app.waitFor('restartHeld===true');
+        await app.evaluate(`document.querySelector('[data-parameter-action=close]').click();${runWorkflowShortcut}`); await app.waitFor('restartHeld===true');
         await activate(app, 'Restart B', workflowB.workflowId); await app.evaluate('releaseRestartSource()');
         await app.waitFor("!document.querySelector('.workflow-item[data-name=\"Restart A\"]').classList.contains('is-running')");
         const names = await exported(directory, 3);

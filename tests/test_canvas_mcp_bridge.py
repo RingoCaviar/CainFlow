@@ -252,6 +252,18 @@ class CanvasMcpBridgeTests(unittest.TestCase):
 
                 image = {'mimeType': 'image/png', 'data': 'iVBORw0KGgo='}
                 scope = {'editorId': 'editor-one', 'workflowId': 'workflow-1', 'revision': 'revision-1'}
+                self.assertEqual(external(port, 'read_canvas', {'revision': scope['revision']})[0], 400)
+                self.assertEqual(external(port, 'read_canvas', {**scope, 'editorId': 'editor-two'}),
+                                 (409, {'error': 'This CainFlow editor is no longer current.', 'errorCode': 'stale_editor'}))
+                page_args = {**scope, 'offset': 40}
+                pending = calls.submit(external, port, 'read_canvas', page_args)
+                command = self.poll_command(port, 'editor-one')
+                self.assertEqual(command['args'], page_args)
+                self.assertEqual(editor(port, 'editor-one', 'complete', id=command['id'],
+                                        error='Changed', errorCode='invalid code')[0], 400)
+                self.assertEqual(editor(port, 'editor-one', 'complete', id=command['id'],
+                                        error='Changed', errorCode='stale_revision')[0], 200)
+                self.assertEqual(pending.result(timeout=2), (200, {'error': 'Changed', 'errorCode': 'stale_revision'}))
                 run = {'editorId': 'editor-one', 'workflowId': 'workflow-1', 'runId': 'run-1'}
                 pending = calls.submit(external, port, 'get_run_image', {**run, 'nodeId': 'image-1'})
                 command = self.poll_command(port, 'editor-one')

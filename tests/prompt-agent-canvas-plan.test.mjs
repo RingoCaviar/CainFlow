@@ -433,15 +433,19 @@ test('controlled model can read canvas details then return a validated plan with
     assert.ok(JSON.stringify(requests[1]).includes('canvasReads')); assert.ok(!JSON.stringify(requests).includes('secret'));
 });
 
-test('canvas vision reads only requested local originals and stops on missing media or cancellation', async () => {
+test('canvas vision reports per-image availability and stops on cancellation', async () => {
     const model = { id: 'chat', modelId: 'test', protocol: 'openai', providerIds: ['p'], autoCompactTokenLimit: 100000 };
     const pixels = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=';
     const requests = [], assets = [];
-    const run = (getCanvasImage, signal) => createPromptAgentModelReply({ model, canvasContext: graph(), signal, getCanvasImage,
+    const run = (getCanvasImage, { signal, imageInput = true, mixed = false } = {}) => createPromptAgentModelReply({
+        model: { ...model, capabilities: { imageInput } }, signal, getCanvasImage,
+        canvasContext: mixed ? graph({ nodes: [{ id: 'source', type: 'ImageImport', mediaAssetKeys: ['media:source', 'media:missing'] }] }) : graph(),
         providerId: 'p', providers: [{ id: 'p', endpoint: 'https://example.test/v1', apikey: 'controlled-key' }],
         fetchRef: async (_url, options) => {
             requests.push(JSON.parse(options.body));
-            const payload = requests.length === 1 ? { canvasRead: { nodeIds: ['source'], images: [{ nodeId: 'source', index: 0 }] } }
+            const images = [{ nodeId: 'source', index: 0 }];
+            if (mixed) images.unshift({ nodeId: 'source', index: 1 });
+            const payload = requests.length === 1 ? { canvasRead: { nodeIds: ['source'], images } }
                 : { intent: 'chat', message: '已读取指定原图', promptPlan: null };
             return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(payload) } }] }));
         } });
@@ -450,11 +454,20 @@ test('canvas vision reads only requested local originals and stops on missing me
     assert.ok(!JSON.stringify(requests[0]).includes(pixels));
     assert.ok(JSON.stringify(requests[1]).includes(pixels));
     requests.length = 0;
-    await assert.rejects(run(async () => null), /原图读取失败/);
-    assert.equal(requests.length, 1);
+    assets.length = 0;
+    await run(async key => { assets.push(key); return key === 'media:source' ? pixels : null; }, { mixed: true });
+    assert.deepEqual(assets, ['media:missing', 'media:source']);
+    assert.equal(requests.length, 2);
+    assert.match(JSON.stringify(requests[1]), /image_read_failed/);
+    assert.ok(JSON.stringify(requests[1]).includes(pixels));
+    requests.length = 0;
+    await run(async () => assert.fail('text-only model loaded pixels'), { imageInput: false });
+    assert.equal(requests.length, 2);
+    assert.match(JSON.stringify(requests[1]), /image_input_unsupported/);
+    assert.ok(!JSON.stringify(requests[1]).includes(pixels));
     requests.length = 0;
     const controller = new AbortController();
-    await assert.rejects(run(async () => { controller.abort(); return pixels; }, controller.signal), /取消/);
+    await assert.rejects(run(async () => { controller.abort(); return pixels; }, { signal: controller.signal }), /取消/);
     assert.equal(requests.length, 1);
 });
 
@@ -467,14 +480,21 @@ test('canvas vision cannot read commerce output from different reference origina
     const context = graph({ nodes: [source, commerce], connections });
     assert.equal(context.read({ nodeIds: [commerce.id] }).nodes[0].assetCount, 0);
     const images = [];
-    await assert.rejects(createPromptAgentModelReply({
+    const requests = [];
+    await createPromptAgentModelReply({
         model: { id: 'chat', modelId: 'test', protocol: 'openai', providerIds: ['p'], autoCompactTokenLimit: 100000 },
         canvasContext: context, providerId: 'p',
         providers: [{ id: 'p', endpoint: 'https://example.test/v1', apikey: 'controlled-key' }],
         getCanvasImage: async key => { images.push(key); return null; },
-        fetchRef: async () => Response.json({ choices: [{ message: { content: JSON.stringify({ canvasRead:
-            { nodeIds: [commerce.id], images: [{ nodeId: commerce.id, index: 0 }] } }) } }] })
-    }), /画布图片不存在/);
+        fetchRef: async (_url, options) => {
+            requests.push(options.body);
+            const payload = requests.length === 1 ? { canvasRead: { nodeIds: [commerce.id], images: [{ nodeId: commerce.id, index: 0 }] } }
+                : { intent: 'chat', message: '当前没有可读原图。' };
+            return Response.json({ choices: [{ message: { content: JSON.stringify(payload) } }] });
+        }
+    });
+    assert.equal(requests.length, 2);
+    assert.match(requests[1], /image_unavailable/);
     assert.deepEqual(images, []);
 });
 

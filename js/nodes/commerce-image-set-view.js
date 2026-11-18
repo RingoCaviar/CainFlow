@@ -346,11 +346,11 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
                 <label>图中文字正文<textarea data-commerce-shot-field="body" rows="2" maxlength="${COMMERCE_IMAGE_SET_COPY_LIMITS.body}"></textarea></label>
             </div>
             <label>生图提示词<textarea data-commerce-shot-field="prompt" rows="3" maxlength="2000"></textarea></label>` : ''}
-            ${shot.customScene ? `<div class="commerce-image-set-scene-actions">
+        </div>
+        ${shot.customScene ? `<div class="commerce-image-set-scene-actions">
                 <button type="button" class="btn" data-commerce-action="replan-shot">生成方案</button>
                 <button type="button" class="btn btn-primary" data-commerce-action="retry" hidden>确认并生图</button>
-            </div>` : ''}
-        </div>`;
+        </div>` : ''}`;
         row.querySelector('strong').textContent = shot.label;
         row.querySelector('.commerce-image-set-shot-aspect').textContent = shot.source === 'reference' ? '沿用第一张参考图' : (shot.aspect || '');
         const editor = row.querySelector('.commerce-image-set-shot-editor');
@@ -584,7 +584,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
                 const pending = pendingShots.get(shot.id);
                 const action = pending?.status === 'planning' ? row.replan : row.retry;
                 let target = row.toggle;
-                if (!action.hidden && !action.disabled && (!shot.customScene || !row.editor.hidden)) target = action;
+                if (!action.hidden && !action.disabled) target = action;
                 else if (pending && locked) target = row.row;
                 target.focus({ preventScroll: true });
             }

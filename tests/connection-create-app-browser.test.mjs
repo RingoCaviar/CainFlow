@@ -109,26 +109,19 @@ test('focused ports support finding, canceling and committing a connection throu
 test('the same anchored picker searches the catalog and compatible connection targets', { timeout: 30000 }, async () => {
     await withAppBrowser(session, async app => {
         const picker = '#connection-create-popup';
-        const trigger = '#canvas-add-node';
         const input = `${picker} input`;
         const key = async (key, modifiers = 0) => {
             await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key, modifiers });
             await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key, modifiers });
         };
-        await click(app, trigger);
-        await app.waitFor(`document.activeElement.matches('${input}')`);
-        const triggerBox = await point(app, trigger);
-        assert.ok(await app.evaluate(`document.querySelector('${picker}').getBoundingClientRect().bottom < ${triggerBox.y}`));
-        await app.send('Input.insertText', { text: 'TextSplit' });
-        assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('${picker} .node-picker-result')].map(row=>row.dataset.type)`), ['TextSplit']);
-        await key('Escape');
-        assert.ok(await app.evaluate(`document.activeElement.matches('${trigger}')`));
-        assert.equal(await app.evaluate("document.querySelectorAll('#nodes-layer > .node').length"), 1);
-
         await app.evaluate("document.getElementById('canvas-container').focus()");
         await key('n', 1);
         await app.waitFor(`document.activeElement.matches('${input}')`);
+        await app.send('Input.insertText', { text: 'TextSplit' });
+        assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('${picker} .node-picker-result')].map(row=>row.dataset.type)`), ['TextSplit']);
         await key('Escape');
+        assert.equal(await app.evaluate('document.activeElement.id'), 'canvas-container');
+        assert.equal(await app.evaluate("document.querySelectorAll('#nodes-layer > .node').length"), 1);
 
         await dragFromPort(app, '#source .node-port[data-direction="output"] .port-dot', { x: 620, y: 200 });
         assert.ok(await app.evaluate(`document.activeElement.matches('${input}')`));

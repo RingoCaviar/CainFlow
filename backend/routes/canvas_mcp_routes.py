@@ -1,6 +1,7 @@
 import ipaddress
 import json
 import math
+import re
 from urllib.parse import unquote, urlsplit
 
 from backend import desktop_security
@@ -13,6 +14,7 @@ EDITOR_PATH = PREFIX + '/editor'
 SETTINGS_PATH = PREFIX + '/settings'
 EDITOR_HEADER = 'X-CainFlow-Canvas-MCP'
 BODY_TIMEOUT_SECONDS = 3
+ERROR_CODE_PATTERN = re.compile(r'[a-z][a-z0-9_]{0,63}')
 
 
 def is_canvas_mcp_path(target):
@@ -123,10 +125,15 @@ def _handle_editor(bridge, payload, length):
         command_id = payload.get('id')
         has_result = 'result' in payload
         has_error = 'error' in payload
+        error_code = payload.get('errorCode')
         if (not is_editor_id(command_id) or has_result == has_error
-                or (has_error and (not isinstance(payload['error'], str) or not payload['error']))):
+                or (has_error and (not isinstance(payload['error'], str) or not payload['error']))
+                or ('errorCode' in payload and (not has_error or not isinstance(error_code, str)
+                                                or ERROR_CODE_PATTERN.fullmatch(error_code) is None))):
             raise CanvasMcpError(400, 'Invalid canvas command completion.')
         response = {'result': payload['result']} if has_result else {'error': payload['error']}
+        if error_code is not None:
+            response['errorCode'] = error_code
         return bridge.complete(editor_id, command_id, response, length)
     raise CanvasMcpError(400, 'Invalid canvas editor action.')
 
@@ -174,7 +181,10 @@ def handle(handler):
             _write_response(handler, 200, response)
         except CanvasMcpError as error:
             headers = {'WWW-Authenticate': 'Bearer'} if error.status == 401 else None
-            _write_response(handler, error.status, {'error': str(error)}, headers)
+            body = {'error': str(error)}
+            if error.code is not None:
+                body['errorCode'] = error.code
+            _write_response(handler, error.status, body, headers)
         except Exception:
             _write_response(handler, 500, {'error': 'The CainFlow canvas bridge could not complete the request.'})
     return True

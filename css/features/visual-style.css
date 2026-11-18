@@ -6,28 +6,44 @@
     display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5;
 }
 .visual-style-preview.is-empty { display: grid; place-items: center; min-height: 120px; padding: 0; color: var(--text-secondary); }
-.visual-style-settings { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 12px; min-width: 0; }
-.visual-style-settings > textarea,
+/* Keep the editor prominent while preset and extraction controls remain compact. */
+.visual-style-settings {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center; gap: 12px; min-width: 0;
+    container-type: inline-size;
+}
+.visual-style-presets,
+.visual-style-description,
 .visual-style-settings > [data-style-status],
 .visual-style-model-settings[open] { grid-column: 1 / -1; }
-.visual-style-settings .visual-style-detail { display: flex; flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); }
+.visual-style-presets { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 12px; }
+.visual-style-settings .visual-style-preset,
+.visual-style-settings .visual-style-model-fields .node-field,
+.visual-style-description { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 0; }
+.visual-style-settings label { text-align: left; font-size: 13px; font-weight: 500; color: var(--text-secondary); }
+.visual-style-settings .visual-style-description > label { color: var(--text-primary); font-weight: 600; }
+.visual-style-settings .visual-style-detail { display: flex; flex-direction: row; align-items: center; gap: 8px; min-width: 0; }
+.visual-style-detail label { flex-shrink: 0; }
 .visual-style-settings .visual-style-detail select { width: auto; min-width: 88px; appearance: auto; }
 @supports (appearance: base-select) {
     .visual-style-settings .visual-style-detail select { appearance: base-select; }
 }
-.visual-style-settings textarea {
+.image-parameter-panel .visual-style-settings .visual-style-description textarea {
     width: 100%; box-sizing: border-box; resize: vertical; min-height: 100px;
-    padding: 6px 8px; font: inherit; font-size: 14px; line-height: 1.65;
-    background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px;
+    padding: 10px 12px; font: inherit; font-size: 15px; line-height: 1.65;
+    background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 8px;
 }
-.visual-style-settings summary { cursor: pointer; padding: 6px 0; font-size: 13px; color: var(--text-secondary); }
-.visual-style-model-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-top: 8px; }
-.visual-style-settings select { width: 100%; max-width: 100%; background: var(--bg-input); color: var(--text-primary); }
+.visual-style-settings textarea::placeholder { color: var(--text-secondary); }
+.visual-style-settings :is(textarea, summary):focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.visual-style-settings summary { cursor: pointer; padding: 8px 0; font-size: 13px; color: var(--text-secondary); }
+.visual-style-settings summary:hover { color: var(--text-primary); }
+.visual-style-model-settings { min-width: 0; }
+.visual-style-model-settings[open] { border-top: 1px solid var(--border-color); padding-top: 4px; }
+.visual-style-model-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding-top: 4px; }
+.visual-style-settings select { width: 100%; min-width: 0; max-width: 100%; background: var(--bg-input); color: var(--text-primary); }
 .visual-style-settings [data-style-status] { margin: 0; font-size: 13px; line-height: 1.6; color: var(--text-secondary); overflow-wrap: anywhere; }
 .visual-style-settings [data-style-status]:empty { display: none; }
-
 .visual-style-settings > [hidden] { display: none; }
-
-.visual-style-preset { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
-.visual-style-preset label { flex-shrink: 0; }
-.visual-style-preset select { min-width: 0; }
+@container (max-width: 360px) {
+    .visual-style-presets, .visual-style-model-fields { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+}

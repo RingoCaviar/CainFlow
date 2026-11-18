@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import assert from 'node:assert/strict';
 import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 
@@ -48,7 +49,7 @@ test('loaded image cards follow natural aspect at fixed node width, including ba
         await reloadAppBrowser(app);
         await app.evaluate(`(async()=>{const transfer=new DataTransfer();transfer.items.add(new File([await(await fetch(aspectImages[0])).blob()],'wide.png',{type:'image/png'}));const input=document.getElementById('aspect-0-file');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
         await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value?.nodes.find(n=>n.id==='aspect-0')?.mediaAssetKeys?.length===1)");
-        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.evaluate(runWorkflowShortcut);
         await app.waitFor("document.getElementById('btn-stop').disabled&&document.getElementById('aspect-1-run-status').dataset.status==='completed'");
         for (const node of nodes) {
             if (node.type === 'CameraControl') {

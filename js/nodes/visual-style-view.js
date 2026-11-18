@@ -20,9 +20,14 @@ export function renderVisualStyleBody(id, restored = {}, state = {}) {
     const text = visualStyleText(restored.visualStyle);
     return `<div class="visual-style-preview" data-style-preview>${escape(text || '画面风格')}</div>
         <div class="visual-style-settings">
+            <div class="visual-style-presets">
             <div class="node-field visual-style-preset"><label for="${id}-style-category">风格分类</label><select class="ui-select" id="${id}-style-category" data-style-category>${Object.entries(VISUAL_STYLE_CATEGORIES).map(([key, label]) => `<option value="${key}" ${key === 'lifestyle' ? 'selected' : ''}>${escape(label)}</option>`).join('')}</select></div>
             <div class="node-field visual-style-preset"><label for="${id}-style-preset">具体风格</label><select class="ui-select" id="${id}-style-preset" data-style-preset aria-label="选择风格预设，替换当前文本">${presetOptions('lifestyle')}</select></div>
+            </div>
+            <div class="visual-style-description">
+            <label for="${id}-style-description">风格描述</label>
             <textarea id="${id}-style-description" data-style-field="description" aria-label="风格描述" rows="4" maxlength="20000" placeholder="输入画面风格，或连接参考图后提取…">${escape(text)}</textarea>
+            </div>
             <div class="node-field visual-style-detail"><label for="${id}-style-detail">提取精细度</label><select class="ui-select" id="${id}-style-detail" data-style-detail title="仅影响下一次提取，不修改当前风格文本">${Object.entries(VISUAL_STYLE_DETAIL_LEVELS).map(([value, { label }]) => `<option value="${value}" ${value === normalizeVisualStyleDetailLevel(restored.styleDetailLevel) ? 'selected' : ''}>${label}</option>`).join('')}</select></div>
             <details class="visual-style-model-settings"><summary>提取模型</summary>
                 <div class="visual-style-model-fields">

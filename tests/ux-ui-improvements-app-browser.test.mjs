@@ -162,9 +162,8 @@ test('empty canvas exposes creation actions with a dismissible toolbar, then hid
         assert.equal(await app.evaluate("document.querySelectorAll('#nodes-layer .node').length"), 1);
         await app.evaluate("document.getElementById('btn-help').click()");
         const help = await app.evaluate("document.getElementById('help-panel-content').innerText");
-        assert.match(help, /添加节点\s+[＋+] 添加节点 \/ Alt \+ N/);
+        assert.match(help, /添加节点\s+画布右键 \/ Alt \+ N/);
         assert.match(help, /运行整个工作流\s+画布获得焦点后 Ctrl \+ Enter/);
-        assert.match(await app.evaluate("document.getElementById('btn-run').title"), /运行整个工作流.*画布获得焦点/);
     });
 });
 

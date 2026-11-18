@@ -193,7 +193,7 @@ body:has(.painter-overlay.active) #canvas-navigation { visibility: hidden; }
 #connections-group .connection-path[data-canvas-run-route="reuse"] { stroke-dasharray: 7 5; }
 @media (max-width: 1200px) {
     #main-layout:has(.prompt-agent-panel.active) #canvas-navigation { gap: 3px; padding: 4px; }
-    #main-layout:has(.prompt-agent-panel.active) #canvas-navigation > :is(#canvas-add-node, .canvas-run-scope-trigger) span {
+    #main-layout:has(.prompt-agent-panel.active) #canvas-navigation > .canvas-run-scope-trigger span {
         display: none;
     }
 }

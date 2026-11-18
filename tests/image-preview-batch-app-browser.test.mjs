@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import assert from 'node:assert/strict';
 import { readFile, unlink } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -43,7 +44,7 @@ async function controlled(app) {
 const saved = app => app.evaluate("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value)");
 const previewOwners = app => app.evaluate("(async()=>{const saved=(await fetch('/api/storage/documents/session').then(response=>response.json())).value;const owners=(await fetch('/api/storage/media-owners?workflowId='+encodeURIComponent(saved.activeWorkflowId)).then(response=>response.json())).owners;return owners.filter(owner=>owner.ownerId==='batch-preview').map(({ownerType,ownerId,assetKeys,tombstoned})=>({ownerType,ownerId,assetKeys,tombstoned})).sort((left,right)=>left.ownerType.localeCompare(right.ownerType))})()");
 async function run(app) {
-    await app.evaluate("document.getElementById('btn-run').click()");
+    await app.evaluate(runWorkflowShortcut);
     await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='batch-source')?.mediaAssetKeys?.length===3)");
     await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='batch-preview')?.mediaAssetKeys?.length===3)");
     await app.waitFor("document.querySelector('#batch-preview-preview .image-save-preview-counter')?.textContent.endsWith('/3')");

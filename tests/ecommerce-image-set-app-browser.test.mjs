@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
@@ -98,7 +99,7 @@ test('whole-workflow run reports an unplanned commerce set before sending an ups
             return originalFetch(url,options);
         };`;
     await withAppBrowser(fixture, async app => {
-        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.evaluate(runWorkflowShortcut);
         await app.waitFor("window.commercePreflightRequests || document.getElementById('toast-container').textContent.includes('尚未规划的套图')");
         assert.equal(await app.evaluate('window.commercePreflightRequests'), 0);
         assert.match(await app.evaluate("document.getElementById('toast-container').textContent"), /尚未规划的套图.*(?:生成方案|规划)/);
@@ -676,7 +677,7 @@ test('the commerce node generates selected shots, accepts a retry during generat
         assert.deepEqual(await app.evaluate(previewKeys), before.mediaAssetKeys);
 
         const beforeToolbarRun = await app.evaluate('commerceCalls.length');
-        await app.evaluate("window.releaseCommerceDetail=null;document.getElementById('btn-run').click()");
+        await app.evaluate(`window.releaseCommerceDetail=null;${runWorkflowShortcut}`);
         await app.waitFor(`typeof window.releaseCommerceDetail==='function' && !document.getElementById('btn-stop').disabled &&
             document.querySelector('${shotCard('detail-overview')}').dataset.resultStatus==='running'`);
         await app.evaluate("document.getElementById('btn-stop').click();window.releaseCommerceDetail()");
@@ -1462,8 +1463,11 @@ test('custom commerce scenes can be added, reviewed, generated, and deleted inde
         assert.equal(await app.evaluate(`${query(field(id, 'description'))}.value`), '');
         assert.equal(await app.evaluate('sceneCalls.length'), requests, 'adding a scene creates a draft without a provider request');
         if (description) await edit(app, field(id, 'description'), description);
+        await click(app, `${row(id)} .commerce-image-set-shot-toggle`);
+        assert.equal(await app.evaluate(visible(field(id, 'description'))), false);
         await click(app, action('replan-shot', id));
         await app.waitFor(`${state(id, 'planning')} && ${pending(`plan:${id}`)}`);
+        assert.equal(await app.evaluate(visible(field(id, 'description'))), false, `${group} scene planning keeps the card collapsed`);
         const input = await app.evaluate(`sceneCalls.find(call=>call.kind==='plan'&&call.input.shots[0].id===${JSON.stringify(id)}).input`);
         assert.equal(input.shots.length, 1);
         assert.equal(input.shots[0].group, group);
@@ -1505,6 +1509,7 @@ test('custom commerce scenes can be added, reviewed, generated, and deleted inde
         assert.equal(await app.evaluate(`${query(action('remove-scene', first))}?.disabled`), true);
         await click(app, action('cancel-shot', detail));
         await app.waitFor(`canceledCommerceRequests.includes(${JSON.stringify(`plan:${detail}`)})`);
+        await app.waitFor(`document.activeElement===${query(action('replan-shot', detail))}`);
         assert.ok(await app.evaluate(`${pending(`plan:${first}`)} && ${pending(`plan:${second}`)}`));
 
         await release(app, `plan:${first}`);
@@ -1526,8 +1531,14 @@ test('custom commerce scenes can be added, reviewed, generated, and deleted inde
         await captureCommerceInspector(app, { name: 'scene-review', shotId: first });
         await captureCommerceInspector(app, { name: 'scene-review-narrow', width: 390, shotId: first });
 
+        await click(app, `${row(first)} .commerce-image-set-shot-toggle`);
+        assert.ok(await app.evaluate(ready(action('replan-shot', first))));
+        assert.ok(await app.evaluate(ready(action('retry', first))));
+        await captureCommerceInspector(app, { name: 'scene-collapsed', shotId: first });
+        await captureCommerceInspector(app, { name: 'scene-collapsed-narrow', width: 390, shotId: first });
         await click(app, action('retry', first));
         await app.waitFor(`${state(first, 'running')} && ${pending(`image:${first}`)}`);
+        assert.equal(await app.evaluate(visible(field(first, 'description'))), false, 'image generation keeps the card collapsed');
         await openScene(app, second);
         const prompt = await app.evaluate(`${query(field(second, 'prompt'))}.value`);
         await edit(app, field(second, 'prompt'), `${prompt}\n杯身靠近画面中央。`);

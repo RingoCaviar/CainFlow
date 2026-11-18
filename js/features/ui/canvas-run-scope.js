@@ -64,7 +64,9 @@ export function createCanvasRunScopeMenu({ state, documentRef, getWorkflowId, ge
         <button type="button" data-confirm-run-scope>运行此范围</button>`;
     documentRef.body.append(panel);
     const selectedLabel = panel.querySelector('[data-selected-label]');
+    const selected = panel.querySelector('[value="selected-only"]');
     const target = panel.querySelector('[value="target-node"]');
+    const all = panel.querySelector('[value="all"]');
     const summary = panel.querySelector('.canvas-run-scope-summary');
     const commerceSection = panel.querySelector('.canvas-run-scope-commerce');
     const commerceRows = commerceSection.querySelector('.canvas-run-scope-commerce-rows');
@@ -223,9 +225,11 @@ export function createCanvasRunScopeMenu({ state, documentRef, getWorkflowId, ge
 
     function refresh() {
         const ids = selectedIds();
-        trigger.hidden = !ids.length || !getWorkflowId();
+        const workflowId = getWorkflowId();
+        const loadState = documentRef.documentElement.dataset.canvasLoadState || 'ready';
+        trigger.hidden = !state.nodes.size || !workflowId || loadState !== 'ready';
         if (!isOpen()) return;
-        if (trigger.hidden || snapshot?.workflowId !== getWorkflowId()
+        if (trigger.hidden || snapshot?.workflowId !== workflowId
             || ids.length !== snapshot.ids.length || ids.some(id => !snapshot.ids.includes(id))) {
             close();
             return;
@@ -239,11 +243,12 @@ export function createCanvasRunScopeMenu({ state, documentRef, getWorkflowId, ge
         if (isOpen()) { close({ focus: true }); return; }
         const ids = selectedIds();
         const workflowId = getWorkflowId();
-        if (!ids.length || !workflowId || surfaces.topModal()) return;
+        if (trigger.hidden || !workflowId || surfaces.topModal()) return;
         snapshot = { ids, workflowId };
         selectedLabel.textContent = ids.length === 1 ? '仅此节点' : `仅选中的 ${ids.length} 个节点`;
+        selected.disabled = selected.closest('label').hidden = ids.length === 0;
         target.disabled = target.closest('label').hidden = ids.length !== 1;
-        const first = panel.querySelector('[value="selected-only"]');
+        const first = ids.length ? selected : all;
         first.checked = true;
         panel.showPopover();
         surfaces.openPopover(panel.id, { element: panel, trigger, close });
@@ -283,6 +288,9 @@ export function createCanvasRunScopeMenu({ state, documentRef, getWorkflowId, ge
         }).catch(() => {});
     });
     windowRef.addEventListener('resize', position);
+    new windowRef.MutationObserver(refresh).observe(documentRef.documentElement, {
+        attributes: true, attributeFilter: ['data-canvas-load-state']
+    });
     refresh();
     return { refresh };
 }

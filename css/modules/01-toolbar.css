@@ -63,6 +63,7 @@
 #toolbar:has(:focus-visible),
 #toolbar:has(.btn.active:not(#btn-prompt-agent)),
 #toolbar:has([aria-expanded="true"]:not(#btn-prompt-agent)),
+#toolbar:has(#btn-stop:not([hidden])),
 body.toolbar-peek-active #toolbar,
 body.toolbar-pinned #toolbar {
     transform: translateY(0);
@@ -83,13 +84,14 @@ body.preview-active #toolbar {
 #toolbar:has(:focus-visible)::after,
 #toolbar:has(.btn.active:not(#btn-prompt-agent))::after,
 #toolbar:has([aria-expanded="true"]:not(#btn-prompt-agent))::after,
+#toolbar:has(#btn-stop:not([hidden]))::after,
 body.toolbar-peek-active #toolbar::after,
 body.toolbar-pinned #toolbar::after {
     opacity: 0;
     transform: translateX(-50%) scaleX(0.72);
 }
 
-html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolbar:not(:hover):not(:has(:focus-visible)):not(:has(.btn.active:not(#btn-prompt-agent))):not(:has([aria-expanded="true"]:not(#btn-prompt-agent))) {
+html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolbar:not(:hover):not(:has(:focus-visible, .btn.active:not(#btn-prompt-agent), [aria-expanded="true"]:not(#btn-prompt-agent), #btn-stop:not([hidden]))) {
     box-shadow: none;
 }
 
@@ -121,6 +123,7 @@ html[data-app-theme] body:not(.toolbar-pinned):not(.toolbar-peek-active) #toolba
     background: transparent;
 }
 
+#toolbar .toolbar-run-group:has(#btn-stop[hidden]),
 body.workspace-mode-conversation #toolbar .toolbar-action-group {
     display: none;
 }

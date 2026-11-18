@@ -313,6 +313,11 @@
     stroke: var(--canvas-connection-pending);
     stroke-width: 2;
     stroke-dasharray: 8 4;
+}
+
+/* Empty paths have nothing to animate, but an infinite animation still asks
+   the browser to update styles every frame. Resume when drawing a wire. */
+.temp-connection[d]:not([d=""]) {
     animation: dash-flow 0.5s linear infinite;
 }
 
@@ -376,7 +381,7 @@
     will-change: auto;
 }
 
-#canvas-container.is-panning #nodes-layer {
+#canvas-container:not(.canvas-gpu-disabled).is-panning #nodes-layer {
     will-change: transform;
 }
 

@@ -68,7 +68,8 @@ export function showNodeExecutionFailure(node, error) {
     const message = error?.message || '未知错误';
     const inputPort = typeof error?.inputPort === 'string' ? error.inputPort : '';
     node.isFailed = true;
-    node.executionFailure = { message, inputPort };
+    const category = inputPort ? 'input' : error?.userFacing?.category;
+    node.executionFailure = { message, inputPort, ...(typeof category === 'string' && { category }) };
     node.el?.classList.add('error');
     const indicator = node.el?.querySelector?.('.node-failure-indicator');
     indicator?.classList.remove('hidden');
@@ -492,15 +493,10 @@ export function createWorkflowRunnerApi({
     }
 
     function syncRunToolbarState() {
-        const runBtn = documentRef.getElementById('btn-run');
         const stopBtn = documentRef.getElementById('btn-stop');
         const hasActiveRuns = (state.activeRunCount || 0) > 0;
         const isRunStarting = state.isRunStarting === true;
 
-        if (runBtn) {
-            runBtn.classList.toggle('running', hasActiveRuns || isRunStarting);
-            runBtn.disabled = isRunStarting;
-        }
         if (stopBtn) {
             stopBtn.classList.toggle('running', hasActiveRuns || isRunStarting);
             stopBtn.disabled = !hasActiveRuns && !isRunStarting;

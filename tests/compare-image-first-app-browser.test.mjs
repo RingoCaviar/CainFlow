@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { withAppBrowser, reloadAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
@@ -81,8 +82,8 @@ async function output(app) {
 
 async function run(app, id = '') {
     if (id) await app.evaluate(`document.getElementById('${id}').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:650,clientY:200}));document.getElementById('context-menu-run-to-here').click()`);
-    else await app.evaluate("document.getElementById('btn-run').click()");
-    await app.waitFor("document.getElementById('btn-stop').disabled && !document.getElementById('btn-run').disabled");
+    else await app.evaluate(runWorkflowShortcut);
+    await app.waitFor("document.getElementById('toolbar-workflow-run-status').hidden");
 }
 
 async function controlled(app, { held = false } = {}) {
@@ -233,7 +234,7 @@ test('a background A/B comparison retains its split and media owners while a sam
         await activate(app, 'Compare A');
         await upload(app, 'a-source', 'red');
         await openInputs(app); await closeInputs(app);
-        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.evaluate(runWorkflowShortcut);
         await app.waitFor('comparePending===true');
         await activate(app, 'Compare B');
         assert.equal(await app.evaluate("document.querySelector('.workflow-item[data-name=\"Compare A\"]').classList.contains('is-running')"), true);

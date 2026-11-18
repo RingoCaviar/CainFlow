@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import assert from 'node:assert/strict';
 import { reloadAppBrowser, withAppBrowser } from './helpers/app-browser.mjs';
 
@@ -25,7 +26,7 @@ test('an offscreen generator can run, save its output and show it when back in v
         ` });
         await reloadAppBrowser(app);
         await app.waitFor("document.getElementById('offscreen-generator')?.dataset.renderProjection === 'shell'");
-        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.evaluate(runWorkflowShortcut);
         await app.waitFor("document.getElementById('offscreen-generator').classList.contains('completed') && document.getElementById('btn-stop').disabled");
         assert.deepEqual(await app.evaluate('generationPrompts'), [prompt]);
         await app.waitFor(`fetch('/api/storage/documents/session').then(response => response.json())

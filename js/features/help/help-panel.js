@@ -35,7 +35,7 @@ export function createHelpPanelApi({
     <div class="help-section">
         <h4>画布视图</h4>
         <div class="help-grid">
-            <div class="help-item"><span class="help-desc">添加节点</span><span class="help-key">＋ 添加节点 / Alt + N</span></div>
+            <div class="help-item"><span class="help-desc">添加节点</span><span class="help-key">画布右键 / Alt + N</span></div>
             <div class="help-item"><span class="help-desc">框选节点</span><span class="help-key">拖拽空白处</span></div>
             <div class="help-item"><span class="help-desc">全选节点</span><span class="help-key">Ctrl + A</span></div>
             <div class="help-item"><span class="help-desc">平移画布</span><span class="help-key">空格拖拽</span></div>

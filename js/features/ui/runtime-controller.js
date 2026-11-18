@@ -73,7 +73,7 @@ export function createRuntimeControllerApi({
         const syncToolbarActivity = () => {
             const active = !!(toolbar.matches?.(':hover')
                 || toolbar.querySelector?.(':focus-visible')
-                || toolbar.querySelector?.('.btn.active:not(#btn-prompt-agent), [aria-expanded="true"]:not(#btn-prompt-agent)'));
+                || toolbar.querySelector?.('.btn.active:not(#btn-prompt-agent), [aria-expanded="true"]:not(#btn-prompt-agent), #btn-stop:not([hidden])'));
             if (body.classList.contains('toolbar-controls-active') !== active) {
                 body.classList.toggle('toolbar-controls-active', active);
             }
@@ -84,12 +84,15 @@ export function createRuntimeControllerApi({
         const MutationObserverCtor = documentRef.defaultView?.MutationObserver;
         if (MutationObserverCtor) {
             new MutationObserverCtor(syncToolbarActivity).observe(toolbar, {
-                subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'aria-expanded']
+                subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'aria-expanded', 'hidden']
             });
         }
         syncToolbarActivity();
 
         let lastToolbarPeek = false;
+        let gesturePeekPending = false;
+        let peekResumeEpoch = 0;
+        let lastPeekPointer = null;
 
         function getCssPx(element, propertyName, fallback) {
             const raw = windowRef.getComputedStyle(element).getPropertyValue(propertyName);
@@ -120,6 +123,17 @@ export function createRuntimeControllerApi({
         }
 
         function updatePeekState(event) {
+            lastPeekPointer = event;
+            // A held canvas gesture cannot use hover chrome. Avoid scanning
+            // overlays and measuring the toolbar on every drag pointer event.
+            if (state.dragging || state.resizing || state.connecting || state.marquee
+                || state.isCutting || state.canvas?.isPanning) {
+                gesturePeekPending = true;
+                if (lastToolbarPeek) body.classList.remove('toolbar-peek-active');
+                lastToolbarPeek = false;
+                return;
+            }
+            gesturePeekPending = false;
             if (state.batchConnectionMode?.sourceNodeId || isImmersivePreviewOpen()) {
                 body.classList.remove('toolbar-peek-active');
                 lastToolbarPeek = false;
@@ -140,7 +154,21 @@ export function createRuntimeControllerApi({
         }
 
         windowRef.addEventListener('pointermove', updatePeekState, { passive: true });
+        const resumePeek = event => {
+            if (!gesturePeekPending) return;
+            gesturePeekPending = false;
+            const epoch = peekResumeEpoch;
+            // Canvas listeners settle the gesture during this same event.
+            queueMicrotask(() => { if (epoch === peekResumeEpoch) updatePeekState(event); });
+        };
+        windowRef.addEventListener('mouseup', resumePeek);
+        windowRef.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && lastPeekPointer) resumePeek(lastPeekPointer);
+        });
         windowRef.addEventListener('blur', () => {
+            peekResumeEpoch++;
+            gesturePeekPending = false;
+            lastPeekPointer = null;
             body.classList.remove('toolbar-peek-active');
             lastToolbarPeek = false;
         });

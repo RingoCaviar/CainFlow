@@ -152,6 +152,7 @@ export function createInitialState() {
         toolbarPinned: false,
         sidebarPinned: false,
         globalAnimationEnabled: true,
+        canvasGpuAccelerationEnabled: true,
         connectionFlowAnimationEnabled: true,
         canvasRender: { denseModeOverride: 'auto' },
         historyGridCols: 2,

@@ -13,7 +13,7 @@ function deferred() {
 }
 
 function scopedToolbarFixture({ holdRestore = false } = {}) {
-    const controls = new Map(['btn-run','btn-stop','toolbar-workflow-run-status'].map(id => [id, {
+    const controls = new Map(['btn-stop','toolbar-workflow-run-status'].map(id => [id, {
         textContent: '', hidden: true, disabled: false, dataset: {},
         classList: { remove() {}, toggle() {} }, setAttribute() {}
     }]));

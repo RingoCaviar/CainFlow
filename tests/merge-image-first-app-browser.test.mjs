@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { withAppBrowser, reloadAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
@@ -64,8 +65,8 @@ async function upload(app, id, color) {
 }
 
 async function run(app) {
-    await app.evaluate("document.getElementById('btn-run').click()");
-    await app.waitFor("document.getElementById('btn-stop').disabled && !document.getElementById('btn-run').disabled");
+    await app.evaluate(runWorkflowShortcut);
+    await app.waitFor("document.getElementById('toolbar-workflow-run-status').hidden");
 }
 
 async function point(app, selector) {
@@ -293,7 +294,7 @@ test('background merge output and owners remain attached to A while the same-ID 
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='merge')?.mediaAssetKeys?.length===2)");
         await browse(app, 1, 2);
         await openInputs(app); await closeInputs(app);
-        await app.evaluate("mergeHoldRequests=true;document.getElementById('btn-run').click()");
+        await app.evaluate(`mergeHoldRequests=true;${runWorkflowShortcut}`);
         await app.waitFor('mergePending===true');
         await openInputs(app);
         assert.equal(await app.evaluate("document.querySelector('[data-input-connection-id=background-a] [data-input-action=move-down]').disabled"), true, 'a running workflow cannot reorder waiting merge inputs');

@@ -43,7 +43,8 @@ test('the original native async-image resume control restores the saved task, po
                 return new Response(JSON.stringify({id:${JSON.stringify(taskId)},status:'completed',progress:100,image_url:location.origin+'/api/storage/assets/'+encodeURIComponent(${JSON.stringify(key)})}),{headers:{'Content-Type':'application/json'}});
             }return asyncImageFetch(url,options)};` });
         await reloadAppBrowser(app);
-        await nativeClick(app, '#btn-run');
+        await nativeClick(app, '.canvas-run-scope-trigger');
+        await nativeClick(app, '[data-confirm-run-scope]');
         await app.waitFor('asyncImageHeld===true');
         const created = await app.evaluate('asyncImageRequests');
         assert.equal(created.filter(request => request.kind === 'create').length, 1);

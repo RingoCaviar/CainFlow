@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import assert from 'node:assert/strict';
 import { readFile, readdir, mkdir, writeFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -20,7 +21,7 @@ const metadata = app => app.evaluate("fetch('/api/storage/library').then(r=>r.js
 
 test('generation archives the complete batch before publishing; directory history switches and physically deletes', {timeout:60000}, async()=>{
     await withAppBrowser(session,async app=>{
-        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.evaluate(runWorkflowShortcut);
         await app.waitFor('window.archiveHeld');
         assert.equal(await app.evaluate("!!document.querySelector('#generate-image-results .image-node-result-preview img')"),false);
         assert.deepEqual(await readdir(join(app.server.dataDir,'exports')),[]);
@@ -48,7 +49,7 @@ test('generation archives the complete batch before publishing; directory histor
         assert.equal((await metadata(app)).count,2);
         await reloadAppBrowser(app);
         assert.equal((await metadata(app)).count,2,'deleted originals do not resurrect after restart');
-        await app.evaluate("window.archiveMode='fail';document.getElementById('btn-run').click()");
+        await app.evaluate(`window.archiveMode='fail';${runWorkflowShortcut}`);
         await app.waitFor("document.getElementById('generate')?.classList.contains('node-failed') || document.getElementById('generate')?.classList.contains('error') || document.body.innerText.includes('受控磁盘写入失败')");
         assert.equal((await metadata(app)).count,2,'failed local save must not add history');
         assert.equal(await app.evaluate("!!document.querySelector('#generate-image-results .image-node-result-preview img')"),false);
@@ -83,7 +84,7 @@ test('video generation archives every result without a save node and history rea
             if(String(url)==='/proxy')return new Response(JSON.stringify(options.body?{id:'task-'+(++videoCreates),task_id:'task-'+videoCreates,status:'submitted'}:{status:'completed',video_url:location.origin+'/controlled-video.webm'}),{headers:{'Content-Type':'application/json'}});
             return realFetch(url,options)};`});
         await reloadAppBrowser(app);
-        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.evaluate(runWorkflowShortcut);
         await app.waitFor("fetch('/api/storage/library').then(r=>r.json()).then(d=>d.count===2)");
         const entries=(await metadata(app)).items;
         for(const entry of entries){assert.equal(entry.mediaType,'video');assert.deepEqual(await readFile(join(entry.directory,entry.relativePath)),Buffer.from(bytes));assert.equal(entry.prompt,'movie')}

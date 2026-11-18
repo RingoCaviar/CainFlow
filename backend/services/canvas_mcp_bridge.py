@@ -18,7 +18,7 @@ MAX_IMAGE_CHARS = 6_000_000
 REVISION_SCOPE = frozenset({'editorId', 'workflowId', 'revision'})
 RUN_SCOPE = frozenset({'editorId', 'workflowId', 'runId'})
 METHOD_ARGUMENTS = {
-    'read_canvas': {'editorId', 'workflowId', 'nodeIds', 'offset', 'connectionOffset', 'textOffset', 'assetOffset'},
+    'read_canvas': REVISION_SCOPE | {'nodeIds', 'offset', 'connectionOffset', 'textOffset', 'assetOffset'},
     'list_models': {'editorId'},
     'create_workflow': {'editorId', 'name'},
     'list_history': {'editorId', 'id', 'offset', 'limit'},
@@ -47,9 +47,10 @@ EDITOR_ID_PATTERN = re.compile(r'[a-zA-Z0-9_-]{1,128}')
 
 
 class CanvasMcpError(Exception):
-    def __init__(self, status, message):
+    def __init__(self, status, message, code=None):
         super().__init__(message)
         self.status = status
+        self.code = code
 
 
 def validate_canvas_mcp_token(token):
@@ -116,17 +117,18 @@ class CanvasMcpBridge:
 
     def _require_current_editor(self, editor_id):
         if editor_id != self._editor_id:
-            raise CanvasMcpError(409, 'This CainFlow editor is no longer current.')
+            raise CanvasMcpError(409, 'This CainFlow editor is no longer current.', 'stale_editor')
 
     def call(self, method, args):
         if (not isinstance(method, str) or method not in METHOD_ARGUMENTS or not isinstance(args, dict)
                 or args.keys() - METHOD_ARGUMENTS[method]):
             raise CanvasMcpError(400, 'Unknown canvas method or invalid arguments.')
         editor_id = args.get('editorId')
-        if (method not in CURRENT_EDITOR_METHODS or 'editorId' in args) and not is_editor_id(editor_id):
+        requires_revision = method in REVISION_METHODS or (method == 'read_canvas' and 'revision' in args)
+        if (requires_revision or method not in CURRENT_EDITOR_METHODS or 'editorId' in args) and not is_editor_id(editor_id):
             raise CanvasMcpError(400, 'A valid editorId from read_canvas is required.')
-        if method in REVISION_METHODS and not all(isinstance(args.get(key), str) and args[key].strip()
-                                                  for key in ('workflowId', 'revision')):
+        if requires_revision and not all(isinstance(args.get(key), str) and args[key].strip()
+                                         for key in ('workflowId', 'revision')):
             raise CanvasMcpError(400, 'A workflowId and revision from read_canvas are required.')
         if method in ('get_workflow_run', 'get_run_image') and not all(
                 isinstance(args.get(key), str) and args[key].strip() for key in ('workflowId', 'runId')):

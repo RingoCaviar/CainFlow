@@ -1789,3 +1789,20 @@ test('connection restoration closes its renderer transaction after a completion 
     );
     assert.deepEqual(lifecycle, ['begin', 'end']);
 });
+
+
+test('shared endpoints are measured once per drag rendering batch', () => {
+    const { api, state, getPortRectReadCount, setPortsVisible, paths } = createHarness(24, { distinctTargets: true });
+    api.updateAllConnections();
+    state.dragging = { nodes: ['from'], portOffsets: new Map() };
+    const projection = createRestorationProjection(api, { requestAnimationFrameRef: () => 1, cancelAnimationFrameRef() {} });
+    const drag = projection.interactions.beginInteraction('node-drag', ['from']);
+    const before = getPortRectReadCount();
+    drag.nodePositionsApplied();
+    assert.ok(getPortRectReadCount() - before <= 50, '25 unique endpoints need at most one visibility and one position read each');
+    setPortsVisible(false);
+    const beforeHidden = getPortRectReadCount();
+    drag.nodePositionsApplied();
+    assert.equal(getPortRectReadCount() - beforeHidden, 1, 'a shared hidden source is also measured only once in the new batch');
+    assert.ok(paths.every(path => path.getAttribute('d') === ''));
+});

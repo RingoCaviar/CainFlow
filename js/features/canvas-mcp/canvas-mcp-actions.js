@@ -4,7 +4,7 @@ import { buildCanvasImageBatch } from '../prompt-agent/prompt-agent-canvas-image
 import { canvasRevisionFingerprint, resolveCanvasRunInput } from './cainflow-app-actions.js';
 
 const MAX_RUNS = 32;
-const MAX_STATUS_NODES = 100;
+const MAX_RUN_STATUS_BYTES = 2 * 1024 * 1024;
 // The local backend serializes non-ASCII UTF-16 code units as six ASCII bytes.
 // Leave space under the 1 MiB transport limit for the bridge envelope.
 const MAX_STATUS_PAGE_BYTES = 720_000;
@@ -12,6 +12,41 @@ const MAX_IMAGE_DATA_LENGTH = 6_000_000;
 const MAX_IMAGE_CACHE_LENGTH = 12_000_000;
 const RUN_OUTCOMES = new Set(['completed', 'stopped', 'failed', 'timeout', 'cancelled', 'no-execution']);
 const IMAGE_DATA_PREFIX = /^data:(image\/(?:png|jpeg|webp|gif));base64,/i;
+const RUN_ERRORS = new Map([
+    ['stale_editor', 'CainFlow 编辑器已变化，请重新读取画布。'],
+    ['stale_revision', '画布已修改，请重新读取后再操作。'],
+    ['wrong_workflow', '指定的工作流当前未显示，请重新读取画布。'],
+    ['no_active_workflow', '请先在 CainFlow 打开工作流。'],
+    ['already-running', '目标线路仍在运行，请等待完成后重试。'],
+    ['starting', '已有工作流正在启动，请稍后重试。'],
+    ['no-plan', '当前画布没有可运行的线路。'],
+    ['empty-canvas', '当前画布为空。'],
+    ['no-enabled-nodes', '当前线路没有已启用的节点。'],
+    ['commerce-preflight', '电商套图未通过运行前检查，请查看对应节点。'],
+    ['incomplete-model-configuration', '请检查目标节点的模型和供应商配置。'],
+    ['missing-api-key-confirm-cancelled', '运行因缺少 API 密钥而取消，请检查供应商配置。'],
+    ['missing-image-input', '目标节点缺少可用的图片输入。'],
+    ['missing-prompt-input', '目标节点缺少提示词输入。'],
+    ['no-execution', '工作流未执行任何节点，请检查画布中的运行范围。'],
+    ['timeout', '工作流运行超时，请检查画布中的运行状态。'],
+    ['run_not_started', '工作流未启动，请检查编辑器中的运行状态。'],
+    ['run_failed', '工作流运行失败，请在 CainFlow 查看运行详情。']
+]);
+const NODE_ERRORS = new Map([
+    ['input', '请检查此节点的输入和连线。'],
+    ['invalid_api_key', '供应商拒绝了 API 密钥，请检查配置。'],
+    ['auth_error', '供应商鉴权失败，请检查配置。'],
+    ['forbidden', '供应商拒绝访问，请检查账号权限。'],
+    ['account_disabled', '供应商账号不可用，请检查账号状态。'],
+    ['provider_model_mismatch', '当前供应商不支持所选模型，请检查配置。'],
+    ['model_not_found', '供应商未找到所选模型，请检查配置。'],
+    ['rate_limit', '供应商限制了请求频率，请稍后重试。'],
+    ['timeout', '供应商响应超时，请检查连接后重试。'],
+    ['no_image_in_response', '供应商响应中没有可用的图片。'],
+    ['connection_refused', '无法连接到供应商，请检查连接配置。'],
+    ['connection_interrupted', '供应商连接中断，请检查网络后重试。'],
+    ['upstream_connection_closed', '供应商连接中断，请检查网络后重试。']
+]);
 
 function actionError(code, message) {
     return Object.assign(new Error(message), { code });
@@ -20,6 +55,57 @@ function actionError(code, message) {
 function asciiJsonSize(value) {
     const json = JSON.stringify(value);
     return json.length + 5 * (json.match(/[^\x00-\x7e]/g)?.length || 0);
+}
+
+function runFailure(record, reason) {
+    const knownReason = RUN_ERRORS.has(reason) ? reason : 'run_failed';
+    record.errorCode = knownReason.replaceAll('-', '_');
+    record.error = RUN_ERRORS.get(knownReason);
+}
+
+function summarizeRunNode(node) {
+    const summary = {
+        nodeId: node.nodeId,
+        succeeded: node.succeeded === true,
+        imageCount: Array.isArray(node.images) ? node.images.length : 0,
+        mediaAssetKeys: []
+    };
+    // Provider messages can include request data. Expose only app-owned summaries.
+    if (!summary.succeeded && (node.error || node.failureCategory)) {
+        const category = node.failureCategory;
+        summary.errorCode = NODE_ERRORS.has(category) ? `node_${category}` : 'node_execution_failed';
+        summary.error = NODE_ERRORS.get(category) || '节点执行失败，请在 CainFlow 查看节点详情。';
+    }
+    return summary;
+}
+
+function retainRunNodes(record, nodes) {
+    const retained = [];
+    let bytes = 0;
+    for (const node of nodes) {
+        const summary = { ...summarizeRunNode(node), detailsOmitted: true };
+        const size = asciiJsonSize(summary) + 1;
+        if (size >= MAX_STATUS_PAGE_BYTES || bytes + size > MAX_RUN_STATUS_BYTES) break;
+        retained.push(summary);
+        bytes += size;
+    }
+    record.nodeResults = retained.map(({ detailsOmitted, ...summary }, index) => {
+        const node = nodes[index];
+        const texts = summary.succeeded && Array.isArray(node.texts)
+            ? node.texts.filter(text => typeof text === 'string').slice(0, 5).map(text => text.slice(0, 4000)) : [];
+        const detail = {
+            ...summary,
+            mediaAssetKeys: Array.isArray(node.mediaAssetKeys)
+                ? node.mediaAssetKeys.filter(key => typeof key === 'string' && key.startsWith('media:')) : [],
+            ...(texts.length ? { texts } : {})
+        };
+        const size = asciiJsonSize(detail);
+        const extraBytes = size - asciiJsonSize(retained[index]);
+        if (size >= MAX_STATUS_PAGE_BYTES || bytes + extraBytes > MAX_RUN_STATUS_BYTES) return retained[index];
+        bytes += extraBytes;
+        return detail;
+    });
+    if (retained.length < nodes.length) record.nodeResultsOmitted = nodes.length - retained.length;
 }
 
 export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () => ({}), getImageModels = () => [], runWorkflow, appActions = null }) {
@@ -166,7 +252,7 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
             return { ...edit, nodeIds, run: startRun({ ...edit, nodeIds }, { imageBatch: true, isCurrent }) };
         } catch (error) {
             // The graph is already saved. Return its bindings so callers can retry only execution.
-            return { ...edit, nodeIds, runError: error.message };
+            return { ...edit, nodeIds, runError: error.message, ...(error.code ? { runErrorCode: error.code } : {}) };
         }
     }
 
@@ -188,14 +274,15 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
         const total = nodeResults.length;
         const page = { ...status, offset, total, nextOffset: null, nodeResults: [] };
         let bytes = asciiJsonSize(page);
-        for (const node of nodeResults.slice(offset)) {
+        for (let index = offset; index < total; index++) {
+            const node = nodeResults[index];
             const nodeBytes = asciiJsonSize(node);
             const separator = page.nodeResults.length ? 1 : 0;
             if (bytes + separator + nodeBytes > MAX_STATUS_PAGE_BYTES) {
                 if (!page.nodeResults.length) {
                     // A single exceptional node must not block later pages.
-                    const summary = { nodeId: node.nodeId, succeeded: node.succeeded, imageCount: node.imageCount,
-                        mediaAssetKeys: [], detailsOmitted: true };
+                    const { texts, ...metadata } = node;
+                    const summary = { ...metadata, mediaAssetKeys: [], detailsOmitted: true };
                     if (bytes + asciiJsonSize(summary) > MAX_STATUS_PAGE_BYTES) {
                         throw actionError('result_too_large', '单个节点的运行结果超出分页大小限制。');
                     }
@@ -242,29 +329,22 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
     }
 
     function finishRun(record, completion) {
-        if (!completion || completion.workflowId !== record.workflowId) {
+        if (!completion || (completion.workflowId !== record.workflowId
+            && (completion.workflowId !== undefined || completion.started !== false))) {
             record.status = 'failed';
+            runFailure(record, completion ? 'run_failed' : 'run_not_started');
             return;
         }
-        const nodes = Array.isArray(completion.nodeResults) ? completion.nodeResults : [];
-        record.nodeResults = nodes.slice(0, MAX_STATUS_NODES).map(node => {
-            const texts = node.succeeded === true && Array.isArray(node.texts)
-                ? node.texts.filter(text => typeof text === 'string').slice(0, 5).map(text => text.slice(0, 4000)) : [];
-            return {
-                nodeId: node.nodeId,
-                succeeded: node.succeeded === true,
-                imageCount: Array.isArray(node.images) ? node.images.length : 0,
-                mediaAssetKeys: Array.isArray(node.mediaAssetKeys)
-                    ? node.mediaAssetKeys.filter(key => typeof key === 'string' && key.startsWith('media:')) : [],
-                ...(texts.length ? { texts } : {})
-            };
-        });
+        const nodes = completion.workflowId === record.workflowId && Array.isArray(completion.nodeResults) ? completion.nodeResults : [];
+        retainRunNodes(record, nodes);
         for (const node of nodes) {
             if (node.succeeded !== true || !Array.isArray(node.images)) continue;
             node.images.forEach((image, index) => captureImage(record.runId, node.nodeId, index, image));
         }
-        if (nodes.length > MAX_STATUS_NODES) record.nodeResultsOmitted = nodes.length - MAX_STATUS_NODES;
         record.status = RUN_OUTCOMES.has(completion.outcome) ? completion.outcome : 'failed';
+        if (['failed', 'timeout', 'no-execution'].includes(record.status)) {
+            runFailure(record, RUN_ERRORS.has(completion.reason) ? completion.reason : record.status);
+        }
     }
 
     function startRun(args, { imageBatch = false, isCurrent } = {}) {
@@ -286,7 +366,10 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
             waitForCompletion: true,
             captureTextResults: true,
             validateBeforeRun: () => requireRevision(args, isCurrent)
-        })).then(completion => finishRun(record, completion)).catch(() => { record.status = 'failed'; });
+        })).then(completion => finishRun(record, completion)).catch(error => {
+            record.status = 'failed';
+            runFailure(record, error?.code);
+        });
         return { ...record };
     }
 
@@ -303,7 +386,9 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
             return appActions.dispatch(method, parameters, scope);
         }
         if (method === 'read_canvas') {
-            const { context, revision } = snapshot(args.workflowId);
+            const { context, revision } = args.revision === undefined ? snapshot(args.workflowId) : {
+                context: requireRevision(args, scope?.isCurrent), revision: args.revision
+            };
             return {
                 workflowId: context.workflowId,
                 revision,

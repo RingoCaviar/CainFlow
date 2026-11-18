@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import assert from 'node:assert/strict';
 import { withAppBrowser, reloadAppBrowser } from './helpers/app-browser.mjs';
 import { writeFile, mkdir } from 'node:fs/promises';
@@ -215,7 +216,7 @@ test('sequential graph stops on failure and retries only unfinished steps withou
         assert.match(await evaluate("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent"), /执行结束/);
         assert.equal(await evaluate("document.querySelectorAll('#nodes-layer .node').length"), 3);
         assert.equal(await evaluate('generated.length'), 11);
-        await evaluate("document.getElementById('btn-run').click()");
+        await evaluate(runWorkflowShortcut);
         await waitFor("generated.length===14 && !document.querySelector('#nodes-layer .node.running')");
         assert.equal(await evaluate("document.querySelectorAll('#nodes-layer .node').length"), 3, 'toolbar execution does not append save nodes');
         assert.equal(await evaluate("document.querySelectorAll('#nodes-layer [data-node-type=ImageSave]').length"), 0);

@@ -15,7 +15,7 @@ export function renderWorkflowToolbarStatus({ snapshot, dirty = false, documentR
 }
 
 /** Execution chrome follows the visible workflow, independently of global run lifetime. */
-export function renderWorkflowRunControls({ documentRef, starting = false, runCount = 0, stopping = false, launchPending = starting, canStopStarting = false }) {
+export function renderWorkflowRunControls({ documentRef, starting = false, runCount = 0, stopping = false, canStopStarting = false }) {
     const phase = stopping ? 'stopping' : starting ? 'starting' : runCount > 0 ? 'running' : 'idle';
     const status = documentRef.getElementById('toolbar-workflow-run-status');
     const message = stopping ? '停止中' : starting ? '启动中' : runCount > 1 ? `运行中·${runCount}` : runCount > 0 ? '运行中' : '';
@@ -25,16 +25,10 @@ export function renderWorkflowRunControls({ documentRef, starting = false, runCo
         if (status.textContent !== message) status.textContent = message;
         status.title = runCount > 0 ? `当前工作流：${message}（${runCount} 个执行范围）` : message;
     }
-    const run = documentRef.getElementById('btn-run');
-    if (run) {
-        run.classList.remove('running');
-        run.disabled = launchPending;
-        run.title = launchPending ? '正在准备运行，请稍候' : '运行整个工作流（画布获得焦点后 Ctrl+Enter）';
-        run.setAttribute('aria-busy', String(starting));
-    }
     const stop = documentRef.getElementById('btn-stop');
     if (stop) {
         stop.classList.remove('running');
+        stop.hidden = phase === 'idle';
         stop.disabled = stopping || (runCount === 0 && !canStopStarting);
         stop.title = stopping ? '正在停止当前工作流' : '停止当前工作流的运行';
         stop.setAttribute('aria-busy', String(stopping));

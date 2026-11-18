@@ -32,7 +32,7 @@ const workflowFields = new Set(`
     providers models apikey apiKey apiKeys apiEndpoint endpoint apiConfig apiConfigs apiSettings apiKeyMap modelApiKey
     nodeDefaults themeId themeMode notificationsEnabled notificationVolume autoRetry maxRetries concurrentRequestMode
     imageAutoResizeEnabled imageSaveUsePromptFilename imageMaxPixels connectionLineType toolbarPinned sidebarPinned
-    globalAnimationEnabled connectionFlowAnimationEnabled canvasRender proxy requestTimeoutEnabled requestTimeoutSeconds
+    globalAnimationEnabled canvasGpuAccelerationEnabled connectionFlowAnimationEnabled canvasRender proxy requestTimeoutEnabled requestTimeoutSeconds
     videoRequestTimeoutEnabled videoRequestTimeoutSeconds autoCheckUpdatesOnLoad historyGridCols workflowSidebarWidth
 `.trim().split(/\s+/));
 const canvasFields = new Set(['x', 'y', 'zoom']);

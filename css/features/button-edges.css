@@ -154,13 +154,6 @@ html:root #toolbar .toolbar-run-group .btn {
     transform: none;
     border-width: 1px;
 }
-html:root #toolbar .toolbar-run-group .btn-run {
-    background: var(--panel-primary-action-bg);
-    color: var(--panel-primary-action-text);
-}
-html:root #toolbar .toolbar-run-group .btn-run:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--panel-primary-action-bg) 90%, var(--text-primary));
-}
 html:root #toolbar .toolbar-run-group .btn-stop:not(:disabled) {
     color: var(--text-danger);
     background: color-mix(in srgb, var(--accent-red) 10%, var(--panel-bg));

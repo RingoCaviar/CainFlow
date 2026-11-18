@@ -152,6 +152,7 @@ test('hiding the editor during batch preparation prevents the edit and run after
         const result = await completed.promise;
         assert.equal(result.id, command.id);
         assert.match(result.error, /编辑器已变化/);
+        assert.equal(result.errorCode, 'stale_editor');
         assert.equal(edited, false);
         assert.equal(ran, false);
     } finally {

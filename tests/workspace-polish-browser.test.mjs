@@ -3,6 +3,8 @@ import test from 'node:test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { withAppBrowser, waitForAutosave, reloadAppBrowser } from './helpers/app-browser.mjs';
+import { nativeClick } from './helpers/image-first-integrated-fixture.mjs';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 
 test('toolbar execution state follows the current workflow and Stop leaves background requests alive', { timeout: 60000 }, async () => {
     const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=';
@@ -53,39 +55,46 @@ test('toolbar execution state follows the current workflow and Stop leaves backg
             await writeFile(join(process.env.CAINFLOW_TOOLBAR_VISUALS, name+'-toolbar.png'), Buffer.from(chrome.data,'base64'));
         };
         await activate('a');
+        assert.equal(await app.evaluate("document.getElementById('btn-stop').checkVisibility()"), false);
         await snapshot('idle-paper');
-        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.evaluate("document.body.classList.remove('toolbar-pinned','toolbar-peek-active')");
+        await nativeClick(app, '.canvas-run-scope-trigger');
+        assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('#canvas-run-scope input:enabled')]
+            .map(input => [input.value, input.checked])`), [['all', true]]);
+        assert.equal(await app.evaluate('toolbarRequests.length'), 0);
+        await nativeClick(app, '[data-confirm-run-scope]');
         await app.waitFor("toolbarRequests.some(request=>request.prompt==='a')&&document.getElementById('toolbar-workflow-run-status').textContent==='运行中'");
+        await app.waitFor("document.getElementById('btn-stop').getBoundingClientRect().top >= 0");
         await snapshot('running-paper');
+        await app.evaluate("document.body.classList.add('toolbar-pinned')");
         await activate('b');
         assert.equal(await app.evaluate("document.getElementById('btn-stop').disabled"), true);
         assert.equal(await app.evaluate("document.getElementById('toolbar-workflow-run-status').hidden"), true, 'background work cannot impersonate current workflow activity');
-        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.evaluate(runWorkflowShortcut);
         await app.waitFor("toolbarRequests.some(request=>request.prompt==='b')&&document.getElementById('toolbar-workflow-run-status').textContent==='运行中'");
         const facts = [];
         for (const theme of ['dark','pro','paper','light','glass-light','glass-dark','pink']) {
             await app.evaluate(`document.getElementById('btn-theme-toggle').click();document.querySelector('#theme-menu [data-theme-id="${theme}"]').click()`);
             await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
-            await app.waitFor("['btn-run','btn-stop'].every(id=>document.getElementById(id).getAnimations().every(animation=>animation.playState!=='running'))");
+            await app.waitFor("document.getElementById('btn-stop').getAnimations().every(animation=>animation.playState!=='running')");
             facts.push(await app.evaluate(`(()=>{
-                const status=document.getElementById('toolbar-workflow-run-status'),run=document.getElementById('btn-run'),stop=document.getElementById('btn-stop');
-                const r=run.getBoundingClientRect(),s=stop.getBoundingClientRect();
+                const status=document.getElementById('toolbar-workflow-run-status'),stop=document.getElementById('btn-stop');
+                const s=stop.getBoundingClientRect();
                 return {theme:document.documentElement.dataset.appTheme,status:status.textContent,statusColor:getComputedStyle(status).color,
-                    statusRect:status.getBoundingClientRect().toJSON(),runRect:r.toJSON(),stopRect:s.toJSON(),
+                    statusRect:status.getBoundingClientRect().toJSON(),stopRect:s.toJSON(),
                     toolbarBackground:getComputedStyle(document.getElementById('toolbar')).backgroundColor,
-                    runColor:getComputedStyle(run).color,runBackground:getComputedStyle(run).backgroundColor,
                     stopColor:getComputedStyle(stop).color,stopBackground:getComputedStyle(stop).backgroundColor,
-                    runAnimation:getComputedStyle(run).animationName,stopAnimation:getComputedStyle(stop).animationName,heights:[r.height,s.height]};
+                    stopAnimation:getComputedStyle(stop).animationName,stopHeight:s.height};
             })()`));
-            assert.deepEqual(facts.at(-1).heights, [38,38]);
-            assert.equal(facts.at(-1).runAnimation, 'none'); assert.equal(facts.at(-1).stopAnimation, 'none');
+            assert.equal(facts.at(-1).stopHeight, 38);
+            assert.equal(facts.at(-1).stopAnimation, 'none');
             await snapshot('running-'+theme);
         }
         for (const width of [420,320]) {
             await app.send('Emulation.setDeviceMetricsOverride', { width, height: 600, deviceScaleFactor: 1, mobile: false });
             await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
-            const narrow = await app.evaluate("(()=>{const status=document.getElementById('toolbar-workflow-run-status'),run=document.getElementById('btn-run'),stop=document.getElementById('btn-stop');return {fits:document.getElementById('toolbar').scrollWidth<=innerWidth,statusFits:status.scrollWidth<=status.clientWidth,buttons:[run,stop].map(button=>{const r=button.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth})}})()");
-            assert.ok(narrow.fits&&narrow.statusFits&&narrow.buttons.every(Boolean), JSON.stringify(narrow));
+            const narrow = await app.evaluate("(()=>{const status=document.getElementById('toolbar-workflow-run-status'),stop=document.getElementById('btn-stop').getBoundingClientRect();return {fits:document.getElementById('toolbar').scrollWidth<=innerWidth,statusFits:status.scrollWidth<=status.clientWidth,stopFits:stop.left>=0&&stop.right<=innerWidth}})()");
+            assert.ok(narrow.fits&&narrow.statusFits&&narrow.stopFits, JSON.stringify(narrow));
             await snapshot('running-'+width);
         }
         await app.send('Emulation.setDeviceMetricsOverride', { width: 1424, height: 900, deviceScaleFactor: 1, mobile: false });
@@ -103,10 +112,10 @@ test('toolbar execution state follows the current workflow and Stop leaves backg
         await app.evaluate("toolbarRequests.find(request=>request.prompt==='a').release()");
         await app.waitFor("document.getElementById('toolbar-workflow-run-status').hidden&&document.getElementById('node-a-run-status').textContent==='完成'");
         assert.equal(await app.evaluate('toolbarRequests.length'), 2);
-        const preparing = await app.evaluate("(()=>{holdNextToolbarFrame=true;document.getElementById('btn-run').click();return {message:document.getElementById('toolbar-workflow-run-status').textContent,canStop:!document.getElementById('btn-stop').disabled}})()");
+        const preparing = await app.evaluate(`(()=>{holdNextToolbarFrame=true;${runWorkflowShortcut};return {message:document.getElementById('toolbar-workflow-run-status').textContent,canStop:!document.getElementById('btn-stop').disabled}})()`);
         assert.deepEqual(preparing, { message: '启动中', canStop: true });
         await app.evaluate("document.getElementById('btn-stop').click();releaseToolbarFrame()");
-        await app.waitFor("document.getElementById('toolbar-workflow-run-status').hidden&&!document.getElementById('btn-run').disabled");
+        await app.waitFor("document.getElementById('toolbar-workflow-run-status').hidden&&document.getElementById('btn-stop').hidden");
         assert.equal(await app.evaluate('toolbarRequests.length'), 2, 'stopping a held launch frame never sends a third provider request');
         if (process.env.CAINFLOW_TOOLBAR_VISUALS) await writeFile(join(process.env.CAINFLOW_TOOLBAR_VISUALS,'theme-facts.json'), JSON.stringify(facts,null,2));
     });

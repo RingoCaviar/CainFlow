@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { withAppBrowser, reloadAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
@@ -14,6 +15,13 @@ test('精细度五档支持真实键盘、鼠标选择与保存', { timeout: 300
             await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
         };
         await click('#style [data-style-preview]');
+        assert.ok(await app.evaluate(`(()=>{
+            const category=document.querySelector('[data-style-category]').getBoundingClientRect();
+            const preset=document.querySelector('[data-style-preset]').getBoundingClientRect();
+            const field=document.querySelector('[data-style-field]');
+            return Math.abs(category.top-preset.top)<1 && category.right<preset.left
+                && parseFloat(getComputedStyle(field).fontSize)>=15 && field.labels.length===1;
+        })()`), 'desktop presets share a row and the description has a visible label and readable type');
         await app.evaluate("document.querySelector('[data-style-detail]').focus()");
         await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
         await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
@@ -38,6 +46,11 @@ test('精细度五档支持真实键盘、鼠标选择与保存', { timeout: 300
         await app.send('Emulation.setDeviceMetricsOverride', { width: 320, height: 540, deviceScaleFactor: 1, mobile: false });
         await app.waitFor("document.getElementById('image-parameter-panel').getBoundingClientRect().right<=innerWidth");
         assert.ok(await app.evaluate("(()=>{const p=document.getElementById('image-parameter-panel'),f=p.querySelector('.visual-style-settings'),b=p.querySelector('[data-parameter-action=generate]').getBoundingClientRect();return f.scrollWidth<=f.clientWidth+1 && b.bottom<=innerHeight;})()"), 'collapsed controls fit a narrow window');
+        assert.ok(await app.evaluate(`(()=>{
+            const category=document.querySelector('[data-style-category]').getBoundingClientRect();
+            const preset=document.querySelector('[data-style-preset]').getBoundingClientRect();
+            return preset.top>=category.bottom && Math.abs(category.width-preset.width)<1;
+        })()`), 'narrow presets stack without squeezing their labels or values');
         await mkdir('.scratch/visual-style/screenshots', { recursive: true });
         const compact = await app.send('Page.captureScreenshot', { format: 'png' });
         await writeFile('.scratch/visual-style/screenshots/compact-320.png', Buffer.from(compact.data, 'base64'));
@@ -153,7 +166,7 @@ test('画面风格编辑、显式提取、普通生图与保存恢复', { timeou
         assert.match(await app.evaluate('JSON.stringify(styleRequests[0])'), /详细档/);
         await app.waitFor("document.getElementById('btn-stop').disabled");
         await app.evaluate("var field=document.getElementById('style-style-description');field.value+=' 留白充足。';field.dispatchEvent(new Event('input',{bubbles:true}));");
-        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.evaluate(runWorkflowShortcut);
         await app.waitFor("typeof releaseStyleImage==='function'");
         assert.equal(await app.evaluate("document.getElementById('style-style-description').disabled"), true, 'style stays locked while downstream generation is running');
         assert.equal(await app.evaluate("document.querySelector('[data-style-detail]').disabled"), true);

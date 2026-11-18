@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import assert from 'node:assert/strict';
 import { readFile, unlink } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -29,7 +30,7 @@ async function saved(app) {
     return app.evaluate("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value)");
 }
 async function run(app, count) {
-    await app.evaluate("document.getElementById('btn-run').click()");
+    await app.evaluate(runWorkflowShortcut);
     await app.waitFor(`fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>document.value?.nodes.find(node=>node.id==='source')?.mediaAssetKeys?.length===${count})`);
     await app.waitFor("!document.getElementById('source-prompt').disabled && Boolean(document.querySelector('#source-image-results .image-node-result-preview'))");
 }

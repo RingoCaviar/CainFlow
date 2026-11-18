@@ -23,6 +23,7 @@ test('an active fullscreen preview suppresses toolbar peek', () => {
 });
 
 function makeRuntime() {
+    const state = { selectedNodes: new Set(), isMouseOverCanvas: true };
     const classes = new Set();
     const classWrites = [];
     const classList = {
@@ -57,7 +58,7 @@ function makeRuntime() {
     const noop = () => {};
     const history = [];
     createRuntimeControllerApi({
-        state: { selectedNodes: new Set(), isMouseOverCanvas: true }, canvasContainer,
+        state, canvasContainer,
         contextMenu: { classList }, selectionApi: { selectAllNodes: noop },
         runWorkflow: noop, saveState: noop, showToast: noop, exportWorkflow: noop,
         undo: () => history.push('undo'), redo: () => history.push('redo'),
@@ -65,7 +66,7 @@ function makeRuntime() {
         clipboardControllerApi: { markNativeClipboardEvent: noop }, removeNode: noop,
         zoomToFit: noop, scheduleSave: noop, closeModal: noop, documentRef, windowRef
     }).initRuntimeBindings();
-    return { classes, documentRef, history, handlers, activity, classWrites };
+    return { state, classes, documentRef, history, handlers, activity, classWrites };
 }
 
 test('toolbar activity tracks local hover, keyboard focus and control state without repeated body writes', () => {
@@ -128,4 +129,42 @@ test('canvas toolbar visibility clears obsolete left-toolbar presentation', () =
     assert.equal(classes.has('toolbar-pinned'), true);
     assert.equal(classes.has('sidebar-pinned'), false);
     assert.equal(classes.has('sidebar-peek-active'), false);
+});
+
+
+test('canvas gestures suspend hover-peek geometry and resume on release without another move', async () => {
+    const { state, classes, documentRef, handlers } = makeRuntime();
+    const move = handlers.get('window:pointermove');
+    move({ clientX: 100, clientY: 20 });
+    assert.equal(classes.has('toolbar-peek-active'), true);
+    const original = documentRef.querySelector;
+    let queries = 0;
+    documentRef.querySelector = (...args) => { queries++; return original(...args); };
+    for (const key of ['dragging', 'resizing', 'connecting', 'marquee', 'isCutting']) {
+        state[key] = {};
+        move({ clientX: 100, clientY: 20 });
+        assert.equal(classes.has('toolbar-peek-active'), false);
+        state[key] = null;
+    }
+    state.canvas = { isPanning: true };
+    move({ clientX: 100, clientY: 20 });
+    assert.equal(queries, 0, 'held canvas gestures do not scan immersive overlays or read chrome geometry');
+    state.canvas.isPanning = false;
+    handlers.get('window:mouseup')({ clientX: 100, clientY: 20 });
+    await Promise.resolve();
+    assert.equal(classes.has('toolbar-peek-active'), true);
+    assert.ok(queries > 0);
+    state.dragging = {};
+    move({ clientX: 100, clientY: 20 });
+    state.dragging = null;
+    handlers.get('window:mouseup')({ clientX: 100, clientY: 20 });
+    handlers.get('window:blur')();
+    await Promise.resolve();
+    assert.equal(classes.has('toolbar-peek-active'), false, 'blur cancels a pending release restoration');
+    state.connecting = {};
+    move({ clientX: 100, clientY: 20 });
+    state.connecting = null;
+    handlers.get('window:keydown')({ key: 'Escape' });
+    await Promise.resolve();
+    assert.equal(classes.has('toolbar-peek-active'), true, 'keyboard cancellation restores peek at the last pointer without another move');
 });

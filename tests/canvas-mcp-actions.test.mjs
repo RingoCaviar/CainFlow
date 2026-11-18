@@ -48,6 +48,12 @@ test('reads a page of the live workflow with a stable revision and projected nod
     assert.ok(canvas.editableTypes.includes('Text'));
     assert.deepEqual(page.nodes.map(node => node.parameters.text), ['Second']);
     assert.equal(JSON.stringify(canvas).includes('private'), false);
+    const scope = { workflowId: canvas.workflowId, revision: canvas.revision, offset: 1 };
+    assert.deepEqual(await dispatch('read_canvas', scope), page);
+    await assert.rejects(dispatch('read_canvas', scope, { isCurrent: () => false }), { code: 'stale_editor' });
+    nodes[0].text = 'Changed between pages';
+    await assert.rejects(dispatch('read_canvas', scope), { code: 'stale_revision' });
+    assert.notEqual((await dispatch('read_canvas', { offset: 1 })).revision, canvas.revision);
 });
 
 test('edits the live graph in place and rejects stale and wrong-workflow writes', async () => {
@@ -407,4 +413,66 @@ test('pages successful run node statuses within the encoded response budget', as
     assert.deepEqual(all.map(node => node.nodeId), nodeResults.map(node => node.nodeId));
     assert.deepEqual(all.at(-1).texts, nodeResults.at(-1).texts);
     await assert.rejects(dispatch('get_workflow_run', { workflowId, runId, offset: -1 }), { code: 'invalid_arguments' });
+});
+
+test('retains paged node summaries past 100 even when text exceeds the run cache budget', async () => {
+    const workflowId = 'wf-a';
+    const nodeResults = Array.from({ length: 105 }, (_, index) => ({
+        nodeId: `node-${index}`,
+        ...(index === 100
+            ? { succeeded: false, failureCategory: 'invalid_api_key', error: 'Untrusted provider detail: secret-value' }
+            : { succeeded: true, texts: Array(5).fill('😀'.repeat(2000)) })
+    }));
+    const { dispatch } = createCanvasMcpActions({
+        canvasAdapter: { context: () => createCanvasContext({ workflowId, nodes: [], connections: [] }) },
+        runWorkflow: async () => ({ workflowId, outcome: 'completed', nodeResults })
+    });
+    const { revision } = await dispatch('read_canvas');
+    const { runId } = await dispatch('run_workflow', { workflowId, revision });
+    await new Promise(resolve => setImmediate(resolve));
+    const all = [];
+    let offset = 0;
+    do {
+        const page = await dispatch('get_workflow_run', { workflowId, runId, offset });
+        assert.equal(page.total, nodeResults.length);
+        assert.equal(page.nodeResultsOmitted, undefined);
+        all.push(...page.nodeResults);
+        offset = page.nextOffset;
+    } while (offset !== null);
+    assert.deepEqual(all.map(node => node.nodeId), nodeResults.map(node => node.nodeId));
+    assert.equal(all[0].texts.length, 5);
+    assert.equal(all[100].errorCode, 'node_invalid_api_key');
+    assert.match(all[100].error, /供应商拒绝了 API 密钥/);
+    assert.ok(!JSON.stringify(all).includes('secret-value'));
+    assert.equal(all[104].detailsOmitted, true);
+    assert.equal(all[104].texts, undefined);
+});
+
+test('reports stale launch guards and preflight failures on the accepted run ID', async () => {
+    const workflowId = 'wf-a';
+    const node = { id: 'source', type: 'Text', text: 'Original' };
+    let invalidate = true;
+    const { dispatch } = createCanvasMcpActions({
+        canvasAdapter: { context: () => createCanvasContext({ workflowId, nodes: [node], connections: [] }) },
+        async runWorkflow(_input, { validateBeforeRun }) {
+            if (invalidate) node.text = 'Changed during launch';
+            validateBeforeRun();
+            return { started: false, reason: 'incomplete-model-configuration', error: 'private-path' };
+        }
+    });
+    const run = async () => {
+        const { revision } = await dispatch('read_canvas');
+        const { runId } = await dispatch('run_workflow', { workflowId, revision });
+        await new Promise(resolve => setImmediate(resolve));
+        return dispatch('get_workflow_run', { workflowId, runId });
+    };
+    const stale = await run();
+    assert.equal(stale.status, 'failed');
+    assert.equal(stale.errorCode, 'stale_revision');
+    invalidate = false;
+    const blocked = await run();
+    assert.equal(blocked.status, 'failed');
+    assert.equal(blocked.errorCode, 'incomplete_model_configuration');
+    assert.match(blocked.error, /检查目标节点的模型和供应商配置/);
+    assert.ok(!JSON.stringify(blocked).includes('private-path'));
 });

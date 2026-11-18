@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -165,7 +166,7 @@ test('a save retains playable video and the whole image batch, writes real files
     ], connections }, async app => {
         const { video, directory } = await controlled(app);
         await openSettings(app); await changeFilename(app, 'retained-bundle'); await closeSettings(app);
-        await app.evaluate("document.getElementById('note').click();document.getElementById('btn-run').click()");
+        await app.evaluate(`document.getElementById('note').click();${runWorkflowShortcut}`);
         await app.waitFor("fetch('/api/storage/documents/session').then(response=>response.json()).then(document=>{const node=document.value?.nodes.find(node=>node.id==='save');return node?.mediaAssetKeys?.length===3&&node?.videos?.length===2})");
         await app.waitFor("document.getElementById('btn-stop').disabled");
         const files = await exportedFiles(directory, 5), mainFiles = files;
@@ -264,7 +265,7 @@ test('background saving uses A filename and media while a same-ID save node in B
         for (const { name, ...graph } of graphs) assert.equal(await app.evaluate(`fetch('/api/workflows/'+encodeURIComponent(${JSON.stringify(name)}),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(${JSON.stringify(graph)})}).then(response=>response.ok)`), true);
         await activate(app, 'Save A'); await openSettings(app); await changeFilename(app, 'chosen-A'); await closeSettings(app);
         const directoryReadiness = await app.evaluate("(()=>{const warning=document.getElementById('save-path-warning');return {warningHidden:warning?.classList.contains('hidden'),warning:warning?.textContent}})()");
-        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.evaluate(runWorkflowShortcut);
         await app.waitFor('savePending===true');
         await activate(app, 'Save B'); await openSettings(app);
         assert.equal(await app.evaluate("document.getElementById('save-filename').value"), 'B-output');

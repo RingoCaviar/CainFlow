@@ -708,8 +708,7 @@ export function createWorkflowRuntimeManager({
                 || contexts.some(context => !context.executionStarted && !context.stopController?.signal.aborted),
             runCount: contexts.reduce((count, context) => count + Math.max(1, context.state?.activeRunCount || 0), 0),
             stopping,
-            canStopStarting: !!activeId && pendingStarts.some(controller => !controller.signal.aborted),
-            launchPending: state.isRunStarting === true
+            canStopStarting: !!activeId && pendingStarts.some(controller => !controller.signal.aborted)
         });
     }
 
@@ -1255,7 +1254,8 @@ export function createWorkflowRuntimeManager({
             mediaAssetKeys: includeImages && Array.isArray(node.data?.mediaAssetKeys)
                 ? node.data.mediaAssetKeys.slice() : [],
             ...(texts.length ? { texts } : {}),
-            ...(node.executionFailure?.message ? { error: node.executionFailure.message } : {})
+            ...(node.executionFailure?.message ? { error: node.executionFailure.message } : {}),
+            ...(includeText && node.executionFailure?.category ? { failureCategory: node.executionFailure.category } : {})
         };
     }
 

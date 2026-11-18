@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { withAppBrowser, reloadAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
@@ -58,8 +59,8 @@ async function waitForAssetChange(app, id, previousKey) {
 }
 
 async function run(app) {
-    await app.evaluate("document.getElementById('btn-run').click()");
-    await app.waitFor("document.getElementById('btn-stop').disabled && !document.getElementById('btn-run').disabled");
+    await app.evaluate(runWorkflowShortcut);
+    await app.waitFor("document.getElementById('toolbar-workflow-run-status').hidden");
 }
 
 test('resize edits in the lower editor produce real dimensions and JPEG quality after closing and reopening', { timeout: 45000 }, async () => {
@@ -233,7 +234,7 @@ test('background processing uses A settings and media while B with the same node
         await change(app, 'color-vibrance', 31);
         await change(app, 'color-saturation', -24);
         await closeParameters(app);
-        await app.evaluate("document.getElementById('btn-run').click()");
+        await app.evaluate(runWorkflowShortcut);
         await app.waitFor('processingBackgroundPending===true');
         await activateWorkflow(app, 'Background B', 'resize');
         assert.deepEqual(await app.evaluate("['resize-mode','target-width','target-height','quality'].map(name=>document.getElementById('resize-'+name).value).concat(document.getElementById('resize-keep-aspect').checked)"), ['dimensions', '33', '55', '83', true]);

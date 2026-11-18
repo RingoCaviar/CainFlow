@@ -238,6 +238,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
         const connectionLineType = state.connectionLineType || 'bezier';
         const toolbarPinned = state.toolbarPinned === true;
         const globalAnimationEnabled = state.globalAnimationEnabled !== false;
+        const canvasGpuAccelerationEnabled = state.canvasGpuAccelerationEnabled !== false;
         const denseModeOverride = state.canvasRender?.denseModeOverride || 'auto';
         const autoCheckUpdatesOnLoad = state.autoCheckUpdatesOnLoad !== false;
         const concurrentRequestMode = state.concurrentRequestMode === true;
@@ -276,6 +277,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
             connectionLineType: '切换后会立即更新当前画布中的全部连线，直角连线会在拐点保留小圆角。',
             toolbarPinned: '默认关闭。开启后统一顶部工具栏会一直显示；关闭后靠近顶部时展开。',
             globalAnimation: '默认开启。关闭后会禁用连线流动、弹窗渐入渐出、按钮过渡和提示等装饰动画；计时、进度、运行状态与危险操作确认等功能性动画仍会保留。',
+            canvasGpuAcceleration: '默认开启，优化拖动、平移和缩放。若出现闪烁或显示异常，可关闭此项。此开关控制画布的额外合成优化，不改变浏览器的全局硬件加速设置。',
             notifications: '开启后，工作流运行结束时发送系统通知并播放完成音效。首次开启会检查通知权限并发送测试通知。',
             notificationVolume: '调整工作流完成时通知音效的播放音量，可用“测试音效”立即预览当前设置。'
         };
@@ -624,6 +626,16 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
                     <div class="general-settings-field-divider" aria-hidden="true"></div>
                     <div class="card-field">
                         <div class="general-settings-control-row">
+                            ${dialogs.renderGeneralSettingsHelpLabel('画布 GPU 加速', generalHelpText.canvasGpuAcceleration, { emphasis: true, controlId: 'setting-canvas-gpu-acceleration' })}
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="setting-canvas-gpu-acceleration" role="switch" aria-label="画布 GPU 加速" ${canvasGpuAccelerationEnabled ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="general-settings-field-divider" aria-hidden="true"></div>
+                    <div class="card-field">
+                        <div class="general-settings-control-row">
                             ${dialogs.renderGeneralSettingsHelpLabel('装饰动画', generalHelpText.globalAnimation, { emphasis: true, controlId: 'setting-global-animation-enabled' })}
                             <label class="toggle-switch">
                                 <input type="checkbox" id="setting-global-animation-enabled" ${globalAnimationEnabled ? 'checked' : ''}>
@@ -714,6 +726,7 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
         const connectionLineTypeInput = documentRef.getElementById('setting-connection-line-type');
         const toolbarPinnedInput = documentRef.getElementById('setting-toolbar-pinned');
         const globalAnimationInput = documentRef.getElementById('setting-global-animation-enabled');
+        const canvasGpuAccelerationInput = documentRef.getElementById('setting-canvas-gpu-acceleration');
         const denseModeInput = documentRef.getElementById('setting-canvas-dense-mode');
         const autoCheckUpdatesOnLoadInput = documentRef.getElementById('setting-auto-check-updates-on-load');
         const imageSaveUsePromptFilenameInput = documentRef.getElementById('setting-image-save-use-prompt-filename');
@@ -1060,6 +1073,12 @@ export function createGeneralSettings({ ctx, dialogs, systemNotificationApi = cr
 
         toolbarPinnedInput?.addEventListener('change', (event) => {
             state.toolbarPinned = event.target.checked;
+            applyCanvasUiSetting();
+            saveState();
+        });
+
+        canvasGpuAccelerationInput?.addEventListener('change', (event) => {
+            state.canvasGpuAccelerationEnabled = event.target.checked;
             applyCanvasUiSetting();
             saveState();
         });

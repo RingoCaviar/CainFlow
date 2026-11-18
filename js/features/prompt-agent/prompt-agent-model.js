@@ -582,18 +582,39 @@ export async function createPromptAgentModelReply({
             if (!Array.isArray(requestedImages) || requestedImages.length > 4) throw new Error('每次画布读取最多查看四张指定原图');
             detail.imageReads = [];
             for (const item of requestedImages) {
-                const node = canvasContext.nodes.find(node => node.id === item?.nodeId);
+                const nodeId = item?.nodeId;
                 const index = item?.index ?? 0;
-                if (!node || !Number.isInteger(index) || index < 0 || !node.assets[index]) throw new Error('指定画布图片不存在或原图资产缺失');
-                const assetKey = node.assets[index];
-                const dataUrl = await readOriginal(assetKey, node.name);
+                if (typeof nodeId !== 'string' || !Number.isSafeInteger(index) || index < 0) {
+                    detail.imageReads.push({ pixelsAvailable: false, reason: 'invalid_image_reference' });
+                    continue;
+                }
+                const imageRead = { nodeId, index, pixelsAvailable: false };
+                detail.imageReads.push(imageRead);
+                const node = canvasContext.nodes.find(node => node.id === nodeId);
+                const assetKey = node?.assets[index];
+                if (!assetKey) {
+                    imageRead.reason = 'image_unavailable';
+                    continue;
+                }
+                if (model.capabilities?.imageInput === false) {
+                    imageRead.reason = 'image_input_unsupported';
+                    continue;
+                }
+                let dataUrl;
+                try {
+                    dataUrl = await readOriginal(assetKey, node.name);
+                } catch {
+                    assertActive();
+                    imageRead.reason = 'image_read_failed';
+                    continue;
+                }
                 const referenceId = `canvas:${node.id}:${index}:${assetKey}`;
                 if (!base.workflowReferenceImages.some(image => image.referenceId === referenceId)) {
                     base.workflowReferenceImages = [...base.workflowReferenceImages, { referenceId, sourceNodeId: node.id,
                         sourcePort: 'image', sourceImageIndex: index, assetKey, dataUrl,
                         name: `${node.name} [${node.id}] 第 ${index + 1} 张`, contextOrigin: '按需读取的画布原图' }];
                 }
-                detail.imageReads.push({ nodeId: node.id, index, assetKey, pixelsAvailable: model.capabilities?.imageInput !== false });
+                Object.assign(imageRead, { assetKey, pixelsAvailable: true });
             }
             canvasReads.push(detail);
             onSearchStatus(`正在读取画布详情（${canvasReads.length}/6）…`);

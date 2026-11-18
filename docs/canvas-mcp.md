@@ -63,6 +63,8 @@ MCP 接口仅接受本机回环连接。多个标签页打开 CainFlow 时，先
 
 编辑、运行、停止、撤销和重做都需要 `read_canvas` 返回的编辑器、工作流和画布版本。内置 Agent 可以直接处理「运行选中的节点」「运行节点『主图』」「运行到『主图』」「停止当前工作流」「撤销上一步」「重做上一步」。模型规划的已有节点编辑会先展示就地变更预览。
 
+为同一次 `read_canvas` 读取节点、连线、长文本或素材的后续页时，沿用原来的过滤条件，并传回首页的 `editorId`、`workflowId` 和 `revision`。收到 `stale_revision` 或 `stale_editor` 时，从首页重新读取。单次读取仍可省略这三个参数。
+
 ## 批量处理选中图片
 
 在画布选中原图后，可对客户端说「给这些图统一换成浅灰背景，比例 4:5，逐张出图并直接运行」。客户端先调用 `read_canvas`，再将返回的三个标识、共用 `prompt` 和 `parameters` 传给 `generate_image_batch`。参数如 `{"aspect":"4:5","resolution":"2K"}`，具体取值以所选模型为准。指定 `sourceNodeIds` 时按该列表选图。省略时使用读取得到的选区，优先使用选中的图片导入节点。画布或选区发生变化后需重新读取。
@@ -91,5 +93,7 @@ MCP 接口仅接受本机回环连接。多个标签页打开 CainFlow 时，先
 - `apply_prompt` 接收 `nodeId`、唯一的 `promptId` 或精确的 `name`，以及 `target`。普通提示词用 `prompt`，支持文本、对话和图片生成节点。对话或生图节点接入独享的可写文本时，编辑该文本节点。需要修改共享文本时，请直接指定文本节点。系统提示词用 `system`，可在 `read_canvas` 中通过 `supportsSystemPrompt` 识别支持的对话或生图节点。内置 Agent 可接受「把库里的『白底规则』套用到选中节点的系统提示词」，并在修改前展示预览。
 
 收到画布版本过期、编辑器切换或请求超时时，先重新读取画布，确认当前状态后再提交改动。运行记录与图片暂存在发起运行的编辑器内。运行结果的 `imageCount` 是该节点产出的图片数量。`get_run_image` 可读取其中留在缓存里的 PNG、JPEG、WebP 或 GIF，单张上限约 4.5 MB。
+
+`get_workflow_run` 按 `nextOffset` 分页读取节点结果。每次运行使用 2 MiB 的编码结果缓存，优先保留节点状态和失败摘要。因预算省略文本或素材标识的节点带有 `detailsOmitted`，超出预算而无法保留的节点数记在 `nodeResultsOmitted`。运行和节点可返回 `errorCode` 与可读摘要 `error`，详细错误在 CainFlow 画布中查看。
 
 画面风格节点 VisualStyle 以 description 为主要编辑字段（最多 20000 字符）；styleDetailLevel 可取 minimal、low、medium、high、ultra（默认 medium），仅控制下次提取的描述详略，不改变当前风格文本；preset、medium、palette、lighting、texture、background、composition、typography、avoid 保留旧配置兼容。通过节点能力清单读取 preset 枚举。style 输出可连接图片生成或电商套图的 style 输入，每个目标只接一个风格。参考图接 image 输入，提取操作在节点参数浮层显式执行；普通运行只输出配置。内置 Agent 与 MCP 共用字段校验和连线规则。详见 [画面风格](visual-style.md)。
