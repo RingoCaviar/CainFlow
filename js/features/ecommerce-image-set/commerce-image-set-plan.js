@@ -36,6 +36,15 @@ const shot = (id, label, purpose, { group = 'gallery', source = 'generate', allo
     id, role: id, label, group, aspect: COMMERCE_IMAGE_SET_DEFAULT_ASPECTS[group], source, purpose, allowCopy
 });
 const cleanMain = '干净背景下完整展示实际销售商品，产品居中且轮廓清晰，避免遮挡、道具干扰和装饰元素，不添加文案。';
+const taobaoMain = shot('main', '商品主图', [
+    '按国内电商商业主视觉设计：结合商品类目、受众和已核实卖点，先确定一个鲜明的视觉主题及统一配色，围绕它组织商品、环境、装饰与信息，形成完整的设计。',
+    '商品是视觉锚点，明确其大小、位置与透视，用合适的角度、光影、材质表现和接触阴影增强存在感，保持商品实际外形、颜色、包装与销售数量。',
+    '通过前景、中景、后景组织空间层次，明确统一光向、前后景虚实及商品与背景的材质反差；按主题选择立体展台、真实场景或抽象空间，搭配有用途的弧线、光带、几何形或与商品相关的装饰形成视觉动线。选择相互协调的元素，不把所有手法堆在同一张图上。',
+    '按类目选择表现手法：食品可突出真实食物的质感、餐具与食用场景，美妆可用材质和光影营造氛围，数码可用结构特写、光轨或使用环境表达科技感。展台与道具按商品需要择用。',
+    '划分主标题、辅助卖点、商品展示与可选底部信息带：标题负责吸引注意，卖点以较小标签或信息卡承接，商品完整清晰，各区用对齐、留白、字重和对比色建立阅读层级。品牌区仅在资料确认品牌时安排。',
+    '根据商品名称或类目拟定简短标题，以已核实卖点撰写辅助说明，信息带只承载已确认的文案，全部文字不遮挡商品。根据类目选择适度氛围，不把所有商品都做成促销海报。',
+    '不编造功效、销量、价格、优惠或认证；装饰不暗示未经证实的成分、配件或功效。遵循连接的画面风格规范，用适合该风格的方式表达空间和材质。'
+].join('\n'), { allowCopy: true });
 const angle = shot('angle', '多角度图', '选择与首图不同的真实角度，展示商品的侧面、背面或结构，保留商品实际造型，不添加文案。');
 const detail = shot('detail', '商品特写', '用近距离构图展示参考图中可核实的纹理、结构或做工，让文案与画面所展示的细节呼应。', { allowCopy: true });
 const feature = shot('feature', '卖点图', '突出一个清楚可核实的商品卖点，用构图展示对应设计或功能，让文案与商品的视觉动线一致。', { allowCopy: true });
@@ -53,7 +62,7 @@ const preset = (id, label, guide, rulesUrl, gallery) => Object.freeze({
 export const COMMERCE_IMAGE_SET_PRESETS = Object.freeze({
     taobao: preset('taobao', '淘宝／天猫', '商品主图突出商品、标题与已核实卖点，白底素材独立制作。图位、文案和尺寸要求按类目与活动核对。',
         'https://developer.alibaba.com/support/announcementDetail.htm?id=25721',
-        [shot('main', '商品主图', '设计精致的商品主视觉，清楚完整地展示实际销售商品，用协调的背景、配色和光影突出主体。根据商品名称或类目拟定简短标题，以已核实卖点撰写辅助说明，安排标题、卖点与商品的阅读层级及留白，文字清晰且不遮挡商品。不编造功效、销量、价格、优惠或认证。', { allowCopy: true }), feature, detail, scene,
+        [taobaoMain, feature, detail, scene,
             shot('white', '白底素材', '纯白背景上完整展示商品，保持颜色与比例，不添加道具、边框或文案。')]),
     jd: preset('jd', '京东', '清楚展示所售商品、实际细节和使用场景。长图需求按类目核对。',
         'https://jdrdl.jd.com/Design-image.html',
@@ -526,14 +535,32 @@ export function normalizeCommerceImageSetState(raw) {
         try {
             const copyLanguage = normalizeCommerceImageSetCopyLanguage(raw.plan.copyLanguage);
             const stale = raw.plan.stale === true || copyLanguage !== settings.copyLanguage;
-            const plan = normalizeCommerceImageSetPlan(raw.plan, settings.platformId, settings.selectedShotIds,
+            const availableIds = [...new Set([
+                ...(Array.isArray(raw.plan.shots) ? raw.plan.shots.map(shot => shot?.id) : []),
+                ...selected.filter(shot => shot.customScene || shot.source === 'reference').map(shot => shot.id)
+            ])];
+            const plan = normalizeCommerceImageSetPlan(raw.plan, settings.platformId, availableIds,
                 { ...settings, copyLanguage }, { allowBlankPrompts: true });
+            const available = new Set(plan.shots.map(shot => shot.id));
+            if (!settings.selectedShotIds.length || settings.selectedShotIds.some(id => !available.has(id))) {
+                throw new Error('选择的图位尚未规划。');
+            }
+            const presetIds = getCommerceImageSetPreset(settings.platformId).shots.map(shot => shot.id);
+            const originalIds = Array.isArray(raw.plan.plannedShotIds) ? raw.plan.plannedShotIds
+                : plan.shots.map(shot => shot.id).filter(id => presetIds.includes(id));
+            const plannedShotIds = presetIds.filter(id => originalIds.includes(id));
+            if (originalIds.length !== plannedShotIds.length
+                || plan.shots.some(shot => !shot.customScene && !plannedShotIds.includes(shot.id))) {
+                throw new Error('套图原规划图位无效。');
+            }
+            const selectedIds = new Set(settings.selectedShotIds);
+            plan.shots = plan.shots.filter(shot => selectedIds.has(shot.id));
             const productContextKey = text(raw.plan.productContextKey, 128);
             const referenceRevision = text(raw.plan.referenceRevision, 512);
             const referenceContentKey = text(raw.plan.referenceContentKey, 128);
             const sceneContextKeys = Object.fromEntries(Object.keys(COMMERCE_IMAGE_SET_DEFAULT_ASPECTS)
                 .map(group => [group, text(raw.plan.sceneContextKeys?.[group], 128)]).filter(([, key]) => key));
-            settings.plan = { ...plan, ...(raw.plan.visualStyle ? { visualStyle: normalizeVisualStyle(raw.plan.visualStyle) } : {}), sourceKey, ...(productContextKey ? { productContextKey } : {}),
+            settings.plan = { ...plan, plannedShotIds, ...(raw.plan.visualStyle ? { visualStyle: normalizeVisualStyle(raw.plan.visualStyle) } : {}), sourceKey, ...(productContextKey ? { productContextKey } : {}),
                 ...(referenceRevision ? { referenceRevision } : {}), ...(referenceContentKey ? { referenceContentKey } : {}),
                 ...(Object.keys(sceneContextKeys).length ? { sceneContextKeys } : {}),
                 confirmed: raw.plan.confirmed === true && !stale, ...(stale ? { stale: true } : {}) };
@@ -609,7 +636,7 @@ export async function commerceImageSetReferenceContentKey(references) {
     return sourceFingerprint(JSON.stringify(hashes));
 }
 
-async function commerceImageSetKeys({ settings, references }) {
+async function commerceImageSetKeys({ settings, references, preservePlannedSelection = true }) {
     const normalized = normalizeCommerceImageSetState(settings);
     const { platformId, productInfo, plannerModelId, plannerProviderId, selectedShotIds,
         galleryAspect, detailAspect, copyLanguage } = normalized;
@@ -620,7 +647,8 @@ async function commerceImageSetKeys({ settings, references }) {
     // Selling points remain editable in the approved draft without changing its image inputs.
     if (name || audience || useCases) inputs.push({ name, audience, useCases });
     const platform = getCommerceImageSetPreset(platformId);
-    const presetShotIds = selectedShotIds.filter(id => !isCommerceSceneId(id));
+    const presetShotIds = preservePlannedSelection && normalized.plan?.plannedShotIds
+        ? normalized.plan.plannedShotIds : selectedShotIds.filter(id => !isCommerceSceneId(id));
     const includesDetail = platform.shots.some(shot => shot.group === 'detail' && presetShotIds.includes(shot.id));
     const galleryCount = platform.shots.filter(shot => shot.group === 'gallery').length;
     // Older plans only had gallery shots. Full sets saved before slot selection omitted the ID list.
@@ -658,13 +686,17 @@ function buildCommerceStylePrompt(style, lettering = true) {
 
 export function buildCommerceImageSetImagePrompt({ shot, plan, productInfo, productNotes }) {
     const platform = getCommerceImageSetPreset(plan.platformId);
+    const isTaobaoMain = platform?.id === 'taobao' && shot.id === 'main';
     const { name, details, audience, useCases } = normalizeCommerceProductInfo({ details: productNotes, ...productInfo });
     const { headline, body } = normalizeCommerceShotCopy(shot, shot.allowCopy);
     const onImageCopy = [headline && `标题：${JSON.stringify(headline)}`, body && `正文：${JSON.stringify(body)}`].filter(Boolean);
     const copyLanguage = normalizeCommerceImageSetCopyLanguage(plan.copyLanguage);
     const lettering = onImageCopy.length ? [
         copyLanguage !== 'auto' && `图中文字语言：${COMMERCE_IMAGE_SET_COPY_LANGUAGES[copyLanguage]}。`,
-        '在同一次出图中完成商品画面与文案排版。有画面风格规范时按规范安排文字位置、对齐、字体风格和字色，否则遵循画面设计，让文字融入背景与留白，和商品主体共同构图。避免独立于画面的底部色条和贴片。',
+        '在同一次出图中完成商品画面与文案排版。有画面风格规范时按规范安排文字位置、对齐、字体风格和字色，否则遵循画面设计，让文字融入背景与留白，和商品主体共同构图。',
+        isTaobaoMain
+            ? '主图可按画面设计使用卖点标签、信息卡和底部信息带，它们与背景、商品和视觉动线共同设计，配色、圆角、光影和间距统一。正文可按已有短句或分隔符分组排版，各段逐字保留且只出现一次。只承载下方已确认文案，不自动添加价格牌、促销语或认证徽章。'
+            : '避免独立于画面的底部色条和贴片。',
         '标题为主要文字，正文使用较小字号并保持合适的行距。文字与背景对比清晰，不遮挡商品，四周留足安全边距。仅有一项文案时按该项重新平衡布局，不保留空文字区。',
         '以以下文案为准，每项只渲染一次，逐字保留，不翻译、不改写，不画出引号、字段名、商品资料或其他说明。禁止额外标语、装饰性假字和水印。',
         ...onImageCopy
@@ -797,6 +829,8 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
             !currentShot && '先完成产品分析，再用用户提供或本次分析的商品信息规划各图位与文案。',
             '保持同一商品的外观、颜色、商标、包装和销售数量。图中不得添加虚构标签、促销标识或其他商品。不使用逼真的生成式人物。',
             '按各图位的用途和宽高比设计不同的画面。主副图用于商品列表和轮播展示，详情图各自说明一个主题，依次组成详情页内容。',
+            platform.id === 'taobao' && slots.some(shot => shot.id === 'main')
+                && '淘宝／天猫商品主图的 prompt 必须落实图位用途中的视觉主题、空间层次、商品表现和信息分区，写明商品与标题的位置及大小关系、背景与展台或场景的构成、装饰元素的作用、视觉动线、配色和光影。为具体商品选择一套协调的设计，不只给出产品加文字的简单排布。卖点标签和底部信息带按需要使用，仅安排有已确认文案的模块。',
             currentShot ? '输出纯 JSON，根对象仅含 shots。' : '输出纯 JSON，根对象包含 productInfo 和 shots。',
             supplemental
                 ? 'shots 只返回指定的场景图位，包含 id、sceneSummary、prompt、headline、body。sceneSummary 用简体中文简述实际画面与展示重点。'
@@ -850,7 +884,7 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
     const updated = { ...input, ...product };
     const previousAspects = new Map((Array.isArray(settings?.plan?.shots) ? settings.plan.shots : [])
         .filter(shot => COMMERCE_IMAGE_SET_ASPECTS.includes(shot?.aspect)).map(shot => [shot.id, shot.aspect]));
-    const keys = await commerceImageSetKeys({ settings: updated, references: images });
+    const keys = await commerceImageSetKeys({ settings: updated, references: images, preservePlannedSelection: false });
     const { sourceKey, productContextKey, referenceContentKey, sceneContextKeys } = keys;
     const sameProductContext = input.plan?.productContextKey
         ? input.plan.productContextKey === productContextKey : input.plan?.sourceKey === sourceKey;

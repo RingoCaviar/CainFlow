@@ -18,6 +18,56 @@ const settings = { platformId: 'amazon', productNotes: '白色马克杯', planne
 const models = [{ id: 'vision', modelId: 'gpt-4o', taskType: 'chat', protocol: 'openai', providerIds: ['provider'] }];
 const providers = [{ id: 'provider', endpoint: 'https://fixture.test/v1', apikey: 'test' }];
 
+test('淘宝主图将商业主视觉的空间、商品表现和信息分区贯穿规划与出图', async () => {
+    let request;
+    const planned = await createCommerceImageSetPlan({
+        settings: { ...settings, platformId: 'taobao', selectedShotIds: ['main', 'white', 'feature'],
+            productInfo: { name: '随行杯', sellingPoints: ['杯盖可拆卸'] },
+            visualStyle: { description: '蓝色水彩插画，细腻纸张纹理' } },
+        references, models, providers, getProxyHeaders: () => ({}),
+        fetchRef: async (_url, options) => {
+            request = JSON.parse(options.body);
+            const input = JSON.parse(request.messages.at(-1).content[0].text);
+            return Response.json({ choices: [{ message: { content: JSON.stringify({ sellingPoints: ['杯盖可拆卸'],
+                shots: input.shots.map(({ id }) => ({ id, prompt: '杯子置于蓝色展台，水彩弧线引导视线，左上标题，下部卖点信息带。',
+                    headline: '轻松随行', body: '杯盖可拆卸' })) }) } }] });
+        }
+    });
+    const { plan } = planned;
+    const input = JSON.parse(request.messages.at(-1).content[0].text);
+    const mainDesign = input.shots.find(shot => shot.id === 'main').purpose;
+    assert.match(mainDesign, /视觉主题/);
+    assert.match(mainDesign, /展台/);
+    assert.match(mainDesign, /前.*中.*后/);
+    assert.match(mainDesign, /透视/);
+    assert.match(mainDesign, /视觉动线/);
+    assert.match(mainDesign, /信息带/);
+    assert.match(mainDesign, /类目/);
+
+    const system = request.messages.find(message => message.role === 'system').content;
+    assert.match(system, /主图.*视觉主题.*空间层次.*信息分区/);
+    const main = plan.shots.find(shot => shot.id === 'main');
+    const prompt = buildCommerceImageSetImagePrompt({ shot: main, plan });
+    assert.match(prompt, /^画面设计：杯子置于蓝色展台，水彩弧线引导视线，左上标题，下部卖点信息带。$/m);
+    assert.match(prompt, /视觉动线/);
+    assert.match(prompt, /底部信息带/);
+    assert.match(prompt, /标题："轻松随行"/);
+    assert.match(prompt, /正文："杯盖可拆卸"/);
+    assert.doesNotMatch(prompt, /避免独立于画面的底部色条和贴片/);
+    assert.match(prompt, /不编造.*价格.*认证/);
+    assert.ok(prompt.lastIndexOf('蓝色水彩插画') > prompt.indexOf('图位用途：'));
+
+    const restored = normalizeCommerceImageSetState(JSON.parse(JSON.stringify(planned)));
+    const restoredPrompt = buildCommerceImageSetImagePrompt({ shot: restored.plan.shots.find(shot => shot.id === 'main'), plan: restored.plan });
+    assert.match(restoredPrompt, /^画面设计：杯子置于蓝色展台，水彩弧线引导视线，左上标题，下部卖点信息带。$/m);
+
+    const feature = buildCommerceImageSetImagePrompt({ shot: plan.shots.find(shot => shot.id === 'feature'), plan });
+    assert.match(feature, /避免独立于画面的底部色条和贴片/);
+    const white = buildCommerceImageSetImagePrompt({ shot: plan.shots.find(shot => shot.id === 'white'), plan });
+    assert.match(white, /纯白背景/);
+    assert.match(white, /画面不添加标题、正文、标签/);
+});
+
 test('淘宝主图规划保留标题和已确认卖点，白底素材独立禁用叠字', async () => {
     let request;
     const drafts = [
@@ -305,7 +355,11 @@ test('loading a pre-selection workflow preserves the approved set and its origin
     assert.ok(loaded.plan.shots.every(shot => shot.group === 'gallery' && shot.aspect === '1:1' && !shot.headline && !shot.body));
     assert.equal(await commerceImageSetSourceKey({ settings: loaded, references }), sourceKey);
     assert.deepEqual(normalizeCommerceImageSetState(legacy).selectedShotIds, []);
-    assert.equal(normalizeCommerceImageSetState({ ...loaded, selectedShotIds }).plan, null);
+    const reduced = normalizeCommerceImageSetState({ ...loaded, selectedShotIds });
+    assert.deepEqual(reduced.plan.shots.map(shot => shot.id), ['main', 'detail', 'feature']);
+    assert.equal(reduced.plan.confirmed, true);
+    assert.equal(reduced.plan.sourceKey, sourceKey);
+    assert.equal(await commerceImageSetSourceKey({ settings: reduced, references }), sourceKey);
 });
 
 test('restoring a draft allows a cleared prompt while planner responses and missing shot drafts are rejected', async () => {
@@ -317,6 +371,37 @@ test('restoring a draft allows a cleared prompt while planner responses and miss
     assert.throws(() => normalizeCommerceImageSetPlan(raw, 'amazon', selectedShotIds), /缺少.*画面说明/);
     assert.equal(normalizeCommerceImageSetState({ ...saved, plan: { ...saved.plan, shots: raw.shots.slice(1) } }).plan, null);
     assert.equal(normalizeCommerceImageSetState({ ...saved, plan: { ...saved.plan, shots: [{ id: 'detail' }, raw.shots[1]] } }).plan, null);
+});
+
+test('恢复方案仍补齐原图首图和待规划场景占位，不将其视为未规划预设图位', () => {
+    const selectedShotIds = ['main', 'feature', 'scene-draft'];
+    const restored = normalizeCommerceImageSetState({ ...settings, selectedShotIds,
+        customScenes: [{ id: 'scene-draft', group: 'gallery', description: '厨房台面' }],
+        plan: { version: 1, sourceKey: 'saved-key', confirmed: true, sellingPoints: [],
+            shots: [{ id: 'feature', prompt: '展示杯盖', headline: '可拆卸杯盖' }] }
+    });
+    assert.ok(restored.plan);
+    assert.deepEqual(restored.plan.shots.map(shot => shot.id), ['main', 'feature', 'scene-draft']);
+    assert.equal(restored.plan.shots[0].source, 'reference');
+    assert.equal(restored.plan.shots[2].prompt, '');
+    assert.equal(restored.plan.shots[2].sceneConfirmed, false);
+    assert.deepEqual(getRunnableCommerceImageSetShots(restored).map(shot => shot.id), ['main', 'feature']);
+    assert.deepEqual(normalizeCommerceImageSetState(JSON.parse(JSON.stringify(restored))).plan, restored.plan);
+});
+
+test('恢复时拒绝重复、未知或遗漏现有图位的原规划集合', () => {
+    const saved = { ...settings, plan: { version: 1, sourceKey: 'saved-key', confirmed: true, sellingPoints: [],
+        shots: [{ id: 'main' }, { id: 'detail', prompt: '杯盖特写' }, { id: 'feature', prompt: '展示杯柄' }] } };
+    const legacy = normalizeCommerceImageSetState(saved);
+    assert.ok(legacy.plan);
+    assert.deepEqual(legacy.plan.plannedShotIds, ['main', 'detail', 'feature']);
+    for (const plannedShotIds of [
+        ['main', 'detail', 'detail', 'feature'],
+        ['main', 'detail', 'feature', 'unknown'],
+        ['main', 'detail']
+    ]) {
+        assert.equal(normalizeCommerceImageSetState({ ...saved, plan: { ...saved.plan, plannedShotIds } }).plan, null);
+    }
 });
 
 test('restoring older completed images records a stable baseline for each generated shot', () => {

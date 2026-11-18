@@ -6,7 +6,7 @@ import {
     appendCommerceSceneShot, confirmCommerceSceneShot, getCommerceProductInfo, getCommerceSceneSummary, getCommerceShotCandidates,
     getGeneratableCommerceImageSetShots, getRunnableCommerceImageSetShots, getSelectedCommerceImageSetShots,
     getUnfinishedCommerceImageSetShots, isCommerceShotImageStale,
-    normalizeCommerceImageSetCandidateCount, normalizeCommerceImageSetCopyLanguage,
+    normalizeCommerceImageSetCandidateCount, normalizeCommerceImageSetCopyLanguage, normalizeCommerceImageSetState,
     preserveCommerceImageSetExportResults, setCommerceShotFinalized,
     updateCommerceImageSetCopyLanguage, updateCommerceProductInfoField, updateCommerceSceneDescription
 } from '../features/ecommerce-image-set/commerce-image-set-plan.js';
@@ -781,8 +781,22 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
     function setShotSelection(value, ids) {
         preserveCommerceImageSetExportResults(value);
         const selected = getSelectedCommerceImageSetShots({ ...value, selectedShotIds: ids });
-        value.selectedShotIds = selected.map(shot => shot.id);
         const previous = new Map(value.plan?.shots.map(shot => [shot.id, shot]));
+        const reducedSelection = value.plan?.platformId === value.platformId && selected.length > 0
+            && selected.length < previous.size && selected.every(shot => {
+                const prior = previous.get(shot.id);
+                return prior?.source === shot.source && prior.aspect === shot.aspect;
+            });
+        value.selectedShotIds = selected.map(shot => shot.id);
+        if (reducedSelection) {
+            const projected = normalizeCommerceImageSetState(value);
+            value.plan = projected.plan;
+            value.results = projected.results;
+            if (value.candidates) value.candidates = projected.candidates || [];
+            activeShotId = '';
+            runMessage = '';
+            return;
+        }
         if (value.candidates) {
             const aspects = new Map(selected.map(shot => [shot.id, shot.aspect]));
             value.candidates = value.candidates.filter(candidate => aspects.get(candidate.shotId) === candidate.aspect);
@@ -795,6 +809,8 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         const hasSceneDrafts = selected.some(shot => shot.customScene && previous.has(shot.id));
         if (value.plan && (hasSceneDrafts || (retained.length && (value.candidates?.length || retained.some(result => result.finalized))))) {
             const platformChanged = value.plan.platformId !== value.platformId;
+            // A changed draft set establishes a new selection basis when it is planned again.
+            delete value.plan.plannedShotIds;
             value.plan = {
                 ...value.plan, platformId: value.platformId, confirmed: false, stale: true,
                 shots: selected.map(shot => {

@@ -903,6 +903,64 @@ test('the commerce dock resizes from its left edge and restores its width indepe
     });
 });
 
+test('deselecting a planned commerce shot keeps the remaining drafts ready after reload', { timeout: 30000 }, async () => {
+    const reference = (await readFile(new URL('./fixtures/reference-red.png', import.meta.url))).toString('base64');
+    const nodes = [
+        { id: 'product', type: 'ImageImport', x: 40, y: 100 },
+        { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100,
+            commerceImageSet: { platformId: 'amazon', selectedShotIds: ['main', 'detail', 'scene'],
+                plannerModelId: 'vision', plannerProviderId: 'p', imageModelId: 'image', imageProviderId: 'p' } }
+    ];
+    const initScript = `window.commerceSelectionRequests=[];
+        const actualFetch=window.fetch.bind(window);
+        window.fetch=async (url, options)=>{
+            if (url!=='/proxy'||!options?.body) return actualFetch(url,options);
+            if (options.body instanceof FormData) {
+                commerceSelectionRequests.push({kind:'image',prompt:options.body.get('prompt')});
+                return Response.json({data:[{b64_json:${JSON.stringify(reference)}}]});
+            }
+            const input=JSON.parse(JSON.parse(options.body).messages.at(-1).content[0].text);
+            commerceSelectionRequests.push({kind:'plan'});
+            return Response.json({choices:[{message:{content:JSON.stringify({sellingPoints:[],
+                shots:input.shots.map(shot=>({id:shot.id,prompt:'保留'+shot.id+'的商品构图',headline:'原有标题',body:''}))})}}]});
+        };`;
+    const plan = "document.querySelector('#image-parameter-panel [data-commerce-action=plan]')";
+    const generate = "document.querySelector('#image-parameter-panel [data-commerce-action=generate]')";
+    const ready = `${generate}?.checkVisibility() && !${generate}.disabled`;
+    const stored = `fetch('/api/storage/documents/session').then(response=>response.json())
+        .then(snapshot=>snapshot.value.nodes.find(node=>node.id==='commerce').commerceImageSet)`;
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes,
+        connections: [{ id: 'photo', from: { nodeId: 'product', port: 'image' },
+            to: { nodeId: 'commerce', port: 'referenceImages' }, type: 'image', order: 0 }],
+        models: [{ id: 'vision', modelId: 'gpt-4o', taskType: 'chat', protocol: 'openai', providerIds: ['p'] },
+            { id: 'image', modelId: 'gpt-image-2', taskType: 'image', protocol: 'openai', providerIds: ['p'] }],
+        providers: [{ id: 'p', endpoint: 'https://fixture.test/v1', apikey: 'test' }]
+    }, async app => {
+        await uploadImageOriginal(app, 'product', `data:image/png;base64,${reference}`);
+        await openParameters(app, 'commerce');
+        await app.evaluate(`${plan}.click()`);
+        await app.waitFor(ready);
+        await app.waitFor(`${stored}.then(settings=>settings.plan?.shots.length===3)`);
+        const previous = await app.evaluate(`${stored}.then(settings=>settings.plan.shots.filter(shot=>shot.id!=='scene'))`);
+        await app.evaluate(`(()=>{const box=document.querySelector('#image-parameter-panel [data-commerce-select-shot=scene]');
+            box.checked=false;box.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+        assert.ok(await app.evaluate(ready), 'reducing a planned set leaves the generate action available');
+        await app.waitFor(`${stored}.then(settings=>settings.plan?.shots.length===2)`);
+        assert.deepEqual(await app.evaluate(`${stored}.then(settings=>settings.plan.shots)`), previous);
+        assert.equal(await app.evaluate("commerceSelectionRequests.filter(request=>request.kind==='plan').length"), 1);
+        await reloadAppBrowser(app);
+        await openParameters(app, 'commerce');
+        await app.waitFor(ready);
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-commerce-select-shot=scene]').checked"), false);
+        await app.evaluate(`${generate}.click()`);
+        await app.waitFor(`${stored}.then(settings=>settings.results.filter(result=>result.status==='completed').length===2)`);
+        const requests = await app.evaluate('commerceSelectionRequests');
+        assert.deepEqual(requests.map(request=>request.kind), ['image']);
+        assert.match(requests[0].prompt, /保留detail的商品构图/);
+        assert.doesNotMatch(requests[0].prompt, /保留scene的商品构图/);
+    }, { initScript });
+});
+
 test('commerce copy language persists and reaches planning, generation and retry', { timeout: 30000 }, async () => {
     const reference = (await readFile(new URL('./fixtures/reference-red.png', import.meta.url))).toString('base64');
     const nodes = [

@@ -111,6 +111,68 @@ function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main',
         setConnectedReference, setFailure: role => { failedRole = role; }, clearFailure: () => { failedRole = undefined; } };
 }
 
+test('deselecting planned commerce shots preserves the remaining approved drafts and generates without replanning', async () => {
+    const { node, execute, apiCalls } = createCommerceExecutionFixture({ selectedShotIds: ['main', 'detail', 'scene'] });
+    await execute('plan');
+    const draft = node.data.commerceImageSet;
+    draft.plan.confirmed = true;
+    draft.plan.shots.find(shot => shot.id === 'detail').headline = '手动确认的杯盖细节';
+    const previous = structuredClone(draft.plan.shots.filter(shot => shot.id !== 'scene'));
+    draft.selectedShotIds = ['main', 'detail'];
+    node.data.commerceImageSet = normalizeCommerceImageSetState(JSON.parse(JSON.stringify(draft)));
+    assert.ok(node.data.commerceImageSet.plan, 'reducing the selected set keeps the existing plan');
+    assert.equal(node.data.commerceImageSet.plan.confirmed, true);
+    assert.deepEqual(node.data.commerceImageSet.plan.shots, previous);
+    await execute('generate');
+    assert.deepEqual(apiCalls.map(call => call.type), ['plan', 'image']);
+    assert.deepEqual(apiCalls.filter(call => call.type === 'image').map(call => call.role), ['detail']);
+    assert.deepEqual(node.data.commerceImageSet.results.map(row => row.shotId), ['main', 'detail']);
+});
+
+test('commerce selection can shrink across groups without authorizing unconfirmed or changed inputs', async () => {
+    for (const selectedShotIds of [['main'], ['detail-overview']]) {
+        const fixture = createCommerceExecutionFixture({ selectedShotIds: ['main', 'detail', 'detail-overview'] });
+        await fixture.execute('plan');
+        fixture.node.data.commerceImageSet.plan.confirmed = true;
+        fixture.node.data.commerceImageSet.selectedShotIds = selectedShotIds;
+        fixture.node.data.commerceImageSet = normalizeCommerceImageSetState(JSON.parse(JSON.stringify(fixture.node.data.commerceImageSet)));
+        assert.equal(fixture.node.data.commerceImageSet.plan.confirmed, true);
+        await fixture.execute('generate');
+        assert.deepEqual(fixture.node.data.commerceImageSet.results.map(row => row.shotId), selectedShotIds);
+        assert.equal(fixture.apiCalls.filter(call => call.type === 'plan').length, 1);
+    }
+
+    const unconfirmed = createCommerceExecutionFixture({ selectedShotIds: ['detail', 'scene'] });
+    await unconfirmed.execute('plan');
+    unconfirmed.node.data.commerceImageSet.selectedShotIds = ['detail'];
+    unconfirmed.node.data.commerceImageSet = normalizeCommerceImageSetState(unconfirmed.node.data.commerceImageSet);
+    assert.equal(unconfirmed.node.data.commerceImageSet.plan.confirmed, false);
+    await assert.rejects(unconfirmed.execute('generate'), /确认方案/);
+    assert.deepEqual(unconfirmed.apiCalls.map(call => call.type), ['plan']);
+
+    const changed = createCommerceExecutionFixture({ selectedShotIds: ['detail', 'scene'] });
+    await changed.execute('plan');
+    changed.node.data.commerceImageSet.plan.confirmed = true;
+    changed.node.data.commerceImageSet.selectedShotIds = ['detail'];
+    changed.node.data.commerceImageSet = normalizeCommerceImageSetState(changed.node.data.commerceImageSet);
+    await assert.rejects(changed.execute('generate', nextReference), /改变.*重新规划/);
+    assert.deepEqual(changed.apiCalls.map(call => call.type), ['plan']);
+    const added = normalizeCommerceImageSetState({ ...changed.node.data.commerceImageSet, selectedShotIds: ['detail', 'angle'] });
+    assert.equal(added.plan, null, 'adding an unplanned slot still requires a plan');
+    const empty = normalizeCommerceImageSetState({ ...changed.node.data.commerceImageSet, selectedShotIds: [] });
+    assert.equal(empty.plan, null);
+
+    const visualStyle = { description: '冷蓝摄影，柔和侧光' };
+    const restyled = createCommerceExecutionFixture({ selectedShotIds: ['detail', 'scene'], visualStyle });
+    await restyled.execute('plan');
+    restyled.node.data.commerceImageSet.plan.confirmed = true;
+    restyled.node.data.commerceImageSet.selectedShotIds = ['detail'];
+    restyled.node.data.commerceImageSet = normalizeCommerceImageSetState(restyled.node.data.commerceImageSet);
+    visualStyle.description = '红金节庆，暖色强光';
+    await assert.rejects(restyled.execute('generate'), /风格.*重新规划/);
+    assert.deepEqual(restyled.apiCalls.map(call => call.type), ['plan']);
+});
+
 test('淘宝主图文案在保存恢复、生成和单图重试时进入请求，白底素材不叠字', async () => {
     let variant = 1;
     const { node, execute, apiCalls, imagePrompts } = createCommerceExecutionFixture({
