@@ -18,6 +18,31 @@ const settings = { platformId: 'amazon', productNotes: '白色马克杯', planne
 const models = [{ id: 'vision', modelId: 'gpt-4o', taskType: 'chat', protocol: 'openai', providerIds: ['provider'] }];
 const providers = [{ id: 'provider', endpoint: 'https://fixture.test/v1', apikey: 'test' }];
 
+test('风格控制优先于副图和详情图草稿的冲突视觉要求', async () => {
+    let system;
+    const visualStyle = { description: '冷蓝水彩插画，标题右对齐' };
+    const ids = ['detail', 'detail-overview'];
+    const { plan } = await createCommerceImageSetPlan({
+        settings: { ...settings, selectedShotIds: ids, visualStyle }, references, models, providers,
+        getProxyHeaders: () => ({}),
+        fetchRef: async (_url, options) => {
+            system = JSON.parse(options.body).messages.find(row => row.role === 'system').content;
+            return Response.json({ choices: [{ message: { content: JSON.stringify({ sellingPoints: [],
+                shots: ids.map(id => ({ id, prompt: '暖黄商业摄影，标题左对齐', headline: 'Cup', body: '' })) }) } }] });
+        }
+    });
+    assert.match(system, /视觉表达冲突时，以画面风格规范为准/);
+    assert.doesNotMatch(system, /每个 prompt 都应写清画面内容、构图和摄影风格/);
+    for (const shot of plan.shots.filter(row => row.source === 'generate')) {
+        const prompt = buildCommerceImageSetImagePrompt({ shot, plan });
+        assert.match(prompt, /冷蓝水彩插画/);
+        assert.match(prompt, /视觉表达冲突时，以画面风格规范为准/);
+        assert.ok(prompt.lastIndexOf('视觉表达冲突时') > prompt.indexOf('暖黄商业摄影'));
+        assert.doesNotMatch(prompt, /遵循画面设计中的文字位置、对齐、字体风格和字色/);
+        assert.match(prompt, /逐字保留/);
+    }
+});
+
 test('commerce candidate counts are bounded and do not change the approved plan identity', async () => {
     for (const invalid of [undefined, 0, 9, 2.5, '3', Infinity]) {
         assert.equal(normalizeCommerceImageSetState({ ...settings, candidateCount: invalid }).candidateCount, undefined);

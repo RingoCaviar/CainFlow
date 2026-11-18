@@ -646,6 +646,16 @@ export async function commerceImageSetSourceKey(input) {
     return (await commerceImageSetKeys(input)).sourceKey;
 }
 
+// Shared by planning and rendering so generated drafts cannot override the connected style.
+function buildCommerceStylePrompt(style, lettering = true) {
+    const prompt = buildVisualStylePrompt(style, { lettering });
+    if (!prompt) return '';
+    return [prompt,
+        '电商套图风格优先级：图位草稿、默认摄影描述、商品参考图的拍摄环境与画面风格规范发生视觉表达冲突时，以画面风格规范为准。',
+        '保留商品身份、结构、固有颜色、标识、销售数量、图位展示目的、宽高比和准确文案，以及明确要求的纯白背景。除此之外，表现形式、背景氛围、配色、光影、质感、构图与文字排版遵循风格规范；将冲突的旧视觉描述改写为符合该风格的表达，不折中混合，不默认改回摄影。'
+    ].join('\n');
+}
+
 export function buildCommerceImageSetImagePrompt({ shot, plan, productInfo, productNotes }) {
     const platform = getCommerceImageSetPreset(plan.platformId);
     const { name, details, audience, useCases } = normalizeCommerceProductInfo({ details: productNotes, ...productInfo });
@@ -654,7 +664,7 @@ export function buildCommerceImageSetImagePrompt({ shot, plan, productInfo, prod
     const copyLanguage = normalizeCommerceImageSetCopyLanguage(plan.copyLanguage);
     const lettering = onImageCopy.length ? [
         copyLanguage !== 'auto' && `图中文字语言：${COMMERCE_IMAGE_SET_COPY_LANGUAGES[copyLanguage]}。`,
-        '在同一次出图中完成商品画面与文案排版。遵循画面设计中的文字位置、对齐、字体风格和字色，让文字融入背景与留白，和商品主体共同构图。避免独立于画面的底部色条和贴片。',
+        '在同一次出图中完成商品画面与文案排版。有画面风格规范时按规范安排文字位置、对齐、字体风格和字色，否则遵循画面设计，让文字融入背景与留白，和商品主体共同构图。避免独立于画面的底部色条和贴片。',
         '标题为主要文字，正文使用较小字号并保持合适的行距。文字与背景对比清晰，不遮挡商品，四周留足安全边距。仅有一项文案时按该项重新平衡布局，不保留空文字区。',
         '以以下文案为准，每项只渲染一次，逐字保留，不翻译、不改写，不画出引号、字段名、商品资料或其他说明。禁止额外标语、装饰性假字和水印。',
         ...onImageCopy
@@ -665,7 +675,6 @@ export function buildCommerceImageSetImagePrompt({ shot, plan, productInfo, prod
         `为${platform?.label || '电商平台'}生成「${shot.label}」成品图，宽高比 ${shot.aspect}。`,
         `图位用途：${shot.purpose}`,
         `画面设计：${shot.prompt}`,
-        buildVisualStylePrompt(shot.visualStyleSnapshot ?? plan.visualStyle, { lettering: onImageCopy.length > 0 }),
         '商品的外观、颜色、商标、包装与销售数量须与参考图一致。只呈现参考图或资料能证实的商品信息。',
         name && `商品名称：${name}`,
         details && `已确认的商品资料：${details}`,
@@ -673,7 +682,8 @@ export function buildCommerceImageSetImagePrompt({ shot, plan, productInfo, prod
         useCases && `使用场景用于辅助画面设计：${useCases}`,
         plan.sellingPoints.length > 0 && `已确认的卖点：${plan.sellingPoints.join('；')}`,
         '以下文字规则优先于画面设计里的旧文案或排字要求。',
-        ...lettering
+        ...lettering,
+        buildCommerceStylePrompt(shot.visualStyleSnapshot ?? plan.visualStyle, onImageCopy.length > 0)
     ].filter(Boolean).join('\n');
 }
 
@@ -782,7 +792,7 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
         ...requestOptions, settings: input, references: images, responseError, shot: currentShot,
         systemPrompt: [
             '你负责规划电商商品主副图和详情页图片。只提取参考图可观察到或商品资料明确提供的卖点。不要推断尺寸、材质、功效、认证、销量或价格。',
-            buildVisualStylePrompt(input.visualStyle, { lettering: true }),
+            buildCommerceStylePrompt(input.visualStyle),
             !currentShot && PRODUCT_ANALYSIS_INSTRUCTIONS,
             !currentShot && '先完成产品分析，再用用户提供或本次分析的商品信息规划各图位与文案。',
             '保持同一商品的外观、颜色、商标、包装和销售数量。图中不得添加虚构标签、促销标识或其他商品。不使用逼真的生成式人物。',
@@ -792,7 +802,7 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
                 ? 'shots 只返回指定的场景图位，包含 id、sceneSummary、prompt、headline、body。sceneSummary 用简体中文简述实际画面与展示重点。'
                 : 'shots 是对象数组，每项仅含 id、prompt、headline、body。只为给定 id 编写方案。',
             supplemental && 'sceneDescription 是用户对场景的要求。优先依据它构图，留空时结合参考图和商品用途推荐一个场景。参考 existingScenes 避免与其他图位重复。',
-            '每个 prompt 都应写清画面内容、构图和摄影风格，具体到展示的商品部位、场景、景别、拍摄角度、主体位置、光线和色调。全套图片协调统一，每个图位有自己的构图重点。',
+            (buildCommerceStylePrompt(input.visualStyle) ? '每个 prompt 都应写清符合画面风格规范的画面内容、构图和视觉表现，不限定为摄影。' : '每个 prompt 都应写清画面内容、构图和摄影风格，') + '具体到展示的商品部位、场景、景别、拍摄角度、主体位置、光线和色调。全套图片协调统一，每个图位有自己的构图重点。',
             'allowCopy 为 true 且有文案时，在 prompt 中描述与商品构图融为一体的文字布局，指定标题和正文的位置、对齐、层级、字体风格和字色，保证阅读对比度，不遮挡实物。用“标题”“正文”指代，不在 prompt 中重复实际文案。',
             'headline 和 body 分别填写要出现在图上的短标题和辅助说明，具体、自然，贴合本图用途。避免多张图重复同样的文案。缺少合适证据时留空。',
             'allowCopy 为 false 的图位两项留空，画面不添加额外文字。',
