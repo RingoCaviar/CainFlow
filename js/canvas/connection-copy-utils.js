@@ -10,6 +10,7 @@ import {
 import { getGenerationNodeInputConnectionPolicy } from '../nodes/generation-input-projection.js';
 import { isUniversalInputNode, resolveUniversalInput } from '../nodes/universal-input-policy.js';
 import { remapCopiedPromptImageMentions } from '../nodes/prompt-image-mentions.js';
+import { remapCopiedCommerceStyleReferenceTypes } from '../features/ecommerce-image-set/commerce-shot-references.js';
 export function createConnectionId() {
     return 'c_' + Math.random().toString(36).substr(2, 9);
 }
@@ -223,14 +224,16 @@ export function appendMappedConnectionSnapshots({
     // Copy/restore retains historical relationships. A bypass preflight opts
     // into current policy because it would introduce new input relationships.
     const result = appendConnectionList(state, idMap, entries, validateUniversalInputs);
-    if (remapPromptMentions) {
-        for (const nodeId of idMap.values()) {
-            const data = state.nodes.get(nodeId)?.data;
-            if (data?.imagePromptMentions?.length) {
-                data.imagePromptMentions = remapCopiedPromptImageMentions(data.imagePromptMentions, {
-                    nodeIds: idMap, connectionIds: result.connectionIds, ...remapPromptMentions
-                });
-            }
+    for (const [oldId, nodeId] of idMap) {
+        if (oldId === nodeId && !remapPromptMentions) continue;
+        const data = state.nodes.get(nodeId)?.data;
+        if (oldId !== nodeId && data?.commerceImageSet?.styleReferenceTypes) {
+            data.commerceImageSet.styleReferenceTypes = remapCopiedCommerceStyleReferenceTypes(data.commerceImageSet.styleReferenceTypes, idMap);
+        }
+        if (remapPromptMentions && data?.imagePromptMentions?.length) {
+            data.imagePromptMentions = remapCopiedPromptImageMentions(data.imagePromptMentions, {
+                nodeIds: idMap, connectionIds: result.connectionIds, ...remapPromptMentions
+            });
         }
     }
 

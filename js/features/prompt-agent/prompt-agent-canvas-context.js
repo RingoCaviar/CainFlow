@@ -113,6 +113,9 @@ export function createCanvasContext({ workflowId, nodes, connections, selectedId
         const finalizedShotIds = getRunnableCommerceImageSetShots(settings)
             .filter(shot => shot.source === 'generate' && isCommerceShotFinalized(settings, shot.id))
             .map(shot => shot.id);
+        if (settings.shotReferences || settings.styleReferenceTypes) {
+            return [[node.id, candidateCount, finalizedShotIds, settings.shotReferences || {}, settings.styleReferenceTypes || {}]];
+        }
         return candidateCount > 1 || finalizedShotIds.length ? [[node.id, candidateCount, finalizedShotIds]] : [];
     });
     const links = connections.map(link => ({ id: link.id, ...(Number.isInteger(link.order)?{order:link.order}:{}), from: { nodeId: link.from?.nodeId, port: link.from?.port }, to: { nodeId: link.to?.nodeId, port: link.to?.port } }));

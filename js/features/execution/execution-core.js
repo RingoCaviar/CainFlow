@@ -53,7 +53,8 @@ import { createAsyncMediaExecutionApi } from './async-media-execution.js';
 import { getProtocolSnapshot } from './protocols/index.js';
 import { compileVideoProtocol, redactProtocolPreview } from './protocols/video-protocol-compiler.js';
 import { rememberWorkflowMediaOperation } from '../media/workflow-media-operation.js';
-import { buildCommerceShotReferenceInstructions, readCommerceShotReferences } from '../ecommerce-image-set/commerce-shot-references.js';
+import { buildCommerceShotReferenceInstructions, commerceConnectedStyleRevision, hasCommerceStyleReferenceChange,
+    projectCommerceStyleReferences, readCommerceShotReferences } from '../ecommerce-image-set/commerce-shot-references.js';
 import { projectMissingMediaAssets } from '../media/missing-media-integrity.js';
 import { persistVideoResultForNode } from '../media/video/video-result-persistence.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
@@ -1961,6 +1962,10 @@ export function createExecutionCoreApi({
         const planning = replanningShot || ['analyze', 'plan'].includes(commerceAction);
         const target = settings.plan?.shots.find(shot => shot.id === commerceShotId);
         const referenceProjection = projectCommerceReferences(state, node.id);
+        const styleProjection = projectCommerceStyleReferences(state, node.id);
+        if (!['analyze', 'plan', 'select-candidate'].includes(commerceAction) && hasCommerceStyleReferenceChange(settings, styleProjection)) {
+            throw new Error('风格参考图已更新，请重新规划并确认。');
+        }
         const referenceRevision = getCommerceReferenceRevision(referenceProjection);
         if (!['analyze', 'plan'].includes(commerceAction) && hasCommerceReferenceChange(settings, referenceProjection)) {
             throw new Error(COMMERCE_REFERENCE_CHANGED_MESSAGE);
@@ -2060,11 +2065,23 @@ export function createExecutionCoreApi({
                 throw new Error('无法读取商品参考图，请重新连接原图。');
             };
             const references = await Promise.all(sourceImages.map(image => readCommerceImage(image, signal)));
+            const styleInputs = normalizeImageList(inputs.styleReferenceImages);
+            if (commerceAction !== 'analyze' && (styleProjection.groups.some(group => group.enabled && (group.missing || group.running || !group.count))
+                || styleProjection.slots.some(slot => slot.missing) || styleInputs.length !== styleProjection.slots.length)) {
+                throw new Error('风格参考图来源尚未就绪，请检查上游的原图后重试。');
+            }
+            const connectedStyleSlots = styleProjection.slots.map((slot, index) => {
+                let original;
+                return { ...slot, readImage: async requestSignal => {
+                    original ??= await readCommerceImage(styleInputs[index], requestSignal);
+                    return original;
+                } };
+            });
             signal?.throwIfAborted();
             if (planning) {
                 const operation = commerceAction === 'analyze' ? analyzeCommerceImageSetProduct : createCommerceImageSetPlan;
                 const updated = await operation({ settings, references, referenceRevision, models: state.models,
-                    readReferenceAsset: getImageAsset,
+                    readReferenceAsset: getImageAsset, connectedStyleSlots,
                     providers: state.providers, fetchRef, getProxyHeaders, signal,
                     shotId: replanningShot ? commerceShotId : undefined,
                     runRequest: (request, execute, shot) => {
@@ -2074,11 +2091,13 @@ export function createExecutionCoreApi({
                 signal?.throwIfAborted();
                 const current = normalizeCommerceImageSetState(node.data?.commerceImageSet);
                 current.visualStyle = resolveCommerceImageSetStyle(current, resolveVisualStyle(state, node.id, inputs));
-                if (state.nodes.get(node.id) !== node ||
+                const styleInputsChanged = commerceAction !== 'analyze' && commerceConnectedStyleRevision(settings, styleProjection)
+                    !== commerceConnectedStyleRevision(current, projectCommerceStyleReferences(state, node.id));
+                if (state.nodes.get(node.id) !== node || styleInputsChanged ||
                     commerceImageSetPlanningSettingsKey(settings, commerceShotId) !== commerceImageSetPlanningSettingsKey(current, commerceShotId)) {
                     throw new Error('商品设置已改变，请根据当前设置重新执行。');
                 }
-                assertCommercePlanningCurrent(node.id, commerceShotId);
+                assertCommercePlanningCurrent(node.id, commerceShotId, { commerceAction });
                 if (replanningShot) {
                     const replacement = updated.plan.shots.find(shot => shot.id === commerceShotId);
                     node.data.commerceImageSet = { ...current, plan: { ...updated.plan, confirmed: target.customScene ? current.plan.confirmed : false,
@@ -2135,7 +2154,7 @@ export function createExecutionCoreApi({
                             model: '商品原图', generationDurationSeconds: getNodeGenerationDurationSeconds(node) });
                         images.push(image);
                     } else {
-                        const designReferences = await readCommerceShotReferences(settings, shot.id, getImageAsset, shotSignal);
+                        const designReferences = await readCommerceShotReferences(settings, shot.id, getImageAsset, shotSignal, connectedStyleSlots);
                         const shotPrompt = [buildCommerceImageSetImagePrompt({ shot, plan, productInfo: settings.productInfo }),
                             buildCommerceShotReferenceInstructions(references.length, designReferences.length)].filter(Boolean).join('\n');
                         const resolved = await resolveRequestMentions(node, { referenceImages: sourceImages }, [shotPrompt], { signal: shotSignal });

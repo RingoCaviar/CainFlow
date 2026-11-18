@@ -1065,7 +1065,7 @@ html:root #canvas-container .node.node-commerce-image-set.node-media-aspect.runn
 .image-parameter-panel .commerce-image-set-actions .btn-primary { flex: 1 1 auto; }
 .image-parameter-panel :is(.commerce-image-set-actions, .commerce-image-set-scene-actions) .btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--panel-primary-action-bg) 90%, #000); }
 .commerce-image-set-progress { width: 100%; height: 6px; accent-color: var(--panel-primary-action-bg); }
-:is(.commerce-export-dialog, .commerce-candidates-dialog) {
+:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker) {
     --settings-dialog-panel-border: var(--panel-border);
     --settings-dialog-divider: var(--panel-border);
     max-width: none;
@@ -1074,22 +1074,48 @@ html:root #canvas-container .node.node-commerce-image-set.node-media-aspect.runn
     border: 0;
     background: transparent;
 }
-.commerce-export-dialog { width: min(480px, calc(100vw - 32px)); }
+:is(.commerce-export-dialog, .commerce-reference-picker) { width: min(480px, calc(100vw - 32px)); }
+.commerce-reference-picker .dialog-style-1-note:empty { display: none; }
+.commerce-reference-picker-images {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+    align-content: start;
+    gap: 8px;
+    max-height: min(55dvh, 440px);
+    overflow-y: auto;
+    padding: 3px;
+}
+.commerce-reference-picker-images:empty { display: none; }
+.commerce-reference-picker-images button {
+    display: grid;
+    min-width: 0;
+    padding: 4px;
+    gap: 4px;
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    background: var(--surface-control);
+    cursor: pointer;
+    font: inherit;
+}
+.commerce-reference-picker-images button:hover { border-color: var(--text-link); }
+.commerce-reference-picker-images img { width: 100%; aspect-ratio: 1; object-fit: contain; }
+.commerce-reference-picker-images span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .commerce-candidates-dialog { width: min(700px, calc(100vw - 24px)); }
-:is(.commerce-export-dialog, .commerce-candidates-dialog)::backdrop { background: var(--overlay-backdrop); }
-:is(.commerce-export-dialog, .commerce-candidates-dialog) .dialog-style-1-panel { width: 100%; }
-:is(.commerce-export-dialog, .commerce-candidates-dialog) .dialog-style-1-body { gap: 12px; font-size: 13px; }
-:is(.commerce-export-dialog, .commerce-candidates-dialog) button:focus-visible,
+:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker)::backdrop { background: var(--overlay-backdrop); }
+:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker) .dialog-style-1-panel { width: 100%; }
+:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker) .dialog-style-1-body { gap: 12px; font-size: 13px; }
+:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker) button:focus-visible,
 .commerce-candidate-prompt summary:focus-visible,
 .commerce-export-scopes label:has(input:focus-visible) { outline: 2px solid var(--text-link); outline-offset: 2px; }
-:is(.commerce-export-dialog, .commerce-candidates-dialog) .btn-primary:enabled {
+:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker) .btn-primary:enabled {
     background: var(--panel-primary-action-bg);
     color: var(--panel-primary-action-text);
 }
-:is(.commerce-export-dialog, .commerce-candidates-dialog) .btn-primary:enabled:hover {
+:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker) .btn-primary:enabled:hover {
     background: color-mix(in srgb, var(--panel-primary-action-bg) 90%, #000);
 }
-:is(.commerce-export-dialog, .commerce-candidates-dialog) .btn-secondary:enabled { color: var(--text-primary); }
+:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker) .btn-secondary:enabled { color: var(--text-primary); }
 .commerce-candidate-options:not([hidden]) { display: flex; flex-wrap: wrap; gap: 6px; }
 .commerce-candidate-options button[aria-pressed="true"] {
     background: color-mix(in srgb, var(--text-link) 12%, var(--surface-control));
@@ -1955,20 +1981,21 @@ html:root #canvas-container .node.node-text .text-node-editor:not(:focus)::-webk
 .commerce-shot-references > summary span { margin-inline-start: 8px; color: var(--text-secondary); font-size: 12px; font-weight: 400; }
 .commerce-shot-references > p { margin: 10px 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
 .commerce-shot-reference-list { display: grid; gap: 14px; margin-top: 12px; }
-.commerce-shot-reference-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.commerce-shot-reference-heading strong { min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+.commerce-shot-reference-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.commerce-shot-reference-heading > select { flex: 1 1 110px; min-width: 0; max-width: 100%; }
 .commerce-shot-references .btn { color: var(--text-primary); background: var(--bg-input); border: 1px solid var(--border-input); border-radius: 6px; box-shadow: none; }
 .commerce-shot-references .btn:hover:not(:disabled) { background: var(--panel-hover-bg); }
 .commerce-shot-references .btn:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 .commerce-shot-references .btn:disabled { opacity: .5; cursor: default; }
 .commerce-shot-reference-heading > button { flex: 0 0 auto; min-height: 28px; padding: 4px 8px; font-size: 13px; white-space: nowrap; }
-.commerce-shot-reference-images { display: flex; flex-wrap: wrap; gap: 10px; }
-.commerce-shot-reference-images:not(:empty) { margin-top: 8px; }
-.commerce-shot-reference-image { width: 76px; }
-.commerce-shot-reference-image > button { display: block; width: 76px; height: 76px; padding: 3px; background: var(--bg-input); border: 1px solid var(--border-input); border-radius: 6px; cursor: pointer; }
-.commerce-shot-reference-image img { display: block; width: 100%; height: 100%; object-fit: contain; }
-.commerce-shot-reference-image > div { display: flex; justify-content: space-between; gap: 4px; margin-top: 4px; }
-.commerce-shot-reference-image > div button { flex: 1; min-width: 0; min-height: 26px; padding: 3px; font-size: 13px; white-space: nowrap; }
-.commerce-shot-reference-image > button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.commerce-shot-reference-row { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: start; gap: 10px; }
+.commerce-shot-reference-thumb { width: 64px; height: 64px; padding: 3px; background: var(--bg-input); border: 1px solid var(--border-input); border-radius: 6px; cursor: pointer; }
+.commerce-shot-reference-thumb img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.commerce-shot-reference-thumb:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.commerce-shot-reference-fields { display: grid; gap: 5px; }
+.commerce-shot-reference-fields > span { font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.commerce-shot-reference-fields > select { width: 100%; min-width: 0; }
+.commerce-shot-reference-actions { display: flex; flex-wrap: wrap; gap: 5px; }
+.commerce-shot-reference-actions .btn { min-height: 26px; padding: 3px 8px; font-size: 13px; white-space: nowrap; }
 .commerce-shot-reference-status { margin: 6px 0 0; font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
 .commerce-shot-reference-row [hidden], .commerce-shot-references[hidden] { display: none !important; }

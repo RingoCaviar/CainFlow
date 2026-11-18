@@ -7,7 +7,7 @@ import { createConnectionsApi } from '../../canvas/connections.js';
 import { createConnectionProjection } from '../../canvas/connection-projection.js';
 import { createCameraControlNodeApi } from '../camera/camera-control-node-proxy.js';
 import { createExecutionCoreApi } from '../execution/execution-core.js';
-import { getCommerceRunBlocker } from '../execution/commerce-run-preflight.js';
+import { getCommerceRunBlocker, usesCommerceInputPort } from '../execution/commerce-run-preflight.js';
 import { createWorkflowRunnerApi, clearNodeExecutionFailure, showNodeExecutionFailure } from '../execution/workflow-runner.js';
 import {
     normalizeConcurrentRequestStatusPayload,
@@ -153,18 +153,19 @@ function cloneWorkflowData(data = {}) {
     };
 }
 
-export function commercePlanningPublicationKey(nodeId, connections, getNode, shotId, { ignoreReferences = false } = {}) {
+export function commercePlanningPublicationKey(nodeId, connections, getNode, shotId, { ignoreReferences = false, commerceAction } = {}) {
     const target = getNode(nodeId);
     if (target?.type !== 'ECommerceImageSet' || target.enabled === false) return null;
     const links = ignoreReferences ? [] : orderInputConnections(target.type, connections.filter(connection =>
-        connection.to.nodeId === nodeId && connection.to.port === REFERENCE_IMAGES_PORT));
-    const references = links.flatMap(({ from }) => {
+        connection.to.nodeId === nodeId && [REFERENCE_IMAGES_PORT, 'styleReferenceImages'].includes(connection.to.port)
+        && usesCommerceInputPort(commerceAction, connection.to.port)));
+    const references = links.flatMap(({ from, to }) => {
         const source = getNode(from.nodeId);
         if (!source || source.enabled === false) return [];
         // Workflow snapshots store Media identities at the node root.
         const node = { ...source, data: { ...source, ...source.data } };
         const output = projectImageOutput(node, getCanonicalImageList(node));
-        return [[from.nodeId, from.port, output.assets.length ? output.assets : output.images, output.missingPositions]];
+        return [[to.port, from.nodeId, from.port, output.assets.length ? output.assets : output.images, output.missingPositions]];
     });
     const commerce = target.commerceImageSet ?? target.data?.commerceImageSet;
     return JSON.stringify([

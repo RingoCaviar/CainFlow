@@ -69,6 +69,18 @@ test('next multi-connection order is scoped to one target input', () => {
     }), 8);
 });
 
+test('copying a commerce source and target keeps each wired style image assigned to its shot', () => {
+    const source = { id: 'newSource', el: { querySelectorAll: () => [{ dataset: { port: 'image' } }] } };
+    const target = { id: 'newTarget', type: 'ECommerceImageSet', el: { querySelectorAll: () => [{ dataset: { port: 'styleReferenceImages' } }] },
+        data: { commerceImageSet: { styleReferenceTypes: { 'source:old%3Asource:image:0': 'main', 'source:other:image:1': 'feature' } } } };
+    const state = { nodes: new Map([[source.id, source], [target.id, target]]), connections: [] };
+    const result = appendMappedConnectionSnapshots({ state, idMap: new Map([['old:source', source.id], ['oldTarget', target.id]]),
+        internalConnections: [{ id: 'oldWire', from: { nodeId: 'old:source', port: 'image' },
+            to: { nodeId: 'oldTarget', port: 'styleReferenceImages' }, type: 'image' }] });
+    assert.equal(result.added, 1);
+    assert.deepEqual(target.data.commerceImageSet.styleReferenceTypes, { 'source:newSource:image:0': 'main', 'source:other:image:1': 'feature' });
+});
+
 test('pasted multi-connections append after the target order while retaining group order', () => {
     const portElement = (port, direction, multiple = false) => ({
         dataset: { port, direction, ...(multiple ? { multiple: 'true' } : {}) }

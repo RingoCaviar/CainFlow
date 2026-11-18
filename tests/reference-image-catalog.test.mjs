@@ -9,6 +9,18 @@ const remote = 'https://example.invalid/reference.png';
 const stateFor = (nodes, connections = []) => ({ nodes: new Map(nodes.map(node => [node.id, node])), connections });
 const edge = (id, from, to, port, order) => ({ id, from: { nodeId: from, port: 'image' }, to: { nodeId: to, port }, order });
 
+test('the camera scene candidate uses only its rendered preview, independently of the input photo', async () => {
+    const camera = { id: 'camera', type: 'CameraControl', data: { cameraPreviewImage: blue, image: red,
+        imageCount: 2, mediaAssetKeys: ['media:input1', 'media:input2'], imagePreviewThumbnail: red } };
+    const catalog = createReferenceImageCatalog({ state: stateFor([camera]), getImageAsset: () => assert.fail('camera input read') });
+    const [candidate, ...extra] = catalog.getCanvas();
+    assert.deepEqual(extra, []);
+    assert.equal(await catalog.readImage(candidate), blue);
+    assert.equal(await catalog.readThumbnail(candidate), blue);
+    camera.data.cameraPreviewImage = '';
+    assert.deepEqual(catalog.getCanvas(), []);
+});
+
 test('upstream candidates follow connected frame and batch order, excluding missing positions', async () => {
     const frame = { id: 'frame', type: 'ImageImport', importMode: 'url', imageUrl: remote };
     const batch = { id: 'batch', type: 'ImageGenerate', customTitle: '商品图', data: {

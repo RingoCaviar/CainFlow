@@ -88,4 +88,13 @@ test('commerce publication follows source identity and order across visible and 
     assert.notEqual(key([{ ...commerce, commerceImageSet: { productInfo: { name: '商品' } } }, upload, url]), initial);
     assert.equal(key([{ ...commerce, enabled: false }, upload, url]), null);
     assert.equal(key([upload, url]), null);
+    const styleLinks = [links[0], { ...links[1], to: { nodeId: commerce.id, port: 'styleReferenceImages' } }];
+    const styled = key([commerce, upload, url], styleLinks);
+    assert.notEqual(styled, initial);
+    assert.notEqual(key([commerce, upload, { ...url, imageUrl: 'https://example.test/new-style.png' }], styleLinks), styled);
+    const analyzeKey = nodes => commercePlanningPublicationKey(commerce.id, styleLinks, id => nodes.find(node => node.id === id),
+        undefined, { commerceAction: 'analyze' });
+    const analyzing = analyzeKey([commerce, upload, url]);
+    assert.equal(analyzeKey([commerce, upload, { ...url, imageUrl: 'https://example.test/new-style.png' }]), analyzing);
+    assert.notEqual(analyzeKey([commerce, { ...upload, imageImportAssetKey: 'media:replacement' }, url]), analyzing);
 });

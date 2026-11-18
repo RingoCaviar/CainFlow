@@ -6,7 +6,7 @@ import {
     COMMERCE_IMAGE_SET_DEFAULT_ASPECTS, COMMERCE_IMAGE_SET_PRESETS, COMMERCE_PRODUCT_INFO_LIMITS,
     COMMERCE_SCENE_DESCRIPTION_LIMIT, COMMERCE_CANDIDATE_GENERATION_LIMIT,
     appendCommerceSceneShot, confirmCommerceSceneShot, getCommerceProductInfo, getCommerceSceneSummary, getCommerceShotCandidates,
-    getCommerceAmazonMainMode, getGeneratableCommerceImageSetShots, getRunnableCommerceImageSetShots, getSelectedCommerceImageSetShots,
+    getCommerceAmazonMainMode, getCommerceReferenceTypes, getGeneratableCommerceImageSetShots, getRunnableCommerceImageSetShots, getSelectedCommerceImageSetShots,
     getUnfinishedCommerceImageSetShots, isCommerceShotImageStale,
     normalizeCommerceImageSetCandidateCount, normalizeCommerceImageSetCopyLanguage, normalizeCommerceImageSetState,
     preserveCommerceImageSetExportResults, setCommerceShotFinalized,
@@ -20,6 +20,7 @@ import {
 } from '../features/ecommerce-image-set/commerce-reference-revision.js';
 import { openCommerceShotCandidates } from '../features/ecommerce-image-set/commerce-shot-candidates-dialog.js';
 import { createCommerceShotReferenceControls } from '../features/ecommerce-image-set/commerce-shot-reference-controls.js';
+import { hasCommerceStyleReferenceChange, projectCommerceStyleReferences } from '../features/ecommerce-image-set/commerce-shot-references.js';
 import { getEffectiveProtocol, getModelProviders, getModelsForTask } from '../features/execution/provider-request-utils.js';
 import { getOpenAIChatCapabilities } from '../features/execution/openai-chat-capabilities.js';
 import { confirmAction } from '../features/ui/app-dialogs.js';
@@ -53,7 +54,7 @@ function setImage(element, url) {
     element.hidden = !url;
 }
 
-export function createCommerceImageSetView({ node, state, documentRef, run, cancel, removeScene, onChange, openResultPreview, openShotError, bindReferencePrompt, readReferenceAsset, uploadCommerceShotReference }) {
+export function createCommerceImageSetView({ node, state, documentRef, run, cancel, removeScene, onChange, openResultPreview, openShotError, bindReferencePrompt, readReferenceAsset, referenceImageCatalog, pickCommerceStyleReference }) {
     const card = node.el.querySelector('.commerce-image-set-card');
     const cover = card.querySelector('img');
     const cardTitle = card.querySelector('.commerce-image-set-card-title');
@@ -190,7 +191,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
     const defaultPlatformId = Object.keys(COMMERCE_IMAGE_SET_PRESETS)[0];
     const config = () => (node.data.commerceImageSet ??= { platformId: defaultPlatformId, selectedShotIds: [] });
     const designReferences = createCommerceShotReferenceControls({ documentRef, node, getSettings: config,
-        uploadReference: uploadCommerceShotReference, readAsset: readReferenceAsset, openPreview: openResultPreview,
+        pickReference: pickCommerceStyleReference, catalog: referenceImageCatalog, openPreview: openResultPreview,
         onChange: change => { onChange(change); refresh(); } });
     element.insertBefore(designReferences.element, element.querySelector('.node-model-settings'));
     const shotRows = new Map();
@@ -628,7 +629,9 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
                 : referenceVerificationPending ? '正在核对商品参考图…' : '';
         const plan = value.plan;
         let styleChanged = false;
-        try { styleChanged = !!plan && visualStyleKey(plan.visualStyle) !== visualStyleKey(resolveCommerceImageSetStyle(value, resolveVisualStyle(state, node.id))); }
+        const styleReferences = projectCommerceStyleReferences(state, node.id);
+        try { styleChanged = !!plan && (visualStyleKey(plan.visualStyle) !== visualStyleKey(resolveCommerceImageSetStyle(value, resolveVisualStyle(state, node.id)))
+            || hasCommerceStyleReferenceChange(value, styleReferences)); }
         catch { styleChanged = true; }
         const activeShots = plan?.shots.filter(shot => isActiveShot(shotTaskStatus(shot.id))) || [];
         const activeShotLabel = activeShots.length ? `${activeShots.length} 个图位进行中` : '';
@@ -639,7 +642,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         if (!busy) cancelingAll = false;
         const unavailable = node.enabled === false || node.isClone === true;
         const locked = busy || unavailable;
-        designReferences.update(selectedShots, { locked,
+        designReferences.update(getCommerceReferenceTypes(value), { styleReferences, locked,
             activeShotIds: activeShots.map(shot => shot.id),
             finalizedShotIds: (value.results || []).filter(row => row.finalized).map(row => row.shotId) });
         const artInput = element.querySelector('[data-commerce-art-direction]');

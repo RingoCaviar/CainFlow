@@ -48,11 +48,13 @@ export function projectPlanConnections(plan, connections, identity) {
     const sameSource = (left, right) => left?.from.nodeId === right?.from.nodeId && left?.from.port === right?.from.port;
     for (const [group, proposed] of replacements) {
         const previous = connections.filter(link => key(link.to.nodeId, link.to.port) === group);
-        const reference = proposed[0]?.to.port === 'referenceImages';
-        const orderedPrevious = reference ? orderImageReferenceConnections( previous) : previous;
-        const orderedNext = reference ? orderImageReferenceConnections( proposed) : proposed;
+        const targetPort = proposed[0]?.to.port;
+        const reference = targetPort === 'referenceImages' || targetPort === 'styleReferenceImages';
+        const filterPort = targetPort === 'styleReferenceImages' ? targetPort : undefined;
+        const orderedPrevious = reference ? orderImageReferenceConnections(previous, undefined, filterPort) : previous;
+        const orderedNext = reference ? orderImageReferenceConnections(proposed, undefined, filterPort) : proposed;
         const samePrefix = orderedPrevious.every((link, index) => sameSource(link, orderedNext[index]));
-        let appendedOrder = Math.max(-1, ...previous.filter(link => link.to.port === 'referenceImages').map(link => Number(link.order) || 0));
+        let appendedOrder = Math.max(-1, ...previous.filter(link => link.to.port === targetPort).map(link => Number(link.order) || 0));
         const unused = new Set(previous);
         replacements.set(group, orderedNext.map((link, index) => {
             const existing = previous.find(candidate => unused.has(candidate) && sameSource(candidate, link));

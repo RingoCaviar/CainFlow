@@ -83,6 +83,17 @@ test('canvas plans validate explicitly targeted commerce product information and
     assert.match(canvasBaseline(context, [node.id]), /"copyLanguage":"en"/, 'explicit edits invalidate a planned language change');
 });
 
+test('Agent can wire several scene images to the commerce style input independently of product images', () => {
+    const nodes = [{ id: 'a', type: 'ImageImport' }, { id: 'b', type: 'ImageImport' },
+        { id: 'text', type: 'Text' }, { id: 'commerce', type: 'ECommerceImageSet' }];
+    const context = graph({ nodes, selectedIds: ['commerce'] });
+    const wiring = (from, port = 'image') => ({ from: { ref: from, port }, to: { ref: 'target', port: 'styleReferenceImages' } });
+    const proposal = connections => ({ version: 1, steps: [{ id: 'target', nodeId: 'commerce', type: 'ECommerceImageSet', execute: false }], connections });
+    const plan = normalizeCanvasPlan(proposal([wiring('a'), wiring('b')]), context);
+    assert.deepEqual(plan.connections.map(edge => [edge.from.ref, edge.to.port]), [['a', 'styleReferenceImages'], ['b', 'styleReferenceImages']]);
+    assert.throws(() => normalizeCanvasPlan(proposal([wiring('text', 'text')]), context), /类型/);
+});
+
 test('clearing references needs an explicit selected-node command and preserves other inputs, including masks', () => {
     assert.equal(isSelectedReferenceClearRequest('把我选中节点的参考图都移除'), true);
     assert.equal(isSelectedReferenceClearRequest('请断开当前选中的生图节点的所有参考图连线。'), true);

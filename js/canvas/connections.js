@@ -18,7 +18,7 @@ import {
 } from '../nodes/generation-input-projection.js';
 import { getGenerationInputProtocolId, getModelsForTask } from '../features/execution/provider-request-utils.js';
 import { getProtocol } from '../features/execution/protocols/index.js';
-import { getUniversalInputRoles, isUniversalInputNode, resolveUniversalInput, planCompareInputSwap, planMoveMergeInput } from '../nodes/universal-input-policy.js';
+import { getUniversalInputRoles, hasDedicatedInputPort, isUniversalInputNode, resolveUniversalInput, planCompareInputSwap, planMoveMergeInput } from '../nodes/universal-input-policy.js';
 import { getSurfaceCoordinator } from '../features/ui/surface-coordinator.js';
 
 export function createConnectionsApi({
@@ -496,12 +496,16 @@ export function createConnectionsApi({
         return `${Math.round(bounds.right - bounds.left)}:${Math.round(bounds.bottom - bounds.top)}:${domWidth}:${domHeight}:${scrollWidth}:${scrollHeight}:${portState}`;
     }
 
+    function getMountedUniversalInput(node, portName, direction) {
+        if (direction === 'input' && isUniversalInputNode(node) && !hasDedicatedInputPort(node, portName)) {
+            return node.el?.querySelector?.('.universal-input');
+        }
+    }
+
     function getPortElement(node, portName, direction) {
         if (!node?.el) return null;
-        if (direction === 'input' && isUniversalInputNode(node)) {
-            const universal = node.el.querySelector?.('.universal-input[data-direction="input"]');
-            if (universal) return universal;
-        }
+        const universal = getMountedUniversalInput(node, portName, direction);
+        if (universal) return universal;
         return Array.from(node.el.querySelectorAll?.('.node-port[data-direction]') || [])
             .find((portEl) => (
                 portEl.dataset.port === portName &&
@@ -798,7 +802,7 @@ export function createConnectionsApi({
     function getPortPosition(nodeId, portName, direction, containerRectOverride = null) {
         const node = getNodeById(nodeId);
         if (!node) return { x: 0, y: 0 };
-        if (direction === 'input' && isUniversalInputNode(node) && node.el?.querySelector?.('.universal-input')) portName = 'auto';
+        if (getMountedUniversalInput(node, portName, direction)) portName = 'auto';
 
         if (state.dragging && state.dragging.portOffsets) {
             const offset = state.dragging.portOffsets.get(`${nodeId}-${portName}-${direction}`);
@@ -823,7 +827,7 @@ export function createConnectionsApi({
     function isConnectionEndpointVisible(nodeId, portName, direction) {
         const node = getNodeById(nodeId);
         if (!node?.el) return false;
-        if (direction === 'input' && isUniversalInputNode(node) && node.el.querySelector?.('.universal-input')) portName = 'auto';
+        if (getMountedUniversalInput(node, portName, direction)) portName = 'auto';
         if (!state.dragging && !state.canvas?.isPanning) {
             const cache = node._portPositionCache || measureNodePorts(nodeId);
             const cachedPort = cache?.ports.get(getPortKey(nodeId, portName, direction));

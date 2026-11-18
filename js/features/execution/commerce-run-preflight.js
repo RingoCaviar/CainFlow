@@ -1,5 +1,7 @@
 import { resolveVisualStyle, visualStyleKey } from '../visual-style/visual-style.js';
 import { resolveCommerceImageSetStyle } from '../ecommerce-image-set/commerce-art-direction.js';
+import { commerceConnectedStyleRevision, getCommerceShotStyleReferences, hasCommerceStyleReferenceChange,
+    projectCommerceStyleReferences } from '../ecommerce-image-set/commerce-shot-references.js';
 import { projectImageOutput } from '../../nodes/image-output-projection.js';
 import { resolveImageGenerationInputContract } from '../../nodes/universal-input-policy.js';
 import {
@@ -44,7 +46,8 @@ export function getCommerceImageConfigurationIssue({ state, node, settings, gene
     const contract = resolveImageGenerationInputContract(state, { ...node, apiConfigId: imageSettings.apiConfigId });
     if (contract.error) return contract.error;
     if (!contract.supportsReferences || !contract.maxReferences) return '当前生图模型不支持商品参考图，请选择兼容模型。';
-    const designReferenceCount = Math.max(0, ...generatedShots.map(shot => settings.shotReferences?.[shot.id]?.length || 0));
+    const connected = projectCommerceStyleReferences(state, node.id).slots;
+    const designReferenceCount = Math.max(0, ...generatedShots.map(shot => getCommerceShotStyleReferences(settings, shot.id, connected).length));
     const maximum = Math.min(5, contract.maxReferences);
     if (referenceCount + designReferenceCount > maximum) {
         return designReferenceCount ? `商品原图与图位设计参考合计最多 ${maximum} 张，请减少对应图位的参考图。`
@@ -75,6 +78,16 @@ export function usesCommerceRunReferences(node, plan) {
     return !getRunnableCommerceImageSetShots(settings).length || getGeneratableCommerceImageSetShots(settings).length > 0;
 }
 
+export function usesCommerceInputPort(action, port) {
+    return action !== 'analyze' || port !== 'styleReferenceImages';
+}
+
+export function getRunInputConnections(plan, nodeId) {
+    const connections = plan?.inputConnectionsByNode?.[nodeId] || [];
+    return plan?.commerceNodeId === nodeId
+        ? connections.filter(edge => usesCommerceInputPort(plan.commerceAction, edge.to.port)) : connections;
+}
+
 /** Checks only facts available from the planned graph and stored configuration. */
 export function getCommerceRunPreflight({ state, plan }) {
     if (!plan) return [];
@@ -93,8 +106,9 @@ export function getCommerceRunPreflight({ state, plan }) {
         const candidateCount = generatedShots.length ? (settings.candidateCount ?? 1) : 0;
         const shotIds = new Set(runnableShots.map(shot => shot.id));
         const completed = settings.results.filter(row => row.status === 'completed' && row.assetKey && shotIds.has(row.shotId));
-        const inputConnections = plan.inputConnectionsByNode?.[nodeId] || [];
+        const inputConnections = getRunInputConnections(plan, nodeId);
         const references = projectCommerceReferences(state, nodeId, inputConnections);
+        const styleReferences = projectCommerceStyleReferences(state, nodeId, inputConnections);
         const sources = references.groups.filter(group => group.enabled);
         const changingSources = new Set(sources.filter(group => referenceSourceMayChange(group.source, { state, plan, scope })));
         const upstreamWillRun = !reusesFinalized && changingSources.size > 0;
@@ -109,6 +123,8 @@ export function getCommerceRunPreflight({ state, plan }) {
         catch { styleChanged = true; }
         if (!['plan', 'analyze', 'select-candidate'].includes(panelAction) && styleChanged) {
             issue = { action: 'plan', message: '画面风格已更新，请重新规划并确认。' };
+        } else if (!['plan', 'analyze', 'select-candidate'].includes(panelAction) && hasCommerceStyleReferenceChange(settings, styleReferences)) {
+            issue = { action: 'plan', message: '风格参考图已更新，请重新规划并确认。' };
         } else if (panelAction !== 'plan' && panelAction !== 'analyze' && hasCommerceReferenceChange(settings, references)) {
             issue = { action: 'plan', message: COMMERCE_REFERENCE_CHANGED_MESSAGE };
         } else if (!panelAction && !reusesFinalized) {
@@ -132,6 +148,7 @@ export function getCommerceRunPreflight({ state, plan }) {
             referenceCount: shots.length - generatedShots.length, finalizedCount, upstreamWillRun,
             hasCompleted: completed.length > 0, unfinishedCount: getUnfinishedCommerceImageSetShots(settings).length,
             approvalKey: JSON.stringify([settings.plan?.sourceKey || '', getCommerceReferenceRevision(references),
+                commerceConnectedStyleRevision(settings, styleReferences), settings.shotReferences,
                 settings.imageModelId, settings.imageProviderId, candidateCount,
                 shots.map(shot => [shot.id, shot.source, shot.aspect, shot.prompt, shot.headline, shot.body]),
                 completed.map(row => [row.shotId, row.assetKey, row.finalized === true])]) }];
@@ -153,7 +170,7 @@ function getReusedCommerceReferenceBlocker(state, plan) {
     for (const nodeId of pending) {
         const consumer = state.nodes.get(nodeId);
         if (!consumer || consumer.enabled === false || !usesCommerceRunReferences(consumer, plan)) continue;
-        for (const edge of plan.inputConnectionsByNode?.[nodeId] || []) {
+        for (const edge of getRunInputConnections(plan, nodeId)) {
             const sourceId = edge.from?.nodeId;
             if (edge.from?.port !== 'image' || scope.has(sourceId)) continue;
             if (hasCommerceNodeReferenceChange(state, state.nodes.get(sourceId))) {

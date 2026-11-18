@@ -3,20 +3,84 @@ import test from 'node:test';
 import { getSnapshotMediaKeys } from '../js/features/persistence/snapshot-media-keys.js';
 import { collectWorkflowMediaOwnerLists } from '../js/features/media/workflow-media-ownership-commit.js';
 import { getCommerceImageConfigurationIssue } from '../js/features/execution/commerce-run-preflight.js';
+import { describeCommerceReferenceMedia } from '../js/features/ecommerce-image-set/commerce-shot-reference-controls.js';
+import { createReferenceImageCatalog } from '../js/features/media/reference-image-catalog.js';
 import '../js/features/execution/protocols/openai.js';
 import {
     commerceShotPlanKey, getCommerceShotCandidates, normalizeCommerceImageSetState,
     rememberCommerceShotCandidate, restoreCommerceShotCandidateDraft
 } from '../js/features/ecommerce-image-set/commerce-image-set-plan.js';
 import {
-    buildCommercePlanningReferenceInput, buildCommerceShotReferenceInstructions,
-    getCommerceShotReferenceAssetKeys, normalizeCommerceShotReferences,
+    buildCommercePlanningReferenceInput, buildCommerceShotReferenceInstructions, commerceConnectedStyleRevision,
+    getCommerceShotReferenceAssetKeys, hasCommerceStyleReferenceChange, normalizeCommerceShotReferences, projectCommerceStyleReferences,
     readCommerceShotReferences, updateCommerceShotReferences
 } from '../js/features/ecommerce-image-set/commerce-shot-references.js';
 
 const product = 'data:image/png;base64,cHJvZHVjdA==';
 const mainReference = 'data:image/png;base64,bWFpbg==';
 const detailReference = 'data:image/png;base64,ZGV0YWls';
+
+test('旧批次风格连线按图位显示缩略图和原图，已加载的图片无需重新读取', async () => {
+    const source = { id: 'legacy', type: 'ImageGenerate', data: {
+        imageAssetKey: 'legacy-batch', imageCount: 2, imageList: [mainReference, detailReference]
+    } };
+    const state = { nodes: new Map([[source.id, source]]), connections: [{
+        from: { nodeId: source.id, port: 'image' }, to: { nodeId: 'commerce', port: 'styleReferenceImages' }
+    }] };
+    const catalog = createReferenceImageCatalog({ state,
+        getImageAsset: key => assert.fail('旧批次不能按单张素材读取 ' + key),
+        getImageAssetList: async key => {
+            assert.equal(key, 'legacy-batch');
+            return [mainReference, detailReference];
+        },
+        createThumbnail: original => {
+            assert.equal(original, detailReference);
+            return 'data:image/png;base64,dGh1bWI=';
+        }
+    });
+    const second = () => describeCommerceReferenceMedia(projectCommerceStyleReferences(state, 'commerce').slots[1]);
+    const loaded = second();
+    assert.equal(loaded.previewUrl, detailReference);
+    assert.equal(await catalog.readImage(loaded), detailReference);
+    delete source.data.imageList;
+    const stored = second();
+    assert.equal(await catalog.readThumbnail(stored), 'data:image/png;base64,dGh1bWI=');
+    assert.equal(await catalog.readImage(stored), detailReference);
+});
+
+test('未分类风格用于所有生图图位，指定图位的连线风格只用于相应请求', async () => {
+    const settings = normalizeCommerceImageSetState({ selectedShotIds: ['main', 'detail-overview'],
+        shotReferences: { '*': ['media:shared'] }, styleReferenceTypes: { 'source:style:image:0': 'main' } });
+    const connected = [{ bindingId: 'source:style:image:0', image: mainReference }];
+    const read = async key => key === 'media:shared' ? detailReference : assert.fail(key);
+    const plan = await buildCommercePlanningReferenceInput(settings, [{ id: 'main' }, { id: 'detail-overview' }],
+        [product], read, undefined, connected);
+    assert.deepEqual(plan.references, [product, detailReference, mainReference]);
+    assert.deepEqual(plan.shotReferenceMap, { main: [2, 3], 'detail-overview': [2] });
+    assert.deepEqual(await readCommerceShotReferences(settings, 'main', read, undefined, connected), [detailReference, mainReference]);
+    assert.deepEqual(await readCommerceShotReferences(settings, 'detail-overview', read, undefined, connected), [detailReference]);
+    assert.deepEqual(getCommerceShotReferenceAssetKeys(settings), ['media:shared']);
+});
+
+test('风格端口按连线和批次位置映射，旧类型在取消勾选图位后不会变成整套参考', () => {
+    const target = { id: 'set', type: 'ECommerceImageSet' };
+    const source = (id, images) => ({ id, type: 'ImageImport', data: { imageList: images } });
+    const edge = (id, port, order) => ({ from: { nodeId: id, port: 'image' }, to: { nodeId: 'set', port }, order });
+    const state = { nodes: new Map([target, source('product', [product]), source('single', [product]),
+        source('batch', [mainReference, detailReference])].map(node => [node.id, node])),
+        connections: [edge('product', 'referenceImages', 0), edge('single', 'styleReferenceImages', 3), edge('batch', 'styleReferenceImages', 1)] };
+    const projection = projectCommerceStyleReferences(state, target.id);
+    const bindings = projection.slots.map(slot => slot.bindingId);
+    assert.deepEqual(bindings, ['source:batch:image:0', 'source:batch:image:1', 'source:single:image:0']);
+    const settings = normalizeCommerceImageSetState({ platformId: 'taobao', selectedShotIds: ['detail-overview'],
+        shotReferences: { main: ['media:picked'] }, styleReferenceTypes: { [bindings[1]]: 'main' } });
+    assert.deepEqual(settings.shotReferences, { main: ['media:picked'] });
+    assert.equal(settings.styleReferenceTypes[bindings[1]], 'main');
+    settings.plan = { connectedStyleRevision: commerceConnectedStyleRevision(settings, projection) };
+    assert.equal(hasCommerceStyleReferenceChange(settings, projection), false);
+    state.connections.pop();
+    assert.equal(hasCommerceStyleReferenceChange(settings, projectCommerceStyleReferences(state, target.id)), true);
+});
 
 test('图位参考只保存素材身份并限制每个图位的数量', () => {
     const normalized = normalizeCommerceShotReferences({ main: ['media:A', 'media:A', 'https://example.test/image',

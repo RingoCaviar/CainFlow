@@ -104,12 +104,18 @@ test('MCP uses the normal workflow run for commerce and projects only selected r
         }
     });
     const canvas = await dispatch('read_canvas');
+    assert.ok(canvas.nodes.find(item => item.id === node.id).inputs.some(port => port.name === 'styleReferenceImages' && port.type === 'image'));
     assert.doesNotMatch(JSON.stringify(canvas), /media:older|候选草稿|finalized|candidateCount|commerceRunSettings/);
-    await assert.rejects(dispatch('edit_canvas', { workflowId, revision: canvas.revision, plan: { version: 1, steps: [
+    node.commerceImageSet.shotReferences = { '*': ['media:style'] };
+    await assert.rejects(dispatch('run_workflow', { workflowId, revision: canvas.revision, nodeIds: [node.id] }), { code: 'stale_revision' });
+    assert.doesNotMatch(JSON.stringify((await dispatch('read_canvas')).nodes), /media:style/);
+    delete node.commerceImageSet.shotReferences;
+    const restored = await dispatch('read_canvas');
+    await assert.rejects(dispatch('edit_canvas', { workflowId, revision: restored.revision, plan: { version: 1, steps: [
         { id: 'edit', type: node.type, nodeId: node.id, parameters: { candidateCount: 8 }, execute: false }
     ] } }), /不支持参数.*candidateCount/);
     node.commerceImageSet.candidateCount = 8;
-    await assert.rejects(dispatch('run_workflow', { workflowId, revision: canvas.revision, nodeIds: [node.id] }), { code: 'stale_revision' });
+    await assert.rejects(dispatch('run_workflow', { workflowId, revision: restored.revision, nodeIds: [node.id] }), { code: 'stale_revision' });
     const updated = await dispatch('read_canvas');
     node.commerceImageSet.results[0].finalized = true;
     await assert.rejects(dispatch('run_workflow', { workflowId, revision: updated.revision, nodeIds: [node.id] }), { code: 'stale_revision' });

@@ -4,7 +4,7 @@ import { appendCommerceSceneShot, commerceImageSetSourceKey, confirmCommerceScen
 import {
     getCommerceReferenceRevision, hasCommerceReferenceChange, projectCommerceReferences, verifyCommerceReferenceContent
 } from '../js/features/ecommerce-image-set/commerce-reference-revision.js';
-import { getCommerceRunPreflight, usesCommerceRunReferences } from '../js/features/execution/commerce-run-preflight.js';
+import { getCommerceRunBlocker, getCommerceRunPreflight, usesCommerceRunReferences } from '../js/features/execution/commerce-run-preflight.js';
 import { createWorkflowRunnerApi } from '../js/features/execution/workflow-runner.js';
 import { projectCanvasRunScope } from '../js/features/ui/canvas-run-scope.js';
 import { createWorkflowRuntimeManager } from '../js/features/workflow/workflow-runtime-manager.js';
@@ -278,6 +278,25 @@ test('a selected downstream run rejects old commerce output after the reference 
     assert.equal(blocked.nodeId, commerce.id);
     assert.match(blocked.error, /参考图已变更/);
     assert.deepEqual(calls, []);
+});
+
+test('product analysis only checks stale upstream commerce output when used as a product photo', () => {
+    const { state, plan, source, settings } = fixture({ mode: 'selected-only', sourceType: 'ImageImport' });
+    source.data.mediaAssetKeys = ['media:product'];
+    settings.plan.referenceRevision = 'v1:["media:old-product"]';
+    const consumer = { id: 'analyze', type: 'ECommerceImageSet', data: {} };
+    state.nodes.set(consumer.id, consumer);
+    const product = { from: { nodeId: source.id, port: 'image' }, to: { nodeId: consumer.id, port: 'referenceImages' } };
+    const design = { from: { nodeId: 'commerce', port: 'image' }, to: { nodeId: consumer.id, port: 'styleReferenceImages' } };
+    state.connections.push(product, design);
+    Object.assign(plan, { nodeIds: [consumer.id], executionOrder: [consumer.id], scopeNodeSet: new Set([consumer.id]),
+        commerceNodeId: consumer.id, commerceAction: 'analyze', inputConnectionsByNode: { [consumer.id]: [product, design] } });
+    assert.equal(getCommerceRunBlocker({ state, plan }), null);
+    plan.commerceAction = 'plan';
+    assert.equal(getCommerceRunBlocker({ state, plan })?.nodeId, 'commerce');
+    plan.commerceAction = 'analyze';
+    design.to.port = 'referenceImages';
+    assert.equal(getCommerceRunBlocker({ state, plan })?.nodeId, 'commerce');
 });
 
 function detachedRuntimeFixture(state, plan) {

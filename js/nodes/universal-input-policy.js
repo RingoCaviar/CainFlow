@@ -7,7 +7,7 @@ import { getOpenAiImageCapabilities } from '../features/execution/openai-image-c
 import { getProtocol } from '../features/execution/protocols/index.js';
 import { resolveDeclarativeProtocolVariant } from '../features/execution/protocols/declarative-protocol-schema.js';
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
-import { DEFAULT_REFERENCE_IMAGE_COUNT } from './reference-image-ports.js';
+import { DEFAULT_REFERENCE_IMAGE_COUNT, isMultiConnectionInput } from './reference-image-ports.js';
 
 // Each node type opts in when its card and input details use this contract.
 const UNIVERSAL_INPUT_NODE_TYPES = new Set(['ImageGenerate', 'ECommerceImageSet', 'ProductRetouch', 'ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge', 'ImageSave', 'CameraControl']);
@@ -20,7 +20,7 @@ function mergeRoleCount(node, incoming = []) {
 }
 
 export function getUniversalInputRoles(node, state = null, incoming = null) {
-    if (node?.type === 'ECommerceImageSet') return [['referenceImages', '商品参考图', 'image'], ['style', '画面风格', 'style']];
+    if (node?.type === 'ECommerceImageSet') return [['referenceImages', '商品参考图', 'image'], ['styleReferenceImages', '风格参考图', 'image'], ['style', '画面风格', 'style']];
     if (node?.type === 'ProductRetouch') return [['image', '商品参考图', 'image']];
     if (node?.type === 'ImageSave') return [['image', '图片输入', 'image'], ['video', '视频输入', 'video']];
     if (node?.type === 'ImageMerge') {
@@ -37,6 +37,10 @@ export function getUniversalInputRoles(node, state = null, incoming = null) {
 
 export function isUniversalInputNode(node) {
     return UNIVERSAL_INPUT_NODE_TYPES.has(node?.type);
+}
+
+export function hasDedicatedInputPort(node, portName) {
+    return node?.type === 'ECommerceImageSet' && portName === 'styleReferenceImages';
 }
 
 const referencePort = port => port === 'referenceImages' || port === 'image' || /^image_\d+$/.test(port || '');
@@ -159,14 +163,15 @@ export function resolveUniversalInput({ state, sourceNode, sourcePort, sourceTyp
         if (!keepsSource && targetConnections.some(edge => edge.from?.nodeId === sourceNode.id && edge.from.port === sourcePort)) return failure('不能重复连接相同来源输出。');
     }
     if (incoming.some(edge => edge.from?.nodeId === sourceNode.id && edge.from?.port === sourcePort)) return failure('不能重复连接相同来源输出。');
-    if (port !== 'referenceImages' && incoming.length) return failure('该输入用途已占用，请在输入明细中明确替换。');
+    const multiple = isMultiConnectionInput(targetNode.type, port);
+    if (!multiple && incoming.length) return failure('该输入用途已占用，请在输入明细中明确替换。');
     const wouldCycle = connectionLookup
         ? connectionLookup.createsCycle(sourceNode.id, targetNode.id)
         : createsCycle(ignoreConnectionId ? connections.filter(edge => edge.id !== ignoreConnectionId) : connections, sourceNode.id, targetNode.id);
     if (wouldCycle) return failure('此连接会形成循环，请选择其他来源。');
     if (targetNode.type !== 'ImageGenerate') {
         if (targetNode.type === 'ImageResize' && hasRemoteImageOutput(sourceNode)) return failure('URL 图片不支持连接到图片缩放节点。');
-        return { port, type, multiple: targetNode.type === 'ECommerceImageSet' && port === 'referenceImages', error: '' };
+        return { port, type, multiple, error: '' };
     }
     const contract = resolveImageGenerationInputContract(state, targetNode), unsupported = roleError(contract, port);
     if (unsupported) return failure(unsupported);

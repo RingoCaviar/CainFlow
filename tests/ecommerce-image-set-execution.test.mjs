@@ -15,7 +15,7 @@ const roles = ['angle', 'detail', 'feature', 'scene', 'included'];
 
 function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main', ...roles], beforeImageRequest, beforePlanRequest,
     galleryAspect, imageModel = 'gemini-2.5-flash-image', imageProtocol = 'google', responseImageData,
-    referenceImageCatalog, syncImagePreviewNode, visualStyle, platformId = 'amazon', mainImageMode = 'original' } = {}) {
+    referenceImageCatalog, syncImagePreviewNode, visualStyle, typedStyleReference, platformId = 'amazon', mainImageMode = 'original' } = {}) {
     const node = { id: 'commerce', type: 'ECommerceImageSet', data: { commerceImageSet: {
         platformId, mainImageMode, productNotes: '杯盖可拆卸', plannerModelId: 'vision', plannerProviderId: 'provider',
         imageModelId: 'image', imageProviderId: 'provider', selectedShotIds, galleryAspect
@@ -30,6 +30,12 @@ function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main',
     const noop = () => {};
     const nodes = new Map([[node.id, node]]);
     const connections = [];
+    if (typedStyleReference) {
+        const { url, shotId } = typedStyleReference;
+        nodes.set('style-url', { id: 'style-url', type: 'ImageImport', importMode: 'url', imageUrl: url });
+        connections.push({ from: { nodeId: 'style-url', port: 'image' }, to: { nodeId: node.id, port: 'styleReferenceImages' } });
+        node.data.commerceImageSet.styleReferenceTypes = { 'source:style-url:image:0': shotId };
+    }
     if (visualStyle) {
         nodes.set('style', { id: 'style', type: 'VisualStyle', data: { visualStyle } });
         connections.push({ from: { nodeId: 'style', port: 'style' }, to: { nodeId: node.id, port: 'style' } });
@@ -105,11 +111,20 @@ function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main',
         }
     });
     const execute = (action, image = reference, commerceShotId, signal = new AbortController().signal, commerceCandidateKey) => core.executeNode(
-        node, { referenceImages: image ? [image] : [] }, signal, { commerceAction: action, commerceShotId, commerceCandidateKey });
+        node, { referenceImages: image ? [image] : [], ...(typedStyleReference ? { styleReferenceImages: [typedStyleReference.url] } : {}) }, signal, { commerceAction: action, commerceShotId, commerceCandidateKey });
     return { node, execute, normalizeRunOptions: core.normalizeRunOptions, removeCommerceScene: core.removeCommerceScene,
         getCachedOutputValue: core.getCachedOutputValue, apiCalls, requestLogs, requestStatistics, imagePrompts, history, assets, warnings,
         setConnectedReference, setFailure: role => { failedRole = role; }, clearFailure: () => { failedRole = undefined; } };
 }
+
+test('planning and retrying a shot never download the remote style image assigned to another shot', async () => {
+    const { node, execute, apiCalls } = createCommerceExecutionFixture({ selectedShotIds: ['feature'],
+        typedStyleReference: { url: 'https://unavailable.invalid/detail.png', shotId: 'detail' } });
+    await execute('plan');
+    node.data.commerceImageSet.plan.confirmed = true;
+    await execute('retry', reference, 'feature');
+    assert.deepEqual(apiCalls.map(({ type, images }) => [type, images]), [['plan', ['AAAA']], ['image', ['AAAA']]]);
+});
 
 test('亚马逊 MAIN 使用第一张商品原图生成白底精修结果并支持单图重试', async () => {
     let variant = 1;

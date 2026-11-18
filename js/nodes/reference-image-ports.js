@@ -31,7 +31,8 @@ export function getReferenceImageInputPorts(restoreData = {}, nodeType = '') {
 }
 
 export function isMultiConnectionInput(nodeType = '', portName = '') {
-    return REFERENCE_IMAGE_NODE_TYPES.has(String(nodeType || '')) && portName === REFERENCE_IMAGES_PORT;
+    return REFERENCE_IMAGE_NODE_TYPES.has(String(nodeType || '')) && portName === REFERENCE_IMAGES_PORT
+        || nodeType === 'ECommerceImageSet' && portName === 'styleReferenceImages';
 }
 
 export function orderInputConnections(nodeType = '', connections = []) {
@@ -119,7 +120,7 @@ export function migrateReferenceImageConnections(nodes = [], connections = []) {
 }
 
 export function applyReferenceImagePorts(config, restoreData = {}) {
-    if (!REFERENCE_IMAGE_NODE_TYPES.has(config?.type)) return config;
+    if (!REFERENCE_IMAGE_NODE_TYPES.has(config?.type) || config.type === 'ECommerceImageSet') return config;
     const baseInputs = Array.isArray(config.inputs)
         ? config.inputs.filter((port) => !(port?.type === 'image' && /^image_\d+$/.test(String(port?.name || ''))))
         : [];

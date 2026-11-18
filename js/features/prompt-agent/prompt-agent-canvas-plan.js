@@ -1,3 +1,4 @@
+import { isMultiConnectionInput } from '../../nodes/reference-image-ports.js';
 import { agentNodeDefinition as getNodeDefinition, isReferencePort, normalizePlanInputs, assertReferenceInputsPreserved, referenceManifest, projectPlanConnections, matchesDisconnectPort, isAuthorizedExactDisconnect } from './prompt-agent-reference-inputs.js';
 import { CANVAS_CREATABLE_TYPES, CANVAS_FIELDS, CANVAS_NODE_PATCH_FIELDS, CANVAS_SCALAR_RULES, CANVAS_TYPES,
     canvasBaseline, cloneCanvasValue, canvasPlanExecutionNodeIds } from './prompt-agent-canvas-context.js';
@@ -407,7 +408,12 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
         }
         if (!type || type !== portType(link.to.ref, link.to.port, 'inputs')) fail('连线端口不存在或类型不匹配');
         const key = `${link.to.ref}:${link.to.port}`;
-        if (ports.has(key) && link.to.port !== 'referenceImages') fail('同一输入端口不能重复连接');
+        if (ports.has(key) && !isMultiConnectionInput(lookup(link.to.ref), link.to.port)) fail('同一输入端口不能重复连接');
+        if (link.to.port === 'styleReferenceImages') {
+            const sourceKey = JSON.stringify([key, link.from.ref, link.from.port]);
+            if (ports.has(sourceKey)) fail('同一风格参考图来源不能重复连接');
+            ports.add(sourceKey);
+        }
         ports.add(key);
         return { from: { ref: link.from.ref, port: link.from.port }, to: { ref: link.to.ref, port: link.to.port }, type, ...(Number.isInteger(link.order) ? {order:link.order} : {}) };
     });

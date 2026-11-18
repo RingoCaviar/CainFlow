@@ -3,6 +3,7 @@ import { cleanupElementResources } from '../../core/common-utils.js';
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
 import { REFERENCE_IMAGES_PORT } from '../../nodes/reference-image-ports.js';
 import { createImageInputDetail } from './image-input-detail.js';
+import { hasDedicatedInputPort } from '../../nodes/universal-input-policy.js';
 import { isImageFirstCardNode } from '../../nodes/image-first-presentation.js';
 import { getCanonicalImageList, getCanonicalImageIndex } from '../execution/execution-data-utils.js';
 import { projectImageOutput } from '../../nodes/image-output-projection.js';
@@ -40,7 +41,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     runCurrentNode, waitForNodeRun, cancelCommerceImageSet, removeCommerceScene, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
     panelManager = null, openModelSettings = () => {}, openResultPreview = () => {},
     openShotError = () => {}, openNodeFailureLog = () => false, openNodeRunError = null, openReferencePreview = null, bindReferencePrompt = null,
-    uploadRetouchReference, uploadCommerceShotReference, onNativeClipboardWrite, readReferenceAsset }) {
+    uploadRetouchReference, referenceImageCatalog, pickCommerceStyleReference, onNativeClipboardWrite, readReferenceAsset }) {
     const views = new Map();
     const geometryClasses = new Set(['selected', 'is-interacting', 'connection-insert-candidate', 'connection-shake-armed',
         'is-virtualized', 'render-refresh']);
@@ -876,7 +877,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (inputSection) {
             let universal = inputSection.querySelector('.universal-input');
             for (const port of inputSection.querySelectorAll('.node-port[data-direction="input"]')) {
-                if (port === universal) continue;
+                if (port === universal || hasDedicatedInputPort(node, port.dataset.port)) continue;
                 port.hidden = true;
                 port.classList.add('image-first-canonical-input');
             }
@@ -886,7 +887,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 universal.dataset.nodeId = node.id; universal.dataset.port = 'auto';
                 universal.dataset.type = 'any'; universal.dataset.direction = 'input';
                 universal.innerHTML = '<div class="port-dot type-any"></div><span class="port-label">输入</span>';
-                inputSection.append(universal);
+                inputSection.prepend(universal);
             }
             bindPorts(inputSection);
         }
@@ -1108,7 +1109,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         installUniversalInput(node);
         const inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, onChange: () => refreshNode(node.id) });
         const commerce = createCommerceImageSetView({
-            node, state, documentRef, openResultPreview, openShotError, bindReferencePrompt, readReferenceAsset, uploadCommerceShotReference,
+            node, state, documentRef, openResultPreview, openShotError, bindReferencePrompt, readReferenceAsset, referenceImageCatalog, pickCommerceStyleReference,
             run: (commerceAction, commerceShotId, commerceCandidateKey) => runCurrentNode(node.id, { commerceAction, commerceShotId, commerceCandidateKey }),
             cancel: commerceShotId => cancelCommerceImageSet(node.id, commerceShotId),
             removeScene: shotId => removeCommerceScene(node.id, shotId),

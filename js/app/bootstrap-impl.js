@@ -2,6 +2,7 @@ import { confirmAction } from '../features/ui/app-dialogs.js';
 import { createRetiredSaveNodeCleanup } from '../features/persistence/retired-save-nodes.js';
 import { createImageFirstCanvas } from '../features/ui/image-first-canvas.js';
 import { createReferenceImageCatalog } from '../features/media/reference-image-catalog.js';
+import { chooseCommerceStyleReference } from '../features/ecommerce-image-set/commerce-style-reference-picker.js';
 import { createImageGenerationRevisionApi } from '../nodes/image-generation-revision.js';
 import { getImageOutputAssets, readPrimaryImageOutput } from '../nodes/image-output-projection.js';
 import { createAgentChatModelPreference } from '../features/prompt-agent/prompt-agent-model-preference.js';
@@ -850,21 +851,23 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
     cancelCommerceImageSet,
     removeCommerceScene,
     readReferenceAsset: getImageAsset,
-    uploadCommerceShotReference: async (target, file) => {
+    referenceImageCatalog,
+    pickCommerceStyleReference: async (target, { signal } = {}) => {
         const workflowId = workflowManagerApi.getActiveWorkflowId();
-        const operationId = generateId();
-        const isCurrent = () => state.nodes.get(target.id) === target && workflowManagerApi.getActiveWorkflowId() === workflowId
+        const isCurrent = () => !signal?.aborted && state.nodes.get(target.id) === target && workflowManagerApi.getActiveWorkflowId() === workflowId
             && target.enabled !== false && !target.isClone && !state.runningNodeIds.has(target.id);
         if (!workflowId || !isCurrent()) throw new Error('节点已变化，请重新选择参考图。');
-        const dataUrl = await blobToDataUrl(file);
-        const image = new Image();
-        image.src = dataUrl;
-        try { await image.decode(); }
-        catch { throw new Error('无法读取这张图片，请选择有效的图片文件。'); }
+        const candidate = await chooseCommerceStyleReference({ documentRef: document, catalog: referenceImageCatalog, targetId: target.id, signal });
+        if (!candidate || !isCurrent()) return null;
+        const original = await referenceImageCatalog.readImage(candidate);
+        if (!original) throw new Error('参考图原图已变化或无法读取，请重新选择。');
+        const dataUrl = await resolveSceneImageSource(original);
+        if (!isCurrent()) return null;
+        const operationId = generateId();
         let asset;
         try {
             asset = await saveWorkflowNodeMediaAsset(dataUrl, workflowId, target.id, operationId, { isCurrent });
-            if (!asset?.asset_key || !isCurrent()) throw new Error('参考图保存失败或节点已变化，请重新上传。');
+            if (!asset?.asset_key || !isCurrent()) throw new Error('参考图保存失败或节点已变化，请重新选择。');
             rememberWorkflowMediaOperation(target, [asset]);
             scheduleSave();
             return asset.asset_key;
@@ -1334,12 +1337,14 @@ const promptAgentNodeAdapter = createPromptAgentNodeAdapter({
         return nodeId;
     },
     getNodeImages: async (node) => (await mediaControllerApi.getNodeFullscreenImageContext(node.id)).images,
-    resolveImageSource: async (source) => {
-        if (/^data:image\//i.test(source)) return source;
-        if (!/^https?:\/\//i.test(source)) throw new Error('图片来源不可用，请重新导入图片。');
-        return blobToDataUrl(await getExecutionCoreApi().downloadGeneratedImage(source));
-    }
+    resolveImageSource: resolveSceneImageSource
 });
+
+async function resolveSceneImageSource(source) {
+    if (/^data:image\//i.test(source)) return source;
+    if (!/^https?:\/\//i.test(source)) throw new Error('图片来源不可用，请重新导入图片。');
+    return blobToDataUrl(await getExecutionCoreApi().downloadGeneratedImage(source));
+}
 const promptAgentExecutionAdapter = createPromptAgentExecutionAdapter({
     state,
     nodeAdapter: promptAgentNodeAdapter,

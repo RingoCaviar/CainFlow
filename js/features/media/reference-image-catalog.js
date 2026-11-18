@@ -33,7 +33,7 @@ function getImageFingerprint(value) {
 
 function projectCanvasImage(node, sourcePort = 'image') {
     if (node.type === 'CameraControl' && sourcePort === 'cameraPreviewImage') {
-        return projectImageOutput(node, node.data?.cameraPreviewImage);
+        return projectImageOutput(null, node.data?.cameraPreviewImage);
     }
     return projectImageOutput(node, getNodeImages(node));
 }
@@ -49,10 +49,11 @@ function getAssetPosition(node, output, index) {
 }
 
 function describeOutputSlot(node, output, index, sourcePort) {
-    const integrity = node.data?.mediaIntegrity;
+    const cameraPreview = node.type === 'CameraControl' && sourcePort === 'cameraPreviewImage';
+    const integrity = cameraPreview ? null : node.data?.mediaIntegrity;
     if (!output.remote && (output.missingPositions.includes(index) || integrity?.state === 'missing' && !output.missingPositions.length)) return null;
     const image = output.images[index];
-    const asset = getAssetPosition(node, output, index);
+    const asset = cameraPreview ? {} : getAssetPosition(node, output, index);
     const imageUrl = !asset.assetKey && isRemote(image) ? image : undefined;
     const imageFingerprint = !asset.assetKey && !imageUrl && isImage(image) ? getImageFingerprint(image) : undefined;
     if (!asset.assetKey && !imageUrl && !imageFingerprint) return null;
@@ -70,8 +71,12 @@ function describeOutputSlot(node, output, index, sourcePort) {
         sourceNodeId: node.id, sourceImageIndex: index, sourcePort, ...asset, imageUrl, imageFingerprint, description,
         searchText: [fileName, description, prompt].filter(Boolean).join(' '),
         // The persisted node thumbnail can represent the last viewed member of a batch.
-        previewUrl: imageUrl || (output.count === 1 && isImage(node.data?.imagePreviewThumbnail) ? node.data.imagePreviewThumbnail : '')
+        previewUrl: imageUrl || (!cameraPreview && output.count === 1 && isImage(node.data?.imagePreviewThumbnail) ? node.data.imagePreviewThumbnail : '')
     };
+}
+
+export function describeCanvasImageSlot(node, sourcePort, index) {
+    return describeOutputSlot(node, projectCanvasImage(node, sourcePort), index, sourcePort);
 }
 
 function describeHistory(item) {

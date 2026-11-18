@@ -4,7 +4,10 @@ import { createChatRequestPlan, requestChatCompletion } from '../execution/chat-
 import { getEffectiveProtocol, getModelsForTask } from '../execution/provider-request-utils.js';
 import { resolveAgentProvider } from '../prompt-agent/prompt-agent-provider.js';
 import { commerceArtDirectionForPlan, normalizeCommerceArtDirection, resolveCommerceImageSetStyle } from './commerce-art-direction.js';
-import { buildCommercePlanningReferenceInput, getCommerceShotReferenceAssetKeys, normalizeCommerceShotReferences } from './commerce-shot-references.js';
+import {
+    buildCommercePlanningReferenceInput, changeFingerprint, commerceConnectedStyleRevision, commerceShotConnectedStyleRevision,
+    getCommerceShotReferenceAssetKeys, normalizeCommerceShotReferences, normalizeCommerceStyleReferenceTypes
+} from './commerce-shot-references.js';
 
 export const COMMERCE_IMAGE_SET_ASPECTS = Object.freeze(['1:1', '3:4', '2:3', '4:5', '9:16', '4:3', '3:2', '16:9']);
 export const COMMERCE_IMAGE_SET_DEFAULT_ASPECTS = Object.freeze({ gallery: '1:1', detail: '9:16' });
@@ -213,6 +216,13 @@ export function getCommerceAmazonMainMode(settings) {
     return settings?.plan?.version === 1 && (!settings.plan.platformId || settings.plan.platformId === 'amazon') ? 'original' : 'generate';
 }
 
+export function getCommerceReferenceTypes(settings) {
+    const platform = getCommerceImageSetPreset(settings?.platformId) || COMMERCE_IMAGE_SET_PRESETS.taobao;
+    return getSelectedCommerceImageSetShots({ ...settings, selectedShotIds: [
+        ...platform.shots.map(shot => shot.id), ...normalizeCustomScenes(settings?.customScenes).map(shot => shot.id)
+    ] });
+}
+
 export function getSelectedCommerceImageSetShots(settings) {
     const platform = getCommerceImageSetPreset(settings?.platformId) || COMMERCE_IMAGE_SET_PRESETS.taobao;
     const legacyPlan = settings?.selectedShotIds === undefined && settings?.plan?.version === 1 && settings.plan.platformId === platform.id;
@@ -260,6 +270,10 @@ export function removeCommerceSceneShot(settings, shotId) {
     if (!scenes.some(scene => scene.id === shotId) || isCommerceShotFinalized(settings, shotId)) return false;
 
     settings.customScenes = scenes.filter(scene => scene.id !== shotId);
+    if (settings.shotReferences) delete settings.shotReferences[shotId];
+    if (settings.styleReferenceTypes) {
+        settings.styleReferenceTypes = Object.fromEntries(Object.entries(settings.styleReferenceTypes).filter(([, type]) => type !== shotId));
+    }
     if (Array.isArray(settings.selectedShotIds)) {
         settings.selectedShotIds = settings.selectedShotIds.filter(id => id !== shotId);
     }
@@ -394,13 +408,20 @@ function normalizeCommerceShotCopy(input, allowCopy) {
 export function commerceShotPlanKey(shot) {
     if (shot?.source !== 'generate') return '';
     const { headline, body } = normalizeCommerceShotCopy(shot, shot.allowCopy);
-    return `v1-${changeFingerprint(JSON.stringify([text(shot.prompt, 2000), headline, body, ...(shot.visualStyleSnapshot ? [visualStyleKey(shot.visualStyleSnapshot)] : []), ...(shot.referenceAssetKeys?.length ? [shot.referenceAssetKeys] : [])]))}`;
+    const fields = [text(shot.prompt, 2000), headline, body];
+    if (shot.visualStyleSnapshot) fields.push(visualStyleKey(shot.visualStyleSnapshot));
+    if (shot.referenceAssetKeys?.length) fields.push(shot.referenceAssetKeys);
+    if (shot.sharedReferenceAssetKeys?.length) fields.push({ shared: shot.sharedReferenceAssetKeys });
+    if (shot.connectedStyleRevision) fields.push({ connected: shot.connectedStyleRevision });
+    return `v1-${changeFingerprint(JSON.stringify(fields))}`;
 }
 
 function normalizeCandidateDraft(input, shot) {
     const prompt = text(input?.prompt, 2000);
     if (!prompt || shot?.source !== 'generate') return null;
     return { prompt, visualStyleSnapshot: input?.visualStyleSnapshot ? normalizeVisualStyle(input.visualStyleSnapshot) : null,
+        sharedReferenceAssetKeys: normalizeCommerceShotReferences({ reference: input?.sharedReferenceAssetKeys }, ['reference']).reference || [],
+        connectedStyleRevision: text(input?.connectedStyleRevision, 128),
         referenceAssetKeys: normalizeCommerceShotReferences({ reference: input?.referenceAssetKeys }, ['reference']).reference || [], ...normalizeCommerceShotCopy(input, shot.allowCopy),
         ...(shot.customScene ? {
             description: text(input.description, COMMERCE_SCENE_DESCRIPTION_LIMIT),
@@ -454,7 +475,7 @@ export function getCommerceImageSetCandidateAssetKeys(settings) {
 export function getCommerceImageSetHistoryAssetKeys(settings) {
     const candidates = normalizeCommerceShotCandidates(settings?.candidates, getSelectedCommerceImageSetShots(settings), settings?.results);
     return [...new Set([...candidates.map(candidate => candidate.assetKey), ...getCommerceImageSetPreviousAssetKeys(settings),
-        ...getCommerceShotReferenceAssetKeys(settings), ...candidates.flatMap(candidate => candidate.draft.referenceAssetKeys || [])])];
+        ...getCommerceShotReferenceAssetKeys(settings), ...candidates.flatMap(candidate => [...candidate.draft.referenceAssetKeys, ...candidate.draft.sharedReferenceAssetKeys])])];
 }
 
 export function rememberCommerceShotCandidate(settings, shot, assetKey) {
@@ -468,7 +489,9 @@ export function rememberCommerceShotCandidate(settings, shot, assetKey) {
 export function restoreCommerceShotCandidateDraft(settings, candidate) {
     const shot = settings.plan?.shots.find(item => item.id === candidate.shotId);
     if (!shot) return false;
-    Object.assign(shot, candidate.draft);
+    // Adopting one shot can restore its own picks. Shared picks and live connections still belong to the set.
+    const { sharedReferenceAssetKeys, connectedStyleRevision, ...shotDraft } = candidate.draft;
+    Object.assign(shot, shotDraft);
     useCurrentCommerceShotStyle(settings, shot);
     const references = { ...settings.shotReferences };
     if (candidate.draft.referenceAssetKeys?.length) references[shot.id] = [...candidate.draft.referenceAssetKeys];
@@ -528,7 +551,8 @@ export function normalizeCommerceImageSetPlan(raw, platformId, selectedShotIds, 
             throw new Error(`套图方案缺少「${item.label}」的画面说明。`);
         }
         const referenceAssetKeys = normalizeCommerceShotReferences(settings?.shotReferences, [item.id])[item.id];
-        return { ...item, prompt, ...(referenceAssetKeys?.length ? { referenceAssetKeys } : {}), ...(input?.visualStyleSnapshot ? { visualStyleSnapshot: normalizeVisualStyle(input.visualStyleSnapshot) } : {}), ...normalizeCommerceShotCopy(input, item.allowCopy),
+        return { ...item, prompt, ...(settings?.shotReferences?.['*']?.length ? { sharedReferenceAssetKeys: [...settings.shotReferences['*']] } : {}),
+            ...(input?.connectedStyleRevision ? { connectedStyleRevision: text(input.connectedStyleRevision, 128) } : {}), ...(referenceAssetKeys?.length ? { referenceAssetKeys } : {}), ...(input?.visualStyleSnapshot ? { visualStyleSnapshot: normalizeVisualStyle(input.visualStyleSnapshot) } : {}), ...normalizeCommerceShotCopy(input, item.allowCopy),
             ...(item.customScene ? scenePlanFields(input, prompt, allowBlankPrompts) : {}) };
     });
     return { version: 1, platformId: platform.id, copyLanguage: normalizeCommerceImageSetCopyLanguage(settings?.copyLanguage),
@@ -538,6 +562,9 @@ export function normalizeCommerceImageSetPlan(raw, platformId, selectedShotIds, 
 export function normalizeCommerceImageSetState(raw) {
     const selected = getSelectedCommerceImageSetShots(raw);
     const candidateCount = normalizeCommerceImageSetCandidateCount(raw?.candidateCount);
+    const typeIds = raw?.shotReferences || raw?.styleReferenceTypes ? getCommerceReferenceTypes(raw).map(shot => shot.id) : [];
+    const shotReferences = normalizeCommerceShotReferences(raw?.shotReferences, ['*', ...typeIds]);
+    const styleReferenceTypes = normalizeCommerceStyleReferenceTypes(raw?.styleReferenceTypes, typeIds);
     const settings = {
         platformId: getCommerceImageSetPreset(raw?.platformId)?.id || 'taobao',
         ...(raw?.platformId === 'amazon' ? { mainImageMode: getCommerceAmazonMainMode(raw) } : {}),
@@ -550,8 +577,8 @@ export function normalizeCommerceImageSetState(raw) {
         autoProductInfo: normalizeCommerceProductInfo(raw?.autoProductInfo),
         plannerModelId: text(raw?.plannerModelId, 200), plannerProviderId: text(raw?.plannerProviderId, 200),
         imageModelId: text(raw?.imageModelId, 200), imageProviderId: text(raw?.imageProviderId, 200),
-        ...(Object.keys(normalizeCommerceShotReferences(raw?.shotReferences, selected.map(shot => shot.id))).length
-            ? { shotReferences: normalizeCommerceShotReferences(raw.shotReferences, selected.map(shot => shot.id)) } : {}),
+        ...(Object.keys(shotReferences).length ? { shotReferences } : {}),
+        ...(Object.keys(styleReferenceTypes).length ? { styleReferenceTypes } : {}),
         ...(typeof raw?.artDirection === 'string' ? { artDirection: normalizeCommerceArtDirection(raw.artDirection) } : {}),
         ...(candidateCount > 1 ? { candidateCount } : {}),
         ...(raw?.visualStyle ? { visualStyle: normalizeVisualStyle(raw.visualStyle) } : {}),
@@ -589,6 +616,7 @@ export function normalizeCommerceImageSetState(raw) {
                 .map(group => [group, text(raw.plan.sceneContextKeys?.[group], 128)]).filter(([, key]) => key));
             settings.plan = { ...plan, plannedShotIds, ...(normalizeCommerceArtDirection(raw.plan.artDirection) ? { artDirection: normalizeCommerceArtDirection(raw.plan.artDirection) } : {}), ...(raw.plan.visualStyle ? { visualStyle: normalizeVisualStyle(raw.plan.visualStyle) } : {}), sourceKey, ...(productContextKey ? { productContextKey } : {}),
                 ...(referenceRevision ? { referenceRevision } : {}), ...(referenceContentKey ? { referenceContentKey } : {}),
+                ...(raw.plan.connectedStyleRevision ? { connectedStyleRevision: text(raw.plan.connectedStyleRevision, 128) } : {}),
                 ...(Object.keys(sceneContextKeys).length ? { sceneContextKeys } : {}),
                 confirmed: raw.plan.confirmed === true && !stale, ...(stale ? { stale: true } : {}) };
         } catch { /* Invalid stored plans can be replaced by planning again. */ }
@@ -637,16 +665,6 @@ function normalizeReferences(references) {
         throw new Error('请连接 1 至 5 张可读取的商品参考图。');
     }
     return references;
-}
-
-function changeFingerprint(value) {
-    let a = 2166136261, b = 0;
-    for (let index = 0; index < value.length; index++) {
-        const code = value.charCodeAt(index);
-        a = Math.imul(a ^ code, 16777619);
-        b = Math.imul(b ^ code, 31) + index;
-    }
-    return `${(a >>> 0).toString(16)}-${(b >>> 0).toString(16)}-${value.length}`;
 }
 
 async function sourceFingerprint(value) {
@@ -820,7 +838,7 @@ export async function analyzeCommerceImageSetProduct({ settings, references, ...
     return updated;
 }
 
-export async function createCommerceImageSetPlan({ settings, references, shotId, referenceRevision, readReferenceAsset, ...requestOptions }) {
+export async function createCommerceImageSetPlan({ settings, references, shotId, referenceRevision, readReferenceAsset, connectedStyleSlots = [], ...requestOptions }) {
     const input = normalizeCommerceImageSetState(settings);
     if (input.artDirection && !input.visualStyle) input.visualStyle = normalizeVisualStyle({ description: input.artDirection });
     // A newly selected preset may have no draft yet. Full replanning can still
@@ -851,7 +869,7 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
         .map(shot => ({ id: shot.id, group: shot.group, summary: getCommerceSceneSummary(shot, 2000) }))
         .filter(({ summary }) => summary) : [];
     const responseError = '规划模型未返回有效套图方案，请重试。';
-    const planningReferences = await buildCommercePlanningReferenceInput(input, slots, images, readReferenceAsset, requestOptions.signal);
+    const planningReferences = await buildCommercePlanningReferenceInput(input, slots, images, readReferenceAsset, requestOptions.signal, connectedStyleSlots);
     const { raw, plan, product } = await requestCommerceJson({
         ...requestOptions, settings: input, references: planningReferences.references, responseError, shot: currentShot,
         systemPrompt: [
@@ -915,6 +933,12 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
     const artDirection = hasStyle ? commerceArtDirectionForPlan(input, raw.artDirection, { rewriting: !!currentShot }) : '';
     const visualStyle = input.visualStyle || (artDirection ? normalizeVisualStyle({ description: artDirection }) : null);
     for (const shot of plan.shots) if (shot.source === 'generate' && visualStyle) shot.visualStyleSnapshot = normalizeVisualStyle(visualStyle);
+    const connectedStyleRevision = commerceConnectedStyleRevision(input, { slots: connectedStyleSlots });
+    for (const shot of plan.shots) {
+        const revision = commerceShotConnectedStyleRevision(input, connectedStyleSlots, shot.id);
+        if (revision) shot.connectedStyleRevision = revision;
+        else delete shot.connectedStyleRevision;
+    }
     const revision = text(referenceRevision, 512);
     if (currentShot) return { ...input, plan: { ...input.plan, artDirection,
         ...keysForCurrentShot, ...(revision ? { referenceRevision: revision } : {}),
@@ -942,8 +966,11 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
         .map(shot => [shot.id, shot]));
     const keptScenes = [...previousShots.values()]
         .filter(shot => shot.customScene && input.selectedShotIds.includes(shot.id)).map(shot => {
-            if (hasMatchingSceneContext(shot)) return shot;
+            const revision = commerceShotConnectedStyleRevision(input, connectedStyleSlots, shot.id);
+            if (hasMatchingSceneContext(shot) && (shot.connectedStyleRevision || '') === revision) return shot;
             const draft = { ...shot };
+            if (revision) draft.connectedStyleRevision = revision;
+            else delete draft.connectedStyleRevision;
             markCommerceSceneForReview(draft);
             return draft;
         });
@@ -960,6 +987,6 @@ export async function createCommerceImageSetPlan({ settings, references, shotId,
     }) : [];
     const currentReferenceRevision = revision || (sameReferences ? input.plan?.referenceRevision : '');
     return { ...updated,
-        plan: { ...combined, ...(artDirection ? { artDirection } : {}), ...(visualStyle ? { visualStyle: normalizeVisualStyle(visualStyle) } : {}), ...keys, ...(currentReferenceRevision ? { referenceRevision: currentReferenceRevision } : {}), confirmed: false },
+        plan: { ...combined, ...(connectedStyleRevision ? { connectedStyleRevision } : {}), ...(artDirection ? { artDirection } : {}), ...(visualStyle ? { visualStyle: normalizeVisualStyle(visualStyle) } : {}), ...keys, ...(currentReferenceRevision ? { referenceRevision: currentReferenceRevision } : {}), confirmed: false },
         results };
 }

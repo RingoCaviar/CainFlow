@@ -1,6 +1,6 @@
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
 import { getNodeModelConfigurationIssue } from './model-configuration-readiness.js';
-import { getCommerceRunBlocker, usesCommerceRunReferences } from './commerce-run-preflight.js';
+import { getCommerceRunBlocker, getRunInputConnections, usesCommerceRunReferences } from './commerce-run-preflight.js';
 import {
     COMMERCE_REFERENCE_CHANGED_MESSAGE, hasCommerceReferenceChange, needsCommerceReferenceVerification,
     projectCommerceReferences, sameCommerceReferenceProjection, verifyCommerceReferenceContent
@@ -1142,6 +1142,7 @@ export function createWorkflowRunnerApi({
 
     function isReferenceImageInputPort(node, portName) {
         const normalizedPort = String(portName || '');
+        if (node?.type === 'ECommerceImageSet' && normalizedPort === 'styleReferenceImages') return true;
         if (node?.type === 'ImageGenerate' || node?.type === 'TextChat' || node?.type === 'ECommerceImageSet') {
             return normalizedPort === 'image' || normalizedPort === 'referenceImages' || /^image_\d+$/.test(normalizedPort);
         }
@@ -1199,7 +1200,7 @@ export function createWorkflowRunnerApi({
         }
         if (!['ImageGenerate', 'VideoGenerate', 'TextChat', 'ECommerceImageSet'].includes(node?.type)) return;
 
-        const missingConnections = (plan.inputConnectionsByNode[node.id] || [])
+        const missingConnections = [...outputsByConnection.keys()]
             .filter((connection) => isReferenceImageInputPort(node, connection.to.port) && state.nodes.get(connection.from.nodeId)?.enabled !== false)
             .filter(connection => {
                 const images = normalizeImageList(outputsByConnection.get(connection));
@@ -1235,7 +1236,7 @@ export function createWorkflowRunnerApi({
         for (const nodeId of plan.nodeIds || []) {
             const toNode = state.nodes.get(nodeId);
             if (!usesCommerceRunReferences(toNode, plan)) continue;
-            for (const connection of plan.inputConnectionsByNode[nodeId] || []) {
+            for (const connection of getRunInputConnections(plan, nodeId)) {
                 if (plan.scopeNodeSet.has(connection.from.nodeId)) continue;
 
                 const fromNode = state.nodes.get(connection.from.nodeId);
@@ -1343,7 +1344,7 @@ export function createWorkflowRunnerApi({
         const identities = new Map();
         const node = state.nodes.get(nodeId);
         if (!usesCommerceRunReferences(node, plan)) return inputs;
-        const connections = orderInputConnections(node?.type, plan.inputConnectionsByNode[nodeId]);
+        const connections = orderInputConnections(node?.type, getRunInputConnections(plan, nodeId));
 
         for (const connection of connections) {
             const outputValue = await getInputValueForConnection(plan, nodeId, connection);

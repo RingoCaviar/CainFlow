@@ -85,6 +85,12 @@ test('the commerce image set accepts multiple product image sources on its refer
     assert.deepEqual(connect(second), reference);
     assert.match(connect(first).error, /重复/);
     assert.match(connect(text, 'text').error, /不兼容/);
+    const styleArgs = { state, targetNode, sourceNode: first, sourcePort: 'image', role: 'styleReferenceImages' };
+    assert.deepEqual(resolveUniversalInput(styleArgs), { port: 'styleReferenceImages', type: 'image', multiple: true, error: '' });
+    state.connections.push({ id: 'style-edge', from: { nodeId: first.id, port: 'image' },
+        to: { nodeId: targetNode.id, port: 'styleReferenceImages' }, type: 'image' });
+    assert.equal(resolveUniversalInput({ ...styleArgs, sourceNode: second }).error, '');
+    assert.match(resolveUniversalInput(styleArgs).error, /重复/);
 });
 
 test('universal input rejects occupied roles, duplicates, cycles and running endpoints without changing the graph', () => {
