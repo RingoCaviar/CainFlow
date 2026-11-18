@@ -15,9 +15,9 @@ const roles = ['angle', 'detail', 'feature', 'scene', 'included'];
 
 function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main', ...roles], beforeImageRequest, beforePlanRequest,
     galleryAspect, imageModel = 'gemini-2.5-flash-image', imageProtocol = 'google', responseImageData,
-    referenceImageCatalog, syncImagePreviewNode, visualStyle } = {}) {
+    referenceImageCatalog, syncImagePreviewNode, visualStyle, platformId = 'amazon' } = {}) {
     const node = { id: 'commerce', type: 'ECommerceImageSet', data: { commerceImageSet: {
-        platformId: 'amazon', productNotes: '杯盖可拆卸', plannerModelId: 'vision', plannerProviderId: 'provider',
+        platformId, productNotes: '杯盖可拆卸', plannerModelId: 'vision', plannerProviderId: 'provider',
         imageModelId: 'image', imageProviderId: 'provider', selectedShotIds, galleryAspect
     } } };
     const apiCalls = [];
@@ -110,6 +110,44 @@ function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main',
         getCachedOutputValue: core.getCachedOutputValue, apiCalls, requestLogs, requestStatistics, imagePrompts, history, assets, warnings,
         setConnectedReference, setFailure: role => { failedRole = role; }, clearFailure: () => { failedRole = undefined; } };
 }
+
+test('淘宝主图文案在保存恢复、生成和单图重试时进入请求，白底素材不叠字', async () => {
+    let variant = 1;
+    const { node, execute, apiCalls, imagePrompts } = createCommerceExecutionFixture({
+        platformId: 'taobao', selectedShotIds: ['main', 'white'],
+        beforePlanRequest: input => ({ sellingPoints: ['杯盖可拆卸'], shots: input.shots.map(({ id }) => ({
+            id, prompt: `${id}\n米色商品背景，商品位于右侧，左上方排标题与辅助卖点。`,
+            headline: '随行马克杯', body: '杯盖可拆卸'
+        })) }),
+        responseImageData: () => Buffer.from([variant++]).toString('base64')
+    });
+    await execute('plan');
+    assert.equal(node.data.commerceImageSet.plan.shots[0].headline, '随行马克杯');
+    assert.equal(node.data.commerceImageSet.plan.shots[0].body, '杯盖可拆卸');
+    assert.equal(apiCalls.filter(call => call.type === 'image').length, 0);
+
+    node.data.commerceImageSet = normalizeCommerceImageSetState(JSON.parse(JSON.stringify(node.data.commerceImageSet)));
+    assert.equal(node.data.commerceImageSet.plan.shots[0].headline, '随行马克杯');
+    node.data.commerceImageSet.plan.confirmed = true;
+    await execute('generate');
+    assert.deepEqual(apiCalls.filter(call => call.type === 'image').map(call => call.role), ['main', 'white']);
+    assert.match(imagePrompts.get('main'), /标题："随行马克杯"/);
+    assert.match(imagePrompts.get('main'), /正文："杯盖可拆卸"/);
+    assert.match(imagePrompts.get('main'), /逐字保留/);
+    assert.doesNotMatch(imagePrompts.get('main'), /画面不添加标题、正文/);
+    assert.equal(node.data.commerceImageSet.plan.shots[1].headline, '');
+    assert.equal(node.data.commerceImageSet.plan.shots[1].body, '');
+    assert.match(imagePrompts.get('white'), /纯白背景/);
+    assert.match(imagePrompts.get('white'), /画面不添加标题、正文/);
+    assert.doesNotMatch(imagePrompts.get('white'), /标题：|正文：/);
+
+    node.data.commerceImageSet.plan.shots[0].headline = '随行有方';
+    await execute('retry', reference, 'main');
+    assert.deepEqual(apiCalls.filter(call => call.type === 'image').map(call => call.role), ['main', 'white', 'main']);
+    assert.match(imagePrompts.get('main'), /标题："随行有方"/);
+    assert.match(imagePrompts.get('main'), /正文："杯盖可拆卸"/);
+    assert.doesNotMatch(imagePrompts.get('main'), /标题："随行马克杯"/);
+});
 
 test('finalized legacy commerce output checks the connected original before republishing without supplied inputs', async () => {
     const { node, execute, apiCalls, setConnectedReference, getCachedOutputValue } = createCommerceExecutionFixture({

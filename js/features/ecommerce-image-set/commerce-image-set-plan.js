@@ -51,9 +51,9 @@ const preset = (id, label, guide, rulesUrl, gallery) => Object.freeze({
 });
 
 export const COMMERCE_IMAGE_SET_PRESETS = Object.freeze({
-    taobao: preset('taobao', '淘宝／天猫', '先规划方形商品主图。竖图和白底素材要求按类目核对。',
+    taobao: preset('taobao', '淘宝／天猫', '商品主图突出商品、标题与已核实卖点，白底素材独立制作。图位、文案和尺寸要求按类目与活动核对。',
         'https://developer.alibaba.com/support/announcementDetail.htm?id=25721',
-        [shot('main', '商品主图', cleanMain), feature, detail, scene,
+        [shot('main', '商品主图', '设计精致的商品主视觉，清楚完整地展示实际销售商品，用协调的背景、配色和光影突出主体。根据商品名称或类目拟定简短标题，以已核实卖点撰写辅助说明，安排标题、卖点与商品的阅读层级及留白，文字清晰且不遮挡商品。不编造功效、销量、价格、优惠或认证。', { allowCopy: true }), feature, detail, scene,
             shot('white', '白底素材', '纯白背景上完整展示商品，保持颜色与比例，不添加道具、边框或文案。')]),
     jd: preset('jd', '京东', '清楚展示所售商品、实际细节和使用场景。长图需求按类目核对。',
         'https://jdrdl.jd.com/Design-image.html',

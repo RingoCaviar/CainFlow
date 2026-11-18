@@ -31,3 +31,4 @@ CainFlow_Launcher.spec
 Cainflow_*.zip
 /Cainflow_local-bootstrap-*/
 workflows/Default.json
+issue列表.md

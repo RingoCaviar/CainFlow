@@ -18,6 +18,63 @@ const settings = { platformId: 'amazon', productNotes: '白色马克杯', planne
 const models = [{ id: 'vision', modelId: 'gpt-4o', taskType: 'chat', protocol: 'openai', providerIds: ['provider'] }];
 const providers = [{ id: 'provider', endpoint: 'https://fixture.test/v1', apikey: 'test' }];
 
+test('淘宝主图规划保留标题和已确认卖点，白底素材独立禁用叠字', async () => {
+    let request;
+    const drafts = [
+        { id: 'main', prompt: '米色层次背景，马克杯在右，标题在左上，正文在标题下方。', headline: '日常随行杯', body: '可拆卸杯盖' },
+        { id: 'white', prompt: '纯白背景完整展示马克杯。', headline: '不应出现', body: '白底素材不叠字' }
+    ];
+    const result = await createCommerceImageSetPlan({
+        settings: { ...settings, platformId: 'taobao', selectedShotIds: ['main', 'white'],
+            productInfo: { name: '日常随行杯', sellingPoints: ['可拆卸杯盖'] } },
+        references, models, providers, getProxyHeaders: () => ({}),
+        fetchRef: async (_url, options) => {
+            request = JSON.parse(options.body);
+            return Response.json({ choices: [{ message: { content: JSON.stringify({ sellingPoints: ['可拆卸杯盖'], shots: drafts }) } }] });
+        }
+    });
+    const requestedShots = JSON.parse(request.messages.at(-1).content[0].text).shots;
+    assert.equal(requestedShots[0].allowCopy, true);
+    assert.match(requestedShots[0].purpose, /标题/);
+    assert.match(requestedShots[0].purpose, /卖点/);
+    assert.doesNotMatch(requestedShots[0].purpose, /不添加文案|纯白背景/);
+    assert.equal(requestedShots[1].allowCopy, false);
+
+    const restored = normalizeCommerceImageSetState(JSON.parse(JSON.stringify(result)));
+    const [main, white] = restored.plan.shots;
+    assert.equal(main.headline, '日常随行杯');
+    assert.equal(main.body, '可拆卸杯盖');
+    const mainPrompt = buildCommerceImageSetImagePrompt({ shot: main, plan: restored.plan, productInfo: restored.productInfo });
+    assert.match(mainPrompt, /标题："日常随行杯"/);
+    assert.match(mainPrompt, /正文："可拆卸杯盖"/);
+    assert.match(mainPrompt, /四周留足安全边距/);
+    assert.doesNotMatch(mainPrompt, /画面不添加标题/);
+    assert.equal(white.headline, '');
+    assert.equal(white.body, '');
+    const whitePrompt = buildCommerceImageSetImagePrompt({ shot: white, plan: restored.plan });
+    assert.match(whitePrompt, /纯白背景/);
+    assert.match(whitePrompt, /画面不添加标题/);
+
+    const rewritten = await createCommerceImageSetPlan({ settings: restored, shotId: 'main',
+        references, models, providers, getProxyHeaders: () => ({}),
+        fetchRef: async (_url, options) => {
+            const input = JSON.parse(JSON.parse(options.body).messages.at(-1).content[0].text);
+            assert.deepEqual(input.shots.map(shot => [shot.id, shot.allowCopy]), [['main', true]]);
+            return Response.json({ choices: [{ message: { content: JSON.stringify({ shots: [
+                { ...drafts[0], headline: '杯盖轻松拆卸', body: '日常随行杯' }
+            ] }) } }] });
+        }
+    });
+    assert.equal(rewritten.plan.shots[0].headline, '杯盖轻松拆卸');
+    assert.equal(rewritten.plan.shots[0].body, '日常随行杯');
+    assert.deepEqual(rewritten.plan.shots[1], white);
+
+    Object.assign(main, { headline: '', body: '' });
+    const clearedPrompt = buildCommerceImageSetImagePrompt({ shot: main, plan: restored.plan });
+    assert.match(clearedPrompt, /画面不添加标题/);
+    assert.doesNotMatch(clearedPrompt, /标题：|正文：/);
+});
+
 test('风格控制优先于副图和详情图草稿的冲突视觉要求', async () => {
     let system;
     const visualStyle = { description: '冷蓝水彩插画，标题右对齐' };
@@ -291,8 +348,8 @@ test('platform slots reject an unexpected AI-generated shot and retain real-prod
             prompt: '展示商品', headline: '  商品\n标题  ', body: '句'.repeat(70) }));
         const plan = normalizeCommerceImageSetPlan({ sellingPoints: [], shots }, id);
         assert.equal(plan.shots[0].source, ['douyin', 'amazon'].includes(id) ? 'reference' : 'generate');
-        assert.equal(plan.shots[0].headline, '');
-        assert.equal(plan.shots[0].body, '');
+        assert.equal(plan.shots[0].headline, id === 'taobao' ? '商品 标题' : '');
+        assert.equal(plan.shots[0].body, id === 'taobao' ? '句'.repeat(64) : '');
         assert.ok(plan.shots.filter(shot => shot.group === 'gallery').every(shot => shot.aspect === '1:1'));
         const detailShots = plan.shots.filter(shot => shot.group === 'detail');
         assert.deepEqual(detailShots.map(shot => shot.id), ['detail-overview', 'detail-feature', 'detail-closeup', 'detail-scene']);
