@@ -1,3 +1,4 @@
+import { hasVisualStyleReference } from '../../nodes/visual-style-view.js';
 import { cleanupElementResources } from '../../core/common-utils.js';
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
 import { REFERENCE_IMAGES_PORT } from '../../nodes/reference-image-ports.js';
@@ -704,7 +705,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             const running = state.runningNodeIds?.has(node.id) || ['waiting', 'running'].includes(node.runStatus) || node.el.classList.contains('running');
             const generationCount = node.type === 'ImageGenerate' ? readImageGenerationSettings(node, documentRef).generationCount : 1;
             generate.hidden = ['ImageImport', 'ImageSave'].includes(node.type) || dockWidthKeys.has(node.type)
-                || (node.type === 'ImageMerge' && !mergeSourceCount);
+                || (node.type === 'ImageMerge' && !mergeSourceCount)
+                || (node.type === 'VisualStyle' && !hasVisualStyleReference(state, node.id));
             setText(generate, node.type === 'ImagePreview' ? (running ? '更新中' : '更新预览')
                 : node.type === 'ImageCompare' ? (running ? '更新中' : '更新对比')
                 : node.type === 'ImageMerge' ? (running ? '合并中' : '更新合并')
@@ -742,7 +744,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 && !!feedback.textContent && !passiveFeedback.includes(feedback.textContent);
             feedback.hidden = !hasFeedback;
             panel.dataset.hasFeedback = String(hasFeedback);
-            footer.hidden = node.type === 'ImageImport' || (generate.hidden && !hasFeedback && ['ImageSave', 'ImageMerge'].includes(node.type));
+            footer.hidden = node.type === 'ImageImport' || (generate.hidden && !hasFeedback && ['ImageSave', 'ImageMerge', 'VisualStyle'].includes(node.type));
             schedulePosition();
         }
     }

@@ -25,3 +25,5 @@
 .visual-style-settings select { width: 100%; max-width: 100%; background: var(--bg-input); color: var(--text-primary); }
 .visual-style-settings [data-style-status] { margin: 0; font-size: 13px; line-height: 1.6; color: var(--text-secondary); overflow-wrap: anywhere; }
 .visual-style-settings [data-style-status]:empty { display: none; }
+
+.visual-style-settings > [hidden] { display: none; }

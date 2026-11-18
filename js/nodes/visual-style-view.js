@@ -6,6 +6,11 @@ const modelOptions = (state, selected) => '<option value="">选择模型</option
     .filter(model => model.capabilities?.imageInput !== false)
     .map(model => `<option value="${escape(model.id)}" ${selected === model.id ? 'selected' : ''}>${escape(model.name || model.modelId)}</option>`).join('');
 
+export function hasVisualStyleReference(state, nodeId) {
+    return (state.connections || []).some(edge => edge.to.nodeId === nodeId && edge.to.port === 'image'
+        && state.nodes.has(edge.from.nodeId) && state.nodes.get(edge.from.nodeId).enabled !== false);
+}
+
 export function renderVisualStyleBody(id, restored = {}, state = {}) {
     restored = restored || {};
     const text = visualStyleText(restored.visualStyle);
@@ -34,6 +39,10 @@ export function bindVisualStyleNode(node, { state, runToNode, scheduleSave, push
     const save = () => { scheduleSave(); pushHistory(); };
     const locked = () => node.isClone || state.isRunning || state.runningNodeIds?.size;
     const refresh = () => {
+        const hasReference = hasVisualStyleReference(state, node.id);
+        settings.querySelector('.visual-style-detail').hidden = !hasReference;
+        settings.querySelector('details').hidden = !hasReference;
+        status.hidden = !hasReference;
         const value = visualStyleText(node.data.visualStyle);
         if (text.value !== value && text.ownerDocument.activeElement !== text) text.value = value;
         const label = value || '画面风格';

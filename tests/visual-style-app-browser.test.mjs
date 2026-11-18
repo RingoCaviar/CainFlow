@@ -6,7 +6,7 @@ import { uploadImageOriginal } from './helpers/image-upload.mjs';
 import { configuration, originals } from './helpers/image-first-integrated-fixture.mjs';
 
 test('精细度五档支持真实键盘、鼠标选择与保存', { timeout: 30000 }, async () => {
-    await withAppBrowser({ ...configuration, nodes: [{ id: 'style', type: 'VisualStyle', x: 360, y: 80 }], connections: [] }, async app => {
+    await withAppBrowser({ ...configuration, nodes: [{ id: 'style', type: 'VisualStyle', x: 360, y: 80 }, { id: 'reference', type: 'ImageImport', x: 0, y: 0 }], connections: [{ id: 'ref', from: { nodeId: 'reference', port: 'image' }, to: { nodeId: 'style', port: 'image' }, type: 'image' }] }, async app => {
         const click = async selector => {
             const point = await app.evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})()`);
             await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
@@ -48,7 +48,7 @@ test('精细度五档支持真实键盘、鼠标选择与保存', { timeout: 300
 });
 
 test('风格浮层当场展开与重新打开有相同的完整高度', { timeout: 30000 }, async () => {
-    await withAppBrowser({ ...configuration, nodes: [{ id: 'style', type: 'VisualStyle', x: 360, y: 430 }], connections: [] }, async app => {
+    await withAppBrowser({ ...configuration, nodes: [{ id: 'style', type: 'VisualStyle', x: 360, y: 430 }, { id: 'reference', type: 'ImageImport', x: 0, y: 0 }], connections: [{ id: 'ref', from: { nodeId: 'reference', port: 'image' }, to: { nodeId: 'style', port: 'image' }, type: 'image' }] }, async app => {
         const click = async selector => {
             const point = await app.evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})()`);
             await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
@@ -205,13 +205,12 @@ test('画面风格编辑、显式提取、普通生图与保存恢复', { timeou
     }, { initScript });
 });
 
-test('风格手动输入无需模型；提取失败保留文本并显示原因', { timeout: 30000 }, async () => {
+test('无参考图时隐藏提取功能并保留手动风格编辑', { timeout: 30000 }, async () => {
     await withAppBrowser({ ...configuration, nodes: [{ id: 'style', type: 'VisualStyle', x: 150, y: 80 }], connections: [] }, async app => {
-        await app.evaluate("document.querySelector('#style [data-style-preview]').click();var field=document.getElementById('style-style-description');field.value='我的风格';field.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('#image-parameter-panel [data-parameter-action=generate]').click()");
-        assert.match(await app.evaluate("document.querySelector('[data-style-status]').textContent"), /请选择/);
-        assert.equal(await app.evaluate("document.getElementById('style-style-description').value"), '我的风格');
-        await app.evaluate("var model=document.querySelector('[data-style-model]');model.value='chat';model.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('#image-parameter-panel [data-parameter-action=generate]').click()");
-        await app.waitFor("document.getElementById('btn-stop').disabled && document.querySelector('[data-style-status]').textContent.includes('参考图')");
+        await app.evaluate("document.querySelector('#style [data-style-preview]').click();var field=document.getElementById('style-style-description');field.value='我的风格';field.dispatchEvent(new Event('input',{bubbles:true}))");
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=generate]').hidden"), true);
+        assert.equal(await app.evaluate("document.querySelector('.visual-style-detail').getBoundingClientRect().height"), 0);
+        assert.equal(await app.evaluate("document.querySelector('.visual-style-model-settings').getBoundingClientRect().height"), 0);
         assert.equal(await app.evaluate("document.getElementById('style-style-description').value"), '我的风格');
         await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
         await app.waitFor("document.getElementById('image-parameter-panel').hidden");
