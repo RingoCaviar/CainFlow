@@ -88,12 +88,13 @@ test('thinking controls persist Agent choices, apply to nodes and reach actual c
         await evaluate(`document.getElementById('prompt-agent-input').value='生成海报';document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));`);
         await waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
         assert.equal(await evaluate('requests[0].reasoning_effort'),'high');
+        assert.deepEqual(await evaluate("[...document.querySelectorAll('.prompt-agent-change-list li')].map(item => item.textContent)"),
+            ['新增 海报（图片生成）']);
         await evaluate(`[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='运行').click()`);
         await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束')",20000);
         assert.ok(await evaluate('requests.some(body=>body.contents)'), await evaluate("document.getElementById('prompt-agent-panel').innerText + document.getElementById('nodes-layer').innerText"));
         assert.equal(await evaluate('requests.find(body=>body.contents).generationConfig.thinkingConfig.thinkingLevel'),'minimal');
         assert.equal(await evaluate("document.querySelectorAll('.prompt-agent-result-image').length"),1);
-        assert.ok(await evaluate("document.querySelector('.prompt-agent-change-list').textContent.includes('思考设置')"));
         await delay(500);
         await reloadAppBrowser({ evaluate, send, waitFor });
         await evaluate("document.getElementById('btn-prompt-agent').click()");

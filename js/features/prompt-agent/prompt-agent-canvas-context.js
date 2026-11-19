@@ -204,7 +204,10 @@ export function canvasBaseline(context, ids, ignoreOutputIds = []) {
         // Stored v1 baselines use the registry's static declarations. A new plan that
         // edits custom sockets checks their live shape separately.
         const defaults = getNodeDefinition(node.type);
-        return { ...node, parameters, inputs: defaults?.inputs || [], outputs: defaults?.outputs || [],
+        const inputs = defaults?.inputs || [];
+        // The new style input is visible in the live canvas. Its actual edges are compared below.
+        const baselineInputs = node.type === 'ECommerceImageSet' ? inputs.filter(port => port.name !== 'styleReferenceImages') : inputs;
+        return { ...node, parameters, inputs: baselineInputs, outputs: defaults?.outputs || [],
             ...(ignoreOutputIds.includes(node.id) ? { assets: [], missing: false } : {}) };
     }),
         connections: context.connections.filter(link => relevant.has(link.to.nodeId) || relevant.has(link.from.nodeId)) });

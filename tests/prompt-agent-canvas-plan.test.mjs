@@ -92,6 +92,18 @@ test('Agent can wire several scene images to the commerce style input independen
     const plan = normalizeCanvasPlan(proposal([wiring('a'), wiring('b')]), context);
     assert.deepEqual(plan.connections.map(edge => [edge.from.ref, edge.to.port]), [['a', 'styleReferenceImages'], ['b', 'styleReferenceImages']]);
     assert.throws(() => normalizeCanvasPlan(proposal([wiring('text', 'text')]), context), /类型/);
+
+    const legacyPlan = normalizeCanvasPlan(proposal([]), context);
+    const legacyBaseline = JSON.parse(legacyPlan.baseline);
+    legacyBaseline.nodes[0].inputs = [
+        { name: 'referenceImages', type: 'image', label: '商品参考图', multiple: true },
+        { name: 'style', type: 'style', label: '画面风格' }
+    ];
+    legacyPlan.baseline = JSON.stringify(legacyBaseline);
+    assert.doesNotThrow(() => assertCanvasPlanCurrent(legacyPlan, context));
+    const connected = graph({ nodes, connections: [{ id: 'style-edge',
+        from: { nodeId: 'a', port: 'image' }, to: { nodeId: 'commerce', port: 'styleReferenceImages' } }] });
+    assert.throws(() => assertCanvasPlanCurrent(legacyPlan, connected), /相关画布内容已变化/);
 });
 
 test('clearing references needs an explicit selected-node command and preserves other inputs, including masks', () => {
