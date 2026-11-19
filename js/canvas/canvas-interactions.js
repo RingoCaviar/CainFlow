@@ -157,6 +157,12 @@ export function createCanvasInteractionsApi({
         });
     }
 
+    function updateCanvasPanPosition(clientX, clientY) {
+        const { canvasStart, panStart } = state.canvas;
+        state.canvas.x = canvasStart.x + (clientX - panStart.x);
+        state.canvas.y = canvasStart.y + (clientY - panStart.y);
+    }
+
     function notifyViewportSettled() {
         if (typeof onViewportSettled !== 'function') return;
         try {
@@ -1272,8 +1278,7 @@ export function createCanvasInteractionsApi({
                 if (panButtonReleased) {
                     settleCanvasPan({ abort: true });
                 } else {
-                    state.canvas.x = state.canvas.canvasStart.x + (e.clientX - state.canvas.panStart.x);
-                    state.canvas.y = state.canvas.canvasStart.y + (e.clientY - state.canvas.panStart.y);
+                    updateCanvasPanPosition(e.clientX, e.clientY);
                     schedulePanTransformUpdate();
                     getProjectionInteraction(CANVAS_INTERACTION_KIND.PAN)?.changed();
                 }
@@ -1365,10 +1370,14 @@ export function createCanvasInteractionsApi({
         }, true);
 
         windowRef.addEventListener('mouseup', (e) => {
-            // Read geometry before removing interaction styles across the canvas.
             const releasePointer = Number.isFinite(e.clientX) && Number.isFinite(e.clientY)
                 ? { x: e.clientX, y: e.clientY }
                 : null;
+            const endingPan = state.canvas.isPanning && !(e.buttons & state.canvas.panButtonMask);
+            // Chromium can coalesce the last move before release. Use the
+            // final viewport for coordinate conversion in overlapping gestures.
+            if (endingPan && releasePointer) updateCanvasPanPosition(releasePointer.x, releasePointer.y);
+            // Read geometry before removing interaction styles across the canvas.
             const releaseCanvasPoint = releasePointer && (state.dragging || state.marquee)
                 ? viewportApi.screenToCanvas(e.clientX, e.clientY)
                 : null;
@@ -1377,9 +1386,7 @@ export function createCanvasInteractionsApi({
 
             finishCut(e);
 
-            if (state.canvas.isPanning) {
-                settleCanvasPan();
-            }
+            if (endingPan) settleCanvasPan();
             settleMarquee(releasePointer && releaseCanvasPoint ? { ...releasePointer, canvas: releaseCanvasPoint } : null);
             if (state.dragging) {
                 settleNodeDrag({ endPosition: releaseCanvasPoint });

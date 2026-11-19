@@ -36,8 +36,11 @@ test('规划先确定并保存整套美术风格，单图重写与生图继续�
     const rewritten = await createCommerceImageSetPlan({ ...options, settings: restored, shotId: 'detail' });
     assert.equal(rewritten.plan.artDirection, style);
     assert.match(requests[1].system, /草木绿与米白/);
+    assert.match(requests[1].system, /图位用途要求具体视角时，保留可核实的商品视角，其他构图遵循风格规范/);
     for (const shot of rewritten.plan.shots) {
-        assert.match(buildCommerceImageSetImagePrompt({ shot, plan: rewritten.plan }), /草木绿与米白/);
+        const prompt = buildCommerceImageSetImagePrompt({ shot, plan: rewritten.plan });
+        assert.match(prompt, /草木绿与米白/);
+        assert.match(prompt, /图位用途要求具体视角时，保留可核实的商品视角，其他构图遵循风格规范/);
     }
     assert.equal(await commerceImageSetSourceKey({ settings: rewritten, references }), rewritten.plan.sourceKey);
 });
@@ -104,7 +107,7 @@ test('各图位设计参考按附图序号映射，候选保存恢复仍持有�
 test('图位提示以目标和可选手法为主，整套同风格但不固定版式', async () => {
     const { options, requests } = planner();
     const state = await createCommerceImageSetPlan({ ...options, settings });
-    assert.match(requests[0].system, /构图、景别、角度及信息节奏应按用途变化/);
+    assert.match(requests[0].system, /各图位共享这套视觉语言.*构图、景别及信息节奏应按用途变化/);
     assert.match(requests[0].input.shots[0].purpose, /可选手法/);
     assert.match(requests[0].input.shots[0].purpose, /不指定固定位置/);
     for (const shot of state.plan.shots) {

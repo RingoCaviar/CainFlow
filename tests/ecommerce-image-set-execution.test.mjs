@@ -91,7 +91,7 @@ function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main',
             if (request?.systemInstruction) {
                 apiCalls.push({ type: 'plan', images });
                 const input = JSON.parse(parts.find(part => part.text).text);
-                const output = await beforePlanRequest?.(input, signal) || {
+                const output = await beforePlanRequest?.(input, signal, request.systemInstruction.parts[0].text) || {
                     sellingPoints: ['可拆卸杯盖'], shots: selectedShotIds.filter(id => id !== 'main').map(id => ({
                         id, prompt: `${id}\n商品位于画面右侧，左上角留给文字，柔和侧光，温暖米色摄影风格。`, headline: '规划草稿', body: '规划正文'
                     }))
@@ -127,12 +127,48 @@ test('planning and retrying a shot never download the remote style image assigne
     assert.deepEqual(apiCalls.map(({ type, images }) => [type, images]), [['plan', ['AAAA']], ['image', ['AAAA']]]);
 });
 
+test('一张商品原图支持按图位用途选择新视角或沿用原角度', async () => {
+    const viewpoints = {
+        angle: '从斜侧看杯柄的弧度。',
+        detail: '从略高处特写商品原图中可见的杯盖边缘。',
+        scene: '沿用商品原图的正面视角，在桌上展示杯子。'
+    };
+    const { node, execute, apiCalls, imagePrompts } = createCommerceExecutionFixture({
+        selectedShotIds: ['main', 'angle', 'detail', 'scene'],
+        beforePlanRequest(input, _signal, systemPrompt) {
+            assert.match(systemPrompt, /即使只有一张商品参考图.*按图位用途选择视角/);
+            assert.match(systemPrompt, /更能说明卖点、细节或用法时就改变.*原角度最清楚时可以沿用/);
+            assert.match(systemPrompt, /明确写出商品视角和要展示的部位/);
+            assert.match(input.shots.find(shot => shot.id === 'angle').purpose, /可核实的新视角.*证据不足时/);
+            return { sellingPoints: [], shots: input.shots.map(({ id }) => ({ id, prompt: `${id}\n${viewpoints[id]}` })) };
+        }
+    });
+    await execute('plan');
+    node.data.commerceImageSet.plan.confirmed = true;
+    const result = await execute('generate');
+    assert.equal(result.image[0], reference);
+    assert.deepEqual(apiCalls.map(({ type, role, images }) => [type, role, images]), [
+        ['plan', undefined, ['AAAA']], ['image', 'angle', ['AAAA']], ['image', 'detail', ['AAAA']], ['image', 'scene', ['AAAA']]
+    ]);
+    for (const [id, viewpoint] of Object.entries(viewpoints)) {
+        const prompt = imagePrompts.get(id);
+        assert.ok(prompt.includes(viewpoint));
+        assert.match(prompt, /商品参考图用于确认商品身份.*不限定本图的拍摄角度/);
+        assert.match(prompt, /画面设计指定了可核实的商品视角时，按该视角呈现/);
+        assert.match(prompt, /无法核实的背面.*改用仍能展示已知部位的斜侧视角或局部特写/);
+    }
+});
+
 test('亚马逊 MAIN 使用第一张商品原图生成白底精修结果并支持单图重试', async () => {
     let variant = 1;
     const { node, execute, apiCalls, imagePrompts, assets } = createCommerceExecutionFixture({
         mainImageMode: 'generate', selectedShotIds: ['main', 'feature'],
-        beforePlanRequest: input => ({ artDirection: '冷蓝摄影，柔和布光', sellingPoints: ['杯盖可拆卸'],
-            shots: input.shots.map(({ id }) => ({ id, prompt: `${id}\n完整展示实际商品，正确曝光。`, headline: '不应叠在 MAIN 上', body: '' })) }),
+        beforePlanRequest(input, _signal, systemPrompt) {
+            assert.match(systemPrompt, /没有专门视角要求的图位.*不限定本图的拍摄角度/);
+            assert.match(input.shots.find(shot => shot.id === 'main').purpose, /优先沿用第一张商品原图的拍摄角度/);
+            return { artDirection: '冷蓝摄影，柔和布光', sellingPoints: ['杯盖可拆卸'],
+                shots: input.shots.map(({ id }) => ({ id, prompt: `${id}\n完整展示实际商品，正确曝光。`, headline: '不应叠在 MAIN 上', body: '' })) };
+        },
         responseImageData: () => Buffer.from([variant++]).toString('base64')
     });
     await execute('plan');
@@ -143,6 +179,9 @@ test('亚马逊 MAIN 使用第一张商品原图生成白底精修结果并支�
     assert.notEqual(result.image[0], reference);
     assert.match(imagePrompts.get('main'), /RGB 255,255,255/);
     assert.match(imagePrompts.get('main'), /第一张商品原图/);
+    assert.match(imagePrompts.get('main'), /主图要求始终优先.*优先沿用第一张商品原图的拍摄角度.*已核实的商品细节时微调视角/);
+    assert.doesNotMatch(imagePrompts.get('main'), /不限定本图的拍摄角度|画面设计指定了可核实的商品视角时/);
+    assert.match(imagePrompts.get('feature'), /不限定本图的拍摄角度/);
     assert.match(imagePrompts.get('main'), /画面不添加标题/);
     assert.doesNotMatch(imagePrompts.get('main'), /标题：|正文：/);
     const first = node.data.commerceImageSet.results[0].assetKey;

@@ -138,7 +138,14 @@
     will-change: transform;
 }
 
+/* Limit style recalculation on re-anchor to the SVG groups. */
+@property --wire-anchor {
+    syntax: '*';
+    inherits: false;
+}
+
 #connections-svg.pan-wire-layer > :is(#connections-group, #origin-axes) {
+    --wire-anchor: inherit;
     transform: var(--wire-anchor);
 }
 

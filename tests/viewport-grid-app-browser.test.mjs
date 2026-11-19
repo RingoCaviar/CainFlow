@@ -28,7 +28,8 @@ test('middle pan keeps wires aligned across the raster margin and restores only 
                 const svg = path.ownerSVGElement, bounds = svg.getBoundingClientRect(), view = svg.parentElement.getBoundingClientRect();
                 return { error: Math.hypot(start.x - dot.x - dot.width / 2, start.y - dot.y - dot.height / 2),
                     covers: bounds.left <= view.left && bounds.top <= view.top && bounds.right >= view.right && bounds.bottom >= view.bottom,
-                    hint: getComputedStyle(svg).willChange, group: path.parentElement.getAttribute('transform') };
+                    hint: getComputedStyle(svg).willChange, group: path.parentElement.getAttribute('transform'),
+                    anchorOnPath: getComputedStyle(path).getPropertyValue('--wire-anchor') };
             };
         })()`);
         const start = { x: 505, y: 590 };
@@ -40,15 +41,17 @@ test('middle pan keeps wires aligned across the raster margin and restores only 
             const sample = await app.evaluate('panSample()');
             assert.ok(sample.error < .25 && sample.covers, JSON.stringify(sample));
             assert.equal(sample.hint, 'transform');
+            assert.equal(sample.anchorOnPath, '', 'individual wires do not inherit the raster anchor');
             if (lastGroup !== undefined) assert.equal(sample.group, lastGroup, 'panning must reuse painted paths');
             lastGroup = sample.group;
         }
-        await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'middle', buttons: 0, x: start.x + 255, y: start.y - 50 });
+        const releaseDx = 267;
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'middle', buttons: 0, x: start.x + releaseDx, y: start.y - 50 });
         const idle = await app.evaluate('panSample()');
         assert.ok(idle.error < .25 && idle.covers);
         assert.equal(idle.hint, 'auto');
-        const expected = await app.evaluate('({ x: panOrigin.x + 255, y: panOrigin.y - 50, zoom: panOrigin.zoom })');
-        await app.waitFor("fetch('/api/storage/documents/viewport_state').then(r=>r.json()).then(r=>r.value?.['wire-pan']?.x === panOrigin.x + 255)");
+        const expected = await app.evaluate(`({ x: panOrigin.x + ${releaseDx}, y: panOrigin.y - 50, zoom: panOrigin.zoom })`);
+        await app.waitFor(`fetch('/api/storage/documents/viewport_state').then(r=>r.json()).then(r=>r.value?.['wire-pan']?.x === ${expected.x})`);
         await waitForAutosave(app);
         stop();
         assert.ok(writes.includes('/api/storage/documents/viewport_state'));

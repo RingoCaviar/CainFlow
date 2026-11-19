@@ -24,7 +24,8 @@ test('shake detach upgrades drag history before topology changes and leaves edge
     }
 });
 
-function createHarness({ getNodeMinimumSize = null, connectionTargetApi = {}, requestFrame = null, connectionProjection = null } = {}) {
+function createHarness({ getNodeMinimumSize = null, connectionTargetApi = {}, requestFrame = null,
+    connectionProjection = null, screenToCanvas = (x, y) => ({ x, y }) } = {}) {
     const canvasListeners = [];
     const windowListeners = [];
     const canvasContainer = {
@@ -58,7 +59,7 @@ function createHarness({ getNodeMinimumSize = null, connectionTargetApi = {}, re
     const api = createCanvasInteractionsApi({
         state, canvasContainer, nodesLayer: {}, tempConnection: { setAttribute() {} },
         viewportApi: {
-            screenToCanvas: (x, y) => ({ x, y }),
+            screenToCanvas: (x, y) => screenToCanvas(x, y, state.canvas),
             updateCanvasTransform(options) { viewportCalls.push(options); },
             refreshNodeTextRendering() {}
         },
@@ -360,6 +361,51 @@ test('pan changes and settlement flow through one projection lease', () => {
     ]);
     assert.deepEqual(viewportCalls.at(-1), { updateConnections: false });
     assert.deepEqual(legacyRefreshCalls, []);
+});
+
+test('panning follows the final release coordinate even when the last move was coalesced', () => {
+    const frames = [];
+    const { canvasListeners, windowListeners, state, viewportSaveCalls, viewportCalls } = createHarness({
+        requestFrame: callback => frames.push(callback)
+    });
+    const canvasTarget = { closest() { return null; } };
+    const mouseUp = windowListeners.find(({ type, options }) => type === 'mouseup' && !options).listener;
+    canvasListeners.find(({ type, options }) => type === 'mousedown' && !options).listener({
+        button: 1, clientX: 100, clientY: 200, target: canvasTarget, preventDefault() {}
+    });
+    windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: 125, clientY: 230, buttons: 4 });
+    mouseUp({ button: 0, buttons: 4, clientX: 125, clientY: 230, target: canvasTarget });
+    assert.equal(state.canvas.isPanning, true);
+    mouseUp({ button: 1, buttons: 0, clientX: 145, clientY: 250, target: canvasTarget });
+    for (const frame of frames) frame();
+
+    assert.equal(state.canvas.isPanning, false);
+    assert.deepEqual(viewportSaveCalls, [{ workflowId: 'workflow-a', canvas: { x: 55, y: 70, zoom: 1 } }]);
+    assert.deepEqual(viewportCalls, [{ updateConnections: false }]);
+});
+
+test('a node drag overlapping a pan settles against the final viewport', () => {
+    const { canvasListeners, windowListeners, state } = createHarness({
+        screenToCanvas: (x, y, canvas) => ({ x: (x - canvas.x) / canvas.zoom, y: (y - canvas.y) / canvas.zoom })
+    });
+    const node = state.nodes.get('node-1');
+    node.el = { classList: createClassList(), style: { setProperty() {}, removeProperty() {} } };
+    state.dragging = {
+        nodes: ['node-1'],
+        startX: 85,
+        startY: 175,
+        startPositions: new Map([['node-1', { x: 50, y: 60 }]])
+    };
+    const target = { closest() { return null; } };
+    canvasListeners.find(({ type, options }) => type === 'mousedown' && !options).listener({
+        button: 1, clientX: 100, clientY: 200, target, preventDefault() {}
+    });
+    windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: 125, clientY: 230, buttons: 5 });
+    windowListeners.find(({ type, options }) => type === 'mouseup' && !options).listener({
+        button: 1, buttons: 1, clientX: 145, clientY: 250, target
+    });
+
+    assert.deepEqual({ x: node.x, y: node.y }, { x: 55, y: 65 });
 });
 
 test('window blur ends an in-progress middle-button canvas pan', () => {
