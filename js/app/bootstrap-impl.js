@@ -1364,8 +1364,8 @@ const promptAgentResultPersistence = createPromptAgentResultPersistence({
     }),
     mutateConversation: (workflowId, reducer) => workflowManagerApi.mutatePromptAgentByWorkflowId(workflowId, reducer),
     saveConversation: () => flushSessionToDisk(getSessionManagerApi(), diskStorage),
-    onChange: workflowId => {
-        if (workflowManagerApi.getActiveWorkflowId() === workflowId) registry.promptAgentController?.refreshResults();
+    onChange: (workflowId, runId) => {
+        if (workflowManagerApi.getActiveWorkflowId() === workflowId) registry.promptAgentController?.refreshResults(runId);
     }
 });
 const readAgentWebImage = createAgentWebImageReader();

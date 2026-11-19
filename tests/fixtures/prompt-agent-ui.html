@@ -157,6 +157,9 @@ try {
         openModelSettings: () => { settingsOpens += 1; }
     });
     controller.init();
+    controller.restoreWorkflow(null);
+    const toolbar = document.getElementById('btn-prompt-agent');
+    toolbar.click();
     const modelHint = document.getElementById('prompt-agent-model-hint');
     const imageModelSelect = document.getElementById('prompt-agent-image-model');
     const imageModelHint = document.getElementById('prompt-agent-image-model-hint');
@@ -164,17 +167,54 @@ try {
         imageModelSelect.nextElementSibling.click();
         document.querySelector(`#prompt-agent-image-model-menu [data-model-id="${id}"][data-provider-id="provider-1"]`).click();
     };
-    const unavailable = !modelHint.hidden && document.getElementById('prompt-agent-send').disabled;
+    const unavailable = !modelHint.hidden && imageModelHint.hidden && document.getElementById('prompt-agent-send').disabled;
     const hintStyle = getComputedStyle(modelHint);
     const subtleHint = parseFloat(hintStyle.fontSize) >= 13 && hintStyle.backgroundColor === 'rgba(0, 0, 0, 0)';
-    document.getElementById('prompt-agent-add-model').click();
-    const addModelOpensSettings = settingsOpens === 1;
-    document.getElementById('prompt-agent-add-image-model').click();
-    const addImageModelOpensSettings = settingsOpens === 2;
+    const chatSetup = document.getElementById('prompt-agent-add-model');
+    chatSetup.click();
+    const addModelOpensSettings = settingsOpens === 1 && chatSetup.textContent === '配置对话模型';
+    const title = document.getElementById(panel.getAttribute('aria-labelledby'));
+    const example = messages.querySelector('.prompt-agent-empty button');
+    input.value = '保留已写的草稿';
+    input.setSelectionRange(0, input.value.length);
+    example.click();
+    const examplePreservesDraft = input.value.startsWith('保留已写的草稿\n\n')
+        && input.value.endsWith('请先预览方案。') && controller.snapshotWorkflow().draft.text === input.value
+        && document.activeElement === input && requests.length === 0;
+    const shellNamed = title?.tagName === 'H2' && title.textContent === 'Agent'
+        && messages.querySelector('.prompt-agent-empty h3')?.textContent === '想创作什么画面？';
+    const permissionGuidance = messages.querySelector('.prompt-agent-empty p')?.textContent;
+    const grip = document.getElementById('prompt-agent-input-resize');
+    const gripHitArea = grip.offsetWidth >= 24 && grip.offsetHeight >= 24;
+    const contrastSamples = {};
+    for (const theme of ['light', 'paper', 'dark']) {
+        document.documentElement.dataset.appTheme = theme;
+        const labels = [...panel.querySelectorAll('.prompt-agent-settings > label > span')];
+        contrastSamples[theme] = {
+            placeholder: getComputedStyle(input, '::placeholder').color,
+            inputBackground: getComputedStyle(input).backgroundColor,
+            underlay: getComputedStyle(panel).backgroundColor,
+            labels: labels.map(label => ({
+                color: getComputedStyle(label).color,
+                background: getComputedStyle(label.parentElement).backgroundColor,
+                opacity: Number(getComputedStyle(label.parentElement).opacity)
+            }))
+        };
+    }
+    document.documentElement.dataset.appTheme = 'light';
+    const closeButton = document.getElementById('btn-close-prompt-agent');
+    closeButton.focus();
+    closeButton.click();
+    const closeRestoresFocus = panel.getAttribute('aria-hidden') === 'true' && panel.hasAttribute('inert')
+        && closeButton.getAttribute('aria-label') === '关闭 Agent 面板' && document.activeElement === toolbar;
+    input.value = '';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
     chatModels = [{ id: 'chat-1', modelId: 'chat-test', name: 'Chat test', autoCompactTokenLimit: 100000, providerIds: ['provider-1'] }];
 
-    const toolbar = document.getElementById('btn-prompt-agent');
     toolbar.click(); await tick();
+    const imageSetup = document.getElementById('prompt-agent-add-image-model');
+    imageSetup.click();
+    const addImageModelOpensSettings = settingsOpens === 2 && !imageSetup.hidden && imageSetup.textContent === '配置生图模型';
     document.querySelector('#prompt-agent-model + button').click();
     document.querySelector('#prompt-agent-model-menu [data-model-id="chat-1"][data-provider-id="provider-1"]').click();
     const opened = panel.classList.contains('active')
@@ -329,6 +369,14 @@ try {
         && messages.querySelectorAll('[data-role="agent"]').length === persistedMessageCount / 2;
     controller.open();
     const restoredAgent = messages.querySelector('[data-role="agent"]');
+    const restoredRuns = persisted.messages.flatMap((message) => message.runs || []);
+    const restoredViews = messages.querySelectorAll('.prompt-agent-run-state');
+    for (const [index, run] of restoredRuns.entries()) {
+        if (run.status !== 'completed') continue;
+        const view = restoredViews[index];
+        view.scrollIntoView({ block: 'center' });
+        await waitFor(() => view.querySelector('.prompt-agent-result-image'));
+    }
     const restoredBatchCount = messages.querySelectorAll('.prompt-agent-result-image').length;
     const previousRunCount = restoredAgent.querySelectorAll('.prompt-agent-run-state').length;
     restoredAgent.querySelectorAll('.prompt-agent-actions button')[1].click();
@@ -355,6 +403,7 @@ try {
 
     document.getElementById('surface-result').textContent = JSON.stringify({
         opened, unavailable, subtleHint, addModelOpensSettings, addImageModelOpensSettings, selectIsModern, narrowHeaderFits,
+        shellNamed, gripHitArea, examplePreservesDraft, closeRestoresFocus, contrastSamples, permissionGuidance,
         chatWithoutImageModel, initiallyRequiresImageModel, noImplicitDefault, createsWithChosenModel, invalidModelBlocksActions,
         persistsImageModel, restoresImageModel, newWorkflowHasNoImageModel, changedModelReusesTarget,
         widthStyle, widthSnapshot, noTargetActionsReady, draftDoesNotCreate, createsOnGenerate, persistsBinding,

@@ -23,7 +23,9 @@ try {
         runs: [{ runId: 'restored', status: 'completed', mediaAssetKeys: ['media:original'] }] }] });
     controller.open();
     const tick = () => new Promise(resolve => setTimeout(resolve, 0));
-    await tick();
+    for (let i = 0; i < 50 && !document.querySelector('.prompt-agent-result-image'); i++) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+    }
     const canvas = document.getElementById('canvas-container');
     createGlobalInteractionsApi({ state, canvasContainer: canvas, viewportApi: { screenToCanvas: (x,y) => ({x,y}) },
         addNode, loadImageData, showToast() {}, scheduleSave() {}, documentRef: document, windowRef: window }).initGlobalInteractions();

@@ -210,6 +210,47 @@
         ],
         "createdAt": "2026-11-18T04:04:46.643Z",
         "reason": "Codex verified: this contrast fixture mounts only three action buttons and disables animations. The flagged .prompt-agent-processing-dot rule comes from the imported production stylesheet and has no matching element in this fixture."
+      },
+      {
+        "rule": "dark-glow",
+        "value": "*",
+        "files": [
+          "tests/fixtures/prompt-agent-compact.html",
+          "tests/fixtures/prompt-agent-ui.html"
+        ],
+        "createdAt": "2026-11-19T06:15:35.310Z",
+        "reason": "Both fixtures mount only the Agent panel. The imported shared CSS glow comes from unmounted workflow run controls and the canvas selection outline, with no visible glow on these fixtures."
+      },
+      {
+        "rule": "pulsing-dot",
+        "value": "*",
+        "files": [
+          "tests/fixtures/prompt-agent-compact.html",
+          "tests/fixtures/prompt-agent-ui.html"
+        ],
+        "createdAt": "2026-11-19T06:18:15.392Z",
+        "reason": "The fixtures import the production Agent processing-dot style. The controller creates it only for a pending reply, provides an announced processing status, and removes it on completion, failure, or cancellation. The compact fixture does not submit a reply."
+      },
+      {
+        "rule": "pulsing-dot",
+        "value": "*",
+        "files": [
+          "tests/fixtures/prompt-agent-reference-picker.html",
+          "tests/fixtures/prompt-agent-result-preview.html",
+          "tests/fixtures/prompt-agent-scroll.html"
+        ],
+        "createdAt": "2026-11-19T06:56:30.977Z",
+        "reason": "Codex verified: these fixtures import the Agent processing-dot rule. Result preview only restores saved images, and scroll exercises a local command. Reference selection submits a controlled reply, and the labeled status exists only while that reply is pending."
+      },
+      {
+        "rule": "dark-glow",
+        "value": "*",
+        "files": [
+          "tests/fixtures/prompt-agent-reference-picker.html",
+          "tests/fixtures/prompt-agent-result-preview.html"
+        ],
+        "createdAt": "2026-11-19T06:56:31.161Z",
+        "reason": "Codex verified: the static scan reads the inherited purple shadow from .btn-run.running in css/modules/02-buttons.css. Neither fixture mounts the workflow Run control."
       }
     ]
   }

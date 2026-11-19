@@ -24,8 +24,10 @@ async function verifyAgentResultPreview(api, old, node, params, readSaveCount) {
         runs: [{ runId: 'historical-run', targetNodeId: node.id, status: 'completed', persistenceStatus: 'saved', mediaAssetKeys: ['media:red', 'media:blue'] }]
     }] });
     controller.open();
-    await new Promise((resolve) => setTimeout(resolve, 0));
     const panel = document.getElementById('prompt-agent-panel');
+    for (let i = 0; i < 50 && panel.querySelectorAll('.prompt-agent-result-image').length < 2; i++) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+    }
     const thumbnails = [...panel.querySelectorAll('.prompt-agent-result-image')];
     result.panelFits = panel.scrollWidth <= panel.clientWidth && thumbnails.every((element) => element.getBoundingClientRect().right <= panel.getBoundingClientRect().right);
     thumbnails[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));

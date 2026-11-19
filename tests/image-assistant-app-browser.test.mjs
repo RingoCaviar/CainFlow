@@ -458,28 +458,7 @@ test('assistant batch result generates with the parameter editor closed, selects
             await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='运行').click()");
             await waitFor("document.querySelectorAll('.prompt-agent-image-result').length===3");
         }, generationChecks);
-        const more = "document.querySelector('.prompt-agent-actions-more')";
-        const openMore = async () => {
-            await evaluate(`${more}.querySelector('summary').click()`);
-            await waitFor(`${more}.open`);
-            assert.equal(await evaluate(`${more}.querySelector('.prompt-agent-actions-secondary').checkVisibility()`), true);
-        };
-        await openMore();
-        const blankCanvas = await evaluate(`(() => {
-            const canvas = document.getElementById('canvas-container');
-            const rect = canvas.getBoundingClientRect();
-            const toolbarBottom = document.getElementById('toolbar').getBoundingClientRect().bottom;
-            const x = rect.left + 24, y = Math.max(rect.top + 48, toolbarBottom + 12);
-            const target = document.elementFromPoint(x, y);
-            return canvas.contains(target) && !target.closest('.node') ? { x, y } : null;
-        })()`);
-        assert.ok(blankCanvas, 'blank canvas is outside the plan actions');
-        await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...blankCanvas, button: 'left', buttons: 1, clickCount: 1 });
-        await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...blankCanvas, button: 'left', buttons: 0, clickCount: 1 });
-        assert.equal(await evaluate(`${more}.open`), false);
-        await openMore();
-        await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
-        assert.equal(await evaluate(`${more}.open`), false);
+        await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('执行结束') && [...document.querySelectorAll('.prompt-agent-plan-footer button')].some(button=>button.textContent==='撤销本次画布操作'&&button.checkVisibility()&&!button.disabled)");
         assert.equal(await evaluate("document.querySelector('.prompt-agent-plan-overview').open"), false);
 
         const selectedResult = "document.querySelectorAll('.prompt-agent-image-result')[1]";
@@ -1118,7 +1097,7 @@ test('one result attachment is not repeated as an automatic context thumbnail', 
         assert.equal(await evaluate("document.querySelector('.prompt-agent-message-user .prompt-agent-message-role') === null"), true);
         assert.equal(await evaluate("document.querySelector('.prompt-agent-message-agent .prompt-agent-message-role') === null"), true);
         assert.equal(await evaluate("document.querySelector('.prompt-agent-plan-overview').open"), false);
-        assert.equal(await evaluate("document.querySelector('.prompt-agent-actions-more').open"), false);
+        assert.equal(await evaluate("[...document.querySelectorAll('.prompt-agent-plan-footer button')].find(button=>button.textContent==='撤销本次画布操作').hidden"), true);
         assert.equal(await evaluate("document.querySelector('.prompt-agent-actions-primary .btn-primary').textContent"), '运行');
         await evaluate("document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=image][data-provider-id=p]').click();document.querySelector('.prompt-agent-actions-primary .btn-primary').click()");
         await waitFor("document.querySelector('.prompt-agent-canvas-plan.is-completed')");

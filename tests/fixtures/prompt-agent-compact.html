@@ -55,7 +55,11 @@ try {
     }
     // A 1200px host reserves 360px for usable canvas and parameter controls.
     check(saved === 840 && !('panelWidth' in next.controller.snapshotWorkflow()), 'globalOnly');
-    check(!next.panel.querySelector('.prompt-agent-header') && next.panel.querySelector('.prompt-agent-transcript').getBoundingClientRect().bottom <= next.panel.querySelector('.prompt-agent-settings').getBoundingClientRect().top, 'bottomSettings');
+    const header = next.panel.querySelector('.prompt-agent-header');
+    const transcript = next.panel.querySelector('.prompt-agent-transcript').getBoundingClientRect();
+    check(header.querySelector('#btn-close-prompt-agent').getBoundingClientRect().height >= 24
+        && header.getBoundingClientRect().bottom <= transcript.top
+        && transcript.bottom <= next.panel.querySelector('.prompt-agent-settings').getBoundingClientRect().top, 'bottomSettings');
     if (new URLSearchParams(location.search).has('screenshot')) {
         document.documentElement.dataset.appTheme = 'dark';
         next.handle.dispatchEvent(new KeyboardEvent('keydown',{key:'Home',bubbles:true,cancelable:true}));

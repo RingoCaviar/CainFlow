@@ -2,7 +2,6 @@ import { parseSizeAnswer } from './prompt-agent-size.js';
 import { mergeAgentSizeAnswer } from './prompt-agent-parameters.js';
 import { createThinkingControl } from '../execution/thinking-control.js';
 import { resolveAgentProvider } from './prompt-agent-provider.js';
-import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 import { createPromptAgentModelMenus, getAgentModelLabel } from './prompt-agent-model-menu.js';
 import { isCanvasGraphOnlyStep } from './prompt-agent-canvas-plan.js';
 import { isPromptLibraryWrite } from './prompt-agent-apply-library-prompt.js';
@@ -20,12 +19,16 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     const imageSettings = plan.steps.filter(step => step.type === 'ImageGenerate' && !step.cachedAssetKeys
         && !isCanvasGraphOnlyStep(plan, step) && !isPromptLibraryWrite(plan, step));
     const generatesImages = imageSettings.some(step => step.execute !== false);
-    const title = element('strong', inPlace ? '画布修改方案' : generatesImages ? '图片生成方案' : '画布方案', header);
-    title.title = plan.id;
+    const copiesExisting = !inPlace && plan.steps.some(step => step.nodeId);
+    element('strong', plan.deletes?.length ? '删除节点方案' : inPlace ? '画布修改方案'
+        : copiesExisting ? '创建节点副本方案' : generatesImages ? '图片生成方案' : '画布方案', header);
+    const impact = element('div', '', card); impact.className = 'prompt-agent-plan-impact';
+    const destructiveImpact = element('p', '', impact); destructiveImpact.className = 'prompt-agent-plan-destructive-impact';
+    const highlights = element('ul', '', impact); highlights.className = 'prompt-agent-plan-highlights';
+    const referenceImpact = element('p', '', impact); referenceImpact.className = 'prompt-agent-plan-reference-impact';
     const overview = element('details', ''); overview.className = 'prompt-agent-plan-overview';
-    const overviewSummary = element('summary', '查看详情', overview);
-    const count = `${plan.steps.length + (plan.deletes?.length || 0)} 项操作`;
-    element('span', count, overviewSummary).className = 'prompt-agent-plan-count';
+    const overviewSummary = element('summary', '查看方案详情', overview);
+    const count = element('span', '', overviewSummary); count.className = 'prompt-agent-plan-count';
     const inputs = element('div', ''); inputs.className = 'prompt-agent-plan-inputs';
     const references = !inPlace || imageSettings.length ? adapter.inputs?.(plan) || [] : [];
     element('span', inPlace ? '修改现有节点' : references.length ? `本次生图参考图 · ${references.length} 项`
@@ -100,47 +103,36 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
                     return { model, provider: (() => { try { return resolveAgentProvider(model, getProviders(), providerIdFor(model.id)); } catch { return {}; } })(), protocol: model.protocol, task: 'image' }; },
                 getValue: () => plan.thinkingOverrides?.[id]?.[chosenId()]
                     ?? (original()?.modelId === chosenId() ? original()?.thinking : undefined),
-                onChange: value => { ((plan.thinkingOverrides ||= {})[id] ||= {})[chosenId()] = value; changed(plan); sync(); } }));
+                onChange: value => { ((plan.thinkingOverrides ||= {})[id] ||= {})[chosenId()] = value; lastChanges = null; changed(plan); sync(); } }));
             refreshSelectors.push(refreshModels); select.addEventListener('focus', refreshModels);
-            select.addEventListener('change', () => { (plan.modelOverrides ||= {})[id] = select.value; if (!select.value) delete plan.providerOverrides?.[id]; changed(plan); sync(); });
+            select.addEventListener('change', () => { (plan.modelOverrides ||= {})[id] = select.value; if (!select.value) delete plan.providerOverrides?.[id]; lastChanges = null; changed(plan); sync(); });
         }
     }
     const modelMenus = createPromptAgentModelMenus({ documentRef, selects: modelSelectors });
-    const details = element('details', ''); details.className = 'prompt-agent-plan-changes'; details.open = false;
-    overview.appendChild(details);
-    element('summary', '变更与尺寸明细', details);
-    const changes = element('ul', '', details);
+    const changes = element('ul', '', overview);
     changes.className = 'prompt-agent-change-list';
-    adapter.describe(plan, getModelId()).forEach(line => element('li', line, changes));
-    const status = element('p', ''); status.setAttribute('role', 'status');
     let configurationTarget = null;
     let sizeIssue = null;
     let lastUnavailable = '';
     const sizePrompt = element('div', ''); sizePrompt.className = 'prompt-agent-size-clarification';
-    const sizeSummaries = element('div', '', details); sizeSummaries.className = 'prompt-agent-size-summary';
+    const sizeSummaries = element('div', '', overview); sizeSummaries.className = 'prompt-agent-size-summary';
     const repair = element('button', '配置模型与供应商'); repair.type = 'button'; repair.hidden = true;
     repair.addEventListener('click', () => { if (configurationTarget && isCurrent()) configure(configurationTarget); });
-    const actions = element('div', '', header); actions.className = 'prompt-agent-canvas-actions';
-    const refresh = element('button', '刷新变更清单', details); refresh.type = 'button'; refresh.hidden = inPlace;
+    const refresh = element('button', '刷新变更清单', overview); refresh.type = 'button'; refresh.hidden = inPlace;
+    const footer = element('footer', ''); footer.className = 'prompt-agent-plan-footer';
+    const status = element('p', '', footer); status.setAttribute('role', 'status');
+    const actions = element('div', '', footer); actions.className = 'prompt-agent-canvas-actions';
     const primaryActions = element('div', '', actions); primaryActions.className = 'prompt-agent-actions-primary';
-    const moreActions = element('details', '', actions); moreActions.className = 'prompt-agent-actions-more';
-    const moreSummary = element('summary', '⋯', moreActions); moreSummary.setAttribute('aria-label', '更多方案操作');
-    const secondaryActions = element('div', '', moreActions); secondaryActions.className = 'prompt-agent-actions-secondary';
     const execute = element('button', '运行', primaryActions), apply = element('button', '仅应用', primaryActions);
     execute.className = 'btn btn-primary';
-    const retry = element('button', '重试未完成步骤', secondaryActions), undo = element('button', '撤销本次画布操作', secondaryActions);
-    const copy = plan.offerCopy ? element('button', '创建副本', secondaryActions) : null;
+    execute.title = '先应用该方案，再执行相关节点';
+    apply.title = '保存画布修改，等你决定何时运行';
+    if (plan.deletes?.length) apply.title = '确认删除列出的节点并保存画布';
+    const retry = element('button', '重试未完成步骤', actions), undo = element('button', '撤销本次画布操作', actions);
+    const copy = plan.offerCopy ? element('button', '创建副本', actions) : null;
     [apply, execute, retry, undo, ...(copy ? [copy] : [])].forEach(button => { button.type = 'button'; });
-    const surfaces = getSurfaceCoordinator(documentRef);
-    const closeMoreActions = () => {
-        moreActions.open = false;
-        surfaces?.forgetPopover(moreActions);
-    };
-    moreActions.addEventListener('toggle', () => {
-        if (moreActions.open && !moreActions.hidden && moreActions.isConnected) {
-            surfaces?.openPopover(moreActions, { element: moreActions, trigger: moreSummary, close: closeMoreActions });
-        } else surfaces?.forgetPopover(moreActions);
-    });
+    let lastChanges = null;
+    let renderedChanges = '';
     const latest = () => lastAppliedId === plan.id ? plan : plan.instances?.at(-1) || plan;
     const running = () => [plan, ...(plan.instances || [])].filter(instance => adapter.isRunning?.(instance.id));
     function sync() {
@@ -153,7 +145,34 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         thinkingControls.forEach(control => control.refresh());
         focusButtons.forEach((button, id) => { button.disabled = !latest().bindings?.[id] && !plan.steps.find(step => step.id === id)?.nodeId; button.hidden = button.disabled; });
         refreshSelectors.forEach(refresh => refresh());
-        changes.replaceChildren(); adapter.describe(plan, getModelId()).forEach(line => element('li', line, changes));
+        const applied = latest();
+        const described = adapter.describe(plan, getModelId());
+        if (!inPlace || !applied.appliedSignature || !lastChanges) lastChanges = described;
+        const signature = JSON.stringify(lastChanges);
+        if (signature !== renderedChanges) {
+            renderedChanges = signature;
+            changes.replaceChildren();
+            for (const line of lastChanges) element('li', line, changes);
+            const destructive = line => /^(删除 |移除连线 )/.test(line);
+            const prioritized = lastChanges.filter(destructive);
+            const compact = adapter.describe(plan, getModelId(), { compact: true });
+            const primary = [...prioritized, ...compact.filter(line => !destructive(line))].slice(0, 2);
+            const deletionCount = plan.deletes?.length || 0;
+            const removedConnections = prioritized.filter(line => line.startsWith('移除连线')).length;
+            destructiveImpact.textContent = [deletionCount ? `删除 ${deletionCount} 个节点` : '',
+                removedConnections ? `移除 ${removedConnections} 条连线` : ''].filter(Boolean).join(' · ');
+            highlights.replaceChildren();
+            for (const line of primary) element('li', line, highlights);
+            changes.hidden = lastChanges.length === 0;
+            highlights.hidden = primary.length === 0;
+            count.textContent = lastChanges.length ? `${lastChanges.length} 项变更` : '';
+        }
+        const preservedReferences = adapter.preservedReferenceCount?.(plan) || 0;
+        const referenceSummary = preservedReferences ? `保留 ${preservedReferences} 条参考图连线` : generatesImages
+            ? (references.length ? `本次生图参考图 · ${references.length} 项` : '纯文字生成') : '';
+        const contextSummary = [copiesExisting ? '保留原节点和连线' : '', referenceSummary].filter(Boolean).join(' · ')
+            || (!highlights.childElementCount ? plan.steps.map(step => step.title).join('、') : '');
+        if (referenceImpact.textContent !== contextSummary) referenceImpact.textContent = contextSummary;
         for (const [id, label] of stepStates) {
             const stepStatus = adapter.stepStatus(latest(), id);
             label.dataset.status = stepStatus;
@@ -167,7 +186,6 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         let validated = {};
         if (!unavailable) try {
             validated = adapter.sizesFor?.(plan, getModelId()) || {};
-            const applied = latest();
             const sizes = applied.runs?.length && applied.appliedSizes ? applied.appliedSizes : validated;
             for (const [id, size] of Object.entries(sizes)) element('p', `${plan.steps.find(step => step.id === id).title} · ${size.summary}${Object.values(size.sources || {}).some(Boolean) ? "（" + [...new Set(Object.values(size.sources).filter(Boolean))].join("、") + "）" : ""}`, sizeSummaries);
         } catch (error) {
@@ -218,12 +236,16 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         execute.hidden = !plan.steps.some(step => step.execute !== false);
         undo.title = undo.hidden ? '' : adapter.canUndo(latest());
         undo.disabled = busy || undo.hidden || Boolean(undo.title);
-        moreActions.hidden = retry.hidden && undo.hidden && !copy;
-        if (moreActions.hidden && moreActions.open) closeMoreActions();
+        if (applied.appliedSignature && !status.textContent) {
+            status.textContent = failed ? '上次执行未完成，结果见下方'
+                : completed ? '执行结束，结果见下方' : '画布方案已应用并保存';
+        }
         refresh.disabled = busy || !isCurrent();
         for (const select of list.querySelectorAll('select, .thinking-control input, .thinking-control button')) select.disabled = busy;
         if (unavailable) status.textContent = unavailable;
         else if (!busy && lastUnavailable && status.textContent === lastUnavailable) status.textContent = '尺寸与模型已校验，确认后可应用。';
+        else if (!busy && !status.textContent) status.textContent = execute.hidden
+            ? '待确认' : '待确认 · 运行会先应用方案，再执行相关节点';
         lastUnavailable = unavailable;
         if (running().length && !refreshTimer) refreshTimer = setInterval(() => { if (isCurrent()) sync(); }, 250);
         else if (!running().length && refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
@@ -286,9 +308,10 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         if (authorized === isCurrent) await completion;
     }
     apply.addEventListener('click', () => act(false)); execute.addEventListener('click', () => act(true)); retry.addEventListener('click', () => act(true, true));
-    copy?.addEventListener('click', () => { closeMoreActions(); void act(false, false, isCurrent, true); });
+    copy?.addEventListener('click', () => { void act(false, false, isCurrent, true); });
     refresh.addEventListener('click', () => { try {
-        adapter.refresh(plan); changes.replaceChildren(); adapter.describe(plan, getModelId()).forEach(line => element('li', line, changes));
+        adapter.refresh(plan);
+        lastChanges = null;
         changed(plan); status.textContent = '已按当前画布更新清单，请重新检查后应用';
     } catch (error) { status.textContent = error.message; } sync(); });
     undo.addEventListener('click', async () => { try { await adapter.undo(latest()); status.textContent = '已按撤销栈处理；历史图片仍保留'; } catch (error) { status.textContent = error.message; } sync(); });
@@ -300,8 +323,8 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
             if ((mode === 'run' ? execute : apply).disabled) return;
             return act(mode === 'run' && !execute.hidden, false, authorized);
         },
-        close: () => { closeMoreActions(); modelMenus.close(); thinkingControls.forEach(control => control.close()); },
-        destroy: () => { destroyed = true; closeMoreActions(); clearInterval(refreshTimer); thinkingControls.forEach(control => control.destroy()); modelMenus.destroy(); }
+        close: () => { modelMenus.close(); thinkingControls.forEach(control => control.close()); },
+        destroy: () => { destroyed = true; clearInterval(refreshTimer); thinkingControls.forEach(control => control.destroy()); modelMenus.destroy(); }
     };
 }
 

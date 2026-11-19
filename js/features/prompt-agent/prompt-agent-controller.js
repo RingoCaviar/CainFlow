@@ -1,7 +1,7 @@
 import { bindTaskToReply, confirmTaskParameters, CreativeTaskConfirmationRequired, isCreativeTaskConfirmation } from './prompt-agent-task.js';
 import { normalizePromptAgentChoices } from './prompt-agent-choices.js';
 import { sizeCapabilities, replaceAgentSizeFields, resolveDraftImageSize, parseSizeAnswer } from './prompt-agent-size.js';
-import { imageParameterCapabilities, setAgentCanvasApplicationMode } from './prompt-agent-model.js';
+import { getPromptAgentCanvasImagePreview, imageParameterCapabilities, setAgentCanvasApplicationMode } from './prompt-agent-model.js';
 import { mergeAgentSizeAnswer, resolveAgentParameterPatch } from './prompt-agent-parameters.js';
 import { getEffectiveProtocol, getModelProviders } from '../execution/provider-request-utils.js';
 import { getOpenAIChatCapabilities } from '../execution/openai-chat-capabilities.js';
@@ -26,6 +26,7 @@ import { renderAgentBody } from './prompt-agent-body.js';
 import { createImageResultReferenceIdentity } from './prompt-agent-result-reference.js';
 import { createUserMessageActions } from './prompt-agent-message-actions.js';
 import { parseAgentAppRequest, runAgentAppRequest } from './prompt-agent-app-actions.js';
+import { agentRequestFailureText, getAgentRequestFailure } from './prompt-agent-request.js';
 
 const COMMANDS = [
     { name: '/clear', title: '清空上下文', description: '清除本场景的聊天、摘要、参考图和生成记录，重新开始。' },
@@ -33,6 +34,7 @@ const COMMANDS = [
 ];
 
 const IMAGE_MENTION = /@图片\d+(?![\d\[])/g;
+const REFERENCE_TABS = ['scene', 'history'];
 
 function uniqueReferenceImages(images = []) {
     const unique = new Map();
@@ -179,6 +181,8 @@ export function createPromptAgentController({
     let thumbnailObservers = [];
     const promptPlanActionStates = new Set();
     const runViews = new Map();
+    const resultLoaders = new Map();
+    let resultObserver;
     const activeRuns = new Map();
     const runKey = (workflowId, runId) => `${workflowId}\0${runId}`;
     const results = resultPersistence || createPromptAgentResultPersistence({
@@ -192,12 +196,13 @@ export function createPromptAgentController({
             onStateChange();
             return true;
         },
-        onChange: workflowId => { if (getWorkflowId() === workflowId) refreshRunViews(); }
+        onChange: (workflowId, runId) => { if (getWorkflowId() === workflowId) refreshRunViews(runId); }
     });
 
     function getElements() {
         return {
             button: documentRef.getElementById('btn-prompt-agent'),
+            closeButton: documentRef.getElementById('btn-close-prompt-agent'),
             panel: documentRef.getElementById('prompt-agent-panel'),
             form: documentRef.getElementById('prompt-agent-form'),
             input: documentRef.getElementById('prompt-agent-input'),
@@ -207,6 +212,7 @@ export function createPromptAgentController({
             commandStatus: documentRef.getElementById('prompt-agent-command-status'),
             modelSelect: documentRef.getElementById('prompt-agent-model'),
             modelHint: documentRef.getElementById('prompt-agent-model-hint'),
+            modelStatus: documentRef.getElementById('prompt-agent-model-status'),
             addModelButton: documentRef.getElementById('prompt-agent-add-model'),
             imageModelSelect: documentRef.getElementById('prompt-agent-image-model'),
             imageModelHint: documentRef.getElementById('prompt-agent-image-model-hint'),
@@ -299,10 +305,12 @@ export function createPromptAgentController({
     }
     function updateSendButtonState(models = getUsableChatModels()) {
         const { input, sendButton } = getElements();
-        getElements().messages?.querySelectorAll('[data-message-action="resend"]').forEach(button => {
-            const disabled = requestPending || models.length === 0;
-            if (button.disabled !== disabled) button.disabled = disabled;
-        });
+        for (const selector of ['[data-message-action="resend"]', '[data-agent-request-retry]']) {
+            getElements().messages?.querySelectorAll(selector).forEach(button => {
+                const disabled = requestPending || models.length === 0;
+                if (button.disabled !== disabled) button.disabled = disabled;
+            });
+        }
         if (!sendButton) return;
         const localAction = localAppRequest(input?.value);
         sendButton.disabled = localAction ? requestPending : !input?.value?.trim().startsWith('/')
@@ -312,7 +320,7 @@ export function createPromptAgentController({
     function renderModelOptions() {
         searchMenu?.render();
         renderImageModelOptions();
-        const { modelSelect, modelHint } = getElements();
+        const { modelSelect, modelHint, modelStatus, addModelButton } = getElements();
         const models = getUsableChatModels();
         // Local commands remain available without a model and during requests.
         updateSendButtonState(models);
@@ -327,13 +335,12 @@ export function createPromptAgentController({
         syncModelOptions(modelSelect, options, selected, models.length === 0);
         initializeProvider('chat', models.find(model => model.id === selected));
         const error = providerError('chat', models.find(model => model.id === selected));
-        const status = documentRef.getElementById('prompt-agent-model-status');
-        const statusText = models.length === 0 ? '尚未配置可用的对话模型。' : error?.message || '已选对话模型不可用，请检查配置。';
-        if (status && status.textContent !== statusText) status.textContent = statusText;
+        const statusText = models.length === 0 ? '让 Agent 回复前，请先配置对话模型。' : error?.message || '已选对话模型不可用，请检查配置。';
+        if (modelStatus && modelStatus.textContent !== statusText) modelStatus.textContent = statusText;
         const hideHint = !error && models.some(model => model.id === selected);
         if (modelHint && modelHint.hidden !== hideHint) modelHint.hidden = hideHint;
-        const configure = documentRef.getElementById('prompt-agent-add-model');
-        if (configure && configure.textContent !== '配置模型与供应商') configure.textContent = '配置模型与供应商';
+        const configureLabel = models.length === 0 ? '配置对话模型' : '修复对话模型配置';
+        if (addModelButton && addModelButton.textContent !== configureLabel) addModelButton.textContent = configureLabel;
         thinkingControls.forEach(control => control.refresh());
         modelMenus?.refresh();
         return models;
@@ -358,15 +365,17 @@ export function createPromptAgentController({
         // Never infer a selection from the first option or canvas node.
         syncModelOptions(imageModelSelect, options, selectedId, models.length === 0);
         const error = providerError('image', models.find(model => model.id === selectedId));
-        const hideHint = valid && !error;
+        const hideHint = (valid && !error) || (!selectedId && getUsableChatModels().length === 0);
         if (imageModelHint && imageModelHint.hidden !== hideHint) imageModelHint.hidden = hideHint;
         const statusText = error?.message || (selectedId && !valid
             ? '已选生图模型不可用，请重新选择。'
-            : (models.length ? '请选择生图模型后再应用或生成。' : '暂无可用生图模型，'));
+            : (models.length ? '生成图片前请选择生图模型。' : '生成图片需要配置生图模型。'));
         if (imageModelStatus && imageModelStatus.textContent !== statusText) imageModelStatus.textContent = statusText;
         if (addImageModelButton) {
-            if (addImageModelButton.hidden !== hideHint) addImageModelButton.hidden = hideHint;
-            if (addImageModelButton.textContent !== '配置模型与供应商') addImageModelButton.textContent = '配置模型与供应商';
+            const hideConfigure = hideHint || (models.length > 0 && !error);
+            const configureLabel = error ? '修复生图模型配置' : '配置生图模型';
+            if (addImageModelButton.hidden !== hideConfigure) addImageModelButton.hidden = hideConfigure;
+            if (addImageModelButton.textContent !== configureLabel) addImageModelButton.textContent = configureLabel;
         }
         promptPlanActionStates.forEach((actionState) => actionState.sync());
         canvasViews.forEach(view => view.sync());
@@ -382,14 +391,27 @@ export function createPromptAgentController({
         commandStatus.hidden = !text;
     }
 
+    function syncComposerPopovers() {
+        if (!commandMenuOpen && !referencePickerOpen) return;
+        const { panel, form } = getElements();
+        if (!panel?.getBoundingClientRect || !form?.getBoundingClientRect) return;
+        const offset = panel.getBoundingClientRect().bottom - form.getBoundingClientRect().top;
+        panel.style?.setProperty('--prompt-agent-popup-offset', `${offset + 8}px`);
+    }
+
+    function announceCommandOptions(text = '') {
+        const announcement = documentRef.getElementById('prompt-agent-command-announcement');
+        if (announcement && announcement.textContent !== text) announcement.textContent = text;
+    }
+
     function closeCommandMenu() {
         surfaces?.forgetPopover('agent-command');
+        announceCommandOptions();
         if (!commandMenuOpen) return;
         commandMenuOpen = false;
         const { commandMenu, input } = getElements();
         if (commandMenu) commandMenu.hidden = true;
         input?.setAttribute('aria-controls', commandMenu?.id || 'prompt-agent-command-menu');
-        input?.setAttribute('aria-expanded', 'false');
         input?.removeAttribute('aria-activedescendant');
     }
 
@@ -503,11 +525,13 @@ export function createPromptAgentController({
     function renderCommandMenu({ resetSelection = false } = {}) {
         const { commandMenu, input } = getElements();
         const query = input?.value?.trim().toLowerCase() || '';
-        commandMatches = query.startsWith('/') && !/\s/.test(query)
+        const isCommand = query.startsWith('/') && !/\s/.test(query);
+        commandMatches = isCommand
             ? COMMANDS.filter((command) => command.name.startsWith(query) || command.title.includes(query.slice(1)))
             : [];
         if (!commandMenu || !commandMatches.length) {
             closeCommandMenu();
+            if (isCommand) announceCommandOptions('没有匹配的 Agent 命令。');
             return;
         }
         if (resetSelection) commandIndex = 0;
@@ -519,6 +543,7 @@ export function createPromptAgentController({
             option.type = 'button';
             option.className = 'prompt-agent-command-option';
             option.id = `prompt-agent-command-${command.name.slice(1)}`;
+            option.tabIndex = -1;
             option.setAttribute('role', 'option');
             option.setAttribute('aria-selected', String(index === commandIndex));
             option.classList.toggle('is-active', index === commandIndex);
@@ -553,15 +578,26 @@ export function createPromptAgentController({
                 option.appendChild(meter);
                 option.classList.add('has-context-usage');
             }
-            option.addEventListener('click', () => executeCommand(command.name));
+            option.addEventListener('click', () => {
+                input.focus({ preventScroll: true });
+                void executeCommand(command.name);
+            });
             commandMenu.appendChild(option);
         });
         commandMenuOpen = true;
+        syncComposerPopovers();
         commandMenu.hidden = false;
+        const activeOption = commandMenu.children?.[commandIndex];
+        if (activeOption && commandMenu.clientHeight) {
+            const top = activeOption.offsetTop;
+            const bottom = top + activeOption.offsetHeight;
+            commandMenu.scrollTop = Math.min(top, Math.max(commandMenu.scrollTop, bottom - commandMenu.clientHeight));
+        }
         surfaces?.openPopover('agent-command', { element: commandMenu, trigger: input, close: closeCommandMenu });
+        if (!commandMenuOpen) return;
         input.setAttribute('aria-controls', commandMenu.id);
-        input.setAttribute('aria-expanded', 'true');
         input.setAttribute('aria-activedescendant', `prompt-agent-command-${commandMatches[commandIndex].name.slice(1)}`);
+        announceCommandOptions(`Agent 命令列表已展开，共 ${commandMatches.length} 项。使用上下方向键选择，Enter 执行。`);
     }
 
     function beginOperation(kind) {
@@ -574,9 +610,11 @@ export function createPromptAgentController({
         activeOperation = operation;
         setOperationStatus(operation, '');
         requestPending = true;
-        const { cancelButton } = getElements();
+        const { cancelButton, sendButton, input } = getElements();
+        const returnToInput = sendButton && documentRef.activeElement === sendButton;
         if (cancelButton) cancelButton.hidden = false;
         renderModelOptions();
+        if (returnToInput) input?.focus?.({ preventScroll: true });
         if (kind === 'reply') showProcessing(operation);
         return operation;
     }
@@ -657,9 +695,11 @@ export function createPromptAgentController({
         if (activeOperation !== operation) return;
         activeOperation = null;
         requestPending = false;
-        const { cancelButton } = getElements();
+        const { cancelButton, input } = getElements();
+        const returnToInput = cancelButton && documentRef.activeElement === cancelButton;
         if (cancelButton) cancelButton.hidden = true;
         renderModelOptions();
+        if (returnToInput) input?.focus?.({ preventScroll: true });
     }
 
     function cancelRequest({ silent = false } = {}) {
@@ -870,10 +910,12 @@ export function createPromptAgentController({
         appendReferencePreviews(references, pendingReferenceImages, { removable: true });
         references.hidden = pendingReferenceImages.length === 0;
         const heading = documentRef.getElementById('prompt-agent-reference-heading');
+        const clearSelection = documentRef.getElementById('prompt-agent-reference-clear');
         if (heading) {
             heading.hidden = pendingReferenceImages.length === 0;
             heading.textContent = `本轮待发送附件 · ${pendingReferenceImages.length}`;
         }
+        if (clearSelection) clearSelection.hidden = pendingReferenceImages.length === 0;
         renderPreparedNodeContext();
         renderPreparedImageRequest();
         form?.classList.toggle('has-reference-images', pendingReferenceImages.length > 0);
@@ -896,19 +938,32 @@ export function createPromptAgentController({
         const allCandidates = referenceTab === 'history' ? historyReferences : (nodeAdapter?.getSceneReferenceImages?.() || []);
         const filtered = allCandidates;
         const candidates = filtered.slice(0, referenceLimit);
-        const clearSelection = documentRef.getElementById('prompt-agent-reference-clear');
-        if (clearSelection) clearSelection.hidden = pendingReferenceImages.length === 0;
         const done = documentRef.getElementById('prompt-agent-reference-picker-close');
         if (done) done.textContent = pendingReferenceImages.length ? `完成（${pendingReferenceImages.length}）` : '完成';
         const more = documentRef.getElementById('prompt-agent-reference-more');
         if (more) more.hidden = filtered.length <= referenceLimit;
-        for (const tab of ['scene', 'history']) documentRef.getElementById(`prompt-agent-tab-${tab}`)?.setAttribute('aria-selected', String(referenceTab === tab));
+        for (const tab of REFERENCE_TABS) {
+            const button = documentRef.getElementById(`prompt-agent-tab-${tab}`);
+            const source = documentRef.getElementById(`prompt-agent-reference-${tab}`);
+            const selected = referenceTab === tab;
+            if (button) {
+                button.setAttribute('aria-selected', String(selected));
+                button.tabIndex = selected ? 0 : -1;
+            }
+            if (source) {
+                source.hidden = !selected;
+                if (selected && referencePickerList.parentElement !== source) {
+                    source.append(...[referencePickerStatus, referencePickerList, more].filter(Boolean));
+                }
+            }
+        }
         if (referencePickerStatus) referencePickerStatus.textContent = referenceTab === 'history' && (historyLoading || historyError)
             ? (historyLoading ? '正在加载历史图片…' : historyError)
             : candidates.length
             ? ''
             : (referenceTab === 'history' ? (historyLoading ? '正在加载历史图片…' : historyError || '没有匹配的历史图片。') : '没有匹配的画布图片，可上传图片。');
         if (referencePickerStatus) referencePickerStatus.hidden = !referencePickerStatus.textContent;
+        let focusedOption;
         candidates.forEach((candidate) => {
             const candidateKey = candidate.historyId ? referenceSource?.getReferenceId?.(candidate) || candidate.referenceId : getPromptAgentReferenceKey(candidate);
             const index = pendingReferenceImages.findIndex((item) => item.selectionKey === candidate.referenceId || getPromptAgentReferenceKey(item) === candidateKey);
@@ -986,12 +1041,10 @@ export function createPromptAgentController({
             });
             const cell = documentRef.createElement('div'); cell.className = 'prompt-agent-reference-cell';
             referencePickerList.appendChild(cell); cell.appendChild(button); cell.appendChild(preview);
-            if (candidate.referenceId === focusedId) button.focus?.();
+            if (candidate.referenceId === focusedId) focusedOption = button;
         });
-        const { panel, form, referencePicker } = getElements();
-        if (referencePicker?.style && panel?.getBoundingClientRect && form?.getBoundingClientRect) {
-            referencePicker.style.maxHeight = `${Math.max(80, form.getBoundingClientRect().top - panel.getBoundingClientRect().top - 12)}px`;
-        }
+        if (focusedId) (focusedOption || documentRef.getElementById(`prompt-agent-tab-${referenceTab}`))?.focus?.({ preventScroll: true });
+        syncComposerPopovers();
     }
 
     function setReferencePickerOpen(open, focusTrigger = false) {
@@ -1007,7 +1060,11 @@ export function createPromptAgentController({
             modelMenus?.close();
             renderReferencePicker();
             if (referenceTab === 'history') void loadHistoryReferences();
-            referencePickerList?.querySelector?.('button')?.focus?.();
+            if (referencePickerOpen) {
+                const firstControl = documentRef.getElementById(`prompt-agent-tab-${referenceTab}`)
+                    || referencePickerList?.querySelector?.('button');
+                firstControl?.focus?.({ preventScroll: true });
+            }
         } else if (focusTrigger) addReferenceButton?.focus?.();
     }
 
@@ -1299,6 +1356,7 @@ export function createPromptAgentController({
             modelMenus?.close();
             setReferencePickerOpen(false);
             closeCommandMenu();
+            setResizeControlsOpen(false);
         }
     }
 
@@ -1329,6 +1387,7 @@ export function createPromptAgentController({
         panelWidthController?.apply();
         if (scrollToLatestOnOpen) scrollToLatest();
         updateScrollBottomButton();
+        if (!resultObserver) resultLoaders.forEach((_load, element) => loadVisibleResult(element));
     }
 
     function preparedTarget() {
@@ -1362,20 +1421,55 @@ export function createPromptAgentController({
         const mentions = canvasMentions?.read() || [];
         const canvas = canvasAdapter?.context(mentions.map(item => item.id));
         const selected = canvas?.nodes.filter(node => canvas.summary.selectedIds.includes(node.id)) || [];
-        const prepared = preparedTarget();
-        const node = prepared && mentions.some(item => item.id === prepared.id) ? prepared
-            : selected.length === 1 ? selected[0] : null;
-        host.hidden = !selected.length && !node;
+        const mentioned = mentions.map(mention => canvas?.nodes.find(node => node.id === mention.id)).filter(Boolean);
+        const node = selected.length === 1 ? selected[0] : null;
+        host.hidden = !selected.length && !mentioned.length;
         if (host.hidden) return;
         const copy = host.querySelector('.prompt-agent-node-context-copy');
-        const selection = selected.length ? `当前选中：${selected.map(item => item.name).join('、')}。` : '当前未选中节点。';
-        if (!node || node.type !== 'ImageGenerate') {
-            if (copy) copy.textContent = selection;
+        const selection = selected.length ? `当前选中：${selected.map(item => item.name).join('、')}。` : '';
+        const citation = mentioned.length ? `本轮引用：${mentioned.map(item => item.name).join('、')}。` : '';
+        const promptTarget = mentioned.find(item => item.type === 'ImageGenerate')
+            || (!mentions.length && node?.type === 'ImageGenerate' ? node : null);
+        const label = `${selection}${citation}${promptTarget ? promptSourceGuidance(preparedPromptSource(promptTarget)) : ''}`;
+        if (copy && copy.textContent !== label) copy.textContent = label;
+        const { input, modelSelect } = getElements();
+        const message = input?.value?.trim() || '';
+        const sendsToModel = !message.startsWith('/') && !isSelectedReferenceClearRequest(message) && !localAppRequest(message);
+        const sources = sendsToModel ? getPromptAgentCanvasImagePreview({ canvasContext: canvas, message,
+            contextNodeId: promptTarget?.id, referenceImages: pendingReferenceImages }) : [];
+        const model = getUsableChatModels().find(item => item.id === modelSelect?.value);
+        const textOnly = Boolean(model && (model.capabilities?.imageInput === false
+            || getOpenAIChatCapabilities({ model, provider: selectedProvider(model, 'chat') })?.imageInput === false));
+        renderCanvasImagePreview(host, sources, textOnly);
+    }
+
+    function renderCanvasImagePreview(host, sources, textOnly) {
+        let details = host.querySelector('.prompt-agent-input-image-context');
+        if (!sources.length) {
+            if (details) { details.hidden = true; details.open = false; }
             return;
         }
-        const source = preparedPromptSource(node);
-        const label = `${selection}${mentions.some(item => item.id === node.id) ? `本轮引用：${node.name}。` : ''}${promptSourceGuidance(source)}`;
-        if (copy && copy.textContent !== label) copy.textContent = label;
+        if (!details) {
+            details = documentRef.createElement('details');
+            details.className = 'prompt-agent-input-image-context';
+            for (const tag of ['summary', 'ul', 'p']) details.appendChild(documentRef.createElement(tag));
+            host.appendChild(details);
+        }
+        details.hidden = false;
+        const key = JSON.stringify([sources, textOnly]);
+        if (details.dataset.sources === key) return;
+        details.dataset.sources = key;
+        const [summary, list, help] = details.children;
+        const count = sources.reduce((total, source) => total + (source.unavailable ? 0 : source.count), 0);
+        summary.textContent = textOnly ? '画布图片 · 当前对话模型仅支持文字'
+            : count ? `对话可读取的画布原图 · ${count} 张` : '画布图片 · 原图暂不可读';
+        list.replaceChildren();
+        for (const source of sources) {
+            const item = documentRef.createElement('li');
+            item.textContent = `${source.name} · ${source.purposes.join('、')}（${source.unavailable || `${source.count} 张`}）`;
+            list.appendChild(item);
+        }
+        help.textContent = '此处列出选区和 @ 节点的图片来源。手动添加的图片显示在附件中，实际生图参考以方案为准。';
     }
 
     function insertPreparedNodeContext() {
@@ -1512,16 +1606,61 @@ export function createPromptAgentController({
         message.appendChild(group);
     }
 
-    function appendMessage(role, text, workSummary = [], { record = true, promptPlan = null, canvasPlan = null, nodeMentions = [], referenceImages = [], contextImages = [], intent, search, choices } = {}) {
-        const { messages } = getElements();
+    function appendRequestFailure(message, failure) {
+        const actions = documentRef.createElement('div');
+        actions.className = 'prompt-agent-error-actions';
+        let feedback;
+        if (failure.retry) {
+            const revision = workflowRevision, workflowId = getWorkflowId();
+            const retryButton = documentRef.createElement('button');
+            retryButton.className = 'btn btn-secondary';
+            retryButton.type = 'button';
+            retryButton.textContent = '重试';
+            retryButton.dataset.agentRequestRetry = '';
+            retryButton.disabled = requestPending || getUsableChatModels().length === 0;
+            feedback = documentRef.createElement('p');
+            feedback.className = 'prompt-agent-retry-status';
+            feedback.setAttribute('role', 'status');
+            feedback.hidden = true;
+            retryButton.addEventListener('click', () => {
+                if (revision !== workflowRevision || workflowId !== getWorkflowId() || !message.isConnected || requestPending) return;
+                const current = conversationStore.getMessage(message.promptAgentMessageIndex)?.requestFailure?.retry;
+                const original = current && conversationStore.getMessage(current.messageIndex);
+                if (original?.role !== 'user' || current.messageIndex >= message.promptAgentMessageIndex) return;
+                const showBlocked = reason => { feedback.textContent = reason; feedback.hidden = false; };
+                if (message.promptAgentMessageIndex !== conversationStore.getLatestMessageIndex()) {
+                    showBlocked('对话已有后续消息，请在输入框核对上下文后重新发送。');
+                    return;
+                }
+                feedback.hidden = true;
+                void submit({ resendMessage: original, resendMessageIndex: current.messageIndex, retry: current,
+                    onRetryBlocked: showBlocked });
+            });
+            actions.appendChild(retryButton);
+        }
+        if (failure.status) {
+            const details = documentRef.createElement('details');
+            const summary = documentRef.createElement('summary');
+            summary.textContent = '错误详情';
+            const diagnostic = documentRef.createElement('p');
+            diagnostic.textContent = `HTTP ${failure.status}`;
+            details.appendChild(summary);
+            details.appendChild(diagnostic);
+            actions.appendChild(details);
+        }
+        message.appendChild(actions);
+        if (feedback) message.appendChild(feedback);
+    }
+
+    function appendMessage(role, text, workSummary = [], { record = true, promptPlan = null, canvasPlan = null, nodeMentions = [], referenceImages = [], contextImages = [], intent, search, choices, requestFailure, batch = null } = {}) {
+        const messages = batch?.target || getElements().messages;
         if (!messages) return null;
-        const followLatest = messages.scrollHeight - messages.clientHeight - messages.scrollTop <= 32;
-        const emptyState = messages.querySelector?.('.prompt-agent-empty');
-        emptyState?.remove?.();
+        const followLatest = !batch && messages.scrollHeight - messages.clientHeight - messages.scrollTop <= 32;
+        if (!batch) messages.querySelector?.('.prompt-agent-empty')?.remove?.();
         const message = documentRef.createElement('article');
         message.className = `prompt-agent-message prompt-agent-message-${role}`;
         message.setAttribute('data-role', role);
-        message.setAttribute('aria-label', role === 'user' ? '用户消息' : 'Agent 回复');
+        message.setAttribute('aria-label', role === 'user' ? '用户消息' : requestFailure ? 'Agent 请求失败' : 'Agent 回复');
 
         if (role === 'agent' && workSummary.length) {
             const details = documentRef.createElement('details');
@@ -1542,9 +1681,19 @@ export function createPromptAgentController({
 
         const body = documentRef.createElement('div');
         body.className = 'prompt-agent-message-body';
-        if (role === 'agent') renderAgentBody({ documentRef, body, text, sources: search?.sources || [] });
+        if (requestFailure) {
+            message.classList.add('prompt-agent-message-error');
+            const title = documentRef.createElement('strong');
+            title.className = 'prompt-agent-error-title';
+            title.textContent = '请求未完成';
+            body.appendChild(title);
+            const reason = documentRef.createElement('p');
+            reason.textContent = agentRequestFailureText(requestFailure);
+            body.appendChild(reason);
+        } else if (role === 'agent') renderAgentBody({ documentRef, body, text, sources: search?.sources || [] });
         else body.textContent = text;
         message.appendChild(body);
+        if (requestFailure) appendRequestFailure(message, requestFailure);
         appendChoices(message, { role, text, intent, choices });
         if (search) {
             const revision = workflowRevision, viewRevision = searchViewRevision;
@@ -1574,7 +1723,7 @@ export function createPromptAgentController({
         if (role === 'user') {
             const revision = workflowRevision;
             message.appendChild(createUserMessageActions({ documentRef, text, onNativeClipboardWrite,
-                disabled: requestPending || getUsableChatModels().length === 0,
+                disabled: batch?.resendDisabled ?? (requestPending || getUsableChatModels().length === 0),
                 onResend: () => {
                     if (revision !== workflowRevision || !message.isConnected || requestPending) return;
                     const current = conversationStore.getMessage(message.promptAgentMessageIndex);
@@ -1584,11 +1733,13 @@ export function createPromptAgentController({
             }));
         }
         messages.appendChild(message);
-        contentObserver?.observe?.(message);
-        if (followLatest || followLatestContent) scrollToLatest();
-        updateScrollBottomButton();
+        if (!batch) {
+            contentObserver?.observe?.(message);
+            if (followLatest || followLatestContent) scrollToLatest();
+            else updateScrollBottomButton();
+        }
         if (record) {
-            message.promptAgentMessageIndex = conversationStore.append({ role, text, workSummary, promptPlan, canvasPlan, nodeMentions, referenceImages, ...(contextImages.length ? { contextImages } : {}), intent, search, choices });
+            message.promptAgentMessageIndex = conversationStore.append({ role, text, workSummary, promptPlan, canvasPlan, nodeMentions, referenceImages, ...(contextImages.length ? { contextImages } : {}), intent, search, choices, requestFailure });
             refreshChoiceButtons();
             conversationRevision += 1;
             onStateChange();
@@ -1851,7 +2002,7 @@ export function createPromptAgentController({
         conversationStore.finishRun(runId, run);
         conversationRevision += 1;
         onStateChange();
-        refreshRunViews();
+        refreshRunViews(runId);
         return true;
     }
 
@@ -1861,10 +2012,14 @@ export function createPromptAgentController({
         return found;
     }
 
+    function completionText(result) {
+        return result.persistenceStatus === 'failed'
+            ? `生成完成，但保存失败：${result.persistenceError || '请重试保存'}` : '生成完成';
+    }
+
     function renderCompletedRun(runState, result, images = result?.images || []) {
         clearElement(runState);
-        runState.textContent = result.persistenceStatus === 'failed'
-            ? `生成完成，但保存失败：${result.persistenceError || '请重试保存'}` : '生成完成';
+        runState.textContent = completionText(result);
         images.forEach((source, index) => {
             if (!source) {
                 const missing = documentRef.createElement('span');
@@ -1922,15 +2077,65 @@ export function createPromptAgentController({
         });
     }
 
+    function loadVisibleResult(element) {
+        if (!getElements().panel?.classList.contains('active')) return;
+        const load = resultLoaders.get(element);
+        if (!load) return;
+        resultLoaders.delete(element);
+        resultObserver?.unobserve(element);
+        load();
+    }
+
+    function observeResult(view, media) {
+        const { element } = view;
+        resultLoaders.set(element, () => {
+            media.loading = true;
+            element.textContent = '正在读取生成结果…';
+            void Promise.resolve().then(() => loadResultImages(media.keys)).catch(() => []).then(sources => {
+                media.images = media.keys.map((_, index) => sources?.[index] || null);
+                if (runViews.get(view.run.runId) === view && view.media === media) renderRunView(view, view.run);
+            });
+        });
+        if (resultObserver === undefined) {
+            const Observer = documentRef.defaultView?.IntersectionObserver;
+            resultObserver = Observer ? new Observer(entries => {
+                for (const entry of entries) if (entry.isIntersecting) loadVisibleResult(entry.target);
+            }, { root: getElements().messages, rootMargin: '64px 0px' }) : null;
+        }
+        if (resultObserver) resultObserver.observe(element);
+        else queueMicrotask(() => loadVisibleResult(element));
+    }
+
+    const sameItems = (previous, next) => previous === next
+        || (Boolean(previous) && Boolean(next) && previous.length === next.length && previous.every((source, index) => source === next[index]));
+
     function renderRunView(view, run) {
         const { element, workflowId } = view;
         const transient = results.read(workflowId, run.runId);
-        const token = {};
-        view.token = token;
-        const renderImages = (images) => {
-            if (view.token !== token || runViews.get(run.runId) !== view) return;
-            renderCompletedRun(element, run, images);
-            if (run.persistenceStatus === 'failed' || run.persistenceStatus === 'retained') {
+        const canRetrySave = run.persistenceStatus === 'failed' || run.persistenceStatus === 'retained';
+        const keys = run.mediaAssetKeys || [];
+        view.run = run;
+        if (run.status === 'completed' && !transient.images && keys.length) {
+            if (!sameItems(view.media?.keys, keys)) view.media = { keys };
+        } else {
+            view.media = null;
+            if (resultLoaders.delete(element)) resultObserver?.unobserve(element);
+        }
+        const images = transient.images || view.media?.images;
+        const state = JSON.stringify([run.status, run.targetNodeId, run.error, run.persistenceStatus,
+            run.persistenceError, keys, canRetrySave && transient.saving]);
+        if (view.state === state && sameItems(view.images, images)) return;
+        view.state = state;
+        view.images = images;
+        if (run.status === 'completed') {
+            if (view.media && !images) {
+                clearElement(element);
+                element.textContent = view.media.loading ? '正在读取生成结果…' : completionText(run);
+                if (!view.media.loading) observeResult(view, view.media);
+                return;
+            }
+            renderCompletedRun(element, run, images || []);
+            if (canRetrySave) {
                 const retry = documentRef.createElement('button');
                 retry.type = 'button';
                 retry.className = 'btn btn-secondary';
@@ -1939,18 +2144,6 @@ export function createPromptAgentController({
                 retry.addEventListener('click', () => results.retry(workflowId, run.runId));
                 element.appendChild(retry);
             }
-        };
-        if (run.status === 'completed') {
-            const images = transient.images;
-            if (images) renderImages(images);
-            else if (run.mediaAssetKeys?.length) {
-                clearElement(element);
-                element.textContent = '正在读取生成结果…';
-                void loadResultImages(run.mediaAssetKeys).then((resolved) => {
-                    const slots = run.mediaAssetKeys.map((_, index) => resolved[index] || null);
-                    renderImages(slots);
-                }).catch(() => renderImages(run.mediaAssetKeys.map(() => null)));
-            } else renderImages([]);
         } else if (run.status === 'failed' && view.canvasPlan) {
             clearElement(element);
             const details = documentRef.createElement('details'); details.className = 'prompt-agent-run-error';
@@ -1977,10 +2170,18 @@ export function createPromptAgentController({
         }
     }
 
-    function refreshRunViews() {
-        for (const [runId, view] of runViews) {
+    function refreshRunViews(runId) {
+        if (runId) {
+            const view = runViews.get(runId);
+            if (!view) return;
             const run = conversationStore.getRun(runId);
             if (run) renderRunView(view, run);
+            return;
+        }
+        if (runViews.size === 0) return;
+        for (const run of conversationStore.getRuns()) {
+            const view = runViews.get(run.runId);
+            if (view) renderRunView(view, run);
         }
     }
 
@@ -2077,7 +2278,7 @@ export function createPromptAgentController({
                         view.actionState.sync();
                     }
                 }
-                refreshRunViews();
+                refreshRunViews(runId);
             }
         }
     }
@@ -2157,7 +2358,8 @@ export function createPromptAgentController({
                     throw error;
                 } finally {
                     for (const record of resultRuns.values()) activeRuns.delete(runKey(workflowId, record.runId));
-                    changed(plan); if (isCurrent()) refreshRunViews();
+                    changed(plan);
+                    if (isCurrent()) for (const record of resultRuns.values()) refreshRunViews(record.runId);
                 }
             }
         });
@@ -2197,9 +2399,9 @@ export function createPromptAgentController({
         }
     }
 
-    async function submit({ resendMessage = null, resendMessageIndex, choice = null } = {}) {
+    async function submit({ resendMessage = null, resendMessageIndex, choice = null, retry = null, onRetryBlocked = () => {} } = {}) {
         const { input } = getElements();
-        const text = choice?.label ?? (resendMessage ? String(resendMessage.text || '') : input?.value?.trim());
+        const text = retry?.imageOnly ? '' : choice?.label ?? (resendMessage ? String(resendMessage.text || '') : input?.value?.trim());
         if (!choice && !resendMessage && text?.startsWith('/')) {
             await executeCommand(text.toLowerCase());
             return;
@@ -2243,9 +2445,22 @@ export function createPromptAgentController({
         const replyModel = models.find(model => model.id === replyModelId);
         const replyConfig = captureThinkingConfig(replyModelId);
         const explicitReferences = confirmedRequest?.referenceImages || attachments;
+        if (retry && (explicitReferences.length !== retry.referenceCount
+            || (resendMessage.contextImages?.length || 0) !== retry.contextImageCount)) {
+            onRetryBlocked('原请求的部分图片已不可用，请核对后重新发送。');
+            return;
+        }
+        if (retry) {
+            const current = conversationStore.getCompactionContext();
+            if (retry.messageIndex < (current.messageOffset || 0) + current.archivedMessages.length) {
+                onRetryBlocked('原请求所在的上下文已压缩或清理，请重新发送。');
+                return;
+            }
+        }
         const unboundMention = !choice && missingImageMention(requestText, explicitReferences);
         const mentionsImage = !choiceAnswer && Boolean(requestText?.match(IMAGE_MENTION)?.length);
         if (unboundMention) {
+            if (retry) { onRetryBlocked(unavailableImageMentionMessage(unboundMention)); return; }
             referencePickerError = unavailableImageMentionMessage(unboundMention);
             renderPendingReferences();
             return;
@@ -2253,21 +2468,31 @@ export function createPromptAgentController({
         const configuredModel = replyConfig?.model || replyModel;
         if (mentionsImage && configuredModel && (configuredModel.capabilities?.imageInput === false
             || getOpenAIChatCapabilities({ model: configuredModel, provider: selectedProvider(configuredModel, 'chat') })?.imageInput === false)) {
+            if (retry) { onRetryBlocked('当前对话模型不支持图片输入，请切换到支持图片的模型。'); return; }
             referencePickerError = '当前对话模型不支持图片输入，请切换到支持图片的模型或移除图片提及。';
             renderPendingReferences();
             return;
         }
-        scrollToLatest();
         const stagedReferences = attachments.slice();
         // Capture selection and explicit mentions at Send, before compression
         // or media reads can yield to a later canvas selection.
         const nodeMentions = confirmedRequest ? confirmedRequest.nodeMentions || []
             : resendMessage ? resendMessage.nodeMentions || [] : choice ? [] : canvasMentions?.read() || [];
-        const includeSelection = !confirmedNewTask && !choiceAnswer;
+        const includeSelection = !retry && !confirmedNewTask && !choiceAnswer;
         const canvasContext = canvasAdapter?.context(nodeMentions.map(item => item.id), { includeSelection }) || null;
+        if (retry && canvasContext) {
+            const required = [...retry.selectedIds, ...nodeMentions.map(item => item.id), retry.contextNodeId].filter(Boolean);
+            if (required.some(id => !canvasContext.nodes.some(node => node.id === id))) {
+                onRetryBlocked('原请求的画布节点已不可用，请核对后重新发送。');
+                return;
+            }
+            canvasContext.summary = { ...canvasContext.summary, selectedIds: retry.selectedIds };
+        }
         const selectedIds = canvasContext?.summary.selectedIds || [];
-        const selectedContext = canvasContext ? (selectedIds.length === 1 ? nodeAdapter?.getContext?.(selectedIds[0]) : null)
+        const selectedContext = retry?.contextNodeId ? nodeAdapter?.getContext?.(retry.contextNodeId) : canvasContext
+            ? (selectedIds.length === 1 ? nodeAdapter?.getContext?.(selectedIds[0]) : null)
             : includeSelection ? nodeAdapter?.getSelectedContext?.() : null;
+        scrollToLatest();
         const operation = beginOperation('reply');
         const imageChoice = () => {
             const id = conversationStore.getImageModelId();
@@ -2291,7 +2516,7 @@ export function createPromptAgentController({
         operation.consumeDraft = !resendMessage && !choice;
         operation.referenceImages = (confirmedRequest?.referenceImages || stagedReferences).map(image => ({ ...image }));
         operation.stagedReferenceKeys = new Set(stagedReferences.map(getPromptAgentReferenceKey));
-        const initialConversation = operation.store.getCompactionContext();
+        const initialConversation = operation.store.getCompactionContext(retry?.messageIndex);
         const initialPlan = initialConversation.messages.findLast(message => message.promptPlan)?.promptPlan || initialConversation.previousPromptPlan;
         const initialCanvas = [...(initialConversation.archivedMessages || []), ...initialConversation.messages].findLast(message => message.canvasPlan)?.canvasPlan;
         const contextIds = new Set([...nodeMentions.map(item => item.id), ...selectedIds, initialPlan?.targetNodeId,
@@ -2305,6 +2530,7 @@ export function createPromptAgentController({
             catch (error) { operation.compactionError = error; }
         }
         const resolveContext = conversation => {
+            if (retry) return retry.contextNodeId ? selectedContext || null : null;
             const previousPlan = conversation.messages.findLast(message => message.promptPlan)?.promptPlan || conversation.previousPromptPlan;
             const previousCanvas = [...(conversation.archivedMessages || []), ...conversation.messages].findLast(message => message.canvasPlan)?.canvasPlan;
             const previousTargets = [...new Set((previousCanvas?.steps || []).filter(step => step.type === 'ImageGenerate')
@@ -2321,9 +2547,9 @@ export function createPromptAgentController({
                 imageSizeCapabilities: operation.imageSizeCapabilities, imageParameterCapabilities: operation.imageParameterCapabilities,
                 searchAllowed: operation.searchSettings.mode !== 'off',
                 referenceImages, workflowReferenceImages }, resolveContext, operation.observation);
-        let completedSearch = null;
+        let completedSearch = null, pendingReply = null;
         try {
-            if (!operation.discardOverLimitContext && compressionProgress(requestText, operation.model, operation).reached
+            if (!retry && !operation.discardOverLimitContext && compressionProgress(requestText, operation.model, operation).reached
                 && !await autoCompact(operation, replyModelId, requestText)) return;
             if (!isLiveOperation(operation)) return;
             const remainingKeys = new Set(operation.store.getDraft().referenceImages.map(getPromptAgentReferenceKey));
@@ -2333,12 +2559,12 @@ export function createPromptAgentController({
                     ? { ...image, description: operation.sceneDescriptions.get(image.sourceNodeId) } : image);
             if (!text && !referenceImages.length) return;
             const sizeDefaults = operation.sizeSettings;
-            let workflowMemory = operation.store.getContext();
+            let workflowMemory = operation.store.getContext(retry?.messageIndex);
             // Snapshot before appending the current turn: preserve assistant drafts
             // and role boundaries without duplicating the new user request.
-            let conversation = operation.store.getCompactionContext();
+            let conversation = operation.store.getCompactionContext(retry?.messageIndex);
             let workflowReferenceImages = uniqueReferenceImages([
-                ...operation.store.getReferenceImages(),
+                ...operation.store.getReferenceImages(retry?.messageIndex),
                 ...referenceImages,
                 ...operation.contextReferences
             ]);
@@ -2393,6 +2619,8 @@ export function createPromptAgentController({
                 setCommandStatus();
                 renderPendingReferences();
             }
+            pendingReply = { messageIndex: userTurn.index, referenceCount: referenceImages.length, selectedIds,
+                contextNodeId: context?.nodeId || '', imageOnly: !text };
             const reply = await createReply({
                 canvasContext,
                 message: requestText,
@@ -2413,6 +2641,10 @@ export function createPromptAgentController({
                             || (image.dataUrl && attachmentSources.has(image.dataUrl))) return false;
                         shown.add(slotKey(image)); return true;
                     });
+                    if (retry && (snapshots.length !== retry.contextImageCount || snapshots.some((image, index) => {
+                        const original = resendMessage.contextImages[index];
+                        return getPromptAgentReferenceKey(image) !== getPromptAgentReferenceKey(original) || image.dataUrl !== original.dataUrl;
+                    }))) throw new Error('原请求的上下文图片已变化，请核对后重新发送。');
                     if (mutateOperationConversation(operation, store => store.updateContextImages(userTurn.index, snapshots)) === false) return;
                     if (!isCurrentOperation(operation)) return;
                     const visibleMessage = [...(getElements().messages?.children || [])]
@@ -2436,6 +2668,7 @@ export function createPromptAgentController({
                 onSearchStatus: status => { setOperationStatus(operation, status); if (isCurrentOperation(operation) && operation.processingLabel) operation.processingLabel.textContent = status || '正在处理…'; },
                 signal: operation.controller.signal
             });
+            pendingReply = null;
             if (!isLiveOperation(operation)) return;
             completedSearch = reply?.search || null;
             if (reply?.confirmNewTask) {
@@ -2489,6 +2722,13 @@ export function createPromptAgentController({
             if (!isLiveOperation(operation)) return;
             operation.processingElement?.remove();
             setOperationStatus(operation, '');
+            const requestFailure = pendingReply && getAgentRequestFailure(error);
+            if (requestFailure) {
+                requestFailure.retry = { ...pendingReply,
+                    contextImageCount: operation.store.getMessage(pendingReply.messageIndex)?.contextImages?.length || 0 };
+                appendOperationMessage(operation, 'agent', agentRequestFailureText(requestFailure), [], { requestFailure });
+                return;
+            }
             appendOperationMessage(operation, 'agent', error?.message || 'Agent 暂时无法回复，请稍后重试。', [], {
                 search: completedSearch,
                 intent: error instanceof CreativeTaskConfirmationRequired ? CreativeTaskConfirmationRequired.intent : undefined
@@ -2505,6 +2745,16 @@ export function createPromptAgentController({
         return panelWidthController;
     }
 
+    function setResizeControlsOpen(open) {
+        const trigger = documentRef.getElementById('prompt-agent-resize-toggle');
+        const controls = documentRef.getElementById('prompt-agent-resize-controls');
+        if (!trigger || !controls || controls.hidden === !open) return;
+        trigger.setAttribute('aria-expanded', String(open));
+        controls.hidden = !open;
+        if (open) surfaces?.openPopover('agent-resize', { element: controls, trigger, close: () => setResizeControlsOpen(false) });
+        else surfaces?.forgetPopover('agent-resize');
+    }
+
     function init() {
         if (initialized) return;
         panelManager?.register?.('agent', { close });
@@ -2519,6 +2769,9 @@ export function createPromptAgentController({
         }, { passive: true });
         messages?.addEventListener('wheel', event => { if(event.deltaY < 0) followLatestContent = false; }, {passive:true});
         messages?.addEventListener('keydown', event => { if(['ArrowUp','PageUp','Home'].includes(event.key)) followLatestContent = false; });
+        messages?.addEventListener('click', event => {
+            if (event.target.closest?.('.prompt-agent-canvas-plan details > summary')) followLatestContent = false;
+        });
         contentObserver = resizeObserverFactory?.(() => {
             if (followLatestContent && messages?.clientHeight > 0) scrollToLatest();
             else updateScrollBottomButton();
@@ -2534,17 +2787,22 @@ export function createPromptAgentController({
                 if (mentionReplacementOperations.size && documentRef.documentElement.dataset.canvasLoadState === 'loading') imageMentions?.close();
             }).observe(documentRef.documentElement, { attributes: true, attributeFilter: ['data-canvas-load-state'] });
         }
-        const { button, form, input, modelSelect, addModelButton, cancelButton, addReferenceButton, referencePickerClose } = getElements();
+        const { button, closeButton, form, input, modelSelect, addModelButton, cancelButton, addReferenceButton, referencePickerClose } = getElements();
         const resizeHandle = documentRef.getElementById('prompt-agent-input-resize');
+        const resizeToggle = documentRef.getElementById('prompt-agent-resize-toggle');
+        const resizeControls = documentRef.getElementById('prompt-agent-resize-controls');
+        let adjustInputHeight;
         let syncInputHeight;
         if (input && resizeHandle) {
             const transcript = surfacePanel?.querySelector?.('.prompt-agent-transcript');
             const view = documentRef.defaultView;
             const inputBounds = () => {
-                const minHeight = parseFloat(view?.getComputedStyle(input).minHeight) || 42;
+                const style = view?.getComputedStyle?.(input);
+                const minHeight = parseFloat(style?.minHeight) || 42;
                 if (!surfacePanel || !transcript || !form) return { minHeight, maxHeight: view?.innerHeight || 150 };
                 const surroundingHeight = form.offsetTop - transcript.offsetHeight + form.offsetHeight - input.offsetHeight;
-                const maxHeight = Math.max(minHeight, surfacePanel.clientHeight - surroundingHeight - minHeight);
+                const compactReserve = parseFloat(style?.getPropertyValue('--agent-input-reserved-height')) || 0;
+                const maxHeight = Math.max(minHeight, surfacePanel.clientHeight - Math.max(surroundingHeight + minHeight, compactReserve));
                 return { minHeight, maxHeight };
             };
             syncInputHeight = () => {
@@ -2556,24 +2814,36 @@ export function createPromptAgentController({
                 input.style.height = `${Math.max(minHeight, Math.min(maxHeight, height))}px`;
                 syncInputHeight();
             };
+            adjustInputHeight = direction => setHeight(input.getBoundingClientRect().height + direction * 12);
             let resizeStart = null;
             resizeHandle.addEventListener('pointerdown', event => {
-                if (event.button !== 0) return;
+                if (event.button !== 0 || resizeStart) return;
                 event.preventDefault();
-                resizeStart = { y: event.clientY, height: input.getBoundingClientRect().height };
+                resizeStart = { id: event.pointerId, y: event.clientY, height: input.getBoundingClientRect().height };
                 resizeHandle.setPointerCapture?.(event.pointerId);
             });
             resizeHandle.addEventListener('pointermove', event => {
-                if (resizeStart) setHeight(resizeStart.height + resizeStart.y - event.clientY);
+                if (resizeStart && resizeStart.id === event.pointerId) {
+                    setHeight(resizeStart.height + resizeStart.y - event.clientY);
+                }
             });
-            resizeHandle.addEventListener('pointerup', () => { resizeStart = null; });
-            resizeHandle.addEventListener('lostpointercapture', () => { resizeStart = null; });
+            for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+                resizeHandle.addEventListener(type, event => {
+                    if (resizeStart?.id === event.pointerId) resizeStart = null;
+                });
+            }
             resizeHandle.addEventListener('keydown', event => {
                 if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
                 event.preventDefault();
-                setHeight(input.getBoundingClientRect().height + (event.key === 'ArrowUp' ? 12 : -12));
+                adjustInputHeight(event.key === 'ArrowUp' ? 1 : -1);
             });
         }
+        resizeToggle?.addEventListener('click', () => setResizeControlsOpen(resizeControls?.hidden));
+        resizeControls?.addEventListener('click', event => {
+            const action = event.target.closest('button');
+            if (action?.dataset.resizeWidth) ensurePanelWidth().adjust(Number(action.dataset.resizeWidth));
+            if (action?.dataset.resizeHeight) adjustInputHeight?.(Number(action.dataset.resizeHeight));
+        });
         input?.addEventListener('input', renderPreparedNodeContext);
         input?.addEventListener('input', renderPreparedImageRequest);
         documentRef.getElementById('prompt-agent-insert-image-request')?.addEventListener('click', () => {
@@ -2583,6 +2853,10 @@ export function createPromptAgentController({
             input.dispatchEvent(new Event('input', { bubbles: true })); input.focus();
         });
         button?.addEventListener('click', toggle);
+        closeButton?.addEventListener('click', () => {
+            if (surfaces && surfacePanel) surfaces.closeModeless(surfacePanel);
+            else { close(); button?.focus?.(); }
+        });
         form?.addEventListener('submit', async (event) => {
             event.preventDefault();
             await submit();
@@ -2592,6 +2866,7 @@ export function createPromptAgentController({
             setSelectedModelId(modelSelect.value);
             onStateChange();
             renderModelOptions();
+            renderPreparedNodeContext();
             thinkingControls.forEach(control => control.refresh());
             if (commandMenuOpen) renderCommandMenu();
         });
@@ -2633,6 +2908,7 @@ export function createPromptAgentController({
         input?.addEventListener('keydown', async (event) => {
             if (event.isComposing || event.keyCode === 229 || (event.key === 'Enter' && event.shiftKey)) return;
             if (event.key === 'Enter' && event.repeat) { event.preventDefault(); return; }
+            if (event.key === 'Tab' && commandMenuOpen) { closeCommandMenu(); return; }
             if (commandMenuOpen && ['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(event.key)) {
                 event.preventDefault();
                 event.stopPropagation?.();
@@ -2650,22 +2926,31 @@ export function createPromptAgentController({
         });
         cancelButton?.addEventListener('click', () => cancelRequest());
         addReferenceButton?.addEventListener('click', () => setReferencePickerOpen(!referencePickerOpen));
-        for (const tab of ['scene', 'history']) documentRef.getElementById(`prompt-agent-tab-${tab}`)?.addEventListener('click', () => {
-            referenceTab = tab; referenceLimit = 60; renderReferencePicker();
-            if (tab === 'history') void loadHistoryReferences();
-        });
-        for (const tab of ['scene', 'history']) documentRef.getElementById(`prompt-agent-tab-${tab}`)?.addEventListener('keydown', event => {
-            if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
-            event.preventDefault();
-            const target = documentRef.getElementById(`prompt-agent-tab-${tab === 'scene' ? 'history' : 'scene'}`);
-            target?.click(); target?.focus();
-        });
+        for (const tab of REFERENCE_TABS) {
+            const button = documentRef.getElementById(`prompt-agent-tab-${tab}`);
+            button?.addEventListener('click', () => {
+                referenceTab = tab; referenceLimit = 60;
+                if (tab === 'history') void loadHistoryReferences();
+                else renderReferencePicker();
+            });
+            button?.addEventListener('keydown', event => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                event.preventDefault();
+                const nextTab = event.key === 'Home' ? 'scene' : event.key === 'End' ? 'history'
+                    : tab === 'scene' ? 'history' : 'scene';
+                const target = documentRef.getElementById(`prompt-agent-tab-${nextTab}`);
+                if (target === button) return;
+                target?.click();
+                target?.focus({ preventScroll: true });
+            });
+        }
         documentRef.getElementById('prompt-agent-reference-more')?.addEventListener('click', () => { referenceLimit += 60; renderReferencePicker(); });
         documentRef.getElementById('prompt-agent-reference-clear')?.addEventListener('click', () => {
             pendingReferenceImages.slice().forEach(removePendingReference);
             undoneImageMentions.clear();
             referencePickerError = '';
             renderPendingReferences();
+            input?.focus?.();
         });
         const upload = documentRef.getElementById('prompt-agent-reference-upload');
         documentRef.getElementById('prompt-agent-reference-upload-button')?.addEventListener('click', () => upload?.click());
@@ -2787,10 +3072,11 @@ export function createPromptAgentController({
         ensurePanelWidth();
         resizeObserver = resizeObserverFactory?.(() => {
             syncInputHeight?.();
+            syncComposerPopovers();
             updateScrollBottomButton();
         }) || null;
         if (panel) resizeObserver?.observe?.(panel);
-        if (form && syncInputHeight) resizeObserver?.observe?.(form);
+        if (form) resizeObserver?.observe?.(form);
         if (messages) contentObserver?.observe?.(messages);
         initialized = true;
     }
@@ -2804,22 +3090,31 @@ export function createPromptAgentController({
         if (!messages) return;
         promptPlanActionStates.clear();
         runViews.clear();
+        resultObserver?.disconnect();
+        resultLoaders.clear();
+        contentObserver?.disconnect?.();
+        contentObserver?.observe?.(messages);
         clearElement(messages);
         const snapshot = conversationStore.snapshot();
         const transcript = [...(snapshot.archivedMessages || []), ...snapshot.messages];
         if (transcript.length === 0) {
             const empty = documentRef.createElement('div');
             empty.className = 'prompt-agent-empty';
-            const title = documentRef.createElement('strong'); title.textContent = '想创作什么画面？';
-            const help = documentRef.createElement('p'); help.textContent = '描述主体、风格和用途。助手先提供方案，确认后再应用或生成。';
+            const title = documentRef.createElement('h3'); title.textContent = '想创作什么画面？';
+            const help = documentRef.createElement('p'); help.textContent = '描述主体、风格和用途。说「先预览方案」可先审阅。「直接新建并运行」可执行符合条件的新方案。修改、删除已有节点或断开已有连线仍需确认。';
             empty.appendChild(title); empty.appendChild(help);
-            for (const [label, text] of [['产品摄影示例', '帮我规划一张产品摄影图：主体是一只白色陶瓷杯，柔和自然光，简洁背景，用于商品展示。'], ['人物肖像示例', '帮我规划一张人物肖像：自然表情，电影光线，暖色背景，请先提供方案。']]) {
+            for (const [label, text] of [
+                ['插入产品摄影示例', '帮我规划一张产品摄影图：主体是一只白色陶瓷杯，柔和自然光，简洁背景，用于商品展示。请先预览方案。'],
+                ['插入人物肖像示例', '帮我规划一张人物肖像：自然表情，电影光线，暖色背景。请先预览方案。']
+            ]) {
                 const example = documentRef.createElement('button'); example.type = 'button'; example.textContent = label;
                 example.addEventListener('click', () => {
                     const input = getElements().input;
                     if (!input) return;
-                    if (!input.value.trim()) { input.value = text; input.dispatchEvent(new Event('input', { bubbles: true })); }
                     input.focus();
+                    const end = input.value.length;
+                    input.setSelectionRange?.(end, end);
+                    insertPastedText(`${end ? '\n\n' : ''}${text}`);
                 });
                 empty.appendChild(example);
             }
@@ -2827,16 +3122,24 @@ export function createPromptAgentController({
             updateScrollBottomButton();
             return;
         }
+        const batch = { target: documentRef.createDocumentFragment?.() || messages,
+            resendDisabled: requestPending || getUsableChatModels().length === 0 };
+        const renderedMessages = transcript.map(item => appendMessage(item.role, item.text, item.workSummary || [], {
+            record: false,
+            batch,
+            intent: item.intent,
+            choices: item.choices,
+            search: item.search,
+            requestFailure: item.requestFailure,
+            referenceImages: item.referenceImages || [],
+            contextImages: item.contextImages || []
+        }));
+        if (batch.target !== messages) messages.appendChild(batch.target);
+        // Plan actions check that their message belongs to the live transcript.
         transcript.forEach((item, index) => {
-            const message = appendMessage(item.role, item.text, item.workSummary || [], {
-                record: false,
-                intent: item.intent,
-                choices: item.choices,
-                search: item.search,
-                referenceImages: item.referenceImages || [],
-                contextImages: item.contextImages || []
-            });
-            if (message) message.promptAgentMessageIndex = index;
+            const message = renderedMessages[index];
+            if (!message) return;
+            message.promptAgentMessageIndex = index;
             if (item.canvasPlan) appendCanvasPlan(message, item.canvasPlan, item.runs || []);
             if (item.role === 'agent' && item.promptPlan) {
                 const actionState = appendPromptPlan(message, item.promptPlan, item.runs || []);
@@ -2849,6 +3152,7 @@ export function createPromptAgentController({
                     renderRunView(view, run);
                 }
             }
+            contentObserver?.observe?.(message);
         });
         refreshChoiceButtons();
         scrollToLatest();

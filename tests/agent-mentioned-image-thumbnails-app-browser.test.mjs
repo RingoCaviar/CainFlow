@@ -37,7 +37,13 @@ test('mentioned node thumbnails retain the actual reference order, preview origi
             await app.evaluate("document.querySelector('.image-mention-picker [data-mention-id=target]').click()");
         }
         await selectChatModel(app);
-        await app.evaluate("document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=image][data-provider-id=p]').click();(()=>{const input=document.getElementById('prompt-agent-input');input.value+=' 创建副本并优化提示词';input.dispatchEvent(new Event('input',{bubbles:true}))})();document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
+        await app.evaluate("document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=image][data-provider-id=p]').click();const input=document.getElementById('prompt-agent-input');input.value+=' 创建副本并优化提示词';input.dispatchEvent(new Event('input',{bubbles:true}))");
+        const canvasImages = '#prompt-agent-node-context .prompt-agent-input-image-context';
+        assert.equal(await app.evaluate(`document.querySelector('${canvasImages} summary').textContent`), '对话可读取的画布原图 · 2 张');
+        await app.evaluate(`document.querySelector('${canvasImages} summary').click()`);
+        assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('${canvasImages} li')].map(item=>item.textContent.match(/（1 张）$/)?.[0])`), ['（1 张）','（1 张）']);
+        assert.equal(await app.evaluate("thumbnailRequests.length"), 0, 'reading source names does not send a model request');
+        await app.evaluate("document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))");
         await app.waitFor("document.querySelectorAll('.prompt-agent-message-context-images img').length===2 && document.querySelector('.prompt-agent-canvas-plan')");
         const originals = await thumbnails(app);
         assert.equal(originals.length, 2);

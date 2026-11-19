@@ -465,6 +465,7 @@ test('generated batches survive restore and open their own immutable preview bat
         loadResultImages: async (keys) => keys.map((key) => key.replace('media:', 'image-'))
     });
     reopened.controller.restoreWorkflow(saved);
+    reopened.controller.open();
     await new Promise((resolve) => setImmediate(resolve));
     const images = findResultImages(reopened.elements['prompt-agent-messages']);
     assert.equal(images.length, 4);
@@ -499,12 +500,20 @@ test('restored batches retain missing image positions and keep the remaining ima
     });
     controller.restoreWorkflow({ messages: [{ role: 'agent', text: '历史结果', promptPlan: { prompt: '猫', targetNodeId: 'removed-node' },
         runs: [{ runId: 'old-run', status: 'completed', mediaAssetKeys: ['media:first', 'media:missing', 'media:third'] }] }] });
+    controller.refreshResults();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(reads, [], 'closed panel does not read result assets');
+    controller.open();
     await new Promise((resolve) => setImmediate(resolve));
     const result = elements['prompt-agent-messages'].children[0].querySelector('.prompt-agent-run-state');
     assert.equal(result.children[1].textContent, '第 2 张图片文件缺失');
     assert.equal(findResultImages(result).length, 2);
     result.children[2].dispatch('click');
     assert.deepEqual(previews, [{ images: ['first', 'third'], index: 1 }]);
+    const lastImage = result.children[2];
+    controller.refreshResults();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(result.children[2], lastImage, 'unchanged result retains its focused image node');
     assert.deepEqual(reads, [['media:first', 'media:missing', 'media:third']]);
 });
 
@@ -523,13 +532,11 @@ test('toolbar toggles the Prompt Agent panel without touching canvas state', () 
 
 test('image model selection starts empty even with one model, allows drafts and blocks all execution actions', async () => {
     let prepared = 0;
-    let settingsOpens = 0;
     const { controller, elements } = createHarness(undefined, {
         getSelectedContext: () => null,
         ensureTarget: () => { prepared++; throw new Error('must not prepare'); }
     }, { applyAndGenerate: () => { throw new Error('must not generate'); } }, {
-        conversationStore: createPromptAgentConversationStore(),
-        openModelSettings: () => { settingsOpens++; }
+        conversationStore: createPromptAgentConversationStore()
     });
     assert.equal(elements['prompt-agent-image-model'].value, '');
     assert.equal(elements['prompt-agent-image-model'].children[0].textContent, '请选择生图模型');
@@ -540,8 +547,7 @@ test('image model selection starts empty even with one model, allows drafts and 
     assert.ok(actions.children.every((button) => button.disabled));
     assert.equal(prepared, 0);
     assert.match(elements['prompt-agent-image-model-status'].textContent, /请选择生图模型/);
-    elements['prompt-agent-add-image-model'].dispatch('click');
-    assert.equal(settingsOpens, 1);
+    assert.equal(elements['prompt-agent-add-image-model'].hidden, true, 'the available model is chosen through the model menu');
     elements['prompt-agent-image-model'].value = TEST_IMAGE_MODEL.id;
     elements['prompt-agent-image-model'].dispatch('change');
     assert.ok(actions.children.every((button) => !button.disabled));

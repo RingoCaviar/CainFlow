@@ -17,9 +17,9 @@ export function createPromptAgentResultPersistence({
     const images = new Map();
     const clears = new Map();
 
-    function changed(workflowId) {
+    function changed(workflowId, runId) {
         // Presentation failure must not interrupt an ownership handoff.
-        try { onChange(workflowId); } catch { /* The document is still authoritative. */ }
+        try { onChange(workflowId, runId); } catch { /* The document is still authoritative. */ }
     }
 
     function readRun(workflowId, runId) {
@@ -123,10 +123,10 @@ export function createPromptAgentResultPersistence({
         const captured = result ? clone(result) : undefined;
         const task = Promise.resolve().then(() => persist(workflowId, runId, captured)).finally(() => {
             tasks.delete(key);
-            changed(workflowId);
+            changed(workflowId, runId);
         });
         tasks.set(key, task);
-        changed(workflowId);
+        changed(workflowId, runId);
         return task;
     }
 

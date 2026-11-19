@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createPromptAgentModelReply, getAvailablePromptAgentModels, imageParameterCapabilities } from '../js/features/prompt-agent/prompt-agent-model.js';
+import { createPromptAgentModelReply, getAvailablePromptAgentModels, getPromptAgentCanvasImagePreview, imageParameterCapabilities } from '../js/features/prompt-agent/prompt-agent-model.js';
 import '../js/features/execution/protocols/google.js';
 import '../js/features/execution/protocols/openai.js';
 import { createCanvasContext } from '../js/features/prompt-agent/prompt-agent-canvas-context.js';
@@ -866,7 +866,11 @@ test('explicit image mention reads its original before the first model request a
 
 
 test('selected generation context hydrates durable originals without requiring a node mention',async()=>{
-    const canvasContext=createCanvasContext({workflowId:'w',nodes:[{id:'source',type:'ImageImport',mediaAssetKeys:['media:original']},{id:'target',type:'ImageGenerate'}],connections:[{from:{nodeId:'source',port:'image'},to:{nodeId:'target',port:'referenceImages'},order:0}]});
+    const canvasContext=createCanvasContext({workflowId:'w',selectedIds:['target'],nodes:[{id:'source',type:'ImageImport',customTitle:'导入原图',mediaAssetKeys:['media:original']},{id:'target',type:'ImageGenerate',customTitle:'商品主图'}],connections:[{from:{nodeId:'source',port:'image'},to:{nodeId:'target',port:'referenceImages'},order:0}]});
+    assert.deepEqual(getPromptAgentCanvasImagePreview({ canvasContext, contextNodeId: 'target', message: '看看选中的节点' }), [
+        { name: '导入原图', count: 1, purposes: ['「商品主图」的参考图'], unavailable: '' }
+    ]);
+    assert.deepEqual(getPromptAgentCanvasImagePreview({ canvasContext, contextNodeId: 'target', message: '清空所有参考图' }), []);
     const test=replyHarness({intent:'chat',message:'已查看'}, {canvasContext,context:{nodeId:'target',referenceImages:[{sourceNodeId:'source',images:['data:image/png;base64,PREVIEW'],assetKeys:['media:original']}]},getCanvasImage:async()=> 'data:image/png;base64,ORIGINAL'});
     await test.result;
     assert.equal(test.request().messages.at(-1).content.find(part=>part.type==='image_url').image_url.url,'data:image/png;base64,ORIGINAL');

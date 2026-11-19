@@ -91,9 +91,89 @@ test('user message buttons copy exact text and append a reference-preserving res
     assert.equal(result.samples.length, 42);
 });
 
+test('Agent retries a rate-limited turn beside its restored failure with its original inputs', { timeout: 45000 }, async () => {
+    const models = [
+        { id: 'chat', modelId: 'chat', name: '受控对话', protocol: 'openai', taskType: 'chat', providerIds: ['p'] },
+        { id: 'image', modelId: 'gpt-image-1', name: '受控生图', protocol: 'openai', taskType: 'image', providerIds: ['p'] }
+    ];
+    const nodes = ['original', 'later'].map((id, index) => ({ id, type: 'Text', text: id, x: index * 350, y: 40 }));
+    const providers = [{ id: 'p', endpoint: 'https://controlled.test/v1', apikey: 'test' }];
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, autoRetry: false, models, providers, nodes }, async app => {
+        const setup = `(() => {
+            window.recoveryRequests = [];
+            const fetchOriginal = window.fetch;
+            window.fetch = async (url, options) => {
+                if (String(url) !== '/proxy') return fetchOriginal(url, options);
+                recoveryRequests.push(JSON.parse(options.body));
+                if (!window.recoveryReady) return new Response('private diagnostic from provider', { status: 429 });
+                const result = { intent: 'generate', message: '重试后的方案', canvasPlan: { version: 1,
+                    steps: [{ id: 'new', type: 'ImageGenerate', title: '重试生图', parameters: { prompt: '白底花瓶' } }] } };
+                return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(result) } }] }));
+            };
+        })()`;
+        await app.send('Page.addScriptToEvaluateOnNewDocument', { source: setup });
+        await app.evaluate(setup);
+        const select = id => app.evaluate(`(() => {
+            const node = document.getElementById(${JSON.stringify(id)}), box = node.getBoundingClientRect();
+            const point = { bubbles: true, button: 0, clientX: box.left + 15, clientY: box.top + 15 };
+            node.dispatchEvent(new MouseEvent('mousedown', point));
+            document.dispatchEvent(new MouseEvent('mouseup', point));
+        })()`);
+        await select('original');
+        await app.evaluate(`(async () => {
+            if (!document.getElementById('prompt-agent-panel').classList.contains('active')) document.getElementById('btn-prompt-agent').click();
+            const input = document.getElementById('prompt-agent-input');
+            input.value = '直接创建生图节点，然后自动运行';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            const transfer = new DataTransfer();
+            const file = await (await fetch('/tests/fixtures/reference-red.png')).blob();
+            transfer.items.add(new File([file], '原附件.png', { type: 'image/png' }));
+            input.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: transfer }));
+        })()`);
+        await app.waitFor("document.querySelector('#prompt-agent-references img') && !document.querySelector('#prompt-agent-references .is-loading')");
+        await app.evaluate("document.getElementById('prompt-agent-form').requestSubmit()");
+        const failure = '.prompt-agent-message-error';
+        const retry = `${failure} [data-agent-request-retry]`;
+        await app.waitFor(`document.querySelector('${retry}:not(:disabled)')`);
+        const selector = expression => app.evaluate(`document.querySelector('${failure}').${expression}`);
+        assert.match(await selector('textContent'), /请求频率或额度.*稍后重试/);
+        assert.doesNotMatch(await selector('textContent'), /private diagnostic/);
+        assert.equal(await selector("querySelector('details').open"), false);
+        await selector("querySelector('summary').click()");
+        assert.equal(await selector("querySelector('details p').textContent"), 'HTTP 429');
+        const original = await app.evaluate('recoveryRequests[0].messages.at(-1).content');
+        const originalInput = JSON.parse(original.find(part => part.type === 'text').text);
+        assert.deepEqual(originalInput.canvas.selectedIds, ['original']);
+        await app.evaluate("const field = document.getElementById('prompt-agent-input'); field.value = '保留的新草稿'; field.dispatchEvent(new Event('input', { bubbles: true }));");
+        await reloadAppBrowser(app);
+        await select('later');
+        await app.evaluate("window.recoveryReady = true; if (!document.getElementById('prompt-agent-panel').classList.contains('active')) document.getElementById('btn-prompt-agent').click();");
+        await app.waitFor(`document.querySelector('${retry}:not(:disabled)')`);
+        assert.equal(await app.evaluate("document.getElementById('later').classList.contains('selected')"), true);
+        const nodeIds = () => app.evaluate("[...document.querySelectorAll('#nodes-layer .node')].map(node => node.id)");
+        const existingNodes = await nodeIds();
+        await app.evaluate(`document.querySelector('${retry}').click()`);
+        await app.waitFor("!!document.querySelector('.prompt-agent-canvas-plan') && document.getElementById('prompt-agent-cancel').hidden");
+        assert.equal(await app.evaluate('recoveryRequests.length'), 1, 'retries may propose a draft without running it');
+        const repeated = await app.evaluate('recoveryRequests[0].messages.at(-1).content');
+        const repeatedInput = JSON.parse(repeated.find(part => part.type === 'text').text);
+        assert.equal(repeatedInput.userRequest, originalInput.userRequest);
+        assert.deepEqual(repeatedInput.canvas.selectedIds, ['original']);
+        assert.deepEqual(repeated.filter(part => part.type === 'image_url'), original.filter(part => part.type === 'image_url'));
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), '保留的新草稿');
+        assert.deepEqual(await nodeIds(), existingNodes);
+        await app.evaluate(`document.querySelector('${retry}').click()`);
+        assert.match(await selector("querySelector('.prompt-agent-retry-status').textContent"), /对话已有后续消息/);
+        assert.equal(await app.evaluate('recoveryRequests.length'), 1);
+    });
+});
+
 test('conversation prose and compact plan remain usable in seven themes at 300px', { timeout: 60000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false,
-        models: [{ id: 'chat', modelId: 'chat', name: '受控对话模型 · 用于检查窄面板中较长的模型名称', protocol: 'openai', taskType: 'chat', providerIds: ['p'] }],
+        models: [
+            { id: 'chat', modelId: 'chat', name: '受控对话模型 · 用于检查窄面板中较长的模型名称', protocol: 'openai', taskType: 'chat', providerIds: ['p'] },
+            { id: 'image', modelId: 'gpt-image-1', name: '受控生图模型', protocol: 'openai', taskType: 'image', providerIds: ['p'] }
+        ],
         providers: [{ id: 'p', endpoint: 'https://controlled.test/v1', apikey: 'test' }] }, async ({ evaluate, send, waitFor }) => {
         await send('Emulation.setDeviceMetricsOverride', { width: 800, height: 800, deviceScaleFactor: 1, mobile: false });
         const payload = { intent: 'generate', message: '**雪山海报**。\\n\\n- 清晨柔光\\n- 简洁构图',
@@ -119,16 +199,14 @@ test('conversation prose and compact plan remain usable in seven themes at 300px
         const planRows = `(() => {
             const card = document.querySelector('.prompt-agent-canvas-plan');
             const header = card.querySelector('.prompt-agent-plan-header');
-            const title = header.querySelector('strong').getBoundingClientRect();
             const summary = card.querySelector('.prompt-agent-plan-overview > summary').getBoundingClientRect();
             const count = card.querySelector('.prompt-agent-plan-count').getBoundingClientRect();
-            const buttons = [...header.querySelectorAll('.prompt-agent-actions-primary button:not([hidden])')];
-            const centerY = rect => (rect.top + rect.bottom) / 2;
+            const impact = card.querySelector('.prompt-agent-plan-impact').getBoundingClientRect();
+            const buttons = [...card.querySelectorAll('.prompt-agent-actions-primary button:not([hidden])')];
             return buttons.map(button => button.textContent).join(' ') === '运行 仅应用' && buttons.every(button => {
                 const rect = button.getBoundingClientRect();
-                return rect.height >= 28 && title.right <= rect.left && Math.abs(centerY(rect) - centerY(title)) <= 2;
-            }) && summary.top >= header.getBoundingClientRect().bottom && count.width > 0
-                && Math.abs(centerY(summary) - centerY(count)) <= 2;
+                return rect.height >= 28 && rect.top >= summary.bottom;
+            }) && impact.top >= header.getBoundingClientRect().bottom && summary.top >= impact.bottom && count.width > 0;
         })()`;
         const centeredModelNames = `(() => {
             const triggers = [...document.querySelectorAll('.prompt-agent-settings > .prompt-agent-model-label > .prompt-agent-model-trigger')];
@@ -167,7 +245,7 @@ test('conversation prose and compact plan remain usable in seven themes at 300px
                     shortActions:[...panel.querySelectorAll('.prompt-agent-canvas-plan button, #prompt-agent-send')].filter(button=>getComputedStyle(button).display!=='none' && button.getBoundingClientRect().height<28).map(button=>button.textContent),
                     panelOverflow:panel.scrollWidth-panel.clientWidth};})()`);
             assert.ok(fit.nameOverflow && fit.ellipsis==='ellipsis' && fit.shortActions.length===0 && fit.panelOverflow<=1, `${theme}: ${JSON.stringify(fit)}`);
-            assert.ok(await evaluate(planRows), `${theme}: the plan has a title and action row above the details and count row`);
+            assert.ok(await evaluate(planRows), `${theme}: the plan presents the impact before details and actions`);
             await assertCenteredModels(theme);
             if (process.env.CAINFLOW_QA_SCREENSHOT_DIR) {
                 await mkdir(process.env.CAINFLOW_QA_SCREENSHOT_DIR, { recursive: true });
@@ -175,17 +253,116 @@ test('conversation prose and compact plan remain usable in seven themes at 300px
                 await writeFile(join(process.env.CAINFLOW_QA_SCREENSHOT_DIR, `conversation-${theme}.png`), Buffer.from(shot.data, 'base64'));
             }
         }
-        for (const [viewport, width] of [[1100, 480], [620, 300]]) {
+        for (const [viewport, width] of [[1100, 480], [1024, 340], [620, 300]]) {
             await send('Emulation.setDeviceMetricsOverride', { width: viewport, height: 700, deviceScaleFactor: 1, mobile: false });
             await evaluate(`document.getElementById('prompt-agent-panel').style.width='${width}px'`);
             assert.ok(await evaluate(`(()=>{const panel=document.getElementById('prompt-agent-panel'), plan=panel.querySelector('.prompt-agent-canvas-plan');
                 return panel.scrollWidth<=panel.clientWidth+1 && plan.scrollWidth<=plan.clientWidth+1
                     && document.getElementById('prompt-agent-send').getBoundingClientRect().height>=28;})()`), `${viewport}px viewport: long plan and composer fit`);
-            assert.ok(await evaluate(planRows), `${viewport}px viewport: the collapsed plan fits in two rows`);
+            assert.ok(await evaluate(planRows), `${viewport}px viewport: the impact and consent controls stay in order`);
             await assertCenteredModels(`${viewport}px viewport`);
         }
         assert.ok(await evaluate(`(()=>{const input=document.getElementById('prompt-agent-input'),handle=document.getElementById('prompt-agent-input-resize'),a=input.getBoundingClientRect(),b=handle.getBoundingClientRect(),before=a.height;handle.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));return b.top>=a.top&&b.top<a.top+22&&b.right<=a.right&&input.getBoundingClientRect().height>before})()`), 'upper-right resize handle increases the input height');
         await evaluate("document.getElementById('prompt-agent-cancel').hidden=false;document.getElementById('prompt-agent-send').disabled=true");
         assert.ok(await evaluate(`(()=>{const input=document.getElementById('prompt-agent-input').getBoundingClientRect(),cancel=document.getElementById('prompt-agent-cancel'),r=cancel.getBoundingClientRect();return getComputedStyle(document.getElementById('prompt-agent-send')).display==='none'&&input.right<=r.left&&Math.abs((input.top+input.bottom)/2-(r.top+r.bottom)/2)<=2&&cancel.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()`), 'stop request replaces Send at the right of the text box');
+        await evaluate("document.getElementById('prompt-agent-cancel').hidden=true;document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=image][data-provider-id=p]').click()");
+        await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 560, deviceScaleFactor: 1, mobile: false });
+        await evaluate(`(() => {
+            const summary = document.querySelector('.prompt-agent-plan-overview > summary');
+            summary.scrollIntoView({ block: 'start' });
+            summary.focus({ preventScroll: true });
+            window.planSummaryTop = summary.getBoundingClientRect().top;
+        })()`);
+        await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', text: '\r' });
+        await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter' });
+        await waitFor("document.querySelector('.prompt-agent-plan-overview').open");
+        await delay(100);
+        const expanded = await evaluate(`(() => {
+            const summary = document.querySelector('.prompt-agent-plan-overview > summary');
+            const transcript = document.getElementById('prompt-agent-messages').getBoundingClientRect();
+            const button = document.querySelector('.prompt-agent-actions-primary .btn-primary');
+            const rect = button.getBoundingClientRect();
+            const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+            return {
+                focusKept: document.activeElement === summary,
+                summaryShift: Math.round(summary.getBoundingClientRect().top - window.planSummaryTop),
+                actionInTranscript: rect.top >= transcript.top && rect.bottom <= transcript.bottom + 1,
+                reachesAction: button.contains(hit),
+                hit: hit?.className
+            };
+        })()`);
+        assert.ok(expanded.focusKept && Math.abs(expanded.summaryShift) <= 2 && expanded.actionInTranscript && expanded.reachesAction,
+            `keyboard expansion keeps the summary anchored and the plan action reachable in the narrow transcript: ${JSON.stringify(expanded)}`);
+    });
+});
+
+test('short Agent keeps sending reachable with attachments and contains commands above a tall composer', { timeout: 30000 }, async () => {
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false, toolbarPinned: true, models: [
+        { id: 'chat', modelId: 'chat', name: '对话模型', protocol: 'openai', taskType: 'chat', providerIds: ['p'] },
+        { id: 'image', modelId: 'gpt-image-1', name: '生图模型', protocol: 'openai', taskType: 'image', providerIds: ['p'] }
+    ], providers: [{ id: 'p', endpoint: 'https://controlled.test/v1', apikey: 'test' }] }, async ({ evaluate, send, waitFor }) => {
+        await evaluate(`(async () => {
+            const { registry } = await import('/js/app/bootstrap.js').then(module => module.bootstrapCainFlowApp());
+            const agent = registry.promptAgentController;
+            const dataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=';
+            agent.restoreWorkflow({ draft: { text: '继续编辑草稿', referenceImages: [{ name: '参考图', type: 'image/png', dataUrl }] } });
+            agent.open();
+            for (const field of ['prompt-agent-model', 'prompt-agent-image-model']) {
+                document.querySelector('#' + field + ' + button').click();
+                document.querySelector('#' + field + '-menu [data-provider-id="p"]').click();
+            }
+            document.activeElement.blur();
+            document.documentElement.dataset.appTheme = 'paper';
+        })()`);
+        const resize = (width, height) => send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+        await resize(512, 350);
+        await waitFor("document.body.classList.contains('toolbar-pinned') && innerHeight === 350 && document.querySelector('#prompt-agent-panel').classList.contains('needs-navigation-space')");
+        const short = await evaluate(`(() => {
+            const panel = document.querySelector('#prompt-agent-panel').getBoundingClientRect();
+            const context = document.querySelector('.prompt-agent-composer-context');
+            const reaches = id => {
+                const control = document.getElementById(id), r = control.getBoundingClientRect();
+                return r.top >= panel.top && r.bottom <= panel.bottom && !control.disabled
+                    && control.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+            };
+            return { send: reaches('prompt-agent-send'), input: reaches('prompt-agent-input'),
+                attachmentsScrollable: context.clientHeight > 0 && context.scrollHeight > context.clientHeight };
+        })()`);
+        assert.deepEqual(short, { send: true, input: true, attachmentsScrollable: true });
+        if (process.env.CAINFLOW_QA_SCREENSHOT_DIR) {
+            await mkdir(process.env.CAINFLOW_QA_SCREENSHOT_DIR, { recursive: true });
+            const shot = await send('Page.captureScreenshot', { format: 'png' });
+            await writeFile(join(process.env.CAINFLOW_QA_SCREENSHOT_DIR, 'agent-short-composer.png'), Buffer.from(shot.data, 'base64'));
+        }
+
+        await resize(1024, 700);
+        await evaluate(`(() => {
+            const panel = document.querySelector('#prompt-agent-panel');
+            document.querySelector('#prompt-agent-reference-clear').click();
+            panel.style.width = '300px';
+            const grip = document.querySelector('#prompt-agent-input-resize');
+            for (let step = 0; step < 48; step++) grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+            const input = document.querySelector('#prompt-agent-input');
+            input.value = '';
+            input.focus();
+        })()`);
+        await send('Input.insertText', { text: '/' });
+        await waitFor("!document.querySelector('#prompt-agent-command-menu').hidden");
+        const menu = await evaluate(`(() => {
+            const panel = document.querySelector('#prompt-agent-panel').getBoundingClientRect();
+            const menu = document.querySelector('#prompt-agent-command-menu').getBoundingClientRect();
+            const label = document.querySelector('#prompt-agent-command-clear .prompt-agent-command-name');
+            const first = label.getBoundingClientRect();
+            return { contained: menu.top >= panel.top && menu.bottom <= panel.bottom,
+                firstReachable: document.elementFromPoint(first.x + first.width / 2, first.y + first.height / 2) === label };
+        })()`);
+        assert.deepEqual(menu, { contained: true, firstReachable: true });
+        await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 });
+        assert.equal(await evaluate("document.querySelector('#prompt-agent-input').getAttribute('aria-activedescendant')"), 'prompt-agent-command-compact');
+        assert.ok(await evaluate(`(() => {
+            const menu = document.querySelector('#prompt-agent-command-menu').getBoundingClientRect();
+            const active = document.querySelector('#prompt-agent-command-compact .prompt-agent-command-name').getBoundingClientRect();
+            return active.top >= menu.top && active.bottom <= menu.bottom;
+        })()`), 'keyboard selection scrolls to the active command');
     });
 });

@@ -63,6 +63,88 @@ test('the Agent composer shares automatic textarea sizing and keeps its keyboard
     });
 });
 
+test('Agent size controls support click and touch, and focus and failure text retain contrast', { timeout: 30000 }, async () => {
+    await withAppBrowser(emptySession, async ({ evaluate, send }) => {
+        await evaluate(`(() => {
+            document.getElementById('btn-prompt-agent').click();
+            document.getElementById('btn-close-prompt-agent').focus();
+            const failure = document.createElement('details');
+            failure.className = 'prompt-agent-run-error';
+            const summary = document.createElement('summary');
+            summary.textContent = '生成步骤 · 失败记录';
+            failure.append(summary);
+            document.getElementById('prompt-agent-messages').append(failure);
+        })()`);
+        const key = async (key, windowsVirtualKeyCode, modifiers = 0) => {
+            await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key, code: key, windowsVirtualKeyCode, modifiers });
+            await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key, windowsVirtualKeyCode, modifiers });
+        };
+        await key('Tab', 9, 8);
+        await key('Tab', 9, 8);
+        assert.equal(await evaluate('document.activeElement.id'), 'prompt-agent-resize');
+        for (const theme of ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink']) {
+            const colors = await evaluate(`(() => {
+                document.documentElement.dataset.appTheme = '${theme}';
+                const panel = document.getElementById('prompt-agent-panel');
+                const grip = getComputedStyle(document.activeElement);
+                const summary = panel.querySelector('.prompt-agent-run-error summary');
+                const failureText = getComputedStyle(summary).color;
+                const failureBackground = getComputedStyle(summary.parentElement).backgroundColor;
+                summary.style.color = 'var(--agent-panel-surface)';
+                const surface = getComputedStyle(summary).color;
+                summary.style.removeProperty('color');
+                return { focus: grip.outlineColor, outline: grip.outlineStyle, gripBackground: grip.backgroundColor,
+                    surface, underlay: getComputedStyle(panel).backgroundColor, failureText, failureBackground };
+            })()`);
+            assert.equal(colors.outline, 'solid', `${theme} width resize focus indicator`);
+            for (const backdrop of [[0, 0, 0, 1], [255, 255, 255, 1]]) {
+                const surface = composite(parseColor(colors.surface), composite(parseColor(colors.underlay), backdrop));
+                const focusBackground = composite(parseColor(colors.gripBackground), surface);
+                assert.ok(contrastRatio(parseColor(colors.focus), focusBackground) >= 3, `${theme} width resize focus contrast`);
+                const failureBackground = composite(parseColor(colors.failureBackground), surface);
+                assert.ok(contrastRatio(parseColor(colors.failureText), failureBackground) >= 4.5, `${theme} failure text contrast`);
+            }
+        }
+
+        const point = selector => evaluate(`(() => {
+            const button = document.querySelector(${JSON.stringify(selector)});
+            const bounds = button.getBoundingClientRect();
+            const x = Math.round(bounds.left + bounds.width / 2);
+            const y = Math.round(bounds.top + bounds.height / 2);
+            return { x, y, reachable: button.contains(document.elementFromPoint(x, y)) };
+        })()`);
+        const activate = async (selector, touch = false) => {
+            const { x, y, reachable } = await point(selector);
+            assert.ok(reachable, `${selector} is directly reachable`);
+            if (touch) {
+                await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+                await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+            } else {
+                await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+                await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+            }
+        };
+        const measure = () => evaluate(`[
+            document.getElementById('prompt-agent-panel').offsetWidth,
+            document.getElementById('prompt-agent-input').offsetHeight
+        ]`);
+        const [width, height] = await measure();
+        await activate('#prompt-agent-resize-toggle');
+        await activate('[data-resize-width="1"]');
+        assert.deepEqual(await measure(), [width + 16, height]);
+        await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
+        await activate('[data-resize-width="-1"]', true);
+        await activate('[data-resize-height="1"]', true);
+        assert.deepEqual(await measure(), [width, height + 12]);
+        await send('Emulation.setTouchEmulationEnabled', { enabled: false });
+        await activate('[data-resize-height="-1"]');
+        assert.deepEqual(await measure(), [width, height]);
+        await key('Escape', 27);
+        assert.equal(await evaluate("document.getElementById('prompt-agent-resize-controls').hidden"), true);
+        assert.equal(await evaluate('document.activeElement.id'), 'prompt-agent-resize-toggle');
+    });
+});
+
 test('settings forms reflow, expose labels and keep navigation visible after scrolling', { timeout: 60000 }, async () => {
     await withAppBrowser({ ...emptySession,
         providers: [{ id: 'usable-provider', name: '本地接口', endpoint: 'https://controlled.test/v1', apikey: 'fixture' }],
@@ -230,6 +312,7 @@ test('assistant starting examples keep drafts local and important controls reada
         assert.match(await app.evaluate("document.getElementById('prompt-agent-input').value"), /陶瓷杯/);
         assert.equal(await app.evaluate("document.querySelectorAll('.prompt-agent-message-user').length"), 0, 'example does not send a request');
         await app.evaluate("document.getElementById('prompt-agent-input').value='我已有的草稿';document.querySelectorAll('.prompt-agent-empty button')[1].click()");
-        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), '我已有的草稿');
+        assert.match(await app.evaluate("document.getElementById('prompt-agent-input').value"), /^我已有的草稿\n\n.*人物肖像.*先预览方案。$/);
+        assert.equal(await app.evaluate("document.querySelectorAll('.prompt-agent-message-user').length"), 0, 'appending an example remains local');
     });
 });

@@ -122,6 +122,48 @@ function canvasImageBatchRequest(context, message, referenceImages) {
     return { sourceNodeIds, mode: requestedCanvasAction(text, true) };
 }
 
+function canvasImageReadTargets(canvasContext, message, contextNodeId) {
+    if (!canvasContext) return [];
+    const explicit = new Set(canvasContext.summary.mentionedIds || []);
+    const ids = new Set(explicit);
+    if (contextNodeId) ids.add(contextNodeId);
+    return [...ids].flatMap(id => {
+        const node = canvasContext.nodes.find(item => item.id === id);
+        if (!node) return [];
+        const generation = node.type === 'ImageGenerate';
+        const clear = generation && referenceInputChangePermission(message, [id])?.mode === 'clear';
+        const links = generation && !clear ? orderImageReferenceConnections(canvasContext.connections.filter(link =>
+            link.to.nodeId === id && /^(?:referenceImages|image|image_\d+)$/.test(link.to.port))) : [];
+        return [{ node, links, clear, implicit: !explicit.has(id) && canvasContext.summary.selectedIds?.includes(id) }];
+    });
+}
+
+// The composer can show provenance without opening originals or contacting the model.
+export function getPromptAgentCanvasImagePreview({ canvasContext, message, contextNodeId, referenceImages = [] }) {
+    if (!canvasContext || canvasImageBatchRequest(canvasContext, message, referenceImages)) return [];
+    const sources = new Map();
+    function add(node, purpose) {
+        if (!node || (!node.assets.length && !node.missing)) return;
+        const source = sources.get(node.id) || {
+            name: node.name,
+            count: node.assets.length,
+            purposes: new Set(),
+            unavailable: node.enabled === false ? '已停用' : node.running ? '正在运行' : node.missing ? '原图缺失' : ''
+        };
+        source.purposes.add(purpose);
+        sources.set(node.id, source);
+    }
+    for (const { node, links, clear } of canvasImageReadTargets(canvasContext, message, contextNodeId)) {
+        if (node.type !== 'ImageGenerate') {
+            add(node, '引用原图');
+            continue;
+        }
+        for (const link of links) add(canvasContext.nodes.find(item => item.id === link.from.nodeId), `「${node.name}」的参考图`);
+        if (node.id === contextNodeId && !clear) add(node, '生成结果');
+    }
+    return [...sources.values()].map(source => ({ ...source, purposes: [...source.purposes] }));
+}
+
 function normalizeCanvasBatch(raw, batch, context, message) {
     if (!batch || !raw || typeof raw !== 'object' || Array.isArray(raw)
         || Object.keys(raw).some(key => key !== 'prompt' && key !== 'parameters')) {
@@ -453,11 +495,8 @@ export async function createPromptAgentModelReply({
 
     // Explicit mentions bind visual context to the named node, independent of canvas selection.
     // Read durable originals before the first request; topology alone does not give the model pixels.
-    const explicitMentions = new Set(canvasContext?.summary.mentionedIds || []);
-    const implicitSelection = id => !explicitMentions.has(id) && canvasContext?.summary.selectedIds?.includes(id);
-    const mentioned = [...new Set([...explicitMentions,
-        ...(context?.nodeId && canvasContext?.nodes.some(node => node.id === context.nodeId) ? [context.nodeId] : [])])];
-    if (!batch && mentioned.length) {
+    const imageTargets = batch ? [] : canvasImageReadTargets(canvasContext, message, context?.nodeId);
+    if (imageTargets.length) {
         const hydrateNode = async (node, sourcePort = 'image', targetPort = '', requireAssets = false, allowUnavailable = false) => {
             if (!node) {
                 if (requireAssets) throw new Error('参考图来源已删除，请刷新后重试');
@@ -486,19 +525,11 @@ export async function createPromptAgentModelReply({
             return result;
         };
         const inputs = new Map();
-        for (const id of mentioned) {
-            const node = canvasContext.nodes.find(item => item.id === id);
-            if (!node) continue;
+        for (const { node, links, implicit } of imageTargets) {
+            const { id } = node;
             if (node.type === 'ImageGenerate') {
-                if (referenceInputChangePermission(message, [id])?.mode === 'clear') {
-                    inputs.set(id, []);
-                    continue;
-                }
-
-                const links = orderImageReferenceConnections( canvasContext.connections
-                    .filter(link => link.to.nodeId === id && /^(?:referenceImages|image|image_\d+)$/.test(link.to.port)));
                 const references = [];
-                for (const link of links) references.push(...await hydrateNode(canvasContext.nodes.find(item => item.id === link.from.nodeId), link.from.port, link.to.port, true, implicitSelection(id)));
+                for (const link of links) references.push(...await hydrateNode(canvasContext.nodes.find(item => item.id === link.from.nodeId), link.from.port, link.to.port, true, implicit));
                 inputs.set(id, references);
                 if (context?.nodeId !== id) workflowReferenceImages = [...workflowReferenceImages, ...references];
             } else if (node.assets.length) {
@@ -506,9 +537,9 @@ export async function createPromptAgentModelReply({
             }
         }
         if (context && inputs.has(context.nodeId)) {
+            const { node, clear, implicit } = imageTargets.find(target => target.node.id === context.nodeId);
             context = { ...context, referenceImages: inputs.get(context.nodeId),
-                outputImages: referenceInputChangePermission(message, [context.nodeId])?.mode === 'clear' ? []
-                    : await hydrateNode(canvasContext.nodes.find(item => item.id === context.nodeId), 'image', '', false, implicitSelection(context.nodeId)) };
+                outputImages: clear ? [] : await hydrateNode(node, 'image', '', false, implicit) };
         }
     }
     const base = { message, choiceAnswer, confirmedNewTask, context, conversation, workflowMemory, sizeSettings, imageSizeCapabilities,

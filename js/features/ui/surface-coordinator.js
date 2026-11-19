@@ -172,7 +172,7 @@ export function getSurfaceCoordinator(documentRef) {
             event.preventDefault(); event.stopImmediatePropagation();
             suppressClick = true;
         } else if (popovers.size && ![...popovers.values()].some(entry => entry.element.contains(event.target)
-            || [entry.trigger, ...entry.relatedTriggers].some(trigger => trigger?.matches('button, [aria-expanded], [data-submenu-target]') && trigger.contains(event.target)))) {
+            || [entry.trigger, ...entry.relatedTriggers].some(trigger => trigger?.matches('button, [aria-expanded], [aria-haspopup]:not([aria-haspopup="false"]), [data-submenu-target]') && trigger.contains(event.target)))) {
             closePopovers();
             const owner = modelessStack().findLast(([element]) => element.contains(event.target))?.[0];
             // A direct action in another modeless editor should both raise it

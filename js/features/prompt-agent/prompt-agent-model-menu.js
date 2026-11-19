@@ -42,10 +42,9 @@ export function createPromptAgentModelMenus({ documentRef, selects, parent = nul
         const trigger = documentRef.createElement('button');
         trigger.type = 'button';
         trigger.className = 'prompt-agent-model-trigger';
-        trigger.setAttribute('aria-haspopup', 'listbox');
+        trigger.setAttribute('aria-haspopup', 'dialog');
         trigger.setAttribute('aria-expanded', 'false');
         trigger.setAttribute('aria-controls', `${select.id}-menu`);
-        trigger.setAttribute('aria-label', select.getAttribute('aria-label'));
         select.classList.add('prompt-agent-model-native');
         select.tabIndex = -1;
         select.setAttribute('aria-hidden', 'true');
@@ -82,6 +81,8 @@ export function createPromptAgentModelMenus({ documentRef, selects, parent = nul
             }
             if (trigger.textContent !== label) trigger.textContent = label;
             if (trigger.title !== label) trigger.title = label;
+            const accessibleLabel = [select.getAttribute('aria-label'), label].filter(Boolean).join('，');
+            if (trigger.getAttribute('aria-label') !== accessibleLabel) trigger.setAttribute('aria-label', accessibleLabel);
             if (current?.select === select) {
                 const options = getOptions();
                 const unchanged = options.length === current.options.length && options.every((option, index) =>
@@ -102,7 +103,7 @@ export function createPromptAgentModelMenus({ documentRef, selects, parent = nul
             menu.id = `${select.id}-menu`;
             menu.className = 'prompt-agent-model-menu';
             if (parentId) menu.dataset.agentPopoverParent = parentId;
-            menu.setAttribute('role', 'group');
+            menu.setAttribute('role', 'dialog');
             menu.setAttribute('aria-label', select.getAttribute('aria-label'));
             const search = documentRef.createElement('input');
             search.type = 'search';

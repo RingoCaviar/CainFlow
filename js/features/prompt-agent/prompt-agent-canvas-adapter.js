@@ -455,8 +455,9 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
         }
         finally { activePlans.delete(plan.id); executionConfigs.delete(plan.id); }
     }
-    return { context, prepare, describe: (plan, defaultModelId) => {
-            const lines = describeCanvasPlan(plan, context());
+    return { context, prepare, describe: (plan, defaultModelId, { compact = false } = {}) => {
+            const current = context();
+            const lines = describeCanvasPlan(plan, current, { changesOnly: true, valueLimit: compact ? 22 : 0 });
             if (defaultModelId) try {
                 const selected = modelsFor(plan, defaultModelId);
                 const label = value => !value || value.mode === 'default' ? '接口默认' : String(value.value ?? value.mode);
@@ -464,12 +465,22 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                     const before = state.nodes.get(step.nodeId || plan.bindings?.[step.id])?.data?.thinking;
                     const node = state.nodes.get(step.nodeId || plan.bindings?.[step.id]);
                     const oldProvider = state.providers.find(provider => provider.id === node?.data?.providerId);
-                    lines.push(`${step.title} · 供应商：${oldProvider?.name || node?.data?.providerId || '未设置'} → ${selected[step.id].provider.name || selected[step.id].provider.id}`);
-                    lines.push(`${step.title} · 思考设置：${label(before)} → ${label(selected[step.id].thinking)}`);
+                    const next = selected[step.id];
+                    const priorModel = current.nodes.find(item => item.id === node?.id)?.modelId;
+                    if (node && priorModel && priorModel !== next.model.id) {
+                        const old = state.models.find(item => item.id === priorModel);
+                        lines.push(`${step.title} · 生图模型：${old?.name || priorModel} → ${next.model.name || next.model.modelId}`);
+                    }
+                    if (node && node.data?.providerId !== next.provider.id) {
+                        lines.push(`${step.title} · 供应商：${oldProvider?.name || node.data?.providerId || '未设置'} → ${next.provider.name || next.provider.id}`);
+                    } else if (!node && plan.providerOverrides?.[step.id]?.[next.model.id]) {
+                        lines.push(`${step.title} · 供应商：${next.provider.name || next.provider.id}`);
+                    }
+                    if (node && label(before) !== label(next.thinking)) {
+                        lines.push(`${step.title} · 思考设置：${label(before)} → ${label(next.thinking)}`);
+                    }
                 }
-            } catch (error) { lines.push(error.message); }
-            try { for (const [id, size] of Object.entries(sizesFor(plan, defaultModelId))) lines.push(`${plan.steps.find(step => step.id === id).title} · 尺寸：${size.summary}`); }
-            catch (error) { lines.push(error.message); }
+            } catch {}
             return lines;
         }, apply, execute, modelsFor, sizesFor, canUndo, instantiate: plan => instantiateCanvasPlan(plan, context()),
         discardExecutionConfig: plan => executionConfigs.delete(plan.id),
@@ -486,6 +497,14 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                     assetKey: step?.assetKey || node?.assets?.[0], purpose: plan.steps.find(item => identity(item.id) === link.to.ref)?.title,
                     upstream: Boolean(step && step.type !== 'ImageImport') };
             });
+        },
+        preservedReferenceCount: plan => {
+            if (!plan.applyInPlace) return 0;
+            const current = context();
+            const targets = new Set(plan.steps.filter(step => step.type === 'ImageGenerate' && step.nodeId).map(step => step.nodeId));
+            const identity = ref => plan.steps.find(step => step.id === ref)?.nodeId || plan.bindings?.[ref] || ref;
+            const retained = new Set(projectPlanConnections(plan, current.connections, identity));
+            return current.connections.filter(link => targets.has(link.to.nodeId) && isReferencePort(link.to.port) && retained.has(link)).length;
         },
         isRunning: id => activePlans.has(id),
         isPreparing: () => state.isRunStarting === true || state.canvasPlanApplying === true,

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { runUiFixture } from './helpers/ui-browser-fixture.mjs';
+import { composite, contrastRatio, parseColor } from './helpers/browser-theme-fixture.mjs';
 
 test('Prompt Agent browser flow keeps references, actions, recovery, workflow state and themes observable', async () => {
     const result = await runUiFixture('tests/fixtures/prompt-agent-ui.html');
@@ -12,6 +13,19 @@ test('Prompt Agent browser flow keeps references, actions, recovery, workflow st
     assert.ok(result.unavailable && result.subtleHint);
     assert.ok(result.addModelOpensSettings);
     assert.ok(result.addImageModelOpensSettings);
+    assert.ok(result.shellNamed && result.gripHitArea && result.examplePreservesDraft && result.closeRestoresFocus);
+    assert.match(result.permissionGuidance, /先预览方案.*直接新建并运行.*已有节点.*仍需确认/);
+    for (const [theme, sample] of Object.entries(result.contrastSamples)) {
+        const underlay = parseColor(sample.underlay);
+        const inputBackground = composite(parseColor(sample.inputBackground), underlay);
+        assert.ok(contrastRatio(parseColor(sample.placeholder), inputBackground) >= 4.5, `${theme}: composer placeholder contrast`);
+        assert.equal(sample.labels.length, 2);
+        for (const label of sample.labels) {
+            assert.equal(label.opacity, 1);
+            const labelBackground = composite(parseColor(label.background), underlay);
+            assert.ok(contrastRatio(parseColor(label.color), labelBackground) >= 4.5, `${theme}: unconfigured model label contrast`);
+        }
+    }
     assert.ok(result.chatWithoutImageModel);
     assert.ok(result.initiallyRequiresImageModel && result.noImplicitDefault);
     assert.ok(result.createsWithChosenModel && result.changedModelReusesTarget);

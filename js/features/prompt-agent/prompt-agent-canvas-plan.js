@@ -504,46 +504,59 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
     return plan;
 }
 
-export function describeCanvasPlan(plan, context) {
+export function describeCanvasPlan(plan, context, { changesOnly = false, valueLimit = 0 } = {}) {
+    const copiesExisting = changesOnly && !plan.applyInPlace && plan.steps.some(step => step.nodeId);
     const displayValue = value => value === '' || value == null ? '（空）' : typeof value === 'object' ? JSON.stringify(value) : String(value);
     const displayProductField = value => Array.isArray(value) ? value.join('；') : value;
     const stepLabel = step => context.nodes.find(node => node.id === (step.nodeId || plan.bindings?.[step.id]))?.name || step.title;
     const fieldChange = (step, field, before, after) => {
         const previous = displayValue(before), next = displayValue(after);
+        if (changesOnly && previous === next) return [];
+        if (valueLimit) {
+            const shorten = value => {
+                const oneLine = value.replace(/\s+/g, ' ').trim();
+                return oneLine.length > valueLimit ? `${oneLine.slice(0, valueLimit)}…` : oneLine;
+            };
+            return [`${stepLabel(step)} · ${field}：${shorten(previous)} → ${shorten(next)}`];
+        }
         return /[\r\n]/.test(previous + next)
-            ? `${stepLabel(step)} · ${field}\n修改前：\n${previous}\n修改后：\n${next}`
-            : `${stepLabel(step)} · ${field}：${previous} → ${next}`;
+            ? [`${stepLabel(step)} · ${field}\n修改前：\n${previous}\n修改后：\n${next}`]
+            : [`${stepLabel(step)} · ${field}：${previous} → ${next}`];
     };
     const label = ref => {
         const step = plan.steps.find(step => step.id === ref);
         return (step && stepLabel(step)) || context.nodes.find(node => node.id === ref)?.name
             || plan.deletes?.find(item => item.nodeId === ref)?.title || ref;
     };
-    const endpoint = (ref, port) => `${label(ref)} · ${port === 'image' ? '图片' : port === 'referenceImages' ? '参考图' : /^image_\d+$/.test(port) ? `参考图 ${port.split('_')[1]}` : port === 'prompt' ? '提示词' : port}`;
+    const portLabel = port => port === 'image' ? '图片' : port === 'referenceImages' ? '参考图'
+        : /^image_\d+$/.test(port) ? `参考图 ${port.split('_')[1]}` : port === 'prompt' ? '提示词' : port;
+    const endpoint = (ref, port) => `${label(ref)} · ${portLabel(port)}`;
     const lines = plan.steps.flatMap(step => {
         if (!step.nodeId && !plan.bindings?.[step.id]) return [`新增 ${step.title}（${getNodeDefinition(step.type)?.title || step.type}）`];
         if (plan.applyInPlace && plan.libraryPrompt?.stepId === step.id) {
             const { target, expectedValue } = plan.libraryPrompt;
-            return [target === 'system'
+            return target === 'system'
                 ? fieldChange(step, '系统提示词', expectedValue, step.type === 'TextChat'
                     ? step.parameters.sysprompt : step.parameters.protocolParams.systemPrompt)
-                : fieldChange(step, '普通提示词', expectedValue, step.parameters[step.type === 'Text' ? 'text' : 'prompt'])];
+                : fieldChange(step, '普通提示词', expectedValue, step.parameters[step.type === 'Text' ? 'text' : 'prompt']);
         }
         const node = context.nodes.find(node => node.id === (step.nodeId || plan.bindings?.[step.id]));
         const changes = Object.entries(step.parameters).flatMap(([key, value]) => {
-            if (key === 'productInfo') return Object.entries(value).map(([field, content]) => fieldChange(step, commerceProductLabels[field],
+            if (key === 'productInfo') return Object.entries(value).flatMap(([field, content]) => fieldChange(step, commerceProductLabels[field],
                 displayProductField(node?.parameters?.productInfo?.[field]), displayProductField(content)));
-            if (key === 'copyLanguage') return [fieldChange(step, '图中文字语言',
-                COMMERCE_IMAGE_SET_COPY_LANGUAGES[node?.parameters?.copyLanguage], COMMERCE_IMAGE_SET_COPY_LANGUAGES[value])];
-            return [fieldChange(step, key, node?.parameters?.[key], value)];
+            if (key === 'copyLanguage') return fieldChange(step, '图中文字语言',
+                COMMERCE_IMAGE_SET_COPY_LANGUAGES[node?.parameters?.copyLanguage], COMMERCE_IMAGE_SET_COPY_LANGUAGES[value]);
+            const field = changesOnly ? ({ prompt: '提示词', text: '文本', sysprompt: '系统提示词' }[key] || key) : key;
+            return fieldChange(step, field, node?.parameters?.[key], value);
         });
+        if (copiesExisting && step.nodeId) changes.unshift(`创建「${stepLabel(step)}」的副本`);
         if (step.patch && node) {
             const { title, enabled, x, y } = step.patch;
-            if (title !== undefined) changes.push(fieldChange(step, '名称', node.name, title || getNodeDefinition(node.type)?.title));
-            if (enabled !== undefined) changes.push(fieldChange(step, '状态', node.enabled ? '启用' : '停用', enabled ? '启用' : '停用'));
+            if (title !== undefined) changes.push(...fieldChange(step, '名称', node.name, title || getNodeDefinition(node.type)?.title));
+            if (enabled !== undefined) changes.push(...fieldChange(step, '状态', node.enabled ? '启用' : '停用', enabled ? '启用' : '停用'));
             if (x !== undefined || y !== undefined) {
                 const previous = node.position;
-                changes.push(fieldChange(step, '位置', `${previous.x}, ${previous.y}`, `${x ?? previous.x}, ${y ?? previous.y}`));
+                changes.push(...fieldChange(step, '位置', `${previous.x}, ${previous.y}`, `${x ?? previous.x}, ${y ?? previous.y}`));
             }
         }
         return changes;
@@ -552,6 +565,42 @@ export function describeCanvasPlan(plan, context) {
     for (const item of plan.deletes || []) lines.push(`删除 ${item.title} [${item.nodeId}]`);
     for (const link of plan.deletionConnections || context.connections.filter(link => deletedIds.has(link.from.nodeId) || deletedIds.has(link.to.nodeId))) {
         lines.push(`移除连线 ${endpoint(link.from.nodeId, link.from.port)} → ${endpoint(link.to.nodeId, link.to.port)}`);
+    }
+    if (changesOnly) {
+        const identity = ref => {
+            const step = plan.steps.find(item => item.id === ref);
+            return step?.nodeId || (copiesExisting && step ? `new:${ref}` : plan.bindings?.[ref] || ref);
+        };
+        const previous = new Set(context.connections);
+        const proposed = projectPlanConnections(plan, context.connections, identity);
+        if (copiesExisting) {
+            // The template's current relationships are inputs to the new graph.
+            // The original canvas edges remain in place when a copy is applied.
+            const stepByTarget = new Map(plan.steps.map(step => [identity(step.id), step]));
+            const copyEndpoint = ({ nodeId, port }) => {
+                const step = stepByTarget.get(nodeId);
+                const name = step?.nodeId ? `${stepLabel(step)}的副本` : step?.title || label(nodeId);
+                return `${name} · ${portLabel(port)}`;
+            };
+            for (const link of proposed) {
+                const target = stepByTarget.get(link.to.nodeId);
+                if (!target) continue;
+                const cached = target.type === 'ImageGenerate' && target.execute === false
+                    && context.nodes.find(node => node.id === target.nodeId)?.assets?.length;
+                if (!cached) lines.push(`连接 ${copyEndpoint(link.from)} → ${copyEndpoint(link.to)}`);
+            }
+            return lines;
+        }
+        const retained = new Set(proposed);
+        for (const link of previous) {
+            if (!retained.has(link) && !deletedIds.has(link.from.nodeId) && !deletedIds.has(link.to.nodeId)) {
+                lines.push(`移除连线 ${endpoint(link.from.nodeId, link.from.port)} → ${endpoint(link.to.nodeId, link.to.port)}`);
+            }
+        }
+        for (const link of proposed) {
+            if (!previous.has(link)) lines.push(`连接 ${endpoint(link.from.nodeId, link.from.port)} → ${endpoint(link.to.nodeId, link.to.port)}`);
+        }
+        return lines;
     }
     for (const link of plan.connections) {
         const target = plan.steps.find(step => step.id === link.to.ref);

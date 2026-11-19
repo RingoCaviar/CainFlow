@@ -307,12 +307,33 @@
         </div>
 
         <main id="main-layout">
-            <aside id="prompt-agent-panel" class="prompt-agent-panel" aria-hidden="true" inert>
-                <div id="prompt-agent-resize" class="prompt-agent-resize" role="separator" aria-label="调整 Agent 面板宽度" aria-orientation="vertical" tabindex="0"></div>
+            <aside id="prompt-agent-panel" class="prompt-agent-panel" aria-labelledby="prompt-agent-title" aria-hidden="true" inert>
+                <div id="prompt-agent-resize" class="prompt-agent-resize" role="separator" aria-label="调整 Agent 面板宽度" aria-orientation="vertical" aria-controls="prompt-agent-panel" aria-keyshortcuts="ArrowLeft ArrowRight Home End" tabindex="0"></div>
+                <header class="prompt-agent-header">
+                    <h2 id="prompt-agent-title">Agent</h2>
+                    <div class="prompt-agent-header-actions">
+                        <button id="prompt-agent-resize-toggle" class="btn btn-ghost" type="button" aria-label="调整 Agent 尺寸" aria-expanded="false" aria-controls="prompt-agent-resize-controls" title="调整 Agent 尺寸">
+                            <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-6 6M10 20H4v-6M4 20l6-6"/></svg>
+                        </button>
+                        <div id="prompt-agent-resize-controls" class="prompt-agent-resize-controls" role="group" aria-label="调整 Agent 尺寸" hidden>
+                            <span>面板宽度</span>
+                            <button class="btn btn-ghost" type="button" data-resize-width="-1" aria-label="缩窄 Agent 面板" title="缩窄面板"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 12h12"/></svg></button>
+                            <button class="btn btn-ghost" type="button" data-resize-width="1" aria-label="加宽 Agent 面板" title="加宽面板"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 12h12M12 6v12"/></svg></button>
+                            <span>输入框高度</span>
+                            <button class="btn btn-ghost" type="button" data-resize-height="-1" aria-label="降低 Agent 输入框" title="降低输入框"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 12h12"/></svg></button>
+                            <button class="btn btn-ghost" type="button" data-resize-height="1" aria-label="加高 Agent 输入框" title="加高输入框"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 12h12M12 6v12"/></svg></button>
+                        </div>
+                        <button id="btn-close-prompt-agent" class="btn btn-ghost" type="button" aria-label="关闭 Agent 面板" title="关闭 Agent 面板">
+                            <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                        </button>
+                    </div>
+                </header>
+                <div id="prompt-agent-model-hint" class="prompt-agent-model-hint prompt-agent-model-hint-chat" hidden>
+                    <span id="prompt-agent-model-status" role="status"></span>
+                    <button id="prompt-agent-add-model" class="btn btn-primary" type="button">配置对话模型</button>
+                </div>
                 <div class="prompt-agent-transcript">
-                <section id="prompt-agent-messages" class="prompt-agent-messages" aria-live="polite">
-                    <p class="prompt-agent-empty">描述你想生成的画面。确认方案后点击生成，自动创建生图节点。</p>
-                </section>
+                <section id="prompt-agent-messages" class="prompt-agent-messages" role="log" aria-label="Agent 对话" tabindex="0"></section>
                 <button id="prompt-agent-scroll-bottom" class="prompt-agent-scroll-bottom" type="button" aria-controls="prompt-agent-messages" hidden>↓ 回到底部</button>
                 </div>
                 <div class="prompt-agent-settings">
@@ -324,43 +345,52 @@
                         <select id="prompt-agent-image-model" aria-label="Prompt Agent 生图模型"><option value="">请选择生图模型</option></select>
                     </label>
                 </div>
-                <p id="prompt-agent-image-model-hint" class="prompt-agent-model-hint" aria-live="polite"><span id="prompt-agent-image-model-status">请选择生图模型后再应用或生成。</span><button id="prompt-agent-add-image-model" type="button" hidden>点击添加生图模型</button></p>
-                <p id="prompt-agent-model-hint" class="prompt-agent-model-hint" aria-live="polite" hidden><span id="prompt-agent-model-status">暂无可用模型，</span><button id="prompt-agent-add-model" type="button">点击添加模型</button></p>
+                <div id="prompt-agent-image-model-hint" class="prompt-agent-model-hint" hidden><span id="prompt-agent-image-model-status" role="status"></span><button id="prompt-agent-add-image-model" type="button" hidden>配置生图模型</button></div>
                 <form id="prompt-agent-form" class="prompt-agent-composer">
-                    <div id="prompt-agent-node-context" class="prompt-agent-node-context" role="status" hidden>
-                        <span class="prompt-agent-node-context-copy"></span>
-                    </div>
-                    <div id="prompt-agent-image-context" class="prompt-agent-node-context" role="status" hidden>
-                        <span class="prompt-agent-node-context-copy"></span><button id="prompt-agent-insert-image-request" type="button">插入修改请求</button>
+                    <div class="prompt-agent-composer-context">
+                        <div id="prompt-agent-node-context" class="prompt-agent-node-context" hidden>
+                            <span class="prompt-agent-node-context-copy" role="status"></span>
+                        </div>
+                        <div id="prompt-agent-image-context" class="prompt-agent-node-context" hidden>
+                            <span class="prompt-agent-node-context-copy" role="status"></span><button id="prompt-agent-insert-image-request" type="button">插入修改请求</button>
+                        </div>
+                        <div class="prompt-agent-reference-heading">
+                            <p id="prompt-agent-reference-heading" class="prompt-agent-context-heading" hidden>本轮待发送附件</p>
+                            <button id="prompt-agent-reference-clear" class="btn btn-ghost" type="button" hidden>移除全部附件</button>
+                        </div>
+                        <div id="prompt-agent-references" class="prompt-agent-references" role="group" aria-labelledby="prompt-agent-reference-heading" hidden></div>
+                        <p id="prompt-agent-reference-error" class="prompt-agent-reference-error" role="status" hidden></p>
+                        <p id="prompt-agent-command-status" class="prompt-agent-command-status" role="status" aria-live="polite" hidden></p>
                     </div>
                     <section id="prompt-agent-search-menu" class="prompt-agent-search-menu">
                         <label class="prompt-agent-search-toggle"><span>联网搜索</span><span class="toggle-switch prompt-agent-search-switch"><input id="prompt-agent-search-enabled" type="checkbox" role="switch" aria-label="联网搜索"><span class="toggle-slider functional-animation"></span></span></label>
                     </section>
-                    <p id="prompt-agent-reference-heading" class="prompt-agent-context-heading" hidden>本轮待发送附件</p>
-                    <div id="prompt-agent-references" class="prompt-agent-references" aria-label="待发送参考图" hidden></div>
-                    <p id="prompt-agent-reference-error" class="prompt-agent-reference-error" role="status" hidden></p>
-                    <p id="prompt-agent-command-status" class="prompt-agent-command-status" role="status" aria-live="polite" hidden></p>
+                    <div id="prompt-agent-command-announcement" role="status"></div>
                     <div id="prompt-agent-command-menu" class="prompt-agent-command-menu" role="listbox" aria-label="Agent 命令" hidden></div>
                     <section id="prompt-agent-reference-picker" class="prompt-agent-reference-picker" aria-label="选择场景参考图" hidden>
                         <div class="prompt-agent-reference-tools prompt-agent-reference-sources">
                             <div role="tablist" aria-label="参考图来源">
-                            <button id="prompt-agent-tab-scene" type="button" role="tab" aria-selected="true">画布</button>
-                            <button id="prompt-agent-tab-history" type="button" role="tab" aria-selected="false">历史</button>
+                                <button id="prompt-agent-tab-scene" type="button" role="tab" aria-selected="true" aria-controls="prompt-agent-reference-scene">画布</button>
+                                <button id="prompt-agent-tab-history" type="button" role="tab" aria-selected="false" aria-controls="prompt-agent-reference-history" tabindex="-1">历史</button>
                             </div>
-                            <button id="prompt-agent-reference-upload-button" type="button">上传图片</button>
-                            <input id="prompt-agent-reference-upload" type="file" accept="image/*" multiple hidden>
-                            <button id="prompt-agent-reference-clear" type="button" hidden>清空</button>
-                            <button id="prompt-agent-reference-picker-close" class="btn btn-ghost" type="button" aria-label="关闭参考图选择">完成</button>
+                            <div class="prompt-agent-reference-actions">
+                                <button id="prompt-agent-reference-upload-button" type="button">上传图片</button>
+                                <input id="prompt-agent-reference-upload" type="file" accept="image/*" multiple hidden>
+                                <button id="prompt-agent-reference-picker-close" class="btn btn-ghost" type="button" aria-label="完成参考图选择">完成</button>
+                            </div>
                         </div>
-                        <p id="prompt-agent-reference-picker-status" class="prompt-agent-reference-picker-status" aria-live="polite"></p>
-                        <div id="prompt-agent-reference-picker-list" class="prompt-agent-reference-picker-list" role="group" aria-label="可选参考图"></div>
-                        <button id="prompt-agent-reference-more" type="button" hidden>加载更多</button>
+                        <div id="prompt-agent-reference-scene" class="prompt-agent-reference-source" role="tabpanel" aria-labelledby="prompt-agent-tab-scene" tabindex="0">
+                            <p id="prompt-agent-reference-picker-status" class="prompt-agent-reference-picker-status" role="status"></p>
+                            <div id="prompt-agent-reference-picker-list" class="prompt-agent-reference-picker-list" role="group" aria-label="可选参考图"></div>
+                            <button id="prompt-agent-reference-more" type="button" hidden>加载更多</button>
+                        </div>
+                        <div id="prompt-agent-reference-history" class="prompt-agent-reference-source" role="tabpanel" aria-labelledby="prompt-agent-tab-history" tabindex="0" hidden></div>
                     </section>
                     <div class="prompt-agent-input-row">
                         <button id="prompt-agent-add-reference" class="btn btn-ghost prompt-agent-add-reference" type="button" aria-label="添加参考图" title="从场景、历史或本地添加参考图" aria-expanded="false" aria-controls="prompt-agent-reference-picker"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
                         <div class="prompt-agent-input-wrap">
-                            <textarea id="prompt-agent-input" rows="2" placeholder="描述画面，@ 引用图片，/ 使用命令" title="Enter 发送，Shift+Enter 换行" aria-label="Prompt Agent 输入，Enter 发送，Shift+Enter 换行" aria-controls="prompt-agent-command-menu" aria-autocomplete="list"></textarea>
-                            <button id="prompt-agent-input-resize" class="prompt-agent-input-resize" type="button" aria-label="调整 Agent 输入框高度" title="向上拖动以增高输入框；方向键也可调整"></button>
+                            <textarea id="prompt-agent-input" rows="2" placeholder="描述画面，@ 引用图片，/ 使用命令" title="Enter 发送，Shift+Enter 换行" aria-label="Prompt Agent 输入，Enter 发送，Shift+Enter 换行" aria-controls="prompt-agent-command-menu" aria-haspopup="listbox" aria-autocomplete="list"></textarea>
+                            <button id="prompt-agent-input-resize" class="prompt-agent-input-resize" type="button" aria-label="调整 Agent 输入框高度" aria-keyshortcuts="ArrowUp ArrowDown" title="拖动或使用上下方向键调整输入框高度"></button>
                         </div>
                         <button id="prompt-agent-send" class="btn btn-primary" type="submit">发送</button>
                         <button id="prompt-agent-cancel" class="btn btn-secondary" type="button" hidden>停止请求</button>

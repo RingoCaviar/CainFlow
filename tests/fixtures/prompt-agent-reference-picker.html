@@ -73,7 +73,7 @@ try {
     plus.click();
     check(!picker.hidden && list.children.length === 6, 'plus must list all current import nodes');
     check(reads.length === 0, 'listing must not hydrate originals');
-    check(document.activeElement === list.querySelectorAll('.prompt-agent-reference-option')[0], 'opening must focus the first option');
+    check(document.activeElement === document.getElementById('prompt-agent-tab-scene'), 'opening must focus the current source before the attachment actions');
     list.querySelectorAll('.prompt-agent-reference-option')[1].click();
     await tick();
     list.querySelectorAll('.prompt-agent-reference-option')[0].click();

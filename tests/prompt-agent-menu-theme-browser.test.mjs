@@ -51,11 +51,14 @@ test('unchanged Agent model refresh preserves native options and labels while re
             stableOptions: modelRefresh.select.options.length === modelRefresh.options.length &&
                 [...modelRefresh.select.options].every((option, index) => option === modelRefresh.options[index]),
             label: modelRefresh.trigger.textContent,
+            accessibleLabel: modelRefresh.trigger.getAttribute('aria-label'),
+            fullNameTooltip: modelRefresh.trigger.title,
             originalLabel: modelRefresh.label,
             mutations: modelRefresh.mutations,
             selectedNode: [...modelRefresh.state.selectedNodes][0]
         })`), {
-            stableOptions: true, label: '图片甲 · 供应商甲', originalLabel: '图片甲 · 供应商甲', mutations: [], selectedNode: 'unrelated-b'
+            stableOptions: true, label: '图片甲 · 供应商甲', accessibleLabel: 'Prompt Agent 生图模型，图片甲 · 供应商甲',
+            fullNameTooltip: '图片甲 · 供应商甲', originalLabel: '图片甲 · 供应商甲', mutations: [], selectedNode: 'unrelated-b'
         });
 
         await app.evaluate(`(() => {

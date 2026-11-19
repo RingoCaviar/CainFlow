@@ -106,9 +106,12 @@ test('Agent uses send-time selection to revise, create or delete through reversi
         assert.deepEqual(first.canvas.selectedIds, ['target']);
         assert.deepEqual(first.canvas.mentionedIds, []);
         assert.equal((await graph(app)).nodes.find(node => node.id === 'source').text, 'before', 'a model reply only previews');
+        assert.equal(await app.evaluate(`(${lastCard}).querySelector('.prompt-agent-plan-overview').open`), false);
+        assert.match(await app.evaluate(`(${lastCard}).querySelector('.prompt-agent-plan-impact').innerText`), /真实提示词 · 文本：before → optimized/);
         assert.equal(await app.evaluate(`[...(${lastCard}).querySelectorAll('button')].find(b=>b.textContent==='运行').hidden`), true);
         await action(app, '仅应用');
         await app.waitFor(`(${lastCard}).querySelector('[role=status]').textContent.includes('已应用并保存')`);
+        assert.equal(await app.evaluate(`[...(${lastCard}).querySelectorAll('.prompt-agent-plan-footer button')].find(b=>b.textContent==='撤销本次画布操作').checkVisibility()`), true);
         assert.equal(await app.evaluate("document.getElementById('source-text').value"), 'optimized');
         assert.equal((await graph(app)).nodes.length, 3);
         assert.equal((await graph(app)).nodes.find(node => node.id === 'other').text, 'unchanged');
@@ -131,6 +134,7 @@ test('Agent uses send-time selection to revise, create or delete through reversi
         assert.equal(beforeDelete.nodes.length, 4);
         assert.match(await app.evaluate(`(${lastCard}).textContent`), /删除 真实提示词 \[source\]/);
         assert.match(await app.evaluate(`(${lastCard}).textContent`), /移除连线/);
+        assert.equal(await app.evaluate(`(${lastCard}).querySelector('.prompt-agent-plan-destructive-impact').innerText`), '删除 2 个节点 · 移除 1 条连线');
         assert.equal(await app.evaluate(`[...(${lastCard}).querySelectorAll('button')].find(b=>b.textContent==='运行').hidden`), true);
         await app.evaluate('failSelectionSave=true');
         await action(app, '仅应用');

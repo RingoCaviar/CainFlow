@@ -63,7 +63,7 @@ test('four combined menus preserve model/provider identities; real requests and 
         assert.equal(await evaluate(providerValue),'a');
         const appliedNodes = await evaluate("[...document.querySelectorAll('#nodes-layer .node')].map(node=>node.id)");
         await choose(stepId,'image','b');
-        assert.match(await evaluate("document.querySelector('.prompt-agent-change-list').textContent"), /未设置 → 供应商乙/);
+        assert.match(await evaluate("document.querySelector('.prompt-agent-change-list').textContent"), /供应商：供应商乙/);
         await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='仅应用').click()");
         await waitFor("document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent.includes('已应用并保存') && document.querySelectorAll('#nodes-layer .node').length===2");
         assert.equal(await evaluate(providerValue),'a','new applications retain the previous batch provider');

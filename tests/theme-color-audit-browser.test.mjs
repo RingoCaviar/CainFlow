@@ -88,8 +88,11 @@ test('dynamic Agent and protocol surfaces remain readable across seven live them
         await waitFor(`Boolean(document.querySelector('.btn-edit-protocol'))`);
         await evaluate(`document.querySelector('.btn-edit-protocol').click()`);
         await waitFor(`Boolean(document.querySelector('.parameter-row input'))`);
+        await evaluate(`document.querySelectorAll('.parameter-card.collapsed .parameter-card-header').forEach(header => header.click())`);
         for (const theme of themes) {
-            await evaluate(`document.documentElement.dataset.appTheme='${theme}'`); await delay(250);
+            await evaluate(`document.documentElement.dataset.appTheme='${theme}'; getComputedStyle(document.querySelector('.parameter-row input')).backgroundColor`);
+            await waitFor(`!document.querySelector('.protocol-developer-panel').getAnimations({subtree:true})
+                .some(animation => animation instanceof CSSTransition && (animation.pending || animation.playState === 'running'))`);
             const rows=await evaluate(`readColors('.protocol-dev-header h2, .protocol-field input, .parameter-row input, .parameter-row textarea, .preview-key, .preview-string, .preview-number, .preview-boolean, .preview-method, .protocol-save-status')`);
             assert.ok(rows.length>5);check(rows, theme, 'protocol');
             for (const status of ['saving','dirty','success','error']) {

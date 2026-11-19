@@ -518,7 +518,7 @@
     "tests/prompt-agent-commands-browser.test.mjs": {"tier": "browser", "groups": ["agent"]},
     "tests/prompt-agent-compact-browser.test.mjs": {"tier": "browser", "groups": ["agent"]},
     "tests/prompt-agent-compaction.test.mjs": {"tier": "fast", "groups": ["agent"]},
-    "tests/prompt-agent-conversation-design-browser.test.mjs": {"tier": "browser", "groups": ["agent", "conversation"]},
+    "tests/prompt-agent-conversation-design-browser.test.mjs": {"tier": "browser", "groups": ["agent", "conversation"], "sources": ["js/features/prompt-agent/prompt-agent-request.js"]},
     "tests/prompt-agent-conversation-store.test.mjs": {"tier": "fast", "groups": ["agent", "conversation"]},
     "tests/prompt-agent-effective-inputs.test.mjs": {"tier": "browser", "groups": ["agent"]},
     "tests/prompt-agent-execution-adapter.test.mjs": {"tier": "fast", "groups": ["agent"]},

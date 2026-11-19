@@ -42,6 +42,16 @@ export function createPromptAgentPanelWidth({ panel, handle, windowRef, read = (
         handle?.setAttribute('aria-valuenow', String(width));
     };
     const commit = () => { if (preferred !== null) { migrated = true; write(preferred); } };
+    const setWidth = width => {
+        preferred = Math.max(300, Math.round(clamp(width)));
+        apply();
+        commit();
+    };
+    const adjust = direction => {
+        const width = panel.getBoundingClientRect().width;
+        const next = clamp(width + direction * 16);
+        if (next !== width) setWidth(next);
+    };
     const finish = () => {
         if (!gesture) return;
         const id = gesture.id;
@@ -51,7 +61,7 @@ export function createPromptAgentPanelWidth({ panel, handle, windowRef, read = (
         commit();
     };
     handle?.addEventListener('pointerdown', event => {
-        if (event.button !== 0) return;
+        if (event.button !== 0 || gesture) return;
         event.preventDefault(); event.stopPropagation();
         gesture = { id: event.pointerId, x: event.clientX, width: panel.getBoundingClientRect().width };
         handle.setPointerCapture?.(event.pointerId);
@@ -78,13 +88,14 @@ export function createPromptAgentPanelWidth({ panel, handle, windowRef, read = (
     handle?.addEventListener('keydown', event => {
         if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
         event.preventDefault(); event.stopPropagation();
-        const width = panel.getBoundingClientRect().width;
-        preferred = Math.max(300, Math.round(clamp(event.key === 'Home' ? bounds().min : event.key === 'End' ? bounds().max : width + (event.key === 'ArrowLeft' ? 16 : -16))));
-        apply(); commit();
+        if (event.key === 'Home') setWidth(bounds().min);
+        else if (event.key === 'End') setWidth(bounds().max);
+        else adjust(event.key === 'ArrowLeft' ? 1 : -1);
     });
     apply();
     return {
         apply,
+        adjust,
         migrate(value) {
             if (migrated) return;
             migrated = true;

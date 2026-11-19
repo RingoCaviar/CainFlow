@@ -50,9 +50,6 @@ async function propose(app, plan, request, mentions = []) {
 }
 
 async function action(app, label) {
-    if (['仅应用', '撤销本次画布操作'].includes(label)) {
-        await app.evaluate(`(${lastPlan}).querySelector('.prompt-agent-actions-more').open=true`);
-    }
     const expression = `[...(${lastPlan}).querySelectorAll('.prompt-agent-canvas-actions button')].find(button=>button.textContent===${JSON.stringify(label)})`;
     assert.equal(await app.evaluate(`(${expression}).disabled`), false, `${label} is available without a generation step or image model`);
     await nativeClick(app, expression);

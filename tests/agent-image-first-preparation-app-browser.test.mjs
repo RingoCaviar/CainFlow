@@ -40,5 +40,11 @@ test('opening parameters preserves an independently composed Agent draft and ori
         assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), '保留手写要求与附件');
         assert.equal(await app.evaluate("document.querySelector('#prompt-agent-references img').src"), reference);
         assert.equal(await app.evaluate("document.querySelectorAll('#image-parameter-panel .image-node-assistant').length"), 0);
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-reference-clear').hidden"), false);
+        assert.equal(await app.evaluate("document.querySelector('#prompt-agent-reference-picker #prompt-agent-reference-clear')"), null);
+        await app.evaluate("document.getElementById('prompt-agent-reference-clear').click()");
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-references').hidden"), true);
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-input').value"), '保留手写要求与附件');
+        assert.equal(await app.evaluate('document.activeElement.id'), 'prompt-agent-input');
     });
 });

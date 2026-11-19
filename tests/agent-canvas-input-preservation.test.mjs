@@ -16,6 +16,10 @@ test('an exact disconnect removes only the named edge and retains ordered neighb
     assert.deepEqual(wiring(plan).map(edge => edge.id), ['reference-a', 'reference-c', 'prompt']);
     assert.equal(wiring(plan)[1].order, 7);
     assert.deepEqual(describeCanvasPlan(plan, context), ['移除连线 局部图 · 图片 → 生成图 · 参考图']);
+    const copyPreview = describeCanvasPlan(plan, context, { changesOnly: true });
+    assert.ok(copyPreview.includes('创建「生成图」的副本'));
+    assert.ok(copyPreview.includes('连接 背景图 · 图片 → 生成图的副本 · 参考图'));
+    assert.ok(copyPreview.every(line => !line.includes('移除连线') && !line.includes('局部图')));
     assert.throws(() => normalizeCanvasPlan(raw, context, { message: '断开生成图到局部图的连线' }));
     assert.deepEqual(wiring(normalizeCanvasPlan(raw, context, { message: '断开局部图到生成图的连线' })).map(edge => edge.id),
         ['reference-a', 'reference-c', 'prompt']);
@@ -95,6 +99,7 @@ test('restating a retained disabled reference preserves its edge without authori
         connections: ['disabled', 'active'].map((ref, index) => ({ from: { ref, port: 'image' }, to: { ref: 'edit', port: 'referenceImages' }, order: index })) };
     const plan = normalizeCanvasPlan(proposal, context, { mentionedIds: ['target'] });
     assert.deepEqual(projectPlanConnections(plan, context.connections, ref => ref === 'edit' ? 'target' : ref), context.connections);
+    assert.deepEqual(describeCanvasPlan({ ...plan, applyInPlace: true }, context, { changesOnly: true }), ['图片生成 · 提示词：original → optimized']);
     const added = structuredClone(proposal); added.connections.push({ from: { ref: 'other-disabled', port: 'image' }, to: { ref: 'edit', port: 'referenceImages' }, order: 2 });
     assert.throws(() => normalizeCanvasPlan(added, context, { mentionedIds: ['target'] }), /禁用/);
     const reordered = structuredClone(proposal); reordered.connections.reverse(); reordered.connections.forEach((link, index) => { link.order = index; });

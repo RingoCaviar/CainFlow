@@ -4,6 +4,7 @@ import { sizeFields } from './prompt-agent-size.js';
 import { stampResultCompletion } from './prompt-agent-result-order.js';
 import { normalizeAgentSearch } from './prompt-agent-search-data.js';
 import { restoreCanvasPlan } from './prompt-agent-canvas-plan.js';
+import { normalizeAgentRequestFailure } from './prompt-agent-request.js';
 
 function clone(value) {
     if (value === undefined) return undefined;
@@ -111,6 +112,7 @@ function normalizeRun(run, { interruptRunning = false } = {}) {
 
 function normalizeMessage(message = {}, options = {}) {
     const choices = message.role === 'agent' && message.intent === 'clarify' && normalizePromptAgentChoices(message.choices);
+    const requestFailure = message.role === 'agent' && normalizeAgentRequestFailure(message.requestFailure);
     const answer = message.role === 'user' && message.choiceAnswer;
     return {
         role: message.role === 'agent' ? 'agent' : 'user',
@@ -118,6 +120,7 @@ function normalizeMessage(message = {}, options = {}) {
         ...(message.search ? { search: normalizeAgentSearch(message.search) } : {}),
         ...(typeof message.intent === 'string' ? { intent: message.intent } : {}),
         ...(choices ? { choices } : {}),
+        ...(requestFailure ? { requestFailure } : {}),
         ...(answer && typeof answer.question === 'string' && answer.choice === message.text
             ? { choiceAnswer: { question: answer.question, choice: answer.choice } } : {}),
         ...(Array.isArray(message.referenceImages) ? {
@@ -201,6 +204,10 @@ export function createPromptAgentConversationStore() {
 
     function getRun(runId) {
         return clone(findRun(runId));
+    }
+
+    function getRuns() {
+        return copySnapshot([...archivedMessages, ...messages].flatMap(message => message.runs || []));
     }
 
     function beginRun(messageIndex, run) {
@@ -303,10 +310,10 @@ export function createPromptAgentConversationStore() {
             || archivedMessages.some(message => message.canvasPlan?.id === id));
     }
 
-    function getContext() {
+    function getContext(beforeIndex = archivedMessages.length + messages.length) {
         const context = [
             memory ? `工作流记忆：${memory}` : '',
-            ...messages.slice(Math.max(0, discardedMessageCount - archivedMessages.length)).map((message) => {
+            ...messages.slice(Math.max(0, discardedMessageCount - archivedMessages.length), Math.max(0, beforeIndex - archivedMessages.length)).map((message) => {
                 const references = message.referenceImages?.length
                     ? ` [参考图：${message.referenceImages.map((image) => image.name).join('、')}]`
                     : '';
@@ -317,10 +324,11 @@ export function createPromptAgentConversationStore() {
         return [contextSummary ? `上下文摘要：${contextSummary}` : '', recentContext].filter(Boolean).join('\n');
     }
 
-    function getReferenceImages() {
+    function getReferenceImages(beforeIndex = archivedMessages.length + messages.length) {
         return clone(normalizeReferenceImages([
             ...referenceImages,
-            ...messages.slice(Math.max(0, discardedMessageCount - archivedMessages.length)).flatMap((message) => message.referenceImages || [])
+            ...messages.slice(Math.max(0, discardedMessageCount - archivedMessages.length), Math.max(0, beforeIndex - archivedMessages.length))
+                .flatMap((message) => message.referenceImages || [])
         ]));
     }
 
@@ -348,14 +356,14 @@ export function createPromptAgentConversationStore() {
         return true;
     }
 
-    function getCompactionContext() {
+    function getCompactionContext(beforeIndex = archivedMessages.length + messages.length) {
         const context = snapshot();
         delete context.draft;
         const archive = context.archivedMessages || [];
         // The saved transcript stays intact. Requests see only the retained
         // turns, with summarized turns available as reference metadata.
-        context.messages = [...archive.slice(Math.max(compactedMessageCount, discardedMessageCount)),
-            ...context.messages.slice(Math.max(0, discardedMessageCount - archive.length))];
+        context.messages = [...archive.slice(Math.max(compactedMessageCount, discardedMessageCount), beforeIndex),
+            ...context.messages.slice(Math.max(0, discardedMessageCount - archive.length), Math.max(0, beforeIndex - archive.length))];
         context.archivedMessages = archive.slice(discardedMessageCount, compactedMessageCount);
         if (discardedMessageCount) context.messageOffset = discardedMessageCount;
         return context;
@@ -450,7 +458,7 @@ export function createPromptAgentConversationStore() {
         getConfirmedCreativeRequest: (message, beforeIndex) => copySnapshot(findConfirmedCreativeRequest(message, messages, archivedMessages, beforeIndex)),
         getLatestMessageIndex: () => archivedMessages.length + messages.length - 1,
         discardContextBefore,
-        getSize, setSize, getProvider, setProvider, getThinking, setThinking, setDraft, getDraft, getChatModelId: () => chatModelId, setChatModelId: value => { chatModelId = typeof value === 'string' ? value.trim() : ''; }, append, getMessage, bindPromptPlanTarget, beginRun, finishRun, getRun, restore, snapshot, getContext, getReferenceImages, updateContextImages, updateReferenceDescription, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences,
+        getSize, setSize, getProvider, setProvider, getThinking, setThinking, setDraft, getDraft, getChatModelId: () => chatModelId, setChatModelId: value => { chatModelId = typeof value === 'string' ? value.trim() : ''; }, append, getMessage, bindPromptPlanTarget, beginRun, finishRun, getRun, getRuns, restore, snapshot, getContext, getReferenceImages, updateContextImages, updateReferenceDescription, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences,
         upgradePromptPlan: (index, plan) => {
             const message = [...archivedMessages, ...messages][index];
             if (!message?.promptPlan || message.runs?.some(run => run.status === 'running')) return false;

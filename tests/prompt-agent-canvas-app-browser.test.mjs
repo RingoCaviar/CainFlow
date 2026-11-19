@@ -28,8 +28,9 @@ test('complete application previews, applies, executes and undoes a canvas plan 
         assert.equal(await evaluate("document.querySelectorAll('#nodes-layer .node').length"), 0);
         assert.equal(await evaluate("document.querySelectorAll('.prompt-agent-step-heading').length"), 3);
         assert.deepEqual(await evaluate("[...document.querySelectorAll('.prompt-agent-step-number')].map(el=>el.textContent)"), ['1', '2', '3']);
-        assert.equal(await evaluate("document.querySelector('.prompt-agent-plan-changes').open"), false);
-        assert.equal(await evaluate("document.querySelector('.prompt-agent-size-summary').closest('details').className"), 'prompt-agent-plan-changes');
+        assert.equal(await evaluate("document.querySelector('.prompt-agent-plan-overview').open"), false);
+        assert.equal(await evaluate("document.querySelector('.prompt-agent-size-summary').closest('details').className"), 'prompt-agent-plan-overview');
+        assert.match(await evaluate("document.querySelector('.prompt-agent-plan-impact').innerText"), /新增 受控海报/);
         assert.equal(await evaluate("[...document.querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='仅应用').disabled"), true);
         await evaluate("document.querySelector('#prompt-agent-image-model + button').click();document.querySelector('#prompt-agent-image-model-menu [data-model-id=\"image-two\"][data-provider-id=\"p\"]').click();");
         assert.equal(await evaluate("document.getElementById('prompt-agent-image-model').value"), 'image-two');
@@ -301,6 +302,8 @@ test('applying an existing-node proposal repeatedly creates editable copies and 
         await reloadAppBrowser(app);
         await app.evaluate(`document.getElementById('original-text').dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0,clientX:100,clientY:150}));document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0,clientX:100,clientY:150}));document.getElementById('btn-prompt-agent').click();document.querySelector('#prompt-agent-model + button').click();document.querySelector('#prompt-agent-model-menu [data-model-id=chat][data-provider-id=p]').click();document.getElementById('prompt-agent-input').value='复制选中的文本节点并修改副本';document.getElementById('prompt-agent-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));`);
         await app.waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
+        assert.match(await app.evaluate("document.querySelector('.prompt-agent-plan-impact').innerText"), /创建「原始节点」的副本/);
+        assert.match(await app.evaluate("document.querySelector('.prompt-agent-plan-impact').innerText"), /保留原节点和连线/);
         for(const count of [2,3]){
             await app.evaluate("[...document.querySelectorAll('.prompt-agent-actions-primary button')].find(b=>b.textContent==='仅应用').click()");
             await app.waitFor(`document.querySelectorAll('#nodes-layer .node').length===${count}`);
@@ -314,7 +317,7 @@ test('applying an existing-node proposal repeatedly creates editable copies and 
         await app.waitFor("document.querySelectorAll('.prompt-agent-canvas-plan').length===2");
         const last = "[...document.querySelectorAll('.prompt-agent-canvas-plan')].at(-1)";
         for (const count of [4, 5]) {
-            await app.evaluate(`(${last}).querySelector('.prompt-agent-actions-more > summary').click();[...(${last}).querySelectorAll('.prompt-agent-actions-secondary button')].find(b=>b.textContent==='创建副本').click()`);
+            await app.evaluate(`[...(${last}).querySelectorAll('.prompt-agent-canvas-actions button')].find(b=>b.textContent==='创建副本').click()`);
             await app.waitFor(`document.querySelectorAll('#nodes-layer .node').length===${count}&&(${last}).querySelector('[role=status]').textContent.includes('已应用并保存')`);
         }
         assert.equal(await app.evaluate("document.getElementById('original-text-text').value"), '原始文本');
