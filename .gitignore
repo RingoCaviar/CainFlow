@@ -10,6 +10,13 @@ log/
 # Generated release validation report
 /artifacts/media-asset-safety-report.json
 
+# Local design drafts and screenshots
+/artifacts/cat-logo-options/preview.png
+/artifacts/prototype-image-assistant/preview-*.png
+/artifacts/prototype-image-first-canvas/preview.png
+/artifacts/prototype-image-first-canvas/preview-*.png
+/artifacts/settings-card-concepts/
+
 # Local workflow data
 /workflows/
 /data/

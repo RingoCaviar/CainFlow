@@ -1,4 +1,6 @@
 /config.local.json
 /hook.cache.json
+/critique/*
+!/critique/ignore.md
 /live/*
 !/live/config.json
