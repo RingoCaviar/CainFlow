@@ -7,6 +7,9 @@
 <style>*,*::before,*::after { transition: none !important; animation: none !important; }</style>
 <button class="btn btn-run">运行</button>
 <button class="btn btn-primary" id="prompt-agent-send">发送</button>
+<div id="canvas-navigation">
+    <button class="canvas-run-scope-trigger" type="button" aria-expanded="false">运行范围</button>
+</div>
 <pre id="surface-result"></pre>
 <script>
 const results=[];
@@ -14,7 +17,7 @@ for(const theme of ['dark','pro','paper','light','glass-light','glass-dark','pin
     document.documentElement.dataset.appTheme=theme;
     for(const button of document.querySelectorAll('button')) {
         const s=getComputedStyle(button);
-        results.push({theme,color:s.color,background:s.backgroundColor,image:s.backgroundImage});
+        results.push({theme,label:button.textContent,color:s.color,background:s.backgroundColor,image:s.backgroundImage});
     }
 }
 document.getElementById('surface-result').textContent=JSON.stringify(results);

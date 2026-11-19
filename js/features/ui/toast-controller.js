@@ -10,6 +10,9 @@ export function createToastControllerApi({
     let currentStatus = null;
     const navigation = documentRef.getElementById?.('canvas-navigation');
     const windowRef = documentRef.defaultView;
+    function showLatestInScrollableStack() {
+        if (windowRef?.getComputedStyle?.(container)?.overflowY === 'auto') container.scrollTop = container.scrollHeight;
+    }
     if (container && navigation && windowRef && documentRef.body?.style) {
         const search = navigation.querySelector('.canvas-node-search');
         const zoomMenu = navigation.querySelector('.canvas-zoom-menu');
@@ -24,7 +27,10 @@ export function createToastControllerApi({
             documentRef.body.style.setProperty('--toast-canvas-bottom-offset', `${clearance}px`);
         };
         syncNavigationClearance();
-        windowRef.addEventListener('resize', syncNavigationClearance);
+        windowRef.addEventListener('resize', () => {
+            syncNavigationClearance();
+            showLatestInScrollableStack();
+        });
         if (windowRef.ResizeObserver) {
             const observer = new windowRef.ResizeObserver(syncNavigationClearance);
             observer.observe(navigation);
@@ -58,6 +64,7 @@ export function createToastControllerApi({
         content.textContent = String(message || '');
         toast.appendChild(content);
         container.appendChild(toast);
+        showLatestInScrollableStack();
         let dismissed = false;
         let timeoutId = null;
         const clearTimer = () => {

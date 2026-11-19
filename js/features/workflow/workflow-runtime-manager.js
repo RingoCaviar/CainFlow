@@ -1356,7 +1356,7 @@ export function createWorkflowRuntimeManager({
         const startTime = Number(startedAt) || Date.now();
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
         timeBadge.textContent = `${elapsed}s`;
-        timeBadge.style.color = elapsed > 60 ? 'var(--accent-red)' : '';
+        timeBadge.style.color = elapsed > 60 ? 'var(--node-time-overrun-text, var(--accent-red))' : '';
     }
 
     function renderVisibleConcurrentRequestStatus(node, statusPayload = {}) {

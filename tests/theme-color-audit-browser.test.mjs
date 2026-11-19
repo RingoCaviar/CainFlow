@@ -23,12 +23,12 @@ test('feature colors cannot reintroduce missing palette names or leak protocol b
 test('filled primary actions keep readable text across seven themes', () => {
     const rows=renderComputedFixture(new URL('./fixtures/primary-action-theme-surface.html',import.meta.url),'cainflow-primary-colors-');
     const failures=[];
-    assert.equal(rows.length,14);
+    assert.equal(rows.length,21);
     for(const row of rows) {
         const stops=row.image.match(/rgba?\([^)]*\)|color\(srgb[^)]*\)/g) || [row.background];
         for(const stop of stops) {
             const ratio=contrastRatio(parseColor(row.color),parseColor(stop));
-            if(ratio<4.5)failures.push(`${row.theme}: ${ratio.toFixed(2)}`);
+            if(ratio<4.5)failures.push(`${row.theme} ${row.label}: ${ratio.toFixed(2)}`);
         }
     }
     assert.deepEqual([...new Set(failures)],[]);

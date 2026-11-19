@@ -5,7 +5,7 @@ import {
     COMMERCE_IMAGE_SET_ASPECTS, COMMERCE_IMAGE_SET_COPY_LANGUAGES, COMMERCE_IMAGE_SET_COPY_LIMITS,
     COMMERCE_IMAGE_SET_DEFAULT_ASPECTS, COMMERCE_IMAGE_SET_PRESETS, COMMERCE_PRODUCT_INFO_LIMITS,
     COMMERCE_SCENE_DESCRIPTION_LIMIT, COMMERCE_CANDIDATE_GENERATION_LIMIT,
-    appendCommerceSceneShot, confirmCommerceSceneShot, getCommerceProductInfo, getCommerceSceneSummary, getCommerceShotCandidates,
+    appendCommerceSceneShot, getCommerceProductInfo, getCommerceSceneSummary, getCommerceShotCandidates,
     getCommerceAmazonMainMode, getCommerceReferenceTypes, getGeneratableCommerceImageSetShots, getRunnableCommerceImageSetShots, getSelectedCommerceImageSetShots,
     getUnfinishedCommerceImageSetShots, isCommerceShotImageStale,
     normalizeCommerceImageSetCandidateCount, normalizeCommerceImageSetCopyLanguage, normalizeCommerceImageSetState,
@@ -21,6 +21,7 @@ import {
 import { openCommerceShotCandidates } from '../features/ecommerce-image-set/commerce-shot-candidates-dialog.js';
 import { createCommerceShotReferenceControls } from '../features/ecommerce-image-set/commerce-shot-reference-controls.js';
 import { hasCommerceStyleReferenceChange, projectCommerceStyleReferences } from '../features/ecommerce-image-set/commerce-shot-references.js';
+import { getCommerceImageConfigurationIssue } from '../features/execution/commerce-run-preflight.js';
 import { getEffectiveProtocol, getModelProviders, getModelsForTask } from '../features/execution/provider-request-utils.js';
 import { getOpenAIChatCapabilities } from '../features/execution/openai-chat-capabilities.js';
 import { confirmAction } from '../features/ui/app-dialogs.js';
@@ -54,7 +55,8 @@ function setImage(element, url) {
     element.hidden = !url;
 }
 
-export function createCommerceImageSetView({ node, state, documentRef, run, cancel, removeScene, onChange, openResultPreview, openShotError, bindReferencePrompt, readReferenceAsset, referenceImageCatalog, pickCommerceStyleReference }) {
+export function createCommerceImageSetView({ node, state, documentRef, run, cancel, removeScene, onChange, openResultPreview,
+    openShotError, bindReferencePrompt, readReferenceAsset, referenceImageCatalog, pickCommerceStyleReference, openModelSettings, focusReferenceSource, connectReference, showReferenceDetails }) {
     const card = node.el.querySelector('.commerce-image-set-card');
     const cover = card.querySelector('img');
     const cardTitle = card.querySelector('.commerce-image-set-card-title');
@@ -111,7 +113,6 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
                     </div>
                     <div class="commerce-image-set-shot-choices" data-commerce-choice-group="${group}" role="group" aria-label="${title}图位"></div>
                 </section>`).join('')}
-                <p class="commerce-image-set-selection-hint" role="status">请至少勾选一个图位。</p>
             </div>
         </div>
     </details>
@@ -130,7 +131,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
     </details>
     <section class="commerce-image-set-plan" aria-label="套图方案" hidden>
         <header class="commerce-image-set-plan-heading">
-            <h3>套图方案</h3>
+            <h3 tabindex="-1">套图方案</h3>
             <button type="button" class="commerce-image-set-export-trigger" data-commerce-action="preview-previous" data-node-read-action aria-haspopup="dialog" hidden>预览上次套图</button>
             <button type="button" class="commerce-image-set-export-trigger" data-commerce-action="export" data-node-read-action aria-haspopup="dialog" hidden>${exportIcon}<span>导出套图</span></button>
         </header>
@@ -146,14 +147,25 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
     const actions = documentRef.createElement('div');
     actions.className = 'commerce-image-set-footer';
     actions.innerHTML = `<div class="commerce-image-set-run-summary">
-            <p class="commerce-image-set-status" role="status" tabindex="-1"></p>
+            <p id="${panelId}-run-status" class="commerce-image-set-status" role="status" tabindex="-1"></p>
+            <button type="button" class="btn btn-secondary commerce-image-set-recovery" data-commerce-action="resolve-blocker"
+                aria-describedby="${panelId}-run-status" hidden></button>
             <button type="button" class="commerce-image-set-stop" data-commerce-action="cancel-all" hidden>${stopIcon}<span>取消全部</span></button>
         </div>
+        <div class="commerce-image-set-run-summary" data-commerce-selection-recovery hidden>
+            <p id="${panelId}-selection-help" class="commerce-image-set-selection-hint">请至少勾选一个图位。</p>
+            <button type="button" class="btn btn-secondary commerce-image-set-choose-shots" data-commerce-action="choose-shots"
+                aria-describedby="${panelId}-selection-help">选择图位</button>
+        </div>
         <progress class="commerce-image-set-progress" aria-label="套图生成进度" hidden></progress>
+        <div class="commerce-image-set-batch-scope" hidden>
+            <p id="${panelId}-generate-scope" data-commerce-run-summary="generate" hidden></p>
+            <p id="${panelId}-fill-scope" data-commerce-run-summary="fill" hidden></p>
+        </div>
         <div class="commerce-image-set-actions">
             <button type="button" class="btn btn-primary" data-commerce-action="plan">生成方案</button>
-            <button type="button" class="btn btn-primary" data-commerce-action="generate" hidden>确认并生成套图</button>
-            <button type="button" class="btn btn-primary" data-commerce-action="fill" hidden>补齐图位</button>
+            <button type="button" class="btn btn-primary" data-commerce-action="generate" aria-describedby="${panelId}-generate-scope" hidden>确认并生成套图</button>
+            <button type="button" class="btn btn-primary" data-commerce-action="fill" aria-describedby="${panelId}-fill-scope" hidden>补齐图位</button>
         </div>`;
     const fields = Object.fromEntries(Array.from(element.querySelectorAll('[data-commerce-field]'), control => [control.dataset.commerceField, control]));
     const productFields = Array.from(element.querySelectorAll('[data-commerce-product-field]'));
@@ -164,12 +176,12 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
     const analyzeButton = element.querySelector('[data-commerce-action="analyze"]');
     const analyzeLabel = analyzeButton.querySelector('.commerce-image-set-analyze-label');
     const setup = element.querySelector('.commerce-image-set-setup');
+    const modelSettings = element.querySelector('.node-model-settings');
     const setupSummary = setup.querySelector('summary');
     const setupSelection = setupSummary.querySelector('span');
     const guide = element.querySelector('.commerce-image-set-guide');
     const shotSelection = element.querySelector('.commerce-image-set-selection');
     const choiceGroups = new Map(shotGroups.map(([group]) => [group, shotSelection.querySelector(`[data-commerce-choice-group="${group}"]`)]));
-    const shotSelectionHint = shotSelection.querySelector('.commerce-image-set-selection-hint');
     const planSection = element.querySelector('.commerce-image-set-plan');
     const planHeading = planSection.querySelector('h3');
     const previousPreviewButton = planSection.querySelector('[data-commerce-action="preview-previous"]');
@@ -186,8 +198,13 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
     const fillButton = actions.querySelector('[data-commerce-action="fill"]');
     const cancelAllButton = actions.querySelector('[data-commerce-action="cancel-all"]');
     const status = actions.querySelector('.commerce-image-set-status');
+    const blockerRecovery = actions.querySelector('[data-commerce-action="resolve-blocker"]');
+    const selectionRecovery = actions.querySelector('[data-commerce-selection-recovery]');
     const progressBar = actions.querySelector('progress');
     const actionButtons = actions.querySelector('.commerce-image-set-actions');
+    const batchScope = actions.querySelector('.commerce-image-set-batch-scope');
+    const generateScope = batchScope.querySelector('[data-commerce-run-summary="generate"]');
+    const fillScope = batchScope.querySelector('[data-commerce-run-summary="fill"]');
     const defaultPlatformId = Object.keys(COMMERCE_IMAGE_SET_PRESETS)[0];
     const config = () => (node.data.commerceImageSet ??= { platformId: defaultPlatformId, selectedShotIds: [] });
     const designReferences = createCommerceShotReferenceControls({ documentRef, node, getSettings: config,
@@ -202,6 +219,8 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
     let pendingAction = null;
     let cancelingAll = false;
     let runMessage = '';
+    let recoverBlocker = null;
+    let focusPlanReview = false;
     let productMessage = '';
     let choicePlatform = '';
     let activeShotId = '';
@@ -314,7 +333,6 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             checkbox.disabled = locked || finalizedIds.has(id);
             checkbox.closest('label').title = finalizedIds.has(id) ? '解锁后可移除此图位' : '';
         }
-        shotSelectionHint.hidden = selected.size > 0;
     }
 
     function makeShotRow(shot) {
@@ -336,19 +354,15 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
                 </div>
                 <div class="commerce-image-set-shot-tools" hidden>
                     ${shot.customScene ? `<button type="button" class="commerce-image-set-shot-action" data-commerce-action="remove-scene" aria-haspopup="dialog">${trashIcon}</button>`
-                        : `<button type="button" class="commerce-image-set-shot-action" data-commerce-action="replan-shot">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v2M13 3v5h5M8 12h4M8 16h2"/><path d="m13 17 5.5-5.5a1.4 1.4 0 0 1 2 2L15 19l-3 1z"/></svg>
-                    </button>
-                    <button type="button" class="commerce-image-set-shot-action" data-commerce-action="retry" data-node-read-action>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 20H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v5M3 16l4-4 3 3 3-3"/><circle cx="8" cy="8" r="1"/><path d="M21 14v4h-4m4 0a4 4 0 1 0-1.1 3.2"/></svg>
-                    </button>`}
+                        : `<button type="button" class="commerce-image-set-shot-action" data-commerce-action="replan-shot">重写方案</button>
+                    <button type="button" class="commerce-image-set-shot-action" data-commerce-action="retry" data-node-read-action>生成图片</button>`}
                     <button type="button" class="commerce-image-set-stop" data-commerce-action="cancel-shot" hidden>${stopIcon}<span>取消</span></button>
                 </div>
                 <p class="commerce-image-set-version-note" role="status" hidden></p>
                 ${shot.customScene ? '<p class="commerce-image-set-scene-summary" hidden></p>' : ''}
                 <span class="commerce-image-set-copy-summary" hidden></span>
                 <div class="commerce-image-set-shot-result-actions" hidden>
-                    <button type="button" data-commerce-action="compare-shot" data-node-read-action aria-haspopup="dialog" hidden>候选</button>
+                    <button type="button" data-commerce-action="compare-shot" data-node-read-action aria-haspopup="dialog" hidden></button>
                     <button type="button" data-commerce-action="toggle-final" aria-pressed="false">${lockIcon}<span>定稿</span></button>
                 </div>
                 <p class="commerce-image-set-shot-notice" role="status" hidden></p>
@@ -390,10 +404,9 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         image.alt = shot.label;
         const preview = row.querySelector('[data-commerce-action="preview"]');
         preview.setAttribute('aria-label', `打开${shot.label}预览`);
-        preview.setAttribute('aria-describedby', versionNote.id);
         row.querySelector('.commerce-image-set-shot-tools').hidden = shot.source !== 'generate';
         const replan = row.querySelector('[data-commerce-action="replan-shot"]');
-        replan.title = `重新生成${shot.label}方案`;
+        replan.title = `${replan.textContent}「${shot.label}」`;
         replan.setAttribute('aria-label', replan.title);
         const retry = row.querySelector('[data-commerce-action="retry"]');
         const cancelShot = row.querySelector('[data-commerce-action="cancel-shot"]');
@@ -403,7 +416,6 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         const resultActions = row.querySelector('.commerce-image-set-shot-result-actions');
         const compareShot = resultActions.querySelector('[data-commerce-action="compare-shot"]');
         const toggleFinal = resultActions.querySelector('[data-commerce-action="toggle-final"]');
-        compareShot.setAttribute('aria-label', `查看「${shot.label}」的候选版本`);
         row.addEventListener('click', event => {
             if (event.target.closest('[data-commerce-action], .commerce-image-set-shot-editor')) return;
             expandShotEditor(editor.hidden ? shot.id : null);
@@ -483,7 +495,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         }
     }
 
-    function renderShots(plan, results, { locked, resultsLocked, readyToReplan, canRetry, canAppendScene, shownShotId, referenceChanged }) {
+    function renderShots(plan, results, { locked, resultsLocked, readyToReplan, canRetry, shotImageIssues, canAppendScene, shownShotId, referenceChanged }) {
         const planShots = plan?.shots || [];
         syncShotRows(planShots, canAppendScene);
         const savedResults = new Map(results.map(result => [result.shotId, result]));
@@ -529,8 +541,11 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             row.resultActions.hidden = active || (!current && !alternatives);
             row.compareShot.hidden = !alternatives && !(current && shot.source === 'generate');
             row.compareShot.disabled = resultsLocked || referenceChanged;
-            const compareLabel = `候选 ${alternatives}`;
-            if (row.compareShot.textContent !== compareLabel) row.compareShot.textContent = compareLabel;
+            const compareLabel = alternatives ? `对比 ${alternatives} 张候选` : (finalized ? '查看版本…' : '生成候选…');
+            if (row.compareShot.textContent !== compareLabel) {
+                row.compareShot.textContent = compareLabel;
+                row.compareShot.setAttribute('aria-label', `${compareLabel}「${shot.label}」`);
+            }
             row.toggleFinal.hidden = !current;
             row.toggleFinal.disabled = resultsLocked || referenceChanged;
             row.toggleFinal.setAttribute('aria-pressed', String(finalized));
@@ -538,10 +553,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             const finalText = row.toggleFinal.querySelector('span');
             if (finalText.textContent !== finalLabel) finalText.textContent = finalLabel;
             row.toggleFinal.setAttribute('aria-label', `${finalLabel}「${shot.label}」`);
-            const versionNote = previewUrl && (referenceChanged || isCommerceShotImageStale(shot, previewResult))
-                ? (referenceChanged ? '上次套图 · 图片需复核' : '方案已更新 · 当前为上一版') : '';
-            row.versionNote.hidden = !versionNote;
-            if (row.versionNote.textContent !== versionNote) row.versionNote.textContent = versionNote;
+            const previousImage = Boolean(previewUrl) && (referenceChanged || isCommerceShotImageStale(shot, previewResult));
             const failed = result?.status === 'failed' || !!result?.replacementError;
             const sceneStatus = shot.customScene && !shot.sceneConfirmed
                 ? (scenePlanned ? (shot.sceneNeedsReview ? 'review-update' : 'review') : 'unplanned') : null;
@@ -555,16 +567,29 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             }[resultStatus] || (shot.source === 'reference' ? '待应用' : '待生成');
             const candidateProgress = resultStatus === 'running' ? liveResult?.candidateProgress
                 : resultStatus === 'completed' ? savedResult?.candidateProgress : null;
-            if (candidateProgress?.total > 1) {
+            const showingPrevious = previousImage && (resultStatus === 'completed' || resultStatus === 'finalized');
+            if (showingPrevious) {
+                message = resultStatus === 'finalized' ? '已定稿 · 显示上一版' : '待更新 · 显示上一版';
+            } else if (candidateProgress?.total > 1) {
                 const format = `${candidateProgress.completed}/${candidateProgress.total} 张`;
                 message = resultStatus === 'running' ? `正在生成 ${format}` : `已生成 ${format}`;
             }
             if (row.message.textContent !== message) row.message.textContent = message;
+            row.message.toggleAttribute('data-previous-image', showingPrevious);
+            const versionNote = previousImage ? (referenceChanged ? '商品参考图已更换，请复核。'
+                : showingPrevious ? '' : '方案已更新 · 当前为上一版') : '';
+            row.versionNote.hidden = !versionNote;
+            if (row.versionNote.textContent !== versionNote) row.versionNote.textContent = versionNote;
+            const previewDescription = [showingPrevious ? row.message.id : '', versionNote ? row.versionNote.id : ''].filter(Boolean).join(' ');
+            if (previewDescription) row.preview.setAttribute('aria-describedby', previewDescription);
+            else row.preview.removeAttribute('aria-describedby');
             row.row.dataset.resultStatus = resultStatus;
             row.message.hidden = resultStatus === 'failed';
             row.failure.hidden = resultStatus !== 'failed';
             row.replan.disabled = locked || active || finalized || !readyToReplan;
-            row.retry.disabled = locked || active || finalized || !canRetry || !shot.prompt?.trim();
+            row.generationIssue = !canRetry ? '请检查参考图和套图方案后再生图。'
+                : shotImageIssues.get(shot.id) || (!shot.prompt?.trim() ? '请填写该图位的生图提示词。' : '');
+            row.retry.disabled = locked || active || finalized || Boolean(row.generationIssue);
             row.tools.hidden = !active && shot.source !== 'generate';
             if (row.removeSceneButton) {
                 row.removeSceneButton.disabled = resultsLocked || finalized;
@@ -577,10 +602,10 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             const noticeText = active ? '' : notice?.text || (!finalized && result?.replacementError ? '已保留当前成图。' : '');
             if (row.notice.textContent !== noticeText) row.notice.textContent = noticeText;
             row.notice.hidden = !noticeText;
-            let label = `${savedResult?.status === 'completed' ? '重新生成' : failed ? '重试' : '生成'}${shot.label}图片`;
+            let generateText = savedResult?.status === 'completed' ? '重新生图' : (failed ? '重试生图' : '生成图片');
             if (shot.customScene) {
                 const replanText = scenePlanned ? '重新规划' : '生成方案';
-                const generateText = shot.sceneConfirmed ? (savedResult?.assetKey ? '重新生成图片' : '生成图片') : '确认并生图';
+                generateText = shot.sceneConfirmed ? (savedResult?.assetKey ? '重新生成图片' : '生成图片') : '确认并生图';
                 if (row.replan.textContent !== replanText) row.replan.textContent = replanText;
                 const replanLabel = `${replanText}「${shot.label}」`;
                 if (row.replan.title !== replanLabel) {
@@ -589,13 +614,12 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
                 }
                 row.replan.classList.toggle('btn-primary', !scenePlanned);
                 row.replan.classList.toggle('btn-secondary', scenePlanned);
-                if (row.retry.textContent !== generateText) row.retry.textContent = generateText;
-                label = `${generateText}「${shot.label}」`;
             }
-            if (row.retry.title !== label) {
-                row.retry.title = label;
-                row.retry.setAttribute('aria-label', label);
-            }
+            if (row.retry.textContent !== generateText) row.retry.textContent = generateText;
+            const label = `${generateText}「${shot.label}」`;
+            const retryTitle = row.generationIssue || label;
+            if (row.retry.title !== retryTitle) row.retry.title = retryTitle;
+            if (row.retry.getAttribute('aria-label') !== label) row.retry.setAttribute('aria-label', label);
             if (restoreFocus) {
                 const pending = pendingShots.get(shot.id);
                 const action = pending?.status === 'planning' ? row.replan : row.retry;
@@ -617,16 +641,22 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         const selectedPresetShots = selectedShots.filter(shot => !shot.customScene);
         const runnableShots = getRunnableCommerceImageSetShots(value);
         const generatableShots = getGeneratableCommerceImageSetShots(value);
-        const needsImageModel = generatableShots.some(shot => shot.source === 'generate');
         const planner = modelOptions('chat', value.plannerModelId, value.plannerProviderId);
         const image = modelOptions('image', value.imageModelId, value.imageProviderId);
         const references = projectCommerceReferences(state, node.id);
         const exportOptions = exportInput(value, references);
         const { referenceChanged, referenceVerificationPending, referenceChangeMessage } = exportOptions;
+        const runningReference = references.groups.find(group => group.running);
+        const missingReference = references.groups.find(group => group.enabled && (!group.count || group.missing || group.missingPositions.length))
+            || references.groups.find(group => !group.enabled);
         const referenceIssue = references.count > 5 ? '套图最多使用 5 张参考图，请调整输入。'
-            : references.groups.some(group => group.running) ? '请等待参考图来源运行完成。'
-            : !references.count || references.slots.some(slot => slot.missing) ? '请连接 1 至 5 张可读取的商品参考图。'
-                : referenceVerificationPending ? '正在核对商品参考图…' : '';
+            : runningReference ? '请等待参考图来源运行完成。'
+                : !references.groups.length ? '请连接 1 至 5 张可读取的商品参考图。'
+                    : !references.count || references.slots.some(slot => slot.missing) ? (
+                        missingReference?.source && !missingReference.enabled ? '商品参考图来源已停用，请检查上游节点。'
+                            : missingReference?.enabled && !missingReference.count && !missingReference.missing ? '已连接参考图来源，请先运行上游或导入图片。'
+                                : '商品参考图无法读取，请检查来源。'
+                    ) : referenceVerificationPending ? '正在核对商品参考图…' : '';
         const plan = value.plan;
         let styleChanged = false;
         const styleReferences = projectCommerceStyleReferences(state, node.id);
@@ -685,12 +715,20 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             && plan.shots.length === selectedShots.length && plan.shots.every((shot, index) => (
                 shot.id === selectedShots[index].id && shot.aspect === selectedShots[index].aspect
             ));
-        const readyToGenerate = currentPlan && generatableShots.length > 0 && !referenceIssue && (!needsImageModel || image.ready) && !missingPrompt;
-        const readyToFill = currentPlan && !referenceIssue && unfinishedShots.every(shot => (
-            shot.source === 'reference' || image.ready && shot.prompt?.trim()
+        const imageIssueFor = shots => currentPlan && !referenceIssue ? getCommerceImageConfigurationIssue({
+            state, node, settings: value, generatedShots: shots.filter(shot => shot.source === 'generate'), referenceCount: references.count
+        }) : '';
+        const generateImageIssue = imageIssueFor(generatableShots);
+        const fillImageIssue = imageIssueFor(unfinishedShots);
+        const shotImageIssues = new Map((plan?.shots || [])
+            .filter(shot => shot.source === 'generate' && !finalizedIds.has(shot.id) && (!shot.customScene || getCommerceSceneSummary(shot)))
+            .map(shot => [shot.id, imageIssueFor([shot])]));
+        const readyToGenerate = currentPlan && generatableShots.length > 0 && !referenceIssue && !generateImageIssue && !missingPrompt;
+        const readyToFill = currentPlan && !referenceIssue && !fillImageIssue && unfinishedShots.every(shot => (
+            shot.source === 'reference' || shot.prompt?.trim()
         ));
         const readyToReplan = currentPlan && !referenceIssue && planner.ready;
-        const canRetry = currentPlan && !referenceIssue && image.ready;
+        const canRetry = currentPlan && !referenceIssue;
         setOptions(fields.platformId, Object.values(COMMERCE_IMAGE_SET_PRESETS).map(item => [item.id, item.label]), platformId);
         setOptions(fields.mainImageMode, [['generate', '生成白底图'], ['original', '沿用原图']], getCommerceAmazonMainMode(value));
         element.querySelector('[data-commerce-main-mode]').hidden = platformId !== 'amazon';
@@ -753,7 +791,9 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         generateButton.disabled = locked || !readyToGenerate;
         generateButton.title = finalizedIds.size ? (generatableShots.length ? '重做时保留定稿图位' : '解锁图位后可重新生成') : '';
         const confirmation = plan?.confirmed ? '' : '确认并';
-        const generateLabel = `${confirmation}${hasCompleted ? '重做整套' : '生成套图'}`;
+        const excludedCount = (plan?.shots.length ?? 0) - runnableShots.length;
+        const generateLabel = hasCompleted ? (confirmation ? '确认方案并重做' : '重做已确认图位')
+            : confirmation + (excludedCount ? '生成已确认图位' : '生成套图');
         if (generateButton.textContent !== generateLabel) generateButton.textContent = generateLabel;
         generateButton.classList.toggle('btn-primary', !showFill);
         generateButton.classList.toggle('btn-secondary', showFill);
@@ -764,6 +804,23 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             if (fillButton.textContent !== label) fillButton.textContent = label;
         }
         actionButtons.hidden = busy;
+        const finalizedCount = runnableShots.length - generatableShots.length;
+        for (const [button, scope, actionShots, label] of [
+            [generateButton, generateScope, generatableShots, hasCompleted && confirmation ? '重做已确认图位' : showFill ? '重做' : ''],
+            [fillButton, fillScope, unfinishedShots, '补齐']
+        ]) {
+            scope.hidden = busy || button.hidden || button.disabled;
+            const imageShotCount = actionShots.filter(shot => shot.source === 'generate').length;
+            const summary = scope.hidden ? '' : [
+                label,
+                `预计调用生图模型 ${imageShotCount * candidateCount} 次`,
+                `沿用原图 ${actionShots.length - imageShotCount} 张`,
+                finalizedCount ? `保留定稿 ${finalizedCount} 张` : '',
+                excludedCount ? `暂不执行 ${excludedCount} 个图位` : ''
+            ].filter(Boolean).join(' · ');
+            if (scope.textContent !== summary) scope.textContent = summary;
+        }
+        batchScope.hidden = generateScope.hidden && fillScope.hidden;
         const restoreFooterFocus = !busy && documentRef.activeElement === cancelAllButton;
         cancelAllButton.hidden = !busy || unavailable;
         cancelAllButton.setAttribute('aria-disabled', String(cancelingAll || savingResults));
@@ -776,23 +833,57 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             : copyLanguageChanged ? '图中文字语言已修改，请重新规划。'
             : '商品资料或生成设置已修改，请重新规划。';
         const needsPlannerHint = !planner.ready && (!currentPlan || plan?.shots.some(shot => shot.customScene && !getCommerceSceneSummary(shot)));
-        const needsImageHint = currentPlan && !image.ready && (needsImageModel
-            || plan.shots.some(shot => shot.customScene && getCommerceSceneSummary(shot) && !finalizedIds.has(shot.id)));
-        const finalizedHint = currentPlan && finalizedIds.size
-            ? generatableShots.length ? `重做时保留 ${finalizedIds.size} 个定稿图位。` : '可生成的图位已定稿，解锁后可重新生成。'
-            : '';
-        const hint = referenceIssue || (referenceChanged ? replanHint : needsPlannerHint ? '请在「模型与供应商」中选择支持图片输入的规划模型。'
-            : plan && !currentPlan ? replanHint
-                : needsImageHint ? '请在「模型与供应商」中选择生图模型和供应商。'
-                    : missingPrompt ? '请填写每张待生成图片的提示词。' : finalizedHint);
+        const imageIssue = generateImageIssue || fillImageIssue || [...shotImageIssues.values()].find(Boolean);
+        const modelStage = imageIssue ? 'image' : needsPlannerHint ? 'planner' : '';
+        let recoveryLabel = '';
+        recoverBlocker = null;
+        if (!locked && referenceIssue && !referenceVerificationPending) {
+            const source = (runningReference || missingReference)?.source;
+            if (!references.groups.length) {
+                recoveryLabel = '连接参考图';
+                recoverBlocker = connectReference;
+            } else if (source && references.count <= 5) {
+                recoveryLabel = '定位参考图来源';
+                recoverBlocker = () => focusReferenceSource(source.id);
+            } else {
+                recoveryLabel = '查看连接明细';
+                recoverBlocker = showReferenceDetails;
+            }
+        } else if (!locked && !referenceIssue && modelStage) {
+            const model = modelStage === 'planner' ? planner : image;
+            const stageName = modelStage === 'planner' ? '规划' : '生图';
+            if (!model.models.length) {
+                recoveryLabel = `配置${stageName}模型`;
+                recoverBlocker = () => openModelSettings({ taskType: modelStage === 'planner' ? 'chat' : 'image', onClose: () => {
+                    refresh();
+                    if (blockerRecovery.checkVisibility()) blockerRecovery.focus({ preventScroll: true });
+                } });
+            } else {
+                recoveryLabel = `选择${stageName}模型`;
+                recoverBlocker = () => {
+                    modelSettings.open = true;
+                    const selectedModel = fields[`${modelStage}ModelId`];
+                    const provider = fields[`${modelStage}ProviderId`];
+                    const target = selectedModel.value && !model.ready && model.providers.length ? provider : selectedModel;
+                    target.focus({ preventScroll: true });
+                    target.scrollIntoView({ block: 'nearest' });
+                };
+            }
+        }
+        blockerRecovery.hidden = !recoverBlocker;
+        if (blockerRecovery.textContent !== recoveryLabel) blockerRecovery.textContent = recoveryLabel;
+        const finalizedHint = currentPlan && finalizedIds.size && !generatableShots.length
+            ? '可生成的图位已定稿，解锁后可重新生成。' : '';
+        selectionRecovery.hidden = locked || Boolean(referenceIssue) || selectedPresetShots.length > 0;
+        const plannerHint = needsPlannerHint && (planner.models.length ? '请在「模型与供应商」中选择支持图片输入的规划模型。'
+            : '尚未配置支持图片输入的规划模型。');
+        const hint = referenceIssue || (referenceChanged ? replanHint
+            : imageIssue || plannerHint || (plan && !currentPlan ? replanHint
+                : missingPrompt ? '请填写每张待生成图片的提示词。' : finalizedHint));
         const runningLabel = node.runStatus === 'running' ? '正在执行…' : '等待执行…';
         const statusMessage = busy ? (cancelingAll ? '正在取消套图任务…' : savingResults ? '正在保存成图…'
             : progress || activeShotLabel || runMessage || runningLabel) : (referenceChanged ? hint : runMessage || hint);
         if (status.textContent !== statusMessage) status.textContent = statusMessage;
-        if (restoreFooterFocus) {
-            const target = [fillButton, generateButton, planButton].find(button => !button.hidden && !button.disabled) || status;
-            target.focus({ preventScroll: true });
-        }
         const completed = results.filter(result => result.status === 'completed' && !getShotPreview(result.shotId));
         const historyAssets = previousManifest.rows.map(row => row.assetKey).filter(assetUrl);
         const priorAssets = referenceChanged ? historyAssets : completed.length ? [] : (node.data.mediaAssetKeys || []).filter(assetUrl);
@@ -810,9 +901,21 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         cardTitle.textContent = node.el.dataset.nodeTitle || '电商套图';
         cardProgress.textContent = progress || activeShotLabel || (priorAssets.length ? `上次套图 · ${priorAssets.length} 张`
             : plan ? `${completed.length} / ${plan.shots.length} 张` : '');
-        renderShots(plan, results, { locked: shotsLocked, resultsLocked: locked, readyToReplan, canRetry,
+        renderShots(plan, results, { locked: shotsLocked, resultsLocked: locked, readyToReplan, canRetry, shotImageIssues,
             canAppendScene: currentPlan && !referenceIssue && !shotsLocked,
             shownShotId: latestShot?.id || savedCover?.shotId, referenceChanged });
+        if (restoreFooterFocus) {
+            if (focusPlanReview && plan) {
+                const firstShot = plan.shots.find(shot => shot.source === 'generate');
+                const target = shotRows.get(firstShot?.id)?.toggle || planHeading;
+                target.focus({ preventScroll: true });
+                target.scrollIntoView({ block: 'nearest' });
+            } else {
+                const target = [fillButton, generateButton, planButton, blockerRecovery].find(button => !button.hidden && !button.disabled) || status;
+                target.focus({ preventScroll: true });
+            }
+        }
+        if (!busy) focusPlanReview = false;
     }
 
     function setShotSelection(value, ids) {
@@ -995,10 +1098,6 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         } else if (action === 'fill') {
             for (const { id } of getUnfinishedCommerceImageSetShots(config())) shotNotices.delete(id);
         }
-        if (action === 'generate' || action === 'fill') {
-            config().plan.confirmed = true;
-            onChange();
-        }
         if (action === 'analyze' || action === 'plan') productMessage = '';
         refresh();
         try {
@@ -1007,6 +1106,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             if (action === 'plan' && !runMessage) {
                 activeShotId = '';
                 setup.open = !config().plan;
+                focusPlanReview = Boolean(config().plan);
             }
             if (action === 'analyze' && !runMessage) {
                 const product = getCommerceProductInfo(config());
@@ -1024,11 +1124,6 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
     async function runShotAction(action, shotId, shotView) {
         if (!shotView || isActiveShot(shotTaskStatus(shotId))) return;
         const planning = action === 'replan-shot';
-        const shot = config().plan?.shots.find(item => item.id === shotId);
-        if (!planning && shot?.customScene && !shot.sceneConfirmed) {
-            if (!confirmCommerceSceneShot(config(), shotId)) return;
-            onChange({ commerceShotId: shotId, commerceSceneChanged: true });
-        }
         const pending = { status: planning ? 'planning' : 'running', observed: false };
         const failureNotice = text => {
             const result = config().results?.find(item => item.shotId === shotId);
@@ -1084,6 +1179,17 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         const button = event.target.closest('[data-commerce-action]');
         if (!button || button.hidden || button.disabled || button.getAttribute('aria-disabled') === 'true') return;
         const action = button.dataset.commerceAction;
+        if (action === 'resolve-blocker') {
+            recoverBlocker?.();
+            return;
+        }
+        if (action === 'choose-shots') {
+            setup.open = true;
+            const firstChoice = shotSelection.querySelector('input[data-commerce-select-shot]:enabled');
+            firstChoice?.focus({ preventScroll: true });
+            firstChoice?.closest('label').scrollIntoView({ block: 'nearest', inline: 'nearest' });
+            return;
+        }
         const shotRow = button.closest('[data-commerce-shot-id]');
         const shotId = shotRow?.dataset.commerceShotId;
         if (action === 'remove-scene') {
@@ -1127,15 +1233,12 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             try {
                 closeCandidateDialog = openCommerceShotCandidates({
                     documentRef, opener: button, shot, current, candidates, finalized: result?.finalized === true, getAssetUrl: assetUrl,
+                    generationIssue: shotRows.get(shotId)?.generationIssue,
                     openPreview: openResultPreview,
                     candidateCount: normalizeCommerceImageSetCandidateCount(value.candidateCount),
                     onCancel: () => cancel(shotId),
                     onGenerate: async count => {
-                        const latest = config();
-                        latest.candidateCount = count;
-                        node.data.commerceImageSet = latest;
-                        onChange();
-                        const outcome = await run('generate-candidates', shotId);
+                        const outcome = await run('generate-candidates', shotId, { commerceCandidateCount: count });
                         const updated = config();
                         const versions = shotVersions(shotId, updated.results?.find(row => row.shotId === shotId));
                         if (outcome?.outcome === 'failed') throw new Error(runError(outcome) || '候选生成失败。');
@@ -1143,7 +1246,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
                         return { ...versions, message: outcome?.outcome === 'stopped' ? '已停止生成，已保存的候选可继续选择。' : '' };
                     },
                     onApply: async key => {
-                        const outcome = await run('select-candidate', shotId, key);
+                        const outcome = await run('select-candidate', shotId, { commerceCandidateKey: key });
                         if (outcome?.outcome !== 'completed') throw new Error(runError(outcome) || '采用版本已取消。');
                         activeShotId = shotId;
                         shotNotices.delete(shotId);

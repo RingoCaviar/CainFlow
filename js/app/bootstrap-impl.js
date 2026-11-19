@@ -756,7 +756,7 @@ const imagePainterApi = createImagePainterApi({
 });
 function buildImageResultActions(source, options = {}) {
     return createImageResultActions({ documentRef: document, source, getWorkflowId: () => workflowManagerApi.getActiveWorkflowId?.() || '',
-        openPreview: (image, onClose) => openFullscreenPreview(image, null, { images: [image], index: 0, onClose }),
+        openPreview: (image, onClose, batch = { images: [image], index: 0 }) => openFullscreenPreview(image, null, { ...batch, onClose }),
         prepareReference: (reference, intent) => promptAgentController.prepareImageContext(reference, intent),
         downloadImage: (image, item) => startHistoryDownload({ id: String(item.historyId || item.name || 'result').replace(/[^\p{L}\p{N}._-]/gu, '_'), image }, { downloadImage, documentRef: document, windowRef: window }),
         copyImage: uiUtils.copyImageToClipboard, showToast, ...options });
@@ -842,8 +842,9 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
     },
     openAgent: () => promptAgentController.open(),
     openModelSettings: target => settingsControllerApi.openModelSettings(target),
-    runCurrentNode: (nodeId, { commerceAction, commerceShotId, commerceCandidateKey, imageRetryIndex, imageRetryBatchId } = {}) => commerceAction
-        ? runCommerceImageSetAction(nodeId, commerceAction, commerceShotId, commerceCandidateKey)
+    focusReferenceSource: focusCanvasNode,
+    runCurrentNode: (nodeId, { commerceAction, commerceShotId, commerceCandidateKey, commerceCandidateCount, imageRetryIndex, imageRetryBatchId } = {}) => commerceAction
+        ? runCommerceImageSetAction(nodeId, commerceAction, commerceShotId, { commerceCandidateKey, commerceCandidateCount })
         : runWorkflow({
             mode: 'selected-only', selectedNodeIds: [nodeId],
             ...(Number.isInteger(imageRetryIndex) ? { imageRetryNodeId: nodeId, imageRetryIndex, imageRetryBatchId } : {})
@@ -1109,7 +1110,7 @@ function resumeWorkflowNode(nodeId) {
     return runWorkflow({ mode: 'target-node', targetNodeId: nodeId }, { waitForCompletion: true, resumeNodeId: nodeId });
 }
 
-function runCommerceImageSetAction(nodeId, commerceAction, commerceShotId, commerceCandidateKey) {
+function runCommerceImageSetAction(nodeId, commerceAction, commerceShotId, { commerceCandidateKey, commerceCandidateCount } = {}) {
     const node = state.nodes.get(nodeId);
     if (node?.type !== 'ECommerceImageSet' || node.enabled === false || node.isClone) return false;
     const controller = new AbortController();
@@ -1118,7 +1119,7 @@ function runCommerceImageSetAction(nodeId, commerceAction, commerceShotId, comme
     getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();
     run.promise = runWorkflow({
         mode: 'selected-only', selectedNodeIds: [nodeId],
-        commerceNodeId: nodeId, commerceAction, commerceShotId, commerceCandidateKey
+        commerceNodeId: nodeId, commerceAction, commerceShotId, commerceCandidateKey, commerceCandidateCount
     }, { waitForCompletion: true, commercePanelRun: run }).finally(() => {
         commercePanelRuns.delete(run);
         getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();

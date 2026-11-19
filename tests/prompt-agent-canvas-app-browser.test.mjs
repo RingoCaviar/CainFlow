@@ -241,7 +241,15 @@ test('plan buttons create independent batches while previous image requests rema
         await app.waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
         const click=label=>app.evaluate(`[...document.querySelectorAll('.prompt-agent-actions-primary button')].find(b=>b.textContent===${JSON.stringify(label)}).click()`);
         assert.deepEqual(await app.evaluate("[...document.querySelectorAll('.prompt-agent-actions-primary button')].filter(b=>!b.hidden).map(b=>b.textContent)"),['运行','仅应用']);
-        await click('运行');await app.waitFor('batchRequests.length===1');
+        const onClick = await app.evaluate(`(() => {
+            const button = [...document.querySelectorAll('.prompt-agent-actions-primary button')].find(b => b.textContent === '运行');
+            button.click();
+            return { busy: button.disabled, nodes: document.querySelectorAll('#nodes-layer .node').length,
+                status: document.querySelector('.prompt-agent-canvas-plan [role=status]').textContent };
+        })()`);
+        assert.deepEqual(onClick, { busy: true, nodes: 0, status: '正在校验与应用…' },
+            'the Agent acknowledges the click before materializing nodes');
+        await app.waitFor('batchRequests.length===1');
         await app.waitFor("![...document.querySelectorAll('.prompt-agent-actions-primary button')].find(b=>b.textContent==='运行').disabled");
         await click('运行');await app.waitFor('batchRequests.length===2');
         assert.equal(await app.evaluate("document.querySelectorAll('#nodes-layer .node').length"),2);

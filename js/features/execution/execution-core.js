@@ -68,9 +68,10 @@ import {
     commerceImageSetReferenceContentKey,
     commerceImageSetSourceKey,
     commerceShotPlanKey,
+    confirmCommerceSceneShot,
     createCommerceImageSetPlan,
     getCommerceShotCandidates, getGeneratableCommerceImageSetShots, getRunnableCommerceImageSetShots,
-    getUnfinishedCommerceImageSetShots, isCommerceShotFinalized, normalizeCommerceImageSetState,
+    getUnfinishedCommerceImageSetShots, isCommerceShotFinalized, normalizeCommerceImageSetCandidateCount, normalizeCommerceImageSetState,
     rememberCommerceShotCandidate, removeCommerceSceneShot, restoreCommerceShotCandidateDraft
 } from '../ecommerce-image-set/commerce-image-set-plan.js';
 import {
@@ -998,7 +999,7 @@ export function createExecutionCoreApi({
             ? runInput.mode
             : 'all';
         const commerceNodeId = runInput.commerceNodeId;
-        const { commerceAction, commerceShotId, commerceCandidateKey } = runInput;
+        const { commerceAction, commerceShotId, commerceCandidateKey, commerceCandidateCount } = runInput;
         const commerceTargeted = mode === 'selected-only' && selectedNodeIds.length === 1 && selectedNodeIds[0] === commerceNodeId
             && state.nodes.get(commerceNodeId)?.type === 'ECommerceImageSet'
             && ['analyze', 'plan', 'replan-shot', 'generate', 'fill', 'retry', 'generate-candidates', 'select-candidate'].includes(commerceAction);
@@ -1010,6 +1011,10 @@ export function createExecutionCoreApi({
         }
         if (['retry', 'generate-candidates'].includes(commerceAction) && (!commerceTargeted || typeof runInput.commerceShotId !== 'string' || !runInput.commerceShotId)) {
             throw new Error('请选择一个需要生图的图位。');
+        }
+        if (commerceCandidateCount !== undefined && (!commerceTargeted || commerceAction !== 'generate-candidates'
+            || commerceCandidateCount !== normalizeCommerceImageSetCandidateCount(commerceCandidateCount))) {
+            throw new Error('请选择有效的候选图片张数。');
         }
         if (commerceAction === 'select-candidate' || commerceCandidateKey !== undefined) {
             const settings = state.nodes.get(commerceNodeId)?.data?.commerceImageSet;
@@ -1045,7 +1050,8 @@ export function createExecutionCoreApi({
             ...(commerceTargeted ? {
                 commerceNodeId, commerceAction,
                 ...(typeof commerceShotId === 'string' ? { commerceShotId } : {}),
-                ...(commerceAction === 'select-candidate' ? { commerceCandidateKey } : {})
+                ...(commerceAction === 'select-candidate' ? { commerceCandidateKey } : {}),
+                ...(commerceCandidateCount !== undefined ? { commerceCandidateCount } : {})
             } : {}),
             ...(visualStyleFields ? { visualStyleFields: [...new Set(visualStyleFields)] } : {}),
             ...(imageRetry ? { imageRetryNodeId, imageRetryIndex, imageRetryBatchId } : {}),
@@ -1943,7 +1949,7 @@ export function createExecutionCoreApi({
     }
 
     async function executeCommerceImageSet(node, inputs, parentSignal, {
-        commerceAction = 'generate', commerceShotId, commerceCandidateKey
+        commerceAction = 'generate', commerceShotId, commerceCandidateKey, commerceCandidateCount, commerceConfirmOnExecution = false
     } = {}) {
         parentSignal?.throwIfAborted();
         const settings = normalizeCommerceImageSetState(node.data?.commerceImageSet);
@@ -1974,7 +1980,15 @@ export function createExecutionCoreApi({
         if (commerceShotId && isCommerceShotFinalized(settings, commerceShotId)) throw new Error('图位已定稿，请先解锁。');
         if (selectingCandidate && typeof commerceCandidateKey !== 'string') throw new Error('请选择一个候选图片。');
         if (!planning && commerceShotId && !target) throw new Error('找不到所选图位。');
-        if (!planning && !selectingCandidate && target?.customScene && !target.sceneConfirmed) throw new Error('请先确认这张场景图的方案。');
+        let sceneToConfirm;
+        if (!planning && !selectingCandidate && target?.customScene && !target.sceneConfirmed) {
+            sceneToConfirm = JSON.stringify(target);
+            if (!commerceConfirmOnExecution || commerceAction !== 'retry' || !confirmCommerceSceneShot(settings, commerceShotId)) {
+                throw new Error('请先确认这张场景图的方案。');
+            }
+        }
+        const planToConfirm = commerceConfirmOnExecution && !commerceShotId && ['generate', 'fill'].includes(commerceAction)
+            && settings.plan && !settings.plan.confirmed ? JSON.stringify(settings.plan) : '';
 
         const shots = filling ? getUnfinishedCommerceImageSetShots(settings)
             : planning || selectingCandidate ? []
@@ -1992,7 +2006,7 @@ export function createExecutionCoreApi({
                 controllers: new Map(shots.map(shot => [shot.id, new AbortController()])) }
             : null;
         const previews = batch?.previews || new Map();
-        const candidateCount = settings.candidateCount ?? 1;
+        const candidateCount = (appendingCandidates ? commerceCandidateCount : undefined) ?? settings.candidateCount ?? 1;
         const attempts = new Map();
         function reportProgress(shotId, preview) {
             if (shotId) {
@@ -2112,7 +2126,7 @@ export function createExecutionCoreApi({
 
             const { plan } = settings;
             if (plan?.stale) throw new Error('商品资料、参考图或生成设置已改变，请重新规划并确认。');
-            if (!plan || (!plan.confirmed && !retryingShot)) throw new Error('请先规划电商套图并确认方案。');
+            if (!plan || (!plan.confirmed && !retryingShot && !planToConfirm)) throw new Error('请先规划电商套图并确认方案。');
             if (plan.sourceKey !== await commerceImageSetSourceKey({ settings, references })) {
                 throw new Error('商品资料、参考图或生成设置已改变，请重新规划并确认。');
             }
@@ -2218,7 +2232,8 @@ export function createExecutionCoreApi({
                 }
             }
 
-            return await publishCommerceShots(node, { attempts, batch, firstError, workflowId, signal, commerceShotId, appendCandidates: appendingCandidates });
+            return await publishCommerceShots(node, { attempts, batch, firstError, workflowId, signal, commerceShotId,
+                appendCandidates: appendingCandidates, planToConfirm, sceneToConfirm });
         } catch (error) {
             if (shotTask && controller.signal.aborted) {
                 if (retryingShot && !parentSignal?.aborted) {
@@ -2301,7 +2316,8 @@ export function createExecutionCoreApi({
     }
 
     async function publishCommerceShots(node, {
-        attempts, batch, firstError, workflowId, signal, commerceShotId, commerceCandidateKey, approvedReferences, appendCandidates = false
+        attempts, batch, firstError, workflowId, signal, commerceShotId, commerceCandidateKey, approvedReferences, appendCandidates = false,
+        planToConfirm, sceneToConfirm
     }) {
         // Serializing only publication lets the provider requests proceed independently.
         const previous = commercePublications.get(node) || Promise.resolve();
@@ -2382,6 +2398,7 @@ export function createExecutionCoreApi({
             const assets = imagesToStore.length ? await saveWorkflowNodeMediaAssets(imagesToStore, workflowId, node.id,
                 batch ? node.activeMediaOperationId : undefined) : [];
             const keys = assets.map(asset => asset?.asset_key);
+            let current;
             try {
                 signal?.throwIfAborted();
                 if (keys.length !== imagesToStore.length || keys.some(key => !key?.startsWith('media:')) || state.nodes.get(node.id) !== node) {
@@ -2392,12 +2409,15 @@ export function createExecutionCoreApi({
                 }
                 if (commerceShotId) assertCommercePlanningCurrent(node.id, commerceShotId,
                     selectedCandidate && !approvedReferences ? { ignoreReferences: true } : undefined);
+                current = normalizeCommerceImageSetState(node.data?.commerceImageSet);
+                if (successful.length && sceneToConfirm && (sceneToConfirm !== JSON.stringify(current.plan?.shots.find(item => item.id === commerceShotId))
+                    || !confirmCommerceSceneShot(current, commerceShotId))) throw new Error('该图位方案已更新，请重新确认后生图。');
+                if (successful.length && planToConfirm && planToConfirm === JSON.stringify(current.plan)) current.plan.confirmed = true;
             } catch (error) {
                 if (assets.length) await releaseWorkflowNodeMediaAssets(assets, workflowId, node.id);
                 throw error;
             }
 
-            const current = normalizeCommerceImageSetState(node.data?.commerceImageSet);
             for (const [id, prior] of priorRows) {
                 const shot = current.plan?.shots.find(item => item.id === id);
                 if (shot?.source === 'generate' && prior.status === 'completed' && prior.assetKey

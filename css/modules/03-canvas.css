@@ -87,23 +87,33 @@
     background-position: 0 0;
 }
 
-#canvas-container.grabbing,
+/* One extra tile covers both leading edges while the painted grid follows the pointer. */
+@supports (transform: translateX(mod(1px, 2px))) {
+    #canvas-container.is-panning:not(.canvas-gpu-disabled, .canvas-performance-protected) > .canvas-grid {
+        top: calc(0px - var(--canvas-dot-spacing-scaled));
+        left: calc(0px - var(--canvas-dot-spacing-scaled));
+        background-position: 0 0;
+        transform: translate(
+            mod(var(--canvas-dot-offset-x), var(--canvas-dot-spacing-scaled)),
+            mod(var(--canvas-dot-offset-y), var(--canvas-dot-spacing-scaled))
+        );
+        will-change: transform;
+    }
+}
+
 #canvas-container.space-pan-active {
     cursor: grab;
 }
 
-#canvas-container.is-panning,
-#canvas-container.grabbing:active {
+/* Intercept hover over nodes and wires for the duration of a pan without
+   changing cursor and selection styles on every descendant. */
+#canvas-container.pan-input-surface::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: var(--layer-notice);
     cursor: grabbing;
-}
-
-#canvas-container.is-panning {
-    user-select: none !important;
-}
-
-#canvas-container.is-panning * {
-    user-select: none !important;
-    cursor: inherit !important;
+    user-select: none;
 }
 
 #connections-svg {
@@ -114,6 +124,22 @@
     height: 100%;
     pointer-events: none;
     z-index: 1;
+}
+
+#connections-svg.pan-wire-layer {
+    top: calc(0px - var(--pan-margin));
+    left: calc(0px - var(--pan-margin));
+    width: calc(100% + 2 * var(--pan-margin));
+    height: calc(100% + 2 * var(--pan-margin));
+    overflow: hidden;
+}
+
+#canvas-container:not(.canvas-gpu-disabled) > .pan-wire-layer {
+    will-change: transform;
+}
+
+#connections-svg.pan-wire-layer > :is(#connections-group, #origin-axes) {
+    transform: var(--wire-anchor);
 }
 
 @keyframes connection-pulse {

@@ -2,7 +2,7 @@ import { COMMERCE_CANDIDATE_GENERATION_LIMIT } from './commerce-image-set-plan.j
 import { buildVisualStylePrompt } from '../visual-style/visual-style.js';
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 
-export function openCommerceShotCandidates({ documentRef, opener, shot, current, candidates, finalized, getAssetUrl, onApply, onClose, openPreview, onGenerate, onCancel, candidateCount = 1 }) {
+export function openCommerceShotCandidates({ documentRef, opener, shot, current, candidates, finalized, getAssetUrl, onApply, onClose, openPreview, onGenerate, onCancel, candidateCount = 1, generationIssue = '' }) {
     const dialog = documentRef.createElement('dialog');
     dialog.id = 'commerce-candidates-dialog';
     dialog.className = 'dialog-style-1 commerce-candidates-dialog';
@@ -28,16 +28,18 @@ export function openCommerceShotCandidates({ documentRef, opener, shot, current,
                 <div class="commerce-candidate-options" role="group" aria-label="选择对比候选"></div>
             </div>
             <div class="commerce-candidate-generation">
-                <label>生成张数 <select class="ui-select" data-commerce-candidate-quantity aria-label="生成张数"></select></label>
+                <label>本次生成 <select class="ui-select" data-commerce-candidate-quantity></select></label>
                 <button type="button" class="btn btn-secondary" data-commerce-candidate-generate>再生成</button>
-                <button type="button" class="btn btn-secondary" data-commerce-candidate-cancel hidden>停止生成</button>
-                <span>每张调用一次模型，生成后手动采用</span>
+                <span data-commerce-candidate-generation-hint>每张调用一次模型，生成后手动采用</span>
             </div>
-            <p class="commerce-candidate-progress" role="status" hidden></p>
             <p class="commerce-candidate-hint"></p>
             <p class="commerce-candidate-error" role="alert" hidden></p>
         </div>
         <footer class="dialog-style-1-footer">
+            <div class="commerce-candidate-progress-row" hidden>
+                <p class="commerce-candidate-progress" id="commerce-candidate-progress" role="status" tabindex="-1"></p>
+                <button type="button" class="btn btn-secondary" data-commerce-candidate-cancel aria-describedby="commerce-candidate-progress" hidden>停止生成</button>
+            </div>
             <button type="button" class="btn btn-secondary" data-commerce-candidate-close>关闭</button>
             <button type="button" class="btn btn-primary" data-commerce-candidate-apply disabled>采用选中图片</button>
         </footer>
@@ -59,7 +61,10 @@ export function openCommerceShotCandidates({ documentRef, opener, shot, current,
     const generate = dialog.querySelector('[data-commerce-candidate-generate]');
     const cancel = dialog.querySelector('[data-commerce-candidate-cancel]');
     const quantity = dialog.querySelector('[data-commerce-candidate-quantity]');
+    const canGenerate = Boolean(onGenerate) && !finalized && !generationIssue;
+    if (generationIssue && !finalized) dialog.querySelector('[data-commerce-candidate-generation-hint]').textContent = generationIssue;
     const progress = dialog.querySelector('.commerce-candidate-progress');
+    const progressRow = progress.parentElement;
     for (let count = 1; count <= COMMERCE_CANDIDATE_GENERATION_LIMIT; count++) {
         const option = documentRef.createElement('option');
         option.value = String(count);
@@ -68,7 +73,7 @@ export function openCommerceShotCandidates({ documentRef, opener, shot, current,
     }
     quantity.value = String(candidateCount);
     dialog.querySelector('.commerce-candidate-generation').hidden = !onGenerate;
-    generate.disabled = quantity.disabled = finalized;
+    generate.disabled = quantity.disabled = !canGenerate;
 
     let closed = false;
 
@@ -111,7 +116,8 @@ export function openCommerceShotCandidates({ documentRef, opener, shot, current,
         const available = image.complete && image.naturalWidth > 0;
         status.hidden = available;
         image.classList.toggle('is-available', available);
-        const message = !image.hasAttribute('src') ? (figure === candidatePreview ? '暂无候选，可点击再生成' : '暂无当前成图')
+        const emptyCandidate = generating ? '生成后在这里对比' : canGenerate ? '暂无候选，可点击再生成' : '暂无候选';
+        const message = !image.hasAttribute('src') ? (figure === candidatePreview ? emptyCandidate : '暂无当前成图')
             : available ? '' : image.complete ? '图片无法读取' : '正在加载…';
         if (status.textContent !== message) status.textContent = message;
         figure.querySelector('.commerce-candidate-image').disabled = !available || !openPreview || saving;
@@ -187,7 +193,7 @@ export function openCommerceShotCandidates({ documentRef, opener, shot, current,
             setError(cause?.message || '无法采用选中图片，请重试。');
             saving = false;
             closeButtons.forEach(button => { button.disabled = false; });
-            generate.disabled = quantity.disabled = finalized;
+            generate.disabled = quantity.disabled = !canGenerate;
             updateImageStatus(currentPreview);
             apply.textContent = '采用选中图片';
             renderSelection();
@@ -218,29 +224,34 @@ export function openCommerceShotCandidates({ documentRef, opener, shot, current,
     currentButton.addEventListener('click', () => void previewVersion(current, currentButton));
     candidateButton.addEventListener('click', () => void previewVersion(selected, candidateButton));
     cancel.addEventListener('click', async () => {
-        cancel.disabled = true;
+        if (!generating || cancel.getAttribute('aria-disabled') === 'true') return;
+        cancel.setAttribute('aria-disabled', 'true');
+        const runningMessage = progress.textContent;
         progress.textContent = '正在停止生成并保存已完成的候选…';
         try {
             if (await onCancel?.() === false) throw new Error('未能停止生成，请重试。');
         } catch (cause) {
+            if (!generating || closed) return;
+            progress.textContent = runningMessage;
             setError(cause?.message || '停止失败，请重试。');
-            if (generating) cancel.disabled = false;
+            cancel.removeAttribute('aria-disabled');
         }
     });
     generate.addEventListener('click', async () => {
-        if (saving || finalized || !onGenerate) return;
+        if (saving || !canGenerate) return;
         saving = generating = true;
         setError('');
         generate.disabled = quantity.disabled = true;
         cancel.hidden = !onCancel;
-        cancel.disabled = false;
         closeButtons.forEach(button => { button.disabled = true; });
+        closeButtons[1].hidden = apply.hidden = true;
         const before = new Set(candidates.map(item => item.key));
         const requested = Number(quantity.value);
-        progress.hidden = false;
+        progressRow.hidden = false;
         progress.textContent = `正在生成 ${requested} 张候选…`;
         renderSelection();
         updateImageStatus(currentPreview);
+        (cancel.hidden ? progress : cancel).focus();
         try {
             const result = await onGenerate(requested);
             if (closed) return;
@@ -251,17 +262,19 @@ export function openCommerceShotCandidates({ documentRef, opener, shot, current,
             const added = candidates.filter(item => !before.has(item.key)).length;
             progress.textContent = result.message || `已新增 ${added} 张候选${added < requested ? `（请求 ${requested} 张，部分未生成或与已有图片重复）` : ''}，请选择后采用。`;
         } catch (cause) {
-            progress.hidden = true;
+            progressRow.hidden = true;
             setError(cause?.message || '生成失败，请重试。');
         } finally {
             saving = generating = false;
             if (!closed) {
-                generate.disabled = quantity.disabled = finalized;
+                generate.disabled = quantity.disabled = !canGenerate;
                 cancel.hidden = true;
+                cancel.removeAttribute('aria-disabled');
                 closeButtons.forEach(button => { button.disabled = false; });
+                closeButtons[1].hidden = apply.hidden = false;
                 renderPreview(currentPreview, current);
                 renderSelection();
-                generate.focus({ preventScroll: true });
+                generate.focus();
             }
         }
     });

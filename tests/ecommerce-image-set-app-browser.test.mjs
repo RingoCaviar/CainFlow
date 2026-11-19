@@ -18,8 +18,23 @@ async function nativeClick(app, selector, options) {
 }
 const showsPreviousCommerceImage = selector => `(() => {
     const text = document.querySelector(${JSON.stringify(selector)})?.innerText || '';
-    return text.includes('方案已更新') && text.includes('当前为上一版');
+    return text.includes('显示上一版') || text.includes('当前为上一版');
 })()`;
+
+async function assertCommerceTextTone(app, selector, token) {
+    const { color, expected } = await app.evaluate(`(() => {
+        const element = document.querySelector(${JSON.stringify(selector)});
+        const color = getComputedStyle(element).color;
+        const probe = document.createElement('span');
+        probe.hidden = true;
+        probe.style.color = ${JSON.stringify(`var(${token})`)};
+        element.append(probe);
+        const expected = getComputedStyle(probe).color;
+        probe.remove();
+        return { color, expected };
+    })()`);
+    assert.equal(color, expected, `${selector} uses ${token}`);
+}
 
 const commerceRequestGates = `window.pendingCommerceRequests = Object.create(null);
     window.canceledCommerceRequests = [];
@@ -54,14 +69,14 @@ function assertProductFieldRows(measurement, rows, description) {
         `${description}: expected ${rows} rows, got ${JSON.stringify(measurement)}`);
 }
 
-async function captureCommerceInspector(app, { name = 'product', width = 1120, shotId, selector, surface = '#image-parameter-panel' } = {}) {
+async function captureCommerceInspector(app, { name = 'product', width = 1120, height = 900, shotId, selector, surface = '#image-parameter-panel' } = {}) {
     const directory = process.env.CAINFLOW_QA_SCREENSHOT_DIR;
     if (!directory) return;
     await mkdir(directory, { recursive: true });
     const currentTheme = await app.evaluate('document.documentElement.dataset.appTheme');
     const viewport = await app.evaluate('({width:innerWidth,height:innerHeight,deviceScaleFactor:devicePixelRatio,mobile:false})');
     const anchor = selector || (shotId && `[data-commerce-shot-id=${shotId}]`);
-    await app.send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
+    await app.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
     try {
         for (const theme of ['light', 'dark']) {
             await app.evaluate(`document.documentElement.dataset.appTheme='${theme}';
@@ -177,6 +192,19 @@ test('canvas run scope shows commerce slot counts, changing upstream references,
         await app.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 470, deviceScaleFactor: 1, mobile: false });
         await app.waitFor(`(()=>{const r=document.querySelector('${panel}').getBoundingClientRect();
             return r.left>=0 && r.right<=innerWidth && r.top>=0 && r.bottom<=innerHeight})()`);
+        const compactScope = await app.evaluate(`(() => {
+            const scope = document.querySelector('${panel}');
+            const first = scope.querySelector('[data-commerce-run-settings="scope-commerce"]');
+            const confirm = scope.querySelector('[data-confirm-run-scope]');
+            const content = scope.querySelector('.canvas-run-scope-scroll');
+            const visible = element => {
+                const { x, y, width, height } = element.getBoundingClientRect();
+                return element.contains(document.elementFromPoint(x + width / 2, y + height / 2));
+            };
+            return { recovery: visible(first), paired: first.parentElement.textContent.includes('请先规划电商套图'),
+                action: visible(confirm) && confirm.disabled, scrolls: content.scrollHeight > content.clientHeight };
+        })()`);
+        assert.deepEqual(compactScope, { recovery: true, paired: true, action: true, scrolls: true });
         await app.evaluate(`document.querySelector('${panel} input:checked').focus()`);
         await key(app, 'Tab');
         await key(app, 'Tab');
@@ -192,6 +220,7 @@ test('commerce footer fills only unfinished slots and keeps an explicit whole-se
     const fixture = {
         autoCheckUpdatesOnLoad: false,
         autoRetry: false,
+        notificationsEnabled: true,
         models: [{ id: 'vision', modelId: 'gpt-4o', taskType: 'chat', protocol: 'openai', providerIds: ['p'] },
             { id: 'image', modelId: 'gpt-image-2', taskType: 'image', protocol: 'openai', providerIds: ['p'] }],
         providers: [{ id: 'p', endpoint: 'https://fixture.test/v1', apikey: 'test' }],
@@ -204,8 +233,14 @@ test('commerce footer fills only unfinished slots and keeps an explicit whole-se
             to: { nodeId: 'commerce', port: 'referenceImages' }, type: 'image', order: 0 }]
     };
     const initScript = `window.fillRequests=[];window.rejectDetail=true;
+        window.partialNotifications=[];window.partialTaskbarStatuses=[];
+        window.__cainflowDesktop={info:{platform:'darwin'},clearTaskbarStatus:()=>partialTaskbarStatuses.push('clear'),
+            setTaskbarStatus:status=>partialTaskbarStatuses.push(status)};
         const actualFetch=window.fetch.bind(window);
         window.fetch=async (url, options)=>{
+            if (url==='/api/system-notification'&&options?.method==='POST') {
+                partialNotifications.push(JSON.parse(options.body));return Response.json({success:true});
+            }
             if (url!=='/proxy'||!options?.body) return actualFetch(url,options);
             if (!(options.body instanceof FormData)) {
                 const plan={sellingPoints:['可见杯盖'],shots:['angle','detail'].map(id=>({
@@ -228,24 +263,53 @@ test('commerce footer fills only unfinished slots and keeps an explicit whole-se
         await openParameters(app, 'commerce');
         await app.evaluate(`${button('plan')}.click()`);
         await app.waitFor(ready('generate'));
+        await app.waitFor("partialNotifications.some(notice=>notice.title==='CainFlow 套图方案已生成')");
+        await app.evaluate('partialNotifications.length=0;partialTaskbarStatuses.length=0');
         assert.equal(await app.evaluate(`${button('generate')}.textContent`), '确认并生成套图');
         assert.equal(await app.evaluate(`${button('fill')}.hidden`), true);
         await nativeClick(app, selector('generate'));
         await app.waitFor(`${rows}.then(results=>results?.find(row=>row.shotId==='detail')?.status==='failed')`);
         await app.waitFor(ready('fill'));
         await app.waitFor("document.querySelector('#commerce > .node-card-run-status:not([hidden])')?.textContent==='部分完成 · 2/3'");
+        const partialMessage = '套图部分完成 · 2/3 个图位，1 个待补齐。';
+        await app.waitFor(`document.querySelector('#toast-container .toast.warning')?.textContent.includes(${JSON.stringify(partialMessage)})`);
+        await app.waitFor("partialNotifications.some(notice=>notice.title==='CainFlow 套图部分完成')");
+        assert.deepEqual(await app.evaluate('partialNotifications.map(({title,body})=>[title,body])'), [['CainFlow 套图部分完成', partialMessage]]);
+        assert.deepEqual(await app.evaluate('partialTaskbarStatuses'), ['clear'], 'the taskbar does not report partial success as complete');
+        assert.doesNotMatch(await app.evaluate("document.getElementById('toast-container').textContent"), /工作流运行完成/);
+        const toastViewport = await app.evaluate('({width:innerWidth,height:innerHeight,deviceScaleFactor:devicePixelRatio,mobile:false})');
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 560, deviceScaleFactor: 1, mobile: false });
+        const narrowToasts = await app.evaluate(`import('/js/app/bootstrap.js').then(async ({bootstrapCainFlowApp}) => {
+            const { toastControllerApi } = (await bootstrapCainFlowApp()).registry;
+            const older = Array.from({length:4}, (_, index) => toastControllerApi.showToast('待处理的说明 '.repeat(8) + index, 'warning'));
+            const latest = toastControllerApi.showToast('最近一条通知保持完整可见。', 'warning');
+            const container = document.getElementById('toast-container');
+            const stack = container.getBoundingClientRect();
+            const notice = latest.element.getBoundingClientRect();
+            const footer = document.querySelector('${selector('fill')}').getBoundingClientRect();
+            const header = document.querySelector('#image-parameter-panel .image-parameter-header').getBoundingClientRect();
+            const measured = { compact: stack.width>=350 && stack.height<=140 && stack.top>=header.bottom && stack.bottom<footer.top,
+                latestVisible: notice.top>=stack.top && notice.bottom<=stack.bottom && notice.width>300,
+                reachesOlder: container.scrollHeight>container.clientHeight };
+            older.forEach(toast=>toast.element.remove()); latest.element.remove();
+            return measured;
+        })`);
+        assert.deepEqual(narrowToasts, { compact: true, latestVisible: true, reachesOlder: true });
+        await app.send('Emulation.setDeviceMetricsOverride', toastViewport);
         await nativeClick(app, '#commerce > .node-card-run-status');
         await app.waitFor("document.activeElement.closest('[data-commerce-shot-id=detail]') && document.activeElement.dataset.commerceAction==='error-detail'");
         const prior = (await app.evaluate(rows)).filter(row => row.status === 'completed');
         assert.deepEqual(prior.map(row => row.shotId), ['main', 'angle']);
         assert.equal(await app.evaluate(`${button('fill')}.textContent`), '补齐 1 个图位');
-        assert.equal(await app.evaluate(`${button('generate')}.textContent`), '重做整套');
+        assert.equal(await app.evaluate(`${button('generate')}.textContent`), '重做已确认图位');
+        assert.match(await app.evaluate("document.querySelector('[data-commerce-run-summary=generate]').textContent"), /预计调用生图模型 2 次.*沿用原图 1 张/);
+        assert.match(await app.evaluate("document.querySelector('[data-commerce-run-summary=fill]').textContent"), /预计调用生图模型 1 次.*沿用原图 0 张/);
         await captureCommerceInspector(app, { name: 'fill-actions' });
         await app.evaluate('window.rejectDetail=false;fillRequests.length=0');
         await nativeClick(app, '.canvas-run-scope-trigger');
         const scope = '#canvas-run-scope';
         const recovery = `${scope} [data-commerce-run-settings="commerce"]`;
-        assert.equal(await app.evaluate(`document.querySelector('${scope} [data-confirm-run-scope]').textContent`), '重做整套');
+        assert.equal(await app.evaluate(`document.querySelector('${scope} [data-confirm-run-scope]').textContent`), '重做已确认图位');
         assert.equal(await app.evaluate(`document.querySelector(${JSON.stringify(recovery)}).textContent`), '去参数面板补齐 1 个图位');
         await nativeClick(app, recovery);
         await app.waitFor(`!document.querySelector('${scope}:popover-open') && document.activeElement === ${button('fill')}`);
@@ -256,7 +320,7 @@ test('commerce footer fills only unfinished slots and keeps an explicit whole-se
             field.value += '\\n在构图中保留杯盖。';
             field.dispatchEvent(new Event('input', { bubbles: true }));
         })()`);
-        assert.equal(await app.evaluate(`${button('generate')}.textContent`), '确认并重做整套');
+        assert.equal(await app.evaluate(`${button('generate')}.textContent`), '确认方案并重做');
         assert.equal(await app.evaluate(`${button('fill')}.textContent`), '确认并补齐 1 个图位');
         assert.deepEqual(await app.evaluate('fillRequests'), [], 'editing a shot does not confirm or produce it');
         const viewport = await app.evaluate('({width:innerWidth,height:innerHeight,deviceScaleFactor:devicePixelRatio,mobile:false})');
@@ -278,8 +342,42 @@ test('commerce footer fills only unfinished slots and keeps an explicit whole-se
         assert.deepEqual(complete.map(row => row.shotId), ['main', 'angle', 'detail']);
         assert.deepEqual(complete.slice(0, 2), prior);
         assert.deepEqual(await app.evaluate('fillRequests'), ['detail']);
-        assert.equal(await app.evaluate(`${button('generate')}.textContent`), '重做整套');
+        assert.equal(await app.evaluate(`${button('generate')}.textContent`), '重做已确认图位');
     }, { initScript });
+});
+
+test('commerce setup provides direct recovery for missing references and an empty model configuration', { timeout: 30000 }, async () => {
+    const reference = (await readFile(new URL('./fixtures/reference-red.png', import.meta.url))).toString('base64');
+    const fixture = { autoCheckUpdatesOnLoad: false, nodes: [
+        { id: 'product', type: 'ImageImport', x: 40, y: 100, customTitle: '待导入商品' },
+        { id: 'commerce', type: 'ECommerceImageSet', x: 440, y: 100 }
+    ] };
+    const panel = '#image-parameter-panel';
+    const recovery = `${panel} [data-commerce-action=resolve-blocker]`;
+    const status = `document.querySelector('${panel} .commerce-image-set-status').textContent`;
+    const label = `document.querySelector('${recovery}')?.textContent`;
+    await withAppBrowser(fixture, async app => {
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 1120, height: 720, deviceScaleFactor: 1, mobile: false });
+        await openParameters(app, 'commerce');
+        assert.match(await app.evaluate(status), /请连接 1 至 5 张/);
+        assert.equal(await app.evaluate(label), '连接参考图');
+        await nativeClick(app, recovery);
+        await app.waitFor("document.querySelector('.canvas-connection-choice [role=menuitem]')?.textContent.includes('待导入商品')");
+        await key(app, 'Enter');
+        await app.waitFor(`${label}==='定位参考图来源'`);
+        assert.match(await app.evaluate(status), /已连接参考图来源，请先运行上游或导入图片/);
+        await nativeClick(app, recovery);
+        await app.waitFor("document.querySelector('#image-parameter-panel[data-node-id=product]:not([hidden])')");
+        await uploadImageOriginal(app, 'product', `data:image/png;base64,${reference}`);
+        await openParameters(app, 'commerce');
+        await app.waitFor(`${label}==='配置规划模型'`);
+        assert.match(await app.evaluate(status), /规划模型/);
+        await nativeClick(app, recovery);
+        await app.waitFor("document.activeElement.id==='btn-add-provider'");
+        await key(app, 'Escape');
+        await app.waitFor(`document.activeElement===document.querySelector('${recovery}')`);
+        await captureCommerceInspector(app, { name: 'configure-model', width: 1120, height: 720 });
+    });
 });
 
 test('the commerce node generates selected shots, accepts a retry during generation and restores the set', { timeout: 45000 }, async () => {
@@ -401,7 +499,8 @@ test('the commerce node generates selected shots, accepts a retry during generat
         activeWorkflowId: workflowId, activeWorkflowName: '商品套图',
         workflowTabs: [{ workflowId, name: '商品套图', data: { workflowId, nodes, connections } }],
         models: [{ id: 'vision', modelId: 'gpt-4o', taskType: 'chat', protocol: 'openai', providerIds: ['p'] },
-            { id: 'image', modelId: 'gpt-image-2', taskType: 'image', protocol: 'openai', providerIds: ['p'] }],
+            { id: 'image', modelId: 'gpt-image-2', taskType: 'image', protocol: 'openai', providerIds: ['p'] },
+            { id: 'no-reference', modelId: 'dall-e-3', taskType: 'image', protocol: 'openai', providerIds: ['p'] }],
         providers: [{ id: 'p', endpoint: 'https://fixture.test/v1', apikey: 'test' }]
     }, async app => {
         await uploadImageOriginal(app, 'product', `data:image/png;base64,${reference}`);
@@ -424,6 +523,7 @@ test('the commerce node generates selected shots, accepts a retry during generat
         await app.send('Input.dispatchKeyEvent', { type: 'keyDown', ...space, text: ' ' });
         await app.send('Input.dispatchKeyEvent', { type: 'keyUp', ...space });
         assert.equal(await app.evaluate(`${featureSwitch}.checked && getComputedStyle(${featureSwitch}.nextElementSibling).outlineStyle === 'solid'`), true);
+        await assertCommerceTextTone(app, '#image-parameter-panel label:has(input[data-commerce-select-shot=feature]:checked:enabled)', '--text-link');
         await app.evaluate(select('feature'));
         assert.equal(await app.evaluate("document.querySelector('.commerce-image-set-references [data-input-role]').checkVisibility()"), false);
         assert.equal(await app.evaluate(commerceProductValue('details')), '商品含一个杯盖');
@@ -443,8 +543,41 @@ test('the commerce node generates selected shots, accepts a retry during generat
         await app.evaluate(`${planButton}.click()`);
         assert.equal(await app.evaluate('commerceCalls.length'), 0);
 
-        await app.evaluate(`${select('main')}; ${select('detail')}; ${planButton}.click()`);
+        const desktopViewport = await app.evaluate('({width:innerWidth,height:innerHeight,deviceScaleFactor:1,mobile:false})');
+        await app.send('Emulation.setDeviceMetricsOverride', { ...desktopViewport, width: 1024, height: 700 });
+        await app.evaluate("document.querySelector('.commerce-image-set-setup').open=false");
+        const choose = '#image-parameter-panel [data-commerce-action=choose-shots]';
+        assert.equal(await app.evaluate("document.querySelector('[data-commerce-selection-recovery] p').textContent"), '请至少勾选一个图位。');
+        const recoveryAction = await actionPlacement(app, 'choose-shots');
+        assert.ok(recoveryAction.inDockFooter && recoveryAction.visible && recoveryAction.reachable, JSON.stringify(recoveryAction));
+        await captureCommerceInspector(app, { name: 'choose-shots', width: 1024, height: 700 });
+        await app.evaluate(`document.querySelector('${choose}').focus()`);
+        await key(app, 'Enter');
+        await app.waitFor(`(() => {
+            const first = document.querySelector('${shotChoices}');
+            const label = first.closest('label').getBoundingClientRect();
+            const scroll = ${scrollBody}.getBoundingClientRect();
+            return document.activeElement === first && document.querySelector('.commerce-image-set-setup').open
+                && label.top >= scroll.top - 1 && label.bottom <= scroll.bottom + 1;
+        })()`);
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', ...space, text: ' ' });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', ...space });
+        assert.deepEqual(await app.evaluate(selected), ['main']);
+        assert.equal(await app.evaluate("document.querySelector('[data-commerce-selection-recovery]').hidden"), true);
+        await app.send('Emulation.setDeviceMetricsOverride', desktopViewport);
+        await app.evaluate(`${select('detail')}; ${planButton}.focus()`);
+        await key(app, 'Enter');
         await app.waitFor(generationAvailable);
+        await app.waitFor(`(() => {
+            const target = document.querySelector('${shotToggle('detail')}');
+            const row = target.getBoundingClientRect();
+            const scroll = ${scrollBody}.getBoundingClientRect();
+            return document.activeElement === target && row.top >= scroll.top - 1 && row.bottom <= scroll.bottom + 1;
+        })()`);
+        await app.waitFor("document.getElementById('toast-container').textContent.includes('方案已生成，请检查图位。')");
+        assert.doesNotMatch(await app.evaluate("document.getElementById('toast-container').textContent"), /工作流运行完成/);
+        assert.equal(await app.evaluate("getComputedStyle(document.getElementById('commerce-time')).fontSize"), '12px');
+        await assertCommerceTextTone(app, '#commerce-time', '--text-success');
         assert.deepEqual(await app.evaluate('commerceCalls.map(call=>call.kind)'), ['plan']);
         assert.equal(await app.evaluate('commerceCalls[0].image'), `data:image/png;base64,${reference}`);
         assert.deepEqual(await app.evaluate('commerceCalls[0].shotIds'), ['detail']);
@@ -470,6 +603,16 @@ test('the commerce node generates selected shots, accepts a retry during generat
             select => [select.dataset.commerceField, select.checkVisibility()])`), [
             ['plannerModelId', true], ['plannerProviderId', true], ['imageModelId', true], ['imageProviderId', true]
         ], 'both model and provider pairs remain directly available after planning');
+        const imageModel = "document.querySelector('[data-commerce-field=imageModelId]')";
+        await app.evaluate(`${imageModel}.value='no-reference'; ${imageModel}.dispatchEvent(new Event('change',{bubbles:true}));`);
+        assert.equal(await app.evaluate(`${generateButton}.disabled`), true);
+        assert.match(await app.evaluate("document.querySelector('.commerce-image-set-status').textContent"), /不支持.*参考图/);
+        await app.evaluate(`${generateButton}.click()`);
+        assert.deepEqual(await app.evaluate('commerceCalls.map(call=>call.kind)'), ['plan']);
+        await app.waitFor(`${saved}.then(node=>node.commerceImageSet.imageModelId==='no-reference')`);
+        assert.equal((await app.evaluate(saved)).commerceImageSet.plan.confirmed, false);
+        await app.evaluate(`${imageModel}.value='image'; ${imageModel}.dispatchEvent(new Event('change',{bubbles:true}));`);
+        await app.waitFor(generationAvailable);
         assert.equal(await app.evaluate(`document.querySelector('${setup}').open`), false);
         await nativeClick(app, `${modelSettings} > summary`);
         await app.evaluate(`document.querySelector('${setup} > summary').scrollIntoView({block:'nearest'})`);
@@ -702,17 +845,19 @@ test('the commerce node generates selected shots, accepts a retry during generat
         await app.waitFor(`[${JSON.stringify(regenerate)},${JSON.stringify(replan)}].every(selector=>{
             const button=document.querySelector(selector);return button?.checkVisibility()&&!button.disabled;
         })`);
-        const iconLayout = await app.evaluate(`(()=>{
+        const shotActions = await app.evaluate(`(()=>{
             const image=document.querySelector('${regenerate}'),plan=document.querySelector('${replan}');
-            const status=image.closest('[data-commerce-shot-id]').querySelector('.commerce-image-set-shot-status').getBoundingClientRect();
-            const buttons=[plan,image],rects=buttons.map(button=>button.getBoundingClientRect());
-            return {names:buttons.map(button=>button.getAttribute('aria-label')),
-                glyphs:buttons.map(button=>button.querySelector('svg')?.innerHTML),
-                besideStatus:rects.every(icon=>status.right<=icon.left&&status.top<icon.bottom&&status.bottom>icon.top),
-                separate:rects[0].right<=rects[1].left||rects[1].right<=rects[0].left};
+            return [plan, image].map(button => [button.textContent.trim(), button.getAttribute('aria-label')]);
         })()`);
-        assert.deepEqual(iconLayout.names, ['重新生成详情首屏方案', '重新生成详情首屏图片']);
-        assert.ok(iconLayout.glyphs.every(Boolean)&&new Set(iconLayout.glyphs).size===2&&iconLayout.besideStatus&&iconLayout.separate, JSON.stringify(iconLayout));
+        assert.deepEqual(shotActions, [['重写方案', '重写方案「详情首屏」'], ['重新生图', '重新生图「详情首屏」']]);
+        await app.send('Emulation.setDeviceMetricsOverride', { ...viewport, width: 390, height: 640 });
+        await app.waitFor(`(() => {
+            const row = document.querySelector('${shotCard('detail-overview')}').getBoundingClientRect();
+            const [plan, image] = ['${replan}', '${regenerate}'].map(selector => document.querySelector(selector).getBoundingClientRect());
+            return innerWidth === 390 && [plan, image].every(button => button.width > 0 && button.left >= row.left && button.right <= row.right)
+                && (plan.right <= image.left || plan.bottom <= image.top);
+        })()`);
+        await app.send('Emulation.setDeviceMetricsOverride', viewport);
         await toggleShotEditor(app, 'detail-overview');
         const detailThumbnail = thumbnail('detail-overview');
         const originalThumbnail = await app.evaluate(`document.querySelector('${detailThumbnail} img').src`);
@@ -904,6 +1049,32 @@ test('the commerce dock resizes from its left edge and restores its width indepe
         await reloadAppBrowser(app);
         await openParameters(app, 'commerce');
         assert.equal(await app.evaluate(width), savedWidth, 'reloading restores the last manually selected commerce width');
+
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 1024, height: 700, deviceScaleFactor: 1, mobile: false });
+        await toggleAgent();
+        await app.waitFor(`${agent}.classList.contains('active')`);
+        await app.evaluate(`${grip}.focus()`);
+        await key(app, 'Home');
+        await app.waitFor(`${width} === 300`);
+        const measureNavigation = () => app.evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+            const agent = ${agent}.getBoundingClientRect();
+            const navigation = document.getElementById('canvas-navigation').getBoundingClientRect();
+            const attachment = document.getElementById('prompt-agent-add-reference');
+            const input = document.getElementById('prompt-agent-input');
+            const reachable = element => {
+                const { x, y, width, height } = element.getBoundingClientRect();
+                return element.contains(document.elementFromPoint(x + width / 2, y + height / 2));
+            };
+            resolve({ beside: navigation.right + 8 <= agent.left, composerAtBottom: agent.bottom === innerHeight,
+                gap: navigation.top - agent.bottom, attachment: reachable(attachment), input: reachable(input) });
+        })))`);
+        const beside = await measureNavigation();
+        assert.ok(beside.beside && beside.composerAtBottom, JSON.stringify(beside));
+        await key(app, 'End');
+        const raised = await measureNavigation();
+        assert.ok(!raised.beside && raised.gap >= 8 && raised.gap < 9 && raised.attachment && raised.input, JSON.stringify(raised));
+        await key(app, 'Home');
+        assert.deepEqual(await measureNavigation(), beside, 'shrinking the dock restores the composer to the bottom');
     });
 });
 
@@ -1235,6 +1406,7 @@ test('failed commerce generation and retries leave error details closed until re
             return Response.json({choices:[{message:{content:JSON.stringify(plan)}}]});
         };`;
     const rowSelector = '#image-parameter-panel [data-commerce-shot-id=detail]';
+    const shotStatus = `${rowSelector} .commerce-image-set-shot-status`;
     const row = `document.querySelector('${rowSelector}')`;
     const showsPrevious = showsPreviousCommerceImage(rowSelector);
     const thumbnailSrc = `${row}.querySelector('img').src`;
@@ -1268,6 +1440,7 @@ test('failed commerce generation and retries leave error details closed until re
         await app.waitFor(`${row}.dataset.resultStatus==='completed' && !${retry}.disabled &&
             ${thumbnailSrc}.startsWith(location.origin+'/api/storage/assets/') && ${row}.querySelector('img').naturalWidth>0`);
         assert.equal(await app.evaluate(showsPrevious), false);
+        await assertCommerceTextTone(app, shotStatus, '--text-success');
         const original = await app.evaluate(thumbnailSrc);
         await app.evaluate(`(() => {
             const card = ${row};
@@ -1281,6 +1454,11 @@ test('failed commerce generation and retries leave error details closed until re
         await captureCommerceInspector(app, { name: 'previous-version', shotId: 'detail' });
         await captureCommerceInspector(app, { name: 'previous-version-narrow', width: 390, shotId: 'detail' });
         assert.equal(await app.evaluate(showsPrevious), true, 'editing a prompt marks its existing image as the previous version');
+        assert.equal(await app.evaluate(`document.querySelector('${shotStatus}').textContent`), '待更新 · 显示上一版');
+        assert.equal(await app.evaluate(`${row}.querySelector('.commerce-image-set-version-note').hidden`), true);
+        assert.equal(await app.evaluate(`${row}.querySelector('[data-commerce-action=preview]').getAttribute('aria-describedby')`),
+            await app.evaluate(`document.querySelector('${shotStatus}').id`));
+        await assertCommerceTextTone(app, shotStatus, '--text-warning');
         assert.equal(await app.evaluate(thumbnailSrc), original);
         await app.evaluate(`window.commerceImageFailure=true; ${retry}.click()`);
         await app.waitFor(`!${retry}.disabled && ${row}.innerText.includes(${JSON.stringify(failure)})`);
@@ -1375,6 +1553,7 @@ test('commerce shots run independently and can be canceled individually or from 
 
         await click(app, 'retry', 'detail');
         await app.waitFor(`${pending('image:detail')} && ${status('detail')}==='running'`);
+        await assertCommerceTextTone(app, `${row('detail')} .commerce-image-set-shot-status`, '--text-link');
         await click(app, 'replan-shot', 'feature');
         await app.waitFor(`${pending('plan:feature')} && ${status('feature')}==='planning'`);
         assert.equal(await app.evaluate(available('retry', 'feature')), false, 'one shot cannot start two tasks');
@@ -1577,8 +1756,12 @@ test('custom commerce scenes can be added, reviewed, generated, and deleted inde
         await release(app, `plan:${first}`);
         await release(app, `plan:${second}`);
         await app.waitFor(`${state(first, 'review')} && ${state(second, 'review')}`);
+        await assertCommerceTextTone(app, `${row(first)} .commerce-image-set-shot-status`, '--text-warning');
         assert.deepEqual(await app.evaluate(customImages), [], 'AI planning and canceling a pending plan issue no image request');
         await app.waitFor(ready(action('generate')));
+        assert.equal(await app.evaluate(`${query(action('generate'))}.textContent`), '重做已确认图位');
+        assert.match(await app.evaluate("document.querySelector('[data-commerce-run-summary=generate]').textContent"),
+            /预计调用生图模型 2 次.*暂不执行 3 个图位/);
         const imageCalls = "sceneCalls.filter(call=>call.kind==='image').length";
         const previousImageCalls = await app.evaluate(imageCalls);
         await click(app, action('generate'));
@@ -1995,6 +2178,10 @@ test('commerce finalized shots survive a whole-set redo and saved candidates res
             const prompt=options.body.get('prompt');
             const shot=prompt.includes('候选详情首屏')?'detail-overview':'feature';
             candidateTestRequests.push(shot);
+            if (window.holdCandidateGeneration) {
+                window.holdCandidateGeneration=false;
+                await new Promise(resolve=>{ window.releaseCandidateGeneration=resolve; });
+            }
             const image=window.candidateBatchImages?.shift() ?? (shot==='detail-overview'?${JSON.stringify(detailImage)}:
                 prompt.includes('候选卖点新版')?${JSON.stringify(newerImage)}:
                 prompt.includes('候选卖点中间版')?${JSON.stringify(middleImage)}:${JSON.stringify(initialImage)});
@@ -2042,6 +2229,7 @@ test('commerce finalized shots survive a whole-set redo and saved candidates res
         const original = (await app.evaluate(saved)).commerceImageSet;
         const initial = asset(original, 'feature');
         assert.deepEqual(planDraft(original), firstDraft);
+        assert.equal(await app.evaluate(`${query(compare)}.textContent.trim()`), '生成候选…');
 
         await click(app, toggle);
         const regenerate = async (draft, previous) => {
@@ -2066,6 +2254,8 @@ test('commerce finalized shots survive a whole-set redo and saved candidates res
         await click(app, lock);
         await app.waitFor(lockState(true));
         assert.equal(Boolean(await app.evaluate(ready(retry))), false, 'a finalized shot cannot be replaced until unlocked');
+        assert.match(await app.evaluate("document.querySelector('[data-commerce-run-summary=generate]').textContent"),
+            /预计调用生图模型 1 次.*保留定稿 1 张/);
         await click(app, action('generate'));
         await app.waitFor("candidateTestRequests.length>=6 && document.getElementById('btn-stop').disabled");
         assert.deepEqual(await app.evaluate('candidateTestRequests'),
@@ -2077,6 +2267,7 @@ test('commerce finalized shots survive a whole-set redo and saved candidates res
         await openParameters(app, 'commerce');
         await app.waitFor(`${lockState(true)} && ${isUsing(resultPreview, newer)}`);
         assert.equal(Boolean(await app.evaluate(ready(retry))), false);
+        assert.equal(await app.evaluate(`${query(compare)}.textContent.trim()`), '对比 2 张候选');
         await captureCommerceInspector(app, { name: 'finalized-shot', shotId: 'feature' });
         const currentImage = `${dialog} .commerce-candidate-comparison [data-commerce-current-preview] img`;
         const candidateImage = `${dialog} .commerce-candidate-comparison [data-commerce-candidate-preview] img`;
@@ -2151,17 +2342,35 @@ test('commerce finalized shots survive a whole-set redo and saved candidates res
         await click(app, compare);
         await app.waitFor(`${query(dialog)}?.open`);
         const generateMore = `${dialog} [data-commerce-candidate-generate]`;
+        const stopCandidate = `${dialog} [data-commerce-candidate-cancel]`;
+        const candidateViewport = await app.evaluate('({width:innerWidth,height:innerHeight,deviceScaleFactor:devicePixelRatio,mobile:false})');
+        await app.send('Emulation.setDeviceMetricsOverride', { ...candidateViewport, width: 390, height: 540 });
         await app.evaluate(`(() => {
             ${query(`${dialog} [data-commerce-candidate-quantity]`)}.value = '8';
             window.candidateTestRequests = [];
+            window.holdCandidateGeneration = true;
             window.candidateBatchImages = Array.from({length:8}, (_, index) => {
                 const canvas = document.createElement('canvas'); canvas.width=96; canvas.height=96;
                 const context = canvas.getContext('2d'); context.fillStyle='hsl('+index*40+',70%,55%)';
                 context.fillRect(0,0,96,96); return canvas.toDataURL('image/png').split(',')[1];
             });
         })()`);
-        await click(app, generateMore);
+        await app.evaluate(`${query(generateMore)}.focus()`);
+        await key(app, 'Enter');
+        await app.waitFor(`typeof window.releaseCandidateGeneration==='function' && document.activeElement===${query(stopCandidate)}`);
+        const pending = await app.evaluate(`(() => {
+            const row = ${query(`${dialog} .commerce-candidate-progress-row`)};
+            const rect = row.getBoundingClientRect();
+            const stop = ${query(stopCandidate)}.getBoundingClientRect();
+            return { text: row.innerText, visible: rect.top >= 0 && rect.bottom <= innerHeight,
+                reachable: ${query(stopCandidate)}.contains(document.elementFromPoint(stop.x + stop.width / 2, stop.y + stop.height / 2)) };
+        })()`);
+        assert.match(pending.text, /正在生成 8 张候选/);
+        assert.ok(pending.visible && pending.reachable, JSON.stringify(pending));
+        await app.evaluate('window.releaseCandidateGeneration()');
         await app.waitFor(`${query(generateMore)} && !${query(generateMore)}.disabled && window.candidateTestRequests.length===8`);
+        assert.equal(await app.evaluate(`document.activeElement===${query(generateMore)}`), true);
+        await app.send('Emulation.setDeviceMetricsOverride', candidateViewport);
         assert.equal(await app.evaluate(`${query(dialog)}.open`), true);
         assert.equal(await app.evaluate(`${query(`${dialog} [data-commerce-candidate-cancel]`)}.checkVisibility()`), false);
         assert.ok(await app.evaluate(`document.querySelectorAll('${dialog} [data-commerce-candidate]').length >= 8`));
@@ -2169,10 +2378,9 @@ test('commerce finalized shots survive a whole-set redo and saved candidates res
         await captureCommerceInspector(app, { name: 'candidate-gallery-many-narrow', width: 390, surface: dialog });
         assert.deepEqual((await app.evaluate(saved)).mediaAssetKeys, [newer, ordered[1]], 'append does not adopt a new image');
         await click(app, `${dialog} [data-commerce-candidate-close]`);
-        await app.evaluate(`(() => {
-            const count = ${query(candidateCount)};
-            count.value = '3'; count.dispatchEvent(new Event('change', { bubbles: true }));
-        })()`);
+        assert.equal(await app.evaluate(`${query(candidateCount)}.value`), '3');
+        assert.equal((await app.evaluate(saved)).commerceImageSet.candidateCount, 3);
+        assert.match(await app.evaluate(`${query(`${panel} [data-commerce-run-summary=generate]`)}.textContent`), /预计调用生图模型 6 次/);
         await app.evaluate('window.pauseCandidateStorage=true');
         await click(app, action('generate'));
         await app.waitFor("typeof window.releaseCandidateStorage==='function'");

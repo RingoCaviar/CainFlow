@@ -201,6 +201,15 @@
         ],
         "createdAt": "2026-11-16T12:24:14.269Z",
         "reason": "Codex: the node-picker behavior fixture imports panels.css but renders no running workflow items or workflow status indicators."
+      },
+      {
+        "rule": "pulsing-dot",
+        "value": "*",
+        "files": [
+          "tests/fixtures/primary-action-theme-surface.html"
+        ],
+        "createdAt": "2026-11-18T04:04:46.643Z",
+        "reason": "Codex verified: this contrast fixture mounts only three action buttons and disables animations. The flagged .prompt-agent-processing-dot rule comes from the imported production stylesheet and has no matching element in this fixture."
       }
     ]
   }

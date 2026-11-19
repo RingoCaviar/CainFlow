@@ -7,9 +7,13 @@ function readCanvasNavigation(app) {
         const navigation = document.getElementById('canvas-navigation');
         const nav = navigation.getBoundingClientRect();
         const agent = document.getElementById('prompt-agent-panel').getBoundingClientRect();
-        const controls = [...navigation.children].filter(element =>
-            element.matches('button, details') && element.getClientRects().length);
-        return { rows: new Set(controls.map(element => Math.round(element.getBoundingClientRect().top))).size,
+        const controls = [...navigation.querySelectorAll('.canvas-run-scope-trigger, [data-nav], .canvas-zoom-menu')]
+            .filter(element => element.getClientRects().length);
+        const centers = controls.map(element => {
+            const rect = element.getBoundingClientRect();
+            return Math.round(rect.top + rect.height / 2);
+        });
+        return { rows: new Set(centers).size,
             inside: nav.left >= 0 && nav.right <= innerWidth && nav.bottom <= innerHeight,
             clear: nav.right <= agent.left || nav.top >= agent.bottom + 7 };
     })()`);
@@ -97,6 +101,19 @@ test('canvas navigation keeps run scope reachable before and after selecting a n
     const nodes = [{ id: 'navigation-text', type: 'Text', x: 80, y: 140, width: 260, height: 190, text: 'Fixture' }];
     await withAppBrowser({ autoCheckUpdatesOnLoad: false, nodes, connections: [] }, async app => {
         const size = width => app.send('Emulation.setDeviceMetricsOverride', { width, height: 878, deviceScaleFactor: 1, mobile: false });
+        const grouping = `(() => {
+            const run = document.querySelector('.canvas-run-scope-trigger').getBoundingClientRect();
+            const tools = document.querySelector('.canvas-viewport-tools');
+            const plate = tools.getBoundingClientRect();
+            if (getComputedStyle(tools).display === 'contents') return { standalone: false, runHeight: run.height };
+            return { standalone: true, runHeight: run.height, plateHeight: plate.height, gap: plate.left - run.right };
+        })()`;
+        await size(1440);
+        await app.waitFor(`${grouping}.standalone`);
+        assert.deepEqual(await app.evaluate(grouping), { standalone: true, runHeight: 48, plateHeight: 48, gap: 8 });
+        await size(360);
+        await app.waitFor(`!${grouping}.standalone`);
+        assert.deepEqual(await app.evaluate(grouping), { standalone: false, runHeight: 34 });
         await size(1350);
         await app.evaluate("document.getElementById('btn-prompt-agent').click()");
         await resizeAgentToMaximum(app);

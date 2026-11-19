@@ -24,8 +24,11 @@ export function createViewportApi({
 }) {
     const DEFAULT_CANVAS_DOT_SPACING = 22;
     const TEXT_REFRESH_BUFFER_SCREENS = 0.5;
+    const WIRE_PAN_MARGIN = 192;
     let canvasDotSpacing = null;
     const canvasGrid = elements.canvasGrid || elements.canvasContainer;
+    const wireLayer = elements.connectionsGroup?.ownerSVGElement;
+    let wireAnchor = null;
     const refreshingTextNodes = new Set();
 
     function getCanvasDotSpacing() {
@@ -58,16 +61,37 @@ export function createViewportApi({
         if (element && element.getAttribute?.('transform') !== value) element.setAttribute('transform', value);
     }
 
+    function applyWireTransform(x, y, zoom) {
+        if (wireLayer && state.canvas.isPanning && !state.connecting && state.canvasGpuAccelerationEnabled !== false) {
+            // Rasterize a margin around the viewport so small pans can move
+            // the same clipped wire layer without repainting hundreds of paths.
+            if (!wireAnchor || wireAnchor.zoom !== zoom ||
+                Math.abs(x - wireAnchor.x) >= WIRE_PAN_MARGIN || Math.abs(y - wireAnchor.y) >= WIRE_PAN_MARGIN) {
+                wireAnchor = { x, y, zoom };
+                setCustomStyle(wireLayer.style, '--pan-margin', `${WIRE_PAN_MARGIN}px`);
+                setCustomStyle(wireLayer.style, '--wire-anchor', `translate(${x + WIRE_PAN_MARGIN}px, ${y + WIRE_PAN_MARGIN}px) scale(${zoom})`);
+                wireLayer.classList.add('pan-wire-layer');
+            }
+            wireLayer.style.transform = `translate(${x - wireAnchor.x}px, ${y - wireAnchor.y}px)`;
+            return;
+        }
+        if (wireAnchor) {
+            wireAnchor = null;
+            wireLayer.classList.remove('pan-wire-layer');
+            wireLayer.style.transform = '';
+        }
+        const svgTransform = `translate(${x}, ${y}) scale(${zoom})`;
+        setTransformAttribute(elements.connectionsGroup, svgTransform);
+        setTransformAttribute(elements.originAxes, svgTransform);
+    }
+
     function applyCanvasVisualTransform(options = {}) {
         const { x, y, zoom } = state.canvas;
         const transform = `translate(${x}px, ${y}px) scale(${zoom})`;
         if (elements.nodesLayer.style.transform !== transform) elements.nodesLayer.style.transform = transform;
         if (elements.nodesLayer.style.transformOrigin !== '0px 0px') elements.nodesLayer.style.transformOrigin = '0px 0px';
         setCustomStyle(elements.nodesLayer.style, '--canvas-zoom', zoom);
-        const svgTransform = `translate(${x}, ${y}) scale(${zoom})`;
-        setTransformAttribute(elements.connectionsGroup, svgTransform);
-        setTransformAttribute(elements.originAxes, svgTransform);
-
+        applyWireTransform(x, y, zoom);
         const dotSpacing = getCanvasDotSpacing() * zoom;
         setCustomStyle(canvasGrid.style, '--canvas-dot-spacing-scaled', `${dotSpacing}px`);
         setCustomStyle(canvasGrid.style, '--canvas-dot-offset-x', `${x}px`);

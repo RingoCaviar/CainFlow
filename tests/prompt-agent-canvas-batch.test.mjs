@@ -103,6 +103,33 @@ test('batch locks nested operations and running graphs; subsequent manual edit r
     await manager.undo(); assert.equal(state.nodes.has('new'), false);
 });
 
+test('a reference below the viewport stays wired without pulling the new Agent batch down to its row', async () => {
+    const { state, manager, add, serialize } = harness();
+    Object.assign(state, { models: [], providers: [], canvas: { zoom: 1 } });
+    add('reference', '');
+    Object.assign(state.nodes.get('reference'), { type: 'ImageImport', x: 100, y: 8200 });
+    const viewport = { x: 0, y: 100, width: 1100, height: 800 };
+    const adapter = createPromptAgentCanvasAdapter({ state, documentRef: { body: { children: [] } },
+        serializeNodes: serialize, getWorkflowId: () => 'w', session: () => manager,
+        origin: () => viewport, save: async () => true, graphChanged() {}, focusNode() {},
+        addNode(type, x, y) {
+            const id = 'new-' + state.nodes.size;
+            add(id, '');
+            Object.assign(state.nodes.get(id), { type, x, y });
+            return id;
+        }
+    });
+    const plan = normalizeCanvasPlan({ version: 1,
+        steps: [{ id: 'first', type: 'ImagePreview', parameters: {} }],
+        connections: [{ from: { ref: 'reference', port: 'image' }, to: { ref: 'first', port: 'image' } }]
+    }, adapter.context(['reference']));
+    await adapter.apply(plan, '');
+    const node = state.nodes.get(plan.bindings.first);
+    assert.ok(node.y >= viewport.y && node.y + 340 <= viewport.y + viewport.height, `new node at y=${node.y}`);
+    assert.equal(state.nodes.get('reference').y, 8200);
+    assert.deepEqual(state.connections.map(link => [link.from.nodeId, link.to.nodeId]), [['reference', node.id]]);
+});
+
 test('media protection failure blocks batch mutation and history truncation', async () => {
     const { state, manager, add } = harness({ undoMedia: { protect() { throw Error('protection offline'); } } });
     add('old', 'before'); state.redoStack.push('existing');

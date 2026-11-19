@@ -363,7 +363,7 @@ test('pan changes and settlement flow through one projection lease', () => {
 });
 
 test('window blur ends an in-progress middle-button canvas pan', () => {
-    const { canvasListeners, windowListeners, state, projectionCalls, viewportCalls } = createHarness();
+    const { canvasListeners, windowListeners, state, projectionCalls, viewportCalls, viewportSaveCalls, saveCalls } = createHarness();
     const startPan = canvasListeners.find(({ type, options }) => type === 'mousedown' && !(options === true || options?.capture));
     startPan.listener({
         button: 1, clientX: 100, clientY: 200,
@@ -376,6 +376,8 @@ test('window blur ends an in-progress middle-button canvas pan', () => {
     assert.equal(state.canvas.isPanning, false);
     assert.deepEqual(viewportCalls.at(-1), { updateConnections: false });
     assert.deepEqual(projectionCalls.at(-1), ['abort', 'pan']);
+    assert.deepEqual(viewportSaveCalls, [{ workflowId: 'workflow-a', canvas: { x: state.canvas.x, y: state.canvas.y, zoom: state.canvas.zoom } }]);
+    assert.deepEqual(saveCalls, []);
 });
 
 test('a returned mousemove without the middle button ends a stale canvas pan', () => {

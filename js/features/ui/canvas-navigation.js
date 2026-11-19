@@ -1,6 +1,8 @@
 import { getNodeDefinition } from '../../nodes/registry.js';
 import { getSurfaceCoordinator } from './surface-coordinator.js';
 
+const SEPARATE_RUN_SCOPE_MIN_CANVAS_WIDTH = 384;
+
 export function initCanvasNavigation({ state, canvasContainer, viewportApi, zoomToFit, focusNode, scheduleSave, documentRef = document }) {
     const root = documentRef.getElementById('canvas-navigation');
     if (!root) return;
@@ -9,36 +11,63 @@ export function initCanvasNavigation({ state, canvasContainer, viewportApi, zoom
     const results = root.querySelector('.canvas-node-results');
     const toggle = root.querySelector('[data-nav="search"]');
     const zoomMenu = root.querySelector('.canvas-zoom-menu');
+    const zoomTrigger = zoomMenu?.querySelector('summary');
+    const zoomOptions = Array.from(zoomMenu?.querySelectorAll('[data-zoom]') ?? []);
+    let markedZoom;
     let activeIndex = 0;
     let observer = null;
     let searchRevision = 0;
     let pendingResults = false;
     let resultsSignature = '';
 
+    function syncNavigationLayout() {
+        const width = canvasContainer.clientWidth;
+        root.classList.toggle('has-space-for-run-scope', width >= SEPARATE_RUN_SCOPE_MIN_CANVAS_WIDTH);
+        root.style.setProperty('--canvas-navigation-canvas-width', `${width}px`);
+        root.style.setProperty('--canvas-navigation-top', `${root.offsetTop}px`);
+    }
+    syncNavigationLayout();
+    const ResizeObserverCtor = documentRef.defaultView?.ResizeObserver;
+    if (ResizeObserverCtor) {
+        const layoutObserver = new ResizeObserverCtor(syncNavigationLayout);
+        layoutObserver.observe(canvasContainer);
+        layoutObserver.observe(root, { box: 'border-box' });
+    }
+
     function closeZoom() {
         if (zoomMenu) zoomMenu.open = false;
         surfaces?.forgetPopover('canvas-zoom');
     }
 
-    function syncZoomMenuSize() {
-        if (!zoomMenu?.open) return;
-        const availableHeight = Math.max(40, zoomMenu.getBoundingClientRect().top - 24);
-        zoomMenu.style.setProperty('--canvas-zoom-max-height', `${availableHeight}px`);
+    function syncCurrentZoomPreset() {
+        const zoom = state.canvas.zoom;
+        if (!zoomMenu?.open || zoom === markedZoom) return;
+        markedZoom = zoom;
+        for (const option of zoomOptions) {
+            if (Math.abs(Number(option.dataset.zoom) - zoom) < 1e-9) {
+                option.setAttribute('aria-current', 'true');
+            } else {
+                option.removeAttribute('aria-current');
+            }
+        }
     }
 
-    documentRef.defaultView?.addEventListener('resize', syncZoomMenuSize);
+    documentRef.addEventListener('cainflow:canvas-transform', syncCurrentZoomPreset);
+    zoomTrigger?.addEventListener('click', () => {
+        if (!zoomMenu.open) syncNavigationLayout();
+    });
     zoomMenu?.addEventListener('toggle', () => {
         if (zoomMenu.open) {
+            syncCurrentZoomPreset();
             closeSearch();
-            syncZoomMenuSize();
-            surfaces?.openPopover('canvas-zoom', { element: zoomMenu, trigger: zoomMenu.querySelector('summary'), close: closeZoom });
+            surfaces?.openPopover('canvas-zoom', { element: zoomMenu, trigger: zoomTrigger, close: closeZoom });
         } else surfaces?.forgetPopover('canvas-zoom');
     });
-    zoomMenu?.querySelectorAll('[data-zoom]').forEach(button => {
+    zoomOptions.forEach(button => {
         button.addEventListener('click', () => {
             setZoom(Number(button.dataset.zoom));
             closeZoom();
-            zoomMenu.querySelector('summary').focus();
+            zoomTrigger.focus();
         });
     });
 
@@ -92,9 +121,12 @@ export function initCanvasNavigation({ state, canvasContainer, viewportApi, zoom
             results.append(empty);
         }
         const buttons = [...results.querySelectorAll('button')];
-        activeIndex = Math.max(0, buttons.findIndex((button) => button.dataset.nodeId === activeId));
+        const focusedButton = buttons.find((button) => button.dataset.nodeId === focusedId);
+        activeIndex = focusedButton
+            ? buttons.indexOf(focusedButton)
+            : Math.max(0, buttons.findIndex((button) => button.dataset.nodeId === activeId));
         highlight();
-        if (focusedId) buttons.find((button) => button.dataset.nodeId === focusedId)?.focus();
+        focusedButton?.focus({ preventScroll: true });
     }
 
     function scheduleResults() {
@@ -111,7 +143,12 @@ export function initCanvasNavigation({ state, canvasContainer, viewportApi, zoom
     function highlight() {
         const buttons = [...results.querySelectorAll('button')];
         buttons.forEach((button, index) => button.classList.toggle('is-active', index === activeIndex));
-        buttons[activeIndex]?.scrollIntoView({ block: 'nearest' });
+        const active = buttons[activeIndex];
+        if (!active) return;
+        const row = active.getBoundingClientRect();
+        const list = results.getBoundingClientRect();
+        if (row.top < list.top || row.height > list.height) results.scrollTop += row.top - list.top;
+        else if (row.bottom > list.bottom) results.scrollTop += row.bottom - list.bottom;
     }
 
     function setZoom(value) {
@@ -134,16 +171,18 @@ export function initCanvasNavigation({ state, canvasContainer, viewportApi, zoom
         event.stopPropagation();
         if (event.isComposing || event.keyCode === 229 || event.ctrlKey || event.metaKey || event.altKey) return;
         if (zoomMenu?.contains(event.target)) {
-            const options = [...zoomMenu.querySelectorAll('[data-zoom]')];
-            if (event.key === 'Escape') { event.preventDefault(); closeZoom(); zoomMenu.querySelector('summary').focus(); }
+            if (event.key === 'Escape') { event.preventDefault(); closeZoom(); zoomTrigger.focus(); }
             if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
                 event.preventDefault();
-                const current = options.indexOf(documentRef.activeElement);
-                const next = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1
-                    : current < 0 ? (event.key === 'ArrowDown' ? 0 : options.length - 1)
-                    : event.key === 'ArrowDown' ? (current + 1) % options.length : (current - 1 + options.length) % options.length;
-                zoomMenu.open = true;
-                options[next]?.focus();
+                const current = zoomOptions.indexOf(documentRef.activeElement);
+                const next = event.key === 'Home' ? 0 : event.key === 'End' ? zoomOptions.length - 1
+                    : current < 0 ? (event.key === 'ArrowDown' ? 0 : zoomOptions.length - 1)
+                    : event.key === 'ArrowDown' ? (current + 1) % zoomOptions.length : (current - 1 + zoomOptions.length) % zoomOptions.length;
+                if (!zoomMenu.open) {
+                    syncNavigationLayout();
+                    zoomMenu.open = true;
+                }
+                zoomOptions[next]?.focus();
             }
             return;
         }
@@ -155,7 +194,7 @@ export function initCanvasNavigation({ state, canvasContainer, viewportApi, zoom
             event.preventDefault();
             activeIndex = Math.max(0, Math.min(buttons.length - 1, activeIndex + (event.key === 'ArrowDown' ? 1 : -1)));
             highlight();
-            if (focused >= 0) buttons[activeIndex]?.focus();
+            if (focused >= 0) buttons[activeIndex]?.focus({ preventScroll: true });
         } else if (event.key === 'Enter' && event.target === search) {
             event.preventDefault(); buttons[activeIndex]?.click();
         }
@@ -167,11 +206,12 @@ export function initCanvasNavigation({ state, canvasContainer, viewportApi, zoom
     toggle.addEventListener('click', () => {
         closeZoom();
         if (root.classList.contains('search-open')) { closeSearch(); return; }
+        syncNavigationLayout();
         root.classList.add('search-open');
         surfaces?.openPopover('canvas-navigation', { element: root, trigger: toggle, close: closeSearch });
         toggle.setAttribute('aria-expanded', 'true');
         renderResults();
-        search.focus();
+        search.focus({ preventScroll: true });
         const layer = documentRef.getElementById('nodes-layer');
         if (layer) {
             observer = new MutationObserver((mutations) => {

@@ -292,8 +292,9 @@ export function createNodeLifecycleApi({
         const ResizeObserverCtor = view.ResizeObserver;
         if (!ResizeObserverCtor || !nodeData?.el) return;
 
-        nodeData.observedWidth = nodeData.el.offsetWidth || Number(nodeData.width) || 0;
-        nodeData.observedHeight = nodeData.el.offsetHeight || Number(nodeData.height) || 0;
+        // The initial observer delivery reconciles CSS constraints with the assigned size.
+        nodeData.observedWidth = Number(nodeData.width) || 0;
+        nodeData.observedHeight = Number(nodeData.height) || 0;
 
         const observer = new ResizeObserverCtor((entries) => {
             const entry = entries[0];
@@ -977,10 +978,13 @@ export function createNodeLifecycleApi({
         if (!node?.el) return false;
         // The active gesture owns geometry through release, even if a delayed fit runs.
         if (state.resizing?.node === node) return false;
-        const currentWidth = node.el.offsetWidth || Number(node.width) || 0;
-        const currentHeight = node.el.offsetHeight || Number(node.height) || 0;
         const nextWidth = Math.round(width);
         const nextHeight = Math.round(height);
+        // Reapplying the same inline dimensions cannot change the rendered box.
+        // Avoid forcing layout while controls and their parameter view are being bound.
+        if (node.el.style.width === `${nextWidth}px` && node.el.style.height === `${nextHeight}px`) return false;
+        const currentWidth = node.el.offsetWidth || Number(node.width) || 0;
+        const currentHeight = node.el.offsetHeight || Number(node.height) || 0;
         const widthChanged = Number.isFinite(nextWidth) && nextWidth > 0 && Math.abs(nextWidth - currentWidth) > 1;
         const heightChanged = Number.isFinite(nextHeight) && nextHeight > 0 && Math.abs(nextHeight - currentHeight) > 1;
         if (!widthChanged && !heightChanged) return false;
@@ -1684,7 +1688,9 @@ export function createNodeLifecycleApi({
         }, true);
         bindNodeSizeObserver(nodeData);
 
-        if ((definitionHasCapability(nodeConfigs[normalizedType], NODE_CAPABILITIES.IMAGE_RESTORE) && !isPreviousTransientImageGenerate) || hasLegacyImageGenerateAsset) {
+        const restoreImages = restoreData && definitionHasCapability(config, NODE_CAPABILITIES.IMAGE_RESTORE)
+            && !isPreviousTransientImageGenerate;
+        if (restoreImages || hasLegacyImageGenerateAsset) {
             enqueueImageRestoreTask(async () => {
                 if (!state.nodes.has(id) || state.nodes.get(id) !== nodeData) return;
                 const isImportUrlMode = normalizedType === 'ImageImport' && nodeData.importMode === 'url';
@@ -1725,7 +1731,7 @@ export function createNodeLifecycleApi({
                 const hasInitialImageList = restoredImages.length > 0;
                 const imageImportAssetKey = normalizedType === 'ImageImport' ? (nodeData.imageImportAssetKey || effectiveRestoreData?.imageImportAssetKey || '') : '';
                 const recoverableImageAssetKey = (isRecoverableImageAssetNodeType(normalizedType) || hasLegacyImageGenerateAsset)
-                    ? (nodeData.data?.imageAssetKey || effectiveRestoreData?.imageAssetKey || id)
+                    ? (nodeData.data?.imageAssetKey || effectiveRestoreData?.imageAssetKey || effectiveRestoreData?.id || '')
                     : '';
                 const canonicalImageAssetKey = isCanonicalImageNodeType(normalizedType) ? recoverableImageAssetKey : '';
                 const canonicalImageCount = Math.max(0, parseInt(nodeData.data?.imageCount || effectiveRestoreData?.imageCount || '0', 10) || 0);
@@ -1775,13 +1781,16 @@ export function createNodeLifecycleApi({
                 if (normalizedType === 'ImageGenerate' && sourceImages.length > 0) {
                     nodeData.generationCompletedCount = sourceImages.length;
                 }
+                // Older workflows used their persisted node ID as an asset key.
+                // An Agent-created node may have initial parameters but has no such ID yet.
+                const fallbackAssetKey = recoverableImageAssetKey || effectiveRestoreData?.id;
                 const data = isImportUrlMode
                     ? null
                         : (imageImportAssetKey
                             ? await getImageAsset(imageImportAssetKey)
                             : (hasInitialData
                                 ? effectiveRestoreData.imageData
-                                : (sourceImages[0] || await getImageAsset(recoverableImageAssetKey || id))));
+                                : (sourceImages[0] || (fallbackAssetKey ? await getImageAsset(fallbackAssetKey) : null))));
 
                 if (!state.nodes.has(id) || state.nodes.get(id) !== nodeData) return;
 

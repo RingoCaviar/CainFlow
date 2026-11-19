@@ -146,6 +146,7 @@ export function createCanvasInteractionsApi({
         if (panTransformRaf) return;
         panTransformRaf = requestAnimationFrameRef(() => {
             panTransformRaf = null;
+            if (!state.canvas.isPanning) return;
             viewportApi.updateCanvasTransform({
                 updateConnections: false,
                 dispatchTransformEvent: false
@@ -215,12 +216,12 @@ export function createCanvasInteractionsApi({
         if (hasMoved) {
             state.justDragged = true;
             setTimeout(() => { state.justDragged = false; }, 100);
-            scheduleSave();
+            persistCurrentViewport();
         }
 
         state.canvas.isPanning = false;
         delete state.canvas.panButtonMask;
-        canvasContainer.classList.remove('grabbing', 'is-panning');
+        canvasContainer.classList.remove('pan-input-surface', 'is-panning');
         documentRef.getElementById('connections-group').classList.remove('is-panning');
         viewportApi.updateCanvasTransform({
             updateConnections: false
@@ -622,7 +623,10 @@ export function createCanvasInteractionsApi({
         state.canvas.panStart = { x: e.clientX, y: e.clientY };
         state.canvas.canvasStart = { x: state.canvas.x, y: state.canvas.y };
         beginProjectionInteraction(CANVAS_INTERACTION_KIND.PAN);
-        canvasContainer.classList.add('grabbing', 'is-panning');
+        canvasContainer.classList.add('is-panning');
+        if (!state.connecting && !state.isCutting && !state.dragging && !state.marquee && !state.resizing) {
+            canvasContainer.classList.add('pan-input-surface');
+        }
         documentRef.getElementById('connections-group').classList.add('is-panning');
     }
 

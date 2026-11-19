@@ -101,6 +101,7 @@ export function getCommerceRunPreflight({ state, plan }) {
             : getSelectedCommerceImageSetShots(settings).filter(shot => !shot.customScene);
         const shots = settings.plan ? getGeneratableCommerceImageSetShots(settings) : runnableShots;
         const finalizedCount = runnableShots.length - shots.length;
+        const excludedCount = settings.plan ? settings.plan.shots.length - runnableShots.length : 0;
         const reusesFinalized = finalizedCount > 0 && shots.length === 0;
         const generatedShots = shots.filter(shot => shot.source === 'generate');
         const candidateCount = generatedShots.length ? (settings.candidateCount ?? 1) : 0;
@@ -138,14 +139,14 @@ export function getCommerceRunPreflight({ state, plan }) {
             } else {
                 const missingPrompt = generatedShots.find(shot => !shot.prompt);
                 if (missingPrompt) issue = { action: 'prompt', message: `「${missingPrompt.label}」缺少生图提示词。` };
-                else if (generatedShots.length) {
+                else {
                     const message = getCommerceImageConfigurationIssue({ state, node, settings, generatedShots, referenceCount: retainedReferenceCount });
                     if (message) issue = { action: 'configure', message };
                 }
             }
         }
         return [{ nodeId, issue, shotCount: runnableShots.length, generateCount: generatedShots.length * candidateCount, candidateCount,
-            referenceCount: shots.length - generatedShots.length, finalizedCount, upstreamWillRun,
+            referenceCount: shots.length - generatedShots.length, finalizedCount, excludedCount, upstreamWillRun,
             hasCompleted: completed.length > 0, unfinishedCount: getUnfinishedCommerceImageSetShots(settings).length,
             approvalKey: JSON.stringify([settings.plan?.sourceKey || '', getCommerceReferenceRevision(references),
                 commerceConnectedStyleRevision(settings, styleReferences), settings.shotReferences,

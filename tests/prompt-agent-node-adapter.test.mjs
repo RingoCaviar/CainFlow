@@ -194,6 +194,9 @@ test('applies a Prompt Plan to its bound image-generation node without requiring
 
 test('selection changes do not retarget bound plans or hide their context', () => {
     const { adapter, state, node } = harness();
+    let allNodeScans = 0;
+    const values = state.nodes.values.bind(state.nodes);
+    state.nodes.values = () => { allNodeScans++; return values(); };
     const other = { id: 'image-2', type: 'ImageGenerate', data: { prompt: '保持不变' } };
     state.nodes.set(other.id, other);
     state.selectedNodes = new Set([other.id]);
@@ -206,6 +209,7 @@ test('selection changes do not retarget bound plans or hide their context', () =
     assert.equal(adapter.applyPromptPlan(plan), true);
     assert.equal(node.data.prompt, plan.prompt);
     assert.equal(other.data.prompt, '保持不变');
+    assert.equal(allNodeScans, 0, 'reading and applying generation controls on a known target must not scan the canvas');
 });
 
 function creationHarness({ models, providers, selected = [] } = {}) {

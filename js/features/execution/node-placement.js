@@ -49,11 +49,14 @@ export function findNearbyNodePosition({ x, y, width = 300, height = 340, occupi
 }
 
 export function findViewportNodePosition({ viewport, width = 300, height = 340,
-    visibleWidth = width, visibleHeight = height, occupied = [], gap }) {
+    visibleWidth = width, visibleHeight = height, occupied = [], gap, preferredPosition }) {
     const { x: left, y: top, width: viewportWidth = 0, height: viewportHeight = 0 } = viewport;
     const right = left + Math.max(0, viewportWidth - visibleWidth);
     const bottom = top + Math.max(0, viewportHeight - visibleHeight);
-    const placement = { x: (left + right) / 2, y: (top + bottom) / 2, width, height, occupied, gap,
+    const inView = preferredPosition && preferredPosition.x >= left && preferredPosition.x <= right
+        && preferredPosition.y >= top && preferredPosition.y <= bottom;
+    const placement = { x: inView ? preferredPosition.x : (left + right) / 2,
+        y: inView ? preferredPosition.y : (top + bottom) / 2, width, height, occupied, gap,
         preferredArea: { left, right, top, bottom } };
     const position = findNearbyNodePosition(placement);
     const panel = viewport.blockedSpan;

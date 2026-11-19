@@ -645,7 +645,8 @@ html[data-app-theme="glass-dark"] #canvas-container {
     --node-control-border: var(--glass-border-soft);
     --node-field-label: #bac8d8;
 }
-html:root #canvas-container:is(.is-zooming, .is-panning),
+html[data-app-theme^="glass"] #canvas-container.is-panning .node-glass-bg { --node-glass-filter-active: none; }
+html:root #canvas-container.is-zooming,
 html:root body.is-interacting #canvas-container { --node-glass-filter-active: none; }
 html:root #canvas-container .node.is-interacting { --node-glass-filter-active: none; }
 /* Single-node cancellation has the same keyboard focus affordance as controls. */

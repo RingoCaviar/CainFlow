@@ -26,6 +26,50 @@ function layoutCount(metrics) {
     return value;
 }
 
+test('creating an image generation node avoids repeated synchronous card measurements', { timeout: 30000 }, async () => {
+    await withAppBrowser(session, async app => {
+        const resourcePaths = [];
+        app.onProtocolEvent(event => {
+            if (event.method === 'Network.requestWillBeSent') resourcePaths.push(new URL(event.params.request.url).pathname);
+        });
+        const reads = await app.evaluate(`(() => {
+            let count = 0;
+            const descriptors = ['offsetWidth', 'offsetHeight'].map(key =>
+                [key, Object.getOwnPropertyDescriptor(HTMLElement.prototype, key)]);
+            try {
+                for (const [key, descriptor] of descriptors) {
+                    Object.defineProperty(HTMLElement.prototype, key, { ...descriptor, get() {
+                        if (this.matches('.node-generate')) count++;
+                        return descriptor.get.call(this);
+                    } });
+                }
+                document.querySelector('.context-menu-item[data-type="ImageGenerate"]').click();
+            } finally {
+                for (const [key, descriptor] of descriptors) Object.defineProperty(HTMLElement.prototype, key, descriptor);
+            }
+            return count;
+        })()`);
+        assert.ok(reads <= 2, `the new card was synchronously measured ${reads} times during creation`);
+        await app.waitFor(`(() => {
+            const node = document.querySelector('.node-generate.selected');
+            return node?.offsetHeight >= 300 && document.querySelector('#image-parameter-panel')?.checkVisibility();
+        })()`);
+        const id = await app.evaluate(`(async () => {
+            const { registry } = await (await import('/js/app/bootstrap.js')).bootstrapCainFlowApp();
+            const id = document.querySelector('.node-generate').id;
+            await registry.nodeLifecycleApi.waitForImageRestores([id]);
+            return id;
+        })()`);
+        assert.ok(!resourcePaths.includes('/api/storage/assets/' + id), 'a newly allocated node has no historical asset to restore');
+        await app.evaluate(`(() => {
+            const canvas = document.getElementById('canvas-container');
+            canvas.focus();
+            canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }));
+        })()`);
+        await app.waitFor("!document.querySelector('.node-generate') && !!document.getElementById('layout-source')");
+    });
+});
+
 test('startup network results stay out of an active drag and appear after release', { timeout: 30000 }, async () => {
     await withAppBrowser(session, async app => {
         await app.evaluate(`(async () => {
@@ -188,7 +232,7 @@ test('pan and zoom keep interaction styling local while focused text retains nat
         assert.equal(idle.bodyInteraction, false);
 
         const pan = await app.evaluate(`(() => {
-            const { canvas, styles } = interactionScope;
+            const { canvas, editor, styles } = interactionScope;
             const rect = canvas.getBoundingClientRect();
             const x = rect.left + 400, y = rect.top + 400;
             interactionScope.panPoint = { x, y };
@@ -196,9 +240,12 @@ test('pan and zoom keep interaction styling local while focused text retains nat
                 button: 1, buttons: 4, clientX: x, clientY: y }));
             document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, buttons: 4,
                 clientX: x + 40, clientY: y + 20 }));
-            return styles();
+            const editorRect = editor.getBoundingClientRect();
+            const hit = document.elementFromPoint(editorRect.left + 12, editorRect.top + 12);
+            const surface = getComputedStyle(canvas, '::after');
+            return { ...styles(), hitCanvas: hit === canvas, cursor: surface.cursor, userSelect: surface.userSelect };
         })()`);
-        assert.deepEqual(pan, { cursor: 'grabbing', userSelect: 'none', glass: 'none', bodyInteraction: false, pan: true, zoom: false });
+        assert.deepEqual(pan, { hitCanvas: true, cursor: 'grabbing', userSelect: 'none', glass: 'none', bodyInteraction: false, pan: true, zoom: false });
 
         await app.evaluate(`(() => {
             const { x, y } = interactionScope.panPoint;

@@ -1,15 +1,49 @@
 /* Workbench foundation: shared UI tokens and low-cost polish for the main app shell. */
 #canvas-navigation {
-    position: absolute; right: 16px; bottom: 16px; z-index: calc(var(--layer-toolbar) - 1);
-    display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px; padding: 6px; width: max-content; max-width: calc(100% - 32px);
+    --canvas-navigation-inset: clamp(0px, (var(--canvas-navigation-canvas-width, 100vw) - 112px) / 2, 16px);
+    --canvas-navigation-tool-gap: 4px;
+    --canvas-navigation-tool-padding: 6px;
+    --canvas-navigation-popup-gap: 8px;
+    --canvas-navigation-safe-top: 12px;
+    --canvas-navigation-popup-space: calc(var(--canvas-navigation-top, 100dvh - 64px) - var(--canvas-navigation-safe-top) - var(--canvas-navigation-popup-gap));
+    --canvas-navigation-popup-width: calc(var(--canvas-navigation-canvas-width, 100vw) - 2 * var(--canvas-navigation-inset));
+    position: absolute; right: var(--canvas-navigation-inset); bottom: 16px; z-index: calc(var(--layer-toolbar) - 1);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--canvas-navigation-tool-gap);
+    padding: var(--canvas-navigation-tool-padding);
+    width: max-content;
+    max-width: calc(100% - 2 * var(--canvas-navigation-inset));
+    color: var(--text-primary);
+}
+#canvas-navigation,
+.canvas-viewport-tools {
     border: 1px solid var(--panel-border); border-radius: 10px;
-    background: var(--panel-bg-strong); color: var(--text-primary); box-shadow: var(--panel-shadow-soft);
+    background: color-mix(in srgb, var(--panel-bg-strong) 92%, var(--panel-primary-action-bg));
+    box-shadow: var(--panel-shadow-soft);
+}
+.canvas-viewport-tools { display: contents; }
+#canvas-navigation.has-space-for-run-scope:has(> .canvas-run-scope-trigger:not([hidden])) {
+    align-items: stretch;
+    gap: 8px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+}
+#canvas-navigation.has-space-for-run-scope:has(> .canvas-run-scope-trigger:not([hidden])) > .canvas-viewport-tools {
+    display: flex;
+    align-items: center;
+    gap: var(--canvas-navigation-tool-gap);
+    padding: var(--canvas-navigation-tool-padding);
 }
 #canvas-navigation button {
     background: var(--panel-control-bg); color: var(--text-primary); border: 1px solid var(--panel-control-border);
     border-radius: 6px; padding: 6px 8px; cursor: pointer; white-space: nowrap;
 }
-#canvas-navigation > button {
+:is(#canvas-navigation, .canvas-viewport-tools) > button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -17,7 +51,11 @@
     min-width: 34px;
     height: 34px;
 }
-#canvas-navigation > :is(button, details) { flex: 0 0 auto; }
+:is(#canvas-navigation, .canvas-viewport-tools) > button:not(.canvas-run-scope-trigger) {
+    background: transparent;
+    border-color: transparent;
+}
+:is(#canvas-navigation, .canvas-viewport-tools) > :is(button, details) { flex: 0 0 auto; }
 #canvas-navigation :is(.canvas-node-search-toggle, .canvas-fit-view-toggle) {
     width: 34px;
     min-width: 34px;
@@ -30,54 +68,147 @@
 }
 #main-layout:has(.prompt-agent-panel.active) #canvas-navigation {
     /* The canvas already reserves Agent's width on smaller desktops. */
-    left: 16px;
+    left: var(--canvas-navigation-inset);
     right: auto;
 }
-#main-layout:has(.prompt-agent-panel.active) .canvas-node-search {
+#main-layout:has(.prompt-agent-panel.active) :is(.canvas-node-search, .canvas-zoom-options) {
     right: auto;
     left: 0;
 }
-#canvas-navigation button:is(:hover,.is-active) { background: var(--panel-hover-bg); border-color: var(--panel-hover-border); }
-#canvas-navigation :is(button,input):focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+body:is(.toolbar-pinned, .toolbar-peek-active, .toolbar-controls-active) #canvas-navigation {
+    --canvas-navigation-safe-top: calc(var(--toolbar-height, 48px) + 8px);
+}
+:is(.canvas-node-search, .canvas-zoom-options) {
+    /* In short windows the popup may use part of the rail's space. */
+    --canvas-navigation-popup-floor: min(var(--canvas-navigation-popup-minimum), max(0px, 100dvh - var(--canvas-navigation-safe-top) - 8px));
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + var(--canvas-navigation-popup-gap) - max(0px, var(--canvas-navigation-popup-floor) - var(--canvas-navigation-popup-space)));
+    border: 1px solid var(--panel-border);
+    background: var(--panel-bg-strong);
+    box-shadow: var(--panel-shadow-soft);
+}
+#canvas-navigation button:is(:hover,.is-active),
+.canvas-zoom-menu > summary:hover {
+    background: var(--panel-hover-bg);
+    border-color: var(--panel-hover-border);
+}
+#canvas-navigation :is(button, input, summary):focus-visible {
+    outline: 2px solid var(--text-link);
+    outline-offset: 2px;
+}
 /* The read-only output must let pointer activation reach its summary. */
-#zoom-level { min-width: 42px; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; pointer-events: none; }
-.canvas-zoom-menu { position: relative; }
+#zoom-level {
+    min-width: 42px;
+    color: var(--text-link);
+    text-align: center;
+    font-size: 12px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+}
 .canvas-zoom-menu > summary {
     box-sizing: border-box;
     height: 34px;
     display: flex; align-items: center; gap: 3px; padding: 6px 4px; list-style: none; cursor: pointer;
-    border: 1px solid var(--panel-control-border); border-radius: 6px; background: var(--panel-control-bg);
+    border: 1px solid transparent; border-radius: 6px;
 }
 .canvas-zoom-menu > summary::-webkit-details-marker { display: none; }
-.canvas-zoom-menu > summary:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
-.canvas-zoom-options {
-    position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
-    width: 160px; max-height: min(280px, var(--canvas-zoom-max-height, calc(100dvh - 96px))); overflow-y: auto; padding: 6px;
-    border: 1px solid var(--panel-border); border-radius: 9px; background: var(--panel-bg-strong); box-shadow: var(--panel-shadow-soft);
+#canvas-navigation .canvas-node-search-toggle[aria-expanded="true"],
+#canvas-navigation .canvas-node-results .is-active,
+#canvas-navigation .canvas-zoom-options [aria-current="true"],
+.canvas-zoom-menu[open] > summary {
+    color: var(--text-link);
+    background: var(--panel-active-bg);
+    border-color: var(--panel-active-border, var(--panel-hover-border));
 }
-#canvas-navigation .canvas-zoom-options button { display: block; width: 100%; margin-block: 2px; text-align: left; }
-/* A 48px navigation row, 16px bottom inset and 8px gap keep the composer clear. */
+.canvas-zoom-options {
+    --canvas-navigation-popup-minimum: 48px;
+    width: min(160px, var(--canvas-navigation-popup-width));
+    max-height: clamp(var(--canvas-navigation-popup-floor), var(--canvas-navigation-popup-space), 280px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 6px;
+    border-radius: 9px;
+}
+#canvas-navigation :is(.canvas-zoom-options, .canvas-node-results) button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+#canvas-navigation .canvas-zoom-options button {
+    position: relative;
+    padding-inline-end: 24px;
+}
+#canvas-navigation .canvas-zoom-options [aria-current="true"]::after {
+    content: '';
+    position: absolute;
+    inset-inline-end: 8px;
+    top: 50%;
+    width: 9px;
+    height: 5px;
+    border: solid currentColor;
+    border-width: 0 0 2px 2px;
+    transform: translateY(-75%) rotate(-45deg);
+}
+#canvas-navigation .canvas-zoom-options button + button { margin-top: 4px; }
 #main-layout .prompt-agent-panel.active.needs-navigation-space {
-    bottom: 72px;
+    bottom: var(--prompt-agent-navigation-space);
 }
 .canvas-node-search {
-    display: none; position: absolute; bottom: calc(100% + 8px); right: 0;
-    width: min(340px, calc(100vw - 32px)); padding: 12px; border-radius: 10px;
-    background: var(--panel-bg-strong); border: 1px solid var(--panel-border); box-shadow: var(--panel-shadow-soft);
+    --canvas-navigation-popup-minimum: 88px;
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    width: min(340px, var(--canvas-navigation-popup-width));
+    max-height: clamp(var(--canvas-navigation-popup-floor), var(--canvas-navigation-popup-space), 368px);
+    overflow: hidden;
+    padding: 12px;
+    border-radius: 10px;
 }
-.search-open .canvas-node-search { display: block; }
-.canvas-node-search input { width: 100%; padding: 8px; color: var(--text-primary); background: var(--panel-input-bg); border: 1px solid var(--panel-input-border); border-radius: 6px; }
-.canvas-node-results { max-height: min(300px, 45vh); overflow: auto; margin-top: 8px; }
-#canvas-navigation .canvas-node-results button { width: 100%; text-align: left; margin-bottom: 4px; white-space: normal; }
-.canvas-node-results p { color: var(--text-secondary); font-size: 12px; }
+.search-open .canvas-node-search { display: flex; }
+.canvas-node-search input { flex: none; width: 100%; padding: 8px; color: var(--text-primary); background: var(--panel-input-bg); border: 1px solid var(--panel-input-border); border-radius: 6px; }
+.canvas-node-search input::placeholder {
+    color: color-mix(in srgb, var(--text-secondary) 72%, var(--text-primary));
+    opacity: 1;
+}
+.canvas-node-results { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+#canvas-navigation .canvas-node-results .is-active { font-weight: 600; }
+#canvas-navigation .canvas-node-results button + button { margin-top: 4px; }
+.canvas-node-results p { margin: 4px 0; color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }
+@media (max-height: 360px) {
+    .canvas-node-search { gap: 4px; padding: 8px; }
+}
 body:has(.fullscreen-overlay.active) #canvas-navigation,
 body:has(#history-sidebar.active, #log-drawer.active) #canvas-navigation,
 body:has(.painter-overlay.active) #canvas-navigation { visibility: hidden; }
-#canvas-navigation > .canvas-run-scope-trigger { gap: 4px; font-size: 12px; }
+#canvas-navigation > .canvas-run-scope-trigger {
+    gap: 4px;
+    border-color: transparent;
+    background: var(--panel-primary-action-bg);
+    color: var(--panel-primary-action-text);
+    font-size: 12px;
+    font-weight: 650;
+}
+#canvas-navigation.has-space-for-run-scope > .canvas-run-scope-trigger {
+    gap: 6px;
+    height: auto;
+    min-width: 44px;
+    padding-inline: 12px;
+    border-radius: 10px;
+    font-size: 13px;
+}
 #canvas-navigation > .canvas-run-scope-trigger[hidden] { display: none; }
+#canvas-navigation > .canvas-run-scope-trigger:hover {
+    background: color-mix(in srgb, var(--panel-primary-action-bg) 90%, #000);
+    border-color: transparent;
+}
 #canvas-navigation > .canvas-run-scope-trigger[aria-expanded="true"] {
-    background: var(--panel-hover-bg);
-    border-color: var(--accent-primary);
+    background: var(--panel-active-bg);
+    border-color: var(--panel-active-border, var(--panel-hover-border));
+    color: var(--text-primary);
 }
 
 #canvas-run-scope {
@@ -86,7 +217,6 @@ body:has(.painter-overlay.active) #canvas-navigation { visibility: hidden; }
     box-sizing: border-box;
     margin: 0;
     padding: 12px;
-    overflow: auto;
     border: 0;
     border-radius: 12px;
     color: var(--text-primary);
@@ -94,7 +224,15 @@ body:has(.painter-overlay.active) #canvas-navigation { visibility: hidden; }
     box-shadow: var(--panel-shadow-soft);
     font: 13px/1.5 var(--font);
 }
+#canvas-run-scope:popover-open { display: flex; flex-direction: column; }
 #canvas-run-scope h2 { margin: 0 0 8px; font-size: 14px; font-weight: 650; }
+.canvas-run-scope-scroll {
+    min-height: 0;
+    margin-inline: -4px;
+    padding-inline: 4px;
+    overflow: auto;
+    overscroll-behavior: contain;
+}
 #canvas-run-scope fieldset { display: grid; gap: 2px; margin: 0; padding: 0; border: 0; }
 #canvas-run-scope label {
     display: flex;
@@ -129,7 +267,7 @@ body:has(.painter-overlay.active) #canvas-navigation { visibility: hidden; }
 }
 .canvas-run-scope-summary [data-route-legend="reuse"]::before { border-top-style: dashed; }
 .canvas-run-scope-summary p { margin: 0; }
-.canvas-run-scope-commerce { margin: 0 0 10px; padding: 8px 6px 0; border-top: 1px solid var(--panel-border); }
+.canvas-run-scope-commerce { margin: 8px 0; padding: 8px 6px 0; border-top: 1px solid var(--panel-border); }
 .canvas-run-scope-commerce h3 { margin: 0 0 4px; font-size: 13px; font-weight: 650; }
 .canvas-run-scope-commerce-row { display: grid; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
 .canvas-run-scope-commerce-row + .canvas-run-scope-commerce-row {
@@ -141,6 +279,13 @@ body:has(.painter-overlay.active) #canvas-navigation { visibility: hidden; }
 .canvas-run-scope-commerce-row p { margin: 0; }
 .canvas-run-scope-commerce-counts { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .canvas-run-scope-commerce-note { color: var(--text-warning, var(--text-primary)); }
+.canvas-run-scope-commerce-recovery {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+}
+.canvas-run-scope-commerce-recovery p { flex: 1 1 12em; }
 #canvas-run-scope [data-commerce-run-settings] {
     justify-self: start;
     min-height: 30px;
@@ -159,8 +304,9 @@ body:has(.painter-overlay.active) #canvas-navigation { visibility: hidden; }
 }
 #canvas-run-scope [data-confirm-run-scope] {
     display: block;
+    flex: none;
     min-height: 34px;
-    margin-left: auto;
+    margin: 8px 0 0 auto;
     padding: 4px 10px;
     border-radius: 6px;
     border: 1px solid var(--panel-control-border);
@@ -192,13 +338,19 @@ body:has(.painter-overlay.active) #canvas-navigation { visibility: hidden; }
 }
 #connections-group .connection-path[data-canvas-run-route="reuse"] { stroke-dasharray: 7 5; }
 @media (max-width: 1200px) {
-    #main-layout:has(.prompt-agent-panel.active) #canvas-navigation { gap: 3px; padding: 4px; }
+    #main-layout:has(.prompt-agent-panel.active) #canvas-navigation {
+        --canvas-navigation-tool-gap: 3px;
+        --canvas-navigation-tool-padding: 4px;
+    }
     #main-layout:has(.prompt-agent-panel.active) #canvas-navigation > .canvas-run-scope-trigger span {
         display: none;
     }
 }
 @media (max-width: 430px) {
-    #canvas-navigation { gap: 3px; padding: 4px; }
+    #canvas-navigation {
+        --canvas-navigation-tool-gap: 3px;
+        --canvas-navigation-tool-padding: 4px;
+    }
     #canvas-navigation > .canvas-run-scope-trigger span { display: none; }
 }
 :root {
@@ -508,11 +660,40 @@ html.animations-disabled .btn {
 /* The docked node editor occupies a workbench column beside the canvas. */
 body:has(#main-layout > .image-parameter-panel.is-docked:not([hidden])) {
     --node-parameter-dock-width: min(clamp(300px, 34vw, 380px), max(1px, calc(100vw - 72px)));
+    --node-parameter-dock-header-height: 44px;
     --toast-right-offset: calc(var(--node-parameter-dock-width) + 16px);
 }
 
 body:has(#main-layout > .image-parameter-panel.is-docked:not([hidden])) #toast-container {
     max-width: max(0px, calc(100% - var(--toast-right-offset) - 16px));
+}
+
+@media (max-width: 560px) {
+    body:has(#main-layout > .image-parameter-panel.is-docked[data-node-type="ECommerceImageSet"]:not([hidden])) #toast-container {
+        inset: calc(var(--floating-notices-top-offset) + var(--node-parameter-dock-header-height)) 12px auto;
+        max-width: none;
+        max-height: min(25dvh, 144px);
+        flex-direction: column;
+        gap: 4px;
+        overflow: auto;
+        overscroll-behavior: contain;
+        transition: none;
+    }
+    /* A lone passive status can overlap the canvas in this compact layout.
+       Only capture input for interactive notifications or a scrollable stack. */
+    body:has(#main-layout > .image-parameter-panel.is-docked[data-node-type="ECommerceImageSet"]:not([hidden])) #toast-container:has(> .toast:not(.toast-status), > .toast + .toast) {
+        pointer-events: auto;
+    }
+    body:has(#main-layout > .image-parameter-panel.is-docked[data-node-type="ECommerceImageSet"]:not([hidden])) #toast-container .toast {
+        flex: none;
+        box-sizing: border-box;
+        max-width: 100%;
+    }
+    body:has(#main-layout > .image-parameter-panel.is-docked[data-node-type="ECommerceImageSet"]:not([hidden])) #toast-container .toast:not(.update-download-toast) {
+        padding: 6px 8px;
+        gap: 6px;
+        font-size: 12px;
+    }
 }
 
 #main-layout > .image-parameter-panel.is-docked {
@@ -560,7 +741,7 @@ body:has(#main-layout > .image-parameter-panel.is-docked:not([hidden])) #toast-c
 
 #main-layout > .image-parameter-panel.is-docked .image-parameter-header {
     display: flex;
-    min-height: 44px;
+    min-height: var(--node-parameter-dock-header-height, 44px);
     padding: 5px 12px 5px 16px;
 }
 

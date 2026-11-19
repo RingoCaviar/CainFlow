@@ -84,15 +84,26 @@ export function createImageNodeResults({ state, documentRef, createActions = () 
         const isCurrent = () => state.nodes.get(nodeId) === node && !state.runningNodeIds?.has(nodeId) && sameResult();
         const retainedView = () => !view.disposed && views.get(host) === view && (host.isConnected || host.parentNode) && sameResult();
         const canPaint = () => retainedView() && (isCurrent() || Boolean(original || assetKey?.startsWith('media:')));
-        const readOriginalAt = async slot => {
+        const readOriginalAt = async (slot, loadImages = readSourceImages) => {
             const key = assets[slot], source = images[slot];
             if (key?.startsWith('media:')) return readAsset(key);
             if (/^data:image\//i.test(source || '')) return source;
-            const loaded = await readSourceImages(nodeId);
+            const loaded = await loadImages(nodeId);
             if (assets.length && loaded.length !== count) throw new Error('原图批次不完整，请恢复缺失原图。');
             return loaded[slot] || '';
         };
         const readOriginal = () => readOriginalAt(index);
+        async function readPreviewBatch(currentImage) {
+            let legacyImages;
+            const loadLegacyBatch = () => legacyImages ??= readSourceImages(nodeId);
+            const slots = await Promise.allSettled(Array.from({ length: count }, (_, slot) => {
+                if (slot === index) return currentImage;
+                return missingSlots.has(slot) ? null : readOriginalAt(slot, loadLegacyBatch);
+            }));
+            const available = slots.map(slot =>
+                slot.status === 'fulfilled' && /^data:image\//i.test(slot.value || '') ? slot.value : null);
+            return { images: available.filter(Boolean), index: available.slice(0, index).filter(Boolean).length };
+        }
         const loadThumbnail = slot => {
             if (missingSlots.has(slot)) return Promise.reject(new Error('原图缺失'));
             if (view.thumbnails.has(slot)) return Promise.resolve({ thumbnail: view.thumbnails.get(slot), original: images[slot] || '' });
@@ -116,6 +127,7 @@ export function createImageNodeResults({ state, documentRef, createActions = () 
         };
         const actions = createActions({ name: `${node.customTitle || '生成结果'} ${index + 1}`, assetKey,
             sourceNodeId: nodeId, sourcePort: 'image', sourceImageIndex: index, isCurrent, readOriginal,
+            readPreviewBatch: count > 1 ? readPreviewBatch : undefined,
             restoreFocus: () => documentRef.getElementById(`${nodeId}-image-results`)?.querySelector('[data-result-action=preview]')?.focus({ preventScroll: true }) });
         const preview = documentRef.createElement('button'); preview.type = 'button'; preview.className = 'image-node-result-preview';
         if (!missing) preview.dataset.previewLoading = 'true';

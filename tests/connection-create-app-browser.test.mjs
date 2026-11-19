@@ -40,7 +40,8 @@ async function assertConnected(app, fromId, toId, toPort, { fromPort = '', conne
     const expression = `(()=>{
         const path=document.querySelector('#connections-svg path[data-conn-id${connectionId ? `="${connectionId}"` : ''}]');
         const from=document.querySelector('#${fromId} .node-port[data-direction="output"]${fromPort ? `[data-port="${fromPort}"]` : ''} .port-dot');
-        const to=document.querySelector('#${toId} .universal-input .port-dot') || document.querySelector('#${toId} .node-port[data-direction="input"][data-port="${toPort}"] .port-dot');
+        const input=document.querySelector('#${toId} .node-port[data-direction="input"][data-port="${toPort}"] .port-dot');
+        const to=input?.checkVisibility() ? input : document.querySelector('#${toId} .universal-input .port-dot');
         if(!path?.getAttribute('d') || !from || !to) return false;
         const matrix=path.getScreenCTM(),start=path.getPointAtLength(0).matrixTransform(matrix),end=path.getPointAtLength(path.getTotalLength()).matrixTransform(matrix);
         const a=from.getBoundingClientRect(),b=to.getBoundingClientRect();
@@ -140,7 +141,9 @@ test('the same anchored picker searches the catalog and compatible connection ta
         await app.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 640, deviceScaleFactor: 1, mobile: false });
         await app.waitFor(`(() => {
             const nav = document.querySelector('#canvas-navigation');
-            return innerWidth === 390 && [...nav.children].filter(control => control.checkVisibility()).every(control => {
+            const controls = [...nav.querySelectorAll('.canvas-run-scope-trigger, [data-nav], .canvas-zoom-menu')]
+                .filter(control => control.checkVisibility());
+            return innerWidth === 390 && controls.length === 6 && controls.every(control => {
                 const rect = control.getBoundingClientRect();
                 return rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight;
             });

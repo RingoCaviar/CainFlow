@@ -216,7 +216,8 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         card.classList.toggle('is-completed', completed);
         undo.hidden = !Object.keys(latest().bindings || {}).length && !latest().appliedSignature;
         execute.hidden = !plan.steps.some(step => step.execute !== false);
-        undo.disabled = busy || Boolean(adapter.canUndo(latest())); undo.title = adapter.canUndo(latest());
+        undo.title = undo.hidden ? '' : adapter.canUndo(latest());
+        undo.disabled = busy || undo.hidden || Boolean(undo.title);
         moreActions.hidden = retry.hidden && undo.hidden && !copy;
         if (moreActions.hidden && moreActions.open) closeMoreActions();
         refresh.disabled = busy || !isCurrent();
@@ -243,6 +244,10 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
         busy = true; sync(); status.textContent = '正在校验与应用…';
         let instance;
         try {
+            // Return the click to the browser before constructing the batch. A
+            // queued action still belongs to the same authorized conversation.
+            await new Promise(resolve => setTimeout(resolve, 0));
+            if (destroyed || !canApply()) return;
             const instantiate = asCopy || !inPlace && plan.steps.length;
             instance = retryOnly ? latest() : instantiate ? adapter.instantiate(plan) : plan;
             if (asCopy) for (const step of imageSettings) {

@@ -22,12 +22,15 @@ export function createImageResultActions({ documentRef, source, getWorkflowId, o
             const image = await source.readOriginal();
             if (!current(workflowId)) return;
             if (!/^data:image\//i.test(image || '')) throw new Error('原图不可用，请先恢复原图。');
-            if (action === 'preview') await openPreview(image, () => {
+            if (action === 'preview') {
+                const batch = await source.readPreviewBatch?.(image);
                 if (!current(workflowId)) return;
-                if (source.restoreFocus) source.restoreFocus();
-                else if (button?.isConnected && !button.closest('[inert]')) button.focus({ preventScroll: true });
-            });
-            else if (action === 'reference') {
+                await openPreview(image, () => {
+                    if (!current(workflowId)) return;
+                    if (source.restoreFocus) source.restoreFocus();
+                    else if (button?.isConnected && !button.closest('[inert]')) button.focus({ preventScroll: true });
+                }, batch);
+            } else if (action === 'reference') {
                 source.beforeHandoff?.();
                 await prepareReference({ workflowId, image, assetKey: source.assetKey, historyId: source.historyId, name: source.name,
                     sourceNodeId: source.sourceNodeId, sourcePort: source.sourcePort, sourceImageIndex: source.sourceImageIndex,

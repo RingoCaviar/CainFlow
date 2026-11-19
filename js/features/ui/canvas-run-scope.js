@@ -51,16 +51,18 @@ export function createCanvasRunScopeMenu({ state, documentRef, getWorkflowId, ge
     panel.setAttribute('aria-labelledby', 'canvas-run-scope-title');
     panel.innerHTML = `
         <h2 id="canvas-run-scope-title">运行范围</h2>
-        <fieldset aria-label="选择运行范围">
-            <label><input type="radio" name="canvas-run-scope" value="selected-only"><span data-selected-label>仅此节点</span></label>
-            <label><input type="radio" name="canvas-run-scope" value="target-node">运行到此节点</label>
-            <label><input type="radio" name="canvas-run-scope" value="all">运行整个工作流</label>
-        </fieldset>
-        <div class="canvas-run-scope-summary" role="status" aria-live="polite"></div>
-        <section class="canvas-run-scope-commerce" aria-labelledby="canvas-run-scope-commerce-title" hidden>
-            <h3 id="canvas-run-scope-commerce-title">套图图位</h3>
-            <div class="canvas-run-scope-commerce-rows" aria-live="polite"></div>
-        </section>
+        <div class="canvas-run-scope-scroll">
+            <fieldset aria-label="选择运行范围">
+                <label><input type="radio" name="canvas-run-scope" value="selected-only"><span data-selected-label>仅此节点</span></label>
+                <label><input type="radio" name="canvas-run-scope" value="target-node">运行到此节点</label>
+                <label><input type="radio" name="canvas-run-scope" value="all">运行整个工作流</label>
+            </fieldset>
+            <section class="canvas-run-scope-commerce" aria-labelledby="canvas-run-scope-commerce-title" hidden>
+                <h3 id="canvas-run-scope-commerce-title">套图图位</h3>
+                <div class="canvas-run-scope-commerce-rows" aria-live="polite"></div>
+            </section>
+            <div class="canvas-run-scope-summary" role="status" aria-live="polite"></div>
+        </div>
         <button type="button" data-confirm-run-scope>运行此范围</button>`;
     documentRef.body.append(panel);
     const selectedLabel = panel.querySelector('[data-selected-label]');
@@ -156,7 +158,7 @@ export function createCanvasRunScopeMenu({ state, documentRef, getWorkflowId, ge
         commerceRows.replaceChildren();
         for (const [index, row] of rows.entries()) {
             const {
-                nodeId, issue, shotCount, generateCount, candidateCount, referenceCount, finalizedCount, upstreamWillRun,
+                nodeId, issue, shotCount, generateCount, candidateCount, referenceCount, finalizedCount, excludedCount, upstreamWillRun,
                 hasCompleted, unfinishedCount
             } = row;
             const name = names[index];
@@ -165,17 +167,27 @@ export function createCanvasRunScopeMenu({ state, documentRef, getWorkflowId, ge
             article.dataset.commerceRunNode = nodeId;
             const title = documentRef.createElement('strong');
             title.textContent = name;
+            article.append(title);
+            const recovery = issue ? documentRef.createElement('div') : article;
+            if (issue) {
+                recovery.className = 'canvas-run-scope-commerce-recovery';
+                const note = documentRef.createElement('p');
+                note.className = 'canvas-run-scope-commerce-note';
+                note.textContent = issue.message;
+                recovery.append(note);
+                article.append(recovery);
+            }
             const counts = documentRef.createElement('p');
             counts.className = 'canvas-run-scope-commerce-counts';
             const generation = `模型生成 ${generateCount} 张${candidateCount > 1 ? '候选' : ''}`;
             counts.textContent = `${shotCount} 个图位 · ${generation} · 复用原图 ${referenceCount} 张`;
             if (finalizedCount) counts.textContent += ` · 保留定稿 ${finalizedCount} 张`;
-            article.append(title, counts);
+            if (excludedCount) counts.textContent += ` · 暂不执行 ${excludedCount} 个图位`;
+            article.append(counts);
             const notes = [
                 upstreamWillRun ? '本次也会运行上游节点，商品参考图可能变化。参考图变化后需重新规划并确认套图。' : '',
                 !issue && hasCompleted && shotCount > finalizedCount
-                    ? (finalizedCount ? '重做整套时只会重新处理未定稿的图位。' : '重做整套会重新处理已完成的图位。') : '',
-                issue?.message
+                    ? '本次会重新处理已完成且未定稿的图位。' : ''
             ].filter(Boolean);
             for (const text of notes) {
                 const note = documentRef.createElement('p');
@@ -197,7 +209,7 @@ export function createCanvasRunScopeMenu({ state, documentRef, getWorkflowId, ge
                     openNodeSettings(nodeId, action);
                 });
                 if (focusedNodeId === nodeId) nextFocus = settings;
-                article.append(settings);
+                recovery.append(settings);
             }
             commerceRows.append(article);
         }
@@ -219,7 +231,8 @@ export function createCanvasRunScopeMenu({ state, documentRef, getWorkflowId, ge
         const allowFill = !message && snapshot.ids.length === 1 && commerce.length === 1
             && panel.querySelector('input:checked').value === 'selected-only';
         renderCommerce(commerce, allowFill);
-        confirm.textContent = allowFill && !commerce[0].issue && commerce[0].hasCompleted ? '重做整套' : '运行此范围';
+        const redo = allowFill && !commerce[0].issue && commerce[0].hasCompleted && commerce[0].shotCount > commerce[0].finalizedCount;
+        confirm.textContent = redo ? '重做已确认图位' : '运行此范围';
         confirm.disabled = Boolean(message) || !runIds.size;
     }
 

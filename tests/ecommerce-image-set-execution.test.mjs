@@ -110,8 +110,9 @@ function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main',
             return Response.json({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data } }] } }] });
         }
     });
-    const execute = (action, image = reference, commerceShotId, signal = new AbortController().signal, commerceCandidateKey) => core.executeNode(
-        node, { referenceImages: image ? [image] : [], ...(typedStyleReference ? { styleReferenceImages: [typedStyleReference.url] } : {}) }, signal, { commerceAction: action, commerceShotId, commerceCandidateKey });
+    const execute = (action, image = reference, commerceShotId, signal = new AbortController().signal, options = {}) => core.executeNode(
+        node, { referenceImages: image ? [image] : [], ...(typedStyleReference ? { styleReferenceImages: [typedStyleReference.url] } : {}) },
+        signal, { commerceAction: action, commerceShotId, ...options });
     return { node, execute, normalizeRunOptions: core.normalizeRunOptions, removeCommerceScene: core.removeCommerceScene,
         getCachedOutputValue: core.getCachedOutputValue, apiCalls, requestLogs, requestStatistics, imagePrompts, history, assets, warnings,
         setConnectedReference, setFailure: role => { failedRole = role; }, clearFailure: () => { failedRole = undefined; } };
@@ -337,7 +338,7 @@ test('restoring a commerce candidate updates the chosen output and its exact cap
     assert.throws(() => normalizeRunOptions({ ...input, commerceCandidateKey: featureCandidate.key }), /候选/);
 
     const requestCount = apiCalls.length;
-    await execute('select-candidate', null, 'detail', undefined, originalCandidate.key);
+    await execute('select-candidate', null, 'detail', undefined, { commerceCandidateKey: originalCandidate.key });
     assert.equal(apiCalls.length, requestCount);
     assert.deepEqual(node.data.mediaAssetKeys, [originalKey, featureKey]);
     const restored = node.data.commerceImageSet.plan.shots[0];
@@ -347,10 +348,10 @@ test('restoring a commerce candidate updates the chosen output and its exact cap
     assert.equal(isCommerceShotImageStale(restored, node.data.commerceImageSet.results[0]), false);
 
     node.data.commerceImageSet.results[0].finalized = true;
-    await assert.rejects(execute('select-candidate', null, 'detail', undefined, newCandidate.key), /定稿/);
+    await assert.rejects(execute('select-candidate', null, 'detail', undefined, { commerceCandidateKey: newCandidate.key }), /定稿/);
     delete node.data.commerceImageSet.results[0].finalized;
     assets.delete(currentKey);
-    await assert.rejects(execute('select-candidate', null, 'detail', undefined, newCandidate.key), /无法读取/);
+    await assert.rejects(execute('select-candidate', null, 'detail', undefined, { commerceCandidateKey: newCandidate.key }), /无法读取/);
     assert.deepEqual(node.data.mediaAssetKeys, [originalKey, featureKey]);
     assert.equal(node.data.commerceImageSet.plan.shots[0].headline, '规划草稿');
 });
@@ -371,7 +372,7 @@ test('a downstream preview error after candidate adoption reports the update war
     await execute('generate');
     const candidate = getCommerceShotCandidates(node.data.commerceImageSet, 'detail')[0];
     failPreview = true;
-    await execute('select-candidate', null, 'detail', undefined, candidate.key);
+    await execute('select-candidate', null, 'detail', undefined, { commerceCandidateKey: candidate.key });
     assert.deepEqual(node.data.mediaAssetKeys, [candidate.assetKey]);
     assert.ok(warnings.some(message => /已采用候选.*下游预览.*失败/.test(message)));
 });
@@ -471,7 +472,7 @@ test('the same commerce image asset can restore either of its distinct captured 
     assert.equal(candidates.length, 2);
     assert.equal(candidates[0].assetKey, candidates[1].assetKey);
     assert.notEqual(candidates[0].key, candidates[1].key);
-    await execute('select-candidate', null, 'detail', undefined, candidates[1].key);
+    await execute('select-candidate', null, 'detail', undefined, { commerceCandidateKey: candidates[1].key });
     assert.equal(node.data.commerceImageSet.plan.shots[0].headline, '规划草稿');
     assert.equal(node.data.commerceImageSet.results[0].planKey, candidates[1].planKey);
 });
@@ -567,6 +568,49 @@ test('commerce planning requires confirmation and unchanged original references 
     assert.deepEqual(node.data.commerceImageSet.results.map(row => row.shotId), ['main', ...roles]);
     assert.deepEqual(node.data.mediaAssetKeys, node.data.commerceImageSet.results.map(row => row.assetKey));
     assert.deepEqual(node.data.mediaAssetKeys.map(key => assets.get(key)), output.image);
+});
+
+test('confirming a commerce batch in the panel only records confirmation after a successful publication', async () => {
+    const panel = { commerceConfirmOnExecution: true };
+    const invalid = createCommerceExecutionFixture({ selectedShotIds: ['main', 'angle'], imageModel: 'dall-e-3', imageProtocol: 'openai' });
+    await invalid.execute('plan');
+    await assert.rejects(invalid.execute('generate', reference, undefined, undefined, panel), /不支持参考图输入/);
+    assert.deepEqual(invalid.apiCalls, [{ type: 'plan', images: ['AAAA'] }]);
+    assert.equal(invalid.node.data.commerceImageSet.plan.confirmed, false);
+
+    const valid = createCommerceExecutionFixture({ selectedShotIds: ['angle'], failedRole: 'angle' });
+    await valid.execute('plan');
+    await assert.rejects(valid.execute('generate', reference, undefined, undefined, panel));
+    assert.equal(valid.node.data.commerceImageSet.plan.confirmed, false);
+
+    valid.clearFailure();
+    await valid.execute('generate', reference, undefined, undefined, panel);
+    assert.equal(valid.node.data.commerceImageSet.plan.confirmed, true);
+    assert.equal(valid.node.data.commerceImageSet.results[0].status, 'completed');
+});
+
+test('a panel scene keeps its review state after generation fails and confirms only the saved scene', async () => {
+    const panel = { commerceConfirmOnExecution: true };
+    const fixture = createCommerceExecutionFixture({
+        selectedShotIds: ['angle'],
+        beforePlanRequest: input => ({
+            sellingPoints: [], shots: input.shots.map(({ id }) => id.startsWith('scene-')
+                ? { id, prompt: '窗边自然光', sceneSummary: '窗边' } : { id, prompt: '多角度拍摄' })
+        })
+    });
+    await fixture.execute('plan');
+    const shotId = appendCommerceSceneShot(fixture.node.data.commerceImageSet, 'gallery').id;
+    await fixture.execute('replan-shot', reference, shotId);
+    fixture.setFailure('窗边自然光');
+    const sceneConfirmed = () => fixture.node.data.commerceImageSet.plan.shots.find(shot => shot.id === shotId).sceneConfirmed;
+    await assert.rejects(fixture.execute('retry', reference, shotId, undefined, panel));
+    assert.equal(sceneConfirmed(), false);
+
+    fixture.clearFailure();
+    await fixture.execute('retry', reference, shotId, undefined, panel);
+    assert.equal(sceneConfirmed(), true);
+    assert.equal(fixture.node.data.commerceImageSet.plan.confirmed, false);
+    assert.equal(fixture.node.data.commerceImageSet.results.find(row => row.shotId === shotId).status, 'completed');
 });
 
 test('product analysis refreshes AI fields, preserves explicit edits, and supplies the resulting product information to the image model', async () => {
@@ -854,12 +898,12 @@ test('replanning with changed references removes old photos from active output a
     assert.equal(node.data.mediaAssetKeys?.length || 0, 0);
     assert.deepEqual(node.data.commerceImageSet.previousExportResults.map(row => row.outputKey), originalKeys);
     await assert.rejects(
-        execute('select-candidate', null, 'detail', undefined, oldCandidate.key),
+        execute('select-candidate', null, 'detail', undefined, { commerceCandidateKey: oldCandidate.key }),
         /参考图.*旧|旧.*参考图/
     );
     delete node.data.commerceImageSet.candidates.find(candidate => candidate.key === oldCandidate.key).referenceContentKey;
     await assert.rejects(
-        execute('select-candidate', null, 'detail', undefined, oldCandidate.key),
+        execute('select-candidate', null, 'detail', undefined, { commerceCandidateKey: oldCandidate.key }),
         /无法确认.*参考图版本/
     );
     assert.equal(getCachedOutputValue(node, 'image'), undefined);
@@ -1304,26 +1348,35 @@ test('旧追加场景在风格变更并重规划后重新确认，使用当前�
 });
 
 
-test('appending eight candidates retains the adopted output and bounds history to twenty versions', async () => {
+test('appending eight candidates retains the adopted output, default quantity, and history limit', async () => {
     let variant = 1;
-    const { node, execute } = createCommerceExecutionFixture({ selectedShotIds: ['detail'],
+    const { node, execute, normalizeRunOptions } = createCommerceExecutionFixture({ selectedShotIds: ['detail'],
         responseImageData: () => Buffer.from([variant++]).toString('base64') });
+    const input = { mode: 'selected-only', selectedNodeIds: [node.id], commerceNodeId: node.id,
+        commerceAction: 'generate-candidates', commerceShotId: 'detail', commerceCandidateCount: 8 };
+    assert.equal(normalizeRunOptions(input).commerceCandidateCount, 8);
+    for (const count of [0, 9, 1.5, '8']) {
+        assert.throws(() => normalizeRunOptions({ ...input, commerceCandidateCount: count }), /候选图片张数/);
+    }
+    assert.throws(() => normalizeRunOptions({ ...input, commerceAction: 'retry' }), /候选图片张数/);
     await execute('plan');
     node.data.commerceImageSet.plan.confirmed = true;
     await execute('generate');
     const original = structuredClone(node.data.commerceImageSet.results[0]);
     const output = [...node.data.mediaAssetKeys];
-    node.data.commerceImageSet.candidateCount = 8;
-    await execute('generate-candidates', reference, 'detail');
+    node.data.commerceImageSet.candidateCount = 2;
+    const append = () => execute('generate-candidates', reference, 'detail', undefined, { commerceCandidateCount: 8 });
+    await append();
     assert.equal(getCommerceShotCandidates(node.data.commerceImageSet, 'detail').length, 9);
     assert.deepEqual(node.data.commerceImageSet.results[0], original);
     assert.deepEqual(node.data.mediaAssetKeys, output);
-    await execute('generate-candidates', reference, 'detail');
-    await execute('generate-candidates', reference, 'detail');
+    await append();
+    await append();
+    assert.equal(node.data.commerceImageSet.candidateCount, 2);
     const versions = getCommerceShotCandidates(node.data.commerceImageSet, 'detail');
     assert.equal(versions.length, 20);
     assert.ok(versions.some(version => version.assetKey === original.assetKey));
-    await execute('select-candidate', null, 'detail', undefined, versions[0].key);
+    await execute('select-candidate', null, 'detail', undefined, { commerceCandidateKey: versions[0].key });
     assert.equal(node.data.commerceImageSet.results[0].assetKey, versions[0].assetKey);
     assert.ok(getCommerceShotCandidates(node.data.commerceImageSet, 'detail').some(version => version.assetKey === original.assetKey));
 });
@@ -1343,6 +1396,41 @@ test('appending candidates without an adopted output saves history without autom
     assert.equal(getCommerceShotCandidates(node.data.commerceImageSet, 'detail').length, 3);
     assert.deepEqual(node.data.commerceImageSet.results, []);
     assert.deepEqual(node.data.mediaAssetKeys, []);
+});
+
+test('a one-off candidate quantity stays isolated from an overlapping retry and the next redo', async () => {
+    const held = Promise.withResolvers();
+    const release = Promise.withResolvers();
+    let holdDetail = false;
+    let variant = 1;
+    const { node, execute, apiCalls } = createCommerceExecutionFixture({ selectedShotIds: ['detail', 'feature'],
+        async beforeImageRequest(role) {
+            if (!holdDetail || role !== 'detail') return;
+            holdDetail = false;
+            held.resolve();
+            await release.promise;
+        }, responseImageData: () => Buffer.from([variant++]).toString('base64') });
+    await execute('plan');
+    node.data.commerceImageSet.plan.confirmed = true;
+    node.data.commerceImageSet.candidateCount = 2;
+    await execute('generate');
+
+    let start = apiCalls.length;
+    holdDetail = true;
+    const append = execute('generate-candidates', reference, 'detail', undefined, { commerceCandidateCount: 4 });
+    try {
+        await Promise.race([held.promise, append]);
+        await execute('retry', reference, 'feature');
+    } finally {
+        release.resolve();
+    }
+    await append;
+    assert.deepEqual(apiCalls.slice(start).map(call => call.role), ['detail', 'feature', 'feature', 'detail', 'detail', 'detail']);
+    assert.equal(node.data.commerceImageSet.candidateCount, 2);
+
+    start = apiCalls.length;
+    await execute('generate');
+    assert.deepEqual(apiCalls.slice(start).map(call => call.role), ['detail', 'detail', 'feature', 'feature']);
 });
 
 
@@ -1374,12 +1462,12 @@ test('canceling appended candidates preserves completed versions and the adopted
     node.data.commerceImageSet.plan.confirmed = true;
     await execute('generate');
     const original = structuredClone(node.data.commerceImageSet.results);
-    node.data.commerceImageSet.candidateCount = 8;
-    const generating = execute('generate-candidates', reference, 'detail');
+    const generating = execute('generate-candidates', reference, 'detail', undefined, { commerceCandidateCount: 8 });
     await blocked.promise;
     node.commerceShotCancelHandlers.get('detail')();
     await assert.rejects(generating, { name: 'AbortError' });
     assert.equal(attempt, 4);
+    assert.equal(node.data.commerceImageSet.candidateCount, undefined);
     assert.deepEqual(node.data.commerceImageSet.results, original);
     assert.equal(getCommerceShotCandidates(node.data.commerceImageSet, 'detail').length, 3);
 });

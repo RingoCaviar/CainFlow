@@ -373,6 +373,21 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
     border-color: var(--node-status-error-border);
 }
 
+.node.node-commerce-image-set .node-time-badge {
+    --node-time-overrun-text: var(--text-danger);
+    background: color-mix(in srgb, var(--bg-canvas) 91%, currentColor);
+    color: var(--text-link);
+    font-family: var(--font);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    opacity: 1;
+    box-shadow: none;
+    transition: none;
+}
+
+.node.node-commerce-image-set.completed .node-time-badge { color: var(--text-success); }
+.node.node-commerce-image-set.error .node-time-badge { color: var(--text-danger); }
+
 .node-delete {
     width: 24px;
     height: 24px;

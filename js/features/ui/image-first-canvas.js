@@ -39,7 +39,7 @@ const emptyPreviewMessages = new Set(['无输入图片', '无输入视频', '运
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
     runCurrentNode, waitForNodeRun, cancelCommerceImageSet, removeCommerceScene, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
-    panelManager = null, openModelSettings = () => {}, openResultPreview = () => {},
+    panelManager = null, openModelSettings = () => {}, openResultPreview = () => {}, focusReferenceSource = () => {},
     openShotError = () => {}, openNodeFailureLog = () => false, openNodeRunError = null, openReferencePreview = null, bindReferencePrompt = null,
     uploadRetouchReference, referenceImageCatalog, pickCommerceStyleReference, onNativeClipboardWrite, readReferenceAsset }) {
     const views = new Map();
@@ -1110,7 +1110,15 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const inputs = createImageInputDetail({ state, node, documentRef, updateInputConnection, onChange: () => refreshNode(node.id) });
         const commerce = createCommerceImageSetView({
             node, state, documentRef, openResultPreview, openShotError, bindReferencePrompt, readReferenceAsset, referenceImageCatalog, pickCommerceStyleReference,
-            run: (commerceAction, commerceShotId, commerceCandidateKey) => runCurrentNode(node.id, { commerceAction, commerceShotId, commerceCandidateKey }),
+            openModelSettings, focusReferenceSource,
+            connectReference: () => node.el.querySelector('.universal-input')?.click(),
+            showReferenceDetails: () => {
+                referenceDetails.open = true;
+                referenceSummary.focus({ preventScroll: true });
+                referenceSummary.scrollIntoView({ block: 'nearest' });
+            },
+            run: (commerceAction, commerceShotId, { commerceCandidateKey, commerceCandidateCount } = {}) =>
+                runCurrentNode(node.id, { commerceAction, commerceShotId, commerceCandidateKey, commerceCandidateCount }),
             cancel: commerceShotId => cancelCommerceImageSet(node.id, commerceShotId),
             removeScene: shotId => removeCommerceScene(node.id, shotId),
             onChange: change => onSettingsChanged(node.id, change)

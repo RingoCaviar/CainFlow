@@ -40,10 +40,12 @@ try {
  state.nodes.get('b').el.classList.add('is-virtualized');
  await new Promise(resolve=>setTimeout(resolve,0));
  const projectionKeptResults=firstResult===root.querySelector('.canvas-node-results button');
+ root.querySelector('.canvas-node-results [data-node-id="b"]').focus();
  state.nodes.get('b').el.querySelector('.node-title').textContent='新名称';
  state.nodes.get('b').el.classList.add('running');
  await new Promise(resolve=>setTimeout(resolve,0));
  const renamedRunning=[...root.querySelectorAll('.canvas-node-results button')].some(button=>button.textContent.includes('新名称')&&button.textContent.includes('运行中'));
+ const restoredResultFocus=document.activeElement.matches('.canvas-node-results [data-node-id="b"].is-active');
  state.nodes.clear();layer.replaceChildren();add('c','视频结果','VideoGenerate');
  await new Promise(resolve=>setTimeout(resolve,0));
  const current=[...root.querySelectorAll('.canvas-node-results button')].map(x=>x.dataset.nodeId);
@@ -51,6 +53,16 @@ try {
  input.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
  state.canvas.zoom=5;click('plus');const maximum=state.canvas.zoom;
  state.canvas.zoom=.1;click('minus');const minimum=state.canvas.zoom;
- document.getElementById('surface-result').textContent=JSON.stringify({plus,percent,anchorPreserved,preset,presetAnchor,zoomKeyboard,reset,fitCount,focused,found,current,shortcutSafe,wheels,maximum,minimum,saves,projectionKeptResults,renamedRunning,closed:!root.classList.contains('search-open')});
+ canvas.style.width='320px';canvas.style.height='190px';
+ document.body.classList.add('toolbar-pinned');document.body.style.setProperty('--toolbar-height','130px');
+ const summary=zoomMenu.querySelector('summary');
+ summary.click();
+ const popupBounds=()=>{const {top,bottom,left,right}=zoomMenu.querySelector('.canvas-zoom-options').getBoundingClientRect();return {top,bottom,left,right};};
+ const rapidResizeZoom=popupBounds();
+ summary.click();
+ canvas.style.height='210px';
+ summary.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));
+ const rapidResizeKeyboard=popupBounds();
+ document.getElementById('surface-result').textContent=JSON.stringify({plus,percent,anchorPreserved,preset,presetAnchor,zoomKeyboard,rapidResizeZoom,rapidResizeKeyboard,reset,fitCount,focused,found,current,shortcutSafe,wheels,maximum,minimum,saves,projectionKeptResults,renamedRunning,restoredResultFocus,closed:!root.classList.contains('search-open')});
 }catch(error){document.getElementById('surface-result').textContent=JSON.stringify({error:error.stack});}
 </script></body></html>

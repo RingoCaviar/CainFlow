@@ -177,9 +177,10 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
     } = {}) {
         if (!isCurrent()) throw new Error('方案所属会话已变化');
         if (activePlans.size && !plan.templateId) throw new Error('另一个画布方案正在执行');
-        const recreation = prepareCanvasPlanRecreation(plan, context());
+        const initialContext = context();
+        const recreation = prepareCanvasPlanRecreation(plan, initialContext);
         const connectionBase = liveRecreationConnections(recreation);
-        assertCanvasPlanPromptInputs(plan, context());
+        assertCanvasPlanPromptInputs(plan, initialContext);
         const libraryStep = plan.steps.find(step => isPromptLibraryWrite(plan, step));
         if (plan.libraryPrompt && !libraryStep) throw new Error('提示词库操作缺少有效目标');
         const selected = modelsFor(plan, defaultModelId);
@@ -195,7 +196,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
             executionConfigs.set(plan.id, configurationSnapshot);
             return plan;
         }
-        if (libraryStep) validatePromptLibraryWrite(plan, libraryStep, context());
+        if (libraryStep) validatePromptLibraryWrite(plan, libraryStep, initialContext);
         const workflowId = getWorkflowId();
         for (const step of plan.steps) {
             const staged = stagedImports.get(step.id);
@@ -267,14 +268,17 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                             const { width, height } = nodeBounds(node, zoom);
                             const parents = plan.connections.filter(link => link.to.ref === id).map(link =>
                                 state.nodes.get(bindings[link.from.ref] || plan.steps.find(item => item.id === link.from.ref)?.nodeId || link.from.ref)).filter(Boolean);
-                            const anchor = parents.sort((a, b) => b.x - a.x)[0];
+                            parents.sort((a, b) => b.x - a.x);
+                            const batchParent = parents.find(parent => createdNodes.some(item => item.nodeId === parent.id));
+                            const anchor = batchParent || parents[0];
+                            const bounds = anchor && nodeBounds(anchor, zoom);
+                            const beside = bounds && { x: bounds.x + bounds.width + 80, y: bounds.y };
                             let position;
-                            if (anchor) {
-                                const bounds = nodeBounds(anchor, zoom);
-                                position = findNearbyNodePosition({ x: bounds.x + bounds.width + 80, y: bounds.y, width, height,
+                            if (batchParent) {
+                                position = findNearbyNodePosition({ ...beside, width, height,
                                     occupied: viewport.blockedSpan ? [...occupied, viewport.blockedSpan] : occupied });
                             } else {
-                                position = findViewportNodePosition({ viewport, width, height, occupied });
+                                position = findViewportNodePosition({ viewport, width, height, occupied, preferredPosition: beside });
                             }
                             setNodePosition(node, position);
                             occupied.push({ ...position, width, height });
@@ -292,7 +296,7 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
                         const patch = { targetNodeId: nodeId, prompt, ...(typeof step.negativePrompt === 'string' ? { negativePrompt: step.negativePrompt } : {}),
                             parameters: { ...sizes[id].parameterPatch } };
                         nodeAdapter.ensureTarget(patch, { modelId: selected[id].model.id, providerId: selected[id].provider.id });
-                        const schema = nodeAdapter.getContext(nodeId)?.parameterSchema;
+                        const schema = step.inheritedFields?.length && nodeAdapter.getContext(nodeId)?.parameterSchema;
                         if (schema) for (const field of step.inheritedFields || []) {
                             const key = generationFields[field];
                             const rule = schema[key], value = patch.parameters[key];
@@ -409,20 +413,20 @@ export function createPromptAgentCanvasAdapter({ state, documentRef, serializeNo
     async function execute(plan, { retainResults, retry = false } = {}) {
         if (activePlans.has(plan.id) || (activePlans.size && !plan.templateId)) throw new Error('此批次正在运行');
         try {
-        assertCanvasPlanCurrent(plan, context());
         const validateInputs = () => {
-            assertCanvasPlanCurrent(plan, context());
+            const currentCanvas = context();
+            assertCanvasPlanCurrent(plan, currentCanvas);
             const recorded = plan.referenceManifest;
             if (!Array.isArray(recorded)) throw new Error('缺少已确认方案的参考图快照，请重新应用方案。');
             const targets = generationReferenceTargetIds(plan, recorded);
-            const actual = referenceManifest(context().nodes, state.connections, targets, canvasPlanExecutionNodeIds(plan));
+            const actual = referenceManifest(currentCanvas.nodes, state.connections, targets, canvasPlanExecutionNodeIds(plan));
             if (JSON.stringify(actual) !== JSON.stringify(recorded)) throw new Error('参考图输入与已确认方案不一致，请重新应用方案。');
             if (retry) {
                 const skipped = new Set((plan.completedSteps || []).map(id => plan.bindings[id]));
                 for (const input of actual.flatMap(target => target.inputs).filter(input => input.upstream && skipped.has(input.nodeId))) {
                     const step = plan.steps.find(step => plan.bindings[step.id] === input.nodeId);
                     const saved = plan.completedReferenceOutputs?.[step.id];
-                    const current = context().nodes.find(node => node.id === input.nodeId)?.assets;
+                    const current = currentCanvas.nodes.find(node => node.id === input.nodeId)?.assets;
                     if (!saved?.assets?.length || saved.nodeId !== input.nodeId || JSON.stringify(saved.assets) !== JSON.stringify(current)) {
                         throw new Error('已完成上游的参考图已变化或缺少原图快照，请重新应用并完整执行方案。');
                     }

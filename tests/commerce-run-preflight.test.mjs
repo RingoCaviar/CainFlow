@@ -4,7 +4,7 @@ import { appendCommerceSceneShot, commerceImageSetSourceKey, confirmCommerceScen
 import {
     getCommerceReferenceRevision, hasCommerceReferenceChange, projectCommerceReferences, verifyCommerceReferenceContent
 } from '../js/features/ecommerce-image-set/commerce-reference-revision.js';
-import { getCommerceRunBlocker, getCommerceRunPreflight, usesCommerceRunReferences } from '../js/features/execution/commerce-run-preflight.js';
+import { getCommerceImageConfigurationIssue, getCommerceRunBlocker, getCommerceRunPreflight, usesCommerceRunReferences } from '../js/features/execution/commerce-run-preflight.js';
 import { createWorkflowRunnerApi } from '../js/features/execution/workflow-runner.js';
 import { projectCanvasRunScope } from '../js/features/ui/canvas-run-scope.js';
 import { createWorkflowRuntimeManager } from '../js/features/workflow/workflow-runtime-manager.js';
@@ -55,6 +55,28 @@ test('commerce preflight distinguishes changing upstreams, reusable sources, and
     const emptyImport = fixture({ sourceType: 'ImageImport' });
     assert.equal(emptyImport.inspect().issue.action, 'references', 'executing an empty import cannot generate an image');
     assert.equal(emptyImport.inspect().upstreamWillRun, false);
+});
+
+test('canvas and dock share reference support, capacity, and aspect checks for the generation scope', () => {
+    const { state, source, settings, inspect } = fixture({ mode: 'selected-only', sourceType: 'ImageImport' });
+    const node = state.nodes.get('commerce');
+    const generatedShots = [{ id: 'angle', label: '多角度图', aspect: '1:1' }];
+    const check = referenceCount => getCommerceImageConfigurationIssue({ state, node, settings, generatedShots, referenceCount });
+
+    source.data.mediaAssetKeys = ['media:original'];
+    state.models[0].modelId = 'dall-e-3';
+    assert.match(check(1), /不支持商品参考图/);
+    assert.equal(inspect().issue?.message, check(1));
+
+    state.models[0].modelId = 'dall-e-2';
+    assert.equal(check(1), '');
+    source.data.mediaAssetKeys.push('media:second');
+    assert.match(check(2), /最多接收 1 张参考图/);
+    assert.equal(inspect().issue?.message, check(2));
+
+    generatedShots[0].aspect = '9:16';
+    assert.match(check(1), /「多角度图」的 9:16 比例/);
+    assert.equal(getCommerceImageConfigurationIssue({ state, node, settings, generatedShots: [], referenceCount: 2 }), '');
 });
 
 test('a passive preview needs a planned input or a retained original to supply commerce', () => {
@@ -179,7 +201,7 @@ test('disconnecting or disabling a planned commerce reference is stale while ima
     assert.match(inspect().issue.message, /参考图已变更/, 'a legacy plan also loses its active approval after disconnecting all sources');
 });
 
-test('a supplemental scene changes the canvas run scope only after individual confirmation', () => {
+test('the canvas preview counts a draft scene separately until it is confirmed for execution', () => {
     const { settings, inspect } = fixture();
     settings.results = [
         { shotId: 'main', status: 'completed', assetKey: 'media:original' },
@@ -188,14 +210,14 @@ test('a supplemental scene changes the canvas run scope only after individual co
     const baseline = inspect();
     const scene = appendCommerceSceneShot(settings, 'gallery');
     assert.ok(scene);
-    assert.deepEqual(inspect(), baseline);
+    assert.deepEqual(inspect(), { ...baseline, excludedCount: 1 });
     scene.prompt = '在窗边展示商品的真实外观。';
     scene.sceneSummary = '自然光窗边';
-    assert.deepEqual(inspect(), baseline, 'a drafted scene is outside the pending paid run');
+    assert.deepEqual(inspect(), { ...baseline, excludedCount: 1 }, 'a drafted scene is outside the pending paid run');
     assert.equal(confirmCommerceSceneShot(settings, scene.id), true);
     const ready = inspect();
     assert.equal(ready.issue, null);
-    assert.deepEqual([ready.shotCount, ready.generateCount, ready.unfinishedCount], [3, 2, 1]);
+    assert.deepEqual([ready.shotCount, ready.generateCount, ready.unfinishedCount, ready.excludedCount], [3, 2, 1, 0]);
     assert.notEqual(ready.approvalKey, baseline.approvalKey);
 });
 

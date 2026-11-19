@@ -1,6 +1,7 @@
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
 import { getNodeModelConfigurationIssue } from './model-configuration-readiness.js';
 import { getCommerceRunBlocker, getRunInputConnections, usesCommerceRunReferences } from './commerce-run-preflight.js';
+import { getRunnableCommerceImageSetShots, getUnfinishedCommerceImageSetShots } from '../ecommerce-image-set/commerce-image-set-plan.js';
 import {
     COMMERCE_REFERENCE_CHANGED_MESSAGE, hasCommerceReferenceChange, needsCommerceReferenceVerification,
     projectCommerceReferences, sameCommerceReferenceProjection, verifyCommerceReferenceContent
@@ -89,6 +90,33 @@ export function showNodeExecutionFailure(node, error) {
 function isCommerceImageGeneration(node, plan) {
     if (node?.type !== 'ECommerceImageSet') return false;
     return plan?.commerceNodeId !== node.id || !['analyze', 'plan', 'replan-shot'].includes(plan.commerceAction);
+}
+
+function getCommercePartialResult(node, plan) {
+    if (!node.generationAttemptIncomplete || !isCommerceImageGeneration(node, plan)
+        || plan.commerceAction === 'select-candidate') return null;
+    const settings = node.data.commerceImageSet;
+    const total = getRunnableCommerceImageSetShots(settings).length;
+    const remaining = getUnfinishedCommerceImageSetShots(settings).length;
+    return { total, remaining };
+}
+
+function describeCommercePartialResult({ total, remaining }) {
+    return remaining ? `套图部分完成 · ${total - remaining}/${total} 个图位，${remaining} 个待补齐。`
+        : '套图部分完成，已保留成图，请检查候选和图位状态。';
+}
+
+function commercePartialCompletionNotice(results) {
+    if (results.length === 0) return null;
+    const message = results.length === 1 ? describeCommercePartialResult(results[0])
+        : `${results.length} 个电商套图节点部分完成，请检查图位。`;
+    return {
+        toastMessage: message,
+        toastType: 'warning',
+        notificationTitle: 'CainFlow 套图部分完成',
+        notificationBody: message,
+        playSound: true
+    };
 }
 
 function isUnbatchedImageInput(node, portName) {
@@ -1931,7 +1959,9 @@ export function createWorkflowRunnerApi({
         }
         if (node?.type === 'ECommerceImageSet') {
             const action = plan?.commerceNodeId === node.id
-                ? { commerceAction: plan.commerceAction, commerceShotId: plan.commerceShotId, commerceCandidateKey: plan.commerceCandidateKey } : {};
+                ? { commerceAction: plan.commerceAction, commerceShotId: plan.commerceShotId,
+                    commerceCandidateKey: plan.commerceCandidateKey, commerceCandidateCount: plan.commerceCandidateCount,
+                    commerceConfirmOnExecution: true } : {};
             await executeNode(node, inputs, signal, action);
             return inputs;
         }
@@ -2257,6 +2287,7 @@ export function createWorkflowRunnerApi({
         }
 
         const completedNodes = new Set();
+        const partialCommerceResults = [];
         const runningNodes = new Set();
         const downstreamNodes = collectDownstreamNodeIds(plan, nodeId);
         order.forEach((nid) => {
@@ -2303,7 +2334,7 @@ export function createWorkflowRunnerApi({
                 timerId = setInterval(() => {
                     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
                     timeBadge.textContent = `${elapsed}s`;
-                    if (elapsed > 60) timeBadge.style.color = 'var(--accent-red)';
+                    if (elapsed > 60) timeBadge.style.color = 'var(--node-time-overrun-text, var(--accent-red))';
                     else timeBadge.style.color = '';
                 }, 100);
             }
@@ -2328,7 +2359,10 @@ export function createWorkflowRunnerApi({
                     timeBadge.textContent = `${durationSec}s`;
                     timeBadge.style.color = '';
                 }
-                addLog('success', `节点已完成: ${nodeTitle}`, `耗时 ${durationSec}s`, createNodeCompletionLogDetails(currentNode, loggedInputs, {
+                const partialResult = getCommercePartialResult(currentNode, plan);
+                if (partialResult) partialCommerceResults.push(partialResult);
+                addLog(partialResult ? 'warning' : 'success', `${partialResult ? '节点部分完成' : '节点已完成'}: ${nodeTitle}`,
+                    partialResult ? describeCommercePartialResult(partialResult) : `耗时 ${durationSec}s`, createNodeCompletionLogDetails(currentNode, loggedInputs, {
                     resumedFromVideoTask: nid === nodeId && expectedType === 'VideoGenerate' ? String(node.data?.videoId || '') : undefined,
                     resumedFromImageTask: nid === nodeId && expectedType === 'ImageGenerate' ? String(node.data?.imageTaskId || '') : undefined
                 }));
@@ -2433,7 +2467,7 @@ export function createWorkflowRunnerApi({
             await releaseWorkflowIntermediateImageResults(plan, completedNodes);
             connectionProjection?.nodeGeometryChanged(Array.from(completedNodes));
             updatePortStyles();
-            dispatchWorkflowCompletionNotice({
+            dispatchWorkflowCompletionNotice(commercePartialCompletionNotice(partialCommerceResults) || {
                 toastMessage: `${taskKind}任务恢复完成，后续节点已继续执行`,
                 toastType: 'success',
                 notificationTitle: 'CainFlow 恢复完成',
@@ -2732,6 +2766,7 @@ export function createWorkflowRunnerApi({
         let retryAttempt = 0;
         const maxRetries = state.maxRetries || 15;
         const completedNodes = new Set();
+        const partialCommerceResults = [];
         const failedNodes = new Set();
         const getDialogFailureIds = () => Array.from(failedNodes)
             .filter(nodeId => !isCommerceImageGeneration(state.nodes.get(nodeId), plan));
@@ -2834,7 +2869,7 @@ export function createWorkflowRunnerApi({
                                     timerId = setInterval(() => {
                                         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
                                         timeBadge.textContent = `${elapsed}s`;
-                                        if (elapsed > 60) timeBadge.style.color = 'var(--accent-red)';
+                                        if (elapsed > 60) timeBadge.style.color = 'var(--node-time-overrun-text, var(--accent-red))';
                                         else timeBadge.style.color = '';
                                     }, 100);
                                 }
@@ -2861,7 +2896,10 @@ export function createWorkflowRunnerApi({
                                         timeBadge.textContent = `${durationSec}s`;
                                         timeBadge.style.color = '';
                                     }
-                                    addLog('success', `节点已完成: ${nodeTitle}`, `耗时 ${durationSec}s`, createNodeCompletionLogDetails(node, loggedInputs));
+                                    const partialResult = getCommercePartialResult(node, plan);
+                                    if (partialResult) partialCommerceResults.push(partialResult);
+                                    addLog(partialResult ? 'warning' : 'success', `${partialResult ? '节点部分完成' : '节点已完成'}: ${nodeTitle}`,
+                                        partialResult ? describeCommercePartialResult(partialResult) : `耗时 ${durationSec}s`, createNodeCompletionLogDetails(node, loggedInputs));
                                     scheduleSave();
                                     completedNodes.add(nid);
                                 } catch (caughtError) {
@@ -3008,11 +3046,12 @@ export function createWorkflowRunnerApi({
                 });
             } else if (completedRun) {
                 await releaseWorkflowIntermediateImageResults(plan, completedNodes);
-                dispatchWorkflowCompletionNotice({
-                    toastMessage: `工作流运行完成，总耗时 ${totalDuration}s`,
+                const completedCommercePlan = plan.commerceAction === 'plan';
+                dispatchWorkflowCompletionNotice(commercePartialCompletionNotice(partialCommerceResults) || {
+                    toastMessage: completedCommercePlan ? '方案已生成，请检查图位。' : `工作流运行完成，总耗时 ${totalDuration}s`,
                     toastType: 'success',
-                    notificationTitle: 'CainFlow 运行完毕',
-                    notificationBody: `所有节点执行成功，总耗时 ${totalDuration}s`,
+                    notificationTitle: completedCommercePlan ? 'CainFlow 套图方案已生成' : 'CainFlow 运行完毕',
+                    notificationBody: completedCommercePlan ? '请检查图位后确认生成。' : `所有节点执行成功，总耗时 ${totalDuration}s`,
                     playSound: true,
                     taskbarStatus: 'completed'
                 });

@@ -384,6 +384,16 @@ test('node result actions stage the selected original without rewiring or shrink
         await waitFor("document.querySelector('#source-a-image-results .image-node-result-count').textContent==='2 / 3'");
         await waitFor("document.querySelector('#source-a-image-results .image-node-result-preview img')?.naturalWidth>0");
         assert.notEqual(await evaluate("document.querySelector('#source-a-image-results .image-node-result-preview img').src"), referenceImages[1], 'display thumbnail is distinct from the original');
+        await evaluate("document.querySelector('#source-a-image-results [data-result-action=preview]').click()");
+        const fullImage = "document.querySelector('.fullscreen-img-wrapper > img')";
+        await waitFor(`${fullImage}?.src === ${JSON.stringify(referenceImages[1])}`);
+        assert.equal(await evaluate("document.querySelectorAll('.fullscreen-thumb-item').length"), 3);
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight' });
+        await waitFor(`${fullImage}.src === ${JSON.stringify(referenceImages[2])}`);
+        await evaluate("document.querySelector('.fullscreen-thumb-item').click()");
+        await waitFor(`${fullImage}.src === ${JSON.stringify(referenceImages[0])}`);
+        await evaluate("document.querySelector('.fullscreen-close').click()");
+        await waitFor("!document.querySelector('.fullscreen-overlay')");
         await evaluate("document.querySelector('#source-a-image-results [data-result-action=reference]').click()");
         await waitFor("document.querySelectorAll('#prompt-agent-references img').length===1 && !document.querySelector('#prompt-agent-references .is-loading')");
         assert.equal(await evaluate("document.querySelector('#prompt-agent-references img').src"), referenceImages[1]);
