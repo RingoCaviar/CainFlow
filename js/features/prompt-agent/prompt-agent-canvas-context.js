@@ -5,9 +5,10 @@ import { listNodeDefinitions } from '../../nodes/registry.js';
 import { getDynamicNodePorts } from '../../nodes/node-view-factory.js';
 import { DOUBAO_VIDEO_RATIO_OPTIONS } from '../execution/provider-request-utils.js';
 import { hasCommerceReferenceChange, needsCommerceReferenceVerification, projectCommerceReferences } from '../ecommerce-image-set/commerce-reference-revision.js';
+import { getCommerceOutputAssetKey } from '../ecommerce-image-set/commerce-detail-page.js';
 import {
     COMMERCE_IMAGE_SET_COPY_LANGUAGES, getCommerceProductInfo, getRunnableCommerceImageSetShots,
-    isCommerceShotFinalized, normalizeCommerceImageSetCopyLanguage, normalizeCommerceImageSetState
+    isCommerceShotFinalized, isCommerceShotImageStale, normalizeCommerceImageSetCopyLanguage, normalizeCommerceImageSetState
 } from '../ecommerce-image-set/commerce-image-set-plan.js';
 
 const colorAdjustment = { type: 'integer', min: -100, max: 100 };
@@ -47,11 +48,25 @@ export function projectCanvasNode(node, running = false) {
         const { version, ...style } = normalizeVisualStyle(node.visualStyle ?? node.data?.visualStyle);
         Object.assign(parameters, style, { styleDetailLevel: normalizeVisualStyleDetailLevel(node.styleDetailLevel ?? node.data?.styleDetailLevel) });
     }
+    let commerceDetailPage;
     if (node.type === 'ECommerceImageSet') {
-        parameters.copyLanguage = normalizeCommerceImageSetCopyLanguage(node.commerceImageSet?.copyLanguage);
-        const productInfo = Object.fromEntries(Object.entries(getCommerceProductInfo(node.commerceImageSet))
+        const commerce = node.commerceImageSet ?? node.data?.commerceImageSet;
+        parameters.copyLanguage = normalizeCommerceImageSetCopyLanguage(commerce?.copyLanguage);
+        const productInfo = Object.fromEntries(Object.entries(getCommerceProductInfo(commerce))
             .filter(([, value]) => value.length));
         if (Object.keys(productInfo).length) parameters.productInfo = productInfo;
+        if (commerce?.plan?.detailPage) {
+            const { plan, results } = normalizeCommerceImageSetState(commerce);
+            if (plan?.detailPage) {
+                const sections = new Set(plan.detailPage.sections.map(section => section.shotId));
+                const shots = new Map(plan.shots.map(shot => [shot.id, shot]));
+                const output = new Set(node.mediaAssetKeys ?? node.data?.mediaAssetKeys ?? []);
+                const readySectionCount = plan.stale ? 0 : results.filter(row => sections.has(row.shotId)
+                    && row.status === 'completed' && output.has(getCommerceOutputAssetKey(row))
+                    && !isCommerceShotImageStale(shots.get(row.shotId), row)).length;
+                commerceDetailPage = { sectionCount: sections.size, readySectionCount };
+            }
+        }
     }
     // URL mode may retain old upload keys for switching back, but those are not its current output.
     const assetKeys = node.type === 'ImageImport' && node.importMode === 'url' ? []
@@ -61,6 +76,7 @@ export function projectCanvasNode(node, running = false) {
         position: { x: Number(node.x) || 0, y: Number(node.y) || 0, width: Number(node.width) || definition?.defaultWidth || 0, height: Number(node.height) || definition?.defaultHeight || 0 },
         enabled: node.enabled !== false, running, editable: CANVAS_TYPES.includes(node.type) && node.isClone !== true,
         patchable: definition?.type === node.type && node.isClone !== true, parameters,
+        ...(commerceDetailPage ? { commerceDetailPage } : {}),
         ...(node.type === 'ImageImport' && node.data?.imageDescription ? { imageDescription: String(node.data.imageDescription).slice(0, 2000) } : {}),
         ...(node.type === 'TextChat' && node.isClone !== true ? { supportsSystemPrompt: true } : {}),
         inputs: getDynamicNodePorts(node.type, 'inputs', node) || definition?.inputs || [],
@@ -103,6 +119,7 @@ export function createCanvasContext({ workflowId, nodes, connections, selectedId
         if (unavailableCommerceOutputs.has(node.id)) {
             output.assets = [];
             delete output.imageCount;
+            if (output.commerceDetailPage) output.commerceDetailPage.readySectionCount = 0;
         }
         return output;
     });
@@ -196,7 +213,7 @@ export function createCanvasContext({ workflowId, nodes, connections, selectedId
 
 export function canvasBaseline(context, ids, ignoreOutputIds = []) {
     const relevant = new Set(ids);
-    return JSON.stringify({ nodes: context.nodes.filter(node => relevant.has(node.id)).map(({ running, position, effectivePrompt, promptSource, parameterOptions, supportsSystemPrompt, patchable, imageCount, ...node }) => {
+    return JSON.stringify({ nodes: context.nodes.filter(node => relevant.has(node.id)).map(({ running, position, effectivePrompt, promptSource, parameterOptions, supportsSystemPrompt, patchable, imageCount, commerceDetailPage, ...node }) => {
         // Keep the persisted v1 baseline independent of protocol controls projected from the live UI.
         const { protocolParams, ...parameters } = node.parameters;
         // The automatic language is the behavior of workflows saved before this field existed.

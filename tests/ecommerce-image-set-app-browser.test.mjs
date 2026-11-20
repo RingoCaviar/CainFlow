@@ -12,6 +12,7 @@ import { commerceImageSetSourceKey, normalizeCommerceImageSetPlan } from '../js/
 
 const commerceProductField = field => `#image-parameter-panel [data-commerce-product-field=${field}]`;
 const commerceProductValue = field => `document.querySelector('${commerceProductField(field)}').value`;
+const commerceOutput = row => row.detailOutputKey || row.assetKey;
 async function nativeClick(app, selector, options) {
     await app.evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'nearest',inline:'nearest'})`);
     return clickVisibleControl(app, selector, options);
@@ -439,7 +440,8 @@ test('the commerce node generates selected shots, accepts a retry during generat
             }
             return Response.json({choices:[{message:{content:JSON.stringify({sellingPoints:['可见杯盖'],
                 productInfo:{name:'带盖随行杯',sellingPoints:['可见杯盖'],audience:'通勤人群',useCases:'日常饮水',details:'杯口配有杯盖'},
-                shots:shotIds.map(id=>({id,prompt:'原商品图位 '+id+'\\n杯盖位于右侧，采用近景构图、柔和侧光和简洁商品摄影风格。标题和正文排在左上方。',
+                 shots:shotIds.map(id=>({id,prompt:'原商品图位 '+id+'\\n杯盖位于右侧，采用近景构图、柔和侧光和简洁商品摄影风格。'+
+                     (id==='detail-overview'?'背景留出裁切空间。':'标题和正文排在左上方。'),
                     headline:id==='detail-overview'?'旧版标题':'握持方便',body:id==='detail-overview'?'旧版正文':'杯盖可拆卸'}))})}}]});
         };`;
 
@@ -659,17 +661,15 @@ test('the commerce node generates selected shots, accepts a retry during generat
         assert.equal(await app.evaluate(`document.querySelector(${JSON.stringify(shotEditor('main'))}).querySelectorAll('input,textarea').length`), 0);
         await app.evaluate(`const points=document.querySelector('[data-commerce-selling-points]');
             points.value='用户已核对杯盖';points.dispatchEvent(new Event('input',{bubbles:true}));`);
-        const headlineField = `${shotEditor('detail-overview')} [data-commerce-shot-field=headline]`;
-        const bodyField = `${shotEditor('detail-overview')} [data-commerce-shot-field=body]`;
+        const detailCopy = '轻松拿取杯盖\n拆下杯盖再清洗。';
+        const copyField = `${shotEditor('detail-overview')} [data-commerce-shot-field=copy]`;
+        const copyInput = `document.querySelector(${JSON.stringify(copyField)})`;
         await toggleShotEditor(app, 'detail-overview');
         assert.deepEqual(await app.evaluate(openedShotIds), ['detail-overview']);
-        await app.evaluate(`document.querySelector(${JSON.stringify(headlineField)}).scrollIntoView({block:'nearest'})`);
-        await nativeClick(app, headlineField);
+        await nativeClick(app, copyField);
         assert.deepEqual(await app.evaluate(openedShotIds), ['detail-overview'], 'clicking an edit field leaves the card open');
-        await app.evaluate(`const headline=document.querySelector(${JSON.stringify(headlineField)});
-            headline.value='轻松拿取杯盖';headline.dispatchEvent(new Event('input',{bubbles:true}));
-            const body=document.querySelector(${JSON.stringify(bodyField)});
-            body.value='拆下杯盖再清洗。';body.dispatchEvent(new Event('input',{bubbles:true}));`);
+        await app.evaluate(`const copy=${copyInput};
+            copy.value=${JSON.stringify(detailCopy)};copy.dispatchEvent(new Event('input',{bubbles:true}));`);
         await toggleShotEditor(app, 'detail-overview', false);
         assert.deepEqual(await app.evaluate(openedShotIds), []);
         const padding = await app.evaluate(`(()=>{const card=document.querySelector(${JSON.stringify(shotCard('feature'))});
@@ -686,8 +686,7 @@ test('the commerce node generates selected shots, accepts a retry during generat
         await key(app, 'Enter');
         await waitForShotEditor(app, 'detail-overview', true);
         assert.deepEqual(await app.evaluate(openedShotIds), ['detail-overview']);
-        assert.equal(await app.evaluate(`document.querySelector(${JSON.stringify(headlineField)}).value`), '轻松拿取杯盖');
-        assert.equal(await app.evaluate(`document.querySelector(${JSON.stringify(bodyField)}).value`), '拆下杯盖再清洗。');
+        assert.equal(await app.evaluate(`${copyInput}.value`), detailCopy);
 
         const viewport = await app.evaluate('({width:innerWidth,height:innerHeight,deviceScaleFactor:devicePixelRatio,mobile:false})');
         await app.send('Emulation.setDeviceMetricsOverride', { ...viewport, height: 460 });
@@ -722,7 +721,7 @@ test('the commerce node generates selected shots, accepts a retry during generat
         assert.match(running.message, /正在生成/);
         assert.match(running.shotStatus, /正在生成/);
         assert.ok(running.statusVisible && running.runningLocked && running.idleEditable && running.progressVisible, JSON.stringify(running));
-        assert.equal(await app.evaluate(`document.querySelector(${JSON.stringify(headlineField)}).value`), '轻松拿取杯盖');
+        assert.equal(await app.evaluate(`${copyInput}.value`), detailCopy);
         assert.equal(await app.evaluate(`document.querySelector('#commerce .commerce-image-set-cover').src ===
             document.querySelector('[data-commerce-shot-id=feature] img').src`), true);
         const liveThumbnail = thumbnail('feature');
@@ -794,29 +793,35 @@ test('the commerce node generates selected shots, accepts a retry during generat
             assert.match(request.prompt, /用户已核对杯盖/);
         }
         const detailRequest = requests.find(request => request.shotId === 'detail-overview');
-        assert.match(detailRequest.prompt, /杯盖位于右侧.*近景构图.*柔和侧光.*商品摄影风格.*左上方/);
-        assert.match(detailRequest.prompt, /同一次出图中完成商品画面与文案排版/);
-        assert.match(detailRequest.prompt, /标题：\s*"轻松拿取杯盖"/);
-        assert.match(detailRequest.prompt, /正文：\s*"拆下杯盖再清洗。"/);
-        assert.doesNotMatch(detailRequest.prompt, /旧版标题|旧版正文/);
+        assert.match(detailRequest.prompt, /杯盖位于右侧.*近景构图.*柔和侧光.*商品摄影风格/);
+        assert.match(detailRequest.prompt, /轻松拿取杯盖/);
+        assert.match(detailRequest.prompt, /拆下杯盖再清洗/);
+        assert.doesNotMatch(detailRequest.prompt, /只生成详情页排版用的商品或场景素材|旧版标题|旧版正文/);
         const before = await app.evaluate(saved);
         assert.deepEqual(before.commerceImageSet.selectedShotIds, ['main', 'detail', 'feature', 'detail-overview']);
         assert.deepEqual(before.commerceImageSet.results.map(row => row.shotId), ['main', 'detail', 'feature', 'detail-overview']);
-        assert.equal(before.commerceImageSet.plan.shots.at(-1).headline, '轻松拿取杯盖');
-        assert.equal(before.commerceImageSet.plan.shots.at(-1).body, '拆下杯盖再清洗。');
+        assert.equal(before.commerceImageSet.plan.shots.at(-1).copy, detailCopy);
         assert.equal(before.commerceImageSet.results[0].assetKey, before.mediaAssetKeys[0]);
+        const detailResult = before.commerceImageSet.results.at(-1);
+        assert.equal(detailResult.detailAssetKind, 'finished');
+        assert.equal(detailResult.assetKey, before.mediaAssetKeys[3]);
+        assert.equal(detailResult.detailOutputKey, undefined);
         const artwork = await app.evaluate(`(async()=>{
-            const assetUrl='/api/storage/assets/'+encodeURIComponent(${JSON.stringify(before.mediaAssetKeys[3])});
+            const assetUrl=key=>'/api/storage/assets/'+encodeURIComponent(key);
             const providerUrl=commerceNativeImages['detail-overview'];
-            const [output, provider]=await Promise.all([assetUrl,providerUrl].map(async url=>
+            const [output, provider]=await Promise.all([assetUrl(${JSON.stringify(detailResult.assetKey)}),providerUrl].map(async url=>
                 new Uint8Array(await (await fetch(url)).arrayBuffer())));
-            const bitmap=await createImageBitmap(new Blob([output],{type:'image/png'}));
-            const dimensions=[bitmap.width,bitmap.height];
-            bitmap.close();
-            return {dimensions,matchesProvider:output.length===provider.length&&output.every((byte,index)=>byte===provider[index])};
+            const dimensions=async data=>{
+                const bitmap=await createImageBitmap(new Blob([data],{type:'image/png'}));
+                const size=[bitmap.width,bitmap.height];
+                bitmap.close();
+                return size;
+            };
+            return { size:await dimensions(output),
+                matchesProvider:output.length===provider.length&&output.every((byte,index)=>byte===provider[index]) };
         })()`);
-        assert.deepEqual(artwork.dimensions, [864, 1536]);
-        assert.equal(artwork.matchesProvider, true, 'the saved artwork is the unmodified image provider result');
+        assert.deepEqual(artwork.size, [864, 1536]);
+        assert.equal(artwork.matchesProvider, true, 'published detail image retains the provider bytes');
         const product = await app.evaluate("fetch('/api/storage/documents/session').then(r=>r.json()).then(d=>d.value.nodes.find(node=>node.id==='product'))");
         assert.equal(before.mediaAssetKeys[0], product.mediaAssetKeys[0]);
         const previewKeys = "fetch('/api/storage/documents/session').then(r=>r.json()).then(d=>d.value.nodes.find(node=>node.id==='set-preview')?.mediaAssetKeys)";
@@ -879,49 +884,56 @@ test('the commerce node generates selected shots, accepts a retry during generat
         assert.equal(replanned.commerceImageSet.plan.confirmed, false);
         assert.equal(await app.evaluate(`document.querySelector('${detailThumbnail} img').src`), originalThumbnail);
         await waitForShotEditor(app, 'detail-overview', true);
-        await app.waitFor(`document.querySelector(${JSON.stringify(headlineField)}).value==='重新规划的标题'`);
+        await app.waitFor(`${copyInput}.value.includes('重新规划的标题') && ${copyInput}.value.includes('俯拍呈现可拆下的杯盖。')`);
         await app.waitFor(`!document.querySelector('${replan}').disabled&&!document.querySelector('${regenerate}').disabled`);
         assert.equal(await app.evaluate(showsPreviousCommerceImage(shotCard('detail-overview'))), true,
             'a new plan marks the retained image as the previous version');
         assert.equal(await app.evaluate(showsPreviousCommerceImage(shotCard('feature'))), false,
             'replanning has no effect on another completed shot');
-        await app.evaluate(`const headline=document.querySelector(${JSON.stringify(headlineField)});
-            headline.value='方便取下杯盖';headline.dispatchEvent(new Event('input',{bubbles:true}));`);
+        const revisedDetailCopy = '方便取下杯盖\n俯拍呈现可拆下的杯盖。';
+        await app.evaluate(`const copy=${copyInput};
+            copy.value=${JSON.stringify(revisedDetailCopy)};copy.dispatchEvent(new Event('input',{bubbles:true}));`);
         await toggleShotEditor(app, 'detail-overview', false);
+        await app.waitFor(`${saved}.then(node=>node.commerceImageSet.plan.shots.at(-1).copy===${JSON.stringify(revisedDetailCopy)} &&
+            node.mediaAssetKeys[3]===${JSON.stringify(before.mediaAssetKeys[3])})`);
+        const edited = await app.evaluate(saved);
+        assert.equal(edited.commerceImageSet.results.at(-1).assetKey, detailResult.assetKey);
+        const editedThumbnail = await app.evaluate(`document.querySelector('${detailThumbnail} img').src`);
         await app.evaluate(`window.commerceProviderColor='#c05220';document.querySelector('${regenerate}').scrollIntoView({block:'nearest'});`);
         await nativeClick(app, regenerate);
         await app.waitFor(`typeof window.releaseCommerceDetail==='function' &&
             document.querySelector('[data-commerce-shot-id=detail-overview]').dataset.resultStatus==='running'`);
         assert.equal(await app.evaluate(`document.querySelector('${regenerate}').disabled`), true);
         assert.deepEqual(await app.evaluate(openedShotIds), [], 'regenerating a completed shot leaves its card collapsed');
-        assert.equal(await app.evaluate(`document.querySelector('${detailThumbnail} img').src`), originalThumbnail);
+        assert.equal(await app.evaluate(`document.querySelector('${detailThumbnail} img').src`), editedThumbnail);
         assert.deepEqual(await app.evaluate('commerceCalls.map(({ kind, shotId, shotIds }) => [kind, shotId || shotIds])'),
             [['plan', ['detail-overview']], ['image', 'detail-overview']]);
         const regeneratedPrompt = await app.evaluate('commerceCalls.at(-1).prompt');
         assert.match(regeneratedPrompt, /杯盖居中，采用俯拍构图和暖色桌面/);
-        assert.match(regeneratedPrompt, /标题：\s*"方便取下杯盖"/);
-        assert.match(regeneratedPrompt, /正文：\s*"俯拍呈现可拆下的杯盖。"/);
+        assert.match(regeneratedPrompt, /方便取下杯盖/);
+        assert.match(regeneratedPrompt, /俯拍呈现可拆下的杯盖/);
         await app.evaluate('window.releaseCommerceDetail()');
-        await app.waitFor(`${saved}.then(node=>node.mediaAssetKeys?.length===4&&node.mediaAssetKeys[3]!==${JSON.stringify(before.mediaAssetKeys[3])})`);
+        await app.waitFor(`${saved}.then(node=>node.mediaAssetKeys?.length===4&&node.mediaAssetKeys[3]!==${JSON.stringify(edited.mediaAssetKeys[3])})`);
         const regenerated = await app.evaluate(saved);
         assert.deepEqual(regenerated.mediaAssetKeys.slice(0, 3), before.mediaAssetKeys.slice(0, 3));
         assert.equal(regenerated.commerceImageSet.plan.confirmed, false);
-        assert.deepEqual(regenerated.commerceImageSet.results.map(row => [row.shotId, row.status, row.assetKey]),
+        assert.equal(regenerated.commerceImageSet.plan.shots.at(-1).copy, revisedDetailCopy);
+        assert.deepEqual(regenerated.commerceImageSet.results.map(row => [row.shotId, row.status, commerceOutput(row)]),
             before.commerceImageSet.results.map((row, index) => [row.shotId, 'completed', regenerated.mediaAssetKeys[index]]));
         await app.waitFor(`${previewKeys}.then(keys=>JSON.stringify(keys)===${JSON.stringify(JSON.stringify(regenerated.mediaAssetKeys))})`);
         await app.waitFor(`document.activeElement===document.querySelector('${regenerate}')&&
-            document.querySelector('${detailThumbnail} img').src!==${JSON.stringify(originalThumbnail)}`);
+            document.querySelector('${detailThumbnail} img').src!==${JSON.stringify(editedThumbnail)}`);
         assert.equal(await app.evaluate(showsPreviousCommerceImage(shotCard('detail-overview'))), false,
             'successful generation with the updated plan clears the version notice');
         await app.evaluate(`document.querySelector('${detailThumbnail}').scrollIntoView({block:'nearest'});`);
         await nativeClick(app, detailThumbnail);
         await app.waitFor(`(()=>{const image=document.querySelector('${fullscreenImage}');
-            return image?.naturalWidth>0 && image.naturalWidth*16===image.naturalHeight*9;})()`);
+            return image?.naturalWidth===${artwork.size[0]} && image.naturalHeight===${artwork.size[1]};})()`);
         assert.equal(await app.evaluate("!!document.querySelector('.fullscreen-overlay .fullscreen-download-btn')"), true);
         assert.equal(await app.evaluate(`document.querySelector('${detailThumbnail}').getAttribute('aria-pressed')`), 'true');
         await closePreview(app, detailThumbnail);
         await app.waitFor(`(()=>{const image=document.querySelector('#commerce .commerce-image-set-cover');
-            return image.naturalWidth>0 && image.naturalWidth*16===image.naturalHeight*9;})()`);
+            return image.naturalWidth===${artwork.size[0]} && image.naturalHeight===${artwork.size[1]};})()`);
         await nativeClick(app, '#image-parameter-panel [data-parameter-action=close]');
         await app.waitFor("document.getElementById('image-parameter-panel').hidden");
         const resizeTarget = `(()=>{const node=document.getElementById('commerce');
@@ -1136,7 +1148,7 @@ test('deselecting a planned commerce shot keeps the remaining drafts ready after
     }, { initScript });
 });
 
-test('commerce copy language persists and reaches planning, generation and retry', { timeout: 30000 }, async () => {
+test('commerce copy language persists and unlimited multiline copy reaches generation after reload', { timeout: 30000 }, async () => {
     const reference = (await readFile(new URL('./fixtures/reference-red.png', import.meta.url))).toString('base64');
     const nodes = [
         { id: 'product', type: 'ImageImport', x: 40, y: 100 },
@@ -1212,18 +1224,48 @@ test('commerce copy language persists and reaches planning, generation and retry
         assert.equal(request.input.productInfo.name, '带盖随行杯');
         assert.match(request.instructions, /日[语文]/);
 
+        const slot = '#image-parameter-panel [data-commerce-shot-id=detail]';
+        const copyField = `${slot} [data-commerce-shot-field=copy]`;
+        const toggle = `${slot} .commerce-image-set-shot-toggle`;
+        const copyInput = `document.querySelector(${JSON.stringify(copyField)})`;
+        await nativeClick(app, toggle);
+        assert.deepEqual(await app.evaluate(`(()=>{
+            const fields=[...document.querySelectorAll(${JSON.stringify(`${slot} [data-commerce-shot-field]`)})];
+            return fields.filter(field=>field.dataset.commerceShotField!=='prompt')
+                .map(field=>[field.dataset.commerceShotField,field.tagName,field.hasAttribute('maxlength')]);
+        })()`), [['copy', 'TEXTAREA', false]]);
+        const plannedCopy = await app.evaluate(`${copyInput}.value`);
+        assert.match(plannedCopy, /取り外せるフタ/);
+        assert.match(plannedCopy, /お手入れしやすい設計/);
+
         await app.evaluate(`${generateButton}.click()`);
         await app.waitFor(`${saved}.then(settings=>settings.results.some(result=>result.status==='completed'))`);
+        const initialPrompt = await app.evaluate("commerceLanguageRequests.find(request=>request.kind==='image').prompt");
+        assert.match(initialPrompt, /日[语文]/);
+        assert.match(initialPrompt, /取り外せるフタ/);
+        assert.match(initialPrompt, /お手入れしやすい設計/);
+        assert.doesNotMatch(initialPrompt, /Removable lid/);
+
+        const copy = [
+            '大标题：No Additives,', 'Preservative Free', '',
+            '副标题：Contains Only Sodium Chloride and Purified Water', '', '',
+            '0% Medications', '0% Preservatives', '0% Buffers', '0% Other Irritants'
+        ].join('\n');
+        await nativeClick(app, copyField);
+        await app.evaluate(`${copyInput}.select()`);
+        await app.send('Input.insertText', { text: copy });
+        assert.equal(await app.evaluate(`${copyInput}.value`), copy);
+        await app.waitFor(`${saved}.then(settings=>settings.plan.shots[0].copy===${JSON.stringify(copy)})`);
+        await reloadAppBrowser(app);
+        await openParameters(app, 'commerce');
+        await nativeClick(app, toggle);
+        assert.equal(await app.evaluate(`${copyInput}.value`), copy);
         await app.waitFor(`${retry}?.checkVisibility() && !${retry}.disabled`);
         await app.evaluate(`${retry}.click()`);
-        await app.waitFor(`commerceLanguageRequests.filter(request=>request.kind==='image').length===2 && !${retry}.disabled`);
-        const prompts = await app.evaluate("commerceLanguageRequests.filter(request=>request.kind==='image').map(request=>request.prompt)");
-        for (const prompt of prompts) {
-            assert.match(prompt, /日[语文]/);
-            assert.match(prompt, /标题：\s*"取り外せるフタ"/);
-            assert.match(prompt, /正文：\s*"お手入れしやすい設計"/);
-            assert.doesNotMatch(prompt, /Removable lid/);
-        }
+        await app.waitFor(`commerceLanguageRequests.some(request=>request.kind==='image') && !${retry}.disabled`);
+        const editedPrompt = await app.evaluate("commerceLanguageRequests.find(request=>request.kind==='image').prompt");
+        assert.ok(editedPrompt.includes(copy), 'the image model receives the complete edited copy with all line breaks');
+        assert.doesNotMatch(editedPrompt, /取り外せるフタ|お手入れしやすい設計/);
     }, { initScript });
 });
 
@@ -1557,19 +1599,20 @@ test('commerce shots run independently and can be canceled individually or from 
         await click(app, 'replan-shot', 'feature');
         await app.waitFor(`${pending('plan:feature')} && ${status('feature')}==='planning'`);
         assert.equal(await app.evaluate(available('retry', 'feature')), false, 'one shot cannot start two tasks');
-        const overviewHeadline = '随行杯与可拆杯盖';
+        const overviewCopy = '随行杯与可拆杯盖';
         await app.evaluate(`(() => {
             const card=document.querySelector('${row('detail-overview')}');
             const toggle=card.querySelector('.commerce-image-set-shot-toggle');
             toggle.click();
-            const field=card.querySelector('[data-commerce-shot-field=headline]');
-            field.value=${JSON.stringify(overviewHeadline)};
+            const field=card.querySelector('[data-commerce-shot-field=copy]');
+            field.value=${JSON.stringify(overviewCopy)};
             field.dispatchEvent(new Event('input', {bubbles:true}));
             toggle.click();
         })()`);
         await click(app, 'retry', 'detail-overview');
         await app.waitFor(`${pending('image:detail-overview')} && ${status('detail-overview')}==='running'`);
         assert.match(await app.evaluate("commerceImagePrompts['detail-overview']"), /随行杯与可拆杯盖/);
+        await app.waitFor(`${saved}.then(settings=>settings.plan?.shots.some(shot=>shot.id==='detail-overview' && shot.copy===${JSON.stringify(overviewCopy)}))`);
         assert.equal(await app.evaluate(`${featurePreview}.src`), original);
         await captureCommerceInspector(app, { name: 'running', shotId: 'detail' });
         await captureCommerceInspector(app, { name: 'running-narrow', width: 390, shotId: 'detail' });
@@ -1603,7 +1646,7 @@ test('commerce shots run independently and can be canceled individually or from 
         await click(app, 'cancel-all');
         await app.waitFor(`${saved}.then(settings=>settings.results.some(row=>row.shotId==='detail'&&row.status==='completed') &&
             settings.plan.shots.some(shot=>shot.id==='feature'&&shot.headline==='更新的功能亮点') &&
-            settings.plan.shots.some(shot=>shot.id==='detail-overview'&&shot.headline===${JSON.stringify(overviewHeadline)}))`);
+            settings.plan.shots.some(shot=>shot.id==='detail-overview'&&shot.copy===${JSON.stringify(overviewCopy)}))`);
         assert.equal(await app.evaluate("canceledCommerceRequests.filter(key=>key==='image:feature').length"), 2);
         assert.equal(await app.evaluate(`${featurePreview}.src`), original);
     }, { initScript });
@@ -1801,9 +1844,15 @@ test('custom commerce scenes can be added, reviewed, generated, and deleted inde
         await app.waitFor(`${saved}.then(settings=>settings.results.some(row=>row.shotId===${JSON.stringify(second)}&&row.status==='completed'))`);
 
         const current = await app.evaluate(saved);
-        assert.deepEqual(current.plan.shots.filter(shot=>presetIds.includes(shot.id)), original.plan.shots);
-        assert.deepEqual(current.results.filter(result=>presetIds.includes(result.shotId)), original.results);
+        const shotDrafts = shots => shots.map(({ detailPageGuideKey, ...shot }) => shot);
+        assert.deepEqual(shotDrafts(current.plan.shots.filter(shot=>presetIds.includes(shot.id))), shotDrafts(original.plan.shots));
+        const publishedImages = rows => rows.map(({ planKey, ...result }) => result);
+        assert.deepEqual(publishedImages(current.results.filter(result=>presetIds.includes(result.shotId))), publishedImages(original.results));
+        assert.notEqual(current.results.find(result => result.shotId === 'detail-overview').planKey,
+            original.results.find(result => result.shotId === 'detail-overview').planKey,
+            'an explicit redraw of the unchanged fixture image records the new adjacent edge instructions');
         assert.deepEqual(current.plan.shots.map(shot=>shot.id), [...galleryIds, ...detailIds]);
+        assert.deepEqual(current.plan.detailPage.sections.map(section => section.shotId), detailIds);
         assert.equal(current.plan.shots.find(shot=>shot.id===first).sceneConfirmed, false,
             'sibling completion preserves the confirmation reset from a normalized edit');
         assert.deepEqual(current.results.filter(result=>result.status==='completed').map(result=>result.shotId),
@@ -1829,10 +1878,11 @@ test('custom commerce scenes can be added, reviewed, generated, and deleted inde
         await app.waitFor(`${savedNode}.then(node => !node.mediaAssetKeys.includes(${JSON.stringify(removedAsset)})
             && !node.commerceImageSet.selectedShotIds.some(id => ${removedIds}.includes(id)))`);
         const afterRemoval = await app.evaluate(savedNode);
-        assert.deepEqual(afterRemoval.mediaAssetKeys, original.results.map(result => result.assetKey));
+        assert.deepEqual(afterRemoval.mediaAssetKeys, original.results.map(commerceOutput));
         assert.deepEqual(afterRemoval.commerceImageSet.customScenes.map(scene => scene.id), [first]);
-        assert.deepEqual(afterRemoval.commerceImageSet.plan.shots, current.plan.shots.filter(shot => ![second, detail].includes(shot.id)));
+        assert.deepEqual(shotDrafts(afterRemoval.commerceImageSet.plan.shots), shotDrafts(current.plan.shots.filter(shot => ![second, detail].includes(shot.id))));
         assert.deepEqual(afterRemoval.commerceImageSet.results, current.results.filter(result => ![second, detail].includes(result.shotId)));
+        assert.deepEqual(afterRemoval.commerceImageSet.plan.detailPage.sections, original.plan.detailPage.sections);
         assert.equal(afterRemoval.commerceImageSet.plan.confirmed, current.plan.confirmed);
         assert.equal(await app.evaluate('sceneCalls.length'), callsBeforeRemoval);
 
@@ -2080,6 +2130,16 @@ test('commerce ZIP export lists missing and previous images and keeps shot numbe
             ]);
             return JSON.parse(stdout).map(([path, bytes]) => [path, Buffer.from(bytes, 'base64')]);
         };
+        const storedDetail = `fetch('/api/storage/documents/session').then(response=>response.json())
+            .then(doc=>doc.value.nodes.find(node=>node.id==='commerce').commerceImageSet.results.find(row=>row.shotId==='detail-overview'))`;
+        await app.waitFor(`${storedDetail}.then(row=>Boolean(row?.assetKey))`);
+        const detailResult = await app.evaluate(storedDetail);
+        assert.equal(detailResult.detailAssetKind, 'finished');
+        assert.equal(detailResult.detailOutputKey, undefined);
+        const readAsset = async key => Buffer.from(await app.evaluate(`fetch('/api/storage/assets/'+encodeURIComponent(${JSON.stringify(key)}))
+            .then(response=>{if(!response.ok) throw Error(response.status);return response.arrayBuffer();})
+            .then(bytes=>Array.from(new Uint8Array(bytes)))`));
+        assert.deepEqual(await readAsset(detailResult.assetKey), detailImage);
         assert.deepEqual(await readArchive('gallery', '主副图', ['angle', 'feature']), [['02_卖点图.png', galleryImage]]);
         assert.deepEqual(await readArchive('detail', '详情图', ['detail-overview']), [['03_详情首屏.png', detailImage]]);
         assert.deepEqual(await readArchive('all', '全套', shotIds), [
@@ -2092,7 +2152,7 @@ test('commerce ZIP export lists missing and previous images and keeps shot numbe
         assert.equal(await app.evaluate(`${query(exportRow('detail-overview'))}.dataset.exportStatus`), 'previous',
             'the detail image passed the pre-export check');
         const beforeFailedExport = (await readdir(downloadDirectory)).sort();
-        await app.evaluate(`window.lateUnavailableCommerceExportAsset=new URL(${query(`${row('detail-overview')} img`)}.src).pathname`);
+        await app.evaluate(`window.lateUnavailableCommerceExportAsset='/api/storage/assets/'+encodeURIComponent(${JSON.stringify(detailResult.assetKey)})`);
         await nativeClick(app, download);
         const alert = query(`${dialog} [role=alert]`);
         await app.waitFor(`${alert}.checkVisibility() && ${query(exportRow('detail-overview'))}.dataset.exportStatus==='missing' && ${ready(download)}`);
@@ -2124,18 +2184,15 @@ test('commerce finalized shots survive a whole-set redo and saved candidates res
         (await readFile(new URL(`./fixtures/reference-${color}.png`, import.meta.url))).toString('base64')));
     const firstDraft = {
         prompt: '候选卖点初版，采用自然侧光与近景构图。',
-        headline: '可拆杯盖',
-        body: '拆下杯盖后清洗。'
+        copy: '可拆杯盖\n拆下杯盖后清洗。'
     };
     const revisedDraft = {
         prompt: '候选卖点新版，采用暖光与俯拍构图。',
-        headline: '便于清洗',
-        body: '俯拍展示杯盖拆下后的状态。'
+        copy: '便于清洗\n俯拍展示杯盖拆下后的状态。'
     };
     const middleDraft = {
         prompt: '候选卖点中间版，杯盖放在杯身旁。',
-        headline: '拆卸便捷',
-        body: '画面展示杯身与杯盖。'
+        copy: '拆卸便捷\n画面展示杯身与杯盖。'
     };
     const detailDraft = { prompt: '候选详情首屏，完整展示带盖随行杯。', headline: '带盖随行杯', body: '' };
     const fixture = {
@@ -2213,8 +2270,8 @@ test('commerce finalized shots survive a whole-set redo and saved candidates res
     const detailSlot = 'detail-overview';
     const asset = (settings, id) => settings.results.find(result => result.shotId === id)?.assetKey;
     const planDraft = settings => {
-        const { prompt, headline, body } = settings.plan.shots.find(shot => shot.id === 'feature');
-        return { prompt, headline, body };
+        const { prompt, copy } = settings.plan.shots.find(shot => shot.id === 'feature');
+        return { prompt, copy };
     };
     const isUsing = (selector, key) => `${query(selector)}?.naturalWidth>0 &&
         decodeURIComponent(new URL(${query(selector)}.src).pathname.split('/').at(-1))===${JSON.stringify(key)}`;
@@ -2295,6 +2352,7 @@ test('commerce finalized shots survive a whole-set redo and saved candidates res
         await click(app, earlierCandidate);
         await app.waitFor(isUsing(candidateImage, initial));
         assert.equal(await app.evaluate(`${query(earlierCandidate)}.getAttribute('aria-pressed')`), 'true');
+        assert.equal(await app.evaluate(`${query(`${dialog} [data-commerce-candidate-preview] .commerce-candidate-copy`)}.textContent`), firstDraft.copy);
         await click(app, `${dialog} [data-commerce-candidate-preview] button`);
         await app.waitFor("document.querySelector('.fullscreen-overlay')?.checkVisibility()");
         await key(app, 'ArrowRight');
@@ -2315,7 +2373,10 @@ test('commerce finalized shots survive a whole-set redo and saved candidates res
             row.assetKey===${JSON.stringify(initial)}))`);
         const restored = await app.evaluate(saved);
         assert.deepEqual(planDraft(restored.commerceImageSet), firstDraft);
-        const ordered = [initial, asset(afterRedo, detailSlot)];
+        const restoredDetail = restored.commerceImageSet.results.find(row => row.shotId === detailSlot);
+        assert.equal(restoredDetail.assetKey, asset(afterRedo, detailSlot));
+        assert.equal(restoredDetail.detailOutputKey, undefined);
+        const ordered = [initial, commerceOutput(restoredDetail)];
         assert.deepEqual(restored.mediaAssetKeys, ordered);
         await app.waitFor(`${node('preview')}.then(node=>JSON.stringify(node.mediaAssetKeys)===${JSON.stringify(JSON.stringify(ordered))})`);
         await app.waitFor(isUsing(resultPreview, initial));

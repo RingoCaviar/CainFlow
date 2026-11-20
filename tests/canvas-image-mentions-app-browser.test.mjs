@@ -47,6 +47,60 @@ async function click(app, selector) {
     await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
 }
 
+test('canvas prompt mentions use the reference gallery numbers even when selected out of order', { timeout: 45000 }, async () => {
+    const sources = ['first', 'second', 'third', 'fourth', 'external'];
+    const titles = ['主体', '细节', '背景', '配色', '额外图片'];
+    const nodes = [generate('target', '海报制作', 420, 140), ...sources.map((id, index) => ({
+        id, type: 'ImageImport', customTitle: titles[index], x: 50, y: 120 + 220 * index
+    }))];
+    const connections = [3, 0, 2, 1].map(order => ({
+        id: `${sources[order]}-to-target`, type: 'image', order,
+        from: { nodeId: sources[order], port: 'image' }, to: { nodeId: 'target', port: 'referenceImages' }
+    }));
+    const orderedSession = { ...session, nodes, connections,
+        workflowTabs: [{ workflowId, name: session.activeWorkflowName, data: { workflowId, nodes, connections } }] };
+    await withAppBrowser(orderedSession, async app => {
+        for (const [index, original] of [product, detail, background, product, detail].entries()) {
+            await uploadImageOriginal(app, sources[index], `data:image/png;base64,${original}`);
+        }
+        await openParameters(app, 'target');
+        assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('#target-reference-sources [data-reference-number]')]
+            .map(tile=>[tile.closest('[data-reference-connection]').dataset.referenceConnection,tile.dataset.referenceNumber])`),
+        [['first-to-target', '1'], ['second-to-target', '2'], ['third-to-target', '3'], ['fourth-to-target', '4']]);
+
+        async function choose(name, referenceNumber) {
+            await type(app, '@');
+            if (referenceNumber === undefined) await click(app, `${picker} [data-mention-mode=scene]`);
+            const choice = `[...document.querySelectorAll('${options}')].find(row=>row.querySelector('.image-mention-name').textContent===${JSON.stringify(name)})`;
+            await app.waitFor(`Boolean(${choice})`);
+            if (referenceNumber !== undefined) {
+                assert.match(await app.evaluate(`${choice}.querySelector('.image-mention-source').textContent`), new RegExp(`^参考图 ${referenceNumber} ·`));
+            }
+            await app.evaluate(`${choice}.click()`);
+        }
+        await choose('额外图片');
+        await choose('配色', 4);
+        await choose('主体', 1);
+        const prompt = "document.getElementById('target-prompt').value";
+        assert.equal(await app.evaluate(prompt), '@图片5 @图片4 @图片1 ');
+
+        const third = '#target-reference-sources [data-reference-connection=third-to-target] .image-reference-thumbnail';
+        await app.evaluate(`document.querySelector('${third}').focus({preventScroll:true})`);
+        await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight', modifiers: 1 });
+        await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowRight', code: 'ArrowRight', modifiers: 1 });
+        await app.waitFor(`document.querySelector('${third}')?.dataset.referenceNumber==='4'`);
+        await choose('背景', 4);
+        assert.equal(await app.evaluate(prompt), '@图片5 @图片4 @图片1 @图片(4#2) ');
+
+        for (const [token, name] of [['@图片4', '配色'], ['@图片(4#2)', '背景']]) {
+            const mention = `.image-mention-token[data-mention-token="${token}"]`;
+            await app.waitFor(`Boolean(document.querySelector('${mention}'))`);
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...await centerOf(app, mention) });
+            await app.waitFor(`document.querySelector('.image-mention-preview')?.textContent.includes(${JSON.stringify(name)})`);
+        }
+    });
+});
+
 test('canvas @ mentions preview and replace one occurrence after reopening, preserving the other originals', { timeout: 55000 }, async () => {
     await withAppBrowser(session, async app => {
         await app.send('Page.addScriptToEvaluateOnNewDocument', { source: `window.referenceRequests=[];const originalFetch=fetch;

@@ -1117,8 +1117,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 referenceSummary.focus({ preventScroll: true });
                 referenceSummary.scrollIntoView({ block: 'nearest' });
             },
-            run: (commerceAction, commerceShotId, { commerceCandidateKey, commerceCandidateCount } = {}) =>
-                runCurrentNode(node.id, { commerceAction, commerceShotId, commerceCandidateKey, commerceCandidateCount }),
+            run: (commerceAction, commerceShotId, { commerceCandidateKey, commerceCandidateCount, commerceDetailDirection } = {}) =>
+                runCurrentNode(node.id, { commerceAction, commerceShotId, commerceCandidateKey, commerceCandidateCount, commerceDetailDirection }),
             cancel: commerceShotId => cancelCommerceImageSet(node.id, commerceShotId),
             removeScene: shotId => removeCommerceScene(node.id, shotId),
             onChange: change => onSettingsChanged(node.id, change)

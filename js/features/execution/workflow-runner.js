@@ -89,7 +89,7 @@ export function showNodeExecutionFailure(node, error) {
 
 function isCommerceImageGeneration(node, plan) {
     if (node?.type !== 'ECommerceImageSet') return false;
-    return plan?.commerceNodeId !== node.id || !['analyze', 'plan', 'replan-shot'].includes(plan.commerceAction);
+    return plan?.commerceNodeId !== node.id || !['analyze', 'plan', 'replan-shot', 'revise-detail-page'].includes(plan.commerceAction);
 }
 
 function getCommercePartialResult(node, plan) {
@@ -1961,6 +1961,7 @@ export function createWorkflowRunnerApi({
             const action = plan?.commerceNodeId === node.id
                 ? { commerceAction: plan.commerceAction, commerceShotId: plan.commerceShotId,
                     commerceCandidateKey: plan.commerceCandidateKey, commerceCandidateCount: plan.commerceCandidateCount,
+                    commerceDetailDirection: plan.commerceDetailDirection,
                     commerceConfirmOnExecution: true } : {};
             await executeNode(node, inputs, signal, action);
             return inputs;

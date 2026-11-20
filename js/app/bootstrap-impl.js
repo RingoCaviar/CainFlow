@@ -843,8 +843,9 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
     openAgent: () => promptAgentController.open(),
     openModelSettings: target => settingsControllerApi.openModelSettings(target),
     focusReferenceSource: focusCanvasNode,
-    runCurrentNode: (nodeId, { commerceAction, commerceShotId, commerceCandidateKey, commerceCandidateCount, imageRetryIndex, imageRetryBatchId } = {}) => commerceAction
-        ? runCommerceImageSetAction(nodeId, commerceAction, commerceShotId, { commerceCandidateKey, commerceCandidateCount })
+    runCurrentNode: (nodeId, { commerceAction, commerceShotId, commerceCandidateKey, commerceCandidateCount, commerceDetailDirection,
+        imageRetryIndex, imageRetryBatchId } = {}) => commerceAction
+        ? runCommerceImageSetAction(nodeId, commerceAction, commerceShotId, { commerceCandidateKey, commerceCandidateCount, commerceDetailDirection })
         : runWorkflow({
             mode: 'selected-only', selectedNodeIds: [nodeId],
             ...(Number.isInteger(imageRetryIndex) ? { imageRetryNodeId: nodeId, imageRetryIndex, imageRetryBatchId } : {})
@@ -1110,7 +1111,7 @@ function resumeWorkflowNode(nodeId) {
     return runWorkflow({ mode: 'target-node', targetNodeId: nodeId }, { waitForCompletion: true, resumeNodeId: nodeId });
 }
 
-function runCommerceImageSetAction(nodeId, commerceAction, commerceShotId, { commerceCandidateKey, commerceCandidateCount } = {}) {
+function runCommerceImageSetAction(nodeId, commerceAction, commerceShotId, { commerceCandidateKey, commerceCandidateCount, commerceDetailDirection } = {}) {
     const node = state.nodes.get(nodeId);
     if (node?.type !== 'ECommerceImageSet' || node.enabled === false || node.isClone) return false;
     const controller = new AbortController();
@@ -1119,7 +1120,7 @@ function runCommerceImageSetAction(nodeId, commerceAction, commerceShotId, { com
     getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();
     run.promise = runWorkflow({
         mode: 'selected-only', selectedNodeIds: [nodeId],
-        commerceNodeId: nodeId, commerceAction, commerceShotId, commerceCandidateKey, commerceCandidateCount
+        commerceNodeId: nodeId, commerceAction, commerceShotId, commerceCandidateKey, commerceCandidateCount, commerceDetailDirection
     }, { waitForCompletion: true, commercePanelRun: run }).finally(() => {
         commercePanelRuns.delete(run);
         getWorkflowRuntimeManagerApi().syncGlobalRunToolbarState();

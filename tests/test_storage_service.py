@@ -1404,6 +1404,17 @@ else:
         self.assertEqual(['media:one', 'media:one', 'media:two', 'media:four'],
                          StorageService._workflow_media_references([workflow])[0]['assetKeys'])
 
+    def test_commerce_detail_keeps_the_source_of_a_published_slice(self):
+        node = {
+            'type': 'ECommerceImageSet', 'mediaAssetKeys': ['media:composed'],
+            'commerceImageSet': {'results': [
+                {'status': 'completed', 'detailAssetKind': 'clean', 'assetKey': 'media:source', 'detailOutputKey': 'media:composed'},
+                {'status': 'completed', 'detailAssetKind': 'clean', 'assetKey': 'media:unpublished', 'detailOutputKey': 'media:other'},
+                {'status': 'completed', 'detailAssetKind': 'clean', 'assetKey': '../invalid', 'detailOutputKey': 'media:composed'},
+            ]},
+        }
+        self.assertEqual(StorageService._workflow_node_owned_keys(node), ['media:composed', 'media:source'])
+
     def test_startup_retains_operation_whose_key_occurs_only_in_a_malformed_commerce_candidate(self):
         with tempfile.TemporaryDirectory() as root:
             service = self.make_service(root)

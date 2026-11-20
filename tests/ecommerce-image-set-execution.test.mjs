@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
     appendCommerceSceneShot, confirmCommerceSceneShot, getCommerceShotCandidates, isCommerceShotImageStale,
     normalizeCommerceImageSetState, setCommerceShotFinalized, updateCommerceImageSetCopyLanguage, updateCommerceProductInfoField
@@ -25,6 +26,7 @@ function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main',
     const requestStatistics = [];
     const imagePrompts = new Map();
     const history = [];
+    const mediaWrites = [];
     const warnings = [];
     const assets = new Map();
     const noop = () => {};
@@ -77,11 +79,14 @@ function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main',
         recordNodeRequest: record => requestStatistics.push(record),
         getActiveWorkflowId: () => 'workflow', getImageAsset: async key => assets.get(key),
         saveHistoryEntry: async entry => { history.push(entry); return true; },
-        saveWorkflowNodeMediaAssets: async images => images.map(image => {
-            const asset_key = `media:${Buffer.from(image.split(',')[1], 'base64').toString('hex')}`;
-            assets.set(asset_key, image);
-            return { asset_key };
-        }),
+        saveWorkflowNodeMediaAssets: async images => {
+            mediaWrites.push(images.slice());
+            return images.map(image => {
+                const asset_key = `media:${Buffer.from(image.split(',')[1], 'base64').toString('hex')}`;
+                assets.set(asset_key, image);
+                return { asset_key };
+            });
+        },
         fetchRef: async (url, { body, signal }) => {
             assert.equal(url, '/proxy');
             const multipart = body instanceof FormData;
@@ -114,9 +119,98 @@ function createCommerceExecutionFixture({ failedRole, selectedShotIds = ['main',
         node, { referenceImages: image ? [image] : [], ...(typedStyleReference ? { styleReferenceImages: [typedStyleReference.url] } : {}) },
         signal, { commerceAction: action, commerceShotId, ...options });
     return { node, execute, normalizeRunOptions: core.normalizeRunOptions, removeCommerceScene: core.removeCommerceScene,
-        getCachedOutputValue: core.getCachedOutputValue, apiCalls, requestLogs, requestStatistics, imagePrompts, history, assets, warnings,
+        getCachedOutputValue: core.getCachedOutputValue, apiCalls, requestLogs, requestStatistics, imagePrompts, history, mediaWrites, assets, warnings,
         setConnectedReference, setFailure: role => { failedRole = role; }, clearFailure: () => { failedRole = undefined; } };
 }
+
+test('详情图将排版和完整文案交给模型，保存和发布供应商的原始图像', async () => {
+    const shotId = 'detail-overview';
+    const bytes = await readFile(new URL('./fixtures/reference-red.png', import.meta.url));
+    const providerImage = `data:image/png;base64,${bytes.toString('base64')}`;
+    const previews = [];
+    const { node, execute, imagePrompts, mediaWrites, assets, setConnectedReference } = createCommerceExecutionFixture({
+        selectedShotIds: [shotId], responseImageData: () => bytes.toString('base64'),
+        syncImagePreviewNode: async (_id, images) => previews.push(images)
+    });
+    setConnectedReference(reference);
+    await execute('plan');
+    const draft = node.data.commerceImageSet.plan;
+    const copy = '当前标题\n\n• 一键冲洗\n• 食品接触区域建议及时清洁';
+    draft.shots[0].copy = copy;
+    draft.confirmed = true;
+    assert.equal(draft.detailPage.version, 2);
+    assert.equal(draft.shots[0].detailAssetKind, 'finished');
+
+    const published = await execute('generate');
+    const generated = node.data.commerceImageSet;
+    const [result] = generated.results;
+    const prompt = imagePrompts.get(shotId);
+    assert.match(prompt, /本屏构图/);
+    assert.match(prompt, /上边缘/);
+    assert.match(prompt, /下边缘/);
+    assert.ok(prompt.includes(copy), '供应商请求收到完整的多行文案');
+    assert.equal(result.detailAssetKind, 'finished');
+    assert.equal(result.detailOutputKey, undefined);
+    assert.deepEqual(mediaWrites, [[providerImage]]);
+    assert.equal(assets.get(result.assetKey), providerImage);
+    assert.deepEqual(published.images, [providerImage]);
+    assert.deepEqual(node.data.imageList, [providerImage]);
+    assert.deepEqual(previews, [[providerImage]]);
+});
+
+test('详情改版只更新提示词方案，下一次生图保留相邻旧版已合成的历史原件', async () => {
+    const shotId = 'detail-overview';
+    const siblingId = 'detail-feature';
+    let rendition = 'AQ==';
+    const { node, execute, normalizeRunOptions, apiCalls, assets, mediaWrites, imagePrompts, setConnectedReference } = createCommerceExecutionFixture({
+        selectedShotIds: [shotId, siblingId], responseImageData: id => id === shotId ? rendition : 'Ag==',
+        beforePlanRequest: input => input.direction ? { detailPage: { ...input.detailPage, theme: { background: '#ff0000' },
+            sections: input.detailPage.sections.map(section => ({ ...section, anchor: 'top-right' })) } } : undefined });
+    setConnectedReference(reference);
+    await execute('plan');
+    node.data.commerceImageSet.plan.confirmed = true;
+    await execute('generate');
+    const before = structuredClone(node.data.commerceImageSet);
+    const opts = { mode: 'selected-only', selectedNodeIds: ['commerce'], commerceNodeId: 'commerce', commerceShotId: shotId };
+    assert.throws(() => normalizeRunOptions({ ...opts, commerceAction: 'use-detail-photo' }), /无效/);
+    assert.throws(() => normalizeRunOptions({ ...opts, commerceAction: 'edit-detail-copy' }), /无效/);
+    assert.equal(normalizeRunOptions({ ...opts, commerceAction: 'revise-detail-page', commerceDetailDirection: ' 文字移至右上 ' }).commerceDetailDirection, '文字移至右上');
+
+    const calls = apiCalls.length;
+    const writes = mediaWrites.length;
+    await execute('revise-detail-page', reference, shotId, undefined, { commerceDetailDirection: '文字移至右上' });
+    const revised = node.data.commerceImageSet;
+    assert.equal(revised.plan.detailPage.sections[0].anchor, 'top-right');
+    assert.deepEqual(revised.plan.detailPage.sections[1], before.plan.detailPage.sections[1]);
+    assert.deepEqual(revised.plan.detailPage.theme, before.plan.detailPage.theme);
+    assert.equal(isCommerceShotImageStale(revised.plan.shots[0], revised.results[0]), true);
+    assert.equal(isCommerceShotImageStale(revised.plan.shots[1], revised.results[1]), false);
+    assert.deepEqual(revised.results, before.results);
+    assert.equal(mediaWrites.length, writes);
+    assert.deepEqual(apiCalls.slice(calls).map(call => call.type), ['plan']);
+
+    const [oldCandidate] = getCommerceShotCandidates(revised, shotId);
+    await assert.rejects(execute('select-candidate', reference, shotId, undefined, { commerceCandidateKey: oldCandidate.key }), /上一版详情排版/);
+    const historicalImage = 'data:image/png;base64,Aw==';
+    const historicalOutputKey = 'media:historical-composed';
+    assets.set(historicalOutputKey, historicalImage);
+    Object.assign(revised.results[1], { detailAssetKind: 'clean', detailOutputKey: historicalOutputKey });
+    const legacyInputKey = revised.results[1].assetKey;
+    const copy = '改写标题\n\n改写正文';
+    revised.plan.shots[0].copy = copy;
+    rendition = 'BA==';
+    const refreshed = await execute('retry', reference, shotId);
+    const current = node.data.commerceImageSet;
+    assert.deepEqual(apiCalls.slice(calls).map(call => call.type), ['plan', 'image']);
+    assert.match(imagePrompts.get(shotId), /文案位于右上/);
+    assert.ok(imagePrompts.get(shotId).includes(copy));
+    assert.equal(isCommerceShotImageStale(current.plan.shots[0], current.results[0]), false);
+    assert.equal(current.results[1].detailOutputKey, historicalOutputKey);
+    assert.equal(current.results[1].assetKey, legacyInputKey);
+    assert.deepEqual(node.data.mediaAssetKeys, [current.results[0].assetKey, historicalOutputKey]);
+    assert.deepEqual(refreshed.images, ['data:image/png;base64,BA==', historicalImage]);
+    assert.deepEqual(mediaWrites.slice(writes), [['data:image/png;base64,BA==']]);
+});
 
 test('planning and retrying a shot never download the remote style image assigned to another shot', async () => {
     const { node, execute, apiCalls } = createCommerceExecutionFixture({ selectedShotIds: ['feature'],
@@ -555,11 +649,14 @@ test('commerce shot mentions attach a scene image only to the selected shot', as
     await execute('plan');
     node.data.imagePromptMentions = [{ token: '@图片1', source: { id: 'history:1', historyId: '1', name: '细节素材' } }];
     node.data.commerceImageSet.plan.shots.find(shot => shot.id === 'detail').prompt += '使用 @图片1。';
+    const copy = '原样展示署名 @图片1\n\n杯盖可拆卸';
+    node.data.commerceImageSet.plan.shots.find(shot => shot.id === 'scene').copy = copy;
     node.data.commerceImageSet.plan.confirmed = true;
     await execute('generate');
     assert.deepEqual(apiCalls.filter(call => call.type === 'image').map(call => call.images), [['AAAA', 'AgAA'], ['AAAA']]);
     assert.match(imagePrompts.get('detail'), /使用 参考图 2。/);
     assert.doesNotMatch(imagePrompts.get('scene'), /参考图 2/);
+    assert.ok(imagePrompts.get('scene').includes(copy));
 });
 
 test('commerce logs every planner and image request with its operation and outcome', async () => {

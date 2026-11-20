@@ -123,6 +123,18 @@ test('commerce preflight respects dedicated phases and fingerprints approved sho
     assert.equal(f.inspect().issue.action, 'plan');
 });
 
+test('editing a multiline shot copy invalidates the approved commerce run', () => {
+    const { settings, inspect } = fixture();
+    const shot = { id: 'detail', prompt: '展示杯盖结构', copy: 'Removable lid\n\nEasy to clean' };
+    settings.selectedShotIds = [shot.id];
+    settings.plan.shots = [shot];
+    const approved = inspect();
+    assert.equal(approved.issue, null);
+
+    shot.copy = 'Removable lid\nEasy to clean';
+    assert.notEqual(inspect().approvalKey, approved.approvalKey);
+});
+
 test('commerce preflight blocks a replaced or reordered saved reference before a generation action', () => {
     const { plan, source, settings, inspect } = fixture({ mode: 'selected-only' });
     settings.plan.referenceRevision = 'v1:["media:original","media:second"]';

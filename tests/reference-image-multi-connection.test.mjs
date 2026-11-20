@@ -125,6 +125,30 @@ test('pasted multi-connections append after the target order while retaining gro
     );
 });
 
+test('reordering reference images preserves the image bound to an existing prompt mention', async () => {
+    const images = ['data:image/png;base64,AAAA', 'data:image/png;base64,AAAB'];
+    const sources = images.map((image, index) => ({ id: `source-${index}`, type: 'ImageImport', data: { image } }));
+    const target = { id: 'target', type: 'ImageGenerate', data: {} };
+    const state = {
+        nodes: new Map([...sources, target].map(node => [node.id, node])),
+        connections: sources.map(({ id }, order) => ({ id: `edge-${id}`, type: 'image', order,
+            from: { nodeId: id, port: 'image' }, to: { nodeId: target.id, port: 'referenceImages' } }))
+    };
+    const catalog = createReferenceImageCatalog({ state });
+    const getUpstream = () => catalog.getUpstream(target.id);
+    const oldToken = registerPromptImageMention(target, getUpstream()[1], '@', { start: 0, end: 1 });
+    assert.equal(oldToken, '@图片2');
+
+    state.connections[0].order = 1;
+    state.connections[1].order = 0;
+    const prefix = `${oldToken} 和 `;
+    const newToken = registerPromptImageMention(target, getUpstream()[1], `${prefix}@`, { start: prefix.length, end: prefix.length + 1 });
+    assert.equal(newToken, '@图片(2#2)');
+    const result = await resolvePromptImageMentions({ node: target, inputs: { referenceImages: [images[1], images[0]] },
+        prompts: [`${prefix}${newToken}`, `旧标记 ${oldToken}#2`], getUpstream });
+    assert.deepEqual(result.prompts, ['参考图 1 和 参考图 2', '旧标记 参考图 1#2']);
+});
+
 test('pasting nodes into another workflow rebinds copied image mentions to the exact copied source and edge', async () => {
     const image = 'data:image/png;base64,AAAA';
     const node = (id, type, port, direction) => ({ id, type, data: {}, el: {

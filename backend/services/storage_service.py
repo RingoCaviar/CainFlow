@@ -437,8 +437,15 @@ class StorageService(UndoMediaMixin):
             if commerce is None:
                 commerce = data.get('commerceImageSet')
             active = set(normalized)
+            results = commerce.get('results') if isinstance(commerce, dict) else None
+            detail_sources = [row['assetKey'] for row in results
+                              if isinstance(row, dict) and row.get('status') == 'completed'
+                              and row.get('detailAssetKind') == 'clean'
+                              and isinstance(row.get('detailOutputKey'), str) and row['detailOutputKey'] in active
+                              and isinstance(row.get('assetKey'), str) and COMMERCE_CANDIDATE_ASSET.fullmatch(row['assetKey'])
+                              ] if isinstance(results, list) else []
             history = dict.fromkeys([
-                *cls._commerce_candidate_asset_keys(commerce), *cls._commerce_previous_export_asset_keys(commerce)
+                *cls._commerce_candidate_asset_keys(commerce), *cls._commerce_previous_export_asset_keys(commerce), *detail_sources
             ])
             normalized.extend(key for key in history if key not in active)
             return normalized

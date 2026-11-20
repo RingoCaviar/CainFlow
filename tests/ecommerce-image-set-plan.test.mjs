@@ -8,9 +8,10 @@ import {
     getCommerceShotCandidates, getGeneratableCommerceImageSetShots,
     getRunnableCommerceImageSetShots, getUnfinishedCommerceImageSetShots, normalizeCommerceImageSetPlan,
     isCommerceShotImageStale, normalizeCommerceImageSetState, preserveCommerceImageSetExportResults,
-    rememberCommerceShotCandidate, removeCommerceSceneShot, setCommerceShotFinalized,
+    rememberCommerceShotCandidate, removeCommerceSceneShot, restoreCommerceShotCandidateDraft, reviseCommerceDetailPage, setCommerceShotFinalized,
     updateCommerceProductInfoField, updateCommerceSceneDescription
 } from '../js/features/ecommerce-image-set/commerce-image-set-plan.js';
+import { getCommerceShotCopy } from '../js/features/ecommerce-image-set/commerce-shot-copy.js';
 
 const references = ['data:image/png;base64,aGVsbG8='];
 const settings = { platformId: 'amazon', mainImageMode: 'original', productNotes: '白色马克杯', plannerModelId: 'vision', plannerProviderId: 'provider',
@@ -146,8 +147,94 @@ test('风格控制优先于副图和详情图草稿的冲突视觉要求', async
         assert.match(prompt, /视觉表达冲突时，以画面风格规范为准/);
         assert.ok(prompt.lastIndexOf('视觉表达冲突时') > prompt.indexOf('暖黄商业摄影'));
         assert.doesNotMatch(prompt, /遵循画面设计中的文字位置、对齐、字体风格和字色/);
+        if (shot.group === 'detail') {
+            assert.match(prompt, /整页共用字体与层级/);
+            assert.match(prompt, /^标题："Cup"$/m);
+        }
         assert.match(prompt, /逐字保留/);
     }
+});
+
+test('详情页方案保留模型给出的整页顺序，恢复和追加时补齐启用的图位', async () => {
+    const seam = '浅蓝底色跨满宽度，细弧从左下 30% 延续到右侧中线';
+    const section = shotId => ({ shotId, layout: 'grid', anchor: 'top-right', transition: 'shared', tone: 'accent', height: 'short',
+        composition: '大图搭配圆角参数卡', topEdge: shotId === 'detail-overview' ? '使用另一条线' : '',
+        bottomEdge: shotId === 'detail-feature' ? seam : '' });
+    const detailPage = { version: 2, theme: { background: '#e9f2ff', foreground: '#001122', accent: '#f8ab62', surface: '#333aaa' },
+        guide: { typography: '粗体深蓝标题，正文齐左，层级两档', motif: '重复细弧和圆角参数卡', lighting: '左侧窗光',
+            productConsistency: '同一蓝色杯身和透明杯盖', readingFlow: '先解释杯盖，再展示整体' },
+        sections: [section('detail-feature'), section('detail-overview')] };
+    const copy = '带盖杯\n\n杯盖可拆\n方便冲洗';
+    const { plan, ...state } = await createCommerceImageSetPlan({
+        settings: { ...settings, selectedShotIds: ['detail-overview', 'detail-feature'] }, references, models, providers,
+        fetchRef: async (_url, options) => {
+            const messages = JSON.parse(options.body).messages;
+            const request = JSON.parse(messages.at(-1).content[0].text);
+            assert.deepEqual(request.detailSections.map(({ shotId }) => shotId), ['detail-overview', 'detail-feature']);
+            assert.match(messages[0].content, /连续阅读的详情长图/);
+            return Response.json({ choices: [{ message: { content: JSON.stringify({ sellingPoints: ['可拆杯盖'], detailPage,
+                shots: request.shots.map(({ id }) => ({ id, prompt: '窗边柔光，保留杯盖和杯身比例', copy })) }) } }] });
+        }
+    });
+    assert.deepEqual(plan.detailPage, detailPage);
+    assert.ok(plan.shots.every(shot => shot.detailAssetKind === 'finished' && shot.detailPageGuideKey));
+    const [second, first] = plan.shots.map(shot => buildCommerceImageSetImagePrompt({ shot, plan }));
+    assert.ok(plan.shots.every(shot => shot.copy === copy));
+    for (const prompt of [first, second]) {
+        assert.ok(prompt.includes(copy));
+        assert.match(prompt, /粗体深蓝标题.*正文齐左/);
+        assert.match(prompt, /同一蓝色杯身和透明杯盖/);
+        assert.match(prompt, /大图搭配圆角参数卡/);
+    }
+    assert.match(first, /连续详情页第 1 \/ 2 屏/);
+    assert.match(second, /连续详情页第 2 \/ 2 屏/);
+    const boundary = (prompt, label) => prompt.split('\n').find(line => line.startsWith(label)).slice(label.length);
+    assert.equal(boundary(first, '下边缘：'), boundary(second, '上边缘：'));
+    assert.ok(boundary(first, '下边缘：').includes(seam));
+    assert.doesNotMatch(second, /使用另一条线/);
+    const restored = normalizeCommerceImageSetState({ ...state, plan });
+    assert.deepEqual(restored.plan.detailPage, detailPage);
+    restored.results = plan.shots.map(shot => ({ shotId: shot.id, status: 'completed', detailAssetKind: 'clean',
+        assetKey: `media:raw_${shot.id}`, detailOutputKey: `media:rendered_${shot.id}` }));
+    preserveCommerceImageSetExportResults(restored);
+    assert.deepEqual(restored.previousExportResults.map(({ outputKey }) => outputKey), ['media:rendered_detail-feature', 'media:rendered_detail-overview']);
+    assert.deepEqual(getCommerceImageSetHistoryAssetKeys(restored).sort(), [
+        'media:raw_detail-feature', 'media:raw_detail-overview', 'media:rendered_detail-feature', 'media:rendered_detail-overview'
+    ]);
+    assert.equal(appendCommerceSceneShot(restored, 'detail', 'scene-extra').detailAssetKind, 'finished');
+    assert.deepEqual(restored.plan.detailPage.sections.slice(0, 2), detailPage.sections);
+    assert.equal(restored.plan.detailPage.sections.at(-1).shotId, 'scene-extra');
+    const reduced = normalizeCommerceImageSetState({ ...restored, selectedShotIds: ['detail-feature', 'scene-extra'] });
+    assert.deepEqual(reduced.plan.detailPage.sections.map(({ shotId }) => shotId), ['detail-feature', 'scene-extra']);
+    assert.equal(removeCommerceSceneShot(reduced, 'scene-extra'), true);
+    assert.deepEqual(reduced.plan.detailPage.sections, [section('detail-feature')]);
+    assert.equal(reduced.plan.sourceKey, plan.sourceKey);
+});
+
+test('版式修订共享边缘时更新相邻两屏的生图依据，并保护定稿', async () => {
+    const first = 'detail-overview';
+    const second = 'detail-feature';
+    const input = { ...settings, selectedShotIds: [first, second] };
+    const sourceKey = await commerceImageSetSourceKey({ settings: input, references });
+    const state = normalizeCommerceImageSetState({ ...input, plan: { version: 1, sourceKey, confirmed: true, sellingPoints: [],
+        detailPage: { version: 2, sections: [{ shotId: first, bottomEdge: '米色底横向延续' }, { shotId: second }] },
+        shots: [{ id: first, prompt: '原有主视觉', copy: '轻松随行' }, { id: second, prompt: '展示杯盖', copy: '可拆杯盖\n简单冲洗' }] } });
+    state.results = state.plan.shots.map(shot => ({ shotId: shot.id, status: 'completed', detailAssetKind: 'finished',
+        assetKey: `media:${shot.id}`, planKey: commerceShotPlanKey(shot) }));
+    const options = { settings: state, references, models, providers, shotId: second, description: '上一屏的米色沿蓝色曲线过渡',
+        fetchRef: async () => Response.json({ choices: [{ message: { content: JSON.stringify({
+            detailPage: { sections: [{ shotId: second, topEdge: '细蓝色曲线从左下延续到右侧中线' }] }
+        }) } }] }) };
+    assert.equal(setCommerceShotFinalized(state, first, true), true);
+    await assert.rejects(reviseCommerceDetailPage(options), /详情首屏.*先解锁/);
+    assert.equal(state.plan.confirmed, true);
+    assert.equal(setCommerceShotFinalized(state, first, false), true);
+    const revised = await reviseCommerceDetailPage(options);
+    assert.equal(revised.plan.confirmed, false);
+    assert.deepEqual(revised.plan.shots.map(shot => shot.copy), state.plan.shots.map(shot => shot.copy));
+    assert.deepEqual(revised.results, state.results);
+    assert.ok(revised.plan.shots.every((shot, index) => isCommerceShotImageStale(shot, revised.results[index])));
+    assert.deepEqual(getUnfinishedCommerceImageSetShots(revised).map(shot => shot.id), [first, second]);
 });
 
 test('commerce candidate counts are bounded and do not change the approved plan identity', async () => {
@@ -282,6 +369,46 @@ test('the image model receives the composition and only the latest approved copy
     assert.doesNotMatch(prompt, /^正文：|初稿标题|原始说明/m);
 });
 
+test('a saved shot sends its complete multiline copy and layout instructions to the image model', () => {
+    const copy = '大标题：No Additives,\nPreservative Free\n\n副标题：Contains Only Sodium Chloride and Purified Water'
+        + '\n\n0% Medications\n0% Preservatives\n0% Buffers\n0% Other Irritants';
+    const state = normalizeCommerceImageSetState({ ...settings, selectedShotIds: ['feature'],
+        plan: { version: 1, sourceKey: 'saved', sellingPoints: [], shots: [{ id: 'feature', prompt: '杯子右侧留白', copy }] } });
+    const shot = state.plan.shots[0];
+    assert.equal(shot.copy, copy);
+    const prompt = buildCommerceImageSetImagePrompt({ shot, plan: state.plan });
+    assert.ok(prompt.includes(copy));
+    assert.notEqual(commerceShotPlanKey(shot), commerceShotPlanKey({ ...shot, copy: `${copy}\n另一个卖点` }));
+
+    rememberCommerceShotCandidate(state, shot, 'media:prior-copy');
+    shot.copy = '';
+    const restored = normalizeCommerceImageSetState(state);
+    assert.equal(getCommerceShotCopy(restored.plan.shots[0]), '');
+    const candidate = getCommerceShotCandidates(restored, 'feature')[0];
+    assert.equal(restoreCommerceShotCandidateDraft(restored, candidate), true);
+    assert.equal(getCommerceShotCopy(restored.plan.shots[0]), copy);
+});
+
+test('saved legacy shot copy appears together and an explicitly cleared copy stays empty', () => {
+    const legacy = { headline: '带盖杯', body: '塑料杯盖可拆卸。' };
+    assert.equal(getCommerceShotCopy(legacy), '标题：带盖杯\n\n正文：塑料杯盖可拆卸。');
+    assert.equal(getCommerceShotCopy({ ...legacy, copy: '' }), '');
+});
+
+test('a finished detail panel sends its full copy to the image model for direct lettering', () => {
+    const copy = '在杯身右侧排版，保留左侧留白\n大标题：安心随行\n\n副标题：可拆杯盖，方便清洁\n日常携带\n家中使用';
+    const state = normalizeCommerceImageSetState({ ...settings, selectedShotIds: ['detail-overview'],
+        plan: { version: 1, sourceKey: 'saved', sellingPoints: [],
+            detailPage: { version: 2, sections: [{ shotId: 'detail-overview' }] },
+            shots: [{ id: 'detail-overview', prompt: '窗边柔光', copy }] } });
+    const shot = state.plan.shots[0];
+    assert.equal(shot.detailAssetKind, 'finished');
+    const prompt = buildCommerceImageSetImagePrompt({ shot, plan: state.plan });
+    assert.ok(prompt.includes(copy));
+    assert.match(prompt, /在同一次出图中完成商品画面与文案排版/);
+    assert.notEqual(commerceShotPlanKey(shot), commerceShotPlanKey({ ...shot, copy: '' }));
+});
+
 test('explicit copy language applies to planning, rewriting and image prompt lettering', async () => {
     const requests = [];
     const options = { references, models, providers, fetchRef: async (_path, { body }) => {
@@ -289,8 +416,8 @@ test('explicit copy language applies to planning, rewriting and image prompt let
         const system = messages.find(message => message.role === 'system').content;
         const input = JSON.parse(messages.at(-1).content[0].text);
         requests.push({ system, input });
-        const shots = input.shots.map(({ id }) => id === 'feature' ? { id, prompt: '展示杯柄' } : {
-            id, prompt: '用柔光突出马克杯', headline: input.currentShot ? '毎日使えるマグ' : '持ちやすいマグ', body: '手になじむ持ち手'
+        const shots = input.shots.map(({ id }) => id === 'feature' ? { id, prompt: '展示杯柄', copy: '' } : {
+            id, prompt: '用柔光突出马克杯', copy: `${input.currentShot ? '毎日使えるマグ' : '持ちやすいマグ'}\n\n手になじむ持ち手`
         });
         return Response.json({ choices: [{ message: { content: JSON.stringify({
             ...(input.currentShot ? {} : { sellingPoints: ['杯柄好握'] }), shots
@@ -304,16 +431,16 @@ test('explicit copy language applies to planning, rewriting and image prompt let
     assert.equal(planned.plan.copyLanguage, 'ja');
     for (const { input, system } of requests) {
         assert.equal(input.copyLanguage, 'ja');
-        assert.match(system, /headline 和 body.*日语/);
+        assert.match(system, /文案 copy 使用日语/);
     }
+    assert.equal(requests[1].input.currentShot.copy, '持ちやすいマグ\n\n手になじむ持ち手');
     assert.deepEqual(planned.productInfo.sellingPoints, ['杯柄好握']);
-    assert.equal(planned.plan.shots.find(shot => shot.id === 'feature').headline, '');
+    assert.equal(planned.plan.shots.find(shot => shot.id === 'feature').copy, '');
     const detail = rewritten.plan.shots.find(shot => shot.id === 'detail');
-    assert.equal(detail.headline, '毎日使えるマグ');
+    assert.equal(detail.copy, '毎日使えるマグ\n\n手になじむ持ち手');
     const prompt = buildCommerceImageSetImagePrompt({ shot: detail, plan: rewritten.plan });
     assert.match(prompt, /图中文字语言：日语/);
-    assert.match(prompt, /^标题："毎日使えるマグ"$/m);
-    assert.match(prompt, /^正文："手になじむ持ち手"$/m);
+    assert.ok(prompt.includes(detail.copy));
     assert.notEqual(planned.plan.sourceKey, await commerceImageSetSourceKey({ settings: { ...planned, copyLanguage: 'fr' }, references }));
     const restored = normalizeCommerceImageSetState({ ...planned, copyLanguage: 'fr', plan: { ...planned.plan, confirmed: true } });
     assert.equal(restored.plan.copyLanguage, 'ja');
@@ -575,12 +702,14 @@ test('replanning keeps scene drafts and only revokes approval when that scene’
     const completed = { shotId: scene.id, status: 'completed', assetKey: 'media:supplemental', planKey: commerceShotPlanKey(approved) };
     planned.results.push(completed);
     const refreshed = await createCommerceImageSetPlan({ ...options, settings: planned });
-    assert.deepEqual(refreshed.plan.shots.find(({ id }) => id === scene.id), approved);
+    const refreshedScene = refreshed.plan.shots.find(({ id }) => id === scene.id);
+    assert.deepEqual(refreshedScene, { ...approved, detailAssetKind: 'finished', detailPageGuideKey: refreshedScene.detailPageGuideKey });
+    assert.ok(refreshedScene.detailPageGuideKey);
     assert.deepEqual(refreshed.results.map(({ assetKey }) => assetKey), ['media:gallery', 'media:detail', completed.assetKey]);
     const unrelated = await createCommerceImageSetPlan({ ...options, settings: {
         ...planned, selectedShotIds: [...planned.selectedShotIds, 'feature'], galleryAspect: '1:1'
     } });
-    assert.deepEqual(unrelated.plan.shots.find(({ id }) => id === scene.id), approved);
+    assert.deepEqual(unrelated.plan.shots.find(({ id }) => id === scene.id), refreshedScene);
     const relevantSettings = structuredClone(planned);
     updateCommerceProductInfoField(relevantSettings, 'details', '带有可拆洗杯盖');
     const relevant = await createCommerceImageSetPlan({ ...options, settings: relevantSettings });

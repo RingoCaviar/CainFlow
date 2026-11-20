@@ -2644,7 +2644,7 @@ export function createWorkflowRuntimeManager({
 
     function updateCommerceShotDraft(workflow, visibleNode, change) {
         const { commerceShotId: shotId, commerceShotField: field, commerceSceneChanged: sceneChanged, commerceFinalizedChanged: finalizedChanged } = change;
-        if (!sceneChanged && !finalizedChanged && !['prompt', 'headline', 'body'].includes(field)) return;
+        if (!sceneChanged && !finalizedChanged && !['prompt', 'copy'].includes(field)) return;
         const context = getWorkflowRunContexts(workflow).find(entry => entry.activePlanNodeIds.has(visibleNode.id));
         if (!context) return;
         const runtimeNode = context.state.nodes.get(visibleNode.id);

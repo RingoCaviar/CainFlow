@@ -106,7 +106,7 @@ export const PROMPT_AGENT_CANVAS_INSTRUCTIONS = `
 - 图片和视频生成后由程序自动保存到本地保存目录，ImageSave 已弃用，禁止提出新建或重建保存节点。用户要求保存时说明自动保存机制即可。
 - 从 canvas.editableFields 读取各类型的可写参数，从节点 parameterOptions 读取公开的选项和范围。未列出可写参数时用 parameters:{}。已有节点的其他参数保持当前值。ImageGenerate 的取值还需符合当前生图能力。
 - 画面风格 VisualStyle 输出 style 类型，连接 ImageGenerate 或 ECommerceImageSet 的 style 输入；每个目标只接一个风格。同一风格可供多个节点使用。parameters 支持 preset、description、medium、palette、lighting、texture、background、composition、typography、avoid，枚举以参数清单为准。风格参考图接 VisualStyle.image，不作为商品图；提取操作由用户在节点中触发，运行仅输出当前配置。电商套图的商品原图连入 referenceImages；只借鉴布局和配色的图片连入独立的 styleReferenceImages 多图端口，按 order 排序。
-- 电商套图节点 ECommerceImageSet 可用 parameters.productInfo 修改商品资料，只传要修改的 name、sellingPoints（字符串数组）、audience、useCases 或 details。用 parameters.copyLanguage 设置图中文字语言，取值见 parameterOptions.copyLanguage。步骤设置 execute:false。分析产品与生成套图方案在节点参数列操作。
+- 电商套图节点 ECommerceImageSet 可用 parameters.productInfo 修改商品资料，只传要修改的 name、sellingPoints（字符串数组）、audience、useCases 或 details。用 parameters.copyLanguage 设置图中文字语言，取值见 parameterOptions.copyLanguage。步骤设置 execute:false。commerceDetailPage 是详情屏数和已完成屏数的只读摘要。在节点界面规划整页、调整文案与版式要求，生成后取得按阅读顺序输出的模型成图。调整方案后需要再次生图才能更新成图。
 - 单图续改继续使用 promptPlan 与 targetSelection 合同，确保最新结果选择规则不变。多步骤方案不能借 canvasPlan 绕过续改图片身份校验。应用和运行状态由程序显示，回复不要声称已建图或已出图。
 `;
 export const getPromptAgentInstructions = (canvas) => PROMPT_AGENT_SYSTEM_PROMPT + (canvas ? PROMPT_AGENT_CANVAS_INSTRUCTIONS : "");

@@ -2,10 +2,10 @@ import { resolveVisualStyle, visualStyleKey } from '../features/visual-style/vis
 import { COMMERCE_ART_DIRECTION_LIMIT, resolveCommerceImageSetStyle, updateCommerceArtDirection } from '../features/ecommerce-image-set/commerce-art-direction.js';
 import { visualStyleText } from '../features/visual-style/visual-style.js';
 import {
-    COMMERCE_IMAGE_SET_ASPECTS, COMMERCE_IMAGE_SET_COPY_LANGUAGES, COMMERCE_IMAGE_SET_COPY_LIMITS,
+    COMMERCE_IMAGE_SET_ASPECTS, COMMERCE_IMAGE_SET_COPY_LANGUAGES,
     COMMERCE_IMAGE_SET_DEFAULT_ASPECTS, COMMERCE_IMAGE_SET_PRESETS, COMMERCE_PRODUCT_INFO_LIMITS,
     COMMERCE_SCENE_DESCRIPTION_LIMIT, COMMERCE_CANDIDATE_GENERATION_LIMIT,
-    appendCommerceSceneShot, getCommerceProductInfo, getCommerceSceneSummary, getCommerceShotCandidates,
+    appendCommerceSceneShot, getCommerceProductInfo, getCommerceSceneSummary, getCommerceShotCandidates, getCommerceShotCopy,
     getCommerceAmazonMainMode, getCommerceReferenceTypes, getGeneratableCommerceImageSetShots, getRunnableCommerceImageSetShots, getSelectedCommerceImageSetShots,
     getUnfinishedCommerceImageSetShots, isCommerceShotImageStale,
     normalizeCommerceImageSetCandidateCount, normalizeCommerceImageSetCopyLanguage, normalizeCommerceImageSetState,
@@ -14,6 +14,8 @@ import {
 } from '../features/ecommerce-image-set/commerce-image-set-plan.js';
 import { hasCommerceImageSetExportMedia, projectCommerceImageSetExport } from '../features/ecommerce-image-set/commerce-image-set-export.js';
 import { openCommerceImageSetExport } from '../features/ecommerce-image-set/commerce-image-set-export-dialog.js';
+import { openCommerceDetailPage } from '../features/ecommerce-image-set/commerce-detail-page-dialog.js';
+import { getCommerceOutputAssetKey } from '../features/ecommerce-image-set/commerce-detail-page.js';
 import {
     COMMERCE_REFERENCE_CHANGED_MESSAGE, getCommerceReferenceRevision, hasCommerceReferenceChange, needsCommerceReferenceVerification,
     projectCommerceReferences, sameCommerceReferenceProjection, verifyCommerceReferenceContent
@@ -139,7 +141,10 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             ${shotGroups.map(([group, title]) => `<section class="commerce-image-set-result-group" data-commerce-result-group="${group}">
                 <header class="commerce-image-set-group-heading">
                     <div class="commerce-image-set-result-title"><h4>${title}</h4><span class="commerce-image-set-result-count"></span></div>
-                    <button type="button" class="commerce-image-set-add-scene" data-commerce-action="add-scene" data-commerce-scene-group="${group}" aria-label="添加${title}场景图">${addIcon}<span>添加场景图</span></button>
+                    <div class="commerce-image-set-group-actions">
+                        ${group === 'detail' ? '<button type="button" class="commerce-image-set-export-trigger" data-commerce-action="preview-detail-page" data-node-read-action aria-haspopup="dialog" hidden>连续预览</button>' : ''}
+                        <button type="button" class="commerce-image-set-add-scene" data-commerce-action="add-scene" data-commerce-scene-group="${group}" aria-label="添加${title}场景图">${addIcon}<span>添加场景图</span></button>
+                    </div>
                 </header>
             </section>`).join('')}
         </div>
@@ -186,6 +191,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
     const planHeading = planSection.querySelector('h3');
     const previousPreviewButton = planSection.querySelector('[data-commerce-action="preview-previous"]');
     const exportButton = planSection.querySelector('[data-commerce-action="export"]');
+    const detailPreviewButton = planSection.querySelector('[data-commerce-action="preview-detail-page"]');
     const shots = element.querySelector('.commerce-image-set-shots');
     const resultGroups = new Map(shotGroups.map(([group]) => {
         const section = shots.querySelector(`[data-commerce-result-group="${group}"]`);
@@ -227,6 +233,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
     let planSourceKey = null;
     let closeExportDialog = null;
     let closeCandidateDialog = null;
+    let detailDialog = null;
     let legacyReferenceCheck = null;
 
     function matchesReferenceCheck(check, plan, projection) {
@@ -372,8 +379,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             ${shot.customScene ? `<label>场景描述（选填）<textarea data-commerce-shot-field="description" rows="2" maxlength="${COMMERCE_SCENE_DESCRIPTION_LIMIT}" placeholder="留空由 AI 推荐"></textarea></label>`
                 : '<p class="commerce-image-set-shot-purpose" hidden></p>'}
             ${shot.source === 'generate' ? `<div class="commerce-image-set-copy-fields">
-                <label>图中文字标题<input type="text" data-commerce-shot-field="headline" maxlength="${COMMERCE_IMAGE_SET_COPY_LIMITS.headline}"></label>
-                <label>图中文字正文<textarea data-commerce-shot-field="body" rows="2" maxlength="${COMMERCE_IMAGE_SET_COPY_LIMITS.body}"></textarea></label>
+                <label>图上文案<textarea data-commerce-shot-field="copy" rows="5" placeholder="可粘贴多行文字，也可描述排版要求"></textarea></label>
             </div>
             <label>生图提示词<textarea data-commerce-shot-field="prompt" rows="3" maxlength="2000"></textarea></label>` : ''}
         </div>
@@ -525,14 +531,15 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             }
             if (row.copyFields) row.copyFields.hidden = !shot.allowCopy || (shot.customScene && !scenePlanned);
             for (const field of row.shotFields) {
-                if (documentRef.activeElement !== field) field.value = shot[field.dataset.commerceShotField] || '';
+                const name = field.dataset.commerceShotField;
+                if (documentRef.activeElement !== field) field.value = name === 'copy' ? getCommerceShotCopy(shot) : shot[name] || '';
                 field.disabled = locked || active || finalized;
             }
-            const copy = shot.allowCopy ? [shot.headline, shot.body].filter(Boolean).join(' · ') : '';
+            const copy = shot.allowCopy ? getCommerceShotCopy(shot).split(/\r?\n/).map(line => line.trim()).filter(Boolean).join(' · ') : '';
             if (row.copySummary.textContent !== copy) row.copySummary.textContent = copy;
             row.copySummary.hidden = !copy || shot.customScene === true;
             const previewResult = liveResult?.image ? liveResult : savedResult;
-            const previewUrl = previewResult?.image || assetUrl(previewResult?.assetKey);
+            const previewUrl = previewResult?.image || assetUrl(getCommerceOutputAssetKey(previewResult));
             setImage(row.image, previewUrl);
             row.preview.hidden = !previewUrl;
             row.preview.setAttribute('aria-pressed', String(shownShotId === shot.id));
@@ -774,6 +781,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         renderShotChoices(preset, selectedPresetShots, locked, finalizedIds);
         const previousManifest = projectCommerceImageSetExport({ ...exportOptions, version: 'previous' });
         previousPreviewButton.hidden = !previousManifest.rows.some(row => row.assetKey);
+        detailPreviewButton.hidden = !plan?.shots.some(shot => shot.group === 'detail');
         exportButton.hidden = previousPreviewButton.hidden && !hasCommerceImageSetExportMedia(node.data.mediaAssetKeys);
         exportButton.disabled = referenceVerificationPending;
         planSection.hidden = !plan && exportButton.hidden;
@@ -895,7 +903,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         const savedCover = completed.find(result => result.shotId === activeShotId && assetUrl(result.assetKey))
             || completed.find(result => assetUrl(result.assetKey));
         const heldCover = node.commerceShotPreviews ? cover.getAttribute('src') : '';
-        const previewUrl = getShotPreview(latestShot?.id)?.image || heldCover || assetUrl(savedCover?.assetKey || priorAssets[0]);
+        const previewUrl = getShotPreview(latestShot?.id)?.image || heldCover || assetUrl(getCommerceOutputAssetKey(savedCover) || priorAssets[0]);
         setImage(cover, previewUrl);
         card.dataset.hasCover = String(!!previewUrl);
         cardTitle.textContent = node.el.dataset.nodeTitle || '电商套图';
@@ -904,6 +912,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         renderShots(plan, results, { locked: shotsLocked, resultsLocked: locked, readyToReplan, canRetry, shotImageIssues,
             canAppendScene: currentPlan && !referenceIssue && !shotsLocked,
             shownShotId: latestShot?.id || savedCover?.shotId, referenceChanged });
+        detailDialog?.refresh();
         if (restoreFooterFocus) {
             if (focusPlanReview && plan) {
                 const firstShot = plan.shots.find(shot => shot.source === 'generate');
@@ -956,7 +965,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
                 shots: selected.map(shot => {
                     const prior = previous.get(shot.id);
                     const needsReview = shot.customScene && prior?.prompt && (platformChanged || prior.aspect !== shot.aspect);
-                    return { prompt: '', headline: '', body: '', ...prior, ...shot,
+                    return { prompt: '', ...(prior || { copy: '' }), ...shot,
                         ...(needsReview ? { sceneConfirmed: false, sceneNeedsReview: true } : {}) };
                 })
             };
@@ -1065,7 +1074,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
                 shotNotices.delete(shot.id);
                 onChange({ commerceShotId: shot.id, commerceSceneChanged: true });
             } else {
-                if (field !== 'prompt' && !(shot.allowCopy && Object.hasOwn(COMMERCE_IMAGE_SET_COPY_LIMITS, field))) return;
+                if (field !== 'prompt' && !(shot.allowCopy && field === 'copy')) return;
                 shot[field] = event.target.value;
                 if (shot.customScene) shot.sceneConfirmed = false;
                 else value.plan.confirmed = false;
@@ -1075,6 +1084,21 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         runMessage = '';
     });
     const isCurrentNode = () => state.nodes.get(node.id) === node;
+
+    function detailData() {
+        const value = config();
+        const options = exportInput(value, projectCommerceReferences(state, node.id));
+        const manifest = projectCommerceImageSetExport({ ...options, scope: 'detail' });
+        const finalized = new Set((value.results || []).filter(row => row.finalized).map(row => row.shotId));
+        return {
+            sections: manifest.rows.map(({ shotId, label, assetKey, status }) => ({
+                shotId, label, image: assetUrl(assetKey), previous: status === 'previous', finalized: finalized.has(shotId)
+            })),
+            busy: !!(pendingAction || pendingShots.size || state.runningNodeIds?.has(node.id)),
+            editable: isCurrentNode() && node.enabled !== false && node.isClone !== true && !value.plan?.stale
+                && value.plan?.detailPage?.version === 2 && !options.referenceChanged && !options.referenceVerificationPending
+        };
+    }
 
     function restoreActionFocus(row, button) {
         if (row && documentRef.activeElement === row && !button.disabled && button.checkVisibility()) {
@@ -1086,6 +1110,11 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         const nodeError = result?.nodeResults?.find(item => item.nodeId === node.id)?.error;
         return result?.error || nodeError || (result?.outcome === 'failed' ? '执行失败。'
             : result === false || result?.executed === false ? '执行未启动。' : '');
+    }
+
+    async function runDetailAction(action, shotId, options) {
+        const outcome = await run(action, shotId, options);
+        if (outcome?.outcome !== 'completed') throw new Error(runError(outcome) || '操作未完成，请重试。');
     }
 
     async function runAction(action) {
@@ -1260,6 +1289,20 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             }
             return;
         }
+        if (action === 'preview-detail-page') {
+            if (detailDialog || documentRef.getElementById('commerce-detail-page-dialog')) return;
+            try {
+                detailDialog = openCommerceDetailPage({
+                    documentRef, opener: button, getPage: detailData,
+                    onLayout: (id, text) => runDetailAction('revise-detail-page', id, { commerceDetailDirection: text }),
+                    onClose: () => { detailDialog = null; }
+                });
+            } catch (error) {
+                runMessage = error?.message || '无法打开详情图预览。';
+                refresh();
+            }
+            return;
+        }
         if (action === 'preview-previous' || action === 'export') {
             const options = exportInput(config(), projectCommerceReferences(state, node.id));
             if (options.referenceVerificationPending) return;
@@ -1339,6 +1382,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         element, actions, refresh,
         destroy() {
             designReferences.destroy();
+            detailDialog?.close();
             closeExportDialog?.();
             closeCandidateDialog?.();
             clearShotRows();

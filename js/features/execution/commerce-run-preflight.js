@@ -12,6 +12,7 @@ import {
     getGeneratableCommerceImageSetShots, getRunnableCommerceImageSetShots, getSelectedCommerceImageSetShots,
     getUnfinishedCommerceImageSetShots, normalizeCommerceImageSetState
 } from '../ecommerce-image-set/commerce-image-set-plan.js';
+import { getCommerceShotCopy } from '../ecommerce-image-set/commerce-shot-copy.js';
 import { getCanonicalImageList } from './execution-data-utils.js';
 import { getImageAspectOptionsForProtocol, usesOpenAiImageSize } from './image-generation-size.js';
 import { getEffectiveProtocol, getModelsForTask, getResolvedProviderForModel, getResolvedProviderIdForModel } from './provider-request-utils.js';
@@ -151,7 +152,7 @@ export function getCommerceRunPreflight({ state, plan }) {
             approvalKey: JSON.stringify([settings.plan?.sourceKey || '', getCommerceReferenceRevision(references),
                 commerceConnectedStyleRevision(settings, styleReferences), settings.shotReferences,
                 settings.imageModelId, settings.imageProviderId, candidateCount,
-                shots.map(shot => [shot.id, shot.source, shot.aspect, shot.prompt, shot.headline, shot.body]),
+                shots.map(shot => [shot.id, shot.source, shot.aspect, shot.prompt, getCommerceShotCopy(shot), shot.detailPageGuideKey]),
                 completed.map(row => [row.shotId, row.assetKey, row.finalized === true])]) }];
     });
 }

@@ -150,8 +150,13 @@ export function createNodeDomBindingsApi({
             },
             onSelect(candidate, range) {
                 if (state.nodes.get(node.id) !== node || !range.isCurrent()) return null;
-                const source = candidate.sourceNodeId ? { ...candidate, workflowId: getWorkflowId?.() || '' } : candidate;
-                const token = registerPromptImageMention(node, source, input.value, range, input.maxLength);
+                const upstream = referenceImageCatalog.getUpstream(node.id);
+                const current = range.mode === 'upstream' ? findPromptImageMentionUpstream(candidate, upstream) : candidate;
+                if (!current) throw new Error('上游参考图已变化，请重新选择。');
+                const source = current.sourceNodeId ? { ...current, workflowId: getWorkflowId?.() || '' } : current;
+                const token = registerPromptImageMention(node, source, input.value, range, {
+                    maxLength: input.maxLength, lastReferenceNumber: upstream.at(-1)?.referenceNumber
+                });
                 if (!token) showToast('提示词已达到长度上限。', 'warning');
                 else queueMicrotask(() => { if (state.nodes.get(node.id) === node) scheduleSave(); });
                 return token;

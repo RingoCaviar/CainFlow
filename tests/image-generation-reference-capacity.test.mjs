@@ -55,9 +55,10 @@ test('prompt mentions send history originals alongside ordered connected images 
     images[28] = images[3];
     const selectedSlot = referenceImageCatalog.getUpstream(target.id)[28];
     const historyItem = (await referenceImageCatalog.getScene()).find(item => item.kind === 'history');
-    const range = { start: 0, end: 1 };
-    const upstream = registerPromptImageMention(target, selectedSlot, '@', range);
-    const history = registerPromptImageMention(target, historyItem, '@', range);
+    const query = '@图片29';
+    const upstream = registerPromptImageMention(target, selectedSlot, query, { start: 0, end: query.length });
+    const history = registerPromptImageMention(target, historyItem, '@', { start: 0, end: 1 });
+    assert.equal(upstream, '@图片29');
     target.promptDraft = `构图参照${upstream}，配色参照${history}`;
 
     const preview = await core.buildNodeRequestPreview(target.id);
@@ -76,7 +77,7 @@ test('prompt mentions send history originals alongside ordered connected images 
     assert.equal(regenerated.requestBody.reference_images[28], first.data.imageList[28]);
 
     state.connections = state.connections.filter(connection => connection.id !== selectedSlot.connectionId);
-    await assert.rejects(core.buildNodeRequestPreview(target.id), /无法读取 @图片1/);
+    await assert.rejects(core.buildNodeRequestPreview(target.id), /无法读取 @图片29/);
 });
 
 test('execution keeps the selected scene original when another node changes after the run starts', async () => {

@@ -2,6 +2,7 @@ import {
     getCommerceImageSetPreset, getCommerceProductInfo, getSelectedCommerceImageSetShots,
     isCommerceShotImageStale, normalizeCommerceImageSetCopyLanguage
 } from './commerce-image-set-plan.js';
+import { getCommerceOutputAssetKey } from './commerce-detail-page.js';
 
 const assetKeyPattern = /^media:[a-zA-Z0-9_-]+$/;
 const isMediaAssetKey = key => typeof key === 'string' && assetKeyPattern.test(key);
@@ -28,7 +29,7 @@ export function projectCommerceImageSetExport({ settings, mediaAssetKeys, scope 
     const changed = referenceChanged || (!!referenceRevision && !!plan?.referenceRevision && plan.referenceRevision !== referenceRevision);
     const owned = new Set((Array.isArray(mediaAssetKeys) ? mediaAssetKeys : []).filter(isMediaAssetKey));
     const results = new Map((Array.isArray(settings?.results) ? settings.results : [])
-        .filter(row => row?.status === 'completed' && owned.has(row.assetKey))
+        .filter(row => row?.status === 'completed' && owned.has(getCommerceOutputAssetKey(row)))
         .map(row => [row.shotId, row]));
     const previous = (Array.isArray(settings?.previousExportResults) ? settings.previousExportResults : [])
         .filter(row => isMediaAssetKey(row?.outputKey) && (row.retained === true || owned.has(row.outputKey)));
@@ -50,17 +51,20 @@ export function projectCommerceImageSetExport({ settings, mediaAssetKeys, scope 
     const planShots = new Map((Array.isArray(plan?.shots) ? plan.shots : []).map(shot => [shot.id, shot]));
     const currentPlan = !changed && currentPlatform && !!plan?.sourceKey && !plan.stale
         && normalizeCommerceImageSetCopyLanguage(plan.copyLanguage) === normalizeCommerceImageSetCopyLanguage(settings?.copyLanguage);
-    const associated = new Set([...results.values()].map(row => row.assetKey));
+    const associated = new Set([...results.values()].map(getCommerceOutputAssetKey));
     previous.forEach(row => associated.add(row.outputKey));
     const title = version === 'previous' ? '上次套图' : safeFilenamePart(getCommerceProductInfo(settings).name, '电商套图');
     const historical = changed ? (plan?.shots || []).flatMap(({ id, label, group }, order) => {
         const result = results.get(id);
-        return result ? [{ platformId: plan.platformId, shotId: id, label, group, order, outputKey: result.assetKey }] : [];
+        return result ? [{ platformId: plan.platformId, shotId: id, label, group, order, outputKey: getCommerceOutputAssetKey(result) }] : [];
     }) : [];
     const differentReferences = previous.filter(row => !matchesReferences(row));
     const lastSet = historical.length ? historical : differentReferences.length ? differentReferences
         : previous.some(row => !matchesAspect(row)) ? previous : [];
-    const selected = version === 'current' ? shots : [];
+    const detailOrder = plan?.detailPage?.sections || [];
+    const detailIds = new Set(detailOrder.map(section => section.shotId));
+    const selected = version === 'current' ? [...shots.filter(shot => !detailIds.has(shot.id)),
+        ...detailOrder.flatMap(({ shotId }) => selectedById.has(shotId) ? [selectedById.get(shotId)] : [])] : [];
 
     // Without a current selection, retain the last saved set's recorded order and names.
     const fallback = version === 'previous' ? lastSet : compatiblePrevious;
@@ -72,7 +76,7 @@ export function projectCommerceImageSetExport({ settings, mediaAssetKeys, scope 
         if (scope !== 'all' && group !== scope) return [];
         const shot = planShots.get(id);
         const result = !changed && currentPlatform ? results.get(id) : null;
-        const assetKey = priorKey || result?.assetKey || previousShots.get(id)?.outputKey || null;
+        const assetKey = priorKey || getCommerceOutputAssetKey(result) || previousShots.get(id)?.outputKey || null;
         const current = !priorKey && result && !result.previousVersion && currentPlan && shot?.aspect === aspect
             && (shot.source === 'reference' || (!!result.planKey && !isCommerceShotImageStale(shot, result)));
         const number = index + 1;

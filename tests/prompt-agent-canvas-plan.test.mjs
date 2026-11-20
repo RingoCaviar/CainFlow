@@ -106,6 +106,30 @@ test('Agent can wire several scene images to the commerce style input independen
     assert.throws(() => assertCanvasPlanCurrent(legacyPlan, connected), /相关画布内容已变化/);
 });
 
+test('Agent reads a detail page summary with provider outputs, without expanding editable fields', () => {
+    const node = { id: 'commerce', type: 'ECommerceImageSet', mediaAssetKeys: ['media:provider-image'],
+        commerceImageSet: { selectedShotIds: ['detail-overview', 'detail-feature'],
+            plan: { version: 1, sourceKey: 'plan', referenceContentKey: 'references', sellingPoints: [],
+                detailPage: { version: 2, sections: [{ shotId: 'detail-overview' }, { shotId: 'detail-feature' }] },
+                shots: [{ id: 'detail-overview', prompt: '仅节点内可见' }, { id: 'detail-feature', prompt: '展示' }] },
+            results: [{ shotId: 'detail-overview', status: 'completed', detailAssetKind: 'finished', assetKey: 'media:provider-image' },
+                { shotId: 'detail-feature', status: 'completed', assetKey: 'media:legacy' }] } };
+    const context = graph({ nodes: [node], selectedIds: [node.id] });
+    const [projected] = context.read().nodes;
+    assert.deepEqual(projected.commerceDetailPage, { sectionCount: 2, readySectionCount: 1 });
+    assert.deepEqual(projected.assets, ['media:provider-image']);
+    assert.doesNotMatch(JSON.stringify(projected), /media:legacy|仅节点内可见|"theme"/);
+    const parameters = { commerceDetailPage: { sectionCount: 3 } };
+    assert.throws(() => normalizeCanvasPlan({ version: 1, steps: [{ id: 'edit', type: node.type, nodeId: node.id,
+        execute: false, parameters }] }, context), /不支持参数.*commerceDetailPage/);
+
+    const changedReference = structuredClone(node);
+    changedReference.commerceImageSet.plan.referenceRevision = 'v1:["media:old-reference"]';
+    const [unavailable] = graph({ nodes: [changedReference] }).read().nodes;
+    assert.deepEqual(unavailable.commerceDetailPage, { sectionCount: 2, readySectionCount: 0 });
+    assert.deepEqual(unavailable.assets, []);
+});
+
 test('clearing references needs an explicit selected-node command and preserves other inputs, including masks', () => {
     assert.equal(isSelectedReferenceClearRequest('把我选中节点的参考图都移除'), true);
     assert.equal(isSelectedReferenceClearRequest('请断开当前选中的生图节点的所有参考图连线。'), true);

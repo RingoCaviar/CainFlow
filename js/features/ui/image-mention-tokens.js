@@ -1,4 +1,4 @@
-const IMAGE_TOKEN = /@图片[1-9]\d*(?![\d\[])/g;
+const IMAGE_TOKEN = /@图片(?:[1-9]\d*(?![\d\[])|\([1-9]\d*#[1-9]\d*\))/g;
 const metrics = [
     'fontFamily', 'fontSize', 'fontStyle', 'fontVariant', 'fontWeight', 'fontStretch', 'fontKerning',
     'fontFeatureSettings', 'fontVariationSettings', 'lineHeight', 'letterSpacing', 'wordSpacing', 'tabSize',

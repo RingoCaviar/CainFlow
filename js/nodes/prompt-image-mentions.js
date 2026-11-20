@@ -3,7 +3,8 @@ import { getImageInputKeys } from '../features/execution/provider-request-utils.
 import { createCanvasImageSourceId } from '../features/media/reference-image-identity.js';
 import { MAX_REFERENCE_IMAGE_COUNT } from './reference-image-ports.js';
 
-const tokenPattern = /@图片([1-9]\d*)/g;
+const tokenPattern = /@图片(?:[1-9]\d*|\([1-9]\d*#[1-9]\d*\))/g;
+const validTokenPattern = new RegExp(`^${tokenPattern.source}$`);
 const identityFields = ['id', 'sourceId', 'name', 'kind', 'workflowId', 'sourceNodeId', 'sourcePort', 'assetKey', 'historyId', 'historyVersion', 'imageUrl', 'imageFingerprint', 'targetPort', 'connectionId'];
 const frameLabels = { image_1: '首帧', image_2: '尾帧' };
 
@@ -11,7 +12,7 @@ export function normalizePromptImageMentions(records) {
     if (!Array.isArray(records)) return [];
     const seen = new Set();
     return records.flatMap(record => {
-        if (!/^@图片[1-9]\d*$/.test(record?.token || '') || seen.has(record.token) || !record.source?.id) return [];
+        if (!validTokenPattern.test(record?.token || '') || seen.has(record.token) || !record.source?.id) return [];
         const source = Object.fromEntries(identityFields.flatMap(key => (
             typeof record.source[key] === 'string' && record.source[key] ? [[key, record.source[key]]] : []
         )));
@@ -22,19 +23,34 @@ export function normalizePromptImageMentions(records) {
     });
 }
 
-export function registerPromptImageMention(node, candidate, prompt, range, maxLength = -1) {
+export function registerPromptImageMention(node, candidate, prompt, range, { maxLength = -1, lastReferenceNumber = 0 } = {}) {
     const records = normalizePromptImageMentions(node.data?.imagePromptMentions);
-    const sameSource = records.find(({ source }) => source.workflowId === (candidate.workflowId || undefined)
+    const sameSource = records.filter(({ source }) => source.workflowId === (candidate.workflowId || undefined)
         && (source.id === candidate.id || source.connectionId && source.connectionId === candidate.connectionId
             && source.sourceNodeId === candidate.sourceNodeId && source.sourcePort === candidate.sourcePort
             && source.targetPort === candidate.targetPort && source.sourceImageIndex === candidate.sourceImageIndex));
-    const usedTokens = new Set([...records.map(record => record.token), ...[...prompt.matchAll(tokenPattern)].map(match => match[0])]);
-    let number = 1;
-    while (!sameSource && usedTokens.has(`@图片${number}`)) number++;
-    const token = sameSource?.token || `@图片${number}`;
+    const usedTokens = new Set(records.map(record => record.token));
+    for (const match of prompt.matchAll(tokenPattern)) {
+        if (match.index >= range.start && match.index + match[0].length <= range.end) continue;
+        usedTokens.add(match[0]);
+    }
+    const { referenceNumber } = candidate;
+    const belongsToSource = token => sameSource.some(record => record.token === token);
+    let token = sameSource[0]?.token;
+    if (Number.isSafeInteger(referenceNumber) && referenceNumber > 0) {
+        const slotToken = `@图片${referenceNumber}`;
+        token = slotToken;
+        let suffix = 2;
+        // Give collisions their own syntax so legacy text after a token keeps its meaning.
+        while (usedTokens.has(token) && !belongsToSource(token)) token = `@图片(${referenceNumber}#${suffix++})`;
+    } else if (!token) {
+        let number = lastReferenceNumber + 1;
+        while (usedTokens.has(`@图片${number}`)) number++;
+        token = `@图片${number}`;
+    }
     const separatorLength = range.replacing ? 0 : 1;
     if (maxLength >= 0 && prompt.length - (range.end - range.start) + token.length + separatorLength > maxLength) return '';
-    if (!sameSource) {
+    if (!belongsToSource(token)) {
         node.data ||= {};
         node.data.imagePromptMentions = normalizePromptImageMentions([...records, { token, source: candidate }]);
     }
@@ -44,8 +60,8 @@ export function registerPromptImageMention(node, candidate, prompt, range, maxLe
 export function findPromptImageMentions(node, prompts) {
     const records = normalizePromptImageMentions(node?.data?.imagePromptMentions);
     if (!records.length) return [];
-    const tokens = new Set(prompts.flatMap(prompt => [...String(prompt || '').matchAll(tokenPattern)].map(match => match[0])));
     const recordsByToken = new Map(records.map(record => [record.token, record]));
+    const tokens = new Set(prompts.flatMap(prompt => String(prompt || '').match(tokenPattern) || []));
     return [...tokens].map(token => recordsByToken.get(token)).filter(Boolean);
 }
 

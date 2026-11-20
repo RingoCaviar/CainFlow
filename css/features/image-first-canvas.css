@@ -800,6 +800,7 @@ html:root #canvas-container .node.node-commerce-image-set.node-media-aspect.runn
 }
 .commerce-image-set-result-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; }
 .commerce-image-set-result-count { color: var(--text-secondary); font-size: 12px; }
+.commerce-image-set-group-actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .commerce-image-set-add-scene,
 .commerce-image-set-export-trigger:not([hidden]) {
     display: inline-flex;
@@ -1134,7 +1135,7 @@ html:root #canvas-container .node.node-commerce-image-set.node-media-aspect.runn
 .image-parameter-panel .commerce-image-set-actions .btn-primary { flex: 1 1 auto; }
 .image-parameter-panel :is(.commerce-image-set-actions, .commerce-image-set-scene-actions) .btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--panel-primary-action-bg) 90%, #000); }
 .commerce-image-set-progress { width: 100%; height: 6px; accent-color: var(--panel-primary-action-bg); }
-:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker) {
+:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker, .commerce-detail-page-dialog) {
     --settings-dialog-panel-border: var(--panel-border);
     --settings-dialog-divider: var(--panel-border);
     max-width: none;
@@ -1171,20 +1172,73 @@ html:root #canvas-container .node.node-commerce-image-set.node-media-aspect.runn
 .commerce-reference-picker-images img { width: 100%; aspect-ratio: 1; object-fit: contain; }
 .commerce-reference-picker-images span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .commerce-candidates-dialog { width: min(700px, calc(100vw - 24px)); }
-:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker)::backdrop { background: var(--overlay-backdrop); }
-:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker) .dialog-style-1-panel { width: 100%; }
-:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker) .dialog-style-1-body { gap: 12px; font-size: 13px; }
-:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker) button:focus-visible,
+.commerce-detail-page-dialog { width: min(940px, calc(100vw - 24px)); }
+.commerce-detail-page-dialog [hidden] { display: none; }
+:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker, .commerce-detail-page-dialog)::backdrop { background: var(--overlay-backdrop); }
+:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker, .commerce-detail-page-dialog) .dialog-style-1-panel { width: 100%; }
+:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker, .commerce-detail-page-dialog) .dialog-style-1-body { gap: 12px; font-size: 13px; }
+:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker, .commerce-detail-page-dialog) button:focus-visible,
+.commerce-detail-page-dialog :is(textarea, .commerce-detail-page-preview):focus-visible,
 .commerce-candidate-prompt summary:focus-visible,
 .commerce-export-scopes label:has(input:focus-visible) { outline: 2px solid var(--text-link); outline-offset: 2px; }
-:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker) .btn-primary:enabled {
+:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker, .commerce-detail-page-dialog) .btn-primary:enabled {
     background: var(--panel-primary-action-bg);
     color: var(--panel-primary-action-text);
 }
-:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker) .btn-primary:enabled:hover {
+:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker, .commerce-detail-page-dialog) .btn-primary:enabled:hover {
     background: color-mix(in srgb, var(--panel-primary-action-bg) 90%, #000);
 }
-:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker) .btn-secondary:enabled { color: var(--text-primary); }
+:is(.commerce-export-dialog, .commerce-candidates-dialog, .commerce-reference-picker, .commerce-detail-page-dialog) .btn-secondary:enabled { color: var(--text-primary); }
+.commerce-detail-page-body {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+    height: min(720px, calc(100dvh - 98px));
+    overflow: hidden;
+}
+.commerce-detail-page-preview,
+.commerce-detail-page-controls {
+    box-sizing: border-box;
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-color: var(--border-input) transparent;
+}
+.commerce-detail-page-preview {
+    position: relative;
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    background: var(--surface-control);
+}
+.commerce-detail-page-preview img:not([hidden]) { display: block; width: 100%; height: auto; }
+.commerce-detail-page-preview > p { padding: 8px 12px; color: var(--text-secondary); }
+.commerce-detail-page-controls { display: grid; align-content: start; gap: 16px; padding: 2px 4px 4px; }
+.commerce-detail-page-controls :is(label, .commerce-detail-page-layout) { display: grid; gap: 8px; }
+.commerce-detail-page-controls label { gap: 5px; }
+.commerce-detail-page-controls .commerce-detail-page-layout {
+    padding-top: 16px;
+    border-top: 1px solid var(--panel-border);
+}
+.commerce-detail-page-controls :is(textarea, select) {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 34px;
+    padding: 6px 9px;
+    border: 1px solid var(--border-input);
+    border-radius: 6px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font: inherit;
+    line-height: 1.5;
+}
+.commerce-detail-page-controls textarea { resize: vertical; }
+.commerce-detail-page-controls textarea::placeholder { color: var(--text-secondary); }
+.commerce-detail-page-controls .btn { justify-self: start; }
+.commerce-detail-page-error { color: var(--text-danger); }
+@media (max-width: 620px), (max-height: 500px) {
+    .commerce-detail-page-body { grid-template-columns: minmax(0, 1fr); height: auto; overflow-y: auto; }
+    .commerce-detail-page-preview { min-height: 110px; max-height: min(42dvh, 340px); }
+    .commerce-detail-page-controls { overflow: visible; }
+}
 .commerce-candidate-options:not([hidden]) { display: flex; flex-wrap: wrap; gap: 6px; }
 .commerce-candidate-options button[aria-pressed="true"] {
     background: color-mix(in srgb, var(--text-link) 12%, var(--surface-control));

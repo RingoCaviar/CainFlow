@@ -23,7 +23,10 @@ test('MCP edits a canvas in place, restores it through history and stops a targe
         { id: 'chat', type: 'TextChat', customTitle: '答复', x: 500, y: 120, apiConfigId: 'chat-model', providerId: 'provider',
             prompt: 'Return the controlled text.', fixed: false },
         { id: 'commerce', type: 'ECommerceImageSet', x: 100, y: 350,
-            commerceImageSet: { productInfo: { name: '旧名称', audience: '通勤人群' }, autoProductInfo: { name: '旧名称' } } }
+            commerceImageSet: { productInfo: { name: '旧名称', audience: '通勤人群' }, autoProductInfo: { name: '旧名称' },
+                selectedShotIds: ['detail-overview'], plan: { version: 1, sourceKey: 'plan', referenceContentKey: 'references', sellingPoints: [],
+                    detailPage: { version: 1, sections: [{ shotId: 'detail-overview' }] },
+                    shots: [{ id: 'detail-overview', prompt: '仅节点内可查看的素材说明' }] } } }
     ];
     const canvas = { x: -280, y: -660, zoom: 0.75 };
     const data = { workflowId, nodes, connections: [], canvas };
@@ -74,6 +77,16 @@ test('MCP edits a canvas in place, restores it through history and stops a targe
             assert.deepEqual(commerce(before).parameters.productInfo, { name: '旧名称', audience: '通勤人群' });
             assert.equal(commerce(before).parameters.copyLanguage, 'auto');
             assert.ok(commerce(before).parameterOptions.copyLanguage.includes('ja'));
+            assert.deepEqual(commerce(before).commerceDetailPage, { sectionCount: 1, readySectionCount: 0 });
+            assert.doesNotMatch(JSON.stringify(commerce(before)), /仅节点内可查看的素材说明|"theme"/);
+            const unauthorized = await callCanvas(app.server, 'invalid-token', 'read_canvas', scope(before));
+            assert.equal(unauthorized.status, 401);
+            const readOnly = await callCanvas(app.server, token, 'edit_canvas', { ...scope(before), plan: { version: 1, steps: [
+                { id: 'edit-plan', type: 'ECommerceImageSet', nodeId: 'commerce', execute: false,
+                    parameters: { commerceDetailPage: { sectionCount: 3 } } }
+            ] } });
+            assert.equal(readOnly.errorCode, 'invalid_arguments');
+            assert.match(readOnly.error, /不支持参数.*commerceDetailPage/);
             await call('edit_canvas', { ...scope(before), plan: { version: 1, steps: [
                 { id: 'patch-source', type: 'Text', nodeId: 'source', execute: false, patch: { title: '已改名', x: -120, y: 320, enabled: false } },
                 { id: 'add-merge', type: 'TextMerge', execute: false },

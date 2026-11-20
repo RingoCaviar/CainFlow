@@ -108,11 +108,16 @@ test('图位提示以目标和可选手法为主，整套同风格但不固定�
     const { options, requests } = planner();
     const state = await createCommerceImageSetPlan({ ...options, settings });
     assert.match(requests[0].system, /各图位共享这套视觉语言.*构图、景别及信息节奏应按用途变化/);
+    assert.match(requests[0].system, /不同商品及参考图可使用不同布局组合和节奏/);
     assert.match(requests[0].input.shots[0].purpose, /可选手法/);
     assert.match(requests[0].input.shots[0].purpose, /不指定固定位置/);
     for (const shot of state.plan.shots) {
         const prompt = buildCommerceImageSetImagePrompt({ shot, plan: state.plan });
         assert.match(prompt, /不强制固定版式/);
+        if (shot.group === 'detail') {
+            assert.match(prompt, /直接输出这一屏的成品/);
+            assert.match(prompt, /在同一次出图中完成商品画面与文案排版/);
+        }
         assert.ok(prompt.includes(shot.prompt));
     }
 });

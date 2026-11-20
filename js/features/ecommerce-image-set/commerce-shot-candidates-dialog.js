@@ -1,4 +1,5 @@
 import { COMMERCE_CANDIDATE_GENERATION_LIMIT } from './commerce-image-set-plan.js';
+import { getCommerceShotCopy } from './commerce-shot-copy.js';
 import { buildVisualStylePrompt } from '../visual-style/visual-style.js';
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 
@@ -130,10 +131,10 @@ export function openCommerceShotCandidates({ documentRef, opener, shot, current,
         if (!source) image.removeAttribute('src');
         else if (image.getAttribute('src') !== source) image.src = source;
         const copy = figure.querySelector('.commerce-candidate-copy');
-        copy.textContent = [version?.draft?.headline, version?.draft?.body].filter(Boolean).join('\n');
+        copy.textContent = getCommerceShotCopy(version?.draft);
         copy.hidden = !copy.textContent;
         const prompt = figure.querySelector('.commerce-candidate-prompt');
-        prompt.querySelector('p').textContent = [version?.draft?.prompt, buildVisualStylePrompt(version?.draft?.visualStyleSnapshot, { lettering: !!(version?.draft?.headline || version?.draft?.body) })].filter(Boolean).join('\n\n');
+        prompt.querySelector('p').textContent = [version?.draft?.prompt, buildVisualStylePrompt(version?.draft?.visualStyleSnapshot, { lettering: !!copy.textContent.trim() })].filter(Boolean).join('\n\n');
         prompt.hidden = !version?.draft?.prompt;
         updateImageStatus(figure);
     }
