@@ -79,8 +79,8 @@ export function createProductRetouchView({
     const element = documentRef.createElement('div');
     element.className = 'product-retouch-settings';
     element.innerHTML = `
-        <section class="product-retouch-source" aria-labelledby="${panelId}-source">
-            <h3 id="${panelId}-source">商品参考图</h3>
+        <section class="product-retouch-source node-parameter-section" aria-labelledby="${panelId}-source">
+            <h3 class="node-parameter-heading" id="${panelId}-source">商品参考图</h3>
             <div class="product-retouch-source-frame">
                 <button type="button" class="product-retouch-source-preview" data-retouch-action="preview-source" aria-label="查看商品参考图" data-node-read-action hidden><img alt="商品参考图"></button>
                 <span class="product-retouch-source-icon">${photoIcon}</span>
@@ -90,17 +90,20 @@ export function createProductRetouchView({
             </div>
             <details class="product-retouch-connections" hidden><summary>连接明细</summary></details>
         </section>
-        <fieldset class="product-retouch-background">
-            <legend>背景</legend>
-            <div class="product-retouch-swatches">${backgrounds.map(([value, label]) => `
-                <label><input type="radio" name="${panelId}-background" value="${value}" data-retouch-field="background">
-                    <span class="product-retouch-swatch" data-background="${value}" aria-hidden="true">${value === 'original' ? photoIcon : ''}</span><span>${label}</span></label>`).join('')}</div>
-        </fieldset>
-        <div class="product-retouch-treatment">
-            <label>布光<select class="ui-select" data-retouch-field="lighting"><option value="soft">柔光</option><option value="balanced">均匀光</option><option value="dramatic">轮廓光</option></select></label>
-            <label>阴影<select class="ui-select" data-retouch-field="shadow"><option value="natural">自然阴影</option><option value="none">无阴影</option></select></label>
-            <label>精修风格<select class="ui-select" data-retouch-field="finish"><option value="natural">自然质感</option><option value="polished">棚拍质感</option></select></label>
-        </div>
+        <section class="node-parameter-section" aria-labelledby="${panelId}-picture">
+            <h3 class="node-parameter-heading" id="${panelId}-picture">画面设置</h3>
+            <fieldset class="product-retouch-background">
+                <legend>背景</legend>
+                <div class="product-retouch-swatches">${backgrounds.map(([value, label]) => `
+                    <label><input type="radio" name="${panelId}-background" value="${value}" data-retouch-field="background">
+                        <span class="product-retouch-swatch" data-background="${value}" aria-hidden="true">${value === 'original' ? photoIcon : ''}</span><span>${label}</span></label>`).join('')}</div>
+            </fieldset>
+            <div class="product-retouch-treatment">
+                <label>布光<select class="ui-select" data-retouch-field="lighting"><option value="soft">柔光</option><option value="balanced">均匀光</option><option value="dramatic">轮廓光</option></select></label>
+                <label>阴影<select class="ui-select" data-retouch-field="shadow"><option value="natural">自然阴影</option><option value="none">无阴影</option></select></label>
+                <label>精修风格<select class="ui-select" data-retouch-field="finish"><option value="natural">自然质感</option><option value="polished">棚拍质感</option></select></label>
+            </div>
+        </section>
         <details class="product-retouch-disclosure">
             <summary>补充要求</summary>
             <textarea data-retouch-field="notes" aria-label="补充要求" rows="3" maxlength="1000" placeholder="例如保留瓶身磨砂质感，清理表面的指纹"></textarea>

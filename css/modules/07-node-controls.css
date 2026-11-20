@@ -56,12 +56,74 @@
     grid-column: 1 / -1;
 }
 
+.node-parameter-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.node-parameter-section:not([hidden], .hidden) + .node-parameter-section {
+    padding-block-start: 12px;
+    border-block-start: 1px solid var(--node-section-divider, var(--border-color));
+}
+
+.node-parameter-heading {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
 .node-protocol-params:empty {
     display: none;
 }
 
 .node-protocol-params .node-field-row {
     flex: 0 0 auto;
+}
+
+.node-video-parameters {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+}
+
+.node-video-generate .node-protocol-summary {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.node-video-generate .node-video-content-section:not(:has(.image-reference-overview:not([hidden]), .node-video-prompt-field:not(.hidden), [data-video-protocol-fields="content"] > .node-field)),
+.node-video-generate .node-video-legacy-advanced:not(:has(> :not(.hidden))),
+.node-video-generate .node-video-advanced:not(:has(.node-field:not(.hidden))) {
+    display: none;
+}
+
+.node-video-generate .node-video-task-section {
+    margin-block-start: 4px;
+    padding-block-start: 12px;
+    border-block-start: 1px solid var(--node-section-divider, var(--border-color));
+}
+
+.node-video-generate .node-parameter-disclosure > summary {
+    padding-block: 4px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.node-video-generate .node-parameter-disclosure[open] > :not(summary, .hidden) {
+    margin-block-start: 8px;
+}
+
+:is(.node-chat, .node-video-generate):not(.running, .completed, .error) .node-generation-progress-field,
+:is(.node-chat, .node-video-generate):not(.running) .node-generation-progress-field:not(:has(.api-generation-progress[data-total])) {
+    display: none;
 }
 
 .node-video-generate .node-field-row-compact {
@@ -133,6 +195,22 @@
     min-height: 120px;
     max-height: none;
     resize: none;
+}
+
+.node-video-generate .chat-response-wrapper:has(> .video-generation-status-idle + .chat-response-area > .node-video-result-placeholder) {
+    min-height: 0;
+}
+
+.node-video-generate .video-generation-status-idle:has(+ .chat-response-area > .node-video-result-placeholder) {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+
+.node-video-generate .video-generation-status-idle + .chat-response-area:has(> .node-video-result-placeholder),
+.node-video-task-section:has(.video-generation-status-idle + .chat-response-area > .node-video-result-placeholder) .node-video-download-field:has(> button:disabled) {
+    display: none;
 }
 
 .toggle-switch {

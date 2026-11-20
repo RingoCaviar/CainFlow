@@ -285,3 +285,82 @@ test('pan and zoom keep interaction styling local while focused text retains nat
         assert.equal(await app.evaluate('interactionScope.styles().zoom'), false);
     });
 });
+
+test('touch drags a canvas node header, settles interrupted capture, and leaves mouse dragging available', { timeout: 30000 }, async () => {
+    await withAppBrowser(session, async app => {
+        await app.evaluate(`(async () => {
+            const { state } = await (await import('/js/app/bootstrap.js')).bootstrapCainFlowApp();
+            const node = state.nodes.get('layout-source');
+            const header = node.el.querySelector('.node-header');
+            window.headerDrag = {
+                state, node, mousePresses: 0,
+                point: () => {
+                    const rect = header.querySelector('.node-title').getBoundingClientRect();
+                    return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
+                },
+                position: () => [node.x, node.y],
+                idle: () => !state.dragging && !node.el.classList.contains('is-interacting')
+                    && !document.getElementById('connections-group').classList.contains('is-interacting')
+            };
+            header.addEventListener('mousedown', () => headerDrag.mousePresses++);
+        })()`);
+        await app.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 });
+        const offset = (point, x, y) => ({ x: point.x + x, y: point.y + y });
+        const touch = (type, point) => app.send('Input.dispatchTouchEvent', {
+            type, touchPoints: point ? [{ ...point, id: 1 }] : []
+        });
+        const captured = 'headerDrag.state.dragging?.captureTarget?.hasPointerCapture(headerDrag.state.dragging.pointerId)';
+        const start = await app.evaluate('headerDrag.point()');
+        assert.equal(await app.evaluate(`document.elementFromPoint(${start.x},${start.y})?.closest('.node')?.id`), 'layout-source');
+        const original = await app.evaluate('headerDrag.position()');
+        const end = offset(start, 60, 40);
+        await touch('touchStart', start);
+        await app.waitFor(captured);
+        await touch('touchMove', end);
+        await app.waitFor(`headerDrag.node.x === ${original[0] + 60} && headerDrag.node.y === ${original[1] + 40}`);
+        await touch('touchEnd');
+        await app.waitFor('headerDrag.idle()');
+        assert.deepEqual(await app.evaluate('headerDrag.position()'), [original[0] + 60, original[1] + 40]);
+        assert.equal(await app.evaluate('headerDrag.mousePresses'), 0, 'touch did not start a compatibility mouse drag');
+
+        const nextStart = await app.evaluate('headerDrag.point()');
+        const nextEnd = offset(nextStart, 26, 20);
+        await touch('touchStart', nextStart);
+        await app.waitFor(captured);
+        await touch('touchMove', nextEnd);
+        await app.waitFor('headerDrag.node.el.classList.contains("is-interacting")');
+        await touch('touchCancel');
+        await app.waitFor('headerDrag.idle()');
+
+        const lostStart = await app.evaluate('headerDrag.point()');
+        await touch('touchStart', lostStart);
+        await app.waitFor(captured);
+        await touch('touchMove', offset(lostStart, 24, 16));
+        await app.waitFor('headerDrag.node.el.classList.contains("is-interacting")');
+        await app.evaluate('(() => { const { captureTarget, pointerId } = headerDrag.state.dragging; captureTarget.releasePointerCapture(pointerId); })()');
+        await touch('touchMove', offset(lostStart, 30, 16));
+        await app.waitFor('headerDrag.idle()');
+        await touch('touchEnd');
+
+        const bypass = await app.evaluate(`(() => {
+            const rect = headerDrag.node.el.querySelector('.node-bypass-btn').getBoundingClientRect();
+            return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
+        })()`);
+        await touch('touchStart', bypass);
+        await touch('touchEnd');
+        await app.waitFor('headerDrag.node.el.classList.contains("disabled")');
+        assert.equal(await app.evaluate('headerDrag.idle()'), true, 'a header button remains a tap target');
+
+        await app.send('Emulation.setTouchEmulationEnabled', { enabled: false });
+        const mouseStart = await app.evaluate('headerDrag.point()');
+        const mouseEnd = offset(mouseStart, 36, 24);
+        const beforeMouse = await app.evaluate('headerDrag.position()');
+        const beforeMousePresses = await app.evaluate('headerDrag.mousePresses');
+        await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', button: 'left', buttons: 1, clickCount: 1, ...mouseStart });
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', button: 'left', buttons: 1, ...mouseEnd });
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'left', clickCount: 1, ...mouseEnd });
+        await app.waitFor('headerDrag.idle()');
+        assert.deepEqual(await app.evaluate('headerDrag.position()'), [beforeMouse[0] + 36, beforeMouse[1] + 24]);
+        assert.equal(await app.evaluate('headerDrag.mousePresses'), beforeMousePresses + 1);
+    });
+});

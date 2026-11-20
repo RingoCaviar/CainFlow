@@ -171,10 +171,7 @@ html:root #canvas-container .node-chat-option {
     align-items: center;
     gap: 12px;
     margin: 0;
-    padding: 9px 10px;
-    border: 1px solid var(--node-control-border);
-    border-radius: 8px;
-    background: var(--node-control-surface);
+    padding-block: 3px;
 }
 
 html:root #canvas-container .node-chat-option-copy {
@@ -202,34 +199,34 @@ html:root #canvas-container .node-chat-option .toggle-switch {
     margin: 0;
 }
 
-html:root #canvas-container .node-chat-option .toggle-slider {
+html:root #canvas-container :is(.node-chat-option, .node-video-parameters, .node-text-split) .toggle-slider {
     background: var(--node-control-border);
     border: 1px solid var(--node-control-border);
     box-sizing: border-box;
 }
 
-html:root #canvas-container .node-chat-option .toggle-slider::before {
+html:root #canvas-container :is(.node-chat-option, .node-video-parameters, .node-text-split) .toggle-slider::before {
     background: var(--text-secondary);
     top: 50%;
     transform: translateY(-50%);
 }
 
-html:root #canvas-container .node-chat-option input:checked + .toggle-slider {
+html:root #canvas-container :is(.node-chat-option, .node-video-parameters, .node-text-split) input:checked + .toggle-slider {
     background: var(--accent-primary);
     border-color: var(--accent-primary);
 }
 
-html:root #canvas-container .node-chat-option input:checked + .toggle-slider::before {
+html:root #canvas-container :is(.node-chat-option, .node-video-parameters, .node-text-split) input:checked + .toggle-slider::before {
     background: var(--panel-primary-action-text, var(--bg-node));
     transform: translate(14px, -50%);
 }
 
-html:root #canvas-container .node-chat-option input:focus-visible + .toggle-slider {
+html:root #canvas-container :is(.node-chat-option, .node-video-parameters, .node-text-split) input:focus-visible + .toggle-slider {
     outline: 2px solid var(--accent-primary);
     outline-offset: 3px;
 }
 
-html:root #canvas-container .node-chat-option input:disabled + .toggle-slider {
+html:root #canvas-container :is(.node-chat-option, .node-video-parameters, .node-text-split) input:disabled + .toggle-slider {
     background: var(--node-control-border);
     border-color: var(--node-control-border);
     cursor: not-allowed;
@@ -251,9 +248,7 @@ html:root #canvas-container .node-chat-option-copy > label {
 html:root #canvas-container .node-chat-system-field {
     display: block;
     min-width: 0;
-    padding: 8px 10px;
-    border: 1px solid var(--node-control-border);
-    border-radius: 8px;
+    padding-block: 4px;
 }
 
 html:root #canvas-container .node-chat-system-field > summary {
@@ -423,13 +418,19 @@ html:root #canvas-container {
     --node-running-glow-wide: color-mix(in srgb, var(--node-border-running) 22%, transparent);
     --node-running-glow-filter: color-mix(in srgb, var(--node-border-running) 70%, transparent);
     --node-section-divider: color-mix(in srgb, var(--node-border) 78%, transparent);
-    /* Equal luminance contrast against each theme's canvas, without opacity
-       making light and dark relationships disappear at different strengths. */
+    /* Leave contrast headroom for the gradients painted over the canvas base. */
+    --canvas-connection-base-contrast: 3.5;
     --canvas-connection-normal: light-dark(
-        color(from var(--canvas-bg-color, var(--bg-canvas)) srgb-linear calc(r / 2 - 0.025) calc(g / 2 - 0.025) calc(b / 2 - 0.025)),
-        color(from var(--canvas-bg-color, var(--bg-canvas)) srgb-linear calc(r * 2 + 0.05) calc(g * 2 + 0.05) calc(b * 2 + 0.05)));
-    --canvas-connection-selected: var(--accent-primary);
-    --canvas-connection-hover: color-mix(in srgb, var(--canvas-connection-selected) 65%, var(--text-primary));
+        color(from var(--canvas-bg-color, var(--bg-canvas)) srgb-linear
+            calc((r + 0.05) / var(--canvas-connection-base-contrast) - 0.05)
+            calc((g + 0.05) / var(--canvas-connection-base-contrast) - 0.05)
+            calc((b + 0.05) / var(--canvas-connection-base-contrast) - 0.05)),
+        color(from var(--canvas-bg-color, var(--bg-canvas)) srgb-linear
+            calc((r + 0.05) * var(--canvas-connection-base-contrast) - 0.05)
+            calc((g + 0.05) * var(--canvas-connection-base-contrast) - 0.05)
+            calc((b + 0.05) * var(--canvas-connection-base-contrast) - 0.05)));
+    --canvas-connection-selected: color-mix(in srgb, var(--accent-primary) 86%, var(--text-primary));
+    --canvas-connection-hover: color-mix(in srgb, var(--accent-primary) 65%, var(--text-primary));
     --canvas-connection-insert-target: color-mix(in srgb, var(--accent-orange) 62%, transparent);
     --canvas-connection-preview: color-mix(in srgb, var(--accent-green) 92%, transparent);
     --canvas-connection-preview-glow: color-mix(in srgb, var(--accent-green) 48%, transparent);

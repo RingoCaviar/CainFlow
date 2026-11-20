@@ -430,6 +430,7 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
                 await settle(app);
                 assert.ok(await app.evaluate("document.getElementById('image-parameter-panel').offsetWidth >= 280"));
                 assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-import-url-fields').hidden"), false);
+                assert.ok(await app.evaluate("document.querySelector('.image-import-source-settings .image-import-url-fields').checkVisibility() && !document.querySelector('.image-import-source-settings .select-file-btn').checkVisibility()"), 'one source control group follows the active import mode');
                 assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .image-import-url-fields input').checkVisibility()"));
                 assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-first-summary').checkVisibility()"), false);
                 await app.evaluate("document.querySelector('#image-parameter-panel .image-import-mode-btn[data-mode=upload]').click()");
@@ -439,10 +440,26 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
                 assert.equal(await app.evaluate(`!!document.querySelector('#image-${index} .image-first-summary')`), false, `${type} keeps metadata off the card`);
                 assert.ok(await app.evaluate("!!document.querySelector('#image-parameter-panel .image-first-summary')"));
             }
+            if (type === 'ImageResize') {
+                assert.ok(await app.evaluate("document.querySelector('.image-resize-size-settings .image-resize-scale-section').checkVisibility() && !document.querySelector('.image-resize-quality-field').checkVisibility()"), 'resize keeps the size group while output quality is unavailable');
+                await app.evaluate("document.querySelector('.image-resize-mode-btn[data-mode=dimensions]').click()");
+                assert.ok(await app.evaluate("document.querySelector('.image-resize-size-settings .image-resize-dimensions-section').checkVisibility() && !document.querySelector('.image-resize-scale-section').checkVisibility()"), 'switching size mode replaces its fields in the same group');
+            }
+            if (type === 'ColorReset') {
+                assert.deepEqual(await app.evaluate("[...document.querySelector('.color-reset-panel').children].map(el=>el.matches('section')?el.querySelector('h3 > span').textContent:el.querySelector('button').textContent.trim())"), ['白平衡校正', '色彩调整', '全部重置']);
+                assert.ok(await app.evaluate(`(() => {
+                    const button = document.querySelector('.color-reset-reset-all');
+                    const range = document.createRange();
+                    range.selectNode([...button.childNodes].find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim()));
+                    const text = [...range.getClientRects()].filter(rect => rect.width > 0);
+                    return text.length === 1 && text[0].right <= button.getBoundingClientRect().right;
+                })()`), 'reset-all keeps its label on one line inside the button');
+            }
             if (type === 'CameraControl') {
                 assert.equal(await app.evaluate("document.querySelectorAll('#image-parameter-panel .image-camera-help,#image-parameter-panel .image-camera-state-summary').length"), 0);
                 assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').checkVisibility()"), false);
                 assert.ok(await app.evaluate("document.querySelector('#image-parameter-panel .image-camera-prompt-details').checkVisibility()"));
+                assert.ok(await app.evaluate("(()=>{const {bottom}=document.querySelector('#image-parameter-panel .image-input-detail').getBoundingClientRect(),summary=document.querySelector('#image-parameter-panel .image-first-summary'),prompt=document.querySelector('.image-camera-prompt-details');return !prompt.open&&summary.getBoundingClientRect().top>=bottom&&prompt.getBoundingClientRect().top>=summary.getBoundingClientRect().bottom;})()"), 'the reference and angle summary precede the collapsed read-only prompt');
                 assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=generate]').textContent"), '编辑视角');
                 const previewButton = '#image-parameter-panel [data-input-action="preview"]';
                 await app.waitFor(`document.querySelector('${previewButton}')?.checkVisibility()`);
@@ -452,6 +469,8 @@ test('compact editors retain nine node forms, original controls, prompt drafts a
                 await app.waitFor(`!document.querySelector('.fullscreen-overlay') && document.activeElement===document.querySelector('${previewButton}')`);
             }
             if (type === 'ImageSave') {
+                assert.equal(await app.evaluate("document.querySelector('.image-save-settings > h3').textContent"), '保存设置');
+                assert.ok(await app.evaluate("document.querySelector('.image-save-settings').contains(document.getElementById('image-7-filename')) && document.querySelector('.image-save-settings').contains(document.getElementById('image-7-path-warning'))"), 'file naming and its destination warning stay together');
                 assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=expand]').checkVisibility()"), false);
                 assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=generate]').checkVisibility()"), false);
                 assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-save-preview-tools').checkVisibility()"), false);

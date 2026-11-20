@@ -17,6 +17,19 @@ async function nativeClick(app, selector, options) {
     await app.evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'nearest',inline:'nearest'})`);
     return clickVisibleControl(app, selector, options);
 }
+const configuration = '#image-parameter-panel .commerce-image-set-configuration';
+async function openConfiguration(app) {
+    if (!await app.evaluate(`document.querySelector('${configuration}').open`)) await nativeClick(app, `${configuration} > summary`);
+}
+const shotMore = id => `#image-parameter-panel [data-commerce-shot-id="${id}"] .commerce-image-set-shot-more`;
+async function revealShotAction(app, selector) {
+    const id = await app.evaluate(`(() => {
+        const button = document.querySelector(${JSON.stringify(selector)});
+        return button?.closest('.commerce-image-set-shot-secondary-actions[hidden]')
+            ?.closest('[data-commerce-shot-id]').dataset.commerceShotId;
+    })()`);
+    if (id) await nativeClick(app, shotMore(id));
+}
 const showsPreviousCommerceImage = selector => `(() => {
     const text = document.querySelector(${JSON.stringify(selector)})?.innerText || '';
     return text.includes('显示上一版') || text.includes('当前为上一版');
@@ -280,6 +293,24 @@ test('commerce footer fills only unfinished slots and keeps an explicit whole-se
         assert.doesNotMatch(await app.evaluate("document.getElementById('toast-container').textContent"), /工作流运行完成/);
         const toastViewport = await app.evaluate('({width:innerWidth,height:innerHeight,deviceScaleFactor:devicePixelRatio,mobile:false})');
         await app.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 560, deviceScaleFactor: 1, mobile: false });
+        await app.evaluate(`{ document.querySelector('#image-parameter-panel .image-parameter-scroll').scrollTop=0;
+            new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))); }`);
+        const narrowDock = await app.evaluate(`(() => {
+            const scroll = document.querySelector('#image-parameter-panel .image-parameter-scroll');
+            const result = scroll.querySelector('[data-commerce-shot-id]').getBoundingClientRect();
+            const view = scroll.getBoundingClientRect();
+            return {
+                showsFirstResult: result.top + 32 <= view.bottom,
+                progress: scroll.querySelector('.commerce-image-set-plan-progress').textContent,
+                shownEstimates: Array.from(document.querySelectorAll('[data-commerce-run-summary]'))
+                    .filter(scope => scope.checkVisibility()).map(scope => scope.dataset.commerceRunSummary),
+                redoCount: ${button('generate')}.dataset.commerceCallCount,
+                overflowX: scroll.scrollWidth > scroll.clientWidth
+            };
+        })()`);
+        assert.deepEqual(narrowDock, { showsFirstResult: true, progress: '已完成 2/3 个图位 · 1 个待补齐', shownEstimates: ['fill'],
+            redoCount: '2 次生图调用', overflowX: false });
+        await captureCommerceInspector(app, { name: 'partial-dock-narrow', width: 390, height: 560 });
         const narrowToasts = await app.evaluate(`import('/js/app/bootstrap.js').then(async ({bootstrapCainFlowApp}) => {
             const { toastControllerApi } = (await bootstrapCainFlowApp()).registry;
             const older = Array.from({length:4}, (_, index) => toastControllerApi.showToast('待处理的说明 '.repeat(8) + index, 'warning'));
@@ -340,7 +371,7 @@ test('commerce footer fills only unfinished slots and keeps an explicit whole-se
         assert.equal(await app.evaluate(`${button('fill')}.textContent`), '补齐 1 个图位');
         assert.equal(await app.evaluate(`${button('generate')}.textContent`), '重做已确认图位');
         assert.match(await app.evaluate("document.querySelector('[data-commerce-run-summary=generate]').textContent"), /预计调用生图模型 2 次.*沿用原图 1 张/);
-        assert.match(await app.evaluate("document.querySelector('[data-commerce-run-summary=fill]').textContent"), /预计调用生图模型 1 次.*沿用原图 0 张/);
+        assert.equal(await app.evaluate("document.querySelector('[data-commerce-run-summary=fill]').textContent"), '补齐 · 预计调用生图模型 1 次');
         await captureCommerceInspector(app, { name: 'fill-actions' });
         await app.evaluate('window.rejectDetail=false;fillRequests.length=0');
         await nativeClick(app, '.canvas-run-scope-trigger');
@@ -543,6 +574,16 @@ test('the commerce node generates selected shots, accepts a retry during generat
     }, async app => {
         await uploadImageOriginal(app, 'product', `data:image/png;base64,${reference}`);
         await openParameters(app, 'commerce');
+        const goods = '.commerce-image-set-goods';
+        const productSettings = `${goods} > .commerce-image-set-product`;
+        assert.deepEqual(await app.evaluate(`(()=>{
+            const goods=document.querySelector('${goods}');
+            return [goods.firstElementChild.classList.contains('commerce-image-set-references'),
+                document.querySelector('${productSettings}').open,
+                document.querySelector('${productSettings} [data-commerce-product-field=name]').checkVisibility(),
+                document.querySelector('.commerce-image-set-output').open,
+                document.querySelector('.commerce-image-set-art-direction').open];
+        })()`), [true, true, true, false, false], 'product inputs stay together and optional controls start folded');
         if (await app.evaluate("CSS.supports('appearance: base-select') && CSS.supports('selector(select:open)')")) {
             const platform = "document.querySelector('[data-commerce-field=platformId]')";
             const space = { key: ' ', code: 'Space', windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 32 };
@@ -631,8 +672,18 @@ test('the commerce node generates selected shots, accepts a retry during generat
         assert.deepEqual(await app.evaluate(planned), ['main', 'detail']);
 
         const setup = '#image-parameter-panel .commerce-image-set-setup';
+        assert.equal(await app.evaluate(`document.querySelector('${configuration}').open`), false);
+        assert.match(await app.evaluate(`document.querySelector('${configuration} > summary').innerText`), /套图配置.*带盖随行杯.*2 个图位/s);
+        assert.equal(await app.evaluate(`document.querySelector('${productSettings} > summary').checkVisibility()`), false);
+        await openConfiguration(app);
         assert.equal(await app.evaluate(`document.querySelector('${setup}').open`), false);
-        const modelSettings = '#image-parameter-panel .commerce-image-set-settings > details.node-model-settings';
+        assert.equal(await app.evaluate(`document.querySelector('${productSettings}').open`), false);
+        assert.equal(await app.evaluate(`document.querySelector('${productSettings} [data-commerce-product-summary]').innerText`), '带盖随行杯');
+        await app.evaluate(`document.querySelector('${productSettings} > summary').scrollIntoView({block:'nearest'})`);
+        await nativeClick(app, `${productSettings} > summary`);
+        assert.equal(await app.evaluate(`document.querySelector('${productSettings} [data-commerce-product-field=sellingPoints]').checkVisibility()`), true);
+        await nativeClick(app, `${productSettings} > summary`);
+        const modelSettings = `${configuration} .node-model-settings`;
         const modelHeading = `document.querySelector('${modelSettings} > summary')`;
         assert.equal(await app.evaluate(`${modelHeading}?.checkVisibility() && ${modelHeading}.textContent.trim()`), '模型与供应商');
         await app.evaluate(`${modelHeading}.scrollIntoView({block:'nearest'})`);
@@ -755,6 +806,7 @@ test('the commerce node generates selected shots, accepts a retry during generat
                 shotStatus:panel.querySelector('[data-commerce-shot-id=detail-overview] .commerce-image-set-shot-status').textContent.trim()};
         })()`);
         assert.match(running.message, /正在生成/);
+        assert.match(running.message, /已完成 2\/4 个图位.*1 个失败.*1 个运行中/);
         assert.match(running.shotStatus, /正在生成/);
         assert.ok(running.statusVisible && running.runningLocked && running.idleEditable && running.progressVisible, JSON.stringify(running));
         assert.equal(await app.evaluate(`${copyInput}.value`), detailCopy);
@@ -815,6 +867,8 @@ test('the commerce node generates selected shots, accepts a retry during generat
         await app.waitFor(`document.querySelector('${shotCard('detail-overview')}').dataset.resultStatus==='completed'`);
         await app.evaluate('window.holdCommerceRetry=false;window.releaseCommerceRetry()');
         await app.waitFor(`${saved}.then(node=>node.commerceImageSet?.results?.filter(row=>row.status==='completed').length===4)`);
+        await app.waitFor("document.querySelector('.commerce-image-set-footer [data-commerce-action=export].btn-primary')?.checkVisibility()");
+        assert.equal(await app.evaluate(`${generateButton}.classList.contains('btn-secondary')`), true);
         assert.deepEqual(await app.evaluate(openedShotIds), ['detail-overview'], 'retrying a failed shot does not toggle a card');
         await app.waitFor("document.querySelector('[data-commerce-shot-id=detail] [data-commerce-action=preview]')?.getAttribute('aria-pressed')==='true'");
         const requests = await app.evaluate("commerceCalls.filter(call=>call.kind==='image')");
@@ -883,6 +937,14 @@ test('the commerce node generates selected shots, accepts a retry during generat
         assert.deepEqual((await app.evaluate(saved)).mediaAssetKeys, before.mediaAssetKeys);
         const regenerate = retryIcon('detail-overview');
         const replan = replanIcon('detail-overview');
+        assert.deepEqual(await app.evaluate(`(() => {
+            const row = document.querySelector('${shotCard('detail-overview')}');
+            const summary = row.querySelector('.commerce-image-set-shot-summary');
+            return [summary.querySelector('img').checkVisibility(), summary.querySelector('[role=status]').textContent,
+                summary.querySelector('.commerce-image-set-shot-more').getAttribute('aria-expanded'),
+                document.querySelector('${regenerate}').checkVisibility(), document.querySelector('${replan}').checkVisibility()];
+        })()`), [true, '已完成', 'false', false, false], 'a completed shot leads with its image and status while secondary actions stay folded');
+        await nativeClick(app, shotMore('detail-overview'));
         await app.waitFor(`[${JSON.stringify(regenerate)},${JSON.stringify(replan)}].every(selector=>{
             const button=document.querySelector(selector);return button?.checkVisibility()&&!button.disabled;
         })`);
@@ -1008,6 +1070,7 @@ test('the commerce node generates selected shots, accepts a retry during generat
             const style=getComputedStyle(node);
             return {ring:style.boxShadow,border:style.borderTopWidth,width:node.offsetWidth,height:node.offsetHeight};})()`);
         assert.deepEqual(selectedStyle, { ring: selectionRing, border: '0px', width: geometry.width, height: geometry.height });
+        await openConfiguration(app);
         await nativeClick(app, `${setup} > summary`);
         await app.evaluate(`const platform=document.querySelector('#image-parameter-panel [data-commerce-field=platformId]');
             platform.value='taobao'; platform.dispatchEvent(new Event('change',{bubbles:true}));`);
@@ -1254,7 +1317,9 @@ test('commerce copy language persists and unlimited multiline copy reaches gener
         assert.equal(automatic.input.copyLanguage, 'auto');
         assert.match(automatic.instructions, /亚马逊.*英[语文]/);
 
+        await openConfiguration(app);
         await nativeClick(app, `${setup} > summary`);
+        await nativeClick(app, `${setup} .commerce-image-set-output > summary`);
         await app.evaluate(`${language}.value='ja'; ${language}.dispatchEvent(new Event('change',{bubbles:true}));`);
         assert.equal(await app.evaluate(`Boolean(${generationAvailable})`), false, 'the previous language plan needs to be regenerated');
         assert.equal(await app.evaluate(`!${retry}?.checkVisibility() || ${retry}.disabled`), true);
@@ -1264,6 +1329,7 @@ test('commerce copy language persists and unlimited multiline copy reaches gener
         await reloadAppBrowser(app);
         await openParameters(app, 'commerce');
         assert.equal(await app.evaluate(`${language}.value`), 'ja');
+        assert.equal(await app.evaluate(`${language}.checkVisibility()`), true);
         assert.equal(await app.evaluate(`Boolean(${generationAvailable})`), false);
         await app.evaluate(`${planButton}.click()`);
         await app.waitFor(generationAvailable);
@@ -1550,6 +1616,7 @@ test('failed commerce generation and retries leave error details closed until re
             await app.evaluate(`document.querySelector('${shotStatus}').id`));
         await assertCommerceTextTone(app, shotStatus, '--text-warning');
         assert.equal(await app.evaluate(thumbnailSrc), original);
+        await revealShotAction(app, '[data-commerce-shot-id=detail] [data-commerce-action=retry]');
         await app.evaluate(`window.commerceImageFailure=true; ${retry}.click()`);
         await app.waitFor(`!${retry}.disabled && ${row}.innerText.includes(${JSON.stringify(failure)})`);
         assert.equal(await app.evaluate(`${modal}.classList.contains('active')`), false, 'a failed regeneration also keeps the error dialog closed');
@@ -1622,6 +1689,7 @@ test('commerce shots run independently and can be canceled individually or from 
     const status = id => `document.querySelector('${row(id)}').dataset.resultStatus`;
     const pending = id => `typeof pendingCommerceRequests['${id}']==='function'`;
     const click = async (app, name, id) => {
+        await revealShotAction(app, action(name, id));
         assert.ok(await app.evaluate(available(name, id)), `${name} is available${id ? ` for ${id}` : ''}`);
         await app.evaluate(`${button(name, id)}.scrollIntoView({block:'nearest'})`);
         await nativeClick(app, action(name, id));
@@ -1760,6 +1828,7 @@ test('custom commerce scenes can be added, reviewed, generated, and deleted inde
     const visible = selector => `${query(selector)}?.checkVisibility()`;
     const ready = selector => `${visible(selector)} && !${query(selector)}.disabled && ${query(selector)}.getAttribute('aria-disabled')!=='true'`;
     const click = async (app, selector) => {
+        await revealShotAction(app, selector);
         assert.ok(await app.evaluate(ready(selector)), `${selector} is actionable`);
         await app.evaluate(`${query(selector)}.scrollIntoView({block:'nearest'})`);
         await nativeClick(app, selector);
@@ -1998,6 +2067,7 @@ test('supplemental scenes survive unrelated replanning and keep the previous ref
         control.dispatchEvent(new Event('input', {bubbles:true}));
     })()`);
     const click = async (app, selector) => {
+        await revealShotAction(app, selector);
         await app.waitFor(`${query(selector)}?.checkVisibility() && !${query(selector)}.disabled`);
         await app.evaluate(`${query(selector)}.scrollIntoView({block:'nearest'})`);
         await nativeClick(app, selector);
@@ -2007,6 +2077,7 @@ test('supplemental scenes survive unrelated replanning and keep the previous ref
     const closeDialog = '#commerce-export-dialog [data-commerce-export-close]';
     const download = '#commerce-export-dialog [data-commerce-export-download]';
     const archiveToggle = '#commerce-export-dialog label:has([name=commerce-export-version][value=previous])';
+    const currentToggle = '#commerce-export-dialog label:has([name=commerce-export-version][value=current])';
 
     await withAppBrowser(fixture, async app => {
         await uploadImageOriginal(app, 'product', `data:image/png;base64,${original}`);
@@ -2023,6 +2094,7 @@ test('supplemental scenes survive unrelated replanning and keep the previous ref
         await app.waitFor(`${query(row + ' .commerce-image-set-scene-summary')}.textContent.includes(${JSON.stringify(editPrompt)})`);
 
         const setup = `${panel} .commerce-image-set-setup`;
+        await openConfiguration(app);
         if (!await app.evaluate(`${query(setup)}.open`)) await click(app, `${setup} > summary`);
         await click(app, `${panel} label:has([data-commerce-select-shot=feature])`);
         await click(app, action('plan'));
@@ -2051,14 +2123,19 @@ test('supplemental scenes survive unrelated replanning and keep the previous ref
         await app.waitFor(`${query(panel + ' .commerce-image-set-status')}.textContent.includes('商品参考图已变更')`);
         assert.equal(await app.evaluate(`${query(add)}.disabled`), true);
         assert.ok(await app.evaluate(`${query(action('preview-previous'))}.checkVisibility()`));
+        assert.equal(await app.evaluate(`${query(action('export'))}.textContent.trim()`), '导出上次套图');
         await click(app, action('export'));
+        assert.equal(await app.evaluate(`${query(`${archiveToggle} input`)}.checked`), true);
+        await app.waitFor(`${query(download)}.disabled === false`);
+        await app.waitFor(`${query('#commerce-export-dialog .commerce-export-summary')}.textContent.includes('可导出 3 张')`);
+        await captureCommerceInspector(app, { name: 'previous-reference-export', width: 390, surface: '#commerce-export-dialog' });
+        await click(app, currentToggle);
         await app.waitFor(`${query('#commerce-export-dialog .commerce-export-summary')}.textContent.includes('可导出 0 张')`);
         assert.equal(await app.evaluate(`${query(download)}.disabled`), true);
         await click(app, archiveToggle);
         await app.waitFor(`${query(download)}.disabled === false`);
-        await app.waitFor(`${query('#commerce-export-dialog .commerce-export-summary')}.textContent.includes('可导出 3 张')`);
-        await captureCommerceInspector(app, { name: 'previous-reference-export', width: 390, surface: '#commerce-export-dialog' });
         await click(app, closeDialog);
+        assert.equal(await app.evaluate(`document.activeElement === ${query(action('export'))}`), true);
 
         await click(app, action('plan'));
         await app.waitFor(`${storedNode}.then(node => !node.mediaAssetKeys?.length
@@ -2066,7 +2143,7 @@ test('supplemental scenes survive unrelated replanning and keep the previous ref
         await reloadAppBrowser(app);
         await openParameters(app, 'commerce');
         await click(app, action('export'));
-        await click(app, archiveToggle);
+        assert.equal(await app.evaluate(`${query(`${archiveToggle} input`)}.checked`), true);
         await app.waitFor(`${query('#commerce-export-dialog .commerce-export-summary')}.textContent.includes('可导出 3 张')`);
     }, { initScript });
 });
@@ -2136,6 +2213,7 @@ test('commerce ZIP export lists missing and previous images and keeps shot numbe
         await app.waitFor(`${query(row('angle'))}.dataset.resultStatus==='failed' &&
             ${query(`${row('feature')} img`)}.naturalWidth>0 &&
             ${query(`${row('detail-overview')} img`)}.naturalWidth>0 && ${ready(action('fill'))}`);
+        assert.equal(await app.evaluate(`${query(action('export'))}.textContent.trim()`), '导出已完成图片');
         await app.evaluate(`(() => {
             const card = ${query(row('detail-overview'))};
             const toggle = card.querySelector('.commerce-image-set-shot-toggle');
@@ -2149,6 +2227,7 @@ test('commerce ZIP export lists missing and previous images and keeps shot numbe
 
         const providerRequests = await app.evaluate('commerceExportProviderRequests');
         assert.ok(await app.evaluate(ready(action('export'))), 'a partially completed set can be exported');
+        assert.equal(await app.evaluate(`${query(action('export'))}.textContent.trim()`), '导出可用图片');
         await nativeClick(app, action('export'));
         await app.waitFor(`${query(dialog)}?.checkVisibility() && ${ready(download)}`);
         assert.deepEqual(await app.evaluate(exportRows), shotIds);
@@ -2300,6 +2379,7 @@ test('commerce finalized shots survive a whole-set redo and saved candidates res
     const ready = selector => `${query(selector)}?.checkVisibility() && !${query(selector)}.disabled
         && ${query(selector)}.getAttribute('aria-disabled')!=='true'`;
     const click = async (app, selector) => {
+        await revealShotAction(app, selector);
         await app.waitFor(ready(selector));
         await app.evaluate(`${query(selector)}.scrollIntoView({block:'nearest'})`);
         await nativeClick(app, selector);
@@ -2385,6 +2465,7 @@ test('commerce finalized shots survive a whole-set redo and saved candidates res
 
         await click(app, lock);
         await app.waitFor(`${lockState(false)} && ${ready(retry)}`);
+        await openConfiguration(app);
         await app.evaluate(`${query(`${panel} .commerce-image-set-setup`)}.open=true`);
         await click(app, `${panel} label:has([data-commerce-select-shot=main])`);
         assert.equal(await app.evaluate(isUsing(resultPreview, newer)), true, 'adding a compatible slot keeps the current image');
@@ -2430,8 +2511,10 @@ test('commerce finalized shots survive a whole-set redo and saved candidates res
         await app.waitFor(isUsing(resultPreview, initial));
         assert.deepEqual(await app.evaluate('candidateTestRequests'), [], 'comparing and restoring a saved candidate never call a provider');
 
+        await openConfiguration(app);
         await app.evaluate(`(() => {
             ${query(`${panel} .commerce-image-set-setup`)}.open = true;
+            ${query(`${panel} .commerce-image-set-output`)}.open = true;
             const count = ${query(candidateCount)};
             count.value = '3';
             count.dispatchEvent(new Event('change', { bubbles: true }));

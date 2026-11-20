@@ -900,6 +900,7 @@ export function createWorkflowRuntimeManager({
 
     function syncVisibleVideoGenerateNode(runtimeNode, node) {
         node.data = node.data || {};
+        const previousRecoverableTask = node.data.videoUrl ? '' : node.data.videoId;
         [
             'videoId',
             'videoUrl',
@@ -954,6 +955,10 @@ export function createWorkflowRuntimeManager({
         if (resumeInput) resumeInput.value = node.data.videoId || '';
         const resumeBtn = documentRef.getElementById(`${node.id}-resume-video`);
         if (resumeBtn) resumeBtn.disabled = !(node.data.videoId || '').trim();
+        if (node.data.videoId && !node.data.videoUrl && node.data.videoId !== previousRecoverableTask) {
+            const recovery = documentRef.getElementById(`${node.id}-video-recovery`);
+            if (recovery) recovery.open = true;
+        }
         syncVisibleGenerationProgress(node, runtimeNode);
     }
 

@@ -6,7 +6,7 @@ import { createPromptAgentModelMenus, getAgentModelLabel } from './prompt-agent-
 import { isCanvasGraphOnlyStep } from './prompt-agent-canvas-plan.js';
 import { isPromptLibraryWrite } from './prompt-agent-apply-library-prompt.js';
 
-export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, parent, plan, adapter, getModels, getProviders = () => [], getSize = () => ({}), getProviderId = () => '', getModelId, changed, run, isCurrent, preview = () => {}, configure = () => {} }) {
+export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, parent, plan, adapter, getModels, getProviders = () => [], getSize = () => ({}), getProviderId = () => '', getModelId, changed, run, isCurrent, loadReferencePreviews = true, preview = () => {}, configure = () => {} }) {
     const card = documentRef.createElement('section'); card.className = 'prompt-agent-canvas-plan';
     parent.appendChild(card);
     let busy = false;
@@ -37,7 +37,7 @@ export function renderCanvasPlan({ confirmedParameters = () => {}, documentRef, 
     for (const reference of references) {
         const item = element('button', `${reference.name} → ${reference.purpose}${reference.upstream ? '（本次步骤输出）' : ''}`, inputs);
         item.type = 'button'; item.disabled = true; item.className = 'prompt-agent-plan-reference';
-        if (reference.assetKey) Promise.resolve(adapter.readImage?.(reference.assetKey)).then(data => {
+        if (loadReferencePreviews && reference.assetKey) Promise.resolve(adapter.readImage?.(reference.assetKey)).then(data => {
             if (destroyed || !isCurrent() || !data) return;
             const image = documentRef.createElement('img'); image.src = data; image.alt = reference.name; item.prepend(image);
             item.disabled = false; item.addEventListener('click', () => preview([data], 0));

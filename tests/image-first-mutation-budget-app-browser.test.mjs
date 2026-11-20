@@ -16,7 +16,11 @@ test('dragging with image-heavy Agent history never JSON-encodes conversation im
         models: [{ id: 'chat', modelId: 'chat', protocol: 'openai', taskType: 'chat', providerIds: ['p'] }],
         providers: [{ id: 'p', endpoint: 'https://controlled.test', apikey: 'test' }]
     }, async app => {
-        await app.waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan'))");
+        await app.evaluate("document.getElementById('btn-prompt-agent').click()");
+        await app.waitFor("Boolean(document.querySelector('.prompt-agent-canvas-plan')) && document.querySelector('.prompt-agent-message-references img')?.getAttribute('src')?.length > 4 * 1024 * 1024");
+        await app.evaluate("document.getElementById('btn-close-prompt-agent').click()");
+        assert.equal(await app.evaluate("document.getElementById('prompt-agent-panel').inert && Boolean(document.querySelector('.prompt-agent-canvas-plan'))"), true,
+            'the closed panel retains the loaded plan during the canvas drag');
         await app.evaluate(`(() => {
             window.largeSaveBodies = [];
             const nativeFetch = window.fetch;

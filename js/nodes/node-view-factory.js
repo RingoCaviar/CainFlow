@@ -517,36 +517,41 @@ function renderImageGenerateBody(id, restoreData, models, providers) {
                 </div>
             `
         })}
-        ${renderNodeFormToggleField({
-            label: '启用搜索',
-            inputId: `${id}-search`,
-            checked: rd.search === true,
-            hidden: !supportsImageWebSearch(protocol, modelId),
-            fieldId: `${id}-search-field`
-        })}
         </div>
 
         <details class="node-advanced-parameters node-field--full" id="${id}-advanced-parameters"${rd.advancedExpanded === true ? ' open' : ''}>
             <summary>高级设置 <span class="node-advanced-summary" id="${id}-advanced-summary">默认设置</span></summary>
-            <div class="node-parameter-grid">
-        ${renderNodeFormField({
-            label: '内容审核',
-            fieldClass: imageParameters.moderation?.length ? '' : 'hidden',
-            fieldId: `${id}-moderation-field`,
-            content: `<select id="${id}-moderation">
-                ${renderImageParameterOptions('moderation', imageParameters.moderation, rd.moderation)}
-            </select>`
-        })}
-        ${renderNodeFormField({
-            label: '背景',
-            fieldClass: imageParameters.background?.length ? '' : 'hidden',
-            fieldId: `${id}-background-field`,
-            content: `<select id="${id}-background">
-                ${renderImageParameterOptions('background', imageParameters.background, rd.background)}
-            </select>`
-        })}
+            <div class="image-parameter-settings-sections" id="${id}-protocol-params">
+                <section class="image-parameter-settings-section" id="${id}-output-settings" aria-labelledby="${id}-output-settings-title">
+                    <h3 id="${id}-output-settings-title">输出设置</h3>
+                    <div class="node-parameter-grid image-parameter-output-options">
+                        ${renderNodeFormField({
+                            label: '背景',
+                            fieldClass: imageParameters.background?.length ? '' : 'hidden',
+                            fieldId: `${id}-background-field`,
+                            content: `<select id="${id}-background">${renderImageParameterOptions('background', imageParameters.background, rd.background)}</select>`
+                        })}
+                        ${renderNodeFormField({
+                            label: '内容审核',
+                            fieldClass: imageParameters.moderation?.length ? '' : 'hidden',
+                            fieldId: `${id}-moderation-field`,
+                            content: `<select id="${id}-moderation">${renderImageParameterOptions('moderation', imageParameters.moderation, rd.moderation)}</select>`
+                        })}
+                    </div>
+                    <div class="node-protocol-params" data-image-protocol-fields="output"></div>
+                </section>
+                <section class="image-parameter-settings-section" id="${id}-generation-rules" aria-labelledby="${id}-generation-rules-title">
+                    <h3 id="${id}-generation-rules-title">生成规则</h3>
+                    <div class="node-protocol-params" data-image-protocol-fields="rules"></div>
+                    ${renderNodeFormToggleField({
+                        label: '启用搜索',
+                        inputId: `${id}-search`,
+                        checked: rd.search === true,
+                        hidden: !supportsImageWebSearch(protocol, modelId),
+                        fieldId: `${id}-search-field`
+                    })}
+                </section>
             </div>
-        <div class="node-protocol-params" id="${id}-protocol-params"></div>
         </details>
 
 
@@ -645,142 +650,161 @@ function renderVideoGenerateBody(id, restoreData, models, providers) {
         ${renderNodeModelSettings(id, opts, providerOptions, {
             extra: `<div class="node-protocol-summary${protocolCard.summary ? '' : ' hidden'}" id="${id}-protocol-summary">${escapeHtml(protocolCard.summary)}</div>`
         })}
-        ${renderImageReferenceOverview(id)}
-        <div class="node-parameter-grid">
-        ${renderNodeFormField({
-            label: '生成次数',
-            content: `
-                <div class="generation-count-control">
-                    <button type="button" class="generation-count-btn" data-target="${id}" data-delta="-1" title="减少生成次数">-</button>
-                    <input type="number" id="${id}-generation-count" class="generation-count-input" value="${generationCount}" min="1" step="1" />
-                    <button type="button" class="generation-count-btn" data-target="${id}" data-delta="1" title="增加生成次数">+</button>
+        <div class="node-video-parameters" id="${id}-protocol-params">
+            <div class="node-error-msg hidden" id="${id}-video-protocol-error" role="status"></div>
+            <section class="node-parameter-section node-video-content-section" aria-labelledby="${id}-video-content-heading">
+                <h3 class="node-parameter-heading" id="${id}-video-content-heading">创作内容</h3>
+                ${renderImageReferenceOverview(id)}
+                ${renderNodeFormField({
+                    label: '提示词',
+                    inputId: `${id}-prompt`,
+                    fieldClass: 'node-video-prompt-field',
+                    fieldId: `${id}-prompt-field`,
+                    content: `<textarea class="video-generate-prompt" id="${id}-prompt" placeholder="描述你想生成的视频..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${rd.prompt || ''}</textarea>`
+                })}
+                <div class="node-protocol-params" data-video-protocol-fields="content"></div>
+            </section>
+            <section class="node-parameter-section" aria-labelledby="${id}-video-output-heading">
+                <h3 class="node-parameter-heading" id="${id}-video-output-heading">输出设置</h3>
+                <div class="node-parameter-grid">
+                    ${renderNodeFormField({
+                        label: '生成次数',
+                        content: `
+                            <div class="generation-count-control">
+                                <button type="button" class="generation-count-btn" data-target="${id}" data-delta="-1" title="减少生成次数">-</button>
+                                <input type="number" id="${id}-generation-count" class="generation-count-input" value="${generationCount}" min="1" step="1" />
+                                <button type="button" class="generation-count-btn" data-target="${id}" data-delta="1" title="增加生成次数">+</button>
+                            </div>
+                        `
+                    })}
+                    ${renderNodeFormField({
+                        label: '视频比例',
+                        fieldClass: 'node-field--full',
+                        fieldId: `${id}-aspect-field`,
+                        content: `
+                            <div class="video-ratio-param-row">
+                                <select id="${id}-aspect">
+                                    ${aspectOptions.map((option) => `<option value="${option.value}" ${option.value === aspect ? 'selected' : ''}>${option.label}</option>`).join('')}
+                                </select>
+                                <label class="video-size-param-toggle ${showSizeParamToggle ? '' : 'hidden'}" id="${id}-use-size-param-toggle" title="打开后请求体使用 size，关闭后使用 aspect_ratio">
+                                    <span class="video-size-param-toggle-text">使用size代替aspect_ratio</span>
+                                    <span class="toggle-switch">
+                                        <input type="checkbox" id="${id}-use-size-param" ${useVideoSizeParam ? 'checked' : ''} />
+                                        <span class="toggle-slider"></span>
+                                    </span>
+                                </label>
+                            </div>
+                        `
+                    })}
+                    ${renderNodeFormField({
+                        label: '分辨率',
+                        fieldClass: isDoubaoProtocol ? '' : 'hidden',
+                        fieldId: `${id}-doubao-resolution-field`,
+                        content: `
+                            <select id="${id}-doubao-resolution">
+                                ${doubaoResolutionOptions.map((option) => `<option value="${option.value}" ${option.value === doubaoResolution ? 'selected' : ''}>${option.label}</option>`).join('')}
+                            </select>
+                        `,
+                        note: `<div class="video-generate-note" id="${id}-doubao-resolution-hint">参考图场景不支持 1080p</div>`
+                    })}
+                    ${renderNodeFormField({
+                        label: '视频时长',
+                        fieldClass: isDoubaoProtocol ? '' : 'hidden',
+                        fieldId: `${id}-doubao-duration-field`,
+                        content: `<input type="number" id="${id}-doubao-duration" min="2" max="12" step="1" value="${doubaoDuration}" />`,
+                        note: `<div class="video-generate-note" id="${id}-doubao-duration-hint">${doubaoDurationHint}</div>`
+                    })}
+                    ${renderNodeFormToggleField({
+                        label: '生成音频',
+                        inputId: `${id}-doubao-generate-audio`,
+                        checked: doubaoGenerateAudio,
+                        hidden: !isDoubaoProtocol,
+                        fieldId: `${id}-doubao-generate-audio-field`
+                    })}
+                    ${renderNodeFormToggleField({
+                        label: '添加水印',
+                        inputId: `${id}-doubao-watermark`,
+                        checked: doubaoWatermark,
+                        hidden: !isDoubaoProtocol,
+                        fieldId: `${id}-doubao-watermark-field`
+                    })}
                 </div>
-            `
-        })}
-        ${renderNodeFormField({
-            label: '视频比例',
-            fieldClass: 'node-field--full',
-            fieldId: `${id}-aspect-field`,
-            content: `
-                <div class="video-ratio-param-row">
-                    <select id="${id}-aspect">
-                        ${aspectOptions.map((option) => `<option value="${option.value}" ${option.value === aspect ? 'selected' : ''}>${option.label}</option>`).join('')}
-                    </select>
-                    <label class="video-size-param-toggle ${showSizeParamToggle ? '' : 'hidden'}" id="${id}-use-size-param-toggle" title="打开后请求体使用 size，关闭后使用 aspect_ratio">
-                        <span class="video-size-param-toggle-text">使用size代替aspect_ratio</span>
-                        <span class="toggle-switch">
-                            <input type="checkbox" id="${id}-use-size-param" ${useVideoSizeParam ? 'checked' : ''} />
-                            <span class="toggle-slider"></span>
-                        </span>
-                    </label>
+                <div class="node-protocol-params" data-video-protocol-fields="output"></div>
+            </section>
+
+            <details class="node-video-advanced node-parameter-disclosure">
+                <summary>更多设置</summary>
+                <div class="node-parameter-grid node-video-legacy-advanced">
+                    ${renderNodeFormToggleField({
+                        label: '增强提示词',
+                        inputId: `${id}-enhance-prompt`,
+                        checked: enhancePrompt,
+                        hidden: !protocolMeta.supportsEnhancePrompt,
+                        fieldId: `${id}-enhance-prompt-field`
+                    })}
+                    ${renderNodeFormToggleField({
+                        label: '启用超分',
+                        inputId: `${id}-enable-upsample`,
+                        checked: enableUpsample,
+                        hidden: !protocolMeta.supportsUpsample,
+                        fieldId: `${id}-enable-upsample-field`
+                    })}
+                    ${renderNodeFormToggleField({
+                        label: '固定镜头',
+                        inputId: `${id}-doubao-camera-fixed`,
+                        checked: doubaoCameraFixed,
+                        hidden: !isDoubaoProtocol,
+                        fieldId: `${id}-doubao-camera-fixed-field`
+                    })}
+                    ${renderNodeFormField({
+                        label: '种子',
+                        fieldClass: isDoubaoProtocol ? '' : 'hidden',
+                        fieldId: `${id}-doubao-seed-field`,
+                        content: `<input type="number" id="${id}-doubao-seed" min="0" step="1" placeholder="留空为随机" value="${escapeHtml(doubaoSeed)}" />`
+                    })}
+                    ${renderNodeFormNote('豆包格式会按文档把 resolution、ratio、duration、camera_fixed、watermark、seed 等作为顶层字段发送；图片输入会按首帧、尾帧、参考图写入 content 的 role。', {
+                        fieldClass: isDoubaoProtocol ? '' : 'hidden',
+                        fieldId: `${id}-doubao-note-field`
+                    })}
                 </div>
-            `
-        })}
-        ${renderNodeFormToggleField({
-            label: '增强提示词',
-            inputId: `${id}-enhance-prompt`,
-            checked: enhancePrompt,
-            hidden: !protocolMeta.supportsEnhancePrompt,
-            fieldId: `${id}-enhance-prompt-field`
-        })}
-        ${renderNodeFormToggleField({
-            label: '启用超分',
-            inputId: `${id}-enable-upsample`,
-            checked: enableUpsample,
-            hidden: !protocolMeta.supportsUpsample,
-            fieldId: `${id}-enable-upsample-field`
-        })}
-        ${renderNodeFormField({
-            label: '分辨率',
-            fieldClass: isDoubaoProtocol ? '' : 'hidden',
-            fieldId: `${id}-doubao-resolution-field`,
-            content: `
-                <select id="${id}-doubao-resolution">
-                    ${doubaoResolutionOptions.map((option) => `<option value="${option.value}" ${option.value === doubaoResolution ? 'selected' : ''}>${option.label}</option>`).join('')}
-                </select>
-            `,
-            note: `<div class="video-generate-note" id="${id}-doubao-resolution-hint">参考图场景不支持 1080p</div>`
-        })}
-        ${renderNodeFormField({
-            label: '视频时长',
-            fieldClass: isDoubaoProtocol ? '' : 'hidden',
-            fieldId: `${id}-doubao-duration-field`,
-            content: `<input type="number" id="${id}-doubao-duration" min="2" max="12" step="1" value="${doubaoDuration}" />`,
-            note: `<div class="video-generate-note" id="${id}-doubao-duration-hint">${doubaoDurationHint}</div>`
-        })}
-        ${renderNodeFormToggleField({
-            label: '固定镜头',
-            inputId: `${id}-doubao-camera-fixed`,
-            checked: doubaoCameraFixed,
-            hidden: !isDoubaoProtocol,
-            fieldId: `${id}-doubao-camera-fixed-field`
-        })}
-        ${renderNodeFormToggleField({
-            label: '生成音频',
-            inputId: `${id}-doubao-generate-audio`,
-            checked: doubaoGenerateAudio,
-            hidden: !isDoubaoProtocol,
-            fieldId: `${id}-doubao-generate-audio-field`
-        })}
-        ${renderNodeFormToggleField({
-            label: '添加水印',
-            inputId: `${id}-doubao-watermark`,
-            checked: doubaoWatermark,
-            hidden: !isDoubaoProtocol,
-            fieldId: `${id}-doubao-watermark-field`
-        })}
-        ${renderNodeFormField({
-            label: '种子',
-            fieldClass: isDoubaoProtocol ? '' : 'hidden',
-            fieldId: `${id}-doubao-seed-field`,
-            content: `<input type="number" id="${id}-doubao-seed" min="0" step="1" placeholder="留空为随机" value="${escapeHtml(doubaoSeed)}" />`
-        })}
-        ${renderNodeFormNote('豆包格式会按文档把 resolution、ratio、duration、camera_fixed、watermark、seed 等作为顶层字段发送；图片输入会按首帧、尾帧、参考图写入 content 的 role。', {
-            fieldClass: isDoubaoProtocol ? '' : 'hidden',
-            fieldId: `${id}-doubao-note-field`
-        })}
+                <div class="node-protocol-params" data-video-protocol-fields="advanced"></div>
+            </details>
         </div>
-
-        <div class="node-protocol-params" id="${id}-protocol-params"></div>
-
-        ${renderNodeFormField({
-            label: '提示词',
-            fieldClass: 'node-video-prompt-field',
-            fieldId: `${id}-prompt-field`,
-            content: `<textarea class="video-generate-prompt" id="${id}-prompt" placeholder="描述你想生成的视频..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${rd.prompt || ''}</textarea>`
-        })}
-        <div class="node-field node-video-result-field">
-            <label>视频结果</label>
-            <div class="chat-response-wrapper" id="${id}-wrapper">
-                <div class="video-generation-status video-generation-status-${statusState}" id="${id}-video-status" aria-live="polite">${escapeHtml(statusText)}</div>
-                <div class="chat-response-area" id="${id}-response">${videoUrl
-                    ? `${createSummaryLines ? `<div><strong>视频创建响应</strong></div>${createSummaryLines}<div style="margin-top:8px;"></div>` : ''}<div><a href="${escapeHtml(videoUrl)}" target="_blank" rel="noreferrer">打开视频结果</a></div><div style="margin-top:6px;">${escapeHtml(statusText)}</div>`
-                    : (createSummaryLines
-                        ? `<div><strong>视频创建响应</strong></div>${createSummaryLines}<div style="margin-top:6px;color:var(--text-dim);">${escapeHtml(statusText)}</div>`
-                        : `<div class="chat-response-placeholder">${escapeHtml(statusText)}</div>`)}</div>
+        <section class="node-parameter-section node-video-task-section" aria-labelledby="${id}-video-task-heading">
+            <h3 class="node-parameter-heading" id="${id}-video-task-heading">任务与结果</h3>
+            <div class="node-field node-video-result-field">
+                <div class="chat-response-wrapper" id="${id}-wrapper">
+                    <div class="video-generation-status video-generation-status-${statusState}" id="${id}-video-status" aria-live="polite">${escapeHtml(statusText)}</div>
+                    <div class="chat-response-area" id="${id}-response">${videoUrl
+                        ? `${createSummaryLines ? `<div><strong>视频创建响应</strong></div>${createSummaryLines}<div style="margin-top:8px;"></div>` : ''}<div><a href="${escapeHtml(videoUrl)}" target="_blank" rel="noreferrer">打开视频结果</a></div><div style="margin-top:6px;">${escapeHtml(statusText)}</div>`
+                        : (createSummaryLines
+                            ? `<div><strong>视频创建响应</strong></div>${createSummaryLines}<div style="margin-top:6px;color:var(--text-dim);">${escapeHtml(statusText)}</div>`
+                            : `<div class="chat-response-placeholder node-video-result-placeholder">${escapeHtml(statusText)}</div>`)}</div>
+                </div>
             </div>
-        </div>
-        <div class="node-field node-generation-progress-field">
-            <label>生成进度</label>
-            <div class="image-generation-progress api-generation-progress" id="${id}-generation-progress" aria-live="polite">0/${generationCount}</div>
-        </div>
-        <div class="node-field node-field-row">
-            <button type="button" class="save-btn-secondary video-node-action-btn" id="${id}-download-video" ${videoUrl ? '' : 'disabled'} style="width:100%;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                下载视频
-            </button>
-        </div>
-        <div class="node-field">
-            <label>恢复任务 ID</label>
-            <input type="text" id="${id}-resume-video-id" value="${escapeHtml(rd.videoId || '')}" placeholder="输入或粘贴任务 ID" />
-        </div>
-        <div class="node-field node-field-row">
-            <button type="button" class="save-btn-secondary video-node-action-btn" id="${id}-resume-video" ${rd.videoId ? '' : 'disabled'} style="width:100%;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3.16-6.84"/><polyline points="21 3 21 9 15 9"/></svg>
-                恢复进度
-            </button>
-        </div>
-        <div class="node-error-msg hidden" id="${id}-error"></div>
+            <div class="node-field node-generation-progress-field">
+                <label>生成进度</label>
+                <div class="image-generation-progress api-generation-progress" id="${id}-generation-progress" aria-live="polite">0/${generationCount}</div>
+            </div>
+            <div class="node-field node-field-row node-video-download-field">
+                <button type="button" class="save-btn-secondary video-node-action-btn" id="${id}-download-video" ${videoUrl ? '' : 'disabled'} style="width:100%;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    下载视频
+                </button>
+            </div>
+            <details class="node-video-recovery node-parameter-disclosure" id="${id}-video-recovery"${rd.videoId && !videoUrl ? ' open' : ''}>
+                <summary>恢复任务</summary>
+                <div class="node-field">
+                    <label for="${id}-resume-video-id">任务 ID</label>
+                    <input type="text" id="${id}-resume-video-id" value="${escapeHtml(rd.videoId || '')}" placeholder="输入或粘贴任务 ID" />
+                </div>
+                <button type="button" class="save-btn-secondary video-node-action-btn" id="${id}-resume-video" ${rd.videoId ? '' : 'disabled'} style="width:100%;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3.16-6.84"/><polyline points="21 3 21 9 15 9"/></svg>
+                    恢复进度
+                </button>
+            </details>
+            <div class="node-error-msg hidden" id="${id}-error"></div>
+        </section>
     `;
 }
 
@@ -835,43 +859,52 @@ function renderTextChatBody(id, restoreData, models, providers) {
 
     return `
         ${renderNodeModelSettings(id, opts, providerOptions)}
-        ${renderImageReferenceOverview(id)}
-        <details class="node-field node-chat-system-field" id="${id}-system-settings">
-            <summary><span>系统提示语</span><span class="node-chat-system-summary" id="${id}-system-summary">${escapeHtml(systemSummary)}</span></summary>
-            <textarea id="${id}-sysprompt" aria-label="系统提示语（可选）" placeholder="设定 AI 的角色或背景..." rows="4"${getTextareaHeightStyle(rd, 'sysprompt')}>${escapeHtml(systemPrompt)}</textarea></details>
-        <div class="node-parameter-grid node-chat-toggle-grid">
-        <div class="node-field node-chat-option" id="${id}-search-field">
-            <div class="node-chat-option-copy"><label for="${id}-search">联网搜索</label>
-                <p class="node-chat-option-help" id="${id}-search-help">查询网页补充回答，需接口支持</p></div>
-            <label class="toggle-switch"><input type="checkbox" role="switch" id="${id}-search" aria-describedby="${id}-search-help" ${rd.search ? 'checked' : ''} /><span class="toggle-slider"></span></label></div>
-        <div class="node-field node-chat-option">
-            <div class="node-chat-option-copy"><label for="${id}-fixed">复用上次回复</label>
-                <p class="node-chat-option-help" id="${id}-fixed-help">运行工作流时复用成功回复</p></div>
-            <label class="toggle-switch"><input type="checkbox" role="switch" id="${id}-fixed" aria-describedby="${id}-fixed-help" ${rd.fixed ? 'checked' : ''} /><span class="toggle-slider"></span></label></div>
-        </div>
-        <details class="node-chat-option-guide" id="${id}-option-help"><summary>选项说明</summary>
-            <p>联网搜索：可随时开关，切换模型后保留选择。当前仅 Google 接口已接入联网搜索，仍需模型服务支持。</p>
-            <p>复用上次回复：运行工作流时复用成功回复并跳过上游；单独运行此节点可更新。首次仍会生成。</p>
-        </details>
-        <div class="node-field node-chat-prompt-field"><label>提问内容</label>
-            <textarea id="${id}-prompt" placeholder="输入你的问题..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${rd.prompt || ''}</textarea></div>
-        <div class="node-field node-field-expand node-chat-response-field ${response ? '' : 'is-empty'}">
-            <div class="node-chat-response-heading"><span id="${id}-response-label">对话回复</span>
-                <div class="node-chat-response-actions">
-                    <button type="button" class="chat-copy-btn" id="${id}-copy-btn" data-node-read-action title="复制回复内容" aria-label="复制回复内容" ${response ? '' : 'disabled'}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                    </button>
-                    <button type="button" class="chat-preview-btn" id="${id}-preview-btn" data-node-read-action ${response ? '' : 'disabled'}>放大查看</button>
+        <section class="node-parameter-section" aria-labelledby="${id}-question-heading">
+            <h3 class="node-parameter-heading" id="${id}-question-heading">提问内容</h3>
+            ${renderImageReferenceOverview(id)}
+            <div class="node-field node-chat-prompt-field">
+                <textarea id="${id}-prompt" aria-labelledby="${id}-question-heading" placeholder="输入你的问题..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${rd.prompt || ''}</textarea>
+            </div>
+        </section>
+        <section class="node-parameter-section node-chat-answer-section" aria-labelledby="${id}-answer-heading">
+            <h3 class="node-parameter-heading" id="${id}-answer-heading">回答设置</h3>
+            <div class="node-parameter-grid node-chat-toggle-grid">
+                <div class="node-field node-chat-option" id="${id}-search-field">
+                    <div class="node-chat-option-copy"><label for="${id}-search">联网搜索</label>
+                        <p class="node-chat-option-help" id="${id}-search-help">查询网页补充回答，需接口支持</p></div>
+                    <label class="toggle-switch"><input type="checkbox" role="switch" id="${id}-search" aria-describedby="${id}-search-help" ${rd.search ? 'checked' : ''} /><span class="toggle-slider"></span></label></div>
+                <div class="node-field node-chat-option">
+                    <div class="node-chat-option-copy"><label for="${id}-fixed">复用上次回复</label>
+                        <p class="node-chat-option-help" id="${id}-fixed-help">运行工作流时复用成功回复</p></div>
+                    <label class="toggle-switch"><input type="checkbox" role="switch" id="${id}-fixed" aria-describedby="${id}-fixed-help" ${rd.fixed ? 'checked' : ''} /><span class="toggle-slider"></span></label></div>
+            </div>
+            <details class="node-field node-chat-system-field" id="${id}-system-settings">
+                <summary><span>系统提示语</span><span class="node-chat-system-summary" id="${id}-system-summary">${escapeHtml(systemSummary)}</span></summary>
+                <textarea id="${id}-sysprompt" aria-label="系统提示语（可选）" placeholder="设定 AI 的角色或背景..." rows="4"${getTextareaHeightStyle(rd, 'sysprompt')}>${escapeHtml(systemPrompt)}</textarea></details>
+            <details class="node-chat-option-guide" id="${id}-option-help"><summary>选项说明</summary>
+                <p>联网搜索：可随时开关，切换模型后保留选择。当前仅 Google 接口已接入联网搜索，仍需模型服务支持。</p>
+                <p>复用上次回复：运行工作流时复用成功回复并跳过上游；单独运行此节点可更新。首次仍会生成。</p>
+            </details>
+        </section>
+        <section class="node-parameter-section node-chat-result-section" aria-labelledby="${id}-response-label">
+            <div class="node-field node-field-expand node-chat-response-field ${response ? '' : 'is-empty'}">
+                <div class="node-chat-response-heading"><h3 class="node-parameter-heading" id="${id}-response-label">对话回复</h3>
+                    <div class="node-chat-response-actions">
+                        <button type="button" class="chat-copy-btn" id="${id}-copy-btn" data-node-read-action title="复制回复内容" aria-label="复制回复内容" ${response ? '' : 'disabled'}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                        </button>
+                        <button type="button" class="chat-preview-btn" id="${id}-preview-btn" data-node-read-action ${response ? '' : 'disabled'}>放大查看</button>
+                    </div>
+                </div>
+                <div class="chat-response-wrapper" id="${id}-wrapper">
+                    <div class="chat-response-area" id="${id}-response" role="region" aria-labelledby="${id}-response-label"${getResponseAreaHeightStyle(rd, 'response')}>${response || '<div class="chat-response-placeholder">运行后显示回复</div>'}</div>
                 </div>
             </div>
-            <div class="chat-response-wrapper" id="${id}-wrapper">
-                <div class="chat-response-area" id="${id}-response" role="region" aria-labelledby="${id}-response-label"${getResponseAreaHeightStyle(rd, 'response')}>${response || '<div class="chat-response-placeholder">运行后显示回复</div>'}</div>
+            <div class="node-field node-generation-progress-field">
+                <label>生成进度</label>
+                <div class="image-generation-progress api-generation-progress" id="${id}-generation-progress" aria-live="polite">0/1</div>
             </div>
-        </div>
-        <div class="node-field node-generation-progress-field">
-            <label>生成进度</label>
-            <div class="image-generation-progress api-generation-progress" id="${id}-generation-progress" aria-live="polite">0/1</div>
-        </div>
+        </section>
     `;
 }
 
@@ -964,46 +997,48 @@ function renderImageResizeBody(id, restoreData) {
     const hasPreview = !!previewImage;
     return `
         <div class="image-resize-panel">
-            <div class="image-resize-mode-shell">
-                <div class="image-resize-mode-group">
-                    <button type="button" class="image-resize-mode-btn ${mode === 'scale' ? 'active' : ''}" data-target="${id}" data-mode="scale">等比缩放</button>
-                    <button type="button" class="image-resize-mode-btn ${mode === 'dimensions' ? 'active' : ''}" data-target="${id}" data-mode="dimensions">按尺寸</button>
+            <section class="node-parameter-section image-resize-size-settings" aria-label="尺寸">
+                <div class="image-resize-mode-shell">
+                    <div class="image-resize-mode-group">
+                        <button type="button" class="image-resize-mode-btn ${mode === 'scale' ? 'active' : ''}" data-target="${id}" data-mode="scale">等比缩放</button>
+                        <button type="button" class="image-resize-mode-btn ${mode === 'dimensions' ? 'active' : ''}" data-target="${id}" data-mode="dimensions">按尺寸</button>
+                    </div>
                 </div>
-            </div>
-            <input type="hidden" id="${id}-resize-mode" value="${mode}" />
+                <input type="hidden" id="${id}-resize-mode" value="${mode}" />
 
-            <div class="image-resize-scale-section ${mode === 'scale' ? '' : 'hidden'}" id="${id}-scale-section">
-                <div class="node-field image-resize-slider-field">
-                    <div class="image-resize-slider-header">
-                        <label>缩放比例</label>
-                        <span class="image-resize-inline-value" id="${id}-scale-value">${scalePercent}%</span>
-                    </div>
-                    <div class="image-resize-range-row">
-                        <input type="range" id="${id}-scale-percent" min="1" max="100" step="1" value="${scalePercent}" />
+                <div class="image-resize-scale-section ${mode === 'scale' ? '' : 'hidden'}" id="${id}-scale-section">
+                    <div class="node-field image-resize-slider-field">
+                        <div class="image-resize-slider-header">
+                            <label>缩放比例</label>
+                            <span class="image-resize-inline-value" id="${id}-scale-value">${scalePercent}%</span>
+                        </div>
+                        <div class="image-resize-range-row">
+                            <input type="range" id="${id}-scale-percent" min="1" max="100" step="1" value="${scalePercent}" />
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <div class="image-resize-dimensions-section ${mode === 'dimensions' ? '' : 'hidden'}" id="${id}-dimensions-section">
-                <div class="image-resize-dimensions-grid">
-                    <div class="node-field">
-                        <label>宽度</label>
-                        <input type="number" id="${id}-target-width" min="1" step="1" placeholder="自动" value="${targetWidth}" />
+                <div class="image-resize-dimensions-section ${mode === 'dimensions' ? '' : 'hidden'}" id="${id}-dimensions-section">
+                    <div class="image-resize-dimensions-grid">
+                        <div class="node-field">
+                            <label>宽度</label>
+                            <input type="number" id="${id}-target-width" min="1" step="1" placeholder="自动" value="${targetWidth}" />
+                        </div>
+                        <div class="node-field">
+                            <label>高度</label>
+                            <input type="number" id="${id}-target-height" min="1" step="1" placeholder="自动" value="${targetHeight}" />
+                        </div>
                     </div>
-                    <div class="node-field">
-                        <label>高度</label>
-                        <input type="number" id="${id}-target-height" min="1" step="1" placeholder="自动" value="${targetHeight}" />
+                    <div class="node-field node-field-row">
+                        <label>保持比例</label>
+                        <label class="toggle-switch"><input type="checkbox" id="${id}-keep-aspect" ${keepAspect ? 'checked' : ''} /><span class="toggle-slider"></span></label>
                     </div>
                 </div>
-                <div class="node-field node-field-row">
-                    <label>保持比例</label>
-                    <label class="toggle-switch"><input type="checkbox" id="${id}-keep-aspect" ${keepAspect ? 'checked' : ''} /><span class="toggle-slider"></span></label>
-                </div>
-            </div>
+            </section>
 
             <div class="node-field image-resize-quality-field image-resize-slider-field" id="${id}-quality-field">
                 <div class="image-resize-slider-header">
-                    <label>质量</label>
+                    <label for="${id}-quality">输出质量</label>
                     <span class="image-resize-inline-value" id="${id}-quality-value">${quality}%</span>
                 </div>
                 <div class="image-resize-range-row">
@@ -1045,18 +1080,19 @@ function renderColorResetBody(id, restoreData) {
     return `
         <div class="color-reset-panel">
             <div class="color-reset-toolbar">
-                <div class="color-reset-flow"><span>白平衡</span><span aria-hidden="true">→</span><span>色彩调整</span><span class="color-reset-dirty-dot" id="${id}-color-reset-dirty" title="节点已有调整" aria-label="节点已有调整"></span></div>
-                <button type="button" class="preview-ctrl-btn color-reset-reset-btn" id="${id}-reset-all" title="全部重置" aria-label="全部重置">
+                <span class="color-reset-dirty-dot" id="${id}-color-reset-dirty" title="节点已有调整" aria-label="节点已有调整"></span>
+                <button type="button" class="preview-ctrl-btn color-reset-reset-all" id="${id}-reset-all">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/></svg>
+                    全部重置
                 </button>
             </div>
             <div class="preview-container color-reset-preview" id="${id}-color-preview">
                 <div class="preview-placeholder">等待上游图片</div>
                 <div class="color-reset-picker-overlay" id="${id}-picker-overlay">点击图片中的白色或灰色区域</div>
             </div>
-            <section class="color-reset-section color-reset-white-balance" aria-labelledby="${id}-white-balance-heading">
+            <section class="node-parameter-section color-reset-section color-reset-white-balance" aria-labelledby="${id}-white-balance-heading">
                 <div class="color-reset-section-heading">
-                    <div class="color-reset-section-title" id="${id}-white-balance-heading"><span>白平衡校正</span><span class="color-reset-section-dirty" id="${id}-white-balance-dirty">已调整</span></div>
+                    <h3 class="node-parameter-heading color-reset-section-title" id="${id}-white-balance-heading"><span>白平衡校正</span><span class="color-reset-section-dirty" id="${id}-white-balance-dirty">已调整</span></h3>
                     <button type="button" class="preview-ctrl-btn color-reset-reset-btn" id="${id}-reset-white-balance" title="重置白平衡" aria-label="重置白平衡">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/></svg>
                     </button>
@@ -1078,9 +1114,9 @@ function renderColorResetBody(id, restoreData) {
                 ${slider('temperature', '色温')}
                 ${slider('tint', '色调')}
             </section>
-            <section class="color-reset-section color-reset-color-controls" aria-labelledby="${id}-color-heading">
+            <section class="node-parameter-section color-reset-section color-reset-color-controls" aria-labelledby="${id}-color-heading">
                 <div class="color-reset-section-heading">
-                    <div class="color-reset-section-title" id="${id}-color-heading"><span>色彩调整</span><span class="color-reset-section-dirty" id="${id}-color-dirty">已调整</span></div>
+                    <h3 class="node-parameter-heading color-reset-section-title" id="${id}-color-heading"><span>色彩调整</span><span class="color-reset-section-dirty" id="${id}-color-dirty">已调整</span></h3>
                     <button type="button" class="preview-ctrl-btn color-reset-reset-btn" id="${id}-reset-color" title="重置色彩调整" aria-label="重置色彩调整">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/></svg>
                     </button>
@@ -1136,45 +1172,53 @@ function renderTextSplitBody(id, restoreData) {
     const previewEnabled = getTextSplitPreviewEnabledValue(rd);
     const mergeOutputEnabled = getTextSplitMergeOutputEnabledValue(rd);
     return `
-        <div class="node-field node-field-expand text-split-delimiter-field">
-            <label>分隔字符串</label>
-            <textarea id="${id}-delimiter" class="text-split-delimiter" placeholder="输入用于分割文本的字符串" rows="2"${getTextareaHeightStyle(rd, 'delimiter')}>${delimiter}</textarea>
-        </div>
-        <div class="node-field">
-            <label>输出数量</label>
-            <div class="text-split-output-count-control">
-                <button type="button" class="text-split-output-count-btn" data-target="${id}" data-delta="-1" title="减少输出数量" ${mergeOutputEnabled ? 'disabled' : ''}>-</button>
-                <input type="text" id="${id}-output-count" class="text-split-output-count-input" inputmode="numeric" pattern="[0-9]*" value="${outputCount}" ${mergeOutputEnabled ? 'disabled' : ''} />
-                <button type="button" class="text-split-output-count-btn" data-target="${id}" data-delta="1" title="增加输出数量" ${mergeOutputEnabled ? 'disabled' : ''}>+</button>
+        <section class="node-parameter-section" aria-labelledby="${id}-split-rule-heading">
+            <h3 class="node-parameter-heading" id="${id}-split-rule-heading">拆分规则</h3>
+            <div class="node-field node-field-expand text-split-delimiter-field">
+                <label for="${id}-delimiter">分隔字符串</label>
+                <textarea id="${id}-delimiter" class="text-split-delimiter" placeholder="输入用于分割文本的字符串" rows="2"${getTextareaHeightStyle(rd, 'delimiter')}>${delimiter}</textarea>
             </div>
-            <div class="text-split-output-hint">设为 0 时根据分割结果自动生成输出端口</div>
-        </div>
-        <div class="node-field node-field-row">
-            <label>删除空行</label>
-            <label class="toggle-switch">
-                <input type="checkbox" id="${id}-remove-empty-lines" ${removeEmptyLines ? 'checked' : ''} />
-                <span class="toggle-slider"></span>
-            </label>
-        </div>
-        <div class="node-field node-field-row">
-            <label>多合一输出</label>
-            <label class="toggle-switch">
-                <input type="checkbox" id="${id}-merge-output-enabled" ${mergeOutputEnabled ? 'checked' : ''} />
-                <span class="toggle-slider"></span>
-            </label>
-        </div>
-        <div class="node-field node-field-row">
-            <label>开启节点内预览</label>
-            <label class="toggle-switch">
-                <input type="checkbox" id="${id}-preview-enabled" ${previewEnabled ? 'checked' : ''} />
-                <span class="toggle-slider"></span>
-            </label>
-        </div>
-        <div class="text-split-summary" id="${id}-split-summary"></div>
-        <div class="node-field node-field-expand text-split-preview-field ${previewEnabled ? '' : 'hidden'}">
-            <label>片段预览</label>
-            <div class="text-split-preview" id="${id}-split-preview"></div>
-        </div>
+            <div class="node-field node-field-row">
+                <label for="${id}-remove-empty-lines">删除空行</label>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="${id}-remove-empty-lines" ${removeEmptyLines ? 'checked' : ''} />
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+        </section>
+        <section class="node-parameter-section" aria-labelledby="${id}-split-output-heading">
+            <h3 class="node-parameter-heading" id="${id}-split-output-heading">输出方式</h3>
+            <div class="node-field node-field-row">
+                <label for="${id}-merge-output-enabled">多合一输出</label>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="${id}-merge-output-enabled" ${mergeOutputEnabled ? 'checked' : ''} />
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <div class="node-field">
+                <label for="${id}-output-count">输出数量</label>
+                <div class="text-split-output-count-control">
+                    <button type="button" class="text-split-output-count-btn" data-target="${id}" data-delta="-1" title="减少输出数量" ${mergeOutputEnabled ? 'disabled' : ''}>-</button>
+                    <input type="text" id="${id}-output-count" class="text-split-output-count-input" inputmode="numeric" pattern="[0-9]*" value="${outputCount}" ${mergeOutputEnabled ? 'disabled' : ''} />
+                    <button type="button" class="text-split-output-count-btn" data-target="${id}" data-delta="1" title="增加输出数量" ${mergeOutputEnabled ? 'disabled' : ''}>+</button>
+                </div>
+                <div class="text-split-output-hint">设为 0 时根据分割结果自动生成输出端口</div>
+            </div>
+        </section>
+        <section class="node-parameter-section text-split-preview-section" aria-labelledby="${id}-split-preview-heading">
+            <h3 class="node-parameter-heading" id="${id}-split-preview-heading">片段预览</h3>
+            <div class="node-field node-field-row">
+                <label for="${id}-preview-enabled">开启节点内预览</label>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="${id}-preview-enabled" ${previewEnabled ? 'checked' : ''} />
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <div class="text-split-summary" id="${id}-split-summary"></div>
+            <div class="node-field node-field-expand text-split-preview-field ${previewEnabled ? '' : 'hidden'}">
+                <div class="text-split-preview" id="${id}-split-preview"></div>
+            </div>
+        </section>
     `;
 }
 
@@ -1233,9 +1277,8 @@ function normalizeCustomParamRows(restoreData = {}) {
 function renderCustomParamRow(id, row, index) {
     return `
         <div class="custom-param-row" data-param-row>
-            <input type="text" class="custom-param-key" id="${id}-param-key-${index}" value="${escapeHtml(row.key)}" placeholder="参数名" />
-            <span class="custom-param-separator">:</span>
-            <input type="text" class="custom-param-value" id="${id}-param-value-${index}" value="${escapeHtml(row.value)}" placeholder="参数值" />
+            <input type="text" class="custom-param-key" id="${id}-param-key-${index}" value="${escapeHtml(row.key)}" aria-label="参数名" />
+            <input type="text" class="custom-param-value" id="${id}-param-value-${index}" value="${escapeHtml(row.value)}" aria-label="参数值" />
             <button type="button" class="custom-param-remove" title="删除这一行" aria-label="删除这一行">−</button>
         </div>
     `;
@@ -1248,13 +1291,14 @@ function renderCustomParamsBody(id, restoreData = {}) {
         .join('');
 
     return `
-        <div class="node-field custom-param-field">
-            <label>请求参数</label>
+        <section class="node-parameter-section node-field custom-param-field" aria-labelledby="${id}-params-heading">
+            <h3 class="node-parameter-heading" id="${id}-params-heading">请求参数</h3>
+            <div class="custom-param-columns" aria-hidden="true"><span>参数名</span><span>参数值</span></div>
             <div class="custom-param-list" id="${id}-params-list">
                 ${renderedRows}
             </div>
-            <button type="button" class="custom-param-add" id="${id}-add-param" title="添加参数" aria-label="添加参数">+</button>
-        </div>
+            <button type="button" class="custom-param-add" id="${id}-add-param">添加参数</button>
+        </section>
     `;
 }
 

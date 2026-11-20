@@ -243,6 +243,14 @@ export function createCanvasInteractionsApi({
         if (dx > 2 || dy > 2) dragging.hasMoved = true;
     }
 
+    function queueNodeDragMovement(dragging, pos) {
+        recordDragMotion(dragging, pos);
+        if (!dragging.captureTarget && dragging.nodes.length === 1 && isCurrentGesture(dragging)) {
+            updateShakeDetach(dragging, pos);
+        }
+        if (dragging.hasMotion) queueGestureFrame(dragging, pos, applyNodeDragPosition);
+    }
+
     function cloneDraggedNodes(dragging) {
         dragging.cloned = true;
         const idMap = new Map();
@@ -369,6 +377,11 @@ export function createCanvasInteractionsApi({
         }
 
         state.dragging = null;
+        const { captureTarget, pointerId } = dragging;
+        if (captureTarget) {
+            documentRef.getElementById('connections-group').classList.remove('is-interacting');
+            if (captureTarget.hasPointerCapture(pointerId)) captureTarget.releasePointerCapture(pointerId);
+        }
         if (!isCurrent) {
             projectionInteractionLeases.delete(CANVAS_INTERACTION_KIND.NODE_DRAG);
             return;
@@ -1125,6 +1138,26 @@ export function createCanvasInteractionsApi({
                 event.stopImmediatePropagation();
             }
         }, true);
+        canvasContainer.addEventListener('pointerdown', event => {
+            if (event.pointerType !== 'touch' || !event.isPrimary) return;
+            if (suppressDragClick) state.justDragged = false;
+            suppressDragClick = false;
+            pressedConnection = null;
+        }, true);
+        windowRef.addEventListener('pointermove', event => {
+            const dragging = state.dragging;
+            if (!dragging?.captureTarget || dragging.pointerId !== event.pointerId) return;
+            queueNodeDragMovement(dragging, viewportApi.screenToCanvas(event.clientX, event.clientY));
+        }, true);
+        for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+            windowRef.addEventListener(type, event => {
+                const dragging = state.dragging;
+                if (!dragging?.captureTarget || dragging.pointerId !== event.pointerId) return;
+                const abort = event.type !== 'pointerup';
+                const endPosition = abort ? null : viewportApi.screenToCanvas(event.clientX, event.clientY);
+                settleNodeDrag({ endPosition, abort });
+            }, true);
+        }
         windowRef.addEventListener('keydown', event => {
             if (event.key !== 'Escape' || event.isComposing) return;
             if (!state.connecting) {
@@ -1164,6 +1197,7 @@ export function createCanvasInteractionsApi({
         }, true);
 
         canvasContainer.addEventListener('mousedown', (e) => {
+            if (state.dragging?.captureTarget) return;
             if (suppressDragClick) state.justDragged = false;
             suppressDragClick = false;
             pressedConnection = null;
@@ -1200,6 +1234,7 @@ export function createCanvasInteractionsApi({
         }, true);
 
         canvasContainer.addEventListener('mousedown', (e) => {
+            if (state.dragging?.captureTarget) return;
             canvasContainer.focus();
 
             if (e.ctrlKey && e.button === 2) {
@@ -1288,13 +1323,7 @@ export function createCanvasInteractionsApi({
                 if (state.marquee && isCurrentGesture(state.marquee)) {
                     queueGestureFrame(state.marquee, { x: e.clientX, y: e.clientY, canvas: pos }, applyMarqueePointer);
                 }
-                if (state.dragging) {
-                    recordDragMotion(state.dragging, pos);
-                    if (state.dragging.nodes.length === 1 && isCurrentGesture(state.dragging)) {
-                        updateShakeDetach(state.dragging, pos);
-                    }
-                    if (state.dragging.hasMotion) queueGestureFrame(state.dragging, pos, applyNodeDragPosition);
-                }
+                if (state.dragging && !state.dragging.captureTarget) queueNodeDragMovement(state.dragging, pos);
             }
             if (state.resizing && isCurrentGesture(state.resizing) &&
                 (state.resizing.hasPointerMovement || e.clientX !== state.resizing.startX || e.clientY !== state.resizing.startY)) {
@@ -1370,6 +1399,7 @@ export function createCanvasInteractionsApi({
         }, true);
 
         windowRef.addEventListener('mouseup', (e) => {
+            if (state.dragging?.captureTarget) return;
             const releasePointer = Number.isFinite(e.clientX) && Number.isFinite(e.clientY)
                 ? { x: e.clientX, y: e.clientY }
                 : null;

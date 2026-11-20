@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { withAppBrowser, reloadAppBrowser, waitForAutosave } from './helpers/app-browser.mjs';
+import { composite, contrastRatio } from './helpers/browser-theme-fixture.mjs';
 
 const session = {
     autoCheckUpdatesOnLoad: false,
@@ -48,6 +49,131 @@ async function clickParameterRun(app, options) {
 const cachedReferenceImages = await Promise.all(['red', 'blue'].map(async color =>
     (await readFile(new URL(`./fixtures/reference-${color}.png`, import.meta.url))).toString('base64')));
 const cachedReferenceConnection = { id: 'cached-reference', from: { nodeId: 'editor-first', port: 'image' }, to: { nodeId: 'editor-second', port: 'referenceImages' }, type: 'image', order: 0 };
+
+async function readPaintContrast(app, selectors, property = 'color') {
+    const entries = await app.evaluate(`(() => {
+        const colors = document.createElement('canvas').getContext('2d');
+        return ${JSON.stringify(selectors)}.map(selector => {
+            const element = document.querySelector(selector);
+            if (!element?.checkVisibility({ checkVisibilityCSS: true })) throw new Error('Hidden: ' + selector);
+            const paint = ${JSON.stringify(property)};
+            colors.clearRect(0, 0, 1, 1);
+            colors.fillStyle = getComputedStyle(element).getPropertyValue(paint);
+            colors.fillRect(0, 0, 1, 1);
+            const [r, g, b, a] = colors.getImageData(0, 0, 1, 1).data;
+            const originalStyle = element.getAttribute('style');
+            const positions = [0.25, 0.5, 0.75];
+            const bounds = element.getBoundingClientRect();
+            const points = paint === 'stroke'
+                ? positions.map(position => {
+                    const point = element.getPointAtLength(element.getTotalLength() * position);
+                    const { x, y } = point.matrixTransform(element.getScreenCTM());
+                    return [x, y];
+                })
+                : positions.map(position => [bounds.left + bounds.width * position, bounds.top + bounds.height / 2]);
+            element.style.setProperty('transition', 'none', 'important');
+            element.style.setProperty(paint, 'transparent', 'important');
+            return { selector, originalStyle, points, foreground: [r, g, b, a / 255] };
+        });
+    })()`);
+    // Removing just the foreground paint exposes the actual layered backdrop for each sample.
+    const { data } = await app.send('Page.captureScreenshot', { format: 'png' });
+    const samples = await app.evaluate(`(async () => {
+        const image = new Image();
+        image.src = 'data:image/png;base64,${data}';
+        await image.decode();
+        const pixels = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+        pixels.canvas.width = image.width;
+        pixels.canvas.height = image.height;
+        pixels.drawImage(image, 0, 0);
+        return ${JSON.stringify(entries)}.map(({ selector, originalStyle, points }) => {
+            const element = document.querySelector(selector);
+            if (originalStyle === null) element.removeAttribute('style');
+            else element.setAttribute('style', originalStyle);
+            return points.map(([x, y]) => [...pixels.getImageData(Math.round(x), Math.round(y), 1, 1).data]);
+        });
+    })()`);
+    return Object.fromEntries(entries.map(({ selector, foreground }, index) => [selector,
+        Math.min(...samples[index].map(([r, g, b, a]) => {
+            assert.equal(a, 255, `${selector} sample must lie on the visible page`);
+            const background = [r, g, b, 1];
+            return contrastRatio(composite(foreground, background), background);
+        }))
+    ]));
+}
+
+test('all seven themes keep workflow connections, media actions, settings and notices readable', { timeout: 45000 }, async () => {
+    const source = { id: 'theme-source', type: 'Text', x: 150, y: 350, width: 210, text: '提示词' };
+    const target = { ...session.nodes[0], x: 690, y: 350, width: 230 };
+    const colorReset = { id: 'theme-color-reset', type: 'ColorReset', x: 300, y: 125, width: 320 };
+    const wire = { id: 'theme-wire', from: { nodeId: source.id, port: 'text' }, to: { nodeId: target.id, port: 'prompt' }, type: 'text' };
+    await withAppBrowser({ ...session, globalAnimationEnabled: false, nodes: [source, target, colorReset], connections: [wire] }, async app => {
+        const themes = ['dark', 'pro', 'paper', 'light', 'glass-light', 'glass-dark', 'pink'];
+        await app.evaluate(`(async () => {
+            const { registry } = await (await import('/js/app/bootstrap.js')).bootstrapCainFlowApp();
+            window.contrastTheme = registry.themeControllerApi.applyTheme;
+            registry.floatingNoticesApi.upsertNotice({
+                id: 'contrast-proxy-fixture', priority: 0,
+                className: 'update-canvas-notice network-proxy-notice', icon: '!',
+                title: '请注意网络设置', meta: '当前通过代理访问国外网络。', dismissible: true
+            });
+        })()`);
+        const verifyContrast = async (theme, selectors, minimum, property) => {
+            const ratios = await readPaintContrast(app, selectors, property);
+            for (const [selector, ratio] of Object.entries(ratios)) {
+                assert.ok(ratio >= minimum, `${theme} ${selector} must reach ${minimum}:1, found ${ratio.toFixed(2)}:1`);
+            }
+            return ratios;
+        };
+        const wireSelector = 'path[data-conn-id="theme-wire"]';
+        const notice = '[data-notice-id="contrast-proxy-fixture"]';
+        const wireWidth = state => app.evaluate(`(() => {
+            const path = document.querySelector(${JSON.stringify(wireSelector)});
+            path.classList.toggle('is-hovered', ${state === 'hover'});
+            path.classList.toggle('selected', ${state === 'selected'});
+            return parseFloat(getComputedStyle(path).strokeWidth);
+        })()`);
+        for (const theme of themes) {
+            await app.evaluate(`window.contrastTheme(${JSON.stringify(theme)})`);
+            const normalWidth = await wireWidth('normal');
+            const normal = (await verifyContrast(theme, [wireSelector], 3, 'stroke'))[wireSelector];
+            const hoverWidth = await wireWidth('hover');
+            await verifyContrast(theme, [wireSelector], normal, 'stroke');
+            const selectedWidth = await wireWidth('selected');
+            await verifyContrast(theme, [wireSelector], normal, 'stroke');
+            assert.ok(normalWidth < hoverWidth && hoverWidth < selectedWidth, `${theme} wire states must have increasing stroke widths`);
+            await wireWidth('normal');
+            await verifyContrast(theme, ['.notice-icon', '.update-canvas-notice-meta', '.notice-close'].map(selector => `${notice} ${selector}`), 4.5);
+        }
+
+        await app.evaluate(`document.querySelector(${JSON.stringify(`${notice} .notice-close`)}).click(); document.getElementById('${colorReset.id}').click()`);
+        const action = '#image-parameter-panel [data-parameter-action=generate]';
+        const status = `#${colorReset.id}-white-balance-status`;
+        assert.equal(await app.evaluate(`document.querySelector('${action}').disabled`), false);
+        for (const theme of themes) {
+            await app.evaluate(`window.contrastTheme(${JSON.stringify(theme)})`);
+            for (const [state, message] of Object.entries({
+                'needs-sample': '未找到可靠中性色，请使用吸管取样',
+                'invalid-sample': '取样区域无效',
+                applied: '已应用白平衡'
+            })) {
+                await app.evaluate(`(() => {
+                    const element = document.querySelector('${status}');
+                    element.dataset.status = ${JSON.stringify(state)};
+                    element.textContent = ${JSON.stringify(message)};
+                })()`);
+                await verifyContrast(theme, [action, status], 4.5);
+            }
+        }
+
+        await app.evaluate("document.getElementById('btn-settings').click()");
+        for (const theme of themes) {
+            await app.evaluate(`window.contrastTheme(${JSON.stringify(theme)})`);
+            await verifyContrast(theme, ['#settings-tab-button-api', '#btn-api-settings-help',
+                '#settings-tab-api .settings-toolbar-title > h3', '#settings-tab-api .settings-toolbar > h3'], 4.5);
+        }
+    });
+});
 
 async function controlCurrentNodeRequests(app) {
     await app.send('Page.addScriptToEvaluateOnNewDocument', { source: `

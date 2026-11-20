@@ -31,7 +31,7 @@ function readStoredZipImages(bytes) {
 }
 
 test('详情图由模型直接生成带文案的成品，连续预览与 ZIP 保留原始图片', { timeout: 65000 }, async () => {
-    const [product, firstImage, secondImage, revisedImage] = await Promise.all(['red', 'blue', 'yellow', 'green'].map(async color =>
+    const [product, wideSource, tallSource, revisedImage] = await Promise.all(['red', 'blue', 'yellow', 'green'].map(async color =>
         (await readFile(new URL(`./fixtures/reference-${color}.png`, import.meta.url))).toString('base64')));
     const masterTypography = '全页统一用深绿粗体标题，左边距保持一致。';
     const page = {
@@ -51,7 +51,7 @@ test('详情图由模型直接生成带文案的成品，连续预览与 ZIP 保
                 const prompt=options.body.get('prompt');
                 detailCalls.push({kind:'image',prompt});
                 const image=prompt.includes('顺手开盖')?${JSON.stringify(revisedImage)}
-                    :prompt.includes('${overview}')?${JSON.stringify(firstImage)}:${JSON.stringify(secondImage)};
+                    :prompt.includes('${overview}')?window.detailFixtureImages[0]:window.detailFixtureImages[1];
                 return Response.json({data:[{b64_json:image}]});
             }
             const content=JSON.parse(options.body).messages.at(-1).content;
@@ -80,6 +80,20 @@ test('详情图由模型直接生成带文案的成品，连续预览与 ZIP 保
         providers: [{ id: 'p', endpoint: 'https://fixture.test/v1', apikey: 'test' }]
     };
     await withAppBrowser(fixture, async app => {
+        const [firstImage, secondImage] = await app.evaluate(`(async () => {
+            const samples = ${JSON.stringify([[wideSource, 320, 180], [tallSource, 180, 320]])};
+            window.detailFixtureImages = await Promise.all(samples.map(async ([data, width, height]) => {
+                const image = new Image();
+                image.src = 'data:image/png;base64,' + data;
+                await image.decode();
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                canvas.getContext('2d').drawImage(image, 0, 0, width, height);
+                return canvas.toDataURL('image/png').split(',')[1];
+            }));
+            return window.detailFixtureImages;
+        })()`);
         const readSaved = `fetch('/api/storage/documents/session').then(response=>response.json())
             .then(snapshot=>snapshot.value.nodes.find(node=>node.id===${JSON.stringify(nodeId)}))`;
         const click = selector => app.evaluate(`${query(selector)}.click()`);
@@ -97,6 +111,11 @@ test('详情图由模型直接生成带文案的成品，连续预览与 ZIP 保
         await openParameters(app, nodeId);
         await click(action('plan'));
         await app.waitFor(`!${query(action('preview-detail-page'))}.hidden`);
+        assert.deepEqual(await app.evaluate(`Array.from(document.querySelectorAll('[data-commerce-result-group]'), group => ({
+            group: group.dataset.commerceResultGroup,
+            title: group.querySelector('h4').checkVisibility(),
+            add: group.querySelector('[data-commerce-action=add-scene]').textContent.trim()
+        }))`), [{ group: 'detail', title: true, add: '添加场景图' }, { group: 'gallery', title: false, add: '添加主副图场景图' }]);
 
         await click(action('preview-detail-page'));
         assert.match(await app.evaluate(`${query(`${preview} [data-detail-preview-feedback]`)}.textContent`), /生成详情图后/);
@@ -115,6 +134,38 @@ test('详情图由模型直接生成带文案的成品，连续预览与 ZIP 保
         assert.equal(prompts.length, 2);
         assert.ok(prompts.every(prompt => prompt.includes(masterTypography) && prompt.includes('单手开合')));
         assert.ok(prompts.find(prompt => prompt.includes(overview)).includes(copy));
+        const viewport = await app.evaluate('({width:innerWidth,height:innerHeight,deviceScaleFactor:devicePixelRatio,mobile:false})');
+        for (const [width, height] of [[viewport.width, viewport.height], [390, 560]]) {
+            await app.send('Emulation.setDeviceMetricsOverride', { ...viewport, width, height });
+            await app.waitFor(`innerWidth===${width} && document.querySelectorAll('.commerce-image-set-shot-preview img:not([hidden])').length===2
+                && Array.from(document.querySelectorAll('.commerce-image-set-shot-preview img:not([hidden])')).every(img=>img.naturalWidth>0)`);
+            const thumbnails = await app.evaluate(`(() => {
+                const scroll = document.querySelector('.image-parameter-scroll');
+                return Array.from(document.querySelectorAll('.commerce-image-set-shot-preview'), button => {
+                    const card = button.closest('[data-commerce-shot-id]');
+                    const bounds = card.getBoundingClientRect();
+                    const image = button.querySelector('img');
+                    const title = card.querySelector('.commerce-image-set-shot-toggle').getBoundingClientRect();
+                    const thumb = image.getBoundingClientRect();
+                    const scale = Math.min(thumb.width / image.naturalWidth, thumb.height / image.naturalHeight);
+                    const actionsFit = Array.from(card.querySelectorAll('.commerce-image-set-shot-quick-actions button'))
+                        .filter(action => action.checkVisibility()).every(action => {
+                            const rect = action.getBoundingClientRect();
+                            return rect.left >= bounds.left && rect.right <= bounds.right;
+                        });
+                    return { id: card.dataset.commerceShotId, width: image.naturalWidth * scale,
+                        height: image.naturalHeight * scale, fit: getComputedStyle(image).objectFit,
+                        clearTitle: title.width > 40 && title.left >= button.getBoundingClientRect().right,
+                        actionsFit, overflow: scroll.scrollWidth > scroll.clientWidth + 1 };
+                });
+            })()`);
+            const landscape = thumbnails.find(item => item.id === overview);
+            const portrait = thumbnails.find(item => item.id === feature);
+            assert.ok(landscape.width >= (width === 390 ? 63 : 80) && landscape.height >= 35, JSON.stringify(thumbnails));
+            assert.ok(portrait.height >= 70 && portrait.height <= 73, JSON.stringify(thumbnails));
+            assert.ok(thumbnails.every(item => item.fit === 'contain' && item.clearTitle && item.actionsFit && !item.overflow), JSON.stringify(thumbnails));
+        }
+        await app.send('Emulation.setDeviceMetricsOverride', viewport);
         await click(action('preview-detail-page'));
         await app.waitFor(`document.querySelectorAll('${images}').length===2 && [...document.querySelectorAll('${images}')].every(img=>img.naturalWidth)`);
         assert.equal(await app.evaluate(`Boolean(${query(`${preview} canvas`)})`), false);
@@ -189,7 +240,6 @@ test('详情图由模型直接生成带文案的成品，连续预览与 ZIP 保
         assert.deepEqual(readStoredZipImages(Buffer.from(download.bytes)), [
             { name: '01_核心卖点说明.png', data: secondImage }, { name: '02_详情首屏.png', data: revisedImage }
         ]);
-
         assert.deepEqual(await app.evaluate('detailArchiveWorkers'), [{ mode: 'module',
             entries: [['01_核心卖点说明.png', true], ['02_详情首屏.png', true]], producedArchive: true, terminated: true }]);
 

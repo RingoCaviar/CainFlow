@@ -727,6 +727,12 @@ test('product retouch analyzes and edits the same original in one run and preser
         }).then(response => response.ok)`), true);
         await openParameters(app, 'retouch');
         assert.equal(await app.evaluate(`document.querySelector('${panel}').dataset.mode`), 'docked');
+        assert.deepEqual(await app.evaluate(`(()=>{
+            const settings=document.querySelector('${panel} .product-retouch-settings');
+            const sections=[...settings.querySelectorAll(':scope > .node-parameter-section')];
+            return sections.map(section=>[section.querySelector('h3').textContent,
+                [...new Set([...section.querySelectorAll('[data-retouch-field]')].map(field=>field.dataset.retouchField))]]);
+        })()`), [['商品参考图', []], ['画面设置', ['background', 'lighting', 'shadow', 'finish']]]);
         assert.equal(await app.evaluate(`${background('white')}.checked`), true);
         assert.equal(await app.evaluate(`${runButton}.disabled`), true);
         assert.equal(await app.evaluate(`${field('modelId')}.querySelector('option[value=generate-only]') === null`), true);

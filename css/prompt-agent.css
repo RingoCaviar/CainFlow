@@ -239,6 +239,8 @@ body.toolbar-controls-active .prompt-agent-panel.active {
     padding: 8px;
 }
 .prompt-agent-messages:focus-visible { outline: 2px solid var(--text-link); outline-offset: -2px; }
+.prompt-agent-load-older { display: block; min-height: 32px; margin: 0 auto 12px; }
+.prompt-agent-message:focus-visible { outline: 2px solid var(--text-link); outline-offset: -2px; }
 
 .prompt-agent-empty {
     margin: 12px auto 0;

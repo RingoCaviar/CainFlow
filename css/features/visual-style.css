@@ -8,13 +8,18 @@
 .visual-style-preview.is-empty { display: grid; place-items: center; min-height: 120px; padding: 0; color: var(--text-secondary); }
 /* Keep the editor prominent while preset and extraction controls remain compact. */
 .visual-style-settings {
-    display: grid; grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center; gap: 12px; min-width: 0;
+    display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0;
     container-type: inline-size;
 }
-.visual-style-presets,
-.visual-style-description,
-.visual-style-settings > [data-style-status],
+.visual-style-settings .visual-style-extraction {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    padding-top: 10px;
+    border-top: 1px solid var(--node-section-divider);
+}
+.visual-style-settings .visual-style-extraction:not([hidden]) { display: grid; }
+.visual-style-extraction > .node-parameter-heading,
+.visual-style-extraction > [data-style-status],
 .visual-style-model-settings[open] { grid-column: 1 / -1; }
 .visual-style-presets { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 12px; }
 .visual-style-settings .visual-style-preset,
@@ -38,7 +43,6 @@
 .visual-style-settings summary { cursor: pointer; padding: 8px 0; font-size: 13px; color: var(--text-secondary); }
 .visual-style-settings summary:hover { color: var(--text-primary); }
 .visual-style-model-settings { min-width: 0; }
-.visual-style-model-settings[open] { border-top: 1px solid var(--border-color); padding-top: 4px; }
 .visual-style-model-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding-top: 4px; }
 .visual-style-settings select { width: 100%; min-width: 0; max-width: 100%; background: var(--bg-input); color: var(--text-primary); }
 .visual-style-settings [data-style-status] { margin: 0; font-size: 13px; line-height: 1.6; color: var(--text-secondary); overflow-wrap: anywhere; }
@@ -46,4 +50,7 @@
 .visual-style-settings > [hidden] { display: none; }
 @container (max-width: 360px) {
     .visual-style-presets, .visual-style-model-fields { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+}
+@container (max-width: 245px) {
+    .visual-style-settings .visual-style-extraction { grid-template-columns: minmax(0, 1fr); }
 }

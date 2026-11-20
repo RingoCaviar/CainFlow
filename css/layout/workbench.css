@@ -547,13 +547,13 @@ body.toolbar-pinned {
     pointer-events: none;
 }
 
-body:has(#image-parameter-panel:not([hidden]) > .image-generation-batch:not([hidden])) #toast-container {
+body:has(#image-parameter-panel:not([hidden]) .image-generation-batch:not([hidden])) #toast-container {
     top: var(--floating-notices-top-offset);
     bottom: auto;
     flex-direction: column;
 }
 
-body:has(#image-parameter-panel:not([hidden]) > .image-generation-batch:not([hidden])) #toast-container .toast.error .toast-message {
+body:has(#image-parameter-panel:not([hidden]) .image-generation-batch:not([hidden])) #toast-container .toast.error .toast-message {
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;

@@ -284,6 +284,7 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
     border-radius: var(--radius-node) var(--radius-node) 0 0;
     border-bottom: 1px solid var(--node-section-divider);
     cursor: grab;
+    touch-action: none;
     position: relative;
     user-select: none;
 }
@@ -589,28 +590,32 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
     flex-direction: column;
     gap: 6px;
     min-width: 0;
+    max-height: 214px;
+    overflow: auto;
+    scrollbar-gutter: stable;
 }
 
+.custom-param-columns,
 .custom-param-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) 28px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 32px;
     align-items: center;
     gap: 6px;
     min-width: 0;
+}
+
+.custom-param-columns {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.4;
+    overflow: hidden;
+    scrollbar-gutter: stable;
 }
 
 .custom-param-row input {
     min-width: 0;
     height: 30px;
     padding: 6px 8px;
-}
-
-.custom-param-separator {
-    color: var(--text-dim);
-    font-size: 13px;
-    font-weight: 700;
-    line-height: 1;
-    text-align: center;
 }
 
 .custom-param-add,
@@ -637,6 +642,13 @@ body.is-interacting.is-node-resizing-diagonal #canvas-container * {
     width: 100%;
     height: 30px;
     color: var(--accent-cyan);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.custom-param-remove {
+    width: 32px;
+    height: 30px;
 }
 
 .custom-param-add:hover,

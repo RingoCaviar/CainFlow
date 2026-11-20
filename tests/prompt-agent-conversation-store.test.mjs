@@ -129,6 +129,31 @@ test('only explicit restart restoration marks unfinished generation records inte
     assert.equal(store.snapshot().messages[0].runs, undefined);
 });
 
+test('activation normalizes each nested canvas plan and run once while preserving live work', () => {
+    const store = createPromptAgentConversationStore();
+    const attempt = () => ({ status: 'running', steps: [{ status: 'pending' }, { status: 'completed' }] });
+    const canvasPlan = (id, instances = []) => ({ id, historyId: 'previous-workflow-history', runs: [attempt()], instances });
+    const source = { archivedMessages: [{ role: 'agent', text: '归档', canvasPlan: canvasPlan('root', [canvasPlan('live', [canvasPlan('nested')])]),
+        runs: [{ runId: 'live-run', status: 'pending' }, { runId: 'old-run', status: 'running', mediaAssetKeys: ['media:old'] },
+            { runId: 'legacy-run', status: 'unknown' }] }],
+        messages: [{ role: 'agent', text: '当前', canvasPlan: canvasPlan('current') }] };
+    const checks = [];
+    store.restore(source, { isCanvasPlanRunning: id => { checks.push(id); return id === 'live'; },
+        isRunActive: id => id === 'live-run' });
+    const [archived, current] = store.getMessages(0, 2);
+    const root = archived.canvasPlan;
+    assert.deepEqual(checks.sort(), ['current', 'live', 'nested', 'root']);
+    assert.deepEqual([root, root.instances[0], root.instances[0].instances[0], current.canvasPlan].map(plan => plan.historyId),
+        [undefined, undefined, undefined, undefined]);
+    assert.deepEqual(root.runs[0].steps.map(step => step.status), ['interrupted', 'completed']);
+    assert.equal(root.instances[0].runs[0].status, 'running');
+    assert.equal(root.instances[0].instances[0].runs[0].status, 'interrupted');
+    assert.deepEqual(archived.runs.map(run => run.status), ['pending', 'interrupted', 'running']);
+    assert.deepEqual(archived.runs[1].mediaAssetKeys, ['media:old']);
+    assert.equal(store.getLatestPlanMessage('canvasPlan').index, 1);
+    assert.equal(source.archivedMessages[0].canvasPlan.runs[0].status, 'running');
+});
+
 test('conversation and Workflow Memory round-trip as workflow-scoped data', () => {
     const store = createPromptAgentConversationStore({ maxContextCharacters: 500 });
     store.append({ role: 'user', text: '做一张城市夜景' });

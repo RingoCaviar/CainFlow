@@ -10,7 +10,7 @@
     --settings-dialog-section-hover-border: var(--panel-section-hover-border, var(--panel-hover-border));
     --settings-dialog-section-hover-shadow: var(--panel-section-hover-shadow, var(--settings-dialog-section-shadow));
     --settings-dialog-tabs-bg: var(--panel-tabs-bg, var(--settings-dialog-section-bg));
-    --settings-dialog-heading: var(--panel-heading-accent, var(--accent-cyan));
+    --settings-dialog-heading: var(--text-link);
     --settings-dialog-text: var(--text-secondary);
     --settings-dialog-muted-text: var(--text-primary);
     --settings-dialog-code-bg: var(--panel-accent-bg);

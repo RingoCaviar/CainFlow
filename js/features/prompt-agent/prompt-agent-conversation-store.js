@@ -89,10 +89,11 @@ function normalizeAssetKeys(keys) {
     return Array.isArray(keys) ? keys.filter((key) => typeof key === 'string' && key.startsWith('media:')) : [];
 }
 
-function normalizeRun(run, { interruptRunning = false } = {}) {
+function normalizeRun(run, { interruptRunning = false, isRunActive } = {}) {
     if (!run || typeof run.runId !== 'string' || !run.runId.trim()) return null;
     let status = RUN_STATUSES.has(run.status) ? run.status : 'running';
     if (interruptRunning && (status === 'running' || status === 'pending')) status = 'interrupted';
+    if (isRunActive && ['running', 'pending'].includes(run.status) && !isRunActive(run.runId.trim())) status = 'interrupted';
     const owners = Array.isArray(run.mediaOwnershipTemporaryOwners)
         ? run.mediaOwnershipTemporaryOwners.filter((owner) => typeof owner?.ownerId === 'string' && owner.ownerId)
             .map((owner) => ({ ownerId: owner.ownerId, assetKeys: normalizeAssetKeys(owner.assetKeys) }))
@@ -108,6 +109,27 @@ function normalizeRun(run, { interruptRunning = false } = {}) {
         ...(typeof run.persistenceError === 'string' && run.persistenceError ? { persistenceError: run.persistenceError } : {}),
         ...(owners.length ? { mediaOwnershipTemporaryOwners: owners } : {})
     };
+}
+
+function normalizeCanvasPlan(plan, { interruptRunning, isCanvasPlanRunning }) {
+    if (interruptRunning) return restoreCanvasPlan(plan);
+    const copy = clone(plan);
+    if (!isCanvasPlanRunning) return copy;
+    const restore = value => {
+        delete value.historyId;
+        if (!isCanvasPlanRunning(value.id)) {
+            for (const attempt of value.runs || []) {
+                if (attempt.status !== 'running') continue;
+                attempt.status = 'interrupted';
+                for (const step of attempt.steps || []) {
+                    if (['pending', 'running'].includes(step.status)) step.status = 'interrupted';
+                }
+            }
+        }
+        (value.instances || []).forEach(restore);
+    };
+    restore(copy);
+    return copy;
 }
 
 function normalizeMessage(message = {}, options = {}) {
@@ -129,7 +151,7 @@ function normalizeMessage(message = {}, options = {}) {
         ...(Array.isArray(message.contextImages) ? { contextImages: normalizeReferenceImages(message.contextImages) } : {}),
         ...(Array.isArray(message.workSummary) ? { workSummary: message.workSummary.map(String) } : {}),
         ...(message.promptPlan ? { promptPlan: normalizePromptPlan(message.promptPlan) } : {}),
-        ...(message.canvasPlan ? { canvasPlan: options.interruptRunning ? restoreCanvasPlan(message.canvasPlan) : clone(message.canvasPlan) } : {}),
+        ...(message.canvasPlan ? { canvasPlan: normalizeCanvasPlan(message.canvasPlan, options) } : {}),
         ...(message.nodeMentions ? { nodeMentions: clone(message.nodeMentions) } : {}),
         ...(Array.isArray(message.runs) ? { runs: message.runs.map((run) => normalizeRun(run, options)).filter(Boolean) } : {})
     };
@@ -236,12 +258,12 @@ export function createPromptAgentConversationStore() {
         return true;
     }
 
-    function restore(value, { interruptRunning = false } = {}) {
+    function restore(value, options = {}) {
         const restoredSummary = value?.contextSummary === undefined || value?.contextSummary === ''
             ? ''
             : normalizeContextSummary(value.contextSummary);
-        const restoredMessages = Array.isArray(value?.messages) ? value.messages.map((message) => normalizeMessage(message, { interruptRunning })) : [];
-        const restoredArchive = Array.isArray(value?.archivedMessages) ? value.archivedMessages.map((message) => normalizeMessage(message, { interruptRunning })) : [];
+        const restoredMessages = Array.isArray(value?.messages) ? value.messages.map(message => normalizeMessage(message, options)) : [];
+        const restoredArchive = Array.isArray(value?.archivedMessages) ? value.archivedMessages.map(message => normalizeMessage(message, options)) : [];
         const restoredCompactedCount = value?.compactedMessageCount === undefined
             ? (restoredSummary ? restoredArchive.length : 0)
             : value.compactedMessageCount;
@@ -303,6 +325,22 @@ export function createPromptAgentConversationStore() {
         }
         if (referenceImages.length) snapshot.referenceImages = copySnapshot(referenceImages);
         return snapshot;
+    }
+
+    function getMessages(start, end) {
+        const split = archivedMessages.length;
+        return copySnapshot([
+            ...archivedMessages.slice(start, end),
+            ...messages.slice(Math.max(0, start - split), Math.max(0, end - split))
+        ]);
+    }
+
+    function getLatestPlanMessage(field) {
+        const hasPlan = message => Boolean(message[field]);
+        const current = messages.findLastIndex(hasPlan);
+        if (current >= 0) return { index: archivedMessages.length + current, message: copySnapshot(messages[current]) };
+        const archived = archivedMessages.findLastIndex(hasPlan);
+        return archived >= 0 ? { index: archived, message: copySnapshot(archivedMessages[archived]) } : null;
     }
 
     function hasCanvasPlan(id) {
@@ -457,6 +495,7 @@ export function createPromptAgentConversationStore() {
     return { getCreativeTask: () => clone(creativeTask), setCreativeTask: value => { creativeTask = restoreCreativeTask(value); },
         getConfirmedCreativeRequest: (message, beforeIndex) => copySnapshot(findConfirmedCreativeRequest(message, messages, archivedMessages, beforeIndex)),
         getLatestMessageIndex: () => archivedMessages.length + messages.length - 1,
+        getMessages, getLatestPlanMessage,
         discardContextBefore,
         getSize, setSize, getProvider, setProvider, getThinking, setThinking, setDraft, getDraft, getChatModelId: () => chatModelId, setChatModelId: value => { chatModelId = typeof value === 'string' ? value.trim() : ''; }, append, getMessage, bindPromptPlanTarget, beginRun, finishRun, getRun, getRuns, restore, snapshot, getContext, getReferenceImages, updateContextImages, updateReferenceDescription, getCompactionContext, getImageModelId, setImageModelId, compact, clear, removeNodeReferences,
         upgradePromptPlan: (index, plan) => {

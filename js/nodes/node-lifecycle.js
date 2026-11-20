@@ -692,7 +692,7 @@ export function createNodeLifecycleApi({
             };
         }
 
-        if (el.matches?.(NODE_SCROLLABLE_RESULT_SELECTOR)) {
+        if (el.matches?.(NODE_SCROLLABLE_RESULT_SELECTOR) || el.classList.contains('custom-param-list')) {
             const explicitHeightValue = String(el.style?.height || '');
             const explicitHeight = /px$/i.test(explicitHeightValue) ? parseFloat(explicitHeightValue) : NaN;
             const computedHeight = parseFloat(style.height || '0');

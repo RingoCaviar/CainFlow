@@ -6,7 +6,10 @@ import { uploadImageOriginal } from './helpers/image-upload.mjs';
 import { openParameters } from './helpers/image-first-integrated-fixture.mjs';
 
 const panel = '#image-parameter-panel';
+const configuration = `${panel} .commerce-image-set-configuration`;
+const artSection = `${panel} .commerce-image-set-art-direction`;
 const artField = `${panel} [data-commerce-art-direction]`;
+const planNotice = `${panel} .commerce-image-set-plan-notice`;
 const query = selector => `document.querySelector(${JSON.stringify(selector)})`;
 const action = name => `${panel} [data-commerce-action=${name}]`;
 const ready = name => `${query(action(name))}?.checkVisibility() && !${query(action(name))}.disabled`;
@@ -44,7 +47,18 @@ function modelScript(image) {
         };`;
 }
 
+async function openArt(app) {
+    await app.evaluate(`(() => {
+        const setup = ${query(configuration)};
+        if (!setup.open) setup.querySelector(':scope > summary').click();
+        const section = ${query(artSection)};
+        if (!section.open) section.querySelector(':scope > summary').click();
+    })()`);
+    await app.waitFor(`${query(artField)}.checkVisibility()`);
+}
+
 async function editArt(app, value) {
+    await openArt(app);
     await app.evaluate(`(()=>{const input=${query(artField)};input.value=${JSON.stringify(value)};
         input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
 }
@@ -55,12 +69,14 @@ async function captureArtControls(app) {
     for (const theme of ['light', 'dark']) {
         for (const width of [1100, 390]) {
             await app.send('Emulation.setDeviceMetricsOverride', { width, height: 820, deviceScaleFactor: 1, mobile: false });
+            await openArt(app);
             await app.evaluate(`document.documentElement.dataset.appTheme='${theme}';
                 ${query(`${panel} .commerce-image-set-setup`)}.open=true;
-                ${query(`${panel} .commerce-image-set-art-direction`)}.scrollIntoView({block:'start'});
+                ${query(`${panel} .commerce-image-set-output`)}.open=true;
+                ${query(artSection)}.scrollIntoView({block:'start'});
                 new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));`);
             const geometry = await app.evaluate(`(()=>{
-                const section=${query(`${panel} .commerce-image-set-art-direction`)},input=${query(artField)},
+                const section=${query(artSection)},input=${query(artField)},
                     mode=${query(`${panel} [data-commerce-field=mainImageMode]`)},language=${query(`${panel} [data-commerce-field=copyLanguage]`)},
                     reset=${query(`${panel} [data-commerce-art-direction-reset]`)},bounds=${query(panel)}.getBoundingClientRect();
                 const measured=element=>{const rect=element.getBoundingClientRect();return {left:rect.left,right:rect.right,width:rect.width,height:rect.height};};
@@ -97,6 +113,7 @@ test('整套美术风格自动规划后保存恢复，单图沿用，自设与�
         await app.waitFor(`${ready('generate')} && ${query(artField)}.value===${JSON.stringify(autoStyle)}`);
         await reloadAppBrowser(app);
         await openParameters(app, 'commerce');
+        assert.equal(await app.evaluate(`${query(configuration)}.open`), false, 'saved plans open with the configuration summary collapsed');
         assert.equal(await app.evaluate(`${query(artField)}.value`), autoStyle);
         await app.evaluate(`${query(action('generate'))}.click()`);
         await app.waitFor(`${stored}.then(settings=>settings.results.filter(row=>row.status==='completed').length===2)`);
@@ -104,11 +121,25 @@ test('整套美术风格自动规划后保存恢复，单图沿用，自设与�
         assert.equal(prompts.length, 2);
         assert.ok(prompts.every(prompt => prompt.includes(autoStyle)));
         const previous = await app.evaluate(`${stored}.then(settings=>settings.results.map(row=>row.assetKey))`);
-        const rewrite = `${panel} [data-commerce-shot-id=detail] [data-commerce-action=replan-shot]`;
+        const detail = `${panel} [data-commerce-shot-id=detail]`;
+        const rewrite = `${detail} [data-commerce-action=replan-shot]`;
+        await app.evaluate(`${query(`${detail} .commerce-image-set-shot-more`)}.click()`);
+        await app.waitFor(`${query(rewrite)}.checkVisibility()`);
         await app.evaluate(`${query(rewrite)}.click()`);
         await app.waitFor(`${stored}.then(settings=>settings.plan?.artDirection===${JSON.stringify(autoStyle)} && !settings.plan.confirmed)`);
         const rewriting = await app.evaluate(`artDirectionRequests.filter(request=>request.kind==='plan').at(-1)`);
         assert.ok(rewriting.system.includes(autoStyle));
+        const main = `${panel} [data-commerce-shot-id=main]`;
+        const lock = query(`${main} [data-commerce-action=toggle-final]`);
+        const openMainActions = `(() => {
+            if (${lock}.closest('.commerce-image-set-shot-secondary-actions[hidden]')) {
+                ${query(`${main} .commerce-image-set-shot-more`)}.click();
+            }
+        })()`;
+        await app.evaluate(openMainActions);
+        await app.waitFor(`${lock}.checkVisibility() && !${lock}.disabled`);
+        await app.evaluate(`${lock}.click()`);
+        await app.waitFor(`${stored}.then(settings=>settings.results.find(row=>row.shotId==='main').finalized===true)`);
         const manual = '冷蓝水彩，纸张肌理，安静通透；各图位自由安排空间。';
         await editArt(app, manual);
         await app.waitFor(`${stored}.then(settings=>settings.artDirection===${JSON.stringify(manual)} && settings.plan?.stale)`);
@@ -127,15 +158,31 @@ test('整套美术风格自动规划后保存恢复，单图沿用，自设与�
         assert.equal(redundantMutations, 0, 'repeated input with the same art direction skips the dock refresh');
         assert.equal(await app.evaluate(`Boolean(${ready('generate')})`), false);
         assert.deepEqual(await app.evaluate(`${stored}.then(settings=>settings.results.map(row=>row.assetKey))`), previous);
+        assert.match(await app.evaluate(`${query(planNotice)}.innerText`), /画面风格已更新.*重新规划/);
+        assert.match(await app.evaluate(`${query(`${main} .commerce-image-set-shot-status`)}.textContent`), /已定稿.*上一版/);
+        assert.match(await app.evaluate(`${query(`${detail} .commerce-image-set-shot-status`)}.textContent`), /待更新.*上一版/);
+        assert.equal(await app.evaluate(`${query(`${detail} [data-commerce-action=toggle-final]`)}.disabled`), true);
+        await app.evaluate(`${query(action('export'))}.click()`);
+        await app.waitFor(`Array.from(document.querySelectorAll('#commerce-export-dialog [data-commerce-export-shot]'))
+            .filter(row=>row.textContent.includes('上一版')).length===2`);
+        await app.evaluate("document.querySelector('#commerce-export-dialog .dialog-style-1-close').click()");
+        await app.evaluate(openMainActions);
+        await app.waitFor(`${lock}.checkVisibility() && !${lock}.disabled`);
+        await app.evaluate(`${lock}.click()`);
+        await app.waitFor(`${stored}.then(settings=>!settings.results.find(row=>row.shotId==='main').finalized)`);
         await app.evaluate(`${query(action('plan'))}.click()`);
         await app.waitFor(`${ready('generate')} && ${query(artField)}.value===${JSON.stringify(manual)}`);
+        assert.equal(await app.evaluate(`${query(planNotice)}.hidden`), true);
         await app.evaluate(`${query(action('generate'))}.click()`);
         await app.waitFor(`artDirectionRequests.filter(request=>request.kind==='image').length===4`);
         await app.waitFor(`${stored}.then(settings=>settings.plan.confirmed && settings.results.filter(row=>row.status==='completed').length===2)`);
         prompts = await app.evaluate(`artDirectionRequests.filter(request=>request.kind==='image').slice(-2).map(request=>request.prompt)`);
         assert.ok(prompts.every(prompt => prompt.includes(manual)));
+        await openArt(app);
+        const reset = query(`${panel} [data-commerce-art-direction-reset]`);
+        await app.waitFor(`${reset}.checkVisibility() && !${reset}.disabled`);
         await app.evaluate(`window.proposedArtDirection='暖棕真实摄影，柔和日光与木质氛围';
-            ${query(`${panel} [data-commerce-art-direction-reset]`)}.click()`);
+            ${reset}.click()`);
         await app.waitFor(`${stored}.then(settings=>!settings.artDirection && !settings.plan.artDirection && settings.plan.stale)`);
         await app.evaluate(`${query(action('plan'))}.click()`);
         await app.waitFor(`${ready('generate')} && ${query(artField)}.value==='暖棕真实摄影，柔和日光与木质氛围'`);

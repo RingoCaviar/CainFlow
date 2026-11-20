@@ -2,6 +2,67 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { withAppBrowser } from './helpers/app-browser.mjs';
 
+test('a short viewport with a pinned toolbar keeps model setup and the image footer reachable', { timeout: 30000 }, async () => {
+    await withAppBrowser({
+        autoCheckUpdatesOnLoad: false,
+        toolbarPinned: true,
+        nodes: [{ id: 'needs-model', type: 'ImageGenerate', x: 100, y: 100, prompt: '保留提示词' }],
+        connections: []
+    }, async ({ evaluate, send, waitFor }) => {
+        await evaluate("document.getElementById('needs-model').click()");
+        await waitFor("document.body.classList.contains('toolbar-pinned') && document.querySelector('.image-parameter-configuration').checkVisibility()");
+        const hit = (selector) => evaluate(`(() => {
+            const element = document.querySelector(${JSON.stringify(selector)});
+            const rect = element.getBoundingClientRect();
+            const x = rect.left + rect.width / 2;
+            const y = rect.top + rect.height / 2;
+            return { x, y, reachable: element.contains(document.elementFromPoint(x, y)) };
+        })()`);
+        const click = async ({ x, y }) => {
+            await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+            await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+        };
+        const sizeSelector = '#image-parameter-panel [data-parameter-group-toggle="size"]';
+        const setupSelector = '#image-parameter-panel [data-parameter-action="configure-model"]';
+        for (const [width, height, showBatch] of [[700, 260, false], [390, 320, false], [700, 260, true]]) {
+            await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+            await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+            if (showBatch) {
+                await evaluate(`(async () => {
+                    const { registry, state } = await (await import('/js/app/bootstrap.js')).bootstrapCainFlowApp();
+                    const node = state.nodes.get('needs-model');
+                    node.data.concurrentRequestStatus = { total: 2, requests: [{ status: 'failed' }, { status: 'canceled' }] };
+                    registry.imageFirstCanvasApi.refreshNode(node.id);
+                })()`);
+                const batchSelector = '#image-parameter-panel [data-image-batch-toggle]';
+                await waitFor(`document.querySelector(${JSON.stringify(batchSelector)})?.checkVisibility()`);
+                await evaluate(`document.querySelector(${JSON.stringify(batchSelector)}).scrollIntoView({ block: 'center' })`);
+                const batch = await hit(batchSelector);
+                assert.ok(batch.reachable, 'batch details remain reachable in the short editor');
+                await click(batch);
+                await waitFor(`document.querySelector(${JSON.stringify(batchSelector)}).getAttribute('aria-expanded') === 'true'`);
+            }
+            const size = await hit(sizeSelector);
+            assert.ok(size.reachable, `size menu is clickable at ${width}×${height}${showBatch ? ' with a batch' : ''}`);
+            for (const selector of ['[data-parameter-group-toggle="model"]', '[data-parameter-group-toggle="more"]',
+                '.generation-count-btn[data-delta="1"]', '[data-parameter-action="generate"]']) {
+                assert.ok((await hit(`#image-parameter-panel ${selector}`)).reachable, `${selector} stays on screen at ${width}×${height}`);
+            }
+            await click(size);
+            await waitFor(`document.querySelector(${JSON.stringify(sizeSelector)}).getAttribute('aria-expanded') === 'true'`);
+            await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+            await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+            await waitFor(`document.querySelector(${JSON.stringify(sizeSelector)}).getAttribute('aria-expanded') === 'false'`);
+            await evaluate(`document.querySelector(${JSON.stringify(setupSelector)}).scrollIntoView({ block: 'center' })`);
+            assert.ok((await hit(setupSelector)).reachable, `model setup is clickable after scrolling at ${width}×${height}`);
+            assert.ok((await hit(sizeSelector)).reachable, 'scrolling to setup keeps the footer clickable');
+        }
+        await click(await hit(setupSelector));
+        await waitFor("!document.getElementById('settings-modal').classList.contains('hidden')");
+        assert.equal(await evaluate("document.getElementById('needs-model-prompt').value"), '保留提示词');
+    });
+});
+
 test('short parameter fields share rows while custom dimensions and long text keep their space', { timeout: 30000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false,
         models: [{ id: 'image', modelId: 'gpt-image-2', name: 'A deliberately long model name for compact selectors', protocol: 'openai', taskType: 'image', providerIds: ['p'] },
@@ -33,6 +94,22 @@ test('short parameter fields share rows while custom dimensions and long text ke
             await group('more');
             await paired('quality', 'background');
             await paired('background', 'moderation');
+            const sections = await app.evaluate(`(() => {
+                const output = document.getElementById('paired-output-settings');
+                const rules = document.getElementById('paired-generation-rules');
+                const heading = section => document.getElementById(section?.getAttribute('aria-labelledby'))?.textContent.trim();
+                return {
+                    labels: [heading(output), heading(rules)],
+                    bothVisible: output?.checkVisibility() && rules?.checkVisibility(),
+                    outputFirst: Boolean(output?.compareDocumentPosition(rules) & Node.DOCUMENT_POSITION_FOLLOWING),
+                    outputFields: ['quality', 'background', 'moderation', 'param-output_format', 'param-output_compression']
+                        .every(suffix => output?.contains(document.getElementById('paired-' + suffix))),
+                    ruleFields: ['param-systemPrompt', 'search'].map(suffix => Boolean(rules?.contains(document.getElementById('paired-' + suffix)))),
+                    thinkingInRules: Boolean(rules?.querySelector('.thinking-control'))
+                };
+            })()`);
+            assert.deepEqual(sections, { labels: ['输出设置', '生成规则'], bothVisible: true, outputFirst: true, outputFields: true,
+                ruleFields: [true, true], thinkingInRules: true });
             assert.ok((await rect('param-systemPrompt')).width > (await rect('moderation')).width*1.8, 'long text remains full width');
             assert.ok(await app.evaluate("document.querySelector('.image-parameter-settings-popup').offsetWidth<=400"), 'more settings use a content-sized popup');
             const textLayout = await app.evaluate(`(()=>{const t=document.getElementById('paired-param-systemPrompt'),field=t.closest('.node-field'),grid=document.querySelector('.image-parameter-output-options');return {gap:field.getBoundingClientRect().top-grid.getBoundingClientRect().bottom,height:t.offsetHeight,line:parseFloat(getComputedStyle(t).lineHeight),border:parseFloat(getComputedStyle(t).borderTopWidth)}})()`);
@@ -43,27 +120,57 @@ test('short parameter fields share rows while custom dimensions and long text ke
             assert.ok(await app.evaluate("document.getElementById('paired-param-systemPrompt').offsetHeight")>textLayout.height, 'system prompt grows as content is entered');
             await app.evaluate("(()=>{const t=document.getElementById('paired-param-systemPrompt');t.value='';t.dispatchEvent(new Event('input',{bubbles:true}))})()");
             await settle();
-            assert.ok(await app.evaluate("[...document.querySelectorAll('.image-parameter-settings-popup,.image-parameter-settings-popup .node-field')].filter(e=>e.checkVisibility()).every(e=>e.scrollWidth<=e.clientWidth+1)"), `${width}px fields have no horizontal overflow`);
+            assert.ok(await app.evaluate("[...document.querySelectorAll('.image-parameter-settings-popup,#paired-output-settings,#paired-generation-rules,.image-parameter-settings-popup .node-field')].filter(e=>e.checkVisibility()).every(e=>e.scrollWidth<=e.clientWidth+1)"), `${width}px fields have no horizontal overflow`);
         }
+        await app.evaluate(`(() => {
+            for (const [suffix, value] of [['output_format', 'webp'], ['output_compression', '70'], ['systemPrompt', '保留产品原有颜色']]) {
+                const control = document.getElementById('paired-param-' + suffix);
+                control.value = value;
+                control.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        })()`);
+        assert.ok(await app.evaluate("document.getElementById('paired-output_compression-field').checkVisibility()"), 'WebP reveals compression inside output settings');
         await app.evaluate("(()=>{const s=document.getElementById('paired-apiconfig');s.value='google';s.dispatchEvent(new Event('change',{bubbles:true}))})()");
         await settle();
         await app.evaluate("(()=>{const p=document.querySelector('#image-parameter-panel .image-parameter-settings-popup');if(!p.matches(':popover-open'))document.querySelector('[data-parameter-group-toggle=more]').click()})()");
         await app.waitFor("document.querySelector('#image-parameter-panel .thinking-control')?.checkVisibility()");
         await app.evaluate("document.querySelector('#image-parameter-panel .thinking-control > summary').click()");
         await settle();
-        const supported = await app.evaluate(`(()=>{const t=document.querySelector('#image-parameter-panel .thinking-control'),search=document.getElementById('paired-search'),track=search.nextElementSibling,options=document.querySelector('.image-parameter-output-options');return {thinkingHeight:t.querySelector('select').offsetHeight,noteFont:parseFloat(getComputedStyle(t.querySelector('small')).fontSize),switchHeight:search.parentElement.offsetHeight,trackBorder:parseFloat(getComputedStyle(track).borderTopWidth),searchWidth:search.closest('.node-field').offsetWidth,optionsWidth:options.clientWidth}})()`);
+        const supported = await app.evaluate(`(() => {
+            const output = document.getElementById('paired-output-settings');
+            const rules = document.getElementById('paired-generation-rules');
+            const thinking = rules.querySelector('.thinking-control select');
+            const search = document.getElementById('paired-search');
+            const track = search.nextElementSibling;
+            return {
+                outputVisible: output.checkVisibility(),
+                searchInRules: rules.contains(search) && search.closest('.node-field').checkVisibility(),
+                thinkingHeight: thinking.offsetHeight,
+                noteFont: parseFloat(getComputedStyle(rules.querySelector('.thinking-control small')).fontSize),
+                switchHeight: search.parentElement.offsetHeight,
+                trackBorder: parseFloat(getComputedStyle(track).borderTopWidth),
+                searchWidth: search.closest('.node-field').offsetWidth,
+                rulesWidth: rules.clientWidth
+            };
+        })()`);
+        assert.equal(supported.outputVisible, false, 'a model without output settings hides the whole section');
+        assert.equal(supported.searchInRules, true, 'search belongs to generation rules when the model supports it');
         assert.equal(supported.thinkingHeight, 38, 'expanded thinking retains the full popup control height');
         assert.ok(supported.noteFont>=12 && supported.switchHeight>=24 && supported.trackBorder>=1, 'thinking notes and the search off state stay readable and reachable');
-        assert.equal(supported.searchWidth, supported.optionsWidth, 'a model with search only does not leave empty option columns');
+        assert.equal(supported.searchWidth, supported.rulesWidth, 'search uses the full generation rules row');
         assert.ok(await app.evaluate("[...document.querySelector('#image-parameter-panel .thinking-control select').options].some(option=>option.value==='level:high')"), 'switching models refreshes the detached thinking control options');
         assert.ok(await app.evaluate("document.querySelector('#paired-resolution option[value=\"512\"]')"));
         assert.ok(await app.evaluate("document.querySelector('#paired-aspect option[value=\"1:8\"]')"));
         await app.evaluate("(()=>{const s=document.getElementById('paired-apiconfig');s.value='google-fixed';s.dispatchEvent(new Event('change',{bubbles:true}))})()");
         await app.waitFor("document.getElementById('paired-search-field').classList.contains('hidden')");
+        assert.equal(await app.evaluate("document.getElementById('paired-output-settings').checkVisibility()"), false);
+        assert.ok(await app.evaluate("document.getElementById('paired-generation-rules').checkVisibility() && document.getElementById('paired-param-systemPrompt').checkVisibility()"), 'system prompt keeps generation rules available without search');
         assert.deepEqual(await app.evaluate("[...document.getElementById('paired-resolution').options].map(option=>option.value)"), ['']);
         assert.equal(await app.evaluate("!!document.querySelector('#paired-aspect option[value=\"1:8\"]')"), false);
         await app.evaluate("(()=>{const s=document.getElementById('paired-apiconfig');s.value='image';s.dispatchEvent(new Event('change',{bubbles:true}))})()");
         await app.waitFor("document.querySelector('#image-parameter-panel .thinking-control').hidden===true");
+        assert.deepEqual(await app.evaluate("['output_format', 'output_compression', 'systemPrompt'].map(suffix => document.getElementById('paired-param-' + suffix).value)"),
+            ['webp', '70', '保留产品原有颜色'], 'switching models preserves the configured output and rules');
     });
 });
 

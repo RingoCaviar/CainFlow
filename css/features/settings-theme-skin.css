@@ -181,7 +181,7 @@ html:root #settings-modal :is(.endpoint-preview, .footer-left, .footer-left span
 html:root #settings-modal.modal-overlay .settings-inline-help {
     background: transparent;
     border-color: transparent;
-    color: var(--panel-accent-text);
+    color: var(--text-link);
 }
 
 html:root #settings-modal.modal-overlay .settings-inline-help:hover {

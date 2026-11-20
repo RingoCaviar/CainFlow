@@ -22,7 +22,7 @@ export function hasCommerceImageSetExportMedia(mediaAssetKeys) {
 }
 
 export function projectCommerceImageSetExport({ settings, mediaAssetKeys, scope = 'all', version = 'current',
-    referenceRevision = settings?.plan?.referenceRevision, referenceChanged = false }) {
+    referenceRevision = settings?.plan?.referenceRevision, referenceChanged = false, styleChanged = false }) {
     const platformId = (getCommerceImageSetPreset(settings?.platformId) || getCommerceImageSetPreset('taobao')).id;
     const plan = settings?.plan;
     const currentPlatform = !plan?.platformId || plan.platformId === platformId;
@@ -49,7 +49,7 @@ export function projectCommerceImageSetExport({ settings, mediaAssetKeys, scope 
     const previousShots = new Map(compatiblePrevious.filter(row => row.platformId === platformId && matchesAspect(row))
         .map(row => [row.shotId, row]));
     const planShots = new Map((Array.isArray(plan?.shots) ? plan.shots : []).map(shot => [shot.id, shot]));
-    const currentPlan = !changed && currentPlatform && !!plan?.sourceKey && !plan.stale
+    const currentPlan = !changed && !styleChanged && currentPlatform && !!plan?.sourceKey && !plan.stale
         && normalizeCommerceImageSetCopyLanguage(plan.copyLanguage) === normalizeCommerceImageSetCopyLanguage(settings?.copyLanguage);
     const associated = new Set([...results.values()].map(getCommerceOutputAssetKey));
     previous.forEach(row => associated.add(row.outputKey));

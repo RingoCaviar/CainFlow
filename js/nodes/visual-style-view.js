@@ -28,14 +28,17 @@ export function renderVisualStyleBody(id, restored = {}, state = {}) {
             <label for="${id}-style-description">风格描述</label>
             <textarea id="${id}-style-description" data-style-field="description" aria-label="风格描述" rows="4" maxlength="20000" placeholder="输入画面风格，或连接参考图后提取…">${escape(text)}</textarea>
             </div>
-            <div class="node-field visual-style-detail"><label for="${id}-style-detail">提取精细度</label><select class="ui-select" id="${id}-style-detail" data-style-detail title="仅影响下一次提取，不修改当前风格文本">${Object.entries(VISUAL_STYLE_DETAIL_LEVELS).map(([value, { label }]) => `<option value="${value}" ${value === normalizeVisualStyleDetailLevel(restored.styleDetailLevel) ? 'selected' : ''}>${label}</option>`).join('')}</select></div>
-            <details class="visual-style-model-settings"><summary>提取模型</summary>
-                <div class="visual-style-model-fields">
-                    <div class="node-field"><label for="${id}-style-model">模型</label><select class="ui-select" id="${id}-style-model" data-style-model>${modelOptions(state, restored.styleModelId)}</select></div>
-                    <div class="node-field"><label for="${id}-style-provider">供应商</label><select class="ui-select" id="${id}-style-provider" data-style-provider></select></div>
-                </div>
-            </details>
-            <p data-style-status role="status"></p>
+            <section class="node-parameter-section visual-style-extraction" aria-labelledby="${id}-style-extraction-heading" hidden>
+                <h3 class="node-parameter-heading" id="${id}-style-extraction-heading">提取设置</h3>
+                <div class="node-field visual-style-detail"><label for="${id}-style-detail">提取精细度</label><select class="ui-select" id="${id}-style-detail" data-style-detail title="仅影响下一次提取，不修改当前风格文本">${Object.entries(VISUAL_STYLE_DETAIL_LEVELS).map(([value, { label }]) => `<option value="${value}" ${value === normalizeVisualStyleDetailLevel(restored.styleDetailLevel) ? 'selected' : ''}>${label}</option>`).join('')}</select></div>
+                <details class="visual-style-model-settings"><summary>提取模型</summary>
+                    <div class="visual-style-model-fields">
+                        <div class="node-field"><label for="${id}-style-model">模型</label><select class="ui-select" id="${id}-style-model" data-style-model>${modelOptions(state, restored.styleModelId)}</select></div>
+                        <div class="node-field"><label for="${id}-style-provider">供应商</label><select class="ui-select" id="${id}-style-provider" data-style-provider></select></div>
+                    </div>
+                </details>
+                <p data-style-status role="status"></p>
+            </section>
         </div>`;
 }
 
@@ -44,16 +47,15 @@ export function bindVisualStyleNode(node, { state, runToNode, scheduleSave, push
     // Keep the original controls: the shared parameter panel moves this subtree.
     const settings = root.querySelector('.visual-style-settings');
     const text = settings.querySelector('[data-style-field]');
-    const detailControl = settings.querySelector('[data-style-detail]');
+    const extraction = settings.querySelector('.visual-style-extraction');
+    const detailControl = extraction.querySelector('[data-style-detail]');
+    const modelSettings = extraction.querySelector('.visual-style-model-settings');
     const preview = root.querySelector('[data-style-preview]');
-    const status = settings.querySelector('[data-style-status]');
+    const status = extraction.querySelector('[data-style-status]');
     const save = () => { scheduleSave(); pushHistory(); };
     const locked = () => node.isClone || state.isRunning || state.runningNodeIds?.size;
     const refresh = () => {
-        const hasReference = hasVisualStyleReference(state, node.id);
-        settings.querySelector('.visual-style-detail').hidden = !hasReference;
-        settings.querySelector('details').hidden = !hasReference;
-        status.hidden = !hasReference;
+        extraction.hidden = !hasVisualStyleReference(state, node.id);
         const value = visualStyleText(node.data.visualStyle);
         if (text.value !== value && text.ownerDocument.activeElement !== text) text.value = value;
         const label = value || '画面风格';
@@ -123,14 +125,14 @@ export function bindVisualStyleNode(node, { state, runToNode, scheduleSave, push
         if (locked()) { providers(); return; }
         node.data.styleProviderId = providerControl.value; save();
     });
-    settings.querySelector('details').addEventListener('toggle', event => {
+    modelSettings.addEventListener('toggle', event => {
         if (event.target.open) refreshModels();
     });
     let extracting = false;
     node.extractVisualStyle = async () => {
         if (extracting || locked()) return;
         if (!modelControl.value) {
-            settings.querySelector('details').open = true;
+            modelSettings.open = true;
             status.textContent = '请选择支持图片输入的模型，再提取风格。';
             modelControl.focus();
             return;

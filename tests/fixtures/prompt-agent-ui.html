@@ -364,10 +364,12 @@ try {
     const newWorkflowHasNoImageModel = imageModelSelect.value === '' && !controller.snapshotWorkflow().imageModelId;
     controller.restoreWorkflow(persisted);
     const restoresImageModel = imageModelSelect.value === 'image-second';
-    const restored = !panel.classList.contains('active')
+    const restoredWhileClosed = !panel.classList.contains('active')
         && persisted.panelWidth === undefined
-        && messages.querySelectorAll('[data-role="agent"]').length === persistedMessageCount / 2;
+        && messages.children.length === 0;
     controller.open();
+    const restored = restoredWhileClosed
+        && messages.querySelectorAll('[data-role="agent"]').length === persistedMessageCount / 2;
     const restoredAgent = messages.querySelector('[data-role="agent"]');
     const restoredRuns = persisted.messages.flatMap((message) => message.runs || []);
     const restoredViews = messages.querySelectorAll('.prompt-agent-run-state');
@@ -391,10 +393,12 @@ try {
     const changedModelReusesTarget = createdNodes.length === 1 && state.nodes.get('image-1')?.apiConfigId === 'image-first'
         && document.getElementById('image-1-apiconfig').value === 'image-first' && runs.at(-1).selectedNodeIds[0] === 'image-1';
     controller.restoreWorkflow({ version: 1, memory: '', messages: [], panelWidth: null });
-    const clearedForNewWorkflow = Boolean(messages.querySelector('.prompt-agent-empty'))
-        && messages.querySelectorAll('[data-role="user"], [data-role="agent"]').length === 0
-        && panel.style.width !== ''
-        && !panel.classList.contains('active');
+    const clearedWhileClosed = !panel.classList.contains('active')
+        && messages.children.length === 0
+        && panel.style.width !== '';
+    controller.open();
+    const clearedForNewWorkflow = clearedWhileClosed && Boolean(messages.querySelector('.prompt-agent-empty'))
+        && messages.querySelectorAll('[data-role="user"], [data-role="agent"]').length === 0;
     input.value = '先讨论构图';
     await controller.submit();
     const discussion = messages.querySelector('[data-role="agent"]');

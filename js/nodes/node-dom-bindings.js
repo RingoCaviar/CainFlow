@@ -56,6 +56,8 @@ import {
 } from './prompt-image-mentions.js';
 
 const builtInImageProtocols = new Map([[TtapiProtocol.id, TtapiProtocol], [TtapiOpenaiProtocol.id, TtapiOpenaiProtocol]]);
+const imageProtocolOutputFields = new Set(['output_format', 'output_compression', 'response_format']);
+const videoProtocolOutputFields = new Set(['duration', 'ratio', 'aspect_ratio', 'resolution', 'size', 'generate_audio', 'watermark', 'response_format']);
 
 export function createNodeDomBindingsApi({
     state,
@@ -1631,7 +1633,7 @@ export function createNodeDomBindingsApi({
     function bindImageGenerateProtocolParamInputs(id, root) {
         const container = root || documentRef.getElementById(`${id}-protocol-params`);
         if (!container) return;
-        container.querySelectorAll('input, select, textarea').forEach((input) => {
+        container.querySelectorAll(`:is(input, select, textarea)[id^="${id}-param-"]`).forEach((input) => {
             if (input.dataset.protocolParamBound === '1') return;
             input.dataset.protocolParamBound = '1';
             const saveProtocolParams = () => {
@@ -1651,7 +1653,16 @@ export function createNodeDomBindingsApi({
         if (!container || !node) return;
         syncImageGenerateProtocolParams(id);
         const extraProtocol = getImageGenerateSelectedProtocol(id);
-        container.innerHTML = extraProtocol ? renderProtocolParameters(id, extraProtocol, 'image', node.data || {}) : '';
+        const parametersBySection = { output: Object.create(null), rules: Object.create(null) };
+        for (const [key, parameter] of Object.entries(extraProtocol?.parameters || {})) {
+            const isOutput = imageProtocolOutputFields.has(key) || imageProtocolOutputFields.has(parameter.id);
+            const section = isOutput ? 'output' : 'rules';
+            parametersBySection[section][key] = parameter;
+        }
+        for (const fields of container.querySelectorAll('[data-image-protocol-fields]')) {
+            const parameters = parametersBySection[fields.dataset.imageProtocolFields];
+            fields.innerHTML = renderProtocolParameters(id, { parameters }, 'image', node.data || {});
+        }
         bindZoomSettleGuard(container);
         bindCustomNodeSelects(container);
         bindImageGenerateProtocolParamInputs(id, container);
@@ -1700,7 +1711,7 @@ export function createNodeDomBindingsApi({
     function bindVideoGenerateProtocolParamInputs(id, root) {
         const container = root || documentRef.getElementById(`${id}-protocol-params`);
         if (!container) return;
-        container.querySelectorAll('input, select, textarea').forEach((input) => {
+        container.querySelectorAll(`:is(input, select, textarea)[id^="${id}-param-"]`).forEach((input) => {
             if (input.dataset.protocolParamBound === '1') return;
             input.dataset.protocolParamBound = '1';
             const scheduleProtocolSave = debounce(scheduleSave, 500);
@@ -1725,6 +1736,8 @@ export function createNodeDomBindingsApi({
         const node = state.nodes.get(id);
         if (!container || !node) return;
         container._referencePromptCleanup?.();
+        const error = documentRef.getElementById(`${id}-video-protocol-error`);
+        const fields = container.querySelectorAll('[data-video-protocol-fields]');
 
         // 旧数据兼容
         node.data = node.data || {};
@@ -1740,12 +1753,18 @@ export function createNodeDomBindingsApi({
         const hasVariants = Object.keys(selectedProtocol?.variants || {}).length > 0;
         const resolvedVariant = resolveProtocolVariant(selectedProtocol, model?.modelId);
         const hasVariant = Boolean(resolvedVariant.variant);
-        if (hasVariants && !hasVariant) {
-            container.innerHTML = '<div class="node-error-msg">当前协议未配置此模型变体；请更换模型或在协议编辑器中补齐变体。</div>';
-            return;
+        const protocolError = hasVariants && !hasVariant
+            ? '当前协议未配置此模型变体；请更换模型或在协议编辑器中补齐变体。'
+            : selectedProtocol && Object.keys(selectedProtocol.parameters || {}).length === 0
+                ? '当前协议未声明可编辑视频参数；请在协议编辑器中补齐后重试。'
+                : '';
+        if (error) {
+            error.textContent = protocolError;
+            error.classList.toggle('hidden', !protocolError);
         }
-        if (selectedProtocol && Object.keys(selectedProtocol.parameters || {}).length === 0) {
-            container.innerHTML = '<div class="node-error-msg">当前协议未声明可编辑视频参数；请在协议编辑器中补齐后重试。</div>';
+        if (protocolError) {
+            for (const group of fields) group.replaceChildren();
+            fitNodeToContent(id);
             return;
         }
         const activeVariantId = resolvedVariant.variant ? resolvedVariant.variantId : model?.modelId;
@@ -1758,7 +1777,24 @@ export function createNodeDomBindingsApi({
             });
         }
         const extraProtocol = getVideoGenerateExtraProtocol(selectedProtocol);
-        container.innerHTML = extraProtocol ? renderProtocolParameters(id, extraProtocol, 'video', node.data || {}) : '';
+        const parametersBySection = {
+            content: Object.create(null),
+            output: Object.create(null),
+            advanced: Object.create(null)
+        };
+        for (const [key, parameter] of Object.entries(extraProtocol?.parameters || {})) {
+            const fieldId = parameter.id || key;
+            const isPrompt = fieldId === 'prompt'
+                || (parameter.required === true && (parameter.uiControl === 'textarea'
+                    || (parameter.inputPort === true && parameter.uiControl === 'text')));
+            if (isPrompt) parametersBySection.content[key] = parameter;
+            else if (videoProtocolOutputFields.has(fieldId) || parameter.required) parametersBySection.output[key] = parameter;
+            else parametersBySection.advanced[key] = parameter;
+        }
+        for (const group of fields) {
+            const parameters = parametersBySection[group.dataset.videoProtocolFields];
+            group.innerHTML = renderProtocolParameters(id, { parameters }, 'video', node.data);
+        }
         bindZoomSettleGuard(container);
         bindCustomNodeSelects(container);
         bindVideoGenerateProtocolParamInputs(id, container);
@@ -2565,8 +2601,39 @@ export function createNodeDomBindingsApi({
             });
         }
 
+        const interactiveSelector = 'input, textarea, select, button, label, .toggle-switch, .toggle-slider, .node-select, .port, .node-resize-handle, [contenteditable="true"], .chat-response-area, .preview-controls, .workflow-action-btn';
+        function beginNodeDrag(pos, isCloneDrag) {
+            if (!state.selectedNodes.has(id)) selectNode(id, isCloneDrag);
+
+            const nodesToDrag = Array.from(state.selectedNodes);
+            const dragging = createNodeDraggingState(nodesToDrag, pos, isCloneDrag);
+            if (isCloneDrag) pushHistory();
+            else dragging.promoteHistory = pushNodeMoveHistory(nodesToDrag);
+            state.dragging = dragging;
+            return dragging;
+        }
+
+        el.addEventListener('pointerdown', event => {
+            if (event.pointerType !== 'touch' || !event.isPrimary || event.button !== 0 || state.dragging
+                || state.marquee || state.resizing || state.connecting || state.isCutting || state.canvas.isPanning
+                || state.batchConnectionMode?.sourceNodeId) return;
+            const target = event.target;
+            if (!target.closest('.node-header') || target.closest(interactiveSelector)) return;
+
+            event.preventDefault();
+            event.stopPropagation();
+            canvasContainer.focus({ preventScroll: true });
+            const pos = viewportApi.screenToCanvas(event.clientX, event.clientY);
+            const dragging = beginNodeDrag(pos, false);
+            // Selection can reparent the node. Capture the original target after selection
+            // so a tap still activates its normal header click path.
+            target.setPointerCapture(event.pointerId);
+            dragging.pointerId = event.pointerId;
+            dragging.captureTarget = target;
+        });
+
         el.addEventListener('mousedown', (e) => {
-            if (e.button !== 0) return;
+            if (e.button !== 0 || state.dragging?.captureTarget) return;
 
             if (typeof handleBatchConnectionNodeMouseDown === 'function' &&
                 handleBatchConnectionNodeMouseDown(e, id)) {
@@ -2584,7 +2651,6 @@ export function createNodeDomBindingsApi({
 
             if (target.closest('.node-delete, .node-bypass-btn')) return;
 
-            const interactiveSelector = 'input, textarea, select, button, label, .toggle-switch, .toggle-slider, .node-select, .port, .node-resize-handle, [contenteditable="true"], .chat-response-area, .preview-controls, .workflow-action-btn';
             const mediaSurfaceSelector = '.preview-container, .save-preview-container, .file-drop-zone, .image-import-url-preview, .image-compare-container, .product-retouch-compare-stage';
             const isInteractive = target.closest(interactiveSelector);
             const imageResultSurface = state.nodes.get(id)?.parameterRoot ? target.closest('.image-node-result-preview') : null;
@@ -2620,15 +2686,7 @@ export function createNodeDomBindingsApi({
                 return;
             }
 
-            if (!state.selectedNodes.has(id)) {
-                selectNode(id, isCloneDrag);
-            }
-
-            const nodesToDrag = Array.from(state.selectedNodes);
-            const dragging = createNodeDraggingState(nodesToDrag, pos, isCloneDrag);
-            if (isCloneDrag) pushHistory();
-            else dragging.promoteHistory = pushNodeMoveHistory(nodesToDrag);
-            state.dragging = dragging;
+            beginNodeDrag(pos, isCloneDrag);
         });
 
         queryNodeControl(el, '.node-delete').addEventListener('click', (e) => {
@@ -2759,10 +2817,13 @@ export function createNodeDomBindingsApi({
                 documentRef.getElementById(`${id}-${suffix}`)?.addEventListener('change', () => queueMicrotask(control.refresh));
             }
             el._thinkingControl = control;
-            const promptField = documentRef.getElementById(`${id}-prompt`)?.closest('.node-field') || documentRef.getElementById(`${id}-sysprompt`)?.closest('.node-field');
             if (type === 'ImageGenerate') {
-                documentRef.getElementById(`${id}-advanced-parameters`)?.append(queryNodeControl(el, '.thinking-control'));
-            } else if (promptField) promptField.before(queryNodeControl(el, '.thinking-control'));
+                documentRef.getElementById(`${id}-generation-rules`)?.append(queryNodeControl(el, '.thinking-control'));
+            } else {
+                const guide = queryNodeControl(el, '.node-chat-option-guide');
+                const thinking = queryNodeControl(el, '.thinking-control');
+                if (thinking) guide?.before(thinking);
+            }
             (el._cleanupFns ||= []).push(control.destroy);
         }
         bindNodeRunCancelButton(id, el);
@@ -2794,8 +2855,6 @@ export function createNodeDomBindingsApi({
             });
             syncImageGenerateResolutionOptions(id);
             const advanced = queryNodeControl(el, `#${id}-advanced-parameters`);
-            const searchField = documentRef.getElementById(`${id}-search-field`);
-            if (searchField && advanced) advanced.append(searchField);
             advanced?.addEventListener('change', () => syncImageAdvancedSummary(id));
             advanced?.querySelector(':scope > summary')?.addEventListener('click', event => {
                 blockRunningNodeMutation(id, event, '节点正在运行，暂不能展开高级设置');
@@ -3003,6 +3062,10 @@ export function createNodeDomBindingsApi({
             const downloadBtn = queryNodeControl(el, `#${id}-download-video`);
             const resumeIdInput = queryNodeControl(el, `#${id}-resume-video-id`);
             const resumeBtn = queryNodeControl(el, `#${id}-resume-video`);
+            for (const details of queryNodeControls(el, '.node-video-advanced, .node-video-recovery')) {
+                details.addEventListener('toggle', () => fitNodeToContent(id, { reason: 'element-resize' }));
+                details.addEventListener('mousedown', event => event.stopPropagation());
+            }
             const syncResumeButtonState = () => {
                 if (!resumeBtn) return;
                 const value = String(resumeIdInput?.value || '').trim();
@@ -3247,9 +3310,8 @@ export function createNodeDomBindingsApi({
                 row.className = 'custom-param-row';
                 row.dataset.paramRow = '';
                 row.innerHTML = `
-                    <input type="text" class="custom-param-key" id="${id}-param-key-${index}" placeholder="参数名" />
-                    <span class="custom-param-separator">:</span>
-                    <input type="text" class="custom-param-value" id="${id}-param-value-${index}" placeholder="参数值" />
+                    <input type="text" class="custom-param-key" id="${id}-param-key-${index}" aria-label="参数名" />
+                    <input type="text" class="custom-param-value" id="${id}-param-value-${index}" aria-label="参数值" />
                     <button type="button" class="custom-param-remove" title="删除这一行" aria-label="删除这一行">−</button>
                 `;
                 list.appendChild(row);
@@ -3329,8 +3391,8 @@ export function createNodeDomBindingsApi({
                 documentRef.body.appendChild(dialog);
                 surfaces?.refresh();
             });
-            for (const details of queryNodeControls(el, '.node-chat-system-field, .node-chat-option-guide')) {
-                details.addEventListener('toggle', () => fitNodeToContent(id, { reason: 'element-resize' }));
+            for (const details of queryNodeControls(el, '.node-chat-system-field, .node-chat-option-guide, .node-chat-answer-section .thinking-control')) {
+                details.addEventListener('toggle', () => fitNodeToContent(id, { reason: 'element-resize' }), { capture: true });
                 details.addEventListener('mousedown', event => event.stopPropagation());
             }
             const Observer = documentRef.defaultView?.MutationObserver;

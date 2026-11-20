@@ -85,6 +85,15 @@ test('export marks stale drafts and missing owned references without inventing s
     assert.equal(output.rows.at(-1).assetKey, null);
 });
 
+test('export marks the displayed assets as previous when a connected style invalidates the plan', () => {
+    const input = fixture();
+    const before = projectCommerceImageSetExport(input);
+    const after = projectCommerceImageSetExport({ ...input, styleChanged: true });
+    assert.deepEqual(after.rows.map(row => row.assetKey), before.rows.map(row => row.assetKey));
+    assert.deepEqual(after.rows.map(row => row.status), ['previous', 'missing', 'missing', 'previous']);
+    assert.equal(input.settings.plan.stale, undefined);
+});
+
 test('export keeps owned old images attached to their original slots after reset and reopening', () => {
     const input = fixture();
     preserveCommerceImageSetExportResults(input.settings);

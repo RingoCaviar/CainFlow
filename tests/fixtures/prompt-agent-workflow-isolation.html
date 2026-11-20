@@ -8,11 +8,13 @@ try {
     const page = new DOMParser().parseFromString(await (await fetch('../../index.html')).text(), 'text/html');
     document.getElementById('fixture').appendChild(document.importNode(page.getElementById('prompt-agent-panel'), true));
     let workflowId = 'A', request, finish, controller;
+    let markStarted;
+    const started = new Promise(resolve => { markStarted = resolve; });
     const documents = new Map([['A', { messages: [] }], ['B', { messages: [] }]]);
     controller = createPromptAgentController({
         getWorkflowId: () => workflowId,
         getChatModels: () => [{ id: 'chat', modelId: 'chat' }],
-        createReply: value => { request = value; return new Promise(resolve => { finish = resolve; }); },
+        createReply: value => { request = value; return new Promise(resolve => { finish = resolve; markStarted(); }); },
         mutateWorkflowConversation: (id, reducer) => {
             const next = reducer(id === workflowId ? controller.snapshotWorkflow() : documents.get(id));
             if (!next) return false;
@@ -24,7 +26,7 @@ try {
     controller.init();controller.restoreWorkflow(documents.get('A'));controller.open();
     document.getElementById('prompt-agent-input').value = 'A读取图片';
     const sending = controller.submit();
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await started;
     const original = document.querySelector('.prompt-agent-message-user');
     documents.set('A', controller.snapshotWorkflow()); workflowId = 'B';controller.restoreWorkflow(documents.get('B'));
     documents.set('B', controller.snapshotWorkflow()); workflowId = 'A';controller.restoreWorkflow(documents.get('A'));controller.open();

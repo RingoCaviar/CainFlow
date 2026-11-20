@@ -13,12 +13,15 @@ const TEST_IMAGE_MODEL = { id: 'image-model-1', modelId: 'image-test', name: 'Im
 
 test('a background compaction error stays with its workflow and is visible when returning', async () => {
     let fail;
+    let markStarted;
+    const started = new Promise(resolve => { markStarted = resolve; });
     const app = createWorkflowHarness(async () => { throw new Error('must not send'); }, {
         getAutoCompactTokenLimit: () => 4000,
-        createCompaction: () => new Promise((_resolve, reject) => { fail = reject; })
+        createCompaction: () => new Promise((_resolve, reject) => { fail = reject; markStarted(); })
     });
     app.controller.restoreWorkflow({ messages: [{ role: 'user', text: 'A上下文'.repeat(5000) }] });
     enterText(app.elements, 'A待发送'); const pending = app.controller.submit();
+    await started;
     app.switchTo('B');
     fail(new Error('A独有压缩错误')); await pending;
     assert.doesNotMatch(app.elements['prompt-agent-command-status'].textContent, /A独有/);
@@ -1034,6 +1037,7 @@ test('generation creates once and preserves its target across failure, retry, re
     assert.match(runState.textContent, /暂时不可用/);
     assert.equal(message.children.at(-1).textContent, '生成完成');
     controller.restoreWorkflow(controller.snapshotWorkflow());
+    controller.open();
     const restoredMessage = elements['prompt-agent-messages'].children[1];
     await restoredMessage.children[2].children[1].dispatch('click');
     assert.equal(creations, 1);
@@ -1175,7 +1179,7 @@ test('generation progress exposes a stop action for the running node', async () 
     assert.equal(runState.textContent, '已停止');
 });
 
-test('restores workflow conversation and width without reopening the panel', () => {
+test('restores workflow conversation and width while deferring message DOM until opening', () => {
     const { controller, elements } = createHarness();
     controller.restoreWorkflow({
         version: 1,
@@ -1189,8 +1193,10 @@ test('restores workflow conversation and width without reopening the panel', () 
 
     assert.equal(elements['prompt-agent-panel'].style.width, '612px');
     assert.equal(elements['prompt-agent-panel'].classList.contains('active'), false);
-    assert.equal(elements['prompt-agent-messages'].children.length, 2);
+    assert.equal(elements['prompt-agent-messages'].children.length, 0);
     assert.equal(controller.snapshotWorkflow().memory, '低饱和电影感');
+    controller.open();
+    assert.equal(elements['prompt-agent-messages'].children.length, 2);
 });
 
 test('a reply that finishes after switching workflows is not written into the new workflow', async () => {
@@ -1407,6 +1413,7 @@ test('plus selects scene references in click order and renumbers after deselecti
     const snapshot = controller.snapshotWorkflow();
     assert.deepEqual(snapshot.messages[0].referenceImages.map((image) => image.referenceId), ['import-b', 'import-a']);
     controller.restoreWorkflow(snapshot);
+    controller.open();
     const sent = elements['prompt-agent-messages'].children[0].querySelector('.prompt-agent-message-references');
     assert.deepEqual(previewNumbers(sent), ['1', '2']);
     assert.equal(sent.querySelector('.prompt-agent-attachment-label').textContent, '你发送的图片 · 2 张');
@@ -1654,6 +1661,7 @@ test('compaction preserves transcript cards and pending references, then merges 
         { role: 'user', text: '蓝猫，没有文字' },
         { role: 'agent', text: '初稿', promptPlan: { prompt: '蓝猫，清晨，没有文字', parameters: { count: 2 } } }
     ] });
+    controller.open();
     const originalCards = elements['prompt-agent-messages'].children.slice();
     elements['prompt-agent-add-reference'].dispatch('click');
     await elements['prompt-agent-reference-picker-list'].querySelectorAll('.prompt-agent-reference-option')[0].dispatch('click');
@@ -1797,6 +1805,7 @@ test('a new action error during compaction cannot be archived by a summary that 
         { role: 'user', text: '蓝猫' },
         { role: 'agent', text: '方案', promptPlan: { targetNodeId: 'image-1', prompt: '蓝猫', parameters: {} } }
     ] });
+    controller.open();
     enterText(elements, '/compact');
     const compacting = controller.submit();
     const actions = elements['prompt-agent-messages'].children[1].querySelector('.prompt-agent-actions');
@@ -1988,6 +1997,60 @@ test('a fixed-size model retains a draft with an unsupported ratio and accepts a
  assert.equal(saved.sizeAnswer.aspectRatio,'3:2');
  controller.restoreWorkflow({messages:[]});enterText(elements,'用4K');await controller.submit();
  assert.equal(requests,2,'a resolution after workflow activation is not applied to the old draft');
+});
+
+test('a bare size answer still updates a plan outside the mounted history page', async () => {
+    let requests = 0;
+    const { controller, elements } = createHarness(async () => {
+        requests++;
+        return { intent: 'generate', message: '横幅', promptPlan: { targetNodeId: 'image-1', prompt: 'poster', parameters: {} } };
+    }, { getSelectedContext: () => null }, null,
+    { getImageModels: () => [{ ...TEST_IMAGE_MODEL, protocol: 'openai', modelId: 'gpt-image-1' }] });
+    enterText(elements, '生成横幅，画幅7:5');
+    await controller.submit();
+    const saved = controller.snapshotWorkflow();
+    controller.restoreWorkflow({ ...saved, archivedMessages: saved.messages,
+        messages: Array.from({ length: 75 }, (_, index) => ({ role: 'user', text: `历史消息 ${index}` })) });
+    controller.open();
+    const transcript = elements['prompt-agent-messages'];
+    assert.equal(transcript.children.length, 61);
+    assert.equal(transcript.querySelectorAll('.prompt-agent-plan').length, 0);
+    enterText(elements, '用3:2');
+    await controller.submit();
+    assert.equal(requests, 1);
+    assert.equal(controller.snapshotWorkflow().archivedMessages[1].promptPlan.sizeAnswer.aspectRatio, '3:2');
+    assert.equal(transcript.children.length, 63);
+});
+
+test('checking a bare size against a hidden canvas plan leaves its reference image unloaded', async () => {
+    const reads = [];
+    let sizeChecks = 0;
+    const { controller, elements } = createHarness(undefined, null, null, {
+        getChatModels: () => [],
+        canvasAdapter: {
+            context: () => ({ nodes: [] }),
+            isRunning: () => false,
+            describe: () => [],
+            inputs: plan => plan.steps.filter(step => step.assetKey)
+                .map(step => ({ assetKey: step.assetKey, name: step.title, purpose: '参考图' })),
+            readImage: key => { reads.push(key); },
+            stepStatus: () => 'draft',
+            modelsFor: () => ({}),
+            sizesFor: () => { sizeChecks++; return {}; }
+        }
+    });
+    const plan = { role: 'agent', text: '较早的画布方案', canvasPlan: { id: 'archived-plan', version: 1, order: ['source'],
+        steps: [{ id: 'source', title: '已归档参考图', type: 'ImageImport', assetKey: 'media:archived-reference' }] } };
+    controller.restoreWorkflow({ archivedMessages: [plan],
+        messages: Array.from({ length: 75 }, (_, index) => ({ role: 'user', text: `历史消息 ${index}` })) });
+    controller.open();
+    enterText(elements, '用3:2');
+    await controller.submit();
+    assert.equal(sizeChecks, 1);
+    assert.deepEqual(reads, []);
+    controller.restoreWorkflow({ archivedMessages: [plan] });
+    controller.open();
+    assert.deepEqual(reads, ['media:archived-reference']);
 });
 
 

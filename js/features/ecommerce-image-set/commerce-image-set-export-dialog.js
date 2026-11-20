@@ -6,8 +6,9 @@ const scopes = { all: '全套', gallery: '主副图', detail: '详情图' };
 const assetUrl = key => `/api/storage/assets/${encodeURIComponent(key)}`;
 const imageExtension = mime => getImageExtension(`data:${(mime || '').split(';')[0].trim().toLowerCase()};`);
 
-export function openCommerceImageSetExport({ manifest, previousManifest, documentRef, opener, onClose }) {
+export function openCommerceImageSetExport({ manifest, previousManifest, initialVersion = 'current', documentRef, opener, onClose }) {
     const windowRef = documentRef.defaultView;
+    const startsWithPrevious = initialVersion === 'previous' && Boolean(previousManifest);
     const dialog = documentRef.createElement('dialog');
     dialog.id = 'commerce-export-dialog';
     dialog.className = 'dialog-style-1 commerce-export-dialog';
@@ -22,8 +23,8 @@ export function openCommerceImageSetExport({ manifest, previousManifest, documen
                 ${previousManifest ? `<fieldset class="commerce-export-scopes">
                     <legend>套图版本</legend>
                     <div>
-                        <label><input type="radio" name="commerce-export-version" value="current" checked><span>当前套图</span></label>
-                        <label><input type="radio" name="commerce-export-version" value="previous"><span>上次套图</span></label>
+                        <label><input type="radio" name="commerce-export-version" value="current"${startsWithPrevious ? '' : ' checked'}><span>当前套图</span></label>
+                        <label><input type="radio" name="commerce-export-version" value="previous"${startsWithPrevious ? ' checked' : ''}><span>上次套图</span></label>
                     </div>
                 </fieldset>` : ''}
                 <fieldset class="commerce-export-scopes">
@@ -54,7 +55,7 @@ export function openCommerceImageSetExport({ manifest, previousManifest, documen
     const { signal } = controller;
     const surfaces = getSurfaceCoordinator(documentRef);
     let scope = 'all';
-    let selectedManifest = manifest;
+    let selectedManifest = startsWithPrevious ? previousManifest : manifest;
     let checking = true;
     let saving = false;
 

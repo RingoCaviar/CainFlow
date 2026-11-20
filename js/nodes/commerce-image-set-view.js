@@ -37,6 +37,8 @@ const exportIcon = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" 
 const lockIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>';
 const trashIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5m4-5v5"/></svg>';
 const isActiveShot = status => ['pending', 'running', 'planning'].includes(status);
+const hasExportImages = manifest => manifest.rows.some(row => row.assetKey);
+const initialExportVersion = (current, previous) => !hasExportImages(current) && hasExportImages(previous) ? 'previous' : 'current';
 let panelSequence = 0;
 
 export function renderCommerceImageSetBody() {
@@ -62,7 +64,7 @@ function setAttributeIfChanged(element, name, value) {
 }
 
 export function createCommerceImageSetView({ node, state, documentRef, run, cancel, removeScene, onChange, openResultPreview,
-    openShotError, bindReferencePrompt, readReferenceAsset, referenceImageCatalog, pickCommerceStyleReference, openModelSettings, focusReferenceSource, connectReference, showReferenceDetails }) {
+    openShotError, bindReferencePrompt, readReferenceAsset, referenceImageCatalog, pickCommerceStyleReference, openModelSettings, focusReferenceSource, connectReference, showReferenceDetails, productReferences }) {
     const card = node.el.querySelector('.commerce-image-set-card');
     const cover = card.querySelector('img');
     const cardTitle = card.querySelector('.commerce-image-set-card-title');
@@ -71,45 +73,47 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
     const editorIdPrefix = `${panelId}-shot`;
     const element = documentRef.createElement('section');
     element.className = 'commerce-image-set-settings';
-    element.innerHTML = `<section class="commerce-image-set-product" aria-labelledby="${panelId}-product-heading">
-        <header class="commerce-image-set-product-header">
-            <h3 id="${panelId}-product-heading" tabindex="-1">产品信息</h3>
-            <button type="button" class="commerce-image-set-analyze" data-commerce-action="analyze" aria-describedby="${panelId}-product-hint">
-                <svg class="commerce-image-set-analyze-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3m13-5h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3m13-5v3a2 2 0 0 1-2 2h-3M7 12h10"/><path d="M10 8h4m-4 8h4"/></svg>
-                <span class="commerce-image-set-analyze-spinner functional-animation" aria-hidden="true"></span>
-                <span class="commerce-image-set-analyze-label">分析产品</span>
-            </button>
-        </header>
-        <p class="commerce-image-set-product-hint" id="${panelId}-product-hint" role="status">可选填。生成方案时，AI 会根据参考图补全。</p>
-        <div class="commerce-image-set-product-fields">
-            <label>产品名称<input type="text" data-commerce-product-field="name" maxlength="${COMMERCE_PRODUCT_INFO_LIMITS.name}" placeholder="填写名称或由 AI 识别"></label>
-            <label>核心卖点<textarea data-commerce-product-field="sellingPoints" data-commerce-selling-points rows="2" maxlength="${(COMMERCE_PRODUCT_INFO_LIMITS.sellingPoint + 1) * COMMERCE_PRODUCT_INFO_LIMITS.sellingPoints - 1}" placeholder="每行一条，最多 ${COMMERCE_PRODUCT_INFO_LIMITS.sellingPoints} 条"></textarea></label>
-        </div>
-        <details class="commerce-image-set-disclosure commerce-image-set-product-more">
-            <summary>人群、场景与规格<span class="commerce-image-set-product-extra" hidden></span></summary>
-            <div class="commerce-image-set-product-fields">
-                <label>适用人群<textarea data-commerce-product-field="audience" rows="2" maxlength="${COMMERCE_PRODUCT_INFO_LIMITS.audience}" placeholder="如日常通勤人群"></textarea></label>
-                <label>使用场景<textarea data-commerce-product-field="useCases" rows="2" maxlength="${COMMERCE_PRODUCT_INFO_LIMITS.useCases}" placeholder="如办公室、户外运动"></textarea></label>
-                <label>产品细节与规格<textarea data-commerce-product-field="details" rows="3" maxlength="${COMMERCE_PRODUCT_INFO_LIMITS.details}" placeholder="补充材质、尺寸、配件或其他产品信息"></textarea></label>
+    element.innerHTML = `<details class="commerce-image-set-configuration" open>
+        <summary hidden>
+            <span class="commerce-image-set-configuration-copy">
+                <strong>套图配置</strong>
+                <span data-commerce-configuration-summary></span>
+            </span>
+        </summary>
+        <div class="commerce-image-set-configuration-body">
+        <section class="commerce-image-set-goods node-parameter-section" aria-label="商品资料">
+        <details class="commerce-image-set-product" open>
+            <summary><strong>产品信息</strong><span class="commerce-image-set-section-summary" data-commerce-product-summary hidden></span></summary>
+            <div class="commerce-image-set-product-body">
+                <div class="commerce-image-set-product-header">
+                    <p class="commerce-image-set-product-hint" id="${panelId}-product-hint" role="status"></p>
+                    <button type="button" class="commerce-image-set-analyze" data-commerce-action="analyze" aria-describedby="${panelId}-product-hint">
+                        <svg class="commerce-image-set-analyze-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3m13-5h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3m13-5v3a2 2 0 0 1-2 2h-3M7 12h10"/><path d="M10 8h4m-4 8h4"/></svg>
+                        <span class="commerce-image-set-analyze-spinner functional-animation" aria-hidden="true"></span>
+                        <span class="commerce-image-set-analyze-label">分析产品</span>
+                    </button>
+                </div>
+                <div class="commerce-image-set-product-fields">
+                    <label>产品名称<input type="text" data-commerce-product-field="name" maxlength="${COMMERCE_PRODUCT_INFO_LIMITS.name}" placeholder="填写名称或由 AI 识别"></label>
+                    <label>核心卖点<textarea data-commerce-product-field="sellingPoints" data-commerce-selling-points rows="2" maxlength="${(COMMERCE_PRODUCT_INFO_LIMITS.sellingPoint + 1) * COMMERCE_PRODUCT_INFO_LIMITS.sellingPoints - 1}" placeholder="每行一条，最多 ${COMMERCE_PRODUCT_INFO_LIMITS.sellingPoints} 条"></textarea></label>
+                </div>
+                <details class="commerce-image-set-disclosure commerce-image-set-product-more">
+                    <summary>人群、场景与规格<span class="commerce-image-set-product-extra" hidden></span></summary>
+                    <div class="commerce-image-set-product-fields">
+                        <label>适用人群<textarea data-commerce-product-field="audience" rows="2" maxlength="${COMMERCE_PRODUCT_INFO_LIMITS.audience}" placeholder="如日常通勤人群"></textarea></label>
+                        <label>使用场景<textarea data-commerce-product-field="useCases" rows="2" maxlength="${COMMERCE_PRODUCT_INFO_LIMITS.useCases}" placeholder="如办公室、户外运动"></textarea></label>
+                        <label>产品细节与规格<textarea data-commerce-product-field="details" rows="3" maxlength="${COMMERCE_PRODUCT_INFO_LIMITS.details}" placeholder="补充材质、尺寸、配件或其他产品信息"></textarea></label>
+                    </div>
+                </details>
             </div>
         </details>
     </section>
-    <section class="commerce-image-set-art-direction" aria-labelledby="${panelId}-art-heading">
-        <h3 id="${panelId}-art-heading">整套美术风格</h3>
-        <label for="${panelId}-art-direction">风格描述</label>
-        <textarea id="${panelId}-art-direction" data-commerce-art-direction rows="3" maxlength="${COMMERCE_ART_DIRECTION_LIMIT}" placeholder="留空由 AI 在规划时确定；也可填写表现形式、配色、光影和整体氛围。"></textarea>
-        <p class="commerce-image-set-product-hint" data-commerce-art-direction-status role="status"></p>
-        <button type="button" class="btn btn-secondary" data-commerce-art-direction-reset>重新由 AI 设定</button>
-    </section>
     <details class="commerce-image-set-setup" open>
-        <summary><strong>生成设置</strong><span></span></summary>
+        <summary><strong>套图设置</strong><span class="commerce-image-set-section-summary"></span></summary>
         <div class="commerce-image-set-setup-fields">
             <div class="commerce-image-set-platform">
                 <label>平台${selectControl('platformId')}</label>
                 <label data-commerce-main-mode>亚马逊 MAIN${selectControl('mainImageMode')}</label>
-                <p class="commerce-image-set-guide"></p>
-                <label>图中文字语言${selectControl('copyLanguage')}</label>
-                <label>每图位生成${selectControl('candidateCount')}</label>
             </div>
             <div class="commerce-image-set-selection">
                 ${shotGroups.map(([group, title]) => `<section class="commerce-image-set-choice-group">
@@ -120,8 +124,27 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
                     <div class="commerce-image-set-shot-choices" data-commerce-choice-group="${group}" role="group" aria-label="${title}图位"></div>
                 </section>`).join('')}
             </div>
+            <details class="commerce-image-set-disclosure commerce-image-set-output">
+                <summary>输出选项</summary>
+                <div class="commerce-image-set-platform">
+                    <label>图中文字语言${selectControl('copyLanguage')}</label>
+                    <label>每图位生成${selectControl('candidateCount')}</label>
+                    <p class="commerce-image-set-guide"></p>
+                </div>
+            </details>
         </div>
     </details>
+    <section class="commerce-image-set-style node-parameter-section" aria-label="套图风格">
+        <details class="commerce-image-set-disclosure commerce-image-set-art-direction">
+            <summary>整套美术风格<span class="commerce-image-set-section-summary" data-commerce-art-direction-summary></span></summary>
+            <div class="commerce-image-set-art-direction-fields">
+                <label for="${panelId}-art-direction">风格描述</label>
+                <textarea id="${panelId}-art-direction" data-commerce-art-direction rows="3" maxlength="${COMMERCE_ART_DIRECTION_LIMIT}" placeholder="留空由 AI 在规划时确定；也可填写表现形式、配色、光影和整体氛围。"></textarea>
+                <p class="commerce-image-set-product-hint" data-commerce-art-direction-status role="status"></p>
+                <button type="button" class="btn btn-secondary" data-commerce-art-direction-reset>重新由 AI 设定</button>
+            </div>
+        </details>
+    </section>
     <details class="node-model-settings">
         <summary class="node-model-settings-heading">模型与供应商</summary>
         <div class="commerce-image-set-options">
@@ -134,6 +157,8 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
                 <label>生图供应商${selectControl('imageProviderId')}</label>
             </div>
         </div>
+        </details>
+        </div>
     </details>
     <section class="commerce-image-set-plan" aria-label="套图方案" hidden>
         <header class="commerce-image-set-plan-heading">
@@ -141,6 +166,8 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             <button type="button" class="commerce-image-set-export-trigger" data-commerce-action="preview-previous" data-node-read-action aria-haspopup="dialog" hidden>预览上次套图</button>
             <button type="button" class="commerce-image-set-export-trigger" data-commerce-action="export" data-node-read-action aria-haspopup="dialog" hidden>${exportIcon}<span>导出套图</span></button>
         </header>
+        <p class="commerce-image-set-plan-notice" role="status" hidden></p>
+        <p class="commerce-image-set-plan-progress" hidden></p>
         <div class="commerce-image-set-shots">
             ${shotGroups.map(([group, title]) => `<section class="commerce-image-set-result-group" data-commerce-result-group="${group}">
                 <header class="commerce-image-set-group-heading">
@@ -177,33 +204,46 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             <button type="button" class="btn btn-primary" data-commerce-action="fill" aria-describedby="${panelId}-fill-scope" hidden>补齐图位</button>
         </div>`;
     const fields = Object.fromEntries(Array.from(element.querySelectorAll('[data-commerce-field]'), control => [control.dataset.commerceField, control]));
+    element.querySelector('.commerce-image-set-goods').prepend(productReferences);
     const productFields = Array.from(element.querySelectorAll('[data-commerce-product-field]'));
-    const productHeading = element.querySelector('.commerce-image-set-product-header h3');
-    const productHint = element.querySelector('.commerce-image-set-product-hint');
+    const productSettings = element.querySelector('.commerce-image-set-product');
+    const configuration = element.querySelector('.commerce-image-set-configuration');
+    const configurationToggle = configuration.querySelector('summary');
+    const configurationSummary = configuration.querySelector('[data-commerce-configuration-summary]');
+    const productHeading = productSettings.querySelector('summary');
+    const productSummary = productHeading.querySelector('[data-commerce-product-summary]');
+    const productHint = productSettings.querySelector('.commerce-image-set-product-hint');
     const productMore = element.querySelector('.commerce-image-set-product-more');
     const productExtra = productMore.querySelector('.commerce-image-set-product-extra');
     const analyzeButton = element.querySelector('[data-commerce-action="analyze"]');
     const analyzeLabel = analyzeButton.querySelector('.commerce-image-set-analyze-label');
-    const artInput = element.querySelector('[data-commerce-art-direction]');
-    const artReset = element.querySelector('[data-commerce-art-direction-reset]');
-    const artStatus = element.querySelector('[data-commerce-art-direction-status]');
-    const mainImageMode = element.querySelector('[data-commerce-main-mode]');
     const setup = element.querySelector('.commerce-image-set-setup');
     const modelSettings = element.querySelector('.node-model-settings');
     const setupSummary = setup.querySelector('summary');
     const setupSelection = setupSummary.querySelector('span');
+    const outputSettings = setup.querySelector('.commerce-image-set-output');
+    const artDirection = element.querySelector('.commerce-image-set-art-direction');
+    const artSummary = artDirection.querySelector('[data-commerce-art-direction-summary]');
+    const artInput = artDirection.querySelector('[data-commerce-art-direction]');
+    const artReset = artDirection.querySelector('[data-commerce-art-direction-reset]');
+    const artStatus = artDirection.querySelector('[data-commerce-art-direction-status]');
+    const mainImageMode = element.querySelector('[data-commerce-main-mode]');
     const guide = element.querySelector('.commerce-image-set-guide');
     const shotSelection = element.querySelector('.commerce-image-set-selection');
     const choiceGroups = new Map(shotGroups.map(([group]) => [group, shotSelection.querySelector(`[data-commerce-choice-group="${group}"]`)]));
     const planSection = element.querySelector('.commerce-image-set-plan');
+    const planHeader = planSection.querySelector('.commerce-image-set-plan-heading');
     const planHeading = planSection.querySelector('h3');
+    const planNotice = planSection.querySelector('.commerce-image-set-plan-notice');
+    const planProgress = planSection.querySelector('.commerce-image-set-plan-progress');
     const previousPreviewButton = planSection.querySelector('[data-commerce-action="preview-previous"]');
     const exportButton = planSection.querySelector('[data-commerce-action="export"]');
+    const exportButtonLabel = exportButton.querySelector('span');
     const detailPreviewButton = planSection.querySelector('[data-commerce-action="preview-detail-page"]');
     const shots = element.querySelector('.commerce-image-set-shots');
     const resultGroups = new Map(shotGroups.map(([group]) => {
         const section = shots.querySelector(`[data-commerce-result-group="${group}"]`);
-        return [group, { header: section.firstElementChild,
+        return [group, { section, header: section.firstElementChild,
             count: section.querySelector('.commerce-image-set-result-count'),
             add: section.querySelector('[data-commerce-action="add-scene"]') }];
     }));
@@ -224,7 +264,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
     const designReferences = createCommerceShotReferenceControls({ documentRef, node, getSettings: config,
         pickReference: pickCommerceStyleReference, catalog: referenceImageCatalog, openPreview: openResultPreview,
         onChange: change => { onChange(change); refresh(); } });
-    element.insertBefore(designReferences.element, element.querySelector('.node-model-settings'));
+    element.querySelector('.commerce-image-set-style').append(designReferences.element);
     const shotRows = new Map();
     const optionKeys = new WeakMap();
     const pendingShots = new Map();
@@ -248,7 +288,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         return !!check && check.plan === plan && sameCommerceReferenceProjection(check.projection, projection);
     }
 
-    function exportInput(settings, references) {
+    function exportInput(settings, references, styleReferences = projectCommerceStyleReferences(state, node.id)) {
         const referenceRevision = getCommerceReferenceRevision(references);
         const plan = settings.plan;
         const needsVerification = needsCommerceReferenceVerification(settings, references);
@@ -283,7 +323,15 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             ? legacyReferenceCheck.status : '';
         const knownChange = hasCommerceReferenceChange(settings, references);
         const unverified = needsVerification && legacyStatus !== 'matched' && legacyStatus !== 'checking';
+        let styleChanged = false;
+        if (plan) {
+            try {
+                styleChanged = visualStyleKey(plan.visualStyle) !== visualStyleKey(resolveCommerceImageSetStyle(settings, resolveVisualStyle(state, node.id)))
+                    || hasCommerceStyleReferenceChange(settings, styleReferences);
+            } catch { styleChanged = true; }
+        }
         return { settings, mediaAssetKeys: node.data.mediaAssetKeys, referenceRevision,
+            styleChanged,
             referenceChanged: knownChange || unverified,
             referenceVerificationPending: legacyStatus === 'checking',
             referenceChangeMessage: knownChange ? COMMERCE_REFERENCE_CHANGED_MESSAGE
@@ -381,8 +429,12 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
                     <button type="button" data-commerce-action="toggle-final" aria-pressed="false">${lockIcon}<span>定稿</span></button>
                 </div>
                 <p class="commerce-image-set-shot-notice" role="status" hidden></p>
+                <div class="commerce-image-set-shot-quick-actions" hidden>
+                    <button type="button" class="commerce-image-set-shot-more" data-node-read-action aria-expanded="false" hidden>更多操作</button>
+                </div>
             </div>
         </div>
+        <div class="commerce-image-set-shot-secondary-actions" hidden></div>
         <div class="commerce-image-set-shot-editor" hidden>
             ${shot.customScene ? `<label>场景描述（选填）<textarea data-commerce-shot-field="description" rows="2" maxlength="${COMMERCE_SCENE_DESCRIPTION_LIMIT}" placeholder="留空由 AI 推荐"></textarea></label>`
                 : '<p class="commerce-image-set-shot-purpose" hidden></p>'}
@@ -430,12 +482,25 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         const resultActions = row.querySelector('.commerce-image-set-shot-result-actions');
         const compareShot = resultActions.querySelector('[data-commerce-action="compare-shot"]');
         const toggleFinal = resultActions.querySelector('[data-commerce-action="toggle-final"]');
+        const quickActions = row.querySelector('.commerce-image-set-shot-quick-actions');
+        const more = quickActions.querySelector('.commerce-image-set-shot-more');
+        const secondaryActions = row.querySelector('.commerce-image-set-shot-secondary-actions');
+        secondaryActions.id = `${editor.id}-actions`;
+        more.setAttribute('aria-controls', secondaryActions.id);
+        more.setAttribute('aria-label', `更多操作「${shot.label}」`);
+        more.addEventListener('click', () => {
+            secondaryActions.hidden = !secondaryActions.hidden;
+            more.setAttribute('aria-expanded', String(!secondaryActions.hidden));
+        });
+        const optionalActions = [replan, retry, compareShot, toggleFinal, removeSceneButton].filter(Boolean)
+            .map(button => ({ button, initialParent: button.parentElement }));
         row.addEventListener('click', event => {
-            if (event.target.closest('[data-commerce-action], .commerce-image-set-shot-editor')) return;
+            if (event.target.closest('[data-commerce-action], .commerce-image-set-shot-more, .commerce-image-set-shot-secondary-actions, .commerce-image-set-shot-editor')) return;
             expandShotEditor(editor.hidden ? shot.id : null);
         });
         return { row, editor, toggle, purpose, copyFields, promptLabel: prompt?.closest('label'),
             shotFields, image, preview, replan, retry, cancelShot, removeSceneButton, failure, destroyPrompt, resultActions, compareShot, toggleFinal,
+            quickActions, more, secondaryActions, optionalActions,
             sceneSummary: row.querySelector('.commerce-image-set-scene-summary'),
             message, versionNote, notice: row.querySelector('.commerce-image-set-shot-notice'),
             tools: row.querySelector('.commerce-image-set-shot-tools'),
@@ -448,6 +513,25 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             if (item.editor.hidden === !expanded) continue;
             item.editor.hidden = !expanded;
             item.toggle.setAttribute('aria-expanded', String(expanded));
+        }
+    }
+
+    function arrangeCompletedShotActions(row, compact, primary) {
+        const focused = documentRef.activeElement;
+        row.row.toggleAttribute('data-compact-result', compact);
+        let hasSecondary = false;
+        for (const { button, initialParent } of row.optionalActions) {
+            const secondary = compact && button !== primary && !button.hidden;
+            hasSecondary ||= secondary;
+            const parent = button === primary ? row.quickActions : secondary ? row.secondaryActions : initialParent;
+            if (button.parentElement !== parent) parent.insertBefore(button, button === primary ? row.more : null);
+        }
+        row.quickActions.toggleAttribute('hidden', !primary && !hasSecondary);
+        row.more.toggleAttribute('hidden', !hasSecondary);
+        row.secondaryActions.toggleAttribute('hidden', !hasSecondary || row.more.getAttribute('aria-expanded') !== 'true');
+        if (focused !== documentRef.activeElement && row.optionalActions.some(({ button }) => button === focused)) {
+            const target = focused.checkVisibility() ? focused : row.more.checkVisibility() ? row.more : row.toggle;
+            target.focus({ preventScroll: true });
         }
     }
 
@@ -490,10 +574,17 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             row.row.remove();
             shotRows.delete(id);
         }
-        for (const [group, { header, count, add }] of resultGroups) {
+        const populated = [];
+        const empty = [];
+        for (const [group, { section, header, count, add }] of resultGroups) {
             const groupShots = planShots.filter(shot => (shot.group || 'gallery') === group);
-            const countText = groupShots.length ? `${groupShots.length} 张` : '';
+            section.classList.toggle('is-empty', !groupShots.length);
+            (groupShots.length ? populated : empty).push(section);
+            const countText = groupShots.length ? `${groupShots.length} 个图位` : '';
             if (count.textContent !== countText) count.textContent = countText;
+            const addLabel = add.querySelector('span');
+            const addText = groupShots.length ? '添加场景图' : add.getAttribute('aria-label');
+            if (addLabel.textContent !== addText) addLabel.textContent = addText;
             add.toggleAttribute('disabled', !canAppendScene);
             let previous = header;
             for (const shot of groupShots) {
@@ -507,12 +598,21 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
                 previous = row.row;
             }
         }
+        [...populated, ...empty].forEach((section, index) => {
+            const current = shots.children[index];
+            if (current === section) return;
+            const focused = documentRef.activeElement;
+            shots.insertBefore(section, current);
+            if (section.contains(focused)) focused.focus({ preventScroll: true });
+        });
     }
 
-    function renderShots(plan, results, { locked, resultsLocked, readyToReplan, canRetry, shotImageIssues, canAppendScene, shownShotId, referenceChanged }) {
+    function renderShots(plan, results, { locked, resultsLocked, readyToReplan, canRetry, shotImageIssues, canAppendScene, shownShotId,
+        referenceChanged, referenceVerificationPending, planNeedsReplan, exportRows }) {
         const planShots = plan?.shots || [];
         syncShotRows(planShots, canAppendScene);
         const savedResults = new Map(results.map(result => [result.shotId, result]));
+        const exportStatuses = new Map(exportRows.map(row => [row.shotId, row.status]));
         for (const shot of planShots) {
             const row = shotRows.get(shot.id);
             const savedResult = savedResults.get(shot.id);
@@ -549,6 +649,8 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             row.copySummary.toggleAttribute('hidden', !copy || shot.customScene === true);
             const previewResult = liveResult?.image ? liveResult : savedResult;
             const previewUrl = previewResult?.image || assetUrl(getCommerceOutputAssetKey(previewResult));
+            const previousImage = Boolean(previewUrl) && (referenceChanged || planNeedsReplan
+                || (!liveResult?.image && exportStatuses.get(shot.id) === 'previous') || isCommerceShotImageStale(shot, previewResult));
             setImage(row.image, previewUrl);
             row.preview.toggleAttribute('hidden', !previewUrl);
             setAttributeIfChanged(row.preview, 'aria-pressed', String(shownShotId === shot.id));
@@ -563,13 +665,16 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
                 row.compareShot.setAttribute('aria-label', `${compareLabel}「${shot.label}」`);
             }
             row.toggleFinal.toggleAttribute('hidden', !current);
-            row.toggleFinal.toggleAttribute('disabled', resultsLocked || referenceChanged);
+            row.toggleFinal.toggleAttribute('disabled', resultsLocked || referenceChanged || (!finalized && (previousImage || referenceVerificationPending)));
             setAttributeIfChanged(row.toggleFinal, 'aria-pressed', String(finalized));
             const finalLabel = finalized ? '解锁' : '定稿';
             const finalText = row.toggleFinal.querySelector('span');
             if (finalText.textContent !== finalLabel) finalText.textContent = finalLabel;
             setAttributeIfChanged(row.toggleFinal, 'aria-label', `${finalLabel}「${shot.label}」`);
-            const previousImage = Boolean(previewUrl) && (referenceChanged || isCommerceShotImageStale(shot, previewResult));
+            const finalHint = finalized ? '解锁后允许重新生成此图位。'
+                : previousImage ? '请先更新成图，再定稿。' : '定稿后，批量重做会保留这张图。';
+            setAttributeIfChanged(row.toggleFinal, 'title', finalHint);
+            setAttributeIfChanged(row.toggleFinal, 'aria-description', finalHint);
             const failed = result?.status === 'failed' || !!result?.replacementError;
             const sceneStatus = shot.customScene && !shot.sceneConfirmed
                 ? (scenePlanned ? (shot.sceneNeedsReview ? 'review-update' : 'review') : 'unplanned') : null;
@@ -636,11 +741,15 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             const retryTitle = row.generationIssue || label;
             if (row.retry.title !== retryTitle) row.retry.title = retryTitle;
             if (row.retry.getAttribute('aria-label') !== label) row.retry.setAttribute('aria-label', label);
+            const compact = Boolean(previewUrl) && (resultStatus === 'completed' || resultStatus === 'finalized');
+            const preferred = previousImage ? row.retry : alternatives ? row.compareShot : finalized ? null : row.toggleFinal;
+            const primary = compact && preferred && !preferred.hidden && !preferred.disabled ? preferred : null;
+            arrangeCompletedShotActions(row, compact, primary);
             if (restoreFocus) {
                 const pending = pendingShots.get(shot.id);
                 const action = pending?.status === 'planning' ? row.replan : row.retry;
                 let target = row.toggle;
-                if (!action.hidden && !action.disabled) target = action;
+                if (action.checkVisibility() && !action.disabled) target = action;
                 else if (pending && locked) target = row.row;
                 target.focus({ preventScroll: true });
             }
@@ -660,8 +769,9 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         const planner = modelOptions('chat', value.plannerModelId, value.plannerProviderId);
         const image = modelOptions('image', value.imageModelId, value.imageProviderId);
         const references = projectCommerceReferences(state, node.id);
-        const exportOptions = exportInput(value, references);
-        const { referenceChanged, referenceVerificationPending, referenceChangeMessage } = exportOptions;
+        const styleReferences = projectCommerceStyleReferences(state, node.id);
+        const exportOptions = exportInput(value, references, styleReferences);
+        const { referenceChanged, referenceVerificationPending, referenceChangeMessage, styleChanged } = exportOptions;
         const runningReference = references.groups.find(group => group.running);
         const missingReference = references.groups.find(group => group.enabled && (!group.count || group.missing || group.missingPositions.length))
             || references.groups.find(group => !group.enabled);
@@ -674,11 +784,6 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
                                 : '商品参考图无法读取，请检查来源。'
                     ) : referenceVerificationPending ? '正在核对商品参考图…' : '';
         const plan = value.plan;
-        let styleChanged = false;
-        const styleReferences = projectCommerceStyleReferences(state, node.id);
-        try { styleChanged = !!plan && (visualStyleKey(plan.visualStyle) !== visualStyleKey(resolveCommerceImageSetStyle(value, resolveVisualStyle(state, node.id)))
-            || hasCommerceStyleReferenceChange(value, styleReferences)); }
-        catch { styleChanged = true; }
         const activeShots = plan?.shots.filter(shot => isActiveShot(shotTaskStatus(shot.id))) || [];
         const activeShotLabel = activeShots.length ? `${activeShots.length} 个图位进行中` : '';
         const hasIndependentTasks = activeShots.some(({ id }) => isActiveShot(node.commerceShotTasks?.[id])
@@ -702,14 +807,30 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             : value.artDirection ? '使用自定风格；各图位按用途变化构图。'
                 : plan?.artDirection ? 'AI 已确定本套风格，可直接修改。' : '规划时先确定统一风格，再分别设计各图位。';
         if (artStatus.textContent !== artStatusText) artStatus.textContent = artStatusText;
+        const artLabel = connectedStyle ? '沿用画面风格'
+            : value.artDirection ? '自定' : plan?.artDirection ? 'AI 已设定' : '由 AI 设定';
+        if (artSummary.textContent !== artLabel) artSummary.textContent = artLabel;
         const shotsLocked = unavailable || cancelingAll || (busy && !activeShots.length && !node.commerceShotPreviews)
             || ['analyze', 'plan'].includes(pendingAction?.action);
         const copyLanguageChanged = !!plan && (plan.copyLanguage ?? 'auto') !== copyLanguage;
+        configurationToggle.hidden = !plan?.sourceKey;
+        if (configurationToggle.hidden) configuration.open = true;
         if ((plan?.sourceKey ?? null) !== planSourceKey) {
             planSourceKey = plan?.sourceKey ?? null;
             activeShotId = '';
             shotNotices.clear();
             setup.open = !plan?.sourceKey || copyLanguageChanged;
+            if (copyLanguageChanged) {
+                configuration.open = true;
+                outputSettings.open = true;
+            } else if (plan?.sourceKey && !configuration.contains(documentRef.activeElement)) {
+                configuration.open = false;
+            }
+            if (plan?.sourceKey) {
+                for (const disclosure of [productSettings, artDirection]) {
+                    if (!disclosure.contains(documentRef.activeElement)) disclosure.open = false;
+                }
+            }
         }
         const multipleCandidates = candidateCount > 1 && selectedShots.some(shot => shot.source === 'generate');
         const selectionLabel = `${preset.label} · ${selectedShots.length} 个图位${multipleCandidates ? ` · 每图位 ${candidateCount} 张` : ''}`;
@@ -720,15 +841,31 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         const hasCompleted = unfinishedShots.length < runnableShots.length;
         const showFill = hasCompleted && unfinishedShots.length > 0;
         const { completed: processed, total } = node.apiGenerationProgress || {};
-        const progressLabel = pendingAction?.action === 'fill' ? '正在补齐图位' : multipleCandidates ? '正在生成图位' : '正在生成图片';
-        const progress = busy && !hasIndependentTasks && Number.isInteger(processed) && Number.isInteger(total)
-            && total > 0 && processed >= 0 && processed <= total ? `${progressLabel}（${processed} / ${total}）` : '';
+        const progressLabel = pendingAction?.action === 'fill' ? '正在补齐' : '正在生成';
+        const showProgress = busy && !hasIndependentTasks && Number.isInteger(processed) && Number.isInteger(total)
+            && total > 0 && processed >= 0 && processed <= total;
+        let progress = '';
+        if (showProgress) {
+            const previews = Object.values(node.commerceShotPreviews || {});
+            const failedCount = previews.filter(row => row.status === 'failed').length;
+            const runningCount = previews.filter(row => row.status === 'running').length;
+            const canceledCount = previews.filter(row => row.status === 'canceled').length;
+            progress = [progressLabel, `已完成 ${processed}/${total} 个图位`,
+                failedCount ? `${failedCount} 个失败` : '', runningCount ? `${runningCount} 个运行中` : '',
+                canceledCount ? `${canceledCount} 个已取消` : ''].filter(Boolean).join(' · ');
+        }
         const missingPrompt = generatableShots.some(shot => shot.source === 'generate' && !shot.prompt?.trim());
         const currentPlan = !!plan?.sourceKey && !styleChanged && !plan.stale && !copyLanguageChanged && !referenceChanged && !referenceVerificationPending
             && plan.platformId === platformId && selectedShots.length > 0
             && plan.shots.length === selectedShots.length && plan.shots.every((shot, index) => (
                 shot.id === selectedShots[index].id && shot.aspect === selectedShots[index].aspect
             ));
+        const planNeedsReplan = Boolean(plan && !currentPlan && !referenceVerificationPending);
+        const planNoticeText = !planNeedsReplan ? '' : referenceChanged ? referenceChangeMessage
+            : styleChanged ? '画面风格已更新，需重新规划。'
+                : copyLanguageChanged ? '图中文字语言已修改，需重新规划。' : '商品资料或套图设置已修改，需重新规划。';
+        if (planNotice.textContent !== planNoticeText) planNotice.textContent = planNoticeText;
+        planNotice.hidden = !planNoticeText;
         const imageIssueFor = shots => currentPlan && !referenceIssue ? getCommerceImageConfigurationIssue({
             state, node, settings: value, generatedShots: shots.filter(shot => shot.source === 'generate'), referenceCount: references.count
         }) : '';
@@ -762,13 +899,18 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         if (finalizedIds.has('main')) lockedFields.add('mainImageMode');
         setAttributeIfChanged(fields.platformId, 'title', finalizedIds.size ? '解锁定稿图位后可切换平台' : '');
         for (const [group] of shotGroups) {
-            const hasFinalized = selectedShots.some(shot => shot.group === group && shot.source === 'generate' && finalizedIds.has(shot.id));
             const field = `${group}Aspect`;
+            const hasFinalized = selectedShots.some(shot => shot.group === group && shot.source === 'generate' && finalizedIds.has(shot.id));
             if (hasFinalized) lockedFields.add(field);
             setAttributeIfChanged(fields[field], 'title', hasFinalized ? '解锁本组定稿图位后可调整比例' : '');
         }
         for (const [field, control] of Object.entries(fields)) control.toggleAttribute('disabled', locked || lockedFields.has(field));
         const product = getCommerceProductInfo(value);
+        const configurationLabel = [product.name, selectionLabel].filter(Boolean).join(' · ');
+        if (configurationSummary.textContent !== configurationLabel) configurationSummary.textContent = configurationLabel;
+        const productLabel = product.name || (product.sellingPoints.length ? `${product.sellingPoints.length} 条卖点` : '');
+        productSummary.hidden = !productLabel;
+        if (productSummary.textContent !== productLabel) productSummary.textContent = productLabel;
         for (const control of productFields) {
             const item = product[control.dataset.commerceProductField];
             const fieldValue = Array.isArray(item) ? item.join('\n') : item;
@@ -779,7 +921,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         productExtra.hidden = !filledDetails;
         if (filledDetails && productExtra.textContent !== `${filledDetails} 项已填`) productExtra.textContent = `${filledDetails} 项已填`;
         const analyzing = pendingAction?.action === 'analyze';
-        const analyzeHint = productMessage || '可选填。生成方案时，AI 会根据参考图补全。';
+        const analyzeHint = productMessage || '可选填，AI 会在规划时补全。';
         if (productHint.textContent !== analyzeHint) productHint.textContent = analyzeHint;
         analyzeButton.disabled = locked || !!referenceIssue || !planner.ready;
         analyzeButton.setAttribute('aria-busy', String(analyzing));
@@ -789,11 +931,29 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         const guideText = Array.isArray(preset.guide) ? preset.guide.join(' ') : (preset.guide || '');
         if (guide.textContent !== guideText) guide.textContent = guideText;
         renderShotChoices(preset, selectedPresetShots, locked, finalizedIds);
+        const currentManifest = projectCommerceImageSetExport(exportOptions);
         const previousManifest = projectCommerceImageSetExport({ ...exportOptions, version: 'previous' });
-        previousPreviewButton.hidden = !previousManifest.rows.some(row => row.assetKey);
+        previousPreviewButton.hidden = !hasExportImages(previousManifest);
         detailPreviewButton.hidden = !plan?.shots.some(shot => shot.group === 'detail');
-        exportButton.hidden = previousPreviewButton.hidden && !hasCommerceImageSetExportMedia(node.data.mediaAssetKeys);
+        exportButton.hidden = previousPreviewButton.hidden && !hasExportImages(currentManifest) && !hasCommerceImageSetExportMedia(node.data.mediaAssetKeys);
         exportButton.disabled = referenceVerificationPending;
+        const currentExportCount = currentManifest.rows.filter(row => row.status === 'current').length;
+        const hasPreviousExportRows = currentManifest.rows.some(row => row.status === 'previous');
+        const canExportFullSet = currentExportCount > 0 && currentExportCount === currentManifest.rows.length;
+        const exportPrimary = currentPlan && !locked && !referenceIssue && !exportButton.hidden && !unfinishedShots.length && canExportFullSet;
+        let exportLabel = '导出套图';
+        if (initialExportVersion(currentManifest, previousManifest) === 'previous') exportLabel = '导出上次套图';
+        else if (hasPreviousExportRows) exportLabel = currentExportCount ? '导出可用图片' : '导出上一版图片';
+        else if (currentExportCount && !canExportFullSet) exportLabel = '导出已完成图片';
+        if (exportButtonLabel.textContent !== exportLabel) exportButtonLabel.textContent = exportLabel;
+        const exportParent = exportPrimary ? actionButtons : planHeader;
+        if (exportButton.parentElement !== exportParent) {
+            const restoreExportFocus = documentRef.activeElement === exportButton;
+            exportParent.append(exportButton);
+            if (restoreExportFocus) exportButton.focus({ preventScroll: true });
+        }
+        exportButton.classList.toggle('btn', exportPrimary);
+        exportButton.classList.toggle('btn-primary', exportPrimary);
         planSection.hidden = !plan && exportButton.hidden;
         shots.hidden = !plan;
         const planTitle = plan ? '套图方案' : '上次套图';
@@ -801,6 +961,15 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             planHeading.textContent = planTitle;
             planSection.setAttribute('aria-label', planTitle);
         }
+        const needsConfirmation = selectedShots.length - runnableShots.length;
+        const waiting = currentExportCount === 0 ? '待生成' : '待补齐';
+        const planProgressText = currentPlan && !busy ? [
+            `已完成 ${currentExportCount}/${selectedShots.length} 个图位`,
+            unfinishedShots.length ? `${unfinishedShots.length} 个${waiting}` : '',
+            needsConfirmation ? `${needsConfirmation} 个待确认` : ''
+        ].filter(Boolean).join(' · ') : '';
+        if (planProgress.textContent !== planProgressText) planProgress.textContent = planProgressText;
+        planProgress.hidden = !planProgressText;
         const planLabel = plan ? '重新规划' : '生成方案';
         if (planButton.textContent !== planLabel) planButton.textContent = planLabel;
         planButton.classList.toggle('btn-primary', !currentPlan);
@@ -808,14 +977,14 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         planButton.disabled = locked || !selectedPresetShots.length || !!referenceIssue || !planner.ready;
         generateButton.hidden = !currentPlan;
         generateButton.disabled = locked || !readyToGenerate;
-        setAttributeIfChanged(generateButton, 'title', finalizedIds.size ? (generatableShots.length ? '重做时保留定稿图位' : '解锁图位后可重新生成') : '');
+        let generateTitle = finalizedIds.size && !generatableShots.length ? '解锁图位后可重新生成' : '';
         const confirmation = plan?.confirmed ? '' : '确认并';
         const excludedCount = (plan?.shots.length ?? 0) - runnableShots.length;
         const generateLabel = hasCompleted ? (confirmation ? '确认方案并重做' : '重做已确认图位')
             : confirmation + (excludedCount ? '生成已确认图位' : '生成套图');
         if (generateButton.textContent !== generateLabel) generateButton.textContent = generateLabel;
-        generateButton.classList.toggle('btn-primary', !showFill);
-        generateButton.classList.toggle('btn-secondary', showFill);
+        generateButton.classList.toggle('btn-primary', !showFill && !exportPrimary);
+        generateButton.classList.toggle('btn-secondary', showFill || exportPrimary);
         fillButton.hidden = !currentPlan || !showFill;
         fillButton.disabled = locked || !showFill || !readyToFill;
         if (showFill) {
@@ -823,23 +992,36 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             if (fillButton.textContent !== label) fillButton.textContent = label;
         }
         actionButtons.hidden = busy;
+        actionButtons.toggleAttribute('data-has-secondary', currentPlan);
         const finalizedCount = runnableShots.length - generatableShots.length;
         for (const [button, scope, actionShots, label] of [
-            [generateButton, generateScope, generatableShots, hasCompleted && confirmation ? '重做已确认图位' : showFill ? '重做' : ''],
+            [generateButton, generateScope, generatableShots, hasCompleted && confirmation ? '重做已确认图位' : showFill || exportPrimary ? '重做' : ''],
             [fillButton, fillScope, unfinishedShots, '补齐']
         ]) {
             scope.hidden = busy || button.hidden || button.disabled;
             const imageShotCount = actionShots.filter(shot => shot.source === 'generate').length;
+            const referenceShotCount = actionShots.length - imageShotCount;
             const summary = scope.hidden ? '' : [
                 label,
                 `预计调用生图模型 ${imageShotCount * candidateCount} 次`,
-                `沿用原图 ${actionShots.length - imageShotCount} 张`,
+                referenceShotCount ? `沿用原图 ${referenceShotCount} 张` : '',
                 finalizedCount ? `保留定稿 ${finalizedCount} 张` : '',
                 excludedCount ? `暂不执行 ${excludedCount} 个图位` : ''
             ].filter(Boolean).join(' · ');
             if (scope.textContent !== summary) scope.textContent = summary;
+            const secondary = button.classList.contains('btn-secondary') && !!summary;
+            scope.toggleAttribute('data-secondary', secondary);
+            if (button === generateButton) {
+                if (secondary) {
+                    setAttributeIfChanged(button, 'data-commerce-call-count', `${imageShotCount * candidateCount} 次生图调用`);
+                    generateTitle = summary;
+                } else {
+                    delete button.dataset.commerceCallCount;
+                }
+            }
         }
-        batchScope.hidden = generateScope.hidden && fillScope.hidden;
+        setAttributeIfChanged(generateButton, 'title', generateTitle);
+        batchScope.hidden = fillScope.hidden && (generateScope.hidden || generateScope.hasAttribute('data-secondary'));
         const restoreFooterFocus = !busy && documentRef.activeElement === cancelAllButton;
         cancelAllButton.hidden = !busy || unavailable;
         setAttributeIfChanged(cancelAllButton, 'aria-disabled', String(cancelingAll || savingResults));
@@ -850,7 +1032,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         }
         const replanHint = styleChanged ? '画面风格已更新，请重新规划；已有成图与定稿保留。' : referenceChanged ? referenceChangeMessage
             : copyLanguageChanged ? '图中文字语言已修改，请重新规划。'
-            : '商品资料或生成设置已修改，请重新规划。';
+            : '商品资料或套图设置已修改，请重新规划。';
         const needsPlannerHint = !planner.ready && (!currentPlan || plan?.shots.some(shot => shot.customScene && !getCommerceSceneSummary(shot)));
         const imageIssue = generateImageIssue || fillImageIssue || [...shotImageIssues.values()].find(Boolean);
         const modelStage = imageIssue ? 'image' : needsPlannerHint ? 'planner' : '';
@@ -880,6 +1062,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             } else {
                 recoveryLabel = `选择${stageName}模型`;
                 recoverBlocker = () => {
+                    configuration.open = true;
                     modelSettings.open = true;
                     const selectedModel = fields[`${modelStage}ModelId`];
                     const provider = fields[`${modelStage}ProviderId`];
@@ -919,12 +1102,13 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         setAttributeIfChanged(card, 'data-has-cover', String(!!previewUrl));
         const title = node.el.dataset.nodeTitle || '电商套图';
         if (cardTitle.textContent !== title) cardTitle.textContent = title;
-        const cardStatus = progress || activeShotLabel || (priorAssets.length ? `上次套图 · ${priorAssets.length} 张`
+        const cardProgressText = progress || activeShotLabel || (priorAssets.length ? `上次套图 · ${priorAssets.length} 张`
             : plan ? `${completed.length} / ${plan.shots.length} 张` : '');
-        if (cardProgress.textContent !== cardStatus) cardProgress.textContent = cardStatus;
+        if (cardProgress.textContent !== cardProgressText) cardProgress.textContent = cardProgressText;
         renderShots(plan, results, { locked: shotsLocked, resultsLocked: locked, readyToReplan, canRetry, shotImageIssues,
             canAppendScene: currentPlan && !referenceIssue && !shotsLocked,
-            shownShotId: latestShot?.id || savedCover?.shotId, referenceChanged });
+            shownShotId: latestShot?.id || savedCover?.shotId, referenceChanged, referenceVerificationPending, planNeedsReplan,
+            exportRows: currentManifest.rows });
         detailDialog?.refresh();
         if (restoreFooterFocus) {
             if (focusPlanReview && plan) {
@@ -933,7 +1117,8 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
                 target.focus({ preventScroll: true });
                 target.scrollIntoView({ block: 'nearest' });
             } else {
-                const target = [fillButton, generateButton, planButton, blockerRecovery].find(button => !button.hidden && !button.disabled) || status;
+                const target = [exportPrimary ? exportButton : null, fillButton, generateButton, planButton, blockerRecovery]
+                    .find(button => button && !button.hidden && !button.disabled) || status;
                 target.focus({ preventScroll: true });
             }
         }
@@ -1017,7 +1202,9 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         if (field === 'copyLanguage') {
             if (updateCommerceImageSetCopyLanguage(value, control.value)) {
                 runMessage = '';
+                configuration.open = true;
                 setup.open = true;
+                outputSettings.open = true;
             }
             return;
         }
@@ -1117,7 +1304,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
                 shotId, label, image: assetUrl(assetKey), previous: status === 'previous', finalized: finalized.has(shotId)
             })),
             busy: !!(pendingAction || pendingShots.size || state.runningNodeIds?.has(node.id)),
-            editable: isCurrentNode() && node.enabled !== false && node.isClone !== true && !value.plan?.stale
+            editable: isCurrentNode() && node.enabled !== false && node.isClone !== true && !value.plan?.stale && !options.styleChanged
                 && value.plan?.detailPage?.version === 2 && !options.referenceChanged && !options.referenceVerificationPending
         };
     }
@@ -1228,13 +1415,15 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
 
     async function handleAction(event) {
         const button = event.target.closest('[data-commerce-action]');
-        if (!button || button.hidden || button.disabled || button.getAttribute('aria-disabled') === 'true') return;
+        if (!button || button.hidden || button.disabled || button.getAttribute('aria-disabled') === 'true'
+            || button.closest('.commerce-image-set-shot-secondary-actions[hidden]')) return;
         const action = button.dataset.commerceAction;
         if (action === 'resolve-blocker') {
             recoverBlocker?.();
             return;
         }
         if (action === 'choose-shots') {
+            configuration.open = true;
             setup.open = true;
             const firstChoice = shotSelection.querySelector('input[data-commerce-select-shot]:enabled');
             firstChoice?.focus({ preventScroll: true });
@@ -1340,7 +1529,8 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             const manifest = projectCommerceImageSetExport(options);
             try {
                 closeExportDialog = openCommerceImageSetExport({
-                    manifest, previousManifest: previous.rows.some(row => row.assetKey) ? previous : null,
+                    manifest, previousManifest: hasExportImages(previous) ? previous : null,
+                    initialVersion: initialExportVersion(manifest, previous),
                     documentRef, opener: button, onClose: () => { closeExportDialog = null; }
                 });
             } catch (error) {

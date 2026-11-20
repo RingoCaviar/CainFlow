@@ -112,11 +112,6 @@
     background: var(--notice-update-bg);
 }
 
-.network-proxy-notice .notice-icon {
-    background: rgba(245, 158, 11, 0.14);
-    color: #f59e0b;
-}
-
 .update-canvas-notice .notice-icon {
     display: inline-flex;
     align-items: center;
@@ -125,10 +120,15 @@
     height: 22px;
     border-radius: 999px;
     background: var(--notice-update-icon-bg);
-    color: var(--notice-update-icon-text);
+    color: color-mix(in srgb, var(--text-primary) 50%, var(--notice-update-icon-text));
     font-size: 15px;
     font-weight: 800;
     flex: 0 0 auto;
+}
+
+.network-proxy-notice .notice-icon {
+    background: color-mix(in srgb, var(--accent-orange) 14%, transparent);
+    color: var(--text-warning);
 }
 
 .update-canvas-notice-content {
@@ -154,7 +154,7 @@
 }
 
 .update-canvas-notice-meta {
-    color: var(--text-dim);
+    color: var(--text-secondary);
     font-size: 11px;
     line-height: 1.2;
     overflow: hidden;
@@ -195,7 +195,7 @@
     z-index: 1;
     background: transparent;
     border: none;
-    color: var(--text-dim);
+    color: var(--text-secondary);
     font-size: 18px;
     line-height: 1;
     cursor: pointer;

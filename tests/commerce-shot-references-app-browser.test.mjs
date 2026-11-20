@@ -65,6 +65,15 @@ test('连线与场景、历史选图支持图位类型与整套参考，保存�
         await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(saved=>saved.value.connections.some(edge=>edge.from.nodeId==='lighting' && edge.to.nodeId==='commerce' && edge.to.port==='styleReferenceImages'))");
         await openParameters(app, 'commerce');
         const click = selector => app.evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
+        const openReferences = async () => {
+            await app.evaluate(`(() => {
+                const configuration = document.querySelector('.commerce-image-set-configuration');
+                if (!configuration.open) configuration.querySelector(':scope > summary').click();
+                const references = configuration.querySelector('.commerce-shot-references');
+                if (!references.open) references.querySelector(':scope > summary').click();
+            })()`);
+            await app.waitFor("document.querySelector('.commerce-shot-references [data-commerce-reference-add]').checkVisibility()");
+        };
         const picker = 'dialog.commerce-reference-picker[open]';
         const referenceKeys = "[...document.querySelectorAll('[data-commerce-reference-key]')].map(row=>row.dataset.commerceReferenceKey)";
         const row = key => `[data-commerce-reference-key=${JSON.stringify(key)}]`;
@@ -87,7 +96,7 @@ test('连线与场景、历史选图支持图位类型与整套参考，保存�
             await app.waitFor(`!document.querySelector('${picker}') && Boolean(${added})`);
             return app.evaluate(added);
         };
-        await app.evaluate("document.querySelector('.commerce-shot-references').open=true");
+        await openReferences();
         assert.match(await app.evaluate("document.querySelector('.commerce-shot-references summary').textContent"), /风格参考图/);
         await app.waitFor(`${referenceKeys}.length===1`);
         const [connectedKey] = await app.evaluate(referenceKeys);
@@ -121,7 +130,7 @@ test('连线与场景、历史选图支持图位类型与整套参考，保存�
         }
         assert.match(images[0].prompt, /设计参考.*仅借鉴/);
         assert.match(images[1].prompt, /不复制设计参考中的商品、文字/);
-        await app.evaluate("document.querySelector('.commerce-shot-references').open=true");
+        await openReferences();
         const replacedKey = await pick('history', 'replacement.png', mainKey);
         assert.equal(await typeOf(replacedKey), 'main');
         await app.waitFor(`${stored}.then(settings=>settings.plan.confirmed===false)`);
@@ -132,8 +141,9 @@ test('连线与场景、历史选图支持图位类型与整套参考，保存�
             await mkdir(process.env.CAINFLOW_QA_SCREENSHOT_DIR, { recursive: true });
             for (const [theme, width] of [['light', 1100], ['dark', 390]]) {
                 await app.send('Emulation.setDeviceMetricsOverride', { width, height: 820, deviceScaleFactor: 1, mobile: false });
+                await openReferences();
                 await app.evaluate(`(()=>{document.documentElement.dataset.appTheme='${theme}';
-                    const section=document.querySelector('.commerce-shot-references');section.open=true;
+                    const section=document.querySelector('.commerce-shot-references');
                     section.scrollIntoView({block:'start'});
                     document.querySelectorAll('#toast-container .toast').forEach(toast=>toast.remove());})()`);
                 const geometry = await app.evaluate(`(()=>{const section=document.querySelector('.commerce-shot-references');
@@ -141,11 +151,13 @@ test('连线与场景、历史选图支持图位类型与整套参考，保存�
                     return {visible:section.checkVisibility(),left:bounds.left,right:bounds.right,panelLeft:panel.left,panelRight:panel.right,
                         overflow:section.scrollWidth>section.clientWidth, references:[...section.querySelectorAll('img')].map(image=>image.naturalWidth),
                         buttons:[...section.querySelectorAll('[data-commerce-reference-add], [data-commerce-reference-replace], [data-commerce-reference-remove]')]
+                            .filter(button=>button.checkVisibility())
                             .map(button=>({height:button.offsetHeight,whitespace:getComputedStyle(button).whiteSpace,fontSize:parseFloat(getComputedStyle(button).fontSize)}))};})()`);
                 assert.ok(geometry.visible && geometry.left >= geometry.panelLeft && geometry.right <= geometry.panelRight + 1 && !geometry.overflow,
                     JSON.stringify(geometry));
                 assert.ok(geometry.references.every(width => width > 0));
-                assert.ok(geometry.buttons.every(button=>button.height>=26 && button.whitespace==='nowrap' && button.fontSize>=13));
+                assert.ok(geometry.buttons.length > 0 && geometry.buttons.every(button=>button.height>=26 && button.whitespace==='nowrap' && button.fontSize>=13),
+                    JSON.stringify(geometry.buttons));
                 const capture = await app.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
                 await writeFile(`${process.env.CAINFLOW_QA_SCREENSHOT_DIR}/shot-references-${theme}-${width}.png`, Buffer.from(capture.data, 'base64'));
             }

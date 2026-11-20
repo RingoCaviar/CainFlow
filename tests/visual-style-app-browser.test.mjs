@@ -22,6 +22,14 @@ test('精细度五档支持真实键盘、鼠标选择与保存', { timeout: 300
             return Math.abs(category.top-preset.top)<1 && category.right<preset.left
                 && parseFloat(getComputedStyle(field).fontSize)>=15 && field.labels.length===1;
         })()`), 'desktop presets share a row and the description has a visible label and readable type');
+        assert.ok(await app.evaluate(`(()=>{
+            const group=document.querySelector('.visual-style-extraction');
+            const description=document.querySelector('.visual-style-description');
+            return group.getBoundingClientRect().top>=description.getBoundingClientRect().bottom
+                && group.querySelector('h3').textContent==='提取设置'
+                && group.querySelector('[data-style-detail]').checkVisibility()
+                && !group.querySelector('details').open;
+        })()`), 'reference extraction is grouped after the description and model settings start collapsed');
         await app.evaluate("document.querySelector('[data-style-detail]').focus()");
         await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
         await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
@@ -222,6 +230,7 @@ test('无参考图时隐藏提取功能并保留手动风格编辑', { timeout: 
     await withAppBrowser({ ...configuration, nodes: [{ id: 'style', type: 'VisualStyle', x: 150, y: 80 }], connections: [] }, async app => {
         await app.evaluate("document.querySelector('#style [data-style-preview]').click();var field=document.getElementById('style-style-description');field.value='我的风格';field.dispatchEvent(new Event('input',{bubbles:true}))");
         assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=generate]').hidden"), true);
+        assert.equal(await app.evaluate("document.querySelector('.visual-style-extraction').checkVisibility()"), false, 'the entire extraction group is hidden without a reference');
         assert.equal(await app.evaluate("document.querySelector('.visual-style-detail').getBoundingClientRect().height"), 0);
         assert.equal(await app.evaluate("document.querySelector('.visual-style-model-settings').getBoundingClientRect().height"), 0);
         assert.equal(await app.evaluate("document.getElementById('style-style-description').value"), '我的风格');

@@ -198,6 +198,7 @@ export function createAsyncMediaExecutionApi({
 
     function commitVideoGenerateOutputs(node, payload = {}) {
         node.data = node.data || {};
+        const previousRecoverableTask = node.data.videoUrl ? '' : node.data.videoId;
         if (Object.prototype.hasOwnProperty.call(payload, 'videoId')) node.data.videoId = payload.videoId || '';
         if (Object.prototype.hasOwnProperty.call(payload, 'videoUrl')) node.data.videoUrl = payload.videoUrl || '';
         if (Object.prototype.hasOwnProperty.call(payload, 'videoAssetKey')) node.data.videoAssetKey = payload.videoAssetKey || '';
@@ -229,6 +230,10 @@ export function createAsyncMediaExecutionApi({
         if (resumeIdInput) resumeIdInput.value = videoId;
         const resumeBtn = documentRef.getElementById(`${node.id}-resume-video`);
         if (resumeBtn) resumeBtn.disabled = !String(videoId || '').trim();
+        if (videoId && !videoUrl && videoId !== previousRecoverableTask) {
+            const recovery = documentRef.getElementById(`${node.id}-video-recovery`);
+            if (recovery) recovery.open = true;
+        }
     }
 
     function stripVideoHistoryPayload(result = {}) {

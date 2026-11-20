@@ -12,7 +12,6 @@ import { getPromptAgentInstructions } from './prompt-agent-instructions.js';
 import { normalizePromptAgentChoices } from './prompt-agent-choices.js';
 import { createPromptAgentInput } from './prompt-agent-input.js';
 import { imageRequestProtocolFields, normalizePromptAgentParameters } from './prompt-agent-parameters.js';
-import { measurePromptAgentContext } from './prompt-agent-token-budget.js';
 import { getAgentSearchAvailability, normalizeAgentSearch, getConversationSearchSources } from './prompt-agent-search-data.js';
 import { searchPromptAgent } from './prompt-agent-search.js';
 import { normalizeCanvasPlan } from './prompt-agent-canvas-plan.js';
@@ -584,11 +583,22 @@ export async function createPromptAgentModelReply({
     let taskConfirmationRetry = false;
     let batchRetry = false;
     let canvasPlanRetry = null;
+    let measureContext;
+    async function measureRequest(request) {
+        if (!measureContext) {
+            ({ measurePromptAgentContext: measureContext } = await import('./prompt-agent-token-budget.js'));
+        }
+        return measureContext(request);
+    }
     for (let round = 0; round < 10; round++) {
         assertActive();
         const request = { ...base, canvasReads, taskConfirmationRetry, canvasPlanRetry, searchAllowed: !searchUsed && searchSettings.mode !== 'off', searchContext: search,
             ...(batch ? { canvasBatchScope: { sourceCount: batch.sourceNodeIds.length, sourceNodeIds: batch.sourceNodeIds, retry: batchRetry } } : {}) };
-        if ((canvasReads.length || batchRetry) && measurePromptAgentContext(request).reached) throw new Error('画布详情达到本轮上下文预算，未读取部分无法确认；请用 @节点 缩小范围或先压缩上下文');
+        if (canvasReads.length || batchRetry) {
+            const measurement = await measureRequest(request);
+            assertActive();
+            if (measurement.reached) throw new Error('画布详情达到本轮上下文预算，未读取部分无法确认；请用 @节点 缩小范围或先压缩上下文');
+        }
         const input = createPromptAgentInput(request);
         if (round === 0) onContextImages(input.images.filter(image => image.reference.dataUrl && image.origins.some(origin =>
             ['节点输入', '节点生成结果', '本轮 @节点原图'].includes(origin))).map(image => image.reference));
@@ -763,7 +773,11 @@ export async function createPromptAgentModelReply({
         if (search) reply.search = search;
         else if (cited.length) reply.search = normalizeAgentSearch({ sources: sources.filter(source => cited.includes(source.id)), notice: '引用此前检索来源，本轮未重新联网。' });
         const inputTokens = model.protocol === 'google' ? response.payload?.usageMetadata?.promptTokenCount : response.payload?.usage?.prompt_tokens;
-        if (Number.isSafeInteger(inputTokens) && inputTokens > 0) reply.tokenObservation = { inputTokens, measurement: measurePromptAgentContext(request) };
+        if (Number.isSafeInteger(inputTokens) && inputTokens > 0) {
+            const measurement = await measureRequest(request);
+            assertActive();
+            reply.tokenObservation = { inputTokens, measurement };
+        }
         if (payload.taskUpdate && reply.intent !== 'clarify' && !reply.canvasPlan?.imageBatch) reply.taskUpdate = payload.taskUpdate;
         if (reply.intent !== 'clarify') {
             const sizeIntent = normalizeSizeIntent(payload.sizeIntent, reply, input, message);

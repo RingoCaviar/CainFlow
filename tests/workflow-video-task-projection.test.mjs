@@ -14,11 +14,13 @@ test('runWorkflowInContext projects the latest running video task over stale vis
     const pendingRun = new Promise((resolve) => { finishRun = resolve; });
     const visibleNode = { id: 'video', type: 'VideoGenerate', enabled: true, data: { videoId: 'old-task', videoStatusText: '旧任务' }, el: element() };
     const runtimeNode = { id: 'video', type: 'VideoGenerate', enabled: true, data: {} };
+    const recovery = { open: false };
     const elements = new Map([
         ['video-video-status', element()],
         ['video-response', element()],
         ['video-resume-video-id', element('old-task')],
-        ['video-resume-video', element()]
+        ['video-resume-video', element()],
+        ['video-video-recovery', recovery]
     ]);
     const state = { nodes: new Map([[visibleNode.id, visibleNode]]), connections: [], selectedNodes: new Set(), runningNodeIds: new Set(), runningNodeCancelHandlers: new Map(), providers: [], models: [], nodeDefaults: {} };
     let runtimeManager;
@@ -69,6 +71,13 @@ test('runWorkflowInContext projects the latest running video task over stale vis
     assert.equal(elements.get('video-video-status').textContent, '轮询中：任务 new-task');
     assert.equal(elements.get('video-resume-video-id').value, 'new-task');
     assert.equal(elements.get('video-resume-video').disabled, false);
+    assert.equal(recovery.open, true);
+    recovery.open = false;
+    runtimeNode.data.videoStatus = 'processing';
+    runtimeManager.applyVisibleNodeRunState({ workflowId: 'workflow-video', workflowName: 'Video' }, { nodeId: runtimeNode.id, status: 'result-updated', running: true });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(visibleNode.data.videoStatus, 'processing');
+    assert.equal(recovery.open, false);
     finishRun();
 });
 

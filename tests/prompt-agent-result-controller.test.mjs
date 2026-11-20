@@ -89,6 +89,7 @@ function harness(options = {}) {
     });
     controller.init();
     controller.restoreWorkflow(workflows.get('a'));
+    controller.open();
     return {
         controller, workflows, element, resultReady,
         executionCount: () => executionCount,
@@ -110,6 +111,8 @@ test('a background completion updates only its original workflow and reopens wit
     assert.deepEqual(allRuns(app.workflows.get('a'))[0].mediaAssetKeys, ['media:a', 'media:b']);
     assert.equal(allRuns(app.workflows.get('a'))[0].persistenceStatus, 'saved');
     app.switchTo('a');
+    assert.equal(app.currentRunView(), undefined, 'closed Agent defers restored result views');
+    app.controller.open();
     await turn();
     assert.equal(app.currentRunView().children.filter((child) => child.className === 'prompt-agent-result-image').length, 2);
     assert.equal(app.element('prompt-agent-messages').children[0].querySelector('.prompt-agent-actions').children[1].disabled, false);
