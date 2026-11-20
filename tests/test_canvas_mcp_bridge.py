@@ -6,6 +6,7 @@ import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from importlib.util import find_spec
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -68,6 +69,32 @@ def settings(port, action, headers=None, **params):
     return request(port, SETTINGS, {'action': action, **params}, {
         'Origin': f'http://127.0.0.1:{port}', 'X-CainFlow-Canvas-MCP': 'settings', **(headers or {}),
     })
+
+
+class CanvasMcpToolMetadataTests(unittest.IsolatedAsyncioTestCase):
+    @unittest.skipUnless(find_spec('mcp'), 'Install requirements-mcp.txt to test stdio tool metadata.')
+    async def test_image_import_guidance_is_visible_in_the_stdio_protocol(self):
+        from mcp import Client, StdioServerParameters
+
+        server = StdioServerParameters(
+            command=sys.executable,
+            args=[str(Path(__file__).resolve().parents[1] / 'canvas_mcp.py')],
+            env={'CAINFLOW_MCP_TOKEN': TOKEN},
+        )
+        async with Client(server, mode='legacy', read_timeout_seconds=5) as client:
+            instructions = client.instructions
+            tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+
+        for guidance in (instructions, tools['edit_canvas'].description):
+            with self.subTest(guidance=guidance):
+                self.assertIn('import_history', guidance)
+                self.assertIn('no file upload', guidance)
+                self.assertIn('authorized access', guidance)
+                self.assertIn('Only ask the user', guidance)
+                self.assertIn('read_canvas again', guidance)
+
+        self.assertIn('nodes[].assets', tools['read_canvas'].description)
+        self.assertIn('imported[].nodeId', tools['import_history'].description)
 
 
 class CanvasMcpBridgeTests(unittest.TestCase):

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { withAppBrowser, reloadAppBrowser, delay } from './helpers/app-browser.mjs';
+import { withAppBrowser, reloadAppBrowser, delay, expectToastDuring } from './helpers/app-browser.mjs';
 import { uploadImageOriginal } from './helpers/image-upload.mjs';
 
 async function callCanvas(server, token, method, args = {}) {
@@ -11,6 +11,12 @@ async function callCanvas(server, token, method, args = {}) {
         body: JSON.stringify({ method, args })
     });
     return { status: response.status, ...await response.json() };
+}
+
+async function sendHistoryShortcut({ evaluate }, key) {
+    await evaluate(`document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{
+        key: ${JSON.stringify(key)}, ctrlKey: true, bubbles: true, cancelable: true
+    }))`);
 }
 
 test('MCP edits a canvas in place, restores it through history and stops a targeted run', { timeout: 60000 }, async () => {
@@ -215,12 +221,14 @@ test('Agent and MCP import history originals and apply the correct saved prompt 
                 ...beforeImport, items: [{ id: history.id, fileVersion: history.fileVersion }]
             });
             assert.match(stale.error, /画布已修改/);
-            await app.evaluate("document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,bubbles:true,cancelable:true}))");
-            await app.waitFor(`!document.getElementById(${JSON.stringify(importedNode)})`);
-            await app.waitFor("document.body.textContent.includes('已撤回上一步操作')");
-            await app.evaluate("document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'y',ctrlKey:true,bubbles:true,cancelable:true}))");
-            await app.waitFor(`!!document.getElementById(${JSON.stringify(importedNode)})`);
-            await app.waitFor("document.body.textContent.includes('已重做上一步操作')");
+            await expectToastDuring(app, '已撤回上一步操作', async () => {
+                await sendHistoryShortcut(app, 'z');
+                await app.waitFor(`!document.getElementById(${JSON.stringify(importedNode)})`);
+            });
+            await expectToastDuring(app, '已重做上一步操作', async () => {
+                await sendHistoryShortcut(app, 'y');
+                await app.waitFor(`!!document.getElementById(${JSON.stringify(importedNode)})`);
+            });
 
             await sendLocal(`把历史图片 ID ${history.id} 导入当前画布`);
             await app.waitFor("document.getElementById('prompt-agent-messages').textContent.includes('已导入 1 张历史原图')");
@@ -364,7 +372,8 @@ test('local MCP bridge reads, edits, undoes and runs the active editor canvas', 
             ],
             providers: [{ id: 'provider', name: 'Test Provider', endpoint: 'https://controlled.test/v1', apikey: 'test' }], workflowTabs: [{
             name: 'MCP', workflowId, data: { workflowId, nodes, connections: [] }
-        }], activeWorkflowName: 'MCP', activeWorkflowId: workflowId }, async ({ server, evaluate, waitFor }) => {
+        }], activeWorkflowName: 'MCP', activeWorkflowId: workflowId }, async app => {
+            const { server, evaluate, waitFor } = app;
             const call = (method, args) => callCanvas(server, token, method, args);
             let canvas;
             for (let attempt = 0; attempt < 20; attempt++) {
@@ -393,12 +402,14 @@ test('local MCP bridge reads, edits, undoes and runs the active editor canvas', 
             const stale = await call('edit_canvas', { ...target, plan });
             assert.match(stale.error, /画布已修改|stale_revision/);
 
-            await evaluate("document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,bubbles:true,cancelable:true}))");
-            await waitFor("document.getElementById('note-text').value==='Before MCP' && document.querySelectorAll('#nodes-layer .node').length===2");
-            await waitFor("document.body.textContent.includes('已撤回上一步操作')");
-            await evaluate("document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'y',ctrlKey:true,bubbles:true,cancelable:true}))");
-            await waitFor(`document.getElementById(${JSON.stringify(imageId)}) && document.getElementById('note-text').value==='After MCP'`);
-            await waitFor("document.body.textContent.includes('已重做上一步操作')");
+            await expectToastDuring(app, '已撤回上一步操作', async () => {
+                await sendHistoryShortcut(app, 'z');
+                await waitFor("document.getElementById('note-text').value==='Before MCP' && document.querySelectorAll('#nodes-layer .node').length===2");
+            });
+            await expectToastDuring(app, '已重做上一步操作', async () => {
+                await sendHistoryShortcut(app, 'y');
+                await waitFor(`document.getElementById(${JSON.stringify(imageId)}) && document.getElementById('note-text').value==='After MCP'`);
+            });
             const afterRedo = await call('read_canvas');
             assert.equal(afterRedo.result.connections[0].to.nodeId, imageId);
 

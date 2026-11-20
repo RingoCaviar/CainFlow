@@ -51,12 +51,13 @@ async function runSuccess(app, id, selected = false) {
     await completed(app, id);
 }
 
-async function activate(app, name) {
+async function activate(app, name, workflowId) {
     await app.evaluate("document.getElementById('btn-toggle-workflow').click()");
     await app.waitFor(`Boolean(document.querySelector('.workflow-item[data-name=${JSON.stringify(name)}]'))`);
     await app.evaluate(`document.querySelector('.workflow-item[data-name=${JSON.stringify(name)}]').click()`);
     await app.waitFor(`document.querySelector('.workflow-item[data-name=${JSON.stringify(name)}]')?.classList.contains('is-active')===true`);
     await app.evaluate("document.getElementById('btn-close-workflow').click()");
+    await app.waitFor(async () => (await saved(app))?.activeWorkflowId === workflowId);
 }
 
 async function click(app, selector, hold = 0) {
@@ -305,7 +306,7 @@ test('effective settings mark generation pending while browsing, layout, selecti
         const legacy = { ...record }; delete legacy.generationRevision;
         const count = await app.evaluate('statusRequests.length');
         assert.equal(await app.evaluate(`fetch('/api/workflows/Legacy%20status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(${JSON.stringify({ workflowId: 'legacy-status-recipe', nodes: [legacy], connections: [] })})}).then(response=>response.ok)`), true);
-        await activate(app, 'Legacy status');
+        await activate(app, 'Legacy status', 'legacy-status-recipe');
         await expectUnconfirmed(app, 'dirty-node');
         await app.waitFor("document.querySelector('#dirty-node-image-results img')?.naturalWidth>0");
         const restoredLegacy = (await saved(app)).nodes.find(node => node.id === 'dirty-node');
@@ -386,13 +387,13 @@ test('a held background run confirms only its own recipe while an identical node
             ['Status A', { workflowId: 'status-a', nodes: [node('shared', 50, 120)], connections: [] }],
             ['Status B', { workflowId: 'status-b', nodes: [node('shared', 50, 120, { prompt: 'shared B original' }), node('clone', 500, 120, { isClone: true, cloneSourceId: 'shared' }), { id: 'b-ref', type: 'ImageImport', x: 20, y: 500 }], connections: [{ id: 'clone-ref', from: { nodeId: 'b-ref', port: 'image' }, to: { nodeId: 'clone', port: 'referenceImages' }, type: 'image', order: 0 }] }]
         ]) assert.equal(await app.evaluate(`fetch('/api/workflows/${encodeURIComponent(name)}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(${JSON.stringify(document)})}).then(response=>response.ok)`), true);
-        await activate(app, 'Status A'); await expectUnconfirmed(app, 'shared');
+        await activate(app, 'Status A', 'status-a'); await expectUnconfirmed(app, 'shared');
         await open(app, 'shared'); await change(app, 'shared-prompt', 'shared A pending'); await expectDirty(app, 'shared', true);
         await app.evaluate("statusHold=['shared']"); await start(app, 'shared');
         await app.waitFor("statusPending.shared===true&&document.getElementById('shared-run-status').textContent==='运行中'");
         assert.equal(await app.evaluate("document.querySelector('#shared > .node-card-run-status:not([hidden])')?.dataset.status"), 'running');
         assert.equal(await app.evaluate("document.getElementById('shared-prompt').disabled"), true);
-        await activate(app, 'Status B'); await open(app, 'shared'); await expectUnconfirmed(app, 'shared');
+        await activate(app, 'Status B', 'status-b'); await open(app, 'shared'); await expectUnconfirmed(app, 'shared');
         assert.equal(await app.evaluate("document.querySelector('#shared > .node-card-run-status').hidden"), true, 'the active card has no status from a same-ID background run');
         assert.equal(await app.evaluate("document.getElementById('shared-prompt').disabled"), false, 'the background workflow cannot lock a different node with the same ID');
         assert.equal(await app.evaluate("document.getElementById('shared-prompt').value"), 'shared B original');
@@ -405,7 +406,7 @@ test('a held background run confirms only its own recipe while an identical node
         await expectDirty(app, 'shared', true);
         assert.equal(await app.evaluate("document.getElementById('shared-prompt').value"), 'shared B edited during A');
         assert.equal(await app.evaluate("document.getElementById('shared-image-results').hidden"), true, 'background output never appears on the active same-ID node');
-        await activate(app, 'Status A'); await expectDirty(app, 'shared', false);
+        await activate(app, 'Status A', 'status-a'); await expectDirty(app, 'shared', false);
         await app.waitFor("document.querySelector('#shared-image-results img')?.naturalWidth>0");
         assert.equal(await app.evaluate("document.querySelector('#shared > .node-card-run-status').hidden"), true, 'a completed background run does not leave a running indicator on return');
         assert.equal(await app.evaluate("document.getElementById('shared-prompt').value"), 'shared A pending');
@@ -413,7 +414,7 @@ test('a held background run confirms only its own recipe while an identical node
         const graphA = await saved(app);
         assert.equal(graphA.nodes.find(node => node.id === 'shared').generationRevision.dirty, false);
         assert.equal(graphA.nodes.find(node => node.id === 'shared').mediaAssetKeys.length, 1);
-        await activate(app, 'Status B'); await waitForAutosave(app);
+        await activate(app, 'Status B', 'status-b'); await waitForAutosave(app);
         await waitForAutosave(app);
         await reloadAppBrowser(app); await expectDirty(app, 'shared', true);
         assert.equal(await app.evaluate("document.getElementById('shared-prompt').value"), 'shared B edited during A');

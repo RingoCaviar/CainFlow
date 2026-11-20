@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { withAppBrowser, delay } from './helpers/app-browser.mjs';
+import { withAppBrowser, delay, expectToastDuring } from './helpers/app-browser.mjs';
 
 const configuration = {
     autoCheckUpdatesOnLoad: false,
@@ -172,10 +172,11 @@ async function assertImageReferences(app, sourceIds) {
 }
 
 async function assertBatchUndone(app) {
-    await shortcut(app, 'z');
-    await app.waitFor("document.querySelectorAll('#connections-svg path[data-conn-id]').length === 0");
-    await app.waitFor("fetch('/api/storage/documents/session').then(response => response.json()).then(document => document.value?.connections?.length === 0)");
-    await app.waitFor("Array.from(document.querySelectorAll('.toast')).some(toast => toast.textContent.includes('已撤回上一步操作'))");
+    await expectToastDuring(app, '已撤回上一步操作', async () => {
+        await shortcut(app, 'z');
+        await app.waitFor("document.querySelectorAll('#connections-svg path[data-conn-id]').length === 0");
+        await app.waitFor("fetch('/api/storage/documents/session').then(response => response.json()).then(document => document.value?.connections?.length === 0)");
+    });
 }
 
 async function watchForConnectionWarnings(app) {

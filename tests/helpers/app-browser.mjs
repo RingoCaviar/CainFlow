@@ -20,6 +20,29 @@ async function saveTestMetrics() {
 // Startup can intentionally wait for a user decision (for example retiring Save
 // nodes). Such a dialog is already an interactive boundary for its test.
 const appInteractive = "window.__cainflowAppReady===true || Boolean(document.querySelector('#app-action-dialog:not(.hidden)'))";
+export async function expectToastDuring({ evaluate, waitFor }, message, action) {
+    const expected = JSON.stringify(message);
+    // Another status can replace a toast before the next browser poll.
+    await evaluate(`(() => {
+        const capture = { message: null };
+        capture.observer = new MutationObserver(records => {
+            const added = records.flatMap(record => Array.from(record.addedNodes));
+            if (added.some(node => node.textContent?.includes(${expected}))) {
+                capture.message = ${expected};
+                capture.observer.disconnect();
+            }
+        });
+        capture.observer.observe(document.getElementById('toast-container'), { childList: true });
+        window.__cainflowTestToastCapture = capture;
+    })()`);
+    try {
+        await action();
+        await waitFor(`window.__cainflowTestToastCapture.message === ${expected}`);
+    } finally {
+        await evaluate('window.__cainflowTestToastCapture.observer.disconnect(); delete window.__cainflowTestToastCapture');
+    }
+}
+
 export async function waitForAutosave({ waitFor }) {
     const started = performance.now();
     testMetrics.autosaveWaitCount++;

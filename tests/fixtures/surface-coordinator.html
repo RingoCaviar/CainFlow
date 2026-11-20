@@ -33,7 +33,8 @@ try {
     const surfaces = getSurfaceCoordinator(document);
     for (const id of ['btn-theme-toggle', 'theme-menu']) document.body.appendChild(document.importNode(original.getElementById(id), true));
     const themeUi = createThemeControllerApi({ state, documentRef:document });themeUi.initTheme();
-    let saves=0, completeReply;
+    let saves=0;
+    const replyStarted = Promise.withResolvers();
     const settings = createSettingsControllerApi({ state, settingsModal:document.getElementById('settings-modal'),
         modelsList:document.getElementById('models-list'),providersList:document.getElementById('providers-list'),
         documentRef:document,windowRef:window,localStorageRef:localStorage,showToast(){},saveState(){saves++;},addLog(){}, getHandle:async()=>null,
@@ -43,7 +44,7 @@ try {
     const controller = createPromptAgentController({ documentRef:document,panelManager:manager,getChatModels:()=>state.models,
         getSearchModels:()=>state.models,getProviders:()=>state.providers,getSelectedModelId:()=> 'chat',getImageModels:()=>[],
         openModelSettings:target=>settings.openModelSettings(target),getPanelWidth:()=>300,resizeObserverFactory:()=>null,
-        createReply:()=>new Promise(resolve=>completeReply=resolve) });
+        createReply:()=>new Promise(resolve=>replyStarted.resolve(resolve)) });
     controller.init(); manager.bindCanvasBlankClose();
     const keys=Object.keys(manager.panels);
     for (const key of keys) if(key!=='agent') document.getElementById(manager.panels[key].btn).addEventListener('click',()=>manager.toggle(key));
@@ -56,7 +57,12 @@ try {
     }
     manager.closeAll();controller.open();const input=document.getElementById('prompt-agent-input');input.value='保留草稿';
     manager.toggle('history');controller.open();check(input.value==='保留草稿','draft survives panel switch');
-    const pending=controller.submit();await tick();manager.toggle('logs');completeReply({message:'后台完成'});await pending;controller.open();
+    const pending = controller.submit();
+    const completeReply = await Promise.race([
+        replyStarted.promise,
+        pending.then(() => { throw new Error('Agent submit finished before the background reply started'); })
+    ]);
+    manager.toggle('logs');completeReply({message:'后台完成'});await pending;controller.open();
     check(document.getElementById('prompt-agent-messages').textContent.includes('后台完成'),'background request survives panel switch');
     const searchButton=document.getElementById('prompt-agent-model').parentElement.querySelector('.thinking-control > summary'), searchMenu=document.getElementById('prompt-agent-search-menu');
     const openSearch=()=>{if(!searchButton.parentElement.open)searchButton.click();searchMenu.open=true;};

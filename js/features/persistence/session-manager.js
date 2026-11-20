@@ -801,6 +801,7 @@ export function createSessionManagerApi({
     async function applyCanvasBatch(mutate, persist, { rollbackAdditions, persistCapturesWorkflow = false } = {}) {
         if (historyTransition || state.canvasPlanApplying || (!rollbackAdditions && (state.runningNodeIds?.size || state.isRunStarting))) throw new Error('画布正在修改或运行，请稍后再应用');
         clearTimeout(saveTimer);
+        saveTimer = null;
         const before = captureHistorySnapshot();
         state.canvasPlanApplying = true;
         try {

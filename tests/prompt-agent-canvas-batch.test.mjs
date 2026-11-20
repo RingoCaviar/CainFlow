@@ -30,6 +30,17 @@ test('multi-node canvas commit adds exactly one undo entry; undo/redo preserve w
     await manager.redo(); assert.equal(state.nodes.size, 3); assert.equal(state.nodes.get('old').text, 'after'); assert.equal(state.connections.length, 1);
 });
 
+test('applying a canvas batch clears the pending session save that it cancels', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { manager, add } = harness();
+    manager.scheduleSave({ dirty: false });
+    assert.equal(manager.hasPendingSave(), true);
+
+    await manager.applyCanvasBatch(() => add('new', 'image prompt'), async () => true);
+
+    assert.equal(manager.hasPendingSave(), false);
+});
+
 test('mutation failure or failed durable save restores old graph and does not consume redo', async () => {
     for (const failure of ['mutation', 'save']) {
         const { state, manager, add, serialize } = harness(); add('old', 'before');
