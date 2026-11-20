@@ -257,6 +257,11 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
 
     function position({ rememberPanLayout = false } = {}) {
         panLayout = null;
+        // Keep the action under the pointer until the native button press ends.
+        if (generate.matches(':active')) {
+            schedulePosition();
+            return;
+        }
         positionPanel(rememberPanLayout);
         positionSettingsPopup();
     }

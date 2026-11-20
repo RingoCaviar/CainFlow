@@ -151,6 +151,7 @@ test('Agent uses send-time selection to revise, create or delete through reversi
         await action(app, '撤销本次画布操作');
         await app.waitFor("document.querySelectorAll('#nodes-layer>.node').length===4");
         await app.waitFor("fetch('/api/storage/documents/session').then(r=>r.json()).then(r=>r.value.nodes.length===4)");
+        await app.waitFor(`(${lastCard}).querySelector('[role=status]').textContent.includes('已按撤销栈处理')`);
         assert.deepEqual((await graph(app)).connections, session.connections);
         assert.equal((await graph(app)).nodes.find(node => node.id === 'source').text, 'optimized');
         await app.evaluate("document.getElementById('canvas-container').dispatchEvent(new KeyboardEvent('keydown',{key:'y',ctrlKey:true,bubbles:true,cancelable:true}))");

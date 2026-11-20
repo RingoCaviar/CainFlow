@@ -32,16 +32,17 @@ async function geometry(app) {
     return app.evaluate(`['editor-first','editor-second'].map(id=>{const element=document.getElementById(id);return {id,left:element.style.left,top:element.style.top,width:element.offsetWidth}})`);
 }
 
-async function nativeClick(app, selector) {
+async function nativeClick(app, selector, { whilePressed } = {}) {
     const point = await app.evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)}),r=e.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()`);
     await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
     await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
+    if (whilePressed) await whilePressed();
     await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
 }
 
-async function clickParameterRun(app) {
+async function clickParameterRun(app, options) {
     await app.waitFor("(()=>{const button=document.querySelector('#image-parameter-panel [data-parameter-action=generate]'),r=button.getBoundingClientRect();return !button.disabled&&button.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()");
-    await nativeClick(app, '#image-parameter-panel [data-parameter-action=generate]');
+    await nativeClick(app, '#image-parameter-panel [data-parameter-action=generate]', options);
 }
 
 const cachedReferenceImages = await Promise.all(['red', 'blue'].map(async color =>
@@ -137,7 +138,12 @@ test('parameter run executes only its current node and reuses cached upstream im
         await changeField(app, 'editor-second-generation-count', '2');
         await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
         await app.evaluate('window.currentNodeRequests=[]');
-        await clickParameterRun(app);
+        await clickParameterRun(app, {
+            whilePressed: () => app.evaluate(`new Promise(resolve => {
+                document.getElementById('editor-second').style.top = '260px';
+                requestAnimationFrame(() => requestAnimationFrame(resolve));
+            })`)
+        });
         await app.waitFor('currentNodeRequests.length===2');
         await app.waitFor("document.getElementById('editor-second-run-status').textContent==='完成'&&document.getElementById('btn-stop').disabled");
         assert.deepEqual(await app.evaluate('currentNodeRequests.map(request=>request.prompt)'), ['second local draft', 'second local draft'], 'batch count repeats only the current node');
