@@ -296,6 +296,42 @@ test('commerce footer fills only unfinished slots and keeps an explicit whole-se
             return measured;
         })`);
         assert.deepEqual(narrowToasts, { compact: true, latestVisible: true, reachesOlder: true });
+
+        const dock = "document.getElementById('image-parameter-panel')";
+        const wasPinned = await app.evaluate("document.body.classList.contains('toolbar-pinned')");
+        await app.evaluate("document.body.classList.add('toolbar-pinned')");
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 320, height: 300, deviceScaleFactor: 1, mobile: false });
+        await app.waitFor(`innerHeight === 300 && ${dock}.getBoundingClientRect().top >= document.getElementById('toolbar').getBoundingClientRect().bottom - 1`);
+        await app.evaluate(`${dock}.scrollTop = 0`);
+        const point = await app.evaluate(`(() => {
+            const rect = ${dock}.getBoundingClientRect();
+            return { x: Math.round(rect.right - 30), y: Math.round(rect.bottom - 16) };
+        })()`);
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseWheel', ...point, deltaX: 0, deltaY: 2000 });
+        await app.waitFor(`(() => {
+            const fill = ${button('fill')};
+            const rect = fill.getBoundingClientRect();
+            const header = ${dock}.querySelector('.image-parameter-header');
+            const headerRect = header.getBoundingClientRect();
+            return ${dock}.scrollTop > 0 && rect.bottom <= innerHeight && !fill.disabled
+                && fill.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
+                && header.contains(document.elementFromPoint(headerRect.x + 40, headerRect.y + 5));
+        })()`);
+
+        await app.evaluate(`${dock}.scrollTop = 0`);
+        await app.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
+        try {
+            await app.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
+            for (const offset of [12, 24, 36, 48, 60]) {
+                await app.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: point.x, y: point.y - offset }] });
+                await app.evaluate('new Promise(resolve => requestAnimationFrame(resolve))');
+            }
+            await app.waitFor(`${dock}.scrollTop > 0`);
+            await app.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        } finally {
+            await app.send('Emulation.setTouchEmulationEnabled', { enabled: false });
+        }
+        await app.evaluate(`document.body.classList.toggle('toolbar-pinned', ${wasPinned})`);
         await app.send('Emulation.setDeviceMetricsOverride', toastViewport);
         await nativeClick(app, '#commerce > .node-card-run-status');
         await app.waitFor("document.activeElement.closest('[data-commerce-shot-id=detail]') && document.activeElement.dataset.commerceAction==='error-detail'");
@@ -1061,6 +1097,18 @@ test('the commerce dock resizes from its left edge and restores its width indepe
         await reloadAppBrowser(app);
         await openParameters(app, 'commerce');
         assert.equal(await app.evaluate(width), savedWidth, 'reloading restores the last manually selected commerce width');
+
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 1100, height: 320, deviceScaleFactor: 1, mobile: false });
+        await app.evaluate("document.body.classList.add('toolbar-pinned')");
+        const shortDockPoint = await app.evaluate(`(() => {
+            const { left, top, width } = ${panel}.getBoundingClientRect();
+            return { x: left + width / 2, y: top + 95 };
+        })()`);
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseWheel', ...shortDockPoint, deltaX: 0, deltaY: 1600 });
+        await app.waitFor(`${panel}.scrollTop > 120`);
+        await drag(20, savedWidth - 20);
+        await drag(-20, savedWidth);
+        await app.evaluate("document.body.classList.remove('toolbar-pinned')");
 
         await app.send('Emulation.setDeviceMetricsOverride', { width: 1024, height: 700, deviceScaleFactor: 1, mobile: false });
         await toggleAgent();

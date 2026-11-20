@@ -112,6 +112,19 @@ test('整套美术风格自动规划后保存恢复，单图沿用，自设与�
         const manual = '冷蓝水彩，纸张肌理，安静通透；各图位自由安排空间。';
         await editArt(app, manual);
         await app.waitFor(`${stored}.then(settings=>settings.artDirection===${JSON.stringify(manual)} && settings.plan?.stale)`);
+        const redundantMutations = await app.evaluate(`(() => {
+            const panel = ${query(panel)};
+            const observer = new MutationObserver(() => {});
+            observer.observe(panel, { attributes: true, childList: true, subtree: true });
+            try {
+                const field = ${query(artField)};
+                for (let index = 0; index < 30; index++) field.dispatchEvent(new Event('input', { bubbles: true }));
+                return observer.takeRecords().length;
+            } finally {
+                observer.disconnect();
+            }
+        })()`);
+        assert.equal(redundantMutations, 0, 'repeated input with the same art direction skips the dock refresh');
         assert.equal(await app.evaluate(`Boolean(${ready('generate')})`), false);
         assert.deepEqual(await app.evaluate(`${stored}.then(settings=>settings.results.map(row=>row.assetKey))`), previous);
         await app.evaluate(`${query(action('plan'))}.click()`);

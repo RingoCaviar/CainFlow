@@ -118,3 +118,10 @@ export function createZipBlob(entries = []) {
 
     return new Blob([...localParts, ...centralParts, new Uint8Array(endRecord)], { type: 'application/zip' });
 }
+
+export async function createZipBlobFromSources(entries) {
+    const resolved = await Promise.all(entries.map(async entry => entry.blob instanceof Blob
+        ? { path: entry.path, bytes: new Uint8Array(await entry.blob.arrayBuffer()) }
+        : entry));
+    return createZipBlob(resolved);
+}

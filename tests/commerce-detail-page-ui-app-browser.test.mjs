@@ -149,9 +149,35 @@ test('详情图由模型直接生成带文案的成品，连续预览与 ZIP 保
         assert.ok(updatedPrompt.includes(changedCopy));
         assert.match(updatedPrompt, /文案位于右上/);
 
-        await app.evaluate(`window.detailDownloads=[];window.__cainflowDesktop={saveFile:async (name,mime,blob)=>{
-            detailDownloads.push({name,mime,bytes:[...new Uint8Array(await blob.arrayBuffer())]});return true;
-        }};`);
+        await app.evaluate(`(() => {
+            window.detailDownloads = [];
+            window.detailArchiveWorkers = [];
+            window.Worker = class extends Worker {
+                constructor(url, options) {
+                    super(url, options);
+                    if (!new URL(url, location.href).pathname.endsWith('/zip-archive-worker.js')) return;
+                    this.archiveRecord = { mode: options.type, entries: [], producedArchive: false, terminated: false };
+                    detailArchiveWorkers.push(this.archiveRecord);
+                    this.addEventListener('message', ({ data }) => {
+                        this.archiveRecord.producedArchive = data.archive instanceof Blob;
+                    });
+                }
+
+                postMessage(entries, ...rest) {
+                    if (this.archiveRecord) this.archiveRecord.entries = entries.map(entry => [entry.path, entry.blob instanceof Blob]);
+                    return super.postMessage(entries, ...rest);
+                }
+
+                terminate() {
+                    if (this.archiveRecord) this.archiveRecord.terminated = true;
+                    super.terminate();
+                }
+            };
+            window.__cainflowDesktop = { async saveFile(name, mime, blob) {
+                detailDownloads.push({ name, mime, bytes: [...new Uint8Array(await blob.arrayBuffer())] });
+                return true;
+            } };
+        })()`);
         await click(action('export'));
         await click(`${exportDialog} [data-commerce-export-scope=detail]`);
         await app.waitFor(`!${query(`${exportDialog} [data-commerce-export-download]`)}.disabled`);
@@ -163,6 +189,9 @@ test('详情图由模型直接生成带文案的成品，连续预览与 ZIP 保
         assert.deepEqual(readStoredZipImages(Buffer.from(download.bytes)), [
             { name: '01_核心卖点说明.png', data: secondImage }, { name: '02_详情首屏.png', data: revisedImage }
         ]);
+
+        assert.deepEqual(await app.evaluate('detailArchiveWorkers'), [{ mode: 'module',
+            entries: [['01_核心卖点说明.png', true], ['02_详情首屏.png', true]], producedArchive: true, terminated: true }]);
 
         await click(`${exportDialog} [data-commerce-export-close]`);
         await reloadAppBrowser(app);

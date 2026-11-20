@@ -24,6 +24,8 @@ export function updateCommerceArtDirection(settings, value, { automatic = false 
     const description = automatic ? '' : normalizeCommerceArtDirection(value);
     const requestAutomatic = automatic || !description;
     if (!requestAutomatic && normalizeCommerceArtDirection(settings.artDirection) === description) return false;
+    if (requestAutomatic && !normalizeCommerceArtDirection(settings.artDirection) && !settings.visualStyle
+        && (!settings.plan || (!settings.plan.artDirection && settings.plan.stale === true && settings.plan.confirmed === false))) return false;
     settings.artDirection = description;
     delete settings.visualStyle;
     if (settings.plan) {

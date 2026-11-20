@@ -141,7 +141,7 @@ export function openCommerceImageSetExport({ manifest, previousManifest, documen
                 const image = await response.blob();
                 const extension = imageExtension(image.type);
                 if (!extension || !image.size) throw new Error('图像文件无效');
-                entries.push({ path: row.fileStem + extension, bytes: new Uint8Array(await image.arrayBuffer()) });
+                entries.push({ path: row.fileStem + extension, blob: image });
             } catch {
                 signal.throwIfAborted();
                 availability.set(row.assetKey, { message: '无法读取' });
@@ -174,7 +174,7 @@ export function openCommerceImageSetExport({ manifest, previousManifest, documen
         summary.focus({ preventScroll: true });
         let message = '';
         try {
-            const result = await saveZipArchive(`${selectedManifest.title}_${scopes[scope]}.zip`, () => readArchiveEntries(rows), { windowRef, documentRef });
+            const result = await saveZipArchive(`${selectedManifest.title}_${scopes[scope]}.zip`, () => readArchiveEntries(rows), { windowRef, documentRef, signal });
             if (result === 'saved') message = `已保存 ZIP，包含 ${rows.length} 张图。`;
             if (result === 'started') message = `已开始下载 ZIP，包含 ${rows.length} 张图。`;
         } catch (error) {

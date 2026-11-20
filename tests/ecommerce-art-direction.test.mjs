@@ -135,6 +135,9 @@ test('重设 AI 风格后即使模型漏回该字段，重规划仍保留统一�
 });
 
 test('手动清空自设或 AI 风格都明确切回自动设定，不再回退旧风格', () => {
+    const newSet = {};
+    assert.equal(updateCommerceArtDirection(newSet, ' '), false);
+    assert.deepEqual(newSet, {});
     for (const manual of ['', '旧手设风格']) {
         const state = { ...(manual ? { artDirection: manual } : {}),
             plan: { artDirection: '旧 AI 风格', confirmed: true, visualStyle: { description: '旧风格' } } };
@@ -143,5 +146,9 @@ test('手动清空自设或 AI 风格都明确切回自动设定，不再回退�
         assert.equal(state.plan.artDirection, undefined);
         assert.equal(state.plan.stale, true);
         assert.equal(resolveCommerceImageSetStyle(state), null);
+        const cleared = structuredClone(state);
+        assert.equal(updateCommerceArtDirection(state, ''), false);
+        assert.equal(updateCommerceArtDirection(state, '', { automatic: true }), false);
+        assert.deepEqual(state, cleared);
     }
 });

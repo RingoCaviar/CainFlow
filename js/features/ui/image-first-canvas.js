@@ -967,8 +967,14 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         views.set(node, view); store.append(form);
         node.onImageFirstSelect = group => select(node, group);
         form.addEventListener('mousedown', event => event.stopPropagation());
-        form.addEventListener('input', () => { refreshNode(node.id); onSettingsChanged(node.id); });
-        form.addEventListener('change', () => { refreshNode(node.id); onSettingsChanged(node.id); });
+        const updateFromForm = event => {
+            // The commerce editor handles these fields together with its draft and results.
+            if (view.commerce && event.target.matches('[data-commerce-art-direction], [data-commerce-shot-field]')) return;
+            refreshNode(node.id);
+            onSettingsChanged(node.id);
+        };
+        form.addEventListener('input', updateFromForm);
+        form.addEventListener('change', updateFromForm);
         form.addEventListener('toggle', event => {
             if (current !== node) return;
             // Explicit disclosure changes need a fresh content-height measurement.

@@ -119,6 +119,49 @@ test('failed ZIP writes abort their writable stream and preserve the original er
     assert.equal(aborted, true);
 });
 
+test('ZIP export preserves original Blob bytes when the archive worker cannot start', async () => {
+    const original = new Blob(['original image bytes'], { type: 'image/jpeg' });
+    let terminated = false;
+    let saved;
+    class UnavailableWorker extends EventTarget {
+        postMessage() {
+            this.dispatchEvent(new Event('error', { cancelable: true }));
+        }
+
+        terminate() {
+            terminated = true;
+        }
+    }
+    const windowRef = { Worker: UnavailableWorker, __cainflowDesktop: { async saveFile(_name, _type, blob) {
+        saved = Buffer.from(await blob.arrayBuffer());
+        return true;
+    } } };
+    const entries = [{ path: '主图.jpg', blob: original }];
+    assert.equal(await saveZipArchive('suite.zip', async () => entries, { windowRef, documentRef: {} }), 'saved');
+    assert.ok(terminated);
+    assert.ok(saved.includes(Buffer.from('主图.jpgoriginal image bytes')));
+});
+
+test('closing the export owner terminates an active ZIP worker and skips native save', async () => {
+    const controller = new AbortController();
+    let terminated = false;
+    class PendingWorker extends EventTarget {
+        postMessage() {
+            controller.abort();
+        }
+
+        terminate() {
+            terminated = true;
+        }
+    }
+    const windowRef = { Worker: PendingWorker, __cainflowDesktop: { saveFile: () => assert.fail('cancelled export must not save') } };
+    const entries = [{ path: 'main.png', blob: new Blob(['image']) }];
+    await assert.rejects(saveZipArchive('suite.zip', async () => entries, {
+        windowRef, documentRef: {}, signal: controller.signal
+    }), { name: 'AbortError' });
+    assert.ok(terminated);
+});
+
 test('history image download reports a started request', async () => {
     const downloaded = [];
     const started = await startHistoryDownload(

@@ -1,6 +1,40 @@
-import { createZipBlob } from '../../core/zip-archive.js';
+import { createZipBlobFromSources } from '../../core/zip-archive.js';
 
-export async function saveZipArchive(filename, readEntries, { windowRef = window, documentRef = document } = {}) {
+async function buildZipArchive(entries, windowRef, signal) {
+    if (typeof windowRef.Worker !== 'function') return createZipBlobFromSources(entries);
+
+    let worker;
+    let onAbort;
+    let result;
+    try {
+        worker = new windowRef.Worker(new URL('../../core/zip-archive-worker.js', import.meta.url), { type: 'module' });
+        result = await new Promise((resolve, reject) => {
+            onAbort = () => reject(signal.reason);
+            signal?.addEventListener('abort', onAbort, { once: true });
+            worker.addEventListener('message', ({ data }) => resolve(data), { once: true });
+            const unavailable = event => {
+                event.preventDefault();
+                reject(new Error('ZIP Worker 无法运行'));
+            };
+            worker.addEventListener('error', unavailable, { once: true });
+            worker.addEventListener('messageerror', unavailable, { once: true });
+            // Blob entries can cross the worker boundary without copying their bytes in JavaScript.
+            worker.postMessage(entries);
+        });
+    } catch {
+        signal?.throwIfAborted();
+        return createZipBlobFromSources(entries);
+    } finally {
+        worker?.terminate();
+        if (onAbort) signal?.removeEventListener('abort', onAbort);
+    }
+
+    if (result.error) throw new Error(result.error);
+    return result.archive;
+}
+
+export async function saveZipArchive(filename, readEntries, { windowRef = window, documentRef = document, signal } = {}) {
+    signal?.throwIfAborted();
     const desktop = windowRef.__cainflowDesktop;
     let handle;
     if (!desktop?.saveFile && typeof windowRef.showSaveFilePicker === 'function') {
@@ -16,9 +50,12 @@ export async function saveZipArchive(filename, readEntries, { windowRef = window
         }
     }
 
+    signal?.throwIfAborted();
     const entries = await readEntries();
+    signal?.throwIfAborted();
     if (!entries.length) throw new Error('没有可导出的文件');
-    const archive = createZipBlob(entries);
+    const archive = await buildZipArchive(entries, windowRef, signal);
+    signal?.throwIfAborted();
     if (desktop?.saveFile) {
         return await desktop.saveFile(filename, archive.type, archive) ? 'saved' : 'cancelled';
     }

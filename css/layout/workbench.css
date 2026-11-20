@@ -697,6 +697,7 @@ body:has(#main-layout > .image-parameter-panel.is-docked:not([hidden])) #toast-c
 }
 
 #main-layout > .image-parameter-panel.is-docked {
+    --node-parameter-dock-top: 0px;
     position: relative;
     z-index: auto;
     flex: 0 0 var(--node-parameter-dock-width);
@@ -704,6 +705,7 @@ body:has(#main-layout > .image-parameter-panel.is-docked:not([hidden])) #toast-c
     min-width: 0;
     max-width: none;
     max-height: none;
+    padding-block-start: var(--node-parameter-dock-top);
     border-inline-start: 1px solid var(--border-color);
     border-radius: 0;
     box-shadow: none;
@@ -753,9 +755,43 @@ body:has(#main-layout > .image-parameter-panel.is-docked:not([hidden])) #toast-c
 
 #main-layout > .image-parameter-panel.is-docked .image-parameter-context { display: none; }
 
-body:is(.toolbar-pinned, .toolbar-peek-active) #main-layout > .image-parameter-panel.is-docked,
-body.toolbar-controls-active #main-layout > .image-parameter-panel.is-docked {
-    padding-block-start: var(--toolbar-height, 48px);
+body:is(.toolbar-pinned, .toolbar-peek-active, .toolbar-controls-active) #main-layout > .image-parameter-panel.is-docked {
+    --node-parameter-dock-top: var(--toolbar-height, 48px);
+}
+
+@media (max-height: 360px) {
+    #main-layout > .image-parameter-panel.is-docked[data-node-type="ECommerceImageSet"] {
+        /* Let the actions scroll into view when the toolbar and footer leave too little room. */
+        margin-block-start: var(--node-parameter-dock-top);
+        padding-block-start: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scroll-padding-block-start: var(--node-parameter-dock-header-height);
+        scrollbar-width: thin;
+        scrollbar-color: var(--border-color) transparent;
+    }
+
+    #main-layout > .image-parameter-panel.is-docked[data-node-type="ECommerceImageSet"] .image-parameter-header {
+        position: sticky;
+        inset-block-start: 0;
+        z-index: 2;
+        background: linear-gradient(var(--surface-panel-strong, var(--panel-bg)), var(--surface-panel-strong, var(--panel-bg))), var(--bg-canvas);
+    }
+
+    #main-layout > .image-parameter-panel.is-docked[data-node-type="ECommerceImageSet"] .image-parameter-resize {
+        position: sticky;
+        inset: 0 auto auto 0;
+        z-index: 3;
+        order: -1;
+        align-self: flex-start;
+        flex: 0 0 var(--node-parameter-dock-header-height);
+        margin-block-end: calc(-1 * var(--node-parameter-dock-header-height));
+    }
+
+    #main-layout > .image-parameter-panel.is-docked[data-node-type="ECommerceImageSet"] .image-parameter-scroll {
+        flex: 0 0 auto;
+        overflow: visible;
+    }
 }
 
 @media (min-width: 801px) {

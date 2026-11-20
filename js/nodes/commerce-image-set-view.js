@@ -54,7 +54,11 @@ function assetUrl(key) {
 function setImage(element, url) {
     if (url && element.getAttribute('src') !== url) element.src = url;
     if (!url) element.removeAttribute('src');
-    element.hidden = !url;
+    element.toggleAttribute('hidden', !url);
+}
+
+function setAttributeIfChanged(element, name, value) {
+    if (element.getAttribute(name) !== value) element.setAttribute(name, value);
 }
 
 export function createCommerceImageSetView({ node, state, documentRef, run, cancel, removeScene, onChange, openResultPreview,
@@ -180,6 +184,10 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
     const productExtra = productMore.querySelector('.commerce-image-set-product-extra');
     const analyzeButton = element.querySelector('[data-commerce-action="analyze"]');
     const analyzeLabel = analyzeButton.querySelector('.commerce-image-set-analyze-label');
+    const artInput = element.querySelector('[data-commerce-art-direction]');
+    const artReset = element.querySelector('[data-commerce-art-direction-reset]');
+    const artStatus = element.querySelector('[data-commerce-art-direction-status]');
+    const mainImageMode = element.querySelector('[data-commerce-main-mode]');
     const setup = element.querySelector('.commerce-image-set-setup');
     const modelSettings = element.querySelector('.node-model-settings');
     const setupSummary = setup.querySelector('summary');
@@ -337,8 +345,8 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         for (const checkbox of shotSelection.querySelectorAll('[data-commerce-select-shot]')) {
             const id = checkbox.dataset.commerceSelectShot;
             checkbox.checked = selected.has(id);
-            checkbox.disabled = locked || finalizedIds.has(id);
-            checkbox.closest('label').title = finalizedIds.has(id) ? '解锁后可移除此图位' : '';
+            checkbox.toggleAttribute('disabled', locked || finalizedIds.has(id));
+            setAttributeIfChanged(checkbox.closest('label'), 'title', finalizedIds.has(id) ? '解锁后可移除此图位' : '');
         }
     }
 
@@ -486,7 +494,7 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             const groupShots = planShots.filter(shot => (shot.group || 'gallery') === group);
             const countText = groupShots.length ? `${groupShots.length} 张` : '';
             if (count.textContent !== countText) count.textContent = countText;
-            add.disabled = !canAppendScene;
+            add.toggleAttribute('disabled', !canAppendScene);
             let previous = header;
             for (const shot of groupShots) {
                 let row = shotRows.get(shot.id);
@@ -522,44 +530,45 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             const scenePlanned = !!(shot.sceneSummary || shot.prompt);
             if (row.purpose) {
                 if (row.purpose.textContent !== (shot.purpose || '')) row.purpose.textContent = shot.purpose || '';
-                row.purpose.hidden = !shot.purpose;
+                row.purpose.toggleAttribute('hidden', !shot.purpose);
             }
             if (row.sceneSummary) {
                 if (row.sceneSummary.textContent !== sceneSummary) row.sceneSummary.textContent = sceneSummary;
-                row.sceneSummary.hidden = !sceneSummary;
-                row.promptLabel.hidden = !scenePlanned;
+                row.sceneSummary.toggleAttribute('hidden', !sceneSummary);
+                row.promptLabel.toggleAttribute('hidden', !scenePlanned);
             }
-            if (row.copyFields) row.copyFields.hidden = !shot.allowCopy || (shot.customScene && !scenePlanned);
+            row.copyFields?.toggleAttribute('hidden', !shot.allowCopy || (!!shot.customScene && !scenePlanned));
             for (const field of row.shotFields) {
                 const name = field.dataset.commerceShotField;
-                if (documentRef.activeElement !== field) field.value = name === 'copy' ? getCommerceShotCopy(shot) : shot[name] || '';
-                field.disabled = locked || active || finalized;
+                const value = name === 'copy' ? getCommerceShotCopy(shot) : shot[name] || '';
+                if (documentRef.activeElement !== field && field.value !== value) field.value = value;
+                field.toggleAttribute('disabled', locked || active || finalized);
             }
             const copy = shot.allowCopy ? getCommerceShotCopy(shot).split(/\r?\n/).map(line => line.trim()).filter(Boolean).join(' · ') : '';
             if (row.copySummary.textContent !== copy) row.copySummary.textContent = copy;
-            row.copySummary.hidden = !copy || shot.customScene === true;
+            row.copySummary.toggleAttribute('hidden', !copy || shot.customScene === true);
             const previewResult = liveResult?.image ? liveResult : savedResult;
             const previewUrl = previewResult?.image || assetUrl(getCommerceOutputAssetKey(previewResult));
             setImage(row.image, previewUrl);
-            row.preview.hidden = !previewUrl;
-            row.preview.setAttribute('aria-pressed', String(shownShotId === shot.id));
+            row.preview.toggleAttribute('hidden', !previewUrl);
+            setAttributeIfChanged(row.preview, 'aria-pressed', String(shownShotId === shot.id));
             const { current, candidates } = shotVersions(shot.id, savedResult);
             const alternatives = candidates.length;
-            row.resultActions.hidden = active || (!current && !alternatives);
-            row.compareShot.hidden = !alternatives && !(current && shot.source === 'generate');
-            row.compareShot.disabled = resultsLocked || referenceChanged;
+            row.resultActions.toggleAttribute('hidden', active || (!current && !alternatives));
+            row.compareShot.toggleAttribute('hidden', !alternatives && !(current && shot.source === 'generate'));
+            row.compareShot.toggleAttribute('disabled', resultsLocked || referenceChanged);
             const compareLabel = alternatives ? `对比 ${alternatives} 张候选` : (finalized ? '查看版本…' : '生成候选…');
             if (row.compareShot.textContent !== compareLabel) {
                 row.compareShot.textContent = compareLabel;
                 row.compareShot.setAttribute('aria-label', `${compareLabel}「${shot.label}」`);
             }
-            row.toggleFinal.hidden = !current;
-            row.toggleFinal.disabled = resultsLocked || referenceChanged;
-            row.toggleFinal.setAttribute('aria-pressed', String(finalized));
+            row.toggleFinal.toggleAttribute('hidden', !current);
+            row.toggleFinal.toggleAttribute('disabled', resultsLocked || referenceChanged);
+            setAttributeIfChanged(row.toggleFinal, 'aria-pressed', String(finalized));
             const finalLabel = finalized ? '解锁' : '定稿';
             const finalText = row.toggleFinal.querySelector('span');
             if (finalText.textContent !== finalLabel) finalText.textContent = finalLabel;
-            row.toggleFinal.setAttribute('aria-label', `${finalLabel}「${shot.label}」`);
+            setAttributeIfChanged(row.toggleFinal, 'aria-label', `${finalLabel}「${shot.label}」`);
             const previousImage = Boolean(previewUrl) && (referenceChanged || isCommerceShotImageStale(shot, previewResult));
             const failed = result?.status === 'failed' || !!result?.replacementError;
             const sceneStatus = shot.customScene && !shot.sceneConfirmed
@@ -585,30 +594,30 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             row.message.toggleAttribute('data-previous-image', showingPrevious);
             const versionNote = previousImage ? (referenceChanged ? '商品参考图已更换，请复核。'
                 : showingPrevious ? '' : '方案已更新 · 当前为上一版') : '';
-            row.versionNote.hidden = !versionNote;
+            row.versionNote.toggleAttribute('hidden', !versionNote);
             if (row.versionNote.textContent !== versionNote) row.versionNote.textContent = versionNote;
             const previewDescription = [showingPrevious ? row.message.id : '', versionNote ? row.versionNote.id : ''].filter(Boolean).join(' ');
-            if (previewDescription) row.preview.setAttribute('aria-describedby', previewDescription);
+            if (previewDescription) setAttributeIfChanged(row.preview, 'aria-describedby', previewDescription);
             else row.preview.removeAttribute('aria-describedby');
-            row.row.dataset.resultStatus = resultStatus;
-            row.message.hidden = resultStatus === 'failed';
-            row.failure.hidden = resultStatus !== 'failed';
-            row.replan.disabled = locked || active || finalized || !readyToReplan;
+            setAttributeIfChanged(row.row, 'data-result-status', resultStatus);
+            row.message.toggleAttribute('hidden', resultStatus === 'failed');
+            row.failure.toggleAttribute('hidden', resultStatus !== 'failed');
+            row.replan.toggleAttribute('disabled', locked || active || finalized || !readyToReplan);
             row.generationIssue = !canRetry ? '请检查参考图和套图方案后再生图。'
                 : shotImageIssues.get(shot.id) || (!shot.prompt?.trim() ? '请填写该图位的生图提示词。' : '');
-            row.retry.disabled = locked || active || finalized || Boolean(row.generationIssue);
-            row.tools.hidden = !active && shot.source !== 'generate';
+            row.retry.toggleAttribute('disabled', locked || active || finalized || Boolean(row.generationIssue));
+            row.tools.toggleAttribute('hidden', !active && shot.source !== 'generate');
             if (row.removeSceneButton) {
-                row.removeSceneButton.disabled = resultsLocked || finalized;
-                row.removeSceneButton.title = finalized ? '解锁后可删除此场景图' : `删除「${shot.label}」`;
+                row.removeSceneButton.toggleAttribute('disabled', resultsLocked || finalized);
+                setAttributeIfChanged(row.removeSceneButton, 'title', finalized ? '解锁后可删除此场景图' : `删除「${shot.label}」`);
             }
-            row.replan.hidden = shot.customScene ? false : active || shot.source !== 'generate';
-            row.retry.hidden = shot.customScene ? !scenePlanned : active || shot.source !== 'generate';
-            row.cancelShot.setAttribute('aria-disabled', String(canceling));
-            row.cancelShot.hidden = !active;
+            row.replan.toggleAttribute('hidden', !shot.customScene && (active || shot.source !== 'generate'));
+            row.retry.toggleAttribute('hidden', shot.customScene ? !scenePlanned : active || shot.source !== 'generate');
+            setAttributeIfChanged(row.cancelShot, 'aria-disabled', String(canceling));
+            row.cancelShot.toggleAttribute('hidden', !active);
             const noticeText = active ? '' : notice?.text || (!finalized && result?.replacementError ? '已保留当前成图。' : '');
             if (row.notice.textContent !== noticeText) row.notice.textContent = noticeText;
-            row.notice.hidden = !noticeText;
+            row.notice.toggleAttribute('hidden', !noticeText);
             let generateText = savedResult?.status === 'completed' ? '重新生图' : (failed ? '重试生图' : '生成图片');
             if (shot.customScene) {
                 const replanText = scenePlanned ? '重新规划' : '生成方案';
@@ -682,19 +691,17 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         designReferences.update(getCommerceReferenceTypes(value), { styleReferences, locked,
             activeShotIds: activeShots.map(shot => shot.id),
             finalizedShotIds: (value.results || []).filter(row => row.finalized).map(row => row.shotId) });
-        const artInput = element.querySelector('[data-commerce-art-direction]');
-        const artReset = element.querySelector('[data-commerce-art-direction-reset]');
-        const artStatus = element.querySelector('[data-commerce-art-direction-status]');
         let connectedStyle = null;
         try { connectedStyle = resolveVisualStyle(state, node.id); } catch { /* The normal style issue reports an unavailable source. */ }
         const artText = connectedStyle ? visualStyleText(connectedStyle) : value.artDirection || plan?.artDirection || '';
         if ((documentRef.activeElement !== artInput || !value.artDirection) && artInput.value !== artText) artInput.value = artText;
-        artInput.disabled = locked || !!connectedStyle;
-        artReset.disabled = locked;
-        artReset.hidden = !!connectedStyle || !artText;
-        artStatus.textContent = connectedStyle ? '沿用已连接的画面风格。'
+        artInput.toggleAttribute('disabled', locked || !!connectedStyle);
+        artReset.toggleAttribute('disabled', locked);
+        artReset.toggleAttribute('hidden', !!connectedStyle || !artText);
+        const artStatusText = connectedStyle ? '沿用已连接的画面风格。'
             : value.artDirection ? '使用自定风格；各图位按用途变化构图。'
                 : plan?.artDirection ? 'AI 已确定本套风格，可直接修改。' : '规划时先确定统一风格，再分别设计各图位。';
+        if (artStatus.textContent !== artStatusText) artStatus.textContent = artStatusText;
         const shotsLocked = unavailable || cancelingAll || (busy && !activeShots.length && !node.commerceShotPreviews)
             || ['analyze', 'plan'].includes(pendingAction?.action);
         const copyLanguageChanged = !!plan && (plan.copyLanguage ?? 'auto') !== copyLanguage;
@@ -738,10 +745,10 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         const canRetry = currentPlan && !referenceIssue;
         setOptions(fields.platformId, Object.values(COMMERCE_IMAGE_SET_PRESETS).map(item => [item.id, item.label]), platformId);
         setOptions(fields.mainImageMode, [['generate', '生成白底图'], ['original', '沿用原图']], getCommerceAmazonMainMode(value));
-        element.querySelector('[data-commerce-main-mode]').hidden = platformId !== 'amazon';
+        mainImageMode.toggleAttribute('hidden', platformId !== 'amazon');
         setOptions(fields.copyLanguage, Object.entries(COMMERCE_IMAGE_SET_COPY_LANGUAGES), copyLanguage);
         setOptions(fields.candidateCount, candidateCountOptions, String(candidateCount));
-        fields.candidateCount.title = '仅生图图位生效，每张候选调用一次生图模型';
+        setAttributeIfChanged(fields.candidateCount, 'title', '仅生图图位生效，每张候选调用一次生图模型');
         for (const [group] of shotGroups) {
             const field = `${group}Aspect`;
             setOptions(fields[field], COMMERCE_IMAGE_SET_ASPECTS.map(aspect => [aspect, aspect]), value[field] || COMMERCE_IMAGE_SET_DEFAULT_ASPECTS[group]);
@@ -750,15 +757,17 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             setOptions(fields[`${prefix}ModelId`], options.models.map(model => [model.id, model.name || model.modelId]), value[`${prefix}ModelId`], '选择模型');
             setOptions(fields[`${prefix}ProviderId`], options.providers.map(provider => [provider.id, provider.name || provider.id]), value[`${prefix}ProviderId`], '选择供应商');
         }
-        for (const control of Object.values(fields)) control.disabled = locked;
-        fields.platformId.disabled ||= finalizedIds.size > 0;
-        fields.mainImageMode.disabled ||= finalizedIds.has('main');
-        fields.platformId.title = finalizedIds.size ? '解锁定稿图位后可切换平台' : '';
+        const lockedFields = new Set();
+        if (finalizedIds.size) lockedFields.add('platformId');
+        if (finalizedIds.has('main')) lockedFields.add('mainImageMode');
+        setAttributeIfChanged(fields.platformId, 'title', finalizedIds.size ? '解锁定稿图位后可切换平台' : '');
         for (const [group] of shotGroups) {
             const hasFinalized = selectedShots.some(shot => shot.group === group && shot.source === 'generate' && finalizedIds.has(shot.id));
-            fields[`${group}Aspect`].disabled ||= hasFinalized;
-            fields[`${group}Aspect`].title = hasFinalized ? '解锁本组定稿图位后可调整比例' : '';
+            const field = `${group}Aspect`;
+            if (hasFinalized) lockedFields.add(field);
+            setAttributeIfChanged(fields[field], 'title', hasFinalized ? '解锁本组定稿图位后可调整比例' : '');
         }
+        for (const [field, control] of Object.entries(fields)) control.toggleAttribute('disabled', locked || lockedFields.has(field));
         const product = getCommerceProductInfo(value);
         for (const control of productFields) {
             const item = product[control.dataset.commerceProductField];
@@ -777,7 +786,8 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         analyzeButton.title = referenceIssue || (!planner.ready ? '请先选择支持图片输入的规划模型和供应商。' : '');
         const analysisLabel = analyzing ? '分析中…' : '分析产品';
         if (analyzeLabel.textContent !== analysisLabel) analyzeLabel.textContent = analysisLabel;
-        guide.textContent = Array.isArray(preset.guide) ? preset.guide.join(' ') : (preset.guide || '');
+        const guideText = Array.isArray(preset.guide) ? preset.guide.join(' ') : (preset.guide || '');
+        if (guide.textContent !== guideText) guide.textContent = guideText;
         renderShotChoices(preset, selectedPresetShots, locked, finalizedIds);
         const previousManifest = projectCommerceImageSetExport({ ...exportOptions, version: 'previous' });
         previousPreviewButton.hidden = !previousManifest.rows.some(row => row.assetKey);
@@ -791,13 +801,14 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             planHeading.textContent = planTitle;
             planSection.setAttribute('aria-label', planTitle);
         }
-        planButton.textContent = plan ? '重新规划' : '生成方案';
+        const planLabel = plan ? '重新规划' : '生成方案';
+        if (planButton.textContent !== planLabel) planButton.textContent = planLabel;
         planButton.classList.toggle('btn-primary', !currentPlan);
         planButton.classList.toggle('btn-secondary', currentPlan);
         planButton.disabled = locked || !selectedPresetShots.length || !!referenceIssue || !planner.ready;
         generateButton.hidden = !currentPlan;
         generateButton.disabled = locked || !readyToGenerate;
-        generateButton.title = finalizedIds.size ? (generatableShots.length ? '重做时保留定稿图位' : '解锁图位后可重新生成') : '';
+        setAttributeIfChanged(generateButton, 'title', finalizedIds.size ? (generatableShots.length ? '重做时保留定稿图位' : '解锁图位后可重新生成') : '');
         const confirmation = plan?.confirmed ? '' : '确认并';
         const excludedCount = (plan?.shots.length ?? 0) - runnableShots.length;
         const generateLabel = hasCompleted ? (confirmation ? '确认方案并重做' : '重做已确认图位')
@@ -831,11 +842,11 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         batchScope.hidden = generateScope.hidden && fillScope.hidden;
         const restoreFooterFocus = !busy && documentRef.activeElement === cancelAllButton;
         cancelAllButton.hidden = !busy || unavailable;
-        cancelAllButton.setAttribute('aria-disabled', String(cancelingAll || savingResults));
+        setAttributeIfChanged(cancelAllButton, 'aria-disabled', String(cancelingAll || savingResults));
         progressBar.hidden = !progress;
         if (progress) {
-            progressBar.max = total;
-            progressBar.value = processed;
+            setAttributeIfChanged(progressBar, 'max', String(total));
+            setAttributeIfChanged(progressBar, 'value', String(processed));
         }
         const replanHint = styleChanged ? '画面风格已更新，请重新规划；已有成图与定稿保留。' : referenceChanged ? referenceChangeMessage
             : copyLanguageChanged ? '图中文字语言已修改，请重新规划。'
@@ -905,10 +916,12 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         const heldCover = node.commerceShotPreviews ? cover.getAttribute('src') : '';
         const previewUrl = getShotPreview(latestShot?.id)?.image || heldCover || assetUrl(getCommerceOutputAssetKey(savedCover) || priorAssets[0]);
         setImage(cover, previewUrl);
-        card.dataset.hasCover = String(!!previewUrl);
-        cardTitle.textContent = node.el.dataset.nodeTitle || '电商套图';
-        cardProgress.textContent = progress || activeShotLabel || (priorAssets.length ? `上次套图 · ${priorAssets.length} 张`
+        setAttributeIfChanged(card, 'data-has-cover', String(!!previewUrl));
+        const title = node.el.dataset.nodeTitle || '电商套图';
+        if (cardTitle.textContent !== title) cardTitle.textContent = title;
+        const cardStatus = progress || activeShotLabel || (priorAssets.length ? `上次套图 · ${priorAssets.length} 张`
             : plan ? `${completed.length} / ${plan.shots.length} 张` : '');
+        if (cardProgress.textContent !== cardStatus) cardProgress.textContent = cardStatus;
         renderShots(plan, results, { locked: shotsLocked, resultsLocked: locked, readyToReplan, canRetry, shotImageIssues,
             canAppendScene: currentPlan && !referenceIssue && !shotsLocked,
             shownShotId: latestShot?.id || savedCover?.shotId, referenceChanged });
@@ -1035,19 +1048,21 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
         runMessage = '';
     }
 
-    element.querySelector('[data-commerce-art-direction-reset]').addEventListener('click', () => {
-        updateCommerceArtDirection(config(), '', { automatic: true });
-        onChange();
-        refresh();
-        element.querySelector('[data-commerce-art-direction]').focus();
+    artReset.addEventListener('click', () => {
+        if (updateCommerceArtDirection(config(), '', { automatic: true })) {
+            onChange();
+            refresh();
+        }
+        artInput.focus();
     });
     element.addEventListener('change', event => {
         if (event.target.tagName === 'SELECT') updateSelect(event.target);
         else if (event.target.hasAttribute('data-commerce-select-shot')) updateShotSelection(event.target);
     });
     element.addEventListener('input', event => {
-        if (event.target.hasAttribute('data-commerce-art-direction')) {
-            if (updateCommerceArtDirection(config(), event.target.value)) onChange();
+        if (event.target === artInput) {
+            if (!updateCommerceArtDirection(config(), artInput.value)) return;
+            onChange();
             refresh();
             return;
         }
@@ -1069,17 +1084,24 @@ export function createCommerceImageSetView({ node, state, documentRef, run, canc
             const field = event.target.dataset.commerceShotField;
             const shot = value.plan.shots.find(item => item.id === event.target.closest('[data-commerce-shot-id]')?.dataset.commerceShotId);
             if (shot?.source !== 'generate' || value.results?.some(result => result.shotId === shot.id && result.finalized)) return;
+            let change;
             if (field === 'description') {
                 if (!shot.customScene || !updateCommerceSceneDescription(value, shot.id, event.target.value)) return;
                 shotNotices.delete(shot.id);
-                onChange({ commerceShotId: shot.id, commerceSceneChanged: true });
+                change = { commerceShotId: shot.id, commerceSceneChanged: true };
             } else {
                 if (field !== 'prompt' && !(shot.allowCopy && field === 'copy')) return;
+                const current = field === 'copy' ? getCommerceShotCopy(shot) : shot.prompt || '';
+                if (current === event.target.value) return;
                 shot[field] = event.target.value;
                 if (shot.customScene) shot.sceneConfirmed = false;
                 else value.plan.confirmed = false;
-                onChange({ commerceShotId: shot.id, commerceShotField: field });
+                change = { commerceShotId: shot.id, commerceShotField: field };
             }
+            runMessage = '';
+            onChange(change);
+            refresh();
+            return;
         } else return;
         runMessage = '';
     });

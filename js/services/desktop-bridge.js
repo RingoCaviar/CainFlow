@@ -1,5 +1,7 @@
 let runtimeInfo = null;
 let taskbarFocusHandlersInstalled = false;
+const LARGE_ZIP_BYTES = 4 * 1024 * 1024;
+const ZIP_DATA_URL_PREFIX = 'data:application/zip;base64,';
 
 function getReadyApi() {
     const api = globalThis.pywebview?.api;
@@ -15,12 +17,29 @@ function bytesToBase64(bytes) {
     return btoa(binary);
 }
 
+function readZipBase64(blob) {
+    return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const dataUrl = reader.result;
+            resolve(typeof dataUrl === 'string' && dataUrl.startsWith(ZIP_DATA_URL_PREFIX)
+                ? dataUrl.slice(ZIP_DATA_URL_PREFIX.length) : null);
+        };
+        reader.onerror = reader.onabort = () => resolve(null);
+        reader.readAsDataURL(blob);
+    }).catch(() => null);
+}
+
 async function getSavePayload(source) {
     let blob = source;
     if (!(blob instanceof Blob)) {
         const response = await fetch(String(source));
         if (!response.ok) throw new Error(`读取保存内容失败: HTTP ${response.status}`);
         blob = await response.blob();
+    }
+    if (blob.type === 'application/zip' && blob.size >= LARGE_ZIP_BYTES && typeof FileReader === 'function') {
+        const data = await readZipBase64(blob);
+        if (data !== null) return { mime: blob.type, payload: { encoding: 'base64', data } };
     }
     const bytes = new Uint8Array(await blob.arrayBuffer());
     return { mime: blob.type, payload: { encoding: 'base64', data: bytesToBase64(bytes) } };
