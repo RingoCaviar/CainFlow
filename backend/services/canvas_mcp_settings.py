@@ -8,7 +8,8 @@ import tempfile
 import threading
 
 from backend import config
-from backend.services.canvas_mcp_bridge import CanvasMcpBridge, CanvasMcpError, validate_canvas_mcp_token
+from backend.services.canvas_mcp_bridge import CanvasMcpService, CanvasMcpError, validate_canvas_mcp_token
+from backend.services.canvas_mcp_worker import resolve_node
 
 
 PRIVATE_DIRECTORY_NAME = '.canvas-mcp'
@@ -42,7 +43,7 @@ class CanvasMcpSettings:
         self._lock = threading.Lock()
         self._closed = False
         enabled, self._token = self._load(startup_token)
-        self._bridge = CanvasMcpBridge(self._token) if enabled else None
+        self._service = CanvasMcpService(self._token) if enabled else None
 
     def _load(self, startup_token):
         try:
@@ -60,9 +61,9 @@ class CanvasMcpSettings:
         return False, None
 
     @property
-    def bridge(self):
+    def service(self):
         with self._lock:
-            return self._bridge
+            return self._service
 
     def is_private_static_path(self, path):
         candidate = Path(path)
@@ -74,8 +75,8 @@ class CanvasMcpSettings:
     def set_enabled(self, enabled):
         with self._lock:
             if self._closed:
-                raise CanvasMcpError(503, 'The CainFlow canvas bridge is shutting down.')
-            if enabled == (self._bridge is not None):
+                raise CanvasMcpError(503, 'CainFlow Canvas MCP is shutting down.')
+            if enabled == (self._service is not None):
                 return
             token = self._token or secrets.token_urlsafe(32)
             # Save the desired state before changing the running service.
@@ -85,10 +86,10 @@ class CanvasMcpSettings:
                 raise CanvasMcpError(500, 'Could not save the CainFlow Canvas MCP setting.') from error
             self._token = token
             if enabled:
-                self._bridge = CanvasMcpBridge(token)
+                self._service = CanvasMcpService(token)
             else:
-                self._bridge.close()
-                self._bridge = None
+                self._service.close()
+                self._service = None
 
     def _client_files(self):
         frozen = getattr(sys, 'frozen', False)
@@ -109,15 +110,16 @@ class CanvasMcpSettings:
             python, _, requirements, directory = client_files
             install_command = _install_command(python, directory / requirements.name)
         return {
-            'enabled': self.bridge is not None,
+            'enabled': self.service is not None,
             'port': port,
             'stdioAvailable': client_files is not None,
+            'runtimeAvailable': resolve_node() is not None,
             'installCommand': install_command,
         }
 
     def client_configuration(self, port):
         with self._lock:
-            if self._bridge is None:
+            if self._service is None:
                 raise CanvasMcpError(409, 'Enable CainFlow Canvas MCP to get a client configuration.')
             client_files = self._client_files()
             if client_files is None:
@@ -144,6 +146,6 @@ class CanvasMcpSettings:
     def close(self):
         with self._lock:
             self._closed = True
-            if self._bridge is not None:
-                self._bridge.close()
-                self._bridge = None
+            if self._service is not None:
+                self._service.close()
+                self._service = None

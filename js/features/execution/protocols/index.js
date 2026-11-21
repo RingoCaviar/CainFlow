@@ -209,27 +209,9 @@ export function getVideoProtocolMeta(id) {
     return protocol?.videoMeta || null;
 }
 
-// 延迟导入协议以避免循环依赖
-// 实际的协议注册将在各协议文件被导入时发生
-export async function loadProtocols() {
-    console.log('[loadProtocols] 开始加载协议...');
-
-    // 动态导入所有协议
-    // 注意：这些导入会触发各协议文件中的 registerProtocol() 调用
-    // Fetch override records before built-in modules register so each baseline
-    // is resolved exactly once during startup. A failed request is equivalent
-    // to an empty override set and leaves built-ins usable.
-    try {
-        const overrideResponse = await fetch('/api/protocol/overrides', { cache: 'no-store' });
-        if (overrideResponse.ok) {
-            const payload = await overrideResponse.json();
-            hydrateProtocolOverrides(payload.overrides || {});
-        }
-    } catch (error) {
-        console.warn('[loadProtocols] 获取协议覆盖记录失败，仅加载内置基线:', error);
-    }
-
-    const builtInModules = [
+export function loadBuiltInProtocols(overrides = {}) {
+    hydrateProtocolOverrides(overrides);
+    return Promise.all([
         import('./google.js'),
         import('./openai.js'),
         import('./ttapi.js'),
@@ -240,9 +222,32 @@ export async function loadProtocols() {
         import('./doubao-video.js'),
         import('./api6789-video.js'),
         import('./api6789-seedance.js'),
-        // 临时方案：直接导入用户创建的协议
         import('./agnesimage.js').catch(err => console.warn('[loadProtocols] agnesimage 协议未找到:', err))
-    ];
+    ]);
+}
+
+// 延迟导入协议以避免循环依赖
+// 实际的协议注册将在各协议文件被导入时发生
+export async function loadProtocols() {
+    console.log('[loadProtocols] 开始加载协议...');
+
+    // 动态导入所有协议
+    // 注意：这些导入会触发各协议文件中的 registerProtocol() 调用
+    // Fetch override records before built-in modules register so each baseline
+    // is resolved exactly once during startup. A failed request is equivalent
+    // to an empty override set and leaves built-ins usable.
+    let overrides;
+    try {
+        const overrideResponse = await fetch('/api/protocol/overrides', { cache: 'no-store' });
+        if (overrideResponse.ok) {
+            const payload = await overrideResponse.json();
+            overrides = payload.overrides;
+        }
+    } catch (error) {
+        console.warn('[loadProtocols] 获取协议覆盖记录失败，仅加载内置基线:', error);
+    }
+
+    const builtInModules = loadBuiltInProtocols(overrides);
     const legacyStaticLoaders = [];
     const userProtocolLoaders = [];
 
@@ -304,7 +309,7 @@ export async function loadProtocols() {
         console.warn('[loadProtocols] 获取协议列表失败，仅加载内置协议:', error);
     }
 
-    await Promise.all(builtInModules);
+    await builtInModules;
     await Promise.all(legacyStaticLoaders.map(load => load()));
     await Promise.all(userProtocolLoaders.map(load => load()));
     console.log('[loadProtocols] 所有协议加载完成，当前已注册:', PROTOCOLS.size, '个协议');

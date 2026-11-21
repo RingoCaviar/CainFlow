@@ -13,7 +13,7 @@ export const canvasMcpSettingsCard = `
                         <span class="toggle-slider"></span>
                     </label>
                 </div>
-                <p class="general-settings-mcp-note" id="canvas-mcp-permissions">连接后，客户端可以读取、编辑和运行当前画布，并获取运行结果。</p>
+                <p class="general-settings-mcp-note" id="canvas-mcp-permissions">本地服务运行时，客户端可以按 ID 读取、编辑和运行已保存的工作流，并获取运行结果。</p>
                 <p class="general-settings-mcp-note" id="canvas-mcp-status" role="status"></p>
                 <button class="btn btn-secondary btn-sm general-settings-mcp-action" type="button" id="btn-retry-canvas-mcp-status" hidden>重新读取状态</button>
                 <div id="canvas-mcp-connection-guide" hidden>
@@ -27,7 +27,7 @@ export const canvasMcpSettingsCard = `
                         </details>
                         <ol>
                             <li>将配置粘贴到支持 stdio 的客户端。若已有 <code>mcpServers</code>，将 <code>cainflow-canvas</code> 加进去，然后重载客户端。</li>
-                            <li>在 CainFlow 打开目标工作流，然后在客户端发送“读取 CainFlow 当前画布”。</li>
+                            <li>在客户端发送“列出 CainFlow 已保存的工作流”，再指定要操作的工作流。</li>
                         </ol>
                         <p class="general-settings-mcp-note">配置包含连接令牌，请只交给信任的客户端。</p>
                         <p class="general-settings-mcp-note" id="canvas-mcp-desktop-port-note" hidden>桌面版端口变更后，请重新复制配置。</p>
@@ -50,12 +50,14 @@ export function createCanvasMcpSettings({ fetchImpl = globalThis.fetch, windowRe
         if (!view) return;
         const enabled = status?.enabled === true;
         const stdioAvailable = status?.stdioAvailable === true;
+        const runtimeMissing = status?.runtimeAvailable === false;
         const installCommand = status?.installCommand || '';
         view.toggle.checked = enabled;
-        view.toggle.disabled = !status || Boolean(pending);
+        view.toggle.disabled = !status || Boolean(pending) || (runtimeMissing && !enabled);
         view.status.textContent = !local ? '请通过本机地址 127.0.0.1 打开 CainFlow 后设置 MCP。'
             : !topLevel ? '请在独立标签页打开 CainFlow 后设置 MCP。'
-            : error || pending || (enabled ? '已开启' : '已关闭');
+            : pending || (runtimeMissing ? '本地服务需要 Node.js 22 或更高版本。安装后重启 CainFlow。'
+                : error || (enabled ? '已开启' : '已关闭'));
         view.retry.hidden = !local || !topLevel || !error || Boolean(status) || Boolean(pending);
         view.guide.hidden = !enabled;
         view.steps.hidden = !stdioAvailable;
@@ -63,7 +65,7 @@ export function createCanvasMcpSettings({ fetchImpl = globalThis.fetch, windowRe
         view.install.hidden = !installCommand;
         view.installCommand.textContent = installCommand;
         view.desktopPortNote.hidden = !windowRef?.__cainflowDesktop;
-        view.copy.disabled = !enabled || !stdioAvailable || Boolean(pending);
+        view.copy.disabled = !enabled || !stdioAvailable || runtimeMissing || Boolean(pending);
     }
 
     async function request(action, fields = {}) {
@@ -109,11 +111,6 @@ export function createCanvasMcpSettings({ fetchImpl = globalThis.fetch, windowRe
             if (status && changing && status.enabled !== enabled) error = '切换失败，已恢复当前状态。';
             pending = '';
             render();
-        }
-        if (changing && status?.enabled === enabled) {
-            windowRef.dispatchEvent(new windowRef.CustomEvent('cainflow:canvas-mcp-changed', {
-                detail: { enabled: status.enabled }
-            }));
         }
     }
 

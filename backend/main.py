@@ -229,7 +229,7 @@ def print_startup_error_and_exit(exc):
     sys.exit(1)
 
 
-def print_banner(host=None):
+def print_banner(host=None, *, open_browser=True):
     cyan = '\033[1;36m'
     white = '\033[1;37m'
     gray = '\033[90m'
@@ -245,7 +245,8 @@ def print_banner(host=None):
     print(f' {white}> CainFlow {get_app_version_tag()} 已就绪{reset}')
     print(f' {white}> 正在监听: {cyan}http://{host or config.HOST}:{config.PORT}{reset}')
     print(f' {white}> 本机访问: {cyan}http://{config.LOCAL_HOST}:{config.PORT}{reset}')
-    print(f'\n {gray}[提示] 如果浏览器未自动启动，请按住 {white}Ctrl{gray} 并点击上方链接即可。{reset}\n')
+    if open_browser:
+        print(f'\n {gray}[提示] 如果浏览器未自动启动，请按住 {white}Ctrl{gray} 并点击上方链接即可。{reset}\n')
 
 
 def _recover_media_transitions_initial():
@@ -355,7 +356,7 @@ def create_server(host=None, port=None):
     return CainFlowHTTPServer((bind_host, bind_port), ProxyHTTPRequestHandler, canvas_mcp_settings=canvas_mcp_settings)
 
 
-def run_browser(port=None):
+def run_browser(port=None, *, open_browser=True):
     if port is not None:
         config.PORT = int(port)
     initialize_runtime()
@@ -363,10 +364,10 @@ def run_browser(port=None):
         print_port_error_and_exit()
 
     try:
-        with create_server() as httpd:
+        with create_server(host=None if open_browser else config.LOCAL_HOST) as httpd:
             config.PORT = httpd.server_address[1]
-            print_banner(httpd.server_address[0])
-            if os.environ.get('CAINFLOW_SKIP_BROWSER_AUTO_OPEN') != '1':
+            print_banner(httpd.server_address[0], open_browser=open_browser)
+            if open_browser and os.environ.get('CAINFLOW_SKIP_BROWSER_AUTO_OPEN') != '1':
                 webbrowser.open(f'http://{config.LOCAL_HOST}:{config.PORT}')
             httpd.serve_forever()
     except Exception as exc:

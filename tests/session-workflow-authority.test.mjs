@@ -151,6 +151,57 @@ test('Session serialization joins presentation data to authoritative Open Workfl
     assert.equal(restoredState.workflowTabs[1].data.marker, 'document-b');
 });
 
+test('Session restoration refreshes only clean documents changed by Canvas MCP under the same workflow ID', async () => {
+    const state = { workflowTabs: [] };
+    const desk = createWorkflowDesk({
+        resolveSelection: async selection => selection,
+        prepareEditorView: async target => target.editorView
+    });
+    let visibleDocument;
+    const selection = createWorkflowSessionSelectionAdapter({
+        state,
+        workflowDesk: desk,
+        prepareEditorView: async (_label, document) => {
+            visibleDocument = document;
+            return { async commit() { return true; } };
+        }
+    });
+    const names = ['active', 'inactive', 'draft', 'unsaved-identity', 'reused-name', 'ordinary-write', 'missing-file'];
+    const workflowTabs = names.map(name => ({
+        name,
+        workflowId: name,
+        dirty: name === 'draft',
+        identityPendingSave: name === 'unsaved-identity',
+        data: { workflowId: name, mediaOwnershipRevision: 2, marker: 'cached' }
+    }));
+    const reads = [];
+    const loadSavedWorkflow = async name => {
+        reads.push(name);
+        if (name === 'missing-file') throw new Error('file unavailable');
+        return {
+            workflowId: name === 'reused-name' ? 'replacement' : name,
+            mediaOwnershipRevision: 5,
+            canvasMcpWriteRevision: name === 'ordinary-write' ? 2 : 4,
+            marker: 'saved'
+        };
+    };
+    const restored = workflowId => ({
+        workflowTabs,
+        activeWorkflowId: workflowId,
+        activeWorkflowName: workflowId,
+        workflowData: { ...workflowTabs.find(tab => tab.workflowId === workflowId).data, marker: 'active-cache' }
+    });
+
+    assert.equal(await selection.activate(restored('active'), { loadSavedWorkflow }), true);
+    assert.equal(visibleDocument.marker, 'saved', 'the active canvas uses the newer saved graph');
+    assert.deepEqual(reads, ['active', 'inactive', 'reused-name', 'ordinary-write', 'missing-file']);
+    assert.deepEqual(state.workflowTabs.map(tab => tab.data.marker), ['saved', 'saved', 'cached', 'cached', 'cached', 'cached', 'cached']);
+
+    assert.equal(await selection.activate(restored('draft'), { loadSavedWorkflow }), true);
+    assert.equal(visibleDocument.marker, 'active-cache', 'the active unsaved draft remains authoritative');
+    assert.equal(state.workflowTabs.find(tab => tab.workflowId === 'draft').dirty, true);
+});
+
 test('Session serialization omits an Open Workflow record when its presentation document is missing', async () => {
     const stored = new Map([['session', 'previous-session']]);
     const desk = createWorkflowDesk({

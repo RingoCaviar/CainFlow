@@ -90,7 +90,7 @@ _Avoid_: Direct AI canvas mutation, sequence of unrelated undo steps
 以一张商品参考图为依据的单图编辑任务。对话模型先分析原图并给出局部处理建议，精修模型再使用同一原图和统一的精修要求生成图片。用户选择背景、布光、阴影和质感，商品的外形、颜色、标识和包装文字属于保留项。节点保留最近成功的分析提示词供查看和复制。每次成功执行产生一张精修结果，结果对照使用该次精修实际采用的原图。
 
 **Canvas MCP session**:
-An opt-in connection between a local MCP client and an open CainFlow editor. Commands target an editor and Workflow identity. A canvas revision guards edits and run launches. Each applied edit is one undoable action.
+An opt-in connection between a local MCP client and the running CainFlow service. Canvas commands target a saved Workflow identity. A saved revision guards edits and run launches. Each applied edit is one undoable action.
 
 **Staged conversation context**:
 The removable set of local files, clipboard content, history Media assets, and workflow node outputs prepared for the next user message. Only the items visible in this set become explicit inputs when that message is sent.

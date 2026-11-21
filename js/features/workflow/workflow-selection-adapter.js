@@ -6,6 +6,23 @@ import {
 } from './workflow-tab-revision.js';
 import { WorkflowCommitRecoveryError } from './workflow-desk.js';
 
+async function refreshCleanTab(tab, loadSavedWorkflow) {
+    if (!tab?.workflowId || !tab.name || tab.dirty || tab.identityPendingSave) return tab;
+    if (tab.data?.workflowId && tab.data.workflowId !== tab.workflowId) return tab;
+    const cachedRevision = Number(tab.data?.mediaOwnershipRevision ?? 0);
+    if (!Number.isSafeInteger(cachedRevision) || cachedRevision < 0) return tab;
+    try {
+        const saved = await loadSavedWorkflow(tab.name);
+        const mcpRevision = saved?.canvasMcpWriteRevision;
+        const savedRevision = Number(saved?.mediaOwnershipRevision);
+        if (saved?.workflowId !== tab.workflowId || !Number.isSafeInteger(mcpRevision)
+            || !Number.isSafeInteger(savedRevision) || mcpRevision <= cachedRevision || mcpRevision > savedRevision) return tab;
+        return { ...tab, data: saved };
+    } catch {
+        return tab;
+    }
+}
+
 export function createWorkflowSessionSelectionAdapter({
     state,
     workflowDesk,
@@ -16,7 +33,7 @@ export function createWorkflowSessionSelectionAdapter({
     applyViewport = () => {},
     onViewApplied = () => {}
 }) {
-    async function activateWithWorkflowDesk(restoredState) {
+    async function activateWithWorkflowDesk(restoredState, { loadSavedWorkflow } = {}) {
         const restoredTabs = Array.isArray(restoredState?.workflowTabs) ? restoredState.workflowTabs : [];
         const activeDocument = restoredState?.workflowData || null;
         const hasLegacyActiveDocument = restoredTabs.length === 0 && (
@@ -35,7 +52,9 @@ export function createWorkflowSessionSelectionAdapter({
                 data: { ...activeDocument, workflowId: legacyWorkflowId },
                 identityPendingSave: true
             }]
-            : restoredTabs;
+            : loadSavedWorkflow
+                ? await Promise.all(restoredTabs.map(tab => refreshCleanTab(tab, loadSavedWorkflow)))
+                : restoredTabs;
         const result = await workflowDesk.restore({
             workflows: workflowTabs,
             activeWorkflowId: legacyWorkflowId || restoredState?.activeWorkflowId || '',
@@ -43,8 +62,12 @@ export function createWorkflowSessionSelectionAdapter({
             activeDocument,
             prepareEditorView: async ({ workflowId, label, document }) => {
                 if (typeof prepareEditorView !== 'function') return null;
+                // The recovery snapshot has a second copy of the active graph.
+                // Use the same saved version for both the tab and visible canvas.
+                const refreshed = workflowTabs.find((tab, index) => tab !== restoredTabs[index]
+                    && tab.workflowId === workflowId && tab.name === label);
                 return prepareEditorView(label, {
-                    ...(document || {}),
+                    ...(refreshed?.data || document || {}),
                     workflowId
                 });
             }

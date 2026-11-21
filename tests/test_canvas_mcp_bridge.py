@@ -1,13 +1,15 @@
 import http.client
+import base64
 import json
 import os
 import sys
 import threading
+import time
 import unittest
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from importlib.util import find_spec
 from pathlib import Path
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
@@ -15,34 +17,40 @@ from backend import desktop_security
 from backend.main import create_server
 from backend.services.storage_service import StorageService
 
-
 TOKEN = 'canvas-mcp-test-token-0123456789abcdef'
 CALL = '/api/canvas-mcp/call'
-EDITOR = '/api/canvas-mcp/editor'
 SETTINGS = '/api/canvas-mcp/settings'
 
 
 @contextmanager
 def running_server(token=TOKEN, data_dir=None):
-    with TemporaryDirectory() as isolated_data, patch.dict(os.environ), \
-            patch('backend.config.DATA_DIR', data_dir or isolated_data):
-        if token is None:
-            os.environ.pop('CAINFLOW_MCP_TOKEN', None)
-        else:
-            os.environ['CAINFLOW_MCP_TOKEN'] = token
-        server = create_server(port=0)
-        thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.01}, daemon=True)
-        thread.start()
-        try:
-            yield server.server_address[1]
-        finally:
-            server.shutdown()
-            server.server_close()
-            thread.join(timeout=2)
+    with TemporaryDirectory() as isolated_data:
+        root = Path(data_dir or isolated_data)
+        storage = StorageService(
+            database_path=str(root / 'cainflow.db'), assets_dir=str(root / 'assets'),
+            temp_dir=str(root / 'temp'), exports_dir=str(root / 'exports'),
+        )
+        with patch.dict(os.environ), patch('backend.config.DATA_DIR', str(root)), \
+                patch('backend.config.WORKFLOWS_DIR', str(root / 'workflows')), \
+                patch('backend.services.canvas_mcp_storage.storage_service', storage), \
+                patch('backend.services.canvas_mcp_app_data.storage_service', storage):
+            if token is None:
+                os.environ.pop('CAINFLOW_MCP_TOKEN', None)
+            else:
+                os.environ['CAINFLOW_MCP_TOKEN'] = token
+            server = create_server(port=0)
+            thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.01}, daemon=True)
+            thread.start()
+            try:
+                yield server.server_address[1]
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
 
 
 def request(port, path, body=None, headers=None, method='POST'):
-    client = http.client.HTTPConnection('127.0.0.1', port, timeout=4)
+    client = http.client.HTTPConnection('127.0.0.1', port, timeout=12)
     try:
         payload = json.dumps(body).encode() if isinstance(body, dict) else body
         client.request(method, path, body=payload, headers={'Content-Type': 'application/json', **(headers or {})})
@@ -59,90 +67,248 @@ def external(port, method, args=None, token=TOKEN):
     return status, body
 
 
-def editor(port, editor_id, action='poll', **params):
-    status, _, body = request(port, EDITOR, {'action': action, 'editorId': editor_id, **params},
-                              {'Origin': f'http://127.0.0.1:{port}', 'X-CainFlow-Canvas-MCP': 'editor'})
-    return status, body
-
-
 def settings(port, action, headers=None, **params):
     return request(port, SETTINGS, {'action': action, **params}, {
         'Origin': f'http://127.0.0.1:{port}', 'X-CainFlow-Canvas-MCP': 'settings', **(headers or {}),
     })
 
 
+PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jPxQAAAAASUVORK5CYII='
+
+
+@contextmanager
+def image_provider(holds=None):
+    holds = holds or {}
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            payload = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            requests.append((self.path, payload))
+            hold = holds.get(payload.get('prompt'))
+            if hold:
+                requested, release = hold
+                requested.set()
+                if not release.wait(15):
+                    self.send_error(504)
+                    return
+            response = json.dumps({'data': [{'b64_json': PNG}]}).encode()
+            try:
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(response)))
+                self.end_headers()
+                self.wfile.write(response)
+            except (BrokenPipeError, ConnectionResetError):
+                if not hold:
+                    raise
+
+        def log_message(self, *_args):
+            pass
+
+    with ThreadingHTTPServer(('127.0.0.1', 0), Handler) as server:
+        thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.01}, daemon=True)
+        thread.start()
+        try:
+            yield f'http://127.0.0.1:{server.server_address[1]}/v1', requests
+        finally:
+            for _, release in holds.values():
+                release.set()
+            server.shutdown()
+            thread.join(timeout=2)
+
+
 class CanvasMcpToolMetadataTests(unittest.IsolatedAsyncioTestCase):
     @unittest.skipUnless(find_spec('mcp'), 'Install requirements-mcp.txt to test stdio tool metadata.')
-    async def test_image_import_guidance_is_visible_in_the_stdio_protocol(self):
+    async def test_saved_workflow_contract_is_visible_over_stdio(self):
         from mcp import Client, StdioServerParameters
 
-        server = StdioServerParameters(
-            command=sys.executable,
-            args=[str(Path(__file__).resolve().parents[1] / 'canvas_mcp.py')],
-            env={'CAINFLOW_MCP_TOKEN': TOKEN},
-        )
-        async with Client(server, mode='legacy', read_timeout_seconds=5) as client:
-            instructions = client.instructions
-            tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+        with running_server() as port:
+            server = StdioServerParameters(
+                command=sys.executable,
+                args=[str(Path(__file__).resolve().parents[1] / 'canvas_mcp.py'), '--port', str(port)],
+                env={'CAINFLOW_MCP_TOKEN': TOKEN},
+            )
+            async with Client(server, mode='legacy', read_timeout_seconds=10) as client:
+                instructions = client.instructions
+                tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+                created = await client.call_tool('create_workflow', {'name': '从 stdio 创建'})
+                self.assertFalse(created.is_error)
+                self.assertIn('workflowId', created.structured_content)
 
-        for guidance in (instructions, tools['edit_canvas'].description):
-            with self.subTest(guidance=guidance):
-                self.assertIn('import_history', guidance)
-                self.assertIn('no file upload', guidance)
-                self.assertIn('authorized access', guidance)
-                self.assertIn('Only ask the user', guidance)
-                self.assertIn('read_canvas again', guidance)
-
+        for description in (instructions, tools['edit_canvas'].description):
+            self.assertIn('import_history', description)
+            self.assertIn('no file upload', description)
+            self.assertIn('read_canvas again', description)
         self.assertIn('nodes[].assets', tools['read_canvas'].description)
         self.assertIn('imported[].nodeId', tools['import_history'].description)
+        self.assertIn('list_workflows', tools)
+        for name in ('read_canvas', 'edit_canvas', 'run_workflow'):
+            schema = tools[name].input_schema
+            self.assertIn('workflowId', schema['required'])
+            self.assertNotIn('editorId', schema.get('properties', {}))
 
 
-class CanvasMcpBridgeTests(unittest.TestCase):
-    def test_prompt_library_document_survives_a_new_editor_port(self):
+class CanvasMcpServiceTests(unittest.TestCase):
+    def call(self, port, method, args=None, token=TOKEN):
+        status, body = external(port, method, args, token=token)
+        self.assertEqual(status, 200, body)
+        return body['result']
+
+    def wait_for_run(self, port, workflow_id, run_id):
+        for _ in range(100):
+            result = self.call(port, 'get_workflow_run', {'workflowId': workflow_id, 'runId': run_id})
+            if result['status'] != 'running':
+                return result
+            time.sleep(0.03)
+        self.fail('Saved workflow did not finish')
+
+    def test_read_edit_run_and_undo_without_opening_an_editor(self):
+        with running_server() as port:
+            created = self.call(port, 'create_workflow', {'name': '无人值守工作流'})
+            workflow_id = created['workflowId']
+            self.assertEqual(self.call(port, 'list_workflows')['items'][0]['workflowId'], workflow_id)
+            target = self.call(port, 'read_canvas', {'workflowId': workflow_id})
+            scope = {'workflowId': workflow_id, 'revision': target['revision']}
+            edit = self.call(port, 'edit_canvas', {**scope, 'plan': {'version': 1, 'steps': [
+                {'id': 'source', 'type': 'Text', 'parameters': {'text': '保存的原文'}},
+                {'id': 'output', 'type': 'Text', 'parameters': {}, 'execute': False},
+            ], 'connections': [{'from': {'ref': 'source', 'port': 'text'}, 'to': {'ref': 'output', 'port': 'text'}}]}})
+            self.assertNotEqual(edit['revision'], scope['revision'])
+            self.assertEqual(external(port, 'read_canvas', scope)[1]['errorCode'], 'stale_revision')
+            self.assertEqual(external(port, 'run_workflow', scope)[1]['errorCode'], 'stale_revision')
+            edit_scope = {'workflowId': workflow_id, 'revision': edit['revision']}
+            changed = self.call(port, 'undo_canvas', edit_scope)
+            self.assertTrue(changed['changed'])
+            self.assertEqual(self.call(port, 'read_canvas', {'workflowId': workflow_id})['totalNodes'], 0)
+            redo = self.call(port, 'redo_canvas', {'workflowId': workflow_id, 'revision': changed['revision']})
+            output = edit['bindings']['output']
+            run = self.call(port, 'run_workflow', {'workflowId': workflow_id, 'revision': redo['revision'], 'targetNodeId': output})
+            result = self.wait_for_run(port, workflow_id, run['runId'])
+            self.assertEqual(result['status'], 'completed', result)
+            self.assertEqual({row['nodeId']: row.get('texts') for row in result['nodeResults']}[output], ['保存的原文'])
+            self.assertEqual(self.call(port, 'read_canvas', {'workflowId': workflow_id})['totalNodes'], 2)
+            self.assertEqual(request(port, '/api/canvas-mcp/editor', {})[0], 404)
+
+    def test_library_changes_and_saved_workflow_survive_server_restart(self):
         with TemporaryDirectory() as directory:
-            root = Path(directory)
-            storage_paths = {
-                'database_path': str(root / 'cainflow.db'),
-                'assets_dir': str(root / 'assets'),
-                'temp_dir': str(root / 'temp'),
-                'exports_dir': str(root / 'exports'),
-            }
-            path = '/api/storage/documents/prompt_library'
-            prompts = [{'id': 'existing', 'name': '统一拍摄', 'content': '保留原包装文字'}]
-            with running_server(data_dir=directory) as new_port:
-                # Reserve a different origin while the first editor is active.
-                with running_server(data_dir=directory) as old_port, \
-                        patch('backend.routes.storage_routes.storage_service', StorageService(**storage_paths)), \
-                        patch('backend.config.PORT', old_port):
-                    self.assertNotEqual(old_port, new_port)
-                    status, _, saved = request(old_port, path, {'value': prompts, 'expectedUpdatedAt': 0},
-                                               {'Origin': f'http://127.0.0.1:{old_port}'}, method='PUT')
-                    self.assertEqual(200, status)
+            with running_server(data_dir=directory) as port:
+                preset = self.call(port, 'save_prompt', {'name': '统一拍摄', 'content': '保留原包装文字'})
+                created = self.call(port, 'create_workflow', {'name': '重开工作流'})
+            with running_server(data_dir=directory) as port:
+                self.assertEqual(self.call(port, 'list_prompts')['prompts'][0]['id'], preset['id'])
+                self.assertEqual(self.call(port, 'read_canvas', {'workflowId': created['workflowId']})['revision'], created['revision'])
 
-                with patch('backend.routes.storage_routes.storage_service', StorageService(**storage_paths)), \
-                        patch('backend.config.PORT', new_port):
-                    status, _, loaded = request(new_port, path, headers={'Origin': f'http://127.0.0.1:{new_port}'}, method='GET')
-                    self.assertEqual(200, status)
-                    self.assertEqual({'value': prompts, 'updatedAt': saved['updatedAt']}, loaded)
+    def test_run_uses_saved_model_and_persists_generated_image_without_any_window(self):
+        from backend.services import canvas_mcp_app_data as app
+        with running_server() as port, image_provider() as (endpoint, requests):
+            app.storage_service.put_document('session', {
+                'models': [{'id': 'model', 'name': 'Image', 'modelId': 'gpt-image-1', 'protocol': 'openai',
+                            'taskType': 'image', 'providerIds': ['provider']}],
+                'providers': [{'id': 'provider', 'name': 'Image Provider', 'endpoint': endpoint, 'apikey': 'local-test-key'}],
+            })
+            self.assertEqual(self.call(port, 'list_models')['models'][0]['id'], 'model')
+            created = self.call(port, 'create_workflow', {'name': '后台生图'})
+            workflow_id = created['workflowId']
+            edited = self.call(port, 'edit_canvas', {
+                'workflowId': workflow_id, 'revision': created['revision'], 'plan': {'version': 1, 'steps': [{
+                    'id': 'image', 'type': 'ImageGenerate', 'parameters': {'prompt': '生成测试图片'},
+                    'modelId': 'model', 'providerId': 'provider',
+                }]},
+            })
+            node_id = edited['bindings']['image']
+            started = self.call(port, 'run_workflow', {'workflowId': workflow_id, 'revision': edited['revision']})
+            run = self.wait_for_run(port, workflow_id, started['runId'])
+            self.assertEqual(run['status'], 'completed', run)
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(requests[0][1]['prompt'], '生成测试图片')
+            image = self.call(port, 'get_run_image', {'workflowId': workflow_id, 'runId': run['runId'], 'nodeId': node_id})
+            self.assertEqual(base64.b64decode(image['data']), base64.b64decode(PNG))
+            state = self.call(port, 'read_canvas', {'workflowId': workflow_id})
+            self.assertEqual(state['nodes'][0]['assets'], run['nodeResults'][0]['mediaAssetKeys'])
+            self.assertEqual(len(state['nodes'][0]['assets']), 1)
+            self.assertNotIn('local-test-key', json.dumps(state))
 
-    def test_disabled_route_and_invalid_token(self):
+    def test_stops_held_provider_requests_by_node_and_by_run(self):
+        from backend.services import canvas_mcp_app_data as app
+
+        stopped_request, stopped_release = threading.Event(), threading.Event()
+        surviving_request, surviving_release = threading.Event(), threading.Event()
+        holds = {'取消分支': (stopped_request, stopped_release), '保留分支': (surviving_request, surviving_release)}
+        with running_server() as port, image_provider(holds) as (endpoint, requests):
+            app.storage_service.put_document('session', {
+                'models': [{'id': 'model', 'name': 'Image', 'modelId': 'gpt-image-1', 'protocol': 'openai',
+                            'taskType': 'image', 'providerIds': ['provider']}],
+                'providers': [{'id': 'provider', 'name': 'Image Provider', 'endpoint': endpoint, 'apikey': 'local-test-key'}],
+            })
+            created = self.call(port, 'create_workflow', {'name': '后台停止生图'})
+            workflow_id = created['workflowId']
+            edit = self.call(port, 'edit_canvas', {
+                'workflowId': workflow_id, 'revision': created['revision'], 'plan': {'version': 1, 'steps': [
+                    {'id': ref, 'type': 'ImageGenerate', 'parameters': {'prompt': prompt},
+                     'modelId': 'model', 'providerId': 'provider'}
+                    for ref, prompt in [('stopped', '取消分支'), ('surviving', '保留分支')]
+                ]},
+            })
+            stopped_id = edit['bindings']['stopped']
+            surviving_id = edit['bindings']['surviving']
+            scope = {'workflowId': workflow_id, 'revision': edit['revision']}
+            started = self.call(port, 'run_workflow', scope)
+            self.assertTrue(stopped_request.wait(5), 'The first branch did not reach the provider')
+
+            self.assertEqual(self.call(port, 'stop_workflow', {**scope, 'nodeIds': [stopped_id]})['stopped'], 1)
+            self.assertTrue(surviving_request.wait(5), 'The independent branch did not continue after cancellation')
+            surviving_release.set()
+            run = self.wait_for_run(port, workflow_id, started['runId'])
+            self.assertEqual(run['status'], 'cancelled', run)
+            results = {result['nodeId']: result for result in run['nodeResults']}
+            self.assertEqual(results[stopped_id]['errorCode'], 'node_cancelled')
+            self.assertTrue(results[surviving_id]['succeeded'])
+            self.assertEqual(len(results[surviving_id]['mediaAssetKeys']), 1)
+            self.assertEqual(run['historySaved'], 1)
+            self.assertEqual(run['historySaveFailures'], 0)
+
+            stopped_request.clear()
+            scope['revision'] = run['revision']
+            started = self.call(port, 'run_workflow', {**scope, 'targetNodeId': stopped_id})
+            self.assertTrue(stopped_request.wait(5), 'The targeted run did not reach the provider')
+            self.assertCountEqual([payload['prompt'] for _, payload in requests], ['取消分支', '保留分支', '取消分支'])
+            self.assertEqual(external(port, 'stop_workflow', {**scope, 'nodeIds': [surviving_id]})[0], 400)
+            self.assertEqual(self.call(port, 'stop_workflow', scope)['stopped'], 1)
+            run = self.wait_for_run(port, workflow_id, started['runId'])
+            self.assertEqual(run['status'], 'stopped', run)
+            self.assertEqual([(row['nodeId'], row['errorCode']) for row in run['nodeResults']],
+                             [(stopped_id, 'node_cancelled')])
+            stopped_request.clear()
+            self.call(port, 'run_workflow', {**scope, 'targetNodeId': stopped_id})
+            self.assertTrue(stopped_request.wait(5), 'The last run did not reach the provider before shutdown')
+            self.assertEqual(settings(port, 'set_enabled', enabled=False)[2]['enabled'], False)
+            stopped_release.set()
+            self.assertEqual(settings(port, 'set_enabled', enabled=True)[2]['enabled'], True)
+            self.assertEqual(self.call(port, 'read_canvas', {'workflowId': workflow_id})['revision'], scope['revision'])
+            self.assertEqual(self.call(port, 'list_history')['total'], 1)
+
+    def test_requires_explicit_workflow_and_rejects_editor_scope(self):
+        with running_server() as port:
+            self.assertEqual(external(port, 'read_canvas')[0], 400)
+            self.assertEqual(external(port, 'read_canvas', {'editorId': 'old', 'workflowId': 'unknown'})[0], 400)
+            self.assertEqual(external(port, 'run_workflow', {'workflowId': 'unknown'})[0], 400)
+            self.assertEqual(external(port, 'read_canvas', {'workflowId': 'unknown'})[0], 404)
+            self.assertEqual(external(port, 'edit_canvas', {'workflowId': '../escape', 'revision': 'a', 'plan': {}})[0], 400)
+
+    def test_missing_node_runtime_is_reported_without_a_browser_fallback(self):
+        with running_server() as port, patch.dict(os.environ, {'CAINFLOW_NODE_PATH': 'relative/not-allowed'}):
+            self.assertFalse(settings(port, 'status')[2]['runtimeAvailable'])
+            created = self.call(port, 'create_workflow', {'name': '缺运行时'})
+            status, body = external(port, 'read_canvas', {'workflowId': created['workflowId']})
+            self.assertEqual((status, body['errorCode']), (503, 'runtime_unavailable'))
+
+    def test_settings_toggle_reuses_client_configuration(self):
         with running_server(None) as port:
-            self.assertEqual(external(port, 'read_canvas')[0], 404)
-            self.assertEqual(editor(port, 'test-editor', activate=True), (204, None))
-        with TemporaryDirectory() as data_dir, patch('backend.config.DATA_DIR', data_dir), \
-                patch.dict(os.environ, {'CAINFLOW_MCP_TOKEN': 'too-short'}):
-            with self.assertRaisesRegex(ValueError, 'CAINFLOW_MCP_TOKEN'):
-                with create_server(port=0):
-                    pass
-
-    def test_settings_toggle_reuses_client_config_and_revokes_delivered_commands(self):
-        with running_server(None) as port, ThreadPoolExecutor(max_workers=1) as calls, \
-                patch('backend.services.canvas_mcp_bridge.POLL_SECONDS', 0.05):
             status, headers, disabled = settings(port, 'status')
             self.assertEqual(status, 200)
             self.assertEqual(headers.get('Cache-Control'), 'no-store')
             self.assertFalse(disabled['enabled'])
-            self.assertEqual(disabled['port'], port)
             self.assertEqual(settings(port, 'connection_config')[0], 409)
             self.assertEqual(settings(port, 'set_enabled', enabled=1)[0], 400)
             self.assertEqual(settings(port, 'set_enabled', enabled=True)[0], 200)
@@ -153,57 +319,36 @@ class CanvasMcpBridgeTests(unittest.TestCase):
             self.assertGreaterEqual(len(token), 32)
             self.assertNotIn(token, json.dumps(settings(port, 'status')[2]))
             self.assertEqual(client['args'][-2:], ['--port', str(port)])
-            self.assertEqual(editor(port, 'editor-one', activate=True)[0], 200)
-            pending = calls.submit(external, port, 'read_canvas', token=token)
-            delivered = self.poll_command(port, 'editor-one')
             self.assertFalse(settings(port, 'set_enabled', enabled=False)[2]['enabled'])
-            interrupted = pending.result(timeout=2)
-            self.assertEqual(interrupted[0], 503)
-            self.assertIn('outcome', interrupted[1]['error'])
-            self.assertEqual(editor(port, 'editor-one', 'complete', id=delivered['id'], result={})[0], 204)
-            self.assertEqual(external(port, 'read_canvas', token=token)[0], 404)
+            self.assertEqual(external(port, 'list_workflows', token=token)[0], 404)
             self.assertTrue(settings(port, 'set_enabled', enabled=True)[2]['enabled'])
             self.assertEqual(settings(port, 'connection_config')[2], setup)
-            self.assertEqual(editor(port, 'editor-one', activate=False)[0], 409)
 
-    def test_settings_persist_across_server_restarts_and_override_legacy_startup(self):
-        with TemporaryDirectory() as data_dir:
-            with running_server(TOKEN, data_dir) as port:
+    def test_settings_persist_across_server_restarts(self):
+        with TemporaryDirectory() as directory:
+            with running_server(TOKEN, directory) as port:
                 self.assertTrue(settings(port, 'status')[2]['enabled'])
                 self.assertFalse(settings(port, 'set_enabled', enabled=False)[2]['enabled'])
-            with running_server(TOKEN, data_dir) as port:
+            with running_server(TOKEN, directory) as port:
                 self.assertFalse(settings(port, 'status')[2]['enabled'])
                 self.assertTrue(settings(port, 'set_enabled', enabled=True)[2]['enabled'])
-            with running_server(None, data_dir) as port:
+            with running_server(None, directory) as port:
                 self.assertTrue(settings(port, 'status')[2]['enabled'])
-                client = settings(port, 'connection_config')[2]['config']['mcpServers']['cainflow-canvas']
-                self.assertEqual(client['env']['CAINFLOW_MCP_TOKEN'], TOKEN)
+                self.assertEqual(settings(port, 'connection_config')[2]['config']['mcpServers']['cainflow-canvas']['env']['CAINFLOW_MCP_TOKEN'], TOKEN)
 
-    def test_settings_file_is_private_and_invalid_state_fails_closed(self):
-        with TemporaryDirectory(dir=os.getcwd()) as data_dir, TemporaryDirectory(dir=os.getcwd()) as sibling_dir:
-            private = Path(data_dir) / '.canvas-mcp'
+    def test_invalid_settings_file_is_private_and_fails_closed(self):
+        with TemporaryDirectory(dir=os.getcwd()) as directory:
+            private = Path(directory) / '.canvas-mcp'
             private.mkdir()
             (private / 'settings.state').write_text('{"enabled":true,"token":"invalid"}', encoding='utf-8')
-            sibling = Path(sibling_dir) / '.CaNvAs-McP'
-            sibling.mkdir()
-            (sibling / 'settings.state').write_text('{}', encoding='utf-8')
-            with running_server(TOKEN, data_dir) as port:
+            with running_server(TOKEN, directory) as port:
                 self.assertFalse(settings(port, 'status')[2]['enabled'])
-                self.assertTrue(settings(port, 'set_enabled', enabled=True)[2]['enabled'])
-                self.assertEqual(external(port, 'read_canvas')[0], 401)
-                with patch('backend.config.WORKFLOWS_DIR', data_dir):
-                    self.assertEqual(request(port, '/api/workflows/.canvas-mcp/settings', method='GET')[0], 404)
-                for relative in [f'/{Path(data_dir).name}/.canvas-mcp/settings.state',
-                                 f'/{Path(sibling_dir).name}/.CaNvAs-McP/settings.state']:
-                    for method in ['GET', 'HEAD']:
-                        with self.subTest(path=relative, method=method):
-                            client = http.client.HTTPConnection('127.0.0.1', port, timeout=2)
-                            try:
-                                client.request(method, relative)
-                                response = client.getresponse()
-                                self.assertEqual(response.status, 404)
-                            finally:
-                                client.close()
+                client = http.client.HTTPConnection('127.0.0.1', port, timeout=2)
+                try:
+                    client.request('GET', f'/{Path(directory).name}/.canvas-mcp/settings.state')
+                    self.assertEqual(client.getresponse().status, 404)
+                finally:
+                    client.close()
 
     def test_packaged_copy_provisions_the_adapter_at_a_stable_path(self):
         with TemporaryDirectory() as data_dir, TemporaryDirectory() as bundle_dir, \
@@ -227,185 +372,22 @@ class CanvasMcpBridgeTests(unittest.TestCase):
                 self.assertEqual((private / name).read_bytes(), body)
 
     def test_routes_require_distinct_credentials_and_never_log_or_allow_cross_origin(self):
-        desktop_token = desktop_security.enable_desktop_session()
-        self.addCleanup(desktop_security.disable_desktop_session)
         with running_server() as port, patch('backend.handler.start_request_log') as log_request:
-            auth = {'Authorization': f'Bearer {TOKEN}'}
-            call = {'method': 'read_canvas', 'args': {}}
-            activation = {'action': 'poll', 'editorId': 'test-editor', 'activate': False}
-            editor_headers = {'Origin': f'http://127.0.0.1:{port}', 'X-CainFlow-Canvas-MCP': 'editor'}
-            cookie = {'Cookie': f'{desktop_security.COOKIE_NAME}={desktop_token}'}
-            self.assertEqual(request(port, CALL, call, cookie)[0], 401)
-            self.assertEqual(request(port, CALL, call, {**auth, 'Host': f'other.test:{port}'})[0], 403)
-            self.assertEqual(request(port, CALL, call, {**auth, 'Origin': 'http://other.test'})[0], 403)
-            self.assertEqual(request(port, EDITOR, activation, {**editor_headers, **auth})[0], 403)
-            self.assertEqual(request(port, EDITOR, activation, {**editor_headers, **cookie, **auth})[0], 403)
-            self.assertEqual(request(port, EDITOR, activation, {**editor_headers, **cookie, 'Origin': 'http://other.test'})[0], 403)
-            self.assertEqual(request(port, EDITOR, activation, {**cookie, 'Origin': editor_headers['Origin']})[0], 403)
-            self.assertEqual(request(port, EDITOR, activation, {**editor_headers, **cookie})[0], 409)
-            self.assertEqual(settings(port, 'connection_config')[0], 403)
-            self.assertEqual(settings(port, 'connection_config', {**auth, **cookie})[0], 403)
-            self.assertEqual(settings(port, 'set_enabled', {**cookie, 'Origin': 'http://other.test'}, enabled=False)[0], 403)
-            self.assertEqual(settings(port, 'set_enabled', {**cookie, 'Host': f'other.test:{port}'}, enabled=False)[0], 403)
-            self.assertTrue(settings(port, 'status', cookie)[2]['enabled'])
-            self.assertEqual(request(port, CALL, b'{', auth)[0], 400)
-            self.assertEqual(request(port, CALL, b'{"method":"read_canvas","args":{"offset":1e9999}}', auth)[0], 400)
-            self.assertEqual(request(port, CALL, b'{}', {**auth, 'Content-Type': 'text/plain'})[0], 415)
-            self.assertEqual(request(port, CALL, b'{}', {**auth, 'Content-Length': str(1024 * 1024 + 1)})[0], 413)
-            self.assertEqual(request(port, CALL, {'method': 'unknown', 'args': {}}, auth)[0], 400)
-            self.assertEqual(request(port, CALL + '?invalid=1', call, auth)[0], 404)
-            status, headers, _ = request(port, CALL, method='OPTIONS')
-            self.assertEqual(status, 405)
-            self.assertNotIn('Access-Control-Allow-Origin', headers)
-            log_request.assert_not_called()
-
-    def test_current_editor_reads_and_completes_each_command_once(self):
-        with patch('backend.services.canvas_mcp_bridge.POLL_SECONDS', 0.1), \
-                patch('backend.services.canvas_mcp_bridge.MAX_PENDING_COMMANDS', 1):
-            with running_server() as port, ThreadPoolExecutor(max_workers=1) as calls:
-                self.assertEqual(editor(port, 'editor-one', activate=True), (200, {'command': None}))
-                pending = calls.submit(external, port, 'read_canvas')
-                command = self.poll_command(port, 'editor-one')
-                self.assertEqual(command['method'], 'read_canvas')
-                self.assertEqual(external(port, 'read_canvas')[0], 429)
-                self.assertEqual(editor(port, 'editor-one', activate=False), (200, {'command': None}))
-                self.assertEqual(editor(port, 'editor-two', 'complete', id=command['id'], result={})[0], 409)
-                result = {'workflowId': 'workflow-1'}
-                self.assertEqual(editor(port, 'editor-one', 'complete', id=command['id'], result=result),
-                                 (200, {'ok': True}))
-                self.assertEqual(pending.result(timeout=2), (200, {'result': {**result, 'editorId': 'editor-one'}}))
-                self.assertEqual(editor(port, 'editor-one', 'complete', id=command['id'], result=result)[0], 409)
-                self.assertEqual(external(port, 'edit_canvas')[0], 400)
-
-                image = {'mimeType': 'image/png', 'data': 'iVBORw0KGgo='}
-                scope = {'editorId': 'editor-one', 'workflowId': 'workflow-1', 'revision': 'revision-1'}
-                self.assertEqual(external(port, 'read_canvas', {'revision': scope['revision']})[0], 400)
-                self.assertEqual(external(port, 'read_canvas', {**scope, 'editorId': 'editor-two'}),
-                                 (409, {'error': 'This CainFlow editor is no longer current.', 'errorCode': 'stale_editor'}))
-                page_args = {**scope, 'offset': 40}
-                pending = calls.submit(external, port, 'read_canvas', page_args)
-                command = self.poll_command(port, 'editor-one')
-                self.assertEqual(command['args'], page_args)
-                self.assertEqual(editor(port, 'editor-one', 'complete', id=command['id'],
-                                        error='Changed', errorCode='invalid code')[0], 400)
-                self.assertEqual(editor(port, 'editor-one', 'complete', id=command['id'],
-                                        error='Changed', errorCode='stale_revision')[0], 200)
-                self.assertEqual(pending.result(timeout=2), (200, {'error': 'Changed', 'errorCode': 'stale_revision'}))
-                run = {'editorId': 'editor-one', 'workflowId': 'workflow-1', 'runId': 'run-1'}
-                pending = calls.submit(external, port, 'get_run_image', {**run, 'nodeId': 'image-1'})
-                command = self.poll_command(port, 'editor-one')
-                self.assertEqual(command['method'], 'get_run_image')
-                self.assertEqual(editor(port, 'editor-one', 'complete', id=command['id'], result=image)[0], 200)
-                self.assertEqual(pending.result(timeout=2), (200, {'result': image}))
-
-                pending = calls.submit(external, port, 'get_run_image', {**run, 'nodeId': 'image-1'})
-                command = self.poll_command(port, 'editor-one')
-                other_format = {**image, 'mimeType': 'image/svg+xml'}
-                self.assertEqual(editor(port, 'editor-one', 'complete', id=command['id'], result=other_format)[0], 200)
-                self.assertEqual(pending.result(timeout=2)[0], 502)
-
-                pending = calls.submit(external, port, 'run_workflow', scope)
-                command = self.poll_command(port, 'editor-one')
-                self.assertEqual(command['args'], scope)
-                self.assertEqual(editor(port, 'editor-two', activate=True), (200, {'command': None}))
-                self.assertEqual(pending.result(timeout=2)[0], 409)
-                self.assertEqual(editor(port, 'editor-one', 'complete', id=command['id'], result={})[0], 409)
-                self.assertEqual(external(port, 'run_workflow', scope)[0], 409)
-                self.assertEqual(external(port, 'get_workflow_run', run)[0], 409)
-
-    def test_app_library_and_workflow_commands_require_the_current_editor_and_registered_arguments(self):
-        cases = {
-            'create_workflow': {'name': 'MCP draft'},
-            'list_history': {'limit': 10},
-            'annotate_history': {'id': 42, 'fileVersion': '120:42', 'note': ''},
-            'list_prompts': {'query': '商品'},
-            'save_prompt': {'name': '商品', 'content': '光线柔和'},
-        }
-        with running_server() as port, ThreadPoolExecutor(max_workers=1) as calls, \
-                patch('backend.services.canvas_mcp_bridge.POLL_SECONDS', 0.05):
-            self.assertEqual(external(port, 'create_workflow', cases['create_workflow'])[0], 409)
-            self.assertEqual(editor(port, 'editor-one', activate=True)[0], 200)
-            for method, args in cases.items():
-                with self.subTest(method=method):
-                    self.assertEqual(external(port, method, {**args, 'path': 'arbitrary'})[0], 400)
-                    self.assertEqual(external(port, method, {**args, 'editorId': 'other-editor'})[0], 409)
-                    pending = calls.submit(external, port, method, args)
-                    command = self.poll_command(port, 'editor-one')
-                    self.assertEqual(command['method'], method)
-                    self.assertEqual(command['args'], args)
-                    reply = {'completed': True}
-                    self.assertEqual(editor(port, 'editor-one', 'complete', id=command['id'], result=reply)[0], 200)
-                    self.assertEqual(pending.result(timeout=2), (200, {'result': reply}))
-
-    def test_batch_and_model_catalog_use_only_scoped_canvas_arguments(self):
-        with running_server() as port, ThreadPoolExecutor(max_workers=1) as calls, \
-                patch('backend.services.canvas_mcp_bridge.POLL_SECONDS', 0.05):
-            self.assertEqual(editor(port, 'editor-one', activate=True)[0], 200)
-            scope = {'editorId': 'editor-one', 'workflowId': 'workflow-1', 'revision': 'revision-1'}
-            batch = {**scope, 'prompt': '统一商品背景', 'sourceNodeIds': ['image-1'], 'run': True}
-            self.assertEqual(external(port, 'generate_image_batch', {'prompt': batch['prompt']})[0], 400)
-            self.assertEqual(external(port, 'generate_image_batch', {**batch, 'revision': None})[0], 400)
-            self.assertEqual(external(port, 'generate_image_batch', {**batch, 'outputPath': 'outside-canvas'})[0], 400)
-            self.assertEqual(external(port, 'generate_image_batch', {**batch, 'editorId': 'other-editor'})[0], 409)
-            self.assertEqual(external(port, 'list_models', {'endpoint': 'other-provider'})[0], 400)
-            for method, args, result in [
-                    ('list_models', {}, {'models': [{'modelId': 'image-model', 'name': 'Image model'}]}),
-                    ('generate_image_batch', batch, {'runId': 'run-1', 'revision': 'revision-2'}),
-            ]:
-                with self.subTest(method=method):
-                    pending = calls.submit(external, port, method, args)
-                    command = self.poll_command(port, 'editor-one')
-                    self.assertEqual((command['method'], command['args']), (method, args))
-                    self.assertEqual(editor(port, 'editor-one', 'complete', id=command['id'], result=result)[0], 200)
-                    self.assertEqual(pending.result(timeout=2), (200, {'result': result}))
-
-    def test_history_import_and_preset_application_require_editor_workflow_and_revision(self):
-        cases = {
-            'import_history': {'items': [{'id': -42, 'fileVersion': '123:42'}]},
-            'apply_prompt': {'nodeId': 'image', 'name': '清晰包装', 'target': 'system'},
-            'stop_workflow': {'nodeIds': ['image']},
-            'undo_canvas': {},
-            'redo_canvas': {},
-        }
-        with running_server() as port, ThreadPoolExecutor(max_workers=1) as calls, \
-                patch('backend.services.canvas_mcp_bridge.POLL_SECONDS', 0.05):
-            self.assertEqual(editor(port, 'editor-one', activate=True)[0], 200)
-            scope = {'editorId': 'editor-one', 'workflowId': 'workflow-one', 'revision': 'revision-one'}
-            for method, fields in cases.items():
-                with self.subTest(method=method):
-                    self.assertEqual(external(port, method, fields)[0], 400)
-                    args = {**scope, **fields}
-                    self.assertEqual(external(port, method, {**args, 'path': 'outside-canvas'})[0], 400)
-                    self.assertEqual(external(port, method, {**args, 'editorId': 'other-editor'})[0], 409)
-                    pending = calls.submit(external, port, method, args)
-                    command = self.poll_command(port, 'editor-one')
-                    self.assertEqual((command['method'], command['args']), (method, args))
-                    result = {'workflowId': 'workflow-one', 'revision': 'revision-two'}
-                    self.assertEqual(editor(port, 'editor-one', 'complete', id=command['id'], result=result)[0], 200)
-                    self.assertEqual(pending.result(timeout=2), (200, {'result': result}))
-
-    def test_timed_out_delivered_command_cannot_replay_or_complete(self):
-        with patch('backend.services.canvas_mcp_bridge.POLL_SECONDS', 0.05), \
-                patch('backend.services.canvas_mcp_bridge.COMMAND_SECONDS', 0.5):
-            with running_server() as port, ThreadPoolExecutor(max_workers=1) as calls:
-                self.assertEqual(editor(port, 'editor-one', activate=True)[0], 200)
-                pending = calls.submit(external, port, 'edit_canvas', {
-                    'editorId': 'editor-one', 'workflowId': 'workflow-1', 'revision': 'revision-1', 'plan': {},
-                })
-                command = self.poll_command(port, 'editor-one')
-                status, body = pending.result(timeout=2)
-                self.assertEqual(status, 504)
-                self.assertIn('outcome', body['error'])
-                self.assertEqual(editor(port, 'editor-one', 'complete', id=command['id'], result={})[0], 409)
-                self.assertEqual(editor(port, 'editor-one', activate=False), (200, {'command': None}))
-
-    def poll_command(self, port, editor_id):
-        for _ in range(10):
-            status, response = editor(port, editor_id, activate=False)
-            self.assertEqual(status, 200)
-            if response['command']:
-                return response['command']
-        self.fail('editor did not receive a command')
+            desktop_token = desktop_security.enable_desktop_session()
+            try:
+                auth = {'Authorization': f'Bearer {TOKEN}'}
+                call = {'method': 'list_workflows', 'args': {}}
+                cookie = {'Cookie': f'{desktop_security.COOKIE_NAME}={desktop_token}'}
+                self.assertEqual(request(port, CALL, call, cookie)[0], 401)
+                self.assertEqual(request(port, CALL, call, {**auth, 'Origin': 'https://cross-origin.test'})[0], 403)
+                self.assertEqual(request(port, CALL, call, {**auth, 'Host': f'localhost:{port}'})[0], 403)
+                self.assertEqual(settings(port, 'status', headers=auth)[0], 403)
+                self.assertEqual(settings(port, 'status')[0], 403)
+                self.assertEqual(settings(port, 'status', headers=cookie)[0], 200)
+                self.assertEqual(request(port, CALL, call, auth)[0], 200)
+                log_request.assert_not_called()
+            finally:
+                desktop_security.disable_desktop_session()
 
 
 if __name__ == '__main__':

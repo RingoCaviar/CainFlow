@@ -728,6 +728,7 @@ export function createWorkflowManagerApi({
         let migration = pendingLegacyMediaMigrations.get(migrationKey) || null;
         let documentPersisted = false;
         const previousMediaOwnershipRevision = data?.mediaOwnershipRevision;
+        const expectedRevision = Number(previousMediaOwnershipRevision || 0);
         try {
             if (!await mediaOwnership.validateStorageEpoch(data?.workflowId || '')) {
                 throw new Error('媒体存储版本已变化，请重新确认操作');
@@ -743,23 +744,32 @@ export function createWorkflowManagerApi({
             let result = await saveWorkflowToFileService(name, writeDocument, {
                 createOnly,
                 strictRevision,
-                expectedMediaOwnershipRevision: Number(previousMediaOwnershipRevision || 0),
+                expectedMediaOwnershipRevision: expectedRevision,
                 expectedStorageEpoch: mediaOwnership.getExpectedStorageEpoch(data?.workflowId || '')
             });
             let publicationUnknown = false;
             if (strictRevision && result?.ok === false && result.status === undefined) {
                 // A lost response can follow an atomic file replacement. Confirm only the exact document.
                 const persisted = await loadWorkflowFromFileService(name, { fresh: true }).catch(() => null);
-                if (JSON.stringify(persisted) === JSON.stringify(writeDocument)) result = true;
+                const mcpRevision = persisted?.canvasMcpWriteRevision;
+                // The server retains its existing marker even when the editor omits it.
+                const expectedDocument = Number.isSafeInteger(mcpRevision) && mcpRevision > 0 && mcpRevision <= expectedRevision
+                    ? { ...writeDocument, canvasMcpWriteRevision: mcpRevision }
+                    : writeDocument;
+                if (JSON.stringify(persisted) === JSON.stringify(expectedDocument)) result = true;
                 else publicationUnknown = true;
             }
             const isMediaOwnershipRevisionConflict = !createOnly && !strictRevision && result?.status === 409
                 && result?.detail === 'Workflow media ownership revision conflict';
             if (isMediaOwnershipRevisionConflict) {
-                const persistedWorkflow = await loadWorkflowFromFileService(name);
+                const persistedWorkflow = await loadWorkflowFromFileService(name, { fresh: true });
                 const persistedRevision = Number(persistedWorkflow?.mediaOwnershipRevision);
-                if (persistedWorkflow?.workflowId === data?.workflowId
-                    && Number.isInteger(persistedRevision) && persistedRevision >= 0) {
+                const mcpRevision = persistedWorkflow?.canvasMcpWriteRevision;
+                const sameWorkflow = persistedWorkflow?.workflowId === data?.workflowId;
+                if (sameWorkflow && Number.isSafeInteger(mcpRevision)
+                    && mcpRevision > expectedRevision && mcpRevision <= persistedRevision) {
+                    result = { ...result, message: 'Canvas MCP 已修改此工作流，请重新载入已保存的版本，或使用“另存为”保留当前修改' };
+                } else if (sameWorkflow && Number.isInteger(persistedRevision) && persistedRevision >= 0) {
                     const attemptedRevision = preparedWorkflow.mediaOwnershipRevision;
                     preparedWorkflow = prepareWorkflowMediaOwnershipCommit({
                         ...documentData, mediaOwnershipRevision: persistedRevision

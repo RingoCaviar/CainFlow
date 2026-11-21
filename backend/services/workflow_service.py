@@ -10,12 +10,13 @@ from backend.services.security_service import get_safe_folder_path, get_safe_pat
 
 
 _workflow_write_lock = threading.RLock()
+MCP_WRITE_REVISION = 'canvasMcpWriteRevision'
 
 
 @contextmanager
-def _workflow_cross_process_lock():
-    os.makedirs(config.WORKFLOWS_DIR, exist_ok=True)
-    lock_path = os.path.join(config.WORKFLOWS_DIR, '.cainflow-workflow-write.lock')
+def _workflow_cross_process_lock(workflows_dir):
+    os.makedirs(workflows_dir, exist_ok=True)
+    lock_path = os.path.join(workflows_dir, '.cainflow-workflow-write.lock')
     with open(lock_path, 'a+b') as lock_file:
         lock_file.seek(0, os.SEEK_END)
         if lock_file.tell() == 0:
@@ -36,6 +37,12 @@ def _workflow_cross_process_lock():
                 msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
             else:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def lock_workflow_files(workflows_dir=None):
+    with _workflow_write_lock, _workflow_cross_process_lock(workflows_dir or config.WORKFLOWS_DIR):
+        yield
 
 
 def list_workflows(workflows_dir):
@@ -106,76 +113,104 @@ def load_workflow(name):
         return file.read()
 
 
-def _media_ownership_revision(body):
+def _workflow_document(body):
     try:
-        return int(json.loads(body.decode('utf-8')).get('mediaOwnershipRevision') or 0)
-    except (UnicodeDecodeError, json.JSONDecodeError, AttributeError, TypeError, ValueError):
-        raise ValueError('Invalid workflow payload')
+        document = json.loads(body.decode('utf-8'))
+        if isinstance(document, dict):
+            return document
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        pass
+    raise ValueError('Invalid workflow payload')
 
 
-def _workflow_identity(body):
-    identity = json.loads(body.decode('utf-8')).get('workflowId')
-    return identity if isinstance(identity, str) else ''
+def _media_ownership_revision(document):
+    try:
+        return int(document.get('mediaOwnershipRevision') or 0)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError('Invalid workflow revision') from error
+
+
+def _atomic_write_workflow(filepath, body):
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    descriptor, temporary_path = tempfile.mkstemp(prefix='.cainflow-workflow-', suffix='.tmp', dir=os.path.dirname(filepath))
+    try:
+        with os.fdopen(descriptor, 'wb') as file:
+            file.write(body)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temporary_path, filepath)
+    finally:
+        if os.path.exists(temporary_path):
+            os.remove(temporary_path)
 
 
 def save_workflow(name, body, expected_media_ownership_revision=None, *, create_only=False, strict_revision=False):
     filepath = get_safe_path(name)
     if not filepath:
         raise ValueError('Invalid workflow name')
-    next_revision = _media_ownership_revision(body)
-    identity = _workflow_identity(body) if strict_revision else ''
-    if strict_revision and (not identity or expected_media_ownership_revision is None):
+    document = _workflow_document(body)
+    next_revision = _media_ownership_revision(document)
+    identity = document.get('workflowId')
+    if strict_revision and (not isinstance(identity, str) or not identity or expected_media_ownership_revision is None):
         raise ValueError('Workflow identity and revision are required')
-    with _workflow_write_lock, _workflow_cross_process_lock():
+    expected = None if expected_media_ownership_revision is None else int(expected_media_ownership_revision)
+    with lock_workflow_files():
         if create_only and os.path.lexists(filepath):
             raise FileExistsError('Workflow name already exists')
         if _workflow_base_exists(_workflow_base_name(name), exclude_names={name}):
             raise FileExistsError('Workflow name already exists')
         current_revision = 0
+        mcp_revision = None
         if os.path.exists(filepath):
             with open(filepath, 'rb') as file:
-                previous = file.read()
+                previous = _workflow_document(file.read())
             current_revision = _media_ownership_revision(previous)
-            if strict_revision and _workflow_identity(previous) != identity:
+            if strict_revision and previous.get('workflowId') != identity:
                 raise RuntimeError('Workflow identity conflict')
-        if expected_media_ownership_revision is not None:
-            expected = int(expected_media_ownership_revision)
-            if current_revision != expected or next_revision != expected + 1:
-                raise RuntimeError('Workflow media ownership revision conflict')
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
-        descriptor, temporary_path = tempfile.mkstemp(prefix='.cainflow-workflow-', suffix='.tmp', dir=os.path.dirname(filepath))
-        try:
-            with os.fdopen(descriptor, 'wb') as file:
-                file.write(body)
-                file.flush()
-                os.fsync(file.fileno())
-            os.replace(temporary_path, filepath)
-        except Exception:
-            if os.path.exists(temporary_path):
-                os.remove(temporary_path)
-            raise
+            mcp_revision = previous.get(MCP_WRITE_REVISION)
+            if type(mcp_revision) is int and 0 < mcp_revision <= current_revision:
+                if expected is None or expected < mcp_revision:
+                    # The editor retries ordinary revision conflicts with its existing document.
+                    # An MCP edit requires an explicit reload before that document can replace it.
+                    raise RuntimeError('Workflow was changed by Canvas MCP; reload the saved workflow before saving')
+            else:
+                mcp_revision = None
+        if expected is not None and (current_revision != expected or next_revision != expected + 1):
+            raise RuntimeError('Workflow media ownership revision conflict')
+        submitted_marker = document.pop(MCP_WRITE_REVISION, None)
+        if type(submitted_marker) is not type(mcp_revision) or submitted_marker != mcp_revision:
+            if mcp_revision is not None:
+                document[MCP_WRITE_REVISION] = mcp_revision
+            body = json.dumps(document, ensure_ascii=False).encode('utf-8')
+        _atomic_write_workflow(filepath, body)
     return next_revision
 
 
 def rename_workflow(old_name, new_name):
     old_path = get_safe_path(old_name)
     new_path = get_safe_path(new_name)
-    if not old_path or not new_path or not os.path.exists(old_path):
+    if not old_path or not new_path:
         return False
-    if os.path.exists(new_path):
-        raise FileExistsError('Workflow already exists')
-    if _workflow_base_exists(_workflow_base_name(new_name), exclude_names={old_name}):
-        raise FileExistsError('Workflow name already exists')
-    os.makedirs(os.path.dirname(new_path), exist_ok=True)
-    os.rename(old_path, new_path)
+    with lock_workflow_files():
+        if not os.path.exists(old_path):
+            return False
+        if os.path.exists(new_path):
+            raise FileExistsError('Workflow already exists')
+        if _workflow_base_exists(_workflow_base_name(new_name), exclude_names={old_name}):
+            raise FileExistsError('Workflow name already exists')
+        os.makedirs(os.path.dirname(new_path), exist_ok=True)
+        os.rename(old_path, new_path)
     return True
 
 
 def delete_workflow(name):
     filepath = get_safe_path(name)
-    if not filepath or not os.path.exists(filepath):
+    if not filepath:
         return False
-    os.remove(filepath)
+    with lock_workflow_files():
+        if not os.path.exists(filepath):
+            return False
+        os.remove(filepath)
     return True
 
 
@@ -183,72 +218,78 @@ def create_workflow_folder(name):
     folderpath = get_safe_folder_path(name)
     if not folderpath:
         raise ValueError('Invalid workflow folder name')
-    os.makedirs(folderpath, exist_ok=True)
+    with lock_workflow_files():
+        os.makedirs(folderpath, exist_ok=True)
     return True
 
 
 def rename_workflow_folder(old_name, new_name):
     old_folderpath = get_safe_folder_path(old_name)
     new_folderpath = get_safe_folder_path(new_name)
-    if not old_folderpath or not new_folderpath or not os.path.isdir(old_folderpath):
+    if not old_folderpath or not new_folderpath:
         return None
-    if os.path.exists(new_folderpath):
-        raise FileExistsError('Workflow folder already exists')
+    with lock_workflow_files():
+        if not os.path.isdir(old_folderpath):
+            return None
+        if os.path.exists(new_folderpath):
+            raise FileExistsError('Workflow folder already exists')
 
-    old_prefix = os.path.relpath(old_folderpath, config.WORKFLOWS_DIR).replace(os.sep, '/')
-    new_prefix = os.path.relpath(new_folderpath, config.WORKFLOWS_DIR).replace(os.sep, '/')
-    moved = []
-    for filepath in _collect_workflow_files_under(old_folderpath):
-        old_workflow_name = _workflow_name_from_file(filepath)
-        suffix = old_workflow_name[len(old_prefix):].lstrip('/')
-        moved.append({'old': old_workflow_name, 'new': f'{new_prefix}/{suffix}'})
+        old_prefix = os.path.relpath(old_folderpath, config.WORKFLOWS_DIR).replace(os.sep, '/')
+        new_prefix = os.path.relpath(new_folderpath, config.WORKFLOWS_DIR).replace(os.sep, '/')
+        moved = []
+        for filepath in _collect_workflow_files_under(old_folderpath):
+            old_workflow_name = _workflow_name_from_file(filepath)
+            suffix = old_workflow_name[len(old_prefix):].lstrip('/')
+            moved.append({'old': old_workflow_name, 'new': f'{new_prefix}/{suffix}'})
 
-    os.makedirs(os.path.dirname(new_folderpath), exist_ok=True)
-    os.rename(old_folderpath, new_folderpath)
-    return {'moved': moved}
+        os.makedirs(os.path.dirname(new_folderpath), exist_ok=True)
+        os.rename(old_folderpath, new_folderpath)
+        return {'moved': moved}
 
 
 def delete_workflow_folder(name, delete_contents=False):
     folderpath = get_safe_folder_path(name)
-    if not folderpath or not os.path.isdir(folderpath):
+    if not folderpath:
         return None
+    with lock_workflow_files():
+        if not os.path.isdir(folderpath):
+            return None
+        workflow_files = _collect_workflow_files_under(folderpath)
+        workflow_names = [_workflow_name_from_file(filepath) for filepath in workflow_files]
+        if delete_contents:
+            shutil.rmtree(folderpath)
+            return {'deleted': workflow_names, 'moved': []}
 
-    workflow_files = _collect_workflow_files_under(folderpath)
-    workflow_names = [_workflow_name_from_file(filepath) for filepath in workflow_files]
-    if delete_contents:
+        moved = []
+        reserved_names = set()
+        for old_name in workflow_names:
+            old_path = get_safe_path(old_name)
+            base_name = old_name.split('/')[-1]
+            new_name = _get_unique_root_workflow_name(base_name, reserved_names, exclude_names={old_name})
+            new_path = get_safe_path(new_name)
+            if not old_path or not new_path:
+                raise ValueError('Invalid workflow folder content')
+            os.rename(old_path, new_path)
+            reserved_names.add(new_name)
+            moved.append({'old': old_name, 'new': new_name})
+
         shutil.rmtree(folderpath)
-        return {'deleted': workflow_names, 'moved': []}
-
-    moved = []
-    reserved_names = set()
-    for old_name in workflow_names:
-        old_path = get_safe_path(old_name)
-        base_name = old_name.split('/')[-1]
-        new_name = _get_unique_root_workflow_name(base_name, reserved_names, exclude_names={old_name})
-        new_path = get_safe_path(new_name)
-        if not old_path or not new_path:
-            raise ValueError('Invalid workflow folder content')
-        os.rename(old_path, new_path)
-        reserved_names.add(new_name)
-        moved.append({'old': old_name, 'new': new_name})
-
-    shutil.rmtree(folderpath)
-    return {'deleted': [], 'moved': moved}
+        return {'deleted': [], 'moved': moved}
 
 
 def clear_workflows(workflows_dir):
-    os.makedirs(workflows_dir, exist_ok=True)
-    deleted = 0
-    for root, _, filenames in os.walk(workflows_dir):
-        for filename in filenames:
-            if not filename.endswith('.json'):
-                continue
-            filepath = os.path.join(root, filename)
-            if not os.path.isfile(filepath):
-                continue
-            os.remove(filepath)
-            deleted += 1
-    return deleted
+    with lock_workflow_files(workflows_dir):
+        deleted = 0
+        for root, _, filenames in os.walk(workflows_dir):
+            for filename in filenames:
+                if not filename.endswith('.json'):
+                    continue
+                filepath = os.path.join(root, filename)
+                if not os.path.isfile(filepath):
+                    continue
+                os.remove(filepath)
+                deleted += 1
+        return deleted
 
 
 """封装工作流文件的保存、读取、重命名和删除操作。"""

@@ -108,7 +108,8 @@ function retainRunNodes(record, nodes) {
     if (retained.length < nodes.length) record.nodeResultsOmitted = nodes.length - retained.length;
 }
 
-export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () => ({}), getImageModels = () => [], runWorkflow, appActions = null }) {
+export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () => ({}), getImageModels = () => [], runWorkflow,
+    appActions = null, getSavedRevision = null }) {
     let revisionState;
     const runs = new Map();
     const runImages = new Map();
@@ -120,6 +121,7 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
         if (workflowId !== undefined && workflowId !== context.workflowId) {
             throw actionError('wrong_workflow', '指定的工作流当前未显示，请重新读取画布。');
         }
+        if (getSavedRevision) return { context, revision: getSavedRevision() };
         const fingerprint = canvasRevisionFingerprint(context);
         if (revisionState?.fingerprint !== fingerprint) {
             revisionState = { fingerprint, revision: crypto.randomUUID() };
@@ -377,13 +379,12 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
         if (appActions?.supports(method)) {
             if (appActions.usesCanvas(method)) {
                 const context = requireRevision(args, scope?.isCurrent);
-                const { editorId, workflowId, revision, ...parameters } = args;
+                const { workflowId, revision, ...parameters } = args;
                 const isCurrent = () => Boolean(requireRevision(args, scope?.isCurrent));
                 const result = await appActions.dispatch(method, parameters, { context, isCurrent });
                 return { ...result, workflowId, revision: snapshot(workflowId).revision };
             }
-            const { editorId, ...parameters } = args;
-            return appActions.dispatch(method, parameters, scope);
+            return appActions.dispatch(method, args, scope);
         }
         if (method === 'read_canvas') {
             const { context, revision } = args.revision === undefined ? snapshot(args.workflowId) : {

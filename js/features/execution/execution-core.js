@@ -36,6 +36,7 @@ import { createChatRequestPlan, executeChatRequestPlan, requestChatCompletion } 
 import {
     appendReferenceImages,
     clearCanonicalImageOutput,
+    coerceCustomParamValue,
     getCanonicalImage,
     getCanonicalImageList,
     getImageImportMediaAssetReferences,
@@ -60,7 +61,8 @@ import { projectMissingMediaAssets } from '../media/missing-media-integrity.js';
 import { persistVideoResultForNode } from '../media/video/video-result-persistence.js';
 import { readColorResetConfig } from '../media/color-reset-config.js';
 import { getNodeImageResultPersistence, IMAGE_RESULT_PERSISTENCE } from '../../nodes/registry.js';
-import { getIncludedAutoSaveNodeIds } from './generation-save-targets.js';
+import { resolveWorkflowExecutionPlan } from './workflow-execution-plan.js';
+import { buildOpenAiImageEditFormData, getOpenAiImageEditFields } from './openai-image-edit-form.js';
 import { sanitizeRequestUrl } from '../../services/api-client.js';
 import {
     analyzeCommerceImageSetProduct,
@@ -1127,135 +1129,10 @@ export function createExecutionCoreApi({
         return isFixed && node.isSucceeded === true && typeof node.data?.text === 'string' && node.data.text.trim().length > 0;
     }
 
-    function collectUpstreamNodeIds(targetNodeId) {
-        if (!targetNodeId || !state.nodes.has(targetNodeId)) return null;
-
-        const scopeNodeSet = new Set();
-
-        function visit(nodeId) {
-            if (scopeNodeSet.has(nodeId)) return;
-            scopeNodeSet.add(nodeId);
-            const node = state.nodes.get(nodeId);
-            if (nodeId !== targetNodeId && isFixedTextChatWithCachedResult(node)) return;
-            state.connections
-                .filter((connection) => connection.to.nodeId === nodeId)
-                .forEach((connection) => {
-                    if (state.nodes.has(connection.from.nodeId)) {
-                        visit(connection.from.nodeId);
-                    }
-                });
-        }
-
-        visit(targetNodeId);
-        return scopeNodeSet;
-    }
-
-    function buildConnectionMaps(scopeNodeSet, mode, runOptions = {}) {
-        const incomingConnectionsByNode = Object.create(null);
-        const inputConnectionsByNode = Object.create(null);
-
-        scopeNodeSet.forEach((nodeId) => {
-            const node = state.nodes.get(nodeId);
-            const useFixedCache = !(mode === 'target-node' && nodeId === runOptions.targetNodeId) &&
-                isFixedTextChatWithCachedResult(node);
-            const allIncoming = useFixedCache
-                ? []
-                : state.connections.filter((connection) => (
-                    connection.to.nodeId === nodeId && state.nodes.has(connection.from.nodeId)
-                ));
-            inputConnectionsByNode[nodeId] = allIncoming;
-            incomingConnectionsByNode[nodeId] = mode === 'selected-only'
-                ? allIncoming.filter((connection) => scopeNodeSet.has(connection.from.nodeId))
-                : allIncoming.filter((connection) => scopeNodeSet.has(connection.from.nodeId));
-        });
-
-        return {
-            incomingConnectionsByNode,
-            inputConnectionsByNode
-        };
-    }
-
-    function topologicalSortForPlan(plan, notify) {
-        const visited = new Set();
-        const visiting = new Set();
-        const result = [];
-
-        function visit(nodeId) {
-            if (visited.has(nodeId)) return true;
-            if (visiting.has(nodeId)) return false;
-
-            visiting.add(nodeId);
-
-            for (const connection of plan.incomingConnectionsByNode[nodeId] || []) {
-                if (!visit(connection.from.nodeId)) return false;
-            }
-
-            visiting.delete(nodeId);
-            visited.add(nodeId);
-            result.push(nodeId);
-            return true;
-        }
-
-        for (const nodeId of plan.nodeIds) {
-            if (!visit(nodeId)) {
-                notify('循环连接', 'error');
-                return null;
-            }
-        }
-
-        return result;
-    }
-
     function resolveExecutionPlan(runInput = null, { notify = showToast } = {}) {
-        const runOptions = normalizeRunOptions(runInput);
-        let scopeNodeSet = null;
-
-        if (runOptions.mode === 'target-node') {
-            if (!runOptions.targetNodeId) {
-                notify('未找到目标节点', 'error');
-                return null;
-            }
-            scopeNodeSet = collectUpstreamNodeIds(runOptions.targetNodeId);
-        } else if (runOptions.mode === 'selected-only') {
-            scopeNodeSet = new Set(runOptions.selectedNodeIds);
-            if (scopeNodeSet.size === 0) {
-                notify('请先选择要运行的节点', 'warning');
-                return null;
-            }
-        } else {
-            scopeNodeSet = new Set(state.nodes.keys());
-        }
-
-        if (!scopeNodeSet || scopeNodeSet.size === 0) {
-            notify('当前没有可运行的节点', 'warning');
-            return null;
-        }
-
-        // Automatic saves are the only downstream work added to a bounded run.
-        // Recheck the saved marker and live connection instead of trusting IDs
-        // supplied by a caller or retained from an older workflow snapshot.
-        if (!runOptions.imageRetryNodeId && runOptions.commerceAction !== 'revise-detail-page') {
-            getIncludedAutoSaveNodeIds(state, scopeNodeSet, runOptions.includedAutoSaveNodeIds)
-                .forEach((nodeId) => scopeNodeSet.add(nodeId));
-        }
-
-        const nodeIds = Array.from(scopeNodeSet);
-        const {
-            incomingConnectionsByNode,
-            inputConnectionsByNode
-        } = buildConnectionMaps(scopeNodeSet, runOptions.mode, runOptions);
-        const plan = {
-            ...runOptions,
-            nodeIds,
-            scopeNodeSet,
-            incomingConnectionsByNode,
-            inputConnectionsByNode,
-            executionOrder: []
-        };
-        const executionOrder = topologicalSortForPlan(plan, notify);
-        if (!executionOrder) return null;
-        plan.executionOrder = executionOrder;
-        return plan;
+        return resolveWorkflowExecutionPlan(state, normalizeRunOptions(runInput), {
+            isFixedTextChatWithCachedResult, notify
+        });
     }
 
     function topologicalSort(runInput = null) {
@@ -1352,20 +1229,6 @@ export function createExecutionCoreApi({
         }
 
         return undefined;
-    }
-
-    function coerceCustomParamValue(value) {
-        const text = String(value ?? '').trim();
-        if (!text) return '';
-        if (text === 'true') return true;
-        if (text === 'false') return false;
-        if (text === 'null') return null;
-        if (/^-?\d+(?:\.\d+)?$/.test(text)) return Number(text);
-        try {
-            return JSON.parse(text);
-        } catch {
-            return value;
-        }
     }
 
     function getCustomParamsFromNode(node) {
@@ -1790,14 +1653,6 @@ export function createExecutionCoreApi({
         return Object.values(inputs).some((value) => hasRemoteImageValue(value));
     }
 
-    function getImageFileExtension(mimeType = '') {
-        const mime = String(mimeType || '').toLowerCase();
-        if (mime.includes('jpeg') || mime.includes('jpg')) return 'jpg';
-        if (mime.includes('webp')) return 'webp';
-        if (mime.includes('gif')) return 'gif';
-        return 'png';
-    }
-
     async function getReferenceImageBlob(value, signal) {
         if (isInlineImageData(value)) return dataURLtoBlob(value);
         if (isRemoteImageUrl(value)) return downloadGeneratedImage(value, signal);
@@ -1844,53 +1699,6 @@ export function createExecutionCoreApi({
             return systemPrompt + '\n' + combinedPrompt;
         }
         return combinedPrompt;
-    }
-
-    async function getOpenAiMaskBlob(mask, signal) {
-        if (!mask?.data) return null;
-        const blob = await getReferenceImageBlob(mask.data, signal);
-        const mime = String(blob?.type || '').toLowerCase();
-        if (mime && mime !== 'image/png') {
-            throw new Error('OpenAI 图片编辑遮罩必须是 PNG 图片');
-        }
-        if (blob.size > 4 * 1024 * 1024) {
-            throw new Error('OpenAI 图片编辑遮罩不能超过 4MB');
-        }
-        return blob;
-    }
-
-    function getOpenAiImageEditFields(requestBody, modelId) {
-        const fields = ['model', 'prompt', 'n', 'size', 'quality', 'moderation', 'background'];
-        if (getOpenAiImageCapabilities(modelId)) {
-            fields.push('output_format', 'output_compression', 'input_fidelity', 'response_format', 'complexity', 'safety_identifier', 'user');
-        }
-        return Object.fromEntries(fields
-            .filter(key => requestBody[key] !== undefined && requestBody[key] !== null && requestBody[key] !== '')
-            .map(key => [key, requestBody[key]]));
-    }
-
-    async function buildOpenAiImageEditFormData(requestBody, inputs, modelId, signal) {
-        const formData = new FormData();
-        const referenceImages = getOpenAiReferenceImages(inputs);
-        // OpenAI encodes multiple files as an array; keep the scalar field for a single image.
-        const imageFieldName = referenceImages.length > 1 ? 'image[]' : 'image';
-
-        for (const [field, value] of Object.entries(getOpenAiImageEditFields(requestBody, modelId))) {
-            formData.append(field, String(value));
-        }
-
-        for (let index = 0; index < referenceImages.length; index += 1) {
-            const blob = await getReferenceImageBlob(referenceImages[index], signal);
-            const extension = getImageFileExtension(blob?.type);
-            formData.append(imageFieldName, blob, `reference_${index + 1}.${extension}`);
-        }
-
-        if (requestBody.mask?.data) {
-            const maskBlob = await getOpenAiMaskBlob(requestBody.mask, signal);
-            formData.append('mask', maskBlob, requestBody.mask.name || 'mask.png');
-        }
-
-        return formData;
     }
 
     function getOpenAiImageRequestLogBody(requestBody, inputs, modelId) {
@@ -2858,7 +2666,7 @@ export function createExecutionCoreApi({
                             );
 
                             const requestPayload = isOpenAiImageEdit
-                                ? await buildOpenAiImageEditFormData(requestBody, inputs, modelCfg.modelId, signal)
+                                ? await buildOpenAiImageEditFormData(requestBody, inputs, modelCfg.modelId, value => getReferenceImageBlob(value, signal))
                                 : JSON.stringify(requestBody);
                             const loggedRequestBody = isOpenAiImageEdit
                                 ? getOpenAiImageRequestLogBody(requestBody, inputs, modelCfg.modelId)
@@ -3039,7 +2847,7 @@ export function createExecutionCoreApi({
                     );
 
                     const requestPayload = isOpenAiImageEdit
-                        ? await buildOpenAiImageEditFormData(requestBody, inputs, modelCfg.modelId, signal)
+                        ? await buildOpenAiImageEditFormData(requestBody, inputs, modelCfg.modelId, value => getReferenceImageBlob(value, signal))
                         : JSON.stringify(requestBody);
                     const loggedRequestBody = isOpenAiImageEdit
                         ? getOpenAiImageRequestLogBody(requestBody, inputs, modelCfg.modelId)

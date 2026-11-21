@@ -27,6 +27,22 @@ test('an older backend shows MCP restart guidance and retry reads the updated st
     });
 });
 
+test('canvas settings explain the server runtime requirement when Node.js is unavailable', { timeout: 30000 }, async () => {
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false }, async ({ evaluate, waitFor }) => {
+        await evaluate(`document.getElementById('btn-settings').click();
+            document.getElementById('settings-tab-button-general').click();
+            document.getElementById('general-settings-category-canvas').click();`);
+        await waitFor("document.getElementById('canvas-mcp-status').textContent.includes('Node.js 22')");
+        assert.equal(await evaluate("document.getElementById('setting-canvas-mcp-enabled').disabled"), true);
+        assert.equal(await evaluate("document.getElementById('btn-copy-canvas-mcp-config').disabled"), true);
+    }, { initScript: `
+        const liveFetch = window.fetch.bind(window);
+        window.fetch = (url, options) => url === '/api/canvas-mcp/settings'
+            ? Promise.resolve(Response.json({ enabled: false, stdioAvailable: true, runtimeAvailable: false }))
+            : liveFetch(url, options);`
+    });
+});
+
 test('canvas settings enable MCP, copy the local client configuration and turn access off', { timeout: 30000 }, async () => {
     const previousToken = process.env.CAINFLOW_MCP_TOKEN;
     delete process.env.CAINFLOW_MCP_TOKEN;
@@ -46,6 +62,7 @@ test('canvas settings enable MCP, copy the local client configuration and turn a
                 && !document.getElementById('canvas-mcp-connection-guide').hidden
                 && !document.getElementById('btn-copy-canvas-mcp-config').disabled`);
             assert.match(await evaluate("document.getElementById('canvas-mcp-connection-guide').textContent"), /mcpServers/);
+            assert.match(await evaluate("document.getElementById('canvas-mcp-connection-guide').textContent"), /列出 CainFlow 已保存的工作流/);
             assert.deepEqual(await evaluate('window.copiedMcpConfigs'), []);
 
             await evaluate("document.getElementById('btn-copy-canvas-mcp-config').click()");
@@ -62,7 +79,14 @@ test('canvas settings enable MCP, copy the local client configuration and turn a
             await waitFor(`!document.getElementById('setting-canvas-mcp-enabled').checked
                 && !document.getElementById('setting-canvas-mcp-enabled').disabled
                 && document.getElementById('canvas-mcp-connection-guide').hidden`);
+            assert.equal(await evaluate('window.canvasMcpEditorRequests'), 0, 'the editor never polls for MCP commands');
         }, { initScript: `window.copiedMcpConfigs = [];
+            window.canvasMcpEditorRequests = 0;
+            const fetchWithoutCapture = window.fetch.bind(window);
+            window.fetch = (url, options) => {
+                if (url === '/api/canvas-mcp/editor') window.canvasMcpEditorRequests++;
+                return fetchWithoutCapture(url, options);
+            };
             Object.defineProperty(navigator.clipboard, 'write', { value: async ([item]) => {
                 window.copiedMcpConfigs.push(await (await item.getType('text/plain')).text());
             } });

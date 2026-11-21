@@ -1,20 +1,17 @@
 import ipaddress
 import json
 import math
-import re
 from urllib.parse import unquote, urlsplit
 
 from backend import desktop_security
-from backend.services.canvas_mcp_bridge import CanvasMcpError, MAX_CALL_BYTES, MAX_EDITOR_BYTES, is_editor_id
+from backend.services.canvas_mcp_bridge import CanvasMcpError, MAX_CALL_BYTES, MAX_IMAGE_CHARS
 
 
 PREFIX = '/api/canvas-mcp'
 CALL_PATH = PREFIX + '/call'
-EDITOR_PATH = PREFIX + '/editor'
 SETTINGS_PATH = PREFIX + '/settings'
-EDITOR_HEADER = 'X-CainFlow-Canvas-MCP'
+SETTINGS_HEADER = 'X-CainFlow-Canvas-MCP'
 BODY_TIMEOUT_SECONDS = 3
-ERROR_CODE_PATTERN = re.compile(r'[a-z][a-z0-9_]{0,63}')
 
 
 def is_canvas_mcp_path(target):
@@ -50,7 +47,7 @@ def _header_values(handler, name):
     return handler.headers.get_all(name) or []
 
 
-def _authorize(handler, bridge, editor_role):
+def _authorize(handler, service, is_settings):
     port = handler.server.server_address[1]
     expected_host = f'127.0.0.1:{port}'
     origin_host = '127.0.0.1' if port == 80 else expected_host
@@ -59,19 +56,19 @@ def _authorize(handler, bridge, editor_role):
     except ValueError:
         local_peer = False
     if not local_peer or _header_values(handler, 'Host') not in ([expected_host], [origin_host]):
-        raise CanvasMcpError(403, 'The canvas bridge is available only through the local CainFlow address.')
+        raise CanvasMcpError(403, 'Canvas MCP is available only through the local CainFlow address.')
 
     origins = _header_values(handler, 'Origin')
     authorization = _header_values(handler, 'Authorization')
-    if editor_role is not None:
-        if (authorization or origins != ['http://' + origin_host] or _header_values(handler, EDITOR_HEADER) != [editor_role]
+    if is_settings:
+        if (authorization or origins != ['http://' + origin_host] or _header_values(handler, SETTINGS_HEADER) != ['settings']
                 or not desktop_security.is_api_request_authorized(handler)):
-            raise CanvasMcpError(403, 'A same-origin CainFlow editor is required.')
+            raise CanvasMcpError(403, 'A same-origin CainFlow settings session is required.')
     else:
         if origins:
-            raise CanvasMcpError(403, 'Browser origins cannot call the external canvas bridge.')
-        if len(authorization) != 1 or not bridge.is_authorized(authorization[0]):
-            raise CanvasMcpError(401, 'A valid canvas bridge bearer token is required.')
+            raise CanvasMcpError(403, 'Browser origins cannot call Canvas MCP.')
+        if len(authorization) != 1 or not service.is_authorized(authorization[0]):
+            raise CanvasMcpError(401, 'A valid Canvas MCP bearer token is required.')
 
 
 def _reject_non_json_number(_value):
@@ -96,7 +93,7 @@ def _read_payload(handler, limit):
             or _header_values(handler, 'Transfer-Encoding')):
         raise CanvasMcpError(400, 'Invalid request length.')
     if len(lengths[0]) > 10 or int(lengths[0]) > limit:
-        raise CanvasMcpError(413, 'The canvas bridge request exceeded the size limit.')
+        raise CanvasMcpError(413, 'The Canvas MCP request exceeded the size limit.')
     length = int(lengths[0])
     try:
         raw = handler.rfile.read(length)
@@ -104,38 +101,12 @@ def _read_payload(handler, limit):
             raise ValueError('Incomplete body')
         payload = json.loads(raw.decode('utf-8'), parse_constant=_reject_non_json_number, parse_float=_finite_float)
     except TimeoutError as error:
-        raise CanvasMcpError(408, 'The canvas bridge did not receive the request body in time.') from error
+        raise CanvasMcpError(408, 'Canvas MCP did not receive the request body in time.') from error
     except (ValueError, OSError, RecursionError) as error:
-        raise CanvasMcpError(400, 'The canvas bridge request body must be a JSON object.') from error
+        raise CanvasMcpError(400, 'The Canvas MCP request body must be a JSON object.') from error
     if not isinstance(payload, dict):
-        raise CanvasMcpError(400, 'The canvas bridge request body must be a JSON object.')
-    return payload, length
-
-
-def _handle_editor(bridge, payload, length):
-    editor_id = payload.get('editorId')
-    if not is_editor_id(editor_id):
-        raise CanvasMcpError(400, 'Invalid editorId.')
-    action = payload.get('action')
-    if action == 'poll' and type(payload.get('activate')) is bool:
-        if length > MAX_CALL_BYTES:
-            raise CanvasMcpError(413, 'The canvas bridge request exceeded the size limit.')
-        return bridge.poll(editor_id, payload['activate'])
-    if action == 'complete':
-        command_id = payload.get('id')
-        has_result = 'result' in payload
-        has_error = 'error' in payload
-        error_code = payload.get('errorCode')
-        if (not is_editor_id(command_id) or has_result == has_error
-                or (has_error and (not isinstance(payload['error'], str) or not payload['error']))
-                or ('errorCode' in payload and (not has_error or not isinstance(error_code, str)
-                                                or ERROR_CODE_PATTERN.fullmatch(error_code) is None))):
-            raise CanvasMcpError(400, 'Invalid canvas command completion.')
-        response = {'result': payload['result']} if has_result else {'error': payload['error']}
-        if error_code is not None:
-            response['errorCode'] = error_code
-        return bridge.complete(editor_id, command_id, response, length)
-    raise CanvasMcpError(400, 'Invalid canvas editor action.')
+        raise CanvasMcpError(400, 'The Canvas MCP request body must be a JSON object.')
+    return payload
 
 
 def _handle_settings(settings, port, payload):
@@ -153,31 +124,28 @@ def _handle_settings(settings, port, payload):
 def handle(handler):
     if not is_canvas_mcp_path(handler.path):
         return False
-    is_editor = handler.path == EDITOR_PATH
     is_settings = handler.path == SETTINGS_PATH
     settings = getattr(handler.server, 'canvas_mcp_settings', None)
-    bridge = settings.bridge if settings is not None else None
-    if settings is None or (not is_editor and not is_settings and handler.path != CALL_PATH):
-        _write_response(handler, 404, {'error': 'Canvas bridge route not found.'})
-    elif not is_settings and bridge is None:
-        if is_editor and handler.command == 'POST':
-            _write_response(handler, 204)
-        else:
-            _write_response(handler, 404, {'error': 'The CainFlow canvas bridge is disabled.'})
+    service = settings.service if settings is not None else None
+    if settings is None or (not is_settings and handler.path != CALL_PATH):
+        _write_response(handler, 404, {'error': 'Canvas MCP route not found.'})
+    elif not is_settings and service is None:
+        _write_response(handler, 404, {'error': 'CainFlow Canvas MCP is disabled.'})
     elif handler.command != 'POST':
-        _write_response(handler, 405, {'error': 'The canvas bridge requires POST.'}, {'Allow': 'POST'})
+        _write_response(handler, 405, {'error': 'Canvas MCP requires POST.'}, {'Allow': 'POST'})
     else:
         try:
             handler.connection.settimeout(BODY_TIMEOUT_SECONDS)
-            editor_role = 'settings' if is_settings else 'editor' if is_editor else None
-            _authorize(handler, bridge, editor_role)
-            payload, length = _read_payload(handler, MAX_EDITOR_BYTES if is_editor else MAX_CALL_BYTES)
+            _authorize(handler, service, is_settings)
+            payload = _read_payload(handler, MAX_CALL_BYTES)
             if is_settings:
                 response = _handle_settings(settings, handler.server.server_address[1], payload)
-            elif is_editor:
-                response = _handle_editor(bridge, payload, length)
             else:
-                response = bridge.call(payload.get('method'), payload.get('args'))
+                method = payload.get('method')
+                response = service.call(method, payload.get('args'))
+                result_limit = MAX_IMAGE_CHARS + 1000 if method == 'get_run_image' else MAX_CALL_BYTES
+                if len(json.dumps(response, separators=(',', ':'))) > result_limit:
+                    raise CanvasMcpError(413, '画布结果超出本次请求的大小限制，请分批读取。', 'result_too_large')
             _write_response(handler, 200, response)
         except CanvasMcpError as error:
             headers = {'WWW-Authenticate': 'Bearer'} if error.status == 401 else None
@@ -186,5 +154,5 @@ def handle(handler):
                 body['errorCode'] = error.code
             _write_response(handler, error.status, body, headers)
         except Exception:
-            _write_response(handler, 500, {'error': 'The CainFlow canvas bridge could not complete the request.'})
+            _write_response(handler, 500, {'error': 'Canvas MCP could not complete the request.'})
     return True

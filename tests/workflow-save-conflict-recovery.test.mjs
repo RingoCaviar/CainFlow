@@ -7,7 +7,7 @@ test('strict canvas persistence refuses conflict rebase and reconciles an uncert
         mediaOwnershipTemporaryOwners: [{ ownerId: '["workflow-a","imported","pending"]', assetKeys: ['media:original'] }]
     } };
     const restored = { workflowId: 'workflow-a', mediaOwnershipRevision: 1, nodes: [], connections: [] };
-    for (const scenario of ['conflict', 'published', 'unknown']) {
+    for (const scenario of ['conflict', 'published', 'retained-mcp-marker', 'new-mcp-write', 'unknown']) {
         let disk = restored, readbacks = 0, writes = 0, committed = 0;
         const fetchMock = t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
             if (url === '/api/workflows') return Response.json({ workflows: ['History'], folders: [] });
@@ -19,6 +19,8 @@ test('strict canvas persistence refuses conflict rebase and reconciles an uncert
                     return Response.json({ error: 'Conflict', detail: 'Workflow media ownership revision conflict' }, { status: 409 });
                 }
                 if (scenario === 'published') disk = document;
+                if (scenario === 'retained-mcp-marker') disk = { ...document, canvasMcpWriteRevision: 1 };
+                if (scenario === 'new-mcp-write') disk = { ...document, canvasMcpWriteRevision: 2 };
                 throw new TypeError('controlled lost response');
             }
             if (options.cache === 'no-store') readbacks++;
@@ -49,9 +51,10 @@ test('strict canvas persistence refuses conflict rebase and reconciles an uncert
             const result = await manager.persistActiveHistoryTransition({ strictRevision: true });
             assert.equal(writes, 1, scenario);
             assert.equal(readbacks, scenario === 'conflict' ? 0 : 1, scenario);
-            assert.equal(result.committed, scenario === 'published', scenario);
-            assert.equal(Boolean(result.publicationUnknown), scenario === 'unknown', scenario);
-            assert.equal(committed, scenario === 'published' ? 1 : 0, scenario);
+            const published = scenario === 'published' || scenario === 'retained-mcp-marker';
+            assert.equal(result.committed, published, scenario);
+            assert.equal(Boolean(result.publicationUnknown), scenario === 'unknown' || scenario === 'new-mcp-write', scenario);
+            assert.equal(committed, published ? 1 : 0, scenario);
             assert.equal(manager.hasPendingAutosave(), false, scenario);
         } finally {
             fetchMock.mock.restore();
@@ -276,7 +279,7 @@ test('saving retries once with the current disk media ownership revision after a
     }
 });
 
-test('saving refuses to overwrite a same-name Workflow with a different identity', async () => {
+async function assertSaveConflictPreservesDraft(persisted, message) {
     const originalFetch = globalThis.fetch;
     const saves = [];
     const toasts = [];
@@ -296,12 +299,7 @@ test('saving refuses to overwrite a same-name Workflow with a different identity
             return {
                 ok: true,
                 status: 200,
-                json: async () => ({
-                    workflowId: 'workflow-on-disk',
-                    mediaOwnershipRevision: 28,
-                    nodes: [],
-                    connections: []
-                })
+                json: async () => ({ ...persisted, nodes: [], connections: [] })
             };
         }
         if (url === '/api/workflows') {
@@ -345,13 +343,23 @@ test('saving refuses to overwrite a same-name Workflow with a different identity
         assert.equal(saves.length, 1);
         assert.equal(toasts.length, 1, 'silent autosave reports one actionable failure');
         assert.deepEqual(toasts.at(-1), {
-            message: '工作流「Unsaved」自动保存失败，修改已保留：同名工作流已属于另一工作流，请使用“另存为”保存当前工作流',
+            message: `工作流「Unsaved」自动保存失败，修改已保留：${message}`,
             type: 'error'
         });
         assert.equal(manager.getActiveWorkflowSnapshot().mediaOwnershipRevision, 0);
     } finally {
         globalThis.fetch = originalFetch;
     }
+}
+
+test('saving refuses to overwrite a same-name Workflow with a different identity', async () => {
+    await assertSaveConflictPreservesDraft({ workflowId: 'workflow-on-disk', mediaOwnershipRevision: 28 },
+        '同名工作流已属于另一工作流，请使用“另存为”保存当前工作流');
+});
+
+test('saving keeps the draft if Canvas MCP writes between a revision conflict and its readback', async () => {
+    await assertSaveConflictPreservesDraft({ workflowId: 'workflow-in-editor', mediaOwnershipRevision: 2, canvasMcpWriteRevision: 2 },
+        'Canvas MCP 已修改此工作流，请重新载入已保存的版本，或使用“另存为”保留当前修改');
 });
 
 test('saving a new Workflow with an ImageGenerate node that omits optional data succeeds', async () => {

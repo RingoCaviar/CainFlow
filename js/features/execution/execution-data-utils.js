@@ -231,3 +231,14 @@ export function getPrimaryTextInput(value) {
 export function getTextInputList(value) {
     return normalizeTextList(value);
 }
+
+export function coerceCustomParamValue(value) {
+    const text = String(value ?? '').trim();
+    if (!text) return '';
+    if (/^-?\d+(?:\.\d+)?$/.test(text)) return Number(text);
+    try {
+        return JSON.parse(text);
+    } catch {
+        return value;
+    }
+}
