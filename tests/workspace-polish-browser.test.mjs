@@ -3,7 +3,7 @@ import test from 'node:test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { withAppBrowser, waitForAutosave, reloadAppBrowser } from './helpers/app-browser.mjs';
-import { nativeClick } from './helpers/image-first-integrated-fixture.mjs';
+import { nativeClick, openParameters } from './helpers/image-first-integrated-fixture.mjs';
 import { runWorkflowShortcut } from './helpers/workflow-run-shortcut.mjs';
 
 test('toolbar execution state follows the current workflow and Stop leaves background requests alive', { timeout: 60000 }, async () => {
@@ -151,10 +151,12 @@ test('workflow title stays visible during automatic saving while zoom presets st
         assert.ok(name);
         await evaluate("document.getElementById('canvas-container').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:360,clientY:180})); document.getElementById('context-menu-search-nodes').click()");
         await evaluate("document.querySelector('.node-picker-result[data-type=TextChat]').click()");
-        await waitFor("Boolean(document.querySelector('#nodes-layer .node textarea[id$=\"-prompt\"]'))");
+        await waitFor("Boolean(document.querySelector('#nodes-layer .node-chat'))");
+        const chatId = await evaluate("document.querySelector('#nodes-layer .node-chat').id");
+        await openParameters({ evaluate, waitFor }, chatId);
         assert.equal(await evaluate("document.getElementById('toolbar-workflow-status').hidden"), true);
         await waitForAutosave({ waitFor });
-        await evaluate("const prompt=document.querySelector('#nodes-layer textarea[id$=\"-prompt\"]'); prompt.value='为新的创作整理灵感与提示词'; prompt.dispatchEvent(new Event('input',{bubbles:true}))");
+        await evaluate("const prompt=document.querySelector('#image-parameter-panel textarea[id$=\"-prompt\"]'); prompt.value='为新的创作整理灵感与提示词'; prompt.dispatchEvent(new Event('input',{bubbles:true}))");
         assert.equal(await evaluate("document.getElementById('toolbar-workflow-status').hidden"), true);
         assert.equal(await evaluate("document.getElementById('toolbar-workflow-name').textContent"), name);
         await waitForAutosave({ waitFor });

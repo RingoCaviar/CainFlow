@@ -16,7 +16,7 @@ import { createCommerceImageSetView } from '../../nodes/commerce-image-set-view.
 import { createProductRetouchView } from '../../nodes/product-retouch-view.js';
 import { createImageGenerationBatchView } from './image-generation-batch.js';
 
-const nodeLabels = { VisualStyle: '画面风格', ImageGenerate: '图片生成', ECommerceImageSet: '电商套图', ProductRetouch: '产品精修', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比', ImageMerge: '多图合一', ImageSave: '保存节点', CameraControl: '视角控制' };
+const nodeLabels = { VisualStyle: '画面风格', ImageGenerate: '图片生成', TextChat: '智能对话', ECommerceImageSet: '电商套图', ProductRetouch: '产品精修', ImageImport: '图片导入', ImagePreview: '图片预览', ImageResize: '缩放图片', ColorReset: '复位颜色', ImageCompare: '图片对比', ImageMerge: '多图合一', ImageSave: '保存节点', CameraControl: '视角控制' };
 const dockWidthKeys = new Map([
     ['ECommerceImageSet', 'cainflow_ecommerce_image_set_dock_width'],
     ['ProductRetouch', 'cainflow_product_retouch_dock_width']
@@ -627,6 +627,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             view.referenceDetails.hidden = !state.connections.some(edge => edge.to.nodeId === nodeId && edge.to.port === REFERENCE_IMAGES_PORT);
         }
         const name = node.el.dataset.nodeTitle || node.customTitle || nodeLabels[node.type];
+        if (view.chatEmptyTitle) setText(view.chatEmptyTitle, name);
         if (node.type !== 'ImagePreview') refreshMediaEmptyContent(node, view, name);
         if (node.type === 'ImageGenerate') {
             const settings = readImageGenerationSettings(node, documentRef);
@@ -719,6 +720,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 ? (view.urlFields.hidden ? 'upload' : 'url') : '';
             widthHandle.hidden = node.type === 'ImageImport' && panel.dataset.importMode === 'upload';
             const running = state.runningNodeIds?.has(node.id) || ['waiting', 'running'].includes(node.runStatus) || node.el.classList.contains('running');
+            const isChat = node.type === 'TextChat';
             const generationCount = node.type === 'ImageGenerate' ? readImageGenerationSettings(node, documentRef).generationCount : 1;
             generate.hidden = ['ImageImport', 'ImageSave'].includes(node.type) || dockWidthKeys.has(node.type)
                 || (node.type === 'ImageMerge' && !mergeSourceCount)
@@ -729,9 +731,11 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 : node.type === 'ImageSave' ? (running ? '更新中' : '更新媒体')
                 : node.type === 'VisualStyle' ? (running ? '提取中…' : '提取风格')
                 : node.type === 'CameraControl' ? '编辑视角'
+                : isChat ? '生成回复'
                 : node.type === 'ImageResize' ? (running ? '处理中' : '处理图片')
                     : node.type === 'ColorReset' ? (running ? '调色中' : '应用调色') : (generationCount > 1 ? `生成 ×${generationCount}` : '生成'));
-            const issue = node.type === 'ImageGenerate' ? getNodeModelConfigurationIssue({ state, node, documentRef }) : null;
+            const issue = node.type === 'ImageGenerate' || (isChat && !node.isClone)
+                ? getNodeModelConfigurationIssue({ state, node, documentRef }) : null;
             if (view.batch) {
                 const { hasRequests, allFailed } = view.batch.refresh({ running, blocked: !!issue || running || node.enabled === false || node.isClone === true });
                 view.form.classList.toggle('has-image-batch', hasRequests);
@@ -739,7 +743,9 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             }
             configuration.hidden = !issue;
             setText(configurationMessage, issue?.message || '');
+            setText(configureModel, isChat ? '配置对话模型' : '配置生图模型');
             generate.disabled = !!issue || running || node.enabled === false
+                || (isChat && node.isClone === true)
                 || (node.type === 'VisualStyle' && (state.isRunning || state.runningNodeIds?.size > 0 || node.isClone))
                 || (node.type === 'ImageMerge' && !mergeHasEnabledSource)
                 || (node.type === 'CameraControl' && (node.isClone || view.cameraOpen?.disabled));
@@ -1007,6 +1013,14 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         node.el.addEventListener('click', event => {
             if (event.target.closest('.node-resize-handle') || (resizePress && event.detail > 0)) return;
             if (event.target.closest('.color-reset-preview.is-picking,.image-compare-divider')) return;
+            if (view.chatResponse) {
+                if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+                if (view.chatResponse.contains(event.target)) {
+                    const selection = documentRef.getSelection();
+                    if (selection && !selection.isCollapsed && (view.chatResponse.contains(selection.anchorNode)
+                        || view.chatResponse.contains(selection.focusNode))) return;
+                }
+            }
             if (isRetouchPreviewPointer(event)) {
                 if (deferredRetouchDock?.node === node && event.detail > 1) return;
                 if (event.detail === 1 && (current !== node || panel.hidden)) {
@@ -1190,6 +1204,51 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         node.el.classList.add('image-first-media');
         registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections: [] }, []);
     }
+    function installTextChat(node) {
+        const body = node.el.querySelector('.node-body');
+        const result = body.querySelector('.node-chat-result-section');
+        const form = documentRef.createElement('div');
+        form.className = 'node-body image-first-parameter-content';
+        form.dataset.nodeId = node.id;
+        // Keep the original inputs, listeners and IDs when parking the form.
+        form.append(...Array.from(body.children).filter(element => element !== result));
+        const runFeedback = documentRef.createElement('div');
+        runFeedback.className = 'image-parameter-run-feedback';
+        runFeedback.append(node.el.querySelector('.node-failure-summary'));
+        form.append(runFeedback);
+        const answer = form.querySelector('.node-chat-answer-section');
+        const heading = answer.querySelector('.node-parameter-heading');
+        const disclosure = documentRef.createElement('details');
+        disclosure.className = 'node-chat-answer-settings';
+        const summary = documentRef.createElement('summary');
+        summary.id = heading.id;
+        summary.textContent = heading.textContent;
+        heading.remove();
+        answer.before(disclosure);
+        disclosure.append(summary, answer);
+        const parametersButton = documentRef.createElement('button');
+        parametersButton.type = 'button';
+        parametersButton.className = 'node-chat-parameter-button';
+        parametersButton.dataset.nodeReadAction = '';
+        parametersButton.title = '打开节点参数';
+        parametersButton.setAttribute('aria-label', '打开智能对话参数');
+        parametersButton.setAttribute('aria-controls', panel.id);
+        const chatEmptyTitle = documentRef.createElement('span');
+        chatEmptyTitle.className = 'image-first-empty-title';
+        const parametersLabel = documentRef.createElement('span');
+        parametersLabel.className = 'node-chat-parameter-label';
+        parametersLabel.textContent = '参数';
+        parametersButton.append(chatEmptyTitle, parametersLabel);
+        result.querySelector('.node-chat-response-actions').prepend(parametersButton);
+        parametersButton.addEventListener('click', () => {
+            select(node);
+            returnFocusElement = parametersButton;
+            const prompt = documentRef.getElementById(`${node.id}-prompt`);
+            (prompt.disabled ? panel : prompt).focus({ preventScroll: true });
+        });
+        const chatResponse = result.querySelector('.chat-response-area');
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections: [], chatEmptyTitle, chatResponse }, []);
+    }
     function installProductRetouch(node) {
         const form = documentRef.createElement('div');
         form.className = 'node-body image-first-parameter-content';
@@ -1211,6 +1270,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     function install(nodeId) {
         sweep();
         const node = state.nodes.get(nodeId);
+        if (node?.type === 'TextChat' && !views.has(node)) { installTextChat(node); return; }
         if (!isImageFirstCardNode(node) || views.has(node)) return;
         if (node.type === 'ECommerceImageSet') { installCommerce(node); return; }
         if (node.type === 'ProductRetouch') { installProductRetouch(node); return; }

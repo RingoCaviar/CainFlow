@@ -1005,6 +1005,9 @@ export function createExecutionCoreApi({
         const mode = runInput.mode === 'target-node' || runInput.mode === 'selected-only'
             ? runInput.mode
             : 'all';
+        const { refreshTextChatNodeId } = runInput;
+        const refreshTextChat = mode === 'selected-only' && selectedNodeIds.length === 1
+            && selectedNodeIds[0] === refreshTextChatNodeId && state.nodes.get(refreshTextChatNodeId)?.type === 'TextChat';
         const commerceNodeId = runInput.commerceNodeId;
         const { commerceAction, commerceShotId, commerceCandidateKey, commerceCandidateCount, commerceDetailDirection } = runInput;
         if (commerceAction !== undefined && !commerceActions.has(commerceAction)) throw new Error('无效的电商套图操作。');
@@ -1059,6 +1062,7 @@ export function createExecutionCoreApi({
             mode,
             targetNodeId,
             selectedNodeIds,
+            ...(refreshTextChat ? { refreshTextChatNodeId } : {}),
             ...(runInput.agentSequential === true ? { agentSequential: true } : {}),
             ...(mode === 'selected-only' && runInput.imageBatch === true ? { imageBatch: true } : {}),
             ...(runInput.requestSource === 'agent' ? { requestSource: 'agent' } : {}),

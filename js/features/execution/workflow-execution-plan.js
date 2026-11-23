@@ -6,6 +6,7 @@ export function resolveWorkflowExecutionPlan(state, runOptions, {
 } = {}) {
     const { nodes, connections } = state;
     const { mode, targetNodeId, selectedNodeIds } = runOptions;
+    const forceRunNodeId = mode === 'target-node' ? targetNodeId : runOptions.refreshTextChatNodeId;
     let scopeNodeSet;
     if (mode === 'target-node') {
         if (!targetNodeId) {
@@ -45,8 +46,7 @@ export function resolveWorkflowExecutionPlan(state, runOptions, {
     const incomingConnectionsByNode = Object.create(null);
     const inputConnectionsByNode = Object.create(null);
     for (const nodeId of scopeNodeSet) {
-        const useFixedCache = !(mode === 'target-node' && nodeId === targetNodeId)
-            && isFixedTextChatWithCachedResult(nodes.get(nodeId));
+        const useFixedCache = nodeId !== forceRunNodeId && isFixedTextChatWithCachedResult(nodes.get(nodeId));
         const incoming = useFixedCache ? [] : connections.filter(connection => (
             connection.to.nodeId === nodeId && nodes.has(connection.from.nodeId)
         ));
@@ -75,5 +75,5 @@ export function resolveWorkflowExecutionPlan(state, runOptions, {
         return null;
     }
 
-    return { ...runOptions, nodeIds, scopeNodeSet, incomingConnectionsByNode, inputConnectionsByNode, executionOrder };
+    return { ...runOptions, forceRunNodeId, nodeIds, scopeNodeSet, incomingConnectionsByNode, inputConnectionsByNode, executionOrder };
 }

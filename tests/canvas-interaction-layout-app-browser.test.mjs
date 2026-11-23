@@ -203,9 +203,8 @@ test('pan and zoom keep interaction styling local while focused text retains nat
         themeId: 'glass-dark',
         nodes: [
             { id: 'scope-text', type: 'Text', x: 80, y: 80, width: 260, height: 190, userResized: true, text },
-            // Text and image cards intentionally have opaque shells; TextChat
-            // exercises the theme's actual glass surface.
-            { id: 'scope-glass', type: 'TextChat', x: 540, y: 100, apiConfigId: 'chat', providerId: 'p' }
+            // The video node exercises the theme's glass surface.
+            { id: 'scope-glass', type: 'VideoGenerate', x: 540, y: 100 }
         ],
         connections: []
     }, async app => {

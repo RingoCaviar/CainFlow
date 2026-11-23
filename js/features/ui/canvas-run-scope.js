@@ -4,8 +4,7 @@ import { getSurfaceCoordinator } from './surface-coordinator.js';
 
 export function projectCanvasRunScope({ state, plan, isFixedTextChatWithCachedResult }) {
     const candidates = plan.executionOrder.filter(id => state.nodes.get(id)?.enabled !== false);
-    const runIds = new Set(candidates.filter(id => !(isFixedTextChatWithCachedResult(state.nodes.get(id))
-        && !(plan.mode === 'target-node' && plan.targetNodeId === id))));
+    const runIds = new Set(candidates.filter(id => id === plan.forceRunNodeId || !isFixedTextChatWithCachedResult(state.nodes.get(id))));
     const reusedIds = new Set(candidates.filter(id => !runIds.has(id)));
     const routes = new Map();
     const routing = [];

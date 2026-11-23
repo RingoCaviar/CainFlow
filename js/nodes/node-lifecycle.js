@@ -1216,7 +1216,8 @@ export function createNodeLifecycleApi({
         const initialUserResized = restoredUserResized && !shouldNormalizeLegacyChatLayout;
         const el = documentRef.createElement('div');
         el.className = `node ${config.cssClass}`;
-        if (isImageFirstCardNode(normalizedType)) el.classList.add('image-first-card');
+        // TextChat shares the card chrome while keeping text-based sizing.
+        if (isImageFirstCardNode(normalizedType) || normalizedType === 'TextChat') el.classList.add('image-first-card');
         el.id = id;
         if (effectiveRestoreData?.isClone === true && effectiveRestoreData?.cloneSourceId) {
             el.classList.add('node-clone');

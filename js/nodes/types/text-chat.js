@@ -19,8 +19,8 @@ export const textChatNode = {
     defaultWidth: 410,
     minWidth: 360,
     maxWidth: 720,
-    defaultHeight: 60,
-    minHeight: 60,
+    defaultHeight: 144,
+    minHeight: 144,
     contentSized: true
 };
 /**

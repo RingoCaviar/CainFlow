@@ -2564,8 +2564,7 @@ export function createWorkflowRunnerApi({
             }
             for (const nodeId of runnableNodeIds) {
                 const node = state.nodes.get(nodeId);
-                const forceRun = runOptions.mode === 'target-node' && runOptions.targetNodeId === nodeId;
-                if (!forceRun && isFixedTextChatWithCachedResult(node)) continue;
+                if (nodeId !== plan.forceRunNodeId && isFixedTextChatWithCachedResult(node)) continue;
                 const issue = getNodeModelConfigurationIssue({ state, node, documentRef });
                 if (issue) {
                     showToast(`「${node.title || node.type}」：${issue.message}，请在设置中完成配置后重试`, 'warning', 8000);
@@ -2651,11 +2650,7 @@ export function createWorkflowRunnerApi({
                 });
             }
 
-            const forceResetNodeIds = new Set();
-            if (runOptions.mode === 'target-node' && runOptions.targetNodeId) {
-                forceResetNodeIds.add(runOptions.targetNodeId);
-            }
-
+            const forceResetNodeIds = plan.forceRunNodeId ? new Set([plan.forceRunNodeId]) : null;
             resetNodesForPlan(plan, { forceResetNodeIds });
 
             const order = plan.executionOrder.slice();

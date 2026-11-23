@@ -846,6 +846,7 @@ registry.imageFirstCanvasApi = createImageFirstCanvas({
         ? runCommerceImageSetAction(nodeId, commerceAction, commerceShotId, { commerceCandidateKey, commerceCandidateCount, commerceDetailDirection })
         : runWorkflow({
             mode: 'selected-only', selectedNodeIds: [nodeId],
+            ...(state.nodes.get(nodeId)?.type === 'TextChat' ? { refreshTextChatNodeId: nodeId } : {}),
             ...(Number.isInteger(imageRetryIndex) ? { imageRetryNodeId: nodeId, imageRetryIndex, imageRetryBatchId } : {})
         }, { waitForCompletion: Number.isInteger(imageRetryIndex) }),
     cancelCommerceImageSet,

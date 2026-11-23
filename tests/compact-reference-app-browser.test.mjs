@@ -209,9 +209,10 @@ test('commerce, chat and video reference galleries edit their own sources withou
         await uploadImageOriginal(app, 'red', originals[0]);
         await uploadImageOriginal(app, 'blue', originals[1]);
         for (const target of ['chat-target', 'video-target']) {
+            if (target === 'chat-target') await openParameters(app, target);
             const modelGroup = await app.evaluate(`(() => {
                 const node = document.getElementById('${target}');
-                const group = node.querySelector('.node-model-settings[aria-labelledby]');
+                const group = document.getElementById(node.id + '-apiconfig')?.closest('.node-model-settings[aria-labelledby]');
                 const heading = document.getElementById(group?.getAttribute('aria-labelledby'));
                 return { heading: heading?.checkVisibility() ? heading.textContent.trim() : null,
                     hasPair: ['apiconfig', 'provider'].every(field => group?.contains(document.getElementById(node.id + '-' + field))),
@@ -219,15 +220,16 @@ test('commerce, chat and video reference galleries edit their own sources withou
             })()`);
             assert.deepEqual(modelGroup, { heading: '模型与供应商', hasPair: true, referencesOutside: true }, target);
         }
-        await openParameters(app, 'commerce-target');
-        await app.waitFor("document.querySelector('#image-parameter-panel[data-mode=docked] #commerce-target-reference-sources')?.checkVisibility()");
 
         for (const target of targets) {
+            if (target !== 'video-target') await openParameters(app, target);
             await waitForOrder(app, target, ['red', 'blue']);
             assert.ok(await app.evaluate(`document.querySelector('${gallery(target)}')?.checkVisibility()`));
             assert.deepEqual(await app.evaluate(`Array.from(document.querySelectorAll('${gallery(target)} [data-reference-number]'), item => item.dataset.referenceNumber)`), ['1', '2']);
         }
 
+        await openParameters(app, 'commerce-target');
+        await app.waitFor("document.querySelector('#image-parameter-panel[data-mode=docked] #commerce-target-reference-sources')?.checkVisibility()");
         const commerceThumbnail = thumbnail('commerce-target', 'red');
         await nativeClick(app, commerceThumbnail);
         const preview = '.fullscreen-overlay .fullscreen-img-wrapper img';
@@ -240,6 +242,11 @@ test('commerce, chat and video reference galleries edit their own sources withou
         await nativeClick(app, `${connectionDetails} > summary`);
 
         for (const target of targets) {
+            if (target === 'chat-target') await openParameters(app, target);
+            if (target === 'video-target') {
+                await key(app, 'Escape');
+                await app.waitFor("document.getElementById('image-parameter-panel').hidden");
+            }
             await app.evaluate(`document.querySelector('${thumbnail(target, 'blue')}').focus({preventScroll:true})`);
             await key(app, 'ArrowLeft', 'ArrowLeft', 1);
             await waitForOrder(app, target, ['blue', 'red']);

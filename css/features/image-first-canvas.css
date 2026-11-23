@@ -375,6 +375,59 @@ html:root #canvas-container .node.image-first-card > .node-body {
 .image-first-card .image-first-empty-action:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 .image-first-card :is(.image-first-empty-action, .image-first-empty-detail)[hidden] { display: none; }
 
+html:root #canvas-container .node.node-chat.image-first-card > .node-body {
+    height: auto;
+    padding: 12px 24px;
+    overflow: hidden;
+}
+
+.node-chat.image-first-card .node-chat-result-section {
+    padding: 0;
+    margin: 0;
+    border: 0;
+}
+
+.node-chat.image-first-card .node-chat-response-field {
+    margin: 0;
+}
+
+.node-chat.image-first-card .image-first-empty-title {
+    display: none;
+}
+
+html:root #canvas-container .node-chat.image-first-card .node-chat-response-field.is-empty {
+    flex: 1 1 auto;
+    justify-content: center;
+    gap: 5px;
+    text-align: center;
+}
+
+.node-chat.image-first-card .is-empty .image-first-empty-title { display: block; }
+html:root #canvas-container .node-chat.image-first-card .is-empty .node-chat-response-heading { justify-content: center; }
+html:root #canvas-container .node-chat.image-first-card .is-empty .node-chat-response-actions { display: flex; }
+.node-chat.image-first-card .is-empty :is(.node-parameter-heading, .node-chat-parameter-label, .chat-copy-btn, .chat-preview-btn) {
+    display: none;
+}
+
+html:root #canvas-container .node-chat.image-first-card .is-empty .node-chat-parameter-button {
+    height: auto;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+
+html:root #canvas-container .node-chat.image-first-card .chat-response-area {
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+
+html:root #canvas-container .node-chat.image-first-card .is-empty .chat-response-area { min-height: 0; }
+html:root #canvas-container .node-chat.image-first-card .is-empty .chat-response-placeholder { text-align: center; }
+
+.node-chat.image-first-card .node-inputs-section .node-port::after { display: none; }
+
 .node.image-first-card .image-node-results { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; padding: 0; min-width: 0; border: 0; }
 .node.image-first-card .image-node-results[hidden] { display: none; }
 

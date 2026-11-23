@@ -95,6 +95,14 @@ test('run scope preview follows fixed results, disabled inputs, and legacy save 
     assert.equal(upstream.routes.get('external-image'), 'run');
     assert.equal(upstream.routes.has('disabled-input'), false);
     assert.deepEqual([...project({ mode: 'target-node', targetNodeId: 'fixed-text' }).runIds], ['fixed-text']);
+    state.connections.push({ id: 'chat-reference', from: { nodeId: 'external-image', port: 'image' },
+        to: { nodeId: 'fixed-text', port: 'referenceImages' } });
+    const chatOnly = { mode: 'selected-only', selectedNodeIds: ['fixed-text'] };
+    assert.deepEqual([...project(chatOnly).reusedIds], ['fixed-text']);
+    const refresh = project({ ...chatOnly, refreshTextChatNodeId: 'fixed-text' });
+    assert.deepEqual([...refresh.runIds], ['fixed-text']);
+    assert.deepEqual([...refresh.reusedIds], ['external-image']);
+    assert.equal(refresh.routes.get('chat-reference'), 'reuse');
     state.connections.find(edge => edge.id === 'external-image').to.port = 'mask';
     const rebound = project({ mode: 'selected-only', selectedNodeIds: ['generate'] });
     assert.notEqual(rebound.scopeKey, selected.scopeKey, 'a reassigned port changes the confirmed plan even if the edge id is retained');

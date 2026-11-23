@@ -61,10 +61,12 @@ test('generation cards use a roomy default width and a smaller resize minimum', 
         assert.match(source, /defaultWidth:\s*410/);
         assert.match(source, /minWidth:\s*360/);
         assert.match(source, /maxWidth:\s*720/);
-        assert.match(source, /defaultHeight:\s*60/);
-        assert.match(source, /minHeight:\s*60/);
         assert.match(source, /contentSized:\s*true/);
         assert.doesNotMatch(source, /maxHeight:/);
+    }
+    for (const source of [imageGenerate, videoGenerate]) {
+        assert.match(source, /defaultHeight:\s*60/);
+        assert.match(source, /minHeight:\s*60/);
     }
     assert.match(lifecycle, /if \(!userResized\) return defaultWidth;/);
     assert.match(lifecycle, /Math\.min\(maxWidth, Math\.max\(numericWidth, minWidth\)\)/);
