@@ -545,6 +545,38 @@ test('a plan can enable and set OpenAI output compression in the same patch', ()
     assert.equal(format.value, 'webp');
 });
 
+test('a plan can select OpenAI GIF and apply whole-number frame settings atomically', () => {
+    const { adapter, controls, node, state } = harness();
+    state.models = [{ id: 'format-model', modelId: 'gpt-image-2.6-flare', protocol: 'openai' }];
+    node.apiConfigId = 'format-model';
+    const format = { ...control('png'), id: 'image-1-param-output_format',
+        options: ['png', 'gif'].map(value => ({ value })) };
+    const frameCount = { ...control(''), id: 'image-1-param-frame_count', type: 'number', min: '2', max: '16',
+        closest: () => format.value !== 'gif' ? { id: 'image-1-frame_count-field' } : null };
+    const background = { ...control('transparent'), options: ['transparent', 'opaque'].map(value => ({ value })) };
+    controls[format.id] = format;
+    controls[frameCount.id] = frameCount;
+    controls['image-1-background'] = background;
+    controls[node.id] = { querySelectorAll: () => [format, frameCount] };
+    const apply = (prompt, protocolParams, changes) => adapter.applyPromptPlan({ targetNodeId: node.id, prompt,
+        parameters: { protocolParams, ...changes } });
+
+    assert.equal(apply('动画', { output_format: 'gif', frame_count: 12 }), false);
+    assert.equal(background.value, 'transparent');
+    assert.equal(format.value, 'png');
+    assert.equal(apply('动画', { output_format: 'gif', frame_count: 12 }, { background: 'opaque' }), true);
+    assert.equal(format.value, 'gif');
+    assert.equal(frameCount.value, '12');
+    assert.equal(apply('下一次动画', { frame_count: 16 }), true);
+    assert.equal(apply('透明动画', {}, { background: 'transparent' }), false);
+    assert.equal(apply('静态帧设置', { output_format: 'png', frame_count: 8 }), false);
+    assert.equal(apply('非整数帧', { frame_count: 8.5 }), false);
+    assert.equal(apply('范围外帧数', { frame_count: 17 }), false);
+    assert.equal(controls['image-1-prompt'].value, '下一次动画');
+    assert.equal(background.value, 'opaque');
+    assert.deepEqual(node.data.protocolParams, { output_format: 'gif', frame_count: 16 });
+});
+
 test('scene references include every imported image, cached originals and active URLs without requiring node selection', () => {
     const original = 'data:image/png;base64,ORIGINAL';
     const thumbnail = 'data:image/webp;base64,THUMB';

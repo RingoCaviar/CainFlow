@@ -105,6 +105,71 @@ async function restart(app, whileStopped = async () => {}) {
     return [previous.pid, result.pid];
 }
 
+test('GPT Image 2.6 GIF and SVG output retain their original bytes in the directory and render after reload', { timeout: 30000 }, async () => {
+    const encoded = {
+        gif: 'R0lGODlhAQABAIAAAAAiZu7dRCH/C05FVFNDQVBFMi4wAwEAAAAh+QQAFAAAACwAAAAAAQABAAACAkQBACH5BAAUAAAALAAAAAABAAEAAAICTAEAOw==',
+        svg: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="12" height="8"><rect width="12" height="8" fill="#2266dd"/></svg>').toString('base64')
+    };
+    const formats = ['gif', 'svg'];
+    const session = {
+        ...configuration,
+        models: configuration.models.map(model => model.id === 'image' ? { ...model, modelId: 'gpt-image-2.6-flare' } : model),
+        nodes: formats.map((format, index) => ({
+            id: format + '-generation', type: 'ImageGenerate', x: 40 + index * 510, y: 80,
+            apiConfigId: 'image', providerId: 'p', prompt: `Generate ${format}`,
+            protocolParams: { output_format: format, ...(format === 'gif' ? { frame_count: 2, frame_duration_ms: 200 } : {}) }
+        }))
+    };
+    await withAppBrowser(session, async app => {
+        const directory = join(app.server.dataDir, 'formats-exports');
+        assert.equal(await app.evaluate(`fetch('/api/storage/export-directory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({directory:${JSON.stringify(directory)}})}).then(response=>response.ok)`), true);
+        await reloadAppBrowser(app);
+        const run = '#image-parameter-panel [data-parameter-action=generate]';
+        for (const format of formats) {
+            const id = format + '-generation';
+            const imageReady = `document.querySelector('#${id} .image-node-result-preview img')?.naturalWidth > 0`;
+            await app.evaluate(`document.getElementById('${id}').click()`);
+            await app.waitFor(`!document.querySelector('#image-parameter-panel').hidden
+                && document.querySelector('#image-parameter-panel').dataset.nodeId === '${id}'
+                && !document.querySelector('${run}').disabled`);
+            await app.evaluate(`document.querySelector('${run}').click()`);
+            await app.waitFor(imageReady);
+        }
+        const files = await exported(directory, 2);
+        for (const format of formats) {
+            const name = files.find(file => file.endsWith('.' + format));
+            assert.ok(name, `the original has a .${format} extension`);
+            assert.equal((await readFile(join(directory, name))).toString('base64'), encoded[format]);
+        }
+
+        await waitForAutosave(app);
+        const original = await saved(app);
+        await reloadAppBrowser(app);
+        for (const format of formats) {
+            const id = format + '-generation';
+            await app.waitFor(`document.querySelector('#${id} .image-node-result-preview img')?.naturalWidth > 0`);
+            const [assetKey] = original.nodes.find(node => node.id === id).mediaAssetKeys;
+            const asset = await fetch(`${app.server.baseUrl}/api/storage/assets/${encodeURIComponent(assetKey)}`);
+            assert.equal(asset.ok, true);
+            assert.equal(asset.headers.get('content-type'), format === 'gif' ? 'image/gif' : 'image/svg+xml');
+            assert.equal(Buffer.from(await asset.arrayBuffer()).toString('base64'), encoded[format]);
+        }
+        assert.equal(await app.evaluate('formatRequests.length'), 0, 'reload never regenerates the original');
+    }, { initScript: `
+        window.formatRequests = [];
+        const actualFetch = window.fetch;
+        window.fetch = async (url, options) => {
+            if (url !== '/proxy' || !options?.body) return actualFetch(url, options);
+            const body = JSON.parse(options.body);
+            formatRequests.push(body);
+            const byFormat = ${JSON.stringify(encoded)};
+            return byFormat[body.output_format]
+                ? Response.json({ data: [{ b64_json: byFormat[body.output_format] }] })
+                : Response.json({ error: { message: 'Expected an explicit GIF or SVG format' } }, { status: 400 });
+        };
+    ` });
+});
+
 test('real backend restarts retain background A originals, ordered roles and owners while same-ID B and missing batch positions remain isolated', { timeout: 90000 }, async t => {
     await withAppBrowser(configuration, async app => {
         const directory = join(app.server.dataDir, 'restart-exports');

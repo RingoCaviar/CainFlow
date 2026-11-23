@@ -147,3 +147,25 @@ test('adding optional OpenAI controls leaves a saved image clean until one chang
     assert.equal(f.preview().output_format, 'webp');
     assert.equal(f.preview().output_compression, 70);
 });
+
+test('OpenAI output format drafts only affect freshness while their controls apply', () => {
+    const f = fixture('openai');
+    f.model.modelId = 'gpt-image-2.6-flare';
+    f.node.data.protocolParams = { output_format: 'png', output_compression: 60 };
+    f.revision.initializeNode(f.node.id);
+    assert.equal(f.revision.completeAttempt(f.revision.beginAttempt(f.node, {}), { succeeded: true }), true);
+    const savedFingerprint = f.node.data.generationRevision.successFingerprint;
+    delete f.node.data.protocolParams.output_compression;
+    assert.notEqual(f.revision.fingerprint(f.node), savedFingerprint, 'gen1 fingerprints include stored compression on PNG');
+    f.node.data.protocolParams.output_compression = 60;
+
+    Object.assign(f.node.data.protocolParams, { frame_count: 8, frame_duration_ms: 250, edit_guide: 'markup' });
+    f.revision.observeAll({ initialize: true });
+    assert.equal(f.node.generationDirty, false, 'a saved PNG ignores the new GIF and unconnected edit guide drafts');
+
+    f.node.data.protocolParams.output_format = 'gif';
+    assert.equal(f.revision.completeAttempt(f.revision.beginAttempt(f.node, {}), { succeeded: true }), true);
+    f.node.data.protocolParams.frame_count = 12;
+    f.revision.observeAll();
+    assert.equal(f.node.generationDirty, true, 'changing the active GIF frame count changes the confirmed recipe');
+});

@@ -8,8 +8,8 @@ import {
     isKnownModelProtocol
 } from './model-protocol-registry.js';
 import { getProtocol } from './protocols/index.js';
-import { normalizeImageList } from './execution-data-utils.js';
-import { getOpenAiImageCapabilities } from './openai-image-capabilities.js';
+import { getPrimaryImageInput, normalizeImageList } from './execution-data-utils.js';
+import { getOpenAiImageCapabilities, OPENAI_GIF_FRAME_PARAMETERS } from './openai-image-capabilities.js';
 import { getGoogleImageCapabilities } from './google-image-capabilities.js';
 import { requireModelCompatibilityFormat } from './model-compatibility-format.js';
 import {
@@ -784,8 +784,9 @@ const OPENAI_IMAGE_RESERVED_FIELDS = new Set([
     ...Object.keys(OPENAI_IMAGE_OPTION_GROUPS),
     'model', 'prompt', 'n', 'size', 'output_compression', 'safety_identifier', 'user',
     'image', 'image[]', 'images', 'reference_images', 'mask', 'markup',
-    'stream', 'partial_images', 'frame_count', 'frame_duration_ms', 'svg'
+    'stream', 'partial_images', 'frame_count', 'frame_duration_ms', 'svg', 'edit_guide'
 ]);
+const OPENAI_SVG_REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
 function isRelayImageEndpoint(url) {
     try {
@@ -810,8 +811,28 @@ function buildKnownOpenAiImageParams(capability, options, edit) {
     }
     if (!edit) delete params.input_fidelity;
     if (edit && capability.sizeProfile === 'dall-e-2') delete params.quality;
-    if (params.output_format === 'jpeg' && params.background === 'transparent') {
+    if (['jpeg', 'gif', 'svg'].includes(params.output_format) && params.background === 'transparent') {
         throw new Error('透明背景需要 PNG 或 WebP 输出格式。');
+    }
+    if (params.output_format === 'gif') {
+        for (const [field, { min, max }] of Object.entries(OPENAI_GIF_FRAME_PARAMETERS)) {
+            const raw = String(options[field] ?? '').trim();
+            if (!raw) continue;
+            const value = Number(raw);
+            if (!/^\d+$/.test(raw) || value < min || value > max) {
+                throw new Error(`GIF 的 ${field} 必须是 ${min} 至 ${max} 的整数。`);
+            }
+            params[field] = value;
+        }
+    }
+    if (params.output_format === 'svg' && !edit && options.svg != null) {
+        const model = typeof options.svg.model === 'string' ? options.svg.model.trim() : '';
+        if (!model) throw new Error('启用 SVG 创作模型选择时必须填写 svg.model。');
+        const effort = options.svg.reasoning?.effort;
+        if (effort != null && !OPENAI_SVG_REASONING_EFFORTS.includes(effort)) {
+            throw new Error('SVG 创作模型的推理档位无效。');
+        }
+        params.svg = effort != null ? { model, reasoning: { effort } } : { model };
     }
     const rawCompression = String(options.output_compression ?? '').trim();
     if (['jpeg', 'webp'].includes(params.output_format) && /^\d+$/.test(rawCompression) && Number(rawCompression) <= 100) {
@@ -830,6 +851,12 @@ export function buildOpenAiImageRequest({
 }) {
     const capability = protocol === 'openai' ? getOpenAiImageCapabilities(modelCfg.modelId) : null;
     const referenceImages = getOpenAiReferenceImages(inputs);
+    const customParams = getCustomRequestParams(inputs);
+    const outputFormat = String(customParams.output_format ?? protocolParams.output_format ?? '').trim().toLowerCase();
+    if (protocol === 'openai' && (capability || customParams.output_format == null)
+        && ['gif', 'svg'].includes(outputFormat) && !capability?.outputFormats.includes(outputFormat)) {
+        throw new Error(`${modelCfg.modelId} 不支持 ${outputFormat.toUpperCase()} 输出，请选择兼容的输出格式或模型。`);
+    }
     const relayJson = !edit && isRelayImageEndpoint(url);
     const requestBody = {
         model: modelCfg.modelId,
@@ -843,7 +870,6 @@ export function buildOpenAiImageRequest({
         if (referenceImages.length > capability.maxReferences) {
             throw new Error(`${modelCfg.modelId} 最多支持 ${capability.maxReferences} 张参考图。`);
         }
-        const customParams = getCustomRequestParams(inputs);
         requestBody.prompt = customParams.prompt ?? prompt;
         Object.assign(requestBody, buildKnownOpenAiImageParams(capability, {
             ...protocolParams,
@@ -854,7 +880,8 @@ export function buildOpenAiImageRequest({
             ...customParams
         }, edit));
         if (relayJson) Object.assign(requestBody, Object.fromEntries(Object.entries(customParams)
-            .filter(([key]) => !OPENAI_IMAGE_RESERVED_FIELDS.has(key))));
+            .filter(([key]) => !OPENAI_IMAGE_RESERVED_FIELDS.has(key)
+                && !(requestBody.output_format === 'svg' && key === 'prompt_rewriter'))));
     } else {
         const size = normalizeOpenAiImageSize(resolution);
         const normalizedQuality = normalizeOpenAiImageQuality(quality);
@@ -866,7 +893,21 @@ export function buildOpenAiImageRequest({
         if (normalizedBackground) requestBody.background = normalizedBackground;
     }
 
-    if (mask?.data && (edit || !capability)) {
+    const guideImage = mask?.data || getPrimaryImageInput(inputs.mask);
+    const useMarkup = protocol === 'openai' && protocolParams.edit_guide === 'markup';
+    if (requestBody.output_format === 'svg' && (edit || referenceImages.length || guideImage || useMarkup)) {
+        throw new Error('SVG 只能用于纯文本生成，不支持参考图编辑。');
+    }
+    if (requestBody.output_format === 'gif' && guideImage && !useMarkup) {
+        throw new Error('GIF 图片编辑不支持遮罩。');
+    }
+    if (useMarkup) {
+        if (!capability?.supportsMarkup) throw new Error('当前模型不支持标注图层，请选择支持标注的模型或切换为遮罩。');
+        if (!guideImage) throw new Error('标注引导编辑需要连接一张标注图层。');
+        if (!edit || !referenceImages.length) throw new Error('标注图层需要第一张参考图，并使用 OpenAI 图片编辑接口。');
+        if (normalizeImageList(inputs.mask).length > 1) throw new Error('OpenAI 图片编辑只支持一张标注图层。');
+        requestBody.markup = { name: 'markup.png', type: 'image/png', data: guideImage };
+    } else if (mask?.data && (edit || !capability)) {
         requestBody.mask = {
             name: mask.name || 'mask.png',
             type: mask.type || 'image/png',
@@ -1245,11 +1286,10 @@ export function extractImageResult(apiCfg, result, modelCfg = null, requestedOut
 
     const base64Data = firstImage.b64_json || firstImage.b64Json || '';
     if (base64Data) {
-        const formats = ['png', 'jpeg', 'webp'];
+        const formats = ['png', 'jpeg', 'webp', 'gif', 'svg'];
         const outputFormat = [result.output_format, requestedOutputFormat].find(format => formats.includes(format)) || 'png';
-        return {
-            dataUrl: `data:image/${outputFormat};base64,${base64Data}`
-        };
+        const mimeType = outputFormat === 'svg' ? 'image/svg+xml' : `image/${outputFormat}`;
+        return { dataUrl: `data:${mimeType};base64,${base64Data}` };
     }
 
     if (typeof firstImage.url === 'string' && firstImage.url.trim()) {

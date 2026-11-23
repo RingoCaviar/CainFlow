@@ -226,7 +226,7 @@ export function bindProtocolNumberStepButtons(el, documentRef = document) {
 
             if (!input) return;
 
-            const currentValue = parseFloat(input.value) || 0;
+            const currentValue = Number(input.value || input.getAttribute('placeholder')) || 0;
             const min = input.getAttribute('data-min');
             const max = input.getAttribute('data-max');
 

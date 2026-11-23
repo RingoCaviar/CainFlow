@@ -77,6 +77,69 @@ test('saved image generation uses every cached reference in order and publishes 
     assert.deepEqual(run.nodeResults.at(-1).images, [red]);
 });
 
+test('saved GPT Image 2.6 workflows publish GIF and SVG using the shared request and result types', async () => {
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5"/></svg>').toString('base64');
+    const gif = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    const formats = [
+        { format: 'gif', mime: 'image/gif', value: gif, fields: { frame_count: 10, frame_duration_ms: 180 } },
+        { format: 'svg', mime: 'image/svg+xml', value: svg, fields: {} }
+    ];
+    const model = { id: 'model', modelId: 'gpt-image-2.6-flare', taskType: 'image',
+        protocol: 'openai', providerIds: ['provider'] };
+    for (const { format, mime, value, fields } of formats) {
+        const dataUrl = `data:${mime};base64,${value}`;
+        const saved = document([{ id: 'image', type: 'ImageGenerate', apiConfigId: model.id,
+            providerId: 'provider', prompt: 'A circle', protocolParams: { output_format: format, ...fields } }]);
+        const run = await executeSavedWorkflow({ document: saved, models: [model],
+            providers: [{ id: 'provider', endpoint: 'https://controlled.test/v1', apikey: 'test' }],
+            async requestProvider({ url, body }) {
+                assert.equal(url, 'https://controlled.test/v1/images/generations');
+                const request = JSON.parse(body);
+                assert.equal(request.n, 1);
+                assert.equal(request.output_format, format);
+                assert.equal(request.frame_count, fields.frame_count);
+                assert.equal(request.frame_duration_ms, fields.frame_duration_ms);
+                return Response.json({ data: [{ b64_json: value }] });
+            },
+            async saveMedia(result) {
+                assert.equal(result, dataUrl);
+                return `media:${format}`;
+            }
+        });
+        assert.equal(run.outcome, 'completed', JSON.stringify(run.nodeResults));
+        assert.deepEqual(run.nodeResults[0].images, [dataUrl]);
+        assert.deepEqual(run.document.nodes[0].mediaAssetKeys, [`media:${format}`]);
+    }
+});
+
+test('saved GPT Image edits upload the connected markup separately from the first reference', async () => {
+    const reference = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEklEQVR4nGNYuOnw/4uPPv8HABxLBrvCHrUpAAAAAElFTkSuQmCC';
+    const markup = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEUlEQVR4nGNYuOkww38Ghv8AE3wEFcq2QBIAAAAASUVORK5CYII=';
+    const saved = document([
+        { id: 'photo', type: 'ImageImport', mediaAssetKeys: ['media:photo'] },
+        { id: 'annotation', type: 'ImageImport', mediaAssetKeys: ['media:annotation'] },
+        { id: 'edit', type: 'ImageGenerate', apiConfigId: 'model', providerId: 'provider',
+            prompt: 'Apply the annotated change', protocolParams: { edit_guide: 'markup' } }
+    ], [wire('photo', 'image', 'edit', 'referenceImages', 'image'),
+        wire('annotation', 'image', 'edit', 'mask', 'image')]);
+    const run = await executeSavedWorkflow({
+        document: saved, nodeIds: ['edit'],
+        models: [{ id: 'model', modelId: 'gpt-image-2.6-sunburst', taskType: 'image', protocol: 'openai', providerIds: ['provider'] }],
+        providers: [{ id: 'provider', endpoint: 'https://controlled.test/v1', apikey: 'test' }],
+        loadMedia: async key => `data:image/png;base64,${key === 'media:photo' ? reference : markup}`,
+        async requestProvider({ url, body }) {
+            assert.equal(url, 'https://controlled.test/v1/images/edits');
+            assert.equal(body.has('mask'), false);
+            assert.equal(Buffer.from(await body.get('image').arrayBuffer()).toString('base64'), reference);
+            assert.equal(Buffer.from(await body.get('markup').arrayBuffer()).toString('base64'), markup);
+            return Response.json({ data: [{ b64_json: reference }] });
+        },
+        saveMedia: async () => 'media:edit'
+    });
+    assert.equal(run.outcome, 'completed', JSON.stringify(run.nodeResults));
+    assert.deepEqual(run.document.nodes.at(-1).mediaAssetKeys, ['media:edit']);
+});
+
 test('a stopped saved-workflow branch does not run dependents or prevent an independent branch', async () => {
     const saved = document([
         { id: 'stop', type: 'Text', text: 'A' }, { id: 'next', type: 'Text' }, { id: 'other', type: 'Text', text: 'B' }

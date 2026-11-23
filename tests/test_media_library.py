@@ -1,4 +1,5 @@
 import os
+import base64
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -6,11 +7,45 @@ from unittest.mock import patch
 import subprocess
 from pathlib import Path
 
-from backend.services.storage_service import StorageService
+from backend.services.storage_service import StorageError, StorageService
 from backend.services.media_library import MediaLibrary
 
 
 class MediaLibraryTests(unittest.TestCase):
+    def test_static_svg_keeps_its_original_bytes_and_file_extension(self):
+        original = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8">'
+                    '<defs><linearGradient id="sky"><stop offset="0" stop-color="blue"/></linearGradient></defs>'
+                    '<path d="M0 0h8v8H0z" fill="url(#sky)"/><text x="1" y="5">夜色</text></svg>').encode()
+        with tempfile.TemporaryDirectory() as root:
+            store = self.make_store(root)
+            library = MediaLibrary(store)
+            item = library.save({'mimeType': 'image/svg+xml'}, original)
+            filename = Path(item['directory'], item['relativePath'])
+            self.assertEqual('.svg', filename.suffix)
+            self.assertEqual(original, filename.read_bytes())
+            restarted = MediaLibrary(self.make_store(root))
+            self.assertEqual([item['id']], [entry['id'] for entry in restarted.list()])
+            self.assertEqual(('image/svg+xml', original), restarted.read(item['id'], item['fileVersion']))
+
+    def test_active_svg_is_rejected_by_original_and_both_cache_uploads(self):
+        bad_elements = ['<script/>', '<foreignObject/>', '<image href="data:image/png;base64,AAAA"/>',
+                        '<use href="elsewhere.svg#paint"/>', '<path onload="active"/>',
+                        '<rect style="fill:url(other.svg#paint)"/>']
+        with tempfile.TemporaryDirectory() as root:
+            store = self.make_store(root)
+            library = MediaLibrary(store)
+            for element in bad_elements:
+                with self.subTest(element=element):
+                    original = f'<svg xmlns="http://www.w3.org/2000/svg">{element}</svg>'.encode()
+                    with self.assertRaises(ValueError):
+                        library.save({'mimeType': 'image/svg+xml'}, original)
+                    with self.assertRaises(StorageError):
+                        store.put_media_asset(original, 'image/svg+xml', 'test-owner', 'single')
+                    data_url = 'data:image/svg+xml;base64,' + base64.b64encode(original).decode()
+                    with self.assertRaises(StorageError):
+                        store.put_media_asset_list([data_url], 'test-owner', 'batch')
+            self.assertEqual([], library.list())
+
     def test_new_saves_allocate_distinct_ids_across_clients_and_clock_rollback(self):
         with tempfile.TemporaryDirectory() as root:
             stores = [self.make_store(root) for _ in range(3)]

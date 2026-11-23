@@ -1,3 +1,4 @@
+import base64
 import binascii
 import hmac
 import re
@@ -8,6 +9,7 @@ import uuid
 from collections import OrderedDict
 
 from backend.services.canvas_mcp_worker import CanvasWorker, CanvasWorkerError
+from backend.services.svg_image import SVG_MIME, validate_static_svg
 
 MAX_CALL_BYTES = 1024 * 1024
 MAX_IMAGE_CHARS = 6_000_000
@@ -41,7 +43,7 @@ EDITS = {'edit_canvas', 'generate_image_batch', 'import_history', 'apply_prompt'
 REQUIRE_REVISION = EDITS | {'run_workflow', 'stop_workflow', 'undo_canvas', 'redo_canvas'}
 SCOPED = REQUIRE_REVISION | {'read_canvas', 'get_workflow_run', 'get_run_image'}
 OFFSET_KEYS = {'offset', 'textOffset', 'connectionOffset', 'assetOffset', 'index'}
-IMAGE_PREFIX = re.compile(r'^data:(image/(?:png|jpeg|webp|gif));base64,', re.IGNORECASE)
+IMAGE_PREFIX = re.compile(r'^data:(image/(?:png|jpeg|webp|gif|svg\+xml));base64,', re.IGNORECASE)
 SAFE_CODE = re.compile(r'^[a-z][a-z0-9_]{0,63}$')
 
 
@@ -89,6 +91,19 @@ def _result_status(run):
 
 def _scope(saved):
     return {key: saved[key] for key in ('workflowId', 'name', 'revision', 'ownershipPending') if key in saved}
+
+
+def _run_image(source, limit):
+    match = IMAGE_PREFIX.match(source) if isinstance(source, str) else None
+    if not match or len(source) - match.end() > limit:
+        return None
+    mime_type, data = match[1].lower(), source[match.end():]
+    if mime_type == SVG_MIME:
+        try:
+            validate_static_svg(base64.b64decode(data, validate=True))
+        except ValueError:
+            return None
+    return {'mimeType': mime_type, 'data': data}
 
 
 class CanvasMcpService:
@@ -410,13 +425,11 @@ class CanvasMcpService:
                 row['errorCode'] = 'node_' + category if category and SAFE_CODE.fullmatch(category) else 'node_execution_failed'
                 row['error'] = ('此节点类型尚不能在后台执行。' if category == 'unsupported_node'
                                 else '节点执行失败，请检查输入和模型设置。')
-            for index, source in enumerate(node_images):
-                match = IMAGE_PREFIX.match(source) if include_images and isinstance(source, str) else None
-                if match:
-                    data = source[match.end():]
-                    if len(data) <= MAX_IMAGE_CHARS and retained_image_chars + len(data) <= 12_000_000:
-                        images[(node_id, index)] = {'mimeType': match[1].lower(), 'data': data}
-                        retained_image_chars += len(data)
+            for index, source in enumerate(node_images if include_images else ()):
+                image = _run_image(source, min(MAX_IMAGE_CHARS, 12_000_000 - retained_image_chars))
+                if image:
+                    images[(node_id, index)] = image
+                    retained_image_chars += len(image['data'])
             rows.append(row)
         return rows, images
 
@@ -448,7 +461,7 @@ class CanvasMcpService:
                 original = load_workflow_media(keys[index])
             except CanvasMcpError:
                 original = ''
-            match = IMAGE_PREFIX.match(original) if isinstance(original, str) else None
-            if match and len(original) - match.end() <= MAX_IMAGE_CHARS:
-                return {'mimeType': match[1].lower(), 'data': original[match.end():]}
+            image = _run_image(original, MAX_IMAGE_CHARS)
+            if image:
+                return image
         raise CanvasMcpError(404, '本次运行没有保留这张图片，或素材超过读取大小限制。', 'image_unavailable')

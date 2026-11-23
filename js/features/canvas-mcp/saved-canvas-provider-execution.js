@@ -19,7 +19,7 @@ import { readImageGenerationSettings } from '../../nodes/image-generation-settin
 import { validateUniversalImageInputs } from '../../nodes/universal-input-policy.js';
 import { resolveVideoExecutionInputRecord } from '../../nodes/video-execution-input-record.js';
 
-const imageDataPattern = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/i;
+const imageDataPattern = /^data:(image\/(?:png|jpeg|webp|gif|svg\+xml));base64,([A-Za-z0-9+/]+={0,2})$/i;
 
 export function savedExecutionError(failureCategory) {
     return Object.assign(new Error(failureCategory), { failureCategory });
@@ -68,7 +68,7 @@ async function inlineImage(value, requestProvider, signal, { allowRemote = false
     if (!allowRemote || typeof value !== 'string' || !/^https?:\/\//i.test(value)) throw savedExecutionError('input');
     const response = await providerResponse(requestProvider, { url: value, method: 'GET', headers: {}, signal });
     const blob = await response.blob();
-    if (!blob.size || !/^image\/(?:png|jpeg|webp|gif)$/i.test(blob.type)) throw savedExecutionError('no_image_in_response');
+    if (!blob.size || !/^image\/(?:png|jpeg|webp|gif|svg\+xml)$/i.test(blob.type)) throw savedExecutionError('no_image_in_response');
     return blob;
 }
 

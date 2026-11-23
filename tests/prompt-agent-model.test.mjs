@@ -613,6 +613,18 @@ test('generation parameter requests retain direct search and format requirements
     assert.equal(content.requestedImageParameters, undefined);
 });
 
+test('generation requests preserve explicit GIF format and frame settings', async () => {
+    const draft = { intent: 'generate', promptPlan: { prompt: '摇摆的树', imageRoles: [] } };
+    const reply = await replyHarness(draft, {
+        message: '生成 GIF 动图，画一棵摇摆的树，帧数设为 12，每帧时长 0.25 秒'
+    }).result;
+    assert.deepEqual(reply.requestedImageParameters, {
+        protocolParams: { output_format: 'gif', frame_count: 12, frame_duration_ms: 250 }
+    });
+    const markup = await replyHarness(draft, { message: '画一棵树，编辑引导设为标注图层' }).result;
+    assert.deepEqual(markup.requestedImageParameters, { protocolParams: { edit_guide: 'markup' } });
+});
+
 test('a shared aspect covers every image step while an evidenced override affects only its step', async () => {
     const canvasContext = createCanvasContext({ workflowId: 'aspect-scope', nodes: [], connections: [] });
     const payload = {
@@ -642,6 +654,12 @@ test('the chat request exposes the selected image model request parameters witho
         [{ protocol: 'openai', modelId: 'gpt-image-2' }, {
             quality: ['', 'auto', 'low', 'medium', 'high'], format: ['', 'png', 'jpeg', 'webp'], maxReferences: 16
         }],
+        [{ protocol: 'openai', modelId: 'gpt-image-2.6-sunburst' }, {
+            quality: ['', 'auto', 'low', 'medium', 'high', 'xhigh', 'max'], formats: ['', 'png', 'jpeg', 'webp', 'gif', 'svg'], maxReferences: 16,
+            frameCount: { type: 'integer', minimum: 2, maximum: 16, requiresOutputFormat: ['gif'] },
+            frameDuration: { type: 'integer', minimum: 20, maximum: 2000, requiresOutputFormat: ['gif'] },
+            editGuide: ['', 'mask', 'markup']
+        }],
         [{ protocol: 'google', modelId: 'gemini-2.5-flash-image' }, { maxReferences: 3 }],
         [{ protocol: 'google', modelId: 'gemini-3-pro-image' }, { search: 'boolean', maxReferences: 14 }]
     ]) {
@@ -656,7 +674,12 @@ test('the chat request exposes the selected image model request parameters witho
         assert.deepEqual(input.parameters.count, { type: 'integer', minimum: 1, maximum: 20 });
         assert.equal(input.maxReferences, expected.maxReferences);
         assert.deepEqual(input.parameters.quality?.enum, expected.quality);
-        assert.deepEqual(input.parameters.protocolParams?.properties.output_format?.enum, expected.format);
+        const imageProtocolParams = input.parameters.protocolParams?.properties;
+        if (expected.formats) assert.deepEqual(new Set(imageProtocolParams.output_format.enum), new Set(expected.formats));
+        else assert.deepEqual(imageProtocolParams?.output_format?.enum, expected.format);
+        assert.deepEqual(imageProtocolParams?.frame_count, expected.frameCount);
+        assert.deepEqual(imageProtocolParams?.frame_duration_ms, expected.frameDuration);
+        assert.deepEqual(imageProtocolParams?.edit_guide?.enum, expected.editGuide);
         assert.equal(input.parameters.protocolParams?.properties.systemPrompt?.type, 'string');
         assert.equal(input.parameters.search?.type, expected.search);
         assert.doesNotMatch(JSON.stringify(input), /image-provider-secret|example\.test/);

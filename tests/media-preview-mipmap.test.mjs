@@ -53,6 +53,16 @@ test('display MIPmaps leave non-inline source images authoritative', async () =>
     assert.equal(source, 'https://example.test/original.png');
 });
 
+test('GIF and SVG previews retain animation and vector data instead of rasterizing a frame', async () => {
+    const { cache, frames, decodes, sizes } = createPreviewHarness();
+    const originals = ['data:image/gif;base64,R0lGODlh', 'data:image/svg+xml;base64,PHN2Zz4='];
+    const previews = originals.map(original => cache.createDisplayMipmap(original, 16));
+    assert.equal(frames.length, 0);
+    assert.deepEqual(await Promise.all(previews), originals);
+    assert.deepEqual(decodes, []);
+    assert.deepEqual(sizes, []);
+});
+
 test('a burst waits for a frame, starts two images, and prefers a promoted pending preview', async () => {
     const harness = createPreviewHarness();
     const { cache, decodes } = harness;

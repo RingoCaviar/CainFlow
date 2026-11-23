@@ -1,12 +1,20 @@
-import { supportsOpenAiOutputCompression } from '../../nodes/image-parameter-controls.js';
+import { OPENAI_GIF_FRAME_FIELDS, supportsOpenAiOutputCompression } from '../../nodes/image-parameter-controls.js';
 
 // Only parameter controls consumed by the corresponding generation request are public.
 export const imageRequestProtocolFields = {
-    openai: ['output_format', 'output_compression', 'input_fidelity', 'style', 'response_format', 'complexity'],
+    openai: ['output_format', 'output_compression', ...OPENAI_GIF_FRAME_FIELDS, 'input_fidelity', 'style', 'response_format', 'complexity', 'edit_guide'],
     ttapi: ['image_search', 'thinking_level'],
     'ttapi-openai': ['output_format', 'output_compression']
 };
 export const publicImageProtocolFields = new Set(['systemPrompt', ...Object.values(imageRequestProtocolFields).flat()]);
+export const openAiImageParameterFormats = {
+    output_compression: ['jpeg', 'webp'],
+    ...Object.fromEntries(OPENAI_GIF_FRAME_FIELDS.map(field => [field, ['gif']]))
+};
+
+export function supportsOpenAiTransparentFormat(format) {
+    return !['jpeg', 'gif', 'svg'].includes(format);
+}
 
 const PROMPT_AGENT_PARAMETER_CONTROLS = {
     aspectRatio: 'aspect',
@@ -27,7 +35,8 @@ const PARAMETER_TYPES = {
 
 const sizeParameterKeys = new Set(['aspect', 'aspectRatio', 'resolution', 'customWidth', 'customHeight']);
 const parameterLabels = { count: '出图数量', quality: '画质', moderation: '审核设置', background: '背景', search: '联网搜索',
-    output_format: '文件格式', output_compression: '压缩比例', input_fidelity: '参考图保真度', style: '风格', complexity: '复杂度' };
+    output_format: '文件格式', output_compression: '压缩比例', frame_count: 'GIF 帧数', frame_duration_ms: 'GIF 每帧时长',
+    input_fidelity: '参考图保真度', style: '风格', complexity: '复杂度', edit_guide: '编辑引导' };
 
 export function mergeAgentSizeAnswer(previous, answer) {
     const next = { ...previous, ...answer };
@@ -54,23 +63,32 @@ function clarifyParameter(key, rule, field = key) {
 
 export function resolveAgentParameterPatch(parameters = {}, sources = {}, schema = {}, answers = {}, current = {}) {
     const result = {};
+    const protocolSchema = schema.protocolParams?.properties;
+    const compressionFormats = protocolSchema?.output_compression?.requiresOutputFormat;
+    const proposedFormat = Object.hasOwn(answers, 'protocolParams.output_format')
+        ? answers['protocolParams.output_format'] : parameters.protocolParams?.output_format;
+    const effectiveFormat = proposedFormat ?? current.protocolParams?.output_format;
+    const transparent = (Object.hasOwn(answers, 'background') ? answers.background : parameters.background ?? current.background) === 'transparent'
+        && schema.background?.enum?.includes('transparent');
     for (const [key, proposal] of Object.entries({ ...parameters, ...answers })) {
         if (sizeParameterKeys.has(key) || proposal === null) continue;
         const rule = Object.hasOwn(schema, key) ? schema[key] : null;
         if (key === 'search' && proposal === false && !rule) continue;
         if (key.startsWith('protocolParams.')) continue;
+        if (key === 'background' && transparent && compressionFormats && proposedFormat == null && !supportsOpenAiTransparentFormat(effectiveFormat)) {
+            if (sources[key] === '本轮设置' || sources[key] === '沿用任务' || Object.hasOwn(answers, key)) {
+                throw clarifyParameter(key, { enum: rule.enum.filter(value => value !== 'transparent') });
+            }
+            continue;
+        }
         if (key === 'protocolParams' && proposal && typeof proposal === 'object' && !Array.isArray(proposal)) {
             const fields = {};
             const requested = name => sources[`protocolParams.${name}`] === '本轮设置';
-            const compressionFormats = rule?.properties?.output_compression?.requiresOutputFormat;
-            const format = Object.hasOwn(answers, 'protocolParams.output_format') ? answers['protocolParams.output_format'] : proposal.output_format;
             const keepCompression = answers['protocolParams.output_compression'] !== null;
-            const effectiveFormat = format || current.protocolParams?.output_format;
             const compressionRequested = requested('output_compression') && keepCompression;
-            const transparent = (Object.hasOwn(answers, 'background') ? answers.background : parameters.background ?? current.background) === 'transparent' && schema.background?.enum?.includes('transparent');
             if (compressionFormats && proposal.output_compression != null && keepCompression && !supportsOpenAiOutputCompression(effectiveFormat)) {
                 const supported = compressionFormats.filter(value => value !== 'jpeg' || !transparent);
-                if (compressionRequested && requested('output_format') && format) {
+                if (compressionRequested && requested('output_format') && proposedFormat) {
                     const error = new Error('压缩率适用于 JPEG 或 WebP，请选择输出格式。');
                     error.parameterClarification = { field: 'protocolParams.output_format', choices: supported.map(value => ({value,label:value.toUpperCase()})) };
                     throw error;
@@ -84,9 +102,14 @@ export function resolveAgentParameterPatch(parameters = {}, sources = {}, schema
                 if (setting === null) continue;
                 if (name === 'output_format' && fields.output_format) continue;
                 if (name === 'output_compression' && compressionFormats && !supportsOpenAiOutputCompression(fields.output_format || effectiveFormat)) continue;
-                if (name === 'output_format' && setting === 'jpeg' && transparent && compressionFormats) {
+                if (name === 'output_format' && !supportsOpenAiTransparentFormat(setting) && transparent && compressionFormats) {
                     if (requested(name)) throw clarifyParameter(name, { enum: ['png', 'webp'] }, field);
                     fields.output_format = 'png';
+                    continue;
+                }
+                if (OPENAI_GIF_FRAME_FIELDS.includes(name) && nestedRule?.requiresOutputFormat
+                    && !nestedRule.requiresOutputFormat.includes(fields.output_format ?? effectiveFormat)) {
+                    if (requested(name)) throw clarifyParameter(name, null, field);
                     continue;
                 }
                 if (nestedRule) {
@@ -145,7 +168,7 @@ function hiddenByCapability(control, node, exceptFieldId = null) {
     return false;
 }
 
-export function readPromptAgentParameterSchema(documentRef, nodeId, node = null, { openAiOutputFormat } = {}) {
+export function readPromptAgentParameterSchema(documentRef, nodeId, node = null, { openAiOutputFormat, canChangeOpenAiOutputFormat = false } = {}) {
     const schema = {};
     for (const [key, suffix] of Object.entries(PROMPT_AGENT_PARAMETER_CONTROLS)) {
         const control = getPromptAgentControl(documentRef, node, `${nodeId}-${suffix}`);
@@ -168,10 +191,12 @@ export function readPromptAgentParameterSchema(documentRef, nodeId, node = null,
         if (!control.id.startsWith(prefix) || control.type === 'hidden' || control.hidden || control.disabled) continue;
         const key = control.id.slice(prefix.length);
         if (key === 'negative_prompt' || ['__proto__', 'prototype', 'constructor'].includes(key)) continue;
-        const formatDependent = key === 'output_compression' && openAiOutputFormat !== undefined;
-        if (formatDependent && !supportsOpenAiOutputCompression(openAiOutputFormat)) continue;
-        if (hiddenByCapability(control, node, formatDependent ? `${nodeId}-output_compression-field` : null)) continue;
-        protocolProperties[key] = readControlSchema(control, 'string');
+        const allowedFormats = (canChangeOpenAiOutputFormat || openAiOutputFormat !== undefined) && Object.hasOwn(openAiImageParameterFormats, key)
+            ? openAiImageParameterFormats[key] : null;
+        if (allowedFormats && !canChangeOpenAiOutputFormat && !allowedFormats.includes(openAiOutputFormat)) continue;
+        if (hiddenByCapability(control, node, allowedFormats ? `${nodeId}-${key}-field` : null)) continue;
+        protocolProperties[key] = readControlSchema(control, allowedFormats && OPENAI_GIF_FRAME_FIELDS.includes(key) ? 'integer' : 'string');
+        if (allowedFormats) protocolProperties[key].requiresOutputFormat = allowedFormats;
     }
     if (Object.keys(protocolProperties).length) schema.protocolParams = { type: 'object', properties: protocolProperties };
     return schema;

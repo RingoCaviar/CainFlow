@@ -269,6 +269,151 @@ test('GPT Image 2.6 accepts custom dimensions, complexity and extended quality w
     assert.equal(Object.hasOwn(body, 'output_compression'), false);
 });
 
+test('GPT Image 2.6 Flare encodes GIF frame settings in preview and generation and preserves the result MIME', async () => {
+    const { api, node, requests } = createImageRequestHarness({
+        modelId: 'gpt-image-2.6-flare',
+        protocolParams: { output_format: 'gif', frame_count: 12, frame_duration_ms: '230', output_compression: 70 }
+    });
+    const { requestBody } = api.buildNodeRequestPreview(node.id);
+    assert.equal(requestBody.output_format, 'gif');
+    assert.equal(requestBody.frame_count, 12);
+    assert.equal(requestBody.frame_duration_ms, 230);
+    assert.equal(Object.hasOwn(requestBody, 'output_compression'), false);
+    await api.nodeHandlers.ImageGenerate(node, {}, new AbortController().signal);
+    assert.deepEqual(await requests[0].json(), requestBody);
+    assert.deepEqual(node.data.imageList, ['data:image/gif;base64,cmVzdWx0']);
+});
+
+test('GPT Image 2.6 Sunburst sends GIF edit fields as multipart and rejects GIF masks', async () => {
+    const { api, node, requests } = createImageRequestHarness({
+        modelId: 'gpt-image-2.6-sunburst',
+        protocolParams: { output_format: 'gif', frame_count: 2, frame_duration_ms: 2000 }
+    });
+    const referenceImages = ['data:image/png;base64,Zmlyc3Q='];
+    const mask = 'data:image/png;base64,bWFzaw==';
+    const signal = new AbortController().signal;
+    await api.nodeHandlers.ImageGenerate(node, { referenceImages }, signal);
+    const form = await requests[0].formData();
+    assert.equal(form.get('output_format'), 'gif');
+    assert.equal(form.get('frame_count'), '2');
+    assert.equal(form.get('frame_duration_ms'), '2000');
+    assert.equal(form.has('mask'), false);
+    await assert.rejects(api.nodeHandlers.ImageGenerate(node, { referenceImages, mask }, signal), /GIF.*遮罩/);
+    await assert.rejects(api.nodeHandlers.ImageGenerate(node, { mask }, signal), /GIF.*遮罩/);
+    assert.equal(requests.length, 1);
+});
+
+test('GPT Image 2.6 emits SVG as vector MIME and rejects SVG edits', async () => {
+    const { api, node, requests } = createImageRequestHarness({
+        modelId: 'gpt-image-2.6-sunburst',
+        protocolParams: { output_format: 'svg', frame_count: 4, output_compression: 25 }
+    });
+    const signal = new AbortController().signal;
+    await api.nodeHandlers.ImageGenerate(node, {}, signal);
+    const body = await requests[0].json();
+    assert.equal(body.n, 1);
+    assert.equal(body.output_format, 'svg');
+    assert.equal(Object.hasOwn(body, 'frame_count'), false);
+    assert.equal(Object.hasOwn(body, 'output_compression'), false);
+    assert.deepEqual(node.data.imageList, ['data:image/svg+xml;base64,cmVzdWx0']);
+    await assert.rejects(api.nodeHandlers.ImageGenerate(node, {
+        referenceImages: ['data:image/png;base64,Zmlyc3Q=']
+    }, signal), /SVG.*编辑/);
+    await assert.rejects(api.nodeHandlers.ImageGenerate(node, {
+        mask: 'data:image/png;base64,bWFzaw=='
+    }, signal), /SVG.*编辑/);
+    assert.equal(requests.length, 1);
+});
+
+for (const modelId of ['gpt-image-2.5-flare', 'custom-relay-model']) {
+    test(`${modelId} rejects a retained GIF or SVG selection before sending a request`, async () => {
+        const { api, node, requests } = createImageRequestHarness({
+            modelId, protocolParams: { output_format: 'gif' }
+        });
+        const signal = new AbortController().signal;
+        await assert.rejects(api.nodeHandlers.ImageGenerate(node, {}, signal), /不支持 GIF/);
+        node.data.protocolParams.output_format = 'svg';
+        await assert.rejects(api.nodeHandlers.ImageGenerate(node, {}, signal), /不支持 SVG/);
+        assert.equal(requests.length, 0);
+    });
+}
+
+test('SVG generation supports project-enabled authoring settings through the custom parameter input', async () => {
+    const { api, node, requests } = createImageRequestHarness({
+        modelId: 'gpt-image-2.6-flare', protocolParams: { output_format: 'svg' }
+    });
+    const signal = new AbortController().signal;
+    const run = params => api.nodeHandlers.ImageGenerate(node, { params }, signal);
+    await run({ svg: { model: 'author-model', reasoning: { effort: 'low' } }, prompt_rewriter: 'enabled' });
+    const body = await requests[0].json();
+    assert.deepEqual(body.svg, { model: 'author-model', reasoning: { effort: 'low' } });
+    assert.equal(Object.hasOwn(body, 'prompt_rewriter'), false);
+    await assert.rejects(run({ svg: { reasoning: { effort: 'low' } } }), /svg\.model/);
+    await assert.rejects(run({ svg: { model: 'author-model', reasoning: { effort: 'unknown' } } }), /推理档位无效/);
+    assert.equal(requests.length, 1);
+    node.data.protocolParams.output_format = 'png';
+    await run({ svg: { model: 'author-model' } });
+    assert.equal(Object.hasOwn(await requests[1].json(), 'svg'), false);
+});
+
+for (const modelId of ['gpt-image-2.5-flare', 'gpt-image-2.6-sunburst']) {
+    test(`${modelId} routes the connected annotation to the official markup field without turning it into a mask`, async () => {
+        const { api, node, requests } = createImageRequestHarness({
+            modelId, protocolParams: { edit_guide: 'markup' }
+        });
+        const referenceBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEklEQVR4nGNYuOnw/4uPPv8HABxLBrvCHrUpAAAAAElFTkSuQmCC';
+        const reference = `data:image/png;base64,${referenceBase64}`;
+        const markupBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEUlEQVR4nGNYuOkww38Ghv8AE3wEFcq2QBIAAAAASUVORK5CYII=';
+        const markup = `data:image/png;base64,${markupBase64}`;
+        const signal = new AbortController().signal;
+        await api.nodeHandlers.ImageGenerate(node, { referenceImages: [reference], mask: markup }, signal);
+        const form = await requests[0].formData();
+        assert.equal(Buffer.from(await form.get('image').arrayBuffer()).toString('base64'), referenceBase64);
+        assert.equal(form.get('markup').type, 'image/png');
+        assert.equal(Buffer.from(await form.get('markup').arrayBuffer()).toString('base64'), markupBase64);
+        assert.equal(form.has('mask'), false);
+        assert.equal(form.has('edit_guide'), false);
+        await assert.rejects(api.nodeHandlers.ImageGenerate(node, {
+            referenceImages: [reference]
+        }, signal), /需要连接一张标注图层/);
+        await assert.rejects(api.nodeHandlers.ImageGenerate(node, { mask: markup }, signal), /需要第一张参考图/);
+        await assert.rejects(api.nodeHandlers.ImageGenerate(node, {
+            referenceImages: [reference], mask: 'data:image/webp;base64,b3ZlcmxheQ=='
+        }, signal), /标注图层.*PNG/);
+        await assert.rejects(api.nodeHandlers.ImageGenerate(node, {
+            referenceImages: [reference], mask: 'data:image/png;base64,b3ZlcmxheQ=='
+        }, signal), /有效的 PNG/);
+        const oversizedMarkup = Buffer.from(markupBase64, 'base64');
+        oversizedMarkup.writeUInt32BE(8192, 16);
+        oversizedMarkup.writeUInt32BE(4096, 20);
+        await assert.rejects(api.nodeHandlers.ImageGenerate(node, {
+            referenceImages: [reference], mask: `data:image/png;base64,${oversizedMarkup.toString('base64')}`
+        }, signal), /16,777,216/);
+        await assert.rejects(api.nodeHandlers.ImageGenerate(node, {
+            referenceImages: [reference], mask: [markup, markup]
+        }, signal), /只支持一张标注图层/);
+        assert.equal(requests.length, 1);
+    });
+}
+
+test('GIF settings use API defaults when empty and reject invalid frames before requesting', async () => {
+    const { api, node, requests } = createImageRequestHarness({
+        modelId: 'gpt-image-2.6-flare', protocolParams: { output_format: 'gif' }
+    });
+    const signal = new AbortController().signal;
+    await api.nodeHandlers.ImageGenerate(node, {}, signal);
+    const body = await requests[0].json();
+    assert.equal(body.output_format, 'gif');
+    assert.equal(Object.hasOwn(body, 'frame_count'), false);
+    assert.equal(Object.hasOwn(body, 'frame_duration_ms'), false);
+    node.data.protocolParams.frame_count = 17;
+    await assert.rejects(api.nodeHandlers.ImageGenerate(node, {}, signal), /frame_count.*2 至 16/);
+    node.data.protocolParams.frame_count = 3;
+    node.data.protocolParams.frame_duration_ms = '19.5';
+    await assert.rejects(api.nodeHandlers.ImageGenerate(node, {}, signal), /frame_duration_ms.*20 至 2000/);
+    assert.equal(requests.length, 1);
+});
+
 test('DALL-E 3 compatibility keeps style and URL/base64 choice but omits GPT Image fields', async () => {
     const { api, node, requests, elements } = createImageRequestHarness({
         modelId: 'dall-e-3',

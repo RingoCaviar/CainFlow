@@ -21,7 +21,8 @@ export const SAVED_EXECUTABLE_TYPES = Object.freeze([
     'ImageCompare', 'VisualStyle', 'CameraControl', 'ImageGenerate', 'VideoGenerate'
 ]);
 
-const imageData = /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/i;
+const imageData = /^data:image\/(?:png|jpeg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/]+={0,2}$/i;
+const svgDataPrefix = /^data:image\/svg\+xml;/i;
 
 function entriesForNumberedPorts(inputs, prefix) {
     return Object.entries(inputs).filter(([port]) => port.startsWith(prefix) && /^\d+$/.test(port.slice(prefix.length)))
@@ -130,7 +131,10 @@ export async function executeSavedWorkflow({ document, models = [], providers = 
             (node.data.mediaAssetKeys?.length ? node.data.mediaAssetKeys : [node.data.imageAssetKey]).filter(key => typeof key === 'string' && key);
         const missing = node.data.mediaIntegrity?.missingItems?.length;
         if (missing) throw savedExecutionError('input');
-        if (!keys.length) return normalizeImageList(node.data.imageDataList || node.data.imageData || node.data.image).filter(value => imageData.test(value));
+        if (!keys.length) {
+            const inlineImages = normalizeImageList(node.data.imageDataList || node.data.imageData || node.data.image);
+            return inlineImages.filter(value => imageData.test(value) && !svgDataPrefix.test(value));
+        }
         if (node.type === 'ImageImport') {
             for (const key of keys) {
                 const value = await readAsset(key);

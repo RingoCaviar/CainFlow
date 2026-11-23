@@ -83,7 +83,8 @@ export function createMediaPreviewCache({
     }
 
     function createPreviewThumbnail(source, maxEdge = previewThumbnailMaxEdge, options = {}) {
-        if (!isInlineImageData(source)) return Promise.resolve(source);
+        // Drawing either format onto a canvas loses animation or vector fidelity.
+        if (!isInlineImageData(source) || /^data:image\/(?:gif|svg\+xml)[;,]/i.test(source)) return Promise.resolve(source);
         // Each maximum edge is an independent, disposable display MIPmap.
         // The source data URL remains authoritative and is never rewritten.
         const edge = normalizeMaxEdge(maxEdge);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isUniversalInputNode, resolveUniversalInput, validateUniversalImageInputs } from '../js/nodes/universal-input-policy.js';
+import { getUniversalInputRoles, isUniversalInputNode, resolveUniversalInput, validateUniversalImageInputs } from '../js/nodes/universal-input-policy.js';
 import '../js/features/execution/protocols/openai.js';
 import '../js/features/execution/protocols/google.js';
 import { clearProtocolOverride, getProtocol, registerProtocol, setProtocolOverride } from '../js/features/execution/protocols/index.js';
@@ -181,6 +181,26 @@ test('OpenAI legacy image models enforce their reference and mask limits before 
     state.models[0].modelId = 'dall-e-3';
     assert.match(resolveUniversalInput(args).error, /不支持参考图/);
     assert.match(resolveUniversalInput({ ...args, role: 'mask' }).error, /不支持遮罩/);
+});
+
+test('markup keeps the persisted edit input and validates its model and single image source', () => {
+    const { state, targetNode } = setup();
+    const sourceNode = { id: 'overlay', type: 'ImageGenerate', data: { imageList: ['overlay'] } };
+    state.nodes.set(sourceNode.id, sourceNode);
+    targetNode.data.protocolParams = { edit_guide: 'markup' };
+    const args = { state, targetNode, sourceNode, sourcePort: 'image', role: 'mask' };
+    assert.deepEqual(getUniversalInputRoles(targetNode, state).find(([role]) => role === 'mask'), ['mask', '标注图层', 'image']);
+    assert.match(resolveUniversalInput(args).error, /模型.*不支持标注图层/);
+
+    state.models[0].modelId = 'gpt-image-2.5-sunburst';
+    assert.deepEqual(resolveUniversalInput(args), { port: 'mask', type: 'image', multiple: false, error: '', maskConsumption: 'single' });
+    state.connections.push({ id: 'existing-guide', from: { nodeId: sourceNode.id, port: 'image' },
+        to: { nodeId: targetNode.id, port: 'mask' }, type: 'image', maskConsumption: 'legacy-first' });
+    assert.equal(validateUniversalImageInputs({ state, node: targetNode, inputs: { mask: ['overlay'] } }), '');
+    sourceNode.data.imageList.push('second');
+    assert.match(validateUniversalImageInputs({ state, node: targetNode, inputs: { mask: ['overlay'] } }), /标注图层连接要求单图来源/);
+    targetNode.data.protocolParams.edit_guide = 'mask';
+    assert.equal(validateUniversalImageInputs({ state, node: targetNode, inputs: { mask: ['overlay'] } }), '', 'legacy mask keeps its first-image behavior');
 });
 
 for (const [protocol, modelId, limit] of [

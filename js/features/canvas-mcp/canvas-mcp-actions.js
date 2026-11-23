@@ -11,7 +11,7 @@ const MAX_STATUS_PAGE_BYTES = 720_000;
 const MAX_IMAGE_DATA_LENGTH = 6_000_000;
 const MAX_IMAGE_CACHE_LENGTH = 12_000_000;
 const RUN_OUTCOMES = new Set(['completed', 'stopped', 'failed', 'timeout', 'cancelled', 'no-execution']);
-const IMAGE_DATA_PREFIX = /^data:(image\/(?:png|jpeg|webp|gif));base64,/i;
+const IMAGE_DATA_PREFIX = /^data:(image\/(?:png|jpeg|webp|gif|svg\+xml));base64,/i;
 const RUN_ERRORS = new Map([
     ['stale_editor', 'CainFlow 编辑器已变化，请重新读取画布。'],
     ['stale_revision', '画布已修改，请重新读取后再操作。'],
@@ -305,9 +305,12 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
         runImages.delete(key);
     }
 
-    function captureImage(runId, nodeId, index, source) {
+    function captureImage(runId, nodeId, index, source, mediaAssetKey) {
         const prefix = typeof source === 'string' && source.match(IMAGE_DATA_PREFIX);
         if (!prefix || source.length - prefix[0].length > MAX_IMAGE_DATA_LENGTH) return;
+        const mimeType = prefix[1].toLowerCase();
+        // SVG results are published by managed storage, which validates the original document.
+        if (mimeType === 'image/svg+xml' && !/^media:[a-z\d_-]+$/i.test(mediaAssetKey || '')) return;
         const data = source.slice(prefix[0].length);
         if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return;
         while (imageCacheLength + data.length > MAX_IMAGE_CACHE_LENGTH) {
@@ -315,7 +318,7 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
         }
         const key = JSON.stringify([runId, nodeId, index]);
         if (runImages.has(key)) removeImage(key);
-        runImages.set(key, { runId, mimeType: prefix[1].toLowerCase(), data });
+        runImages.set(key, { runId, mimeType, data });
         imageCacheLength += data.length;
     }
 
@@ -341,7 +344,7 @@ export function createCanvasMcpActions({ canvasAdapter, getImageDefaults = () =>
         retainRunNodes(record, nodes);
         for (const node of nodes) {
             if (node.succeeded !== true || !Array.isArray(node.images)) continue;
-            node.images.forEach((image, index) => captureImage(record.runId, node.nodeId, index, image));
+            node.images.forEach((image, index) => captureImage(record.runId, node.nodeId, index, image, node.mediaAssetKeys?.[index]));
         }
         record.status = RUN_OUTCOMES.has(completion.outcome) ? completion.outcome : 'failed';
         if (['failed', 'timeout', 'no-execution'].includes(record.status)) {

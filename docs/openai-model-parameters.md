@@ -20,7 +20,7 @@ CainFlow 的普通对话使用 [Chat Completions](https://developers.openai.com/
 
 ## 生图
 
-核验日期为 2026-11-13。纯提示词使用 Images generations，带参考图使用 Images edits。GPT Image 的编辑请求最多接收 16 张参考图。已知模型按下表使用各自的上限。未知模型和第三方中转的实际能力以供应商为准。 [生成接口](https://developers.openai.com/api/reference/resources/images/methods/generate) · [编辑接口](https://developers.openai.com/api/reference/resources/images/methods/edit)
+核验日期为 2026-11-23。纯提示词使用 Images generations，带参考图使用 Images edits。GPT Image 的编辑请求最多接收 16 张参考图。已知模型按下表使用各自的上限。未知模型和第三方中转的实际能力以供应商为准。 [生成接口](https://developers.openai.com/api/reference/resources/images/methods/generate) · [编辑接口](https://developers.openai.com/api/reference/resources/images/methods/edit)
 
 | 模型 ID | 参考图上限 | 静态尺寸 | 质量 | 编辑保真度 | 官方 API 状态 |
 | --- | ---: | --- | --- | --- | --- |
@@ -34,10 +34,17 @@ CainFlow 的普通对话使用 [Chat Completions](https://developers.openai.com/
 | `dall-e-2` | 1（历史） | `256x256`、`512x512`、`1024x1024` | 标准 | — | 2026-05-12 已下线 |
 | `dall-e-3` | 0 | `1024x1024`、`1792x1024`、`1024x1792` | `standard` / `hd` | — | 2026-05-12 已下线 |
 
-标准尺寸为 `1024x1024`、`1536x1024`、`1024x1536`。GPT Image 2 和 2.5 的自定义宽高必须是 16 的倍数，长短边之比不超过 3:1，最长边不超过 3840 像素，总像素为 655,360 至 8,294,400。通用接口参数说明只在 2 和 2.5 的条目中列出自定义尺寸，2.6 专用指南明确确认自定义尺寸并举例 `1536x864`。2.6 专用指南给出 16 像素步长和 3:1 比例约束，CainFlow 对最长边和总像素沿用 2.5 的校验范围。2.6 的 `complexity` 支持 `low`、`medium`、`high`。 [图像生成指南](https://developers.openai.com/api/docs/guides/image-generation) · [GPT Image 2.6 参数](https://developers.openai.com/api/docs/guides/image-prompting#model-parameters) · [生成接口](https://developers.openai.com/api/reference/resources/images/methods/generate)
+标准尺寸为 `1024x1024`、`1536x1024`、`1024x1536`。GPT Image 2、2.5 和 2.6 的自定义宽高必须是 16 的倍数，长短边之比不超过 3:1，最长边不超过 3840 像素，总像素为 655,360 至 8,294,400。2.6 的 `complexity` 支持 `low`、`medium`、`high`。 [图像生成指南](https://developers.openai.com/api/docs/guides/image-generation#size-and-quality-options) · [GPT Image 2.6 参数](https://developers.openai.com/api/docs/guides/image-prompting#model-parameters)
 
 下线模型的规则用于兼容旧工作流和仍提供这些模型的中转。 [模型下线公告](https://developers.openai.com/api/docs/deprecations) · [GPT Image 1.5 快照](https://developers.openai.com/api/docs/models/gpt-image-1.5)
 
 GPT Image 的 multipart 参考文件支持 PNG、JPEG 和 WebP，单文件小于 50 MB。编辑遮罩独立上传并应用于第一张参考图。静态输出同样支持 PNG、JPEG 和 WebP。JPEG 和 WebP 可以发送 `output_compression`（0–100），透明背景使用 PNG 或 WebP。DALL·E 的 URL / Base64 选择使用 `response_format`，DALL·E 3 另有 `vivid` / `natural` 风格。 [编辑参数](https://developers.openai.com/api/reference/resources/images/methods/edit) · [生成参数](https://developers.openai.com/api/reference/resources/images/methods/generate)
 
-CainFlow 调度“生成次数”，每个上游请求生成一张图。SVG、动画 GIF、流式部分图片和标注层是 OpenAI 的独立能力，当前生图节点使用静态图片流程。Responses API 的图像工具在会话上下文中接收图片，公开文档未列出该工具独立的参考图上限。表中的 16 张适用于 Images edits。 [图像生成指南](https://developers.openai.com/api/docs/guides/image-generation) · [Responses 图像工具](https://developers.openai.com/api/docs/guides/tools-image-generation)
+### 动画 GIF、SVG 与标注图层
+
+- GPT Image 2.6 Sunburst 和 Flare 可在「更多设置」中选择 GIF 或 SVG。官方 GIF API 需要项目具备预览权限，支持提示词生成和参考图编辑。帧数 `frame_count` 为 2–16，留空时由服务使用 9 帧。每帧时长 `frame_duration_ms` 为 20–2000 毫秒，留空时为 200 毫秒，服务按 10 毫秒取整。尺寸针对单帧，整次请求还受供应商的总像素预算限制。GIF 编辑可使用普通参考图，遮罩输入需要选用其他输出格式。 [动画 GIF](https://developers.openai.com/api/docs/guides/image-generation#generate-animated-gif-output) · [生成接口](https://developers.openai.com/api/reference/resources/images/methods/generate) · [编辑接口](https://developers.openai.com/api/reference/resources/images/methods/edit)
+- SVG 用于纯提示词生成，每次请求生成一份矢量文件。GIF 和 SVG 都采用完整结果返回，压缩字段仅适用于 JPEG 与 WebP。CainFlow 的「生成次数」仍决定独立请求的数量。 [SVG 输出](https://developers.openai.com/api/docs/guides/image-generation#generate-svg-output)
+- 已开通 SVG 创作模型选择的项目，可以通过「自定义参数」节点传入 `svg.model` 和可选的 `svg.reasoning.effort`。例如 `{"svg":{"model":"项目可用的创作模型 ID","reasoning":{"effort":"low"}}}`。可选推理档位取决于创作模型，画布上的图像模型仍负责生成参考图。普通项目留空即可。 [生成接口](https://developers.openai.com/api/reference/resources/images/methods/generate)
+- GPT Image 2.5 与 2.6 支持标注引导编辑。在「更多设置」将编辑引导切换为「标注图层」，再把一张含透明像素的 PNG 连到对应图片输入。标注图层要和第一张参考图的显示尺寸一致，文件最大 50 MB。标注图层与第一张参考图各自最多为 16,777,216 像素。CainFlow 在上传前检查标注 PNG 的文件头、大小和像素数，Images API 校验实际透明像素及参考图的方向与尺寸。没有更改编辑引导的旧工作流仍使用遮罩。 [标注引导编辑](https://developers.openai.com/api/docs/guides/image-generation#guide-an-edit-with-markup) · [编辑接口](https://developers.openai.com/api/reference/resources/images/methods/edit)
+
+Responses API 的图像工具在会话上下文中接收图片。表中的 16 张适用于 Images edits。 [Responses 图像工具](https://developers.openai.com/api/docs/guides/tools-image-generation)

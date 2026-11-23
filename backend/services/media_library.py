@@ -13,12 +13,13 @@ import uuid
 from contextlib import contextmanager
 
 from backend.services.storage_service import StorageError
+from backend.services.svg_image import SVG_MIME, validate_static_svg
 
 
-IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.avif'}
+IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.avif', '.svg'}
 VIDEO_EXTENSIONS = {'.mp4', '.webm', '.mov', '.m4v', '.mkv', '.avi'}
 MIME_EXTENSIONS = {'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif',
-                   'image/bmp': '.bmp', 'image/avif': '.avif', 'video/mp4': '.mp4', 'video/webm': '.webm',
+                   'image/bmp': '.bmp', 'image/avif': '.avif', SVG_MIME: '.svg', 'video/mp4': '.mp4', 'video/webm': '.webm',
                    'video/quicktime': '.mov', 'video/x-matroska': '.mkv', 'video/x-msvideo': '.avi'}
 
 
@@ -72,6 +73,8 @@ class MediaLibrary:
         extension = MIME_EXTENSIONS.get(mime)
         if not extension:
             raise ValueError('不支持的媒体文件格式')
+        if mime == SVG_MIME:
+            validate_static_svg(body)
         identifier = int(entry.get('id') or 0)
         digest = hashlib.sha256(body).hexdigest()
         metadata = {key: value for key, value in entry.items() if key not in {'image', 'video', 'videoBlob', 'thumb', 'fileUrl', 'directory', 'relativePath'}}
@@ -210,7 +213,8 @@ class MediaLibrary:
                 if not row or row['status'] == 'deleted':
                     identifier = -int(uuid.uuid4().hex[:13], 16)
                     extension = os.path.splitext(relative)[1].lower()
-                    mime = mimetypes.guess_type(relative)[0] or ('video/mp4' if extension in VIDEO_EXTENSIONS else 'image/png')
+                    mime = SVG_MIME if extension == '.svg' else mimetypes.guess_type(relative)[0]
+                    mime = mime or ('video/mp4' if extension in VIDEO_EXTENSIONS else 'image/png')
                     if row:
                         tombstones.append((relative + '.deleted-' + str(row['id']), row['id']))
                     inserts.append((identifier, root, relative, '{}', mime, info.st_size, info.st_mtime_ns))
@@ -259,15 +263,17 @@ class MediaLibrary:
             if not row:
                 return None
             with open(self._path(row), 'rb') as file:
-                if version is None:
-                    return row['mime'], file.read()
                 def check_version():
+                    if version is None:
+                        return
                     info = os.fstat(file.fileno())
                     if version != f"{info.st_size}:{info.st_mtime_ns}":
                         raise ValueError('文件已变化，请重新选择历史图片')
                 check_version()
                 body = file.read()
                 check_version()
+                if row['mime'] == SVG_MIME:
+                    validate_static_svg(body)
                 return row['mime'], body
 
     def read_thumbnail(self, identifier, version):

@@ -10,6 +10,7 @@ import { getImageDescription } from '../features/execution/reference-image-descr
 import { resolveImageRequestSize } from '../features/execution/image-generation-size.js';
 import { getOpenAiImageCapabilities } from '../features/execution/openai-image-capabilities.js';
 import { getGoogleImageCapabilities } from '../features/execution/google-image-capabilities.js';
+import { OPENAI_GIF_FRAME_FIELDS } from './image-parameter-controls.js';
 import { resolveThinking, getThinkingCapability, normalizeThinkingSelection } from '../features/execution/thinking-config.js';
 import { findPromptImageMentions } from './prompt-image-mentions.js';
 
@@ -17,7 +18,7 @@ const PROTOCOL_PRESENTATION_FIELDS = new Set(['id', 'name', 'label', 'helpText',
     'schemaVersion', 'baseSchemaVersion', 'baseRevision', 'overrideRevision', 'overrideRecord', 'executionSnapshot',
     'variants', 'variantId', 'variantIdCaseInsensitive']);
 const PARAMETER_PRESENTATION_FIELDS = new Set(['name', 'label', 'exposed', 'uiControl', 'portLabel', 'note', 'description', 'placeholder', 'rows', 'layout']);
-const OPENAI_ADVANCED_FIELDS = new Set(['output_format', 'output_compression', 'input_fidelity', 'style', 'response_format', 'complexity']);
+const OPENAI_ADVANCED_FIELDS = new Set(['output_format', 'output_compression', 'input_fidelity', 'style', 'response_format', 'complexity', 'edit_guide', ...OPENAI_GIF_FRAME_FIELDS]);
 
 function protocolWireConfiguration(configuration) {
     if (!configuration) return null;
@@ -124,11 +125,16 @@ export function createImageGenerationRevisionApi({ state, documentRef, getActive
         const effectiveConfiguration = configuration ? resolveDeclarativeProtocolVariant(configuration, model?.modelId || '').configuration : null;
         const parameters = effectiveConfiguration?.parameters || null;
         const openAi = protocol === 'openai' ? getOpenAiImageCapabilities(model?.modelId) : null;
-        const protocolParams = Object.fromEntries(Object.entries(settings.protocolParams).filter(([key]) => {
+        const outputFormat = String(settings.protocolParams.output_format || '').trim().toLowerCase();
+        const protocolParams = Object.fromEntries(Object.entries(settings.protocolParams).filter(([key, value]) => {
             if (key === 'prompt') return false; // Its upstream-first effective value is recorded below.
             // These optional controls are compiled by the OpenAI image adapter;
             // adding a control with no value doesn't change an existing recipe.
-            if (protocol === 'openai' && OPENAI_ADVANCED_FIELDS.has(key) && (!openAi || settings.protocolParams[key] == null || settings.protocolParams[key] === '')) return false;
+            if (protocol === 'openai' && OPENAI_ADVANCED_FIELDS.has(key)) {
+                if (!openAi || value == null || value === '') return false;
+                if (OPENAI_GIF_FRAME_FIELDS.includes(key) && outputFormat !== 'gif') return false;
+                if (key === 'edit_guide' && (value !== 'markup' || !identities.some(source => source.role === 'mask'))) return false;
+            }
             const definition = parameters?.[key];
             return !parameters || definition && definition.portOnly !== true && (!definition.taskTypes || definition.taskTypes.includes('image'));
         }));

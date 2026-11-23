@@ -3,7 +3,8 @@ import { resolveAgentProvider } from './prompt-agent-provider.js';
 import { getEffectiveProtocol, getGenerationInputProtocolId, getModelProviders, getModelsForTask, getResolvedProviderForModel } from '../execution/provider-request-utils.js';
 import { getModelProtocolConfig } from '../execution/model-protocol-registry.js';
 import { normalizeImageSizeControls } from '../execution/image-generation-size.js';
-import { normalizePromptAgentParameters, readPromptAgentParameterSchema, getPromptAgentControl } from './prompt-agent-parameters.js';
+import { normalizePromptAgentParameters, readPromptAgentParameterSchema, getPromptAgentControl, openAiImageParameterFormats, supportsOpenAiTransparentFormat }
+    from './prompt-agent-parameters.js';
 import { getCanonicalImageList, getImageImportMediaAssetReferences, getPrimaryTextInput } from '../execution/execution-data-utils.js';
 import { projectImageOutput } from '../../nodes/image-output-projection.js';
 import { projectImageReferences } from '../../nodes/image-reference-projection.js';
@@ -151,10 +152,12 @@ export function createPromptAgentNodeAdapter({
         const protocolParams = { ...(node.data?.protocolParams || {}) };
         const modelId = readValue(node, 'apiconfig', node.apiConfigId || '');
         const model = state.models?.find((candidate) => candidate.id === modelId);
+        const provider = getResolvedProviderForModel(model, state.providers, readValue(node, 'provider', node.providerId || ''));
         const output = getReferenceImageDescriptor(state, { from: { nodeId: node.id, port: 'image' }, to: { port: '' } });
         const localPrompt = readValue(node, 'prompt', node.data?.prompt ?? '');
         const promptSource = getPromptSource(node);
-        const parameterSchema = readPromptAgentParameterSchema(documentRef, node.id, node);
+        const parameterSchema = readPromptAgentParameterSchema(documentRef, node.id, node,
+            { canChangeOpenAiOutputFormat: getEffectiveProtocol(model, provider) === 'openai' });
         if (parameterSchema.protocolParams?.properties.systemPrompt) {
             protocolParams.systemPrompt = readValue(node, 'param-systemPrompt', protocolParams.systemPrompt ?? '');
         }
@@ -296,10 +299,16 @@ export function createPromptAgentNodeAdapter({
                 input = replaceAgentSizeFields(input, size.patch);
             }
             let schema = sizeContext.parameterSchema;
-            if (protocol === 'openai' && Object.hasOwn(input.protocolParams || {}, 'output_compression')) {
+            if (protocol === 'openai') {
+                const changes = input.protocolParams || {};
                 const currentFormat = readValue(node, 'param-output_format', sizeContext.parameters.protocolParams.output_format || '');
-                const openAiOutputFormat = input.protocolParams.output_format ?? currentFormat;
-                schema = readPromptAgentParameterSchema(documentRef, node.id, node, { openAiOutputFormat });
+                const openAiOutputFormat = changes.output_format ?? currentFormat;
+                if ((Object.hasOwn(input, 'background') || Object.hasOwn(changes, 'output_format'))
+                    && (input.background ?? sizeContext.parameters.background) === 'transparent'
+                    && !supportsOpenAiTransparentFormat(openAiOutputFormat)) return false;
+                if (Object.keys(openAiImageParameterFormats).some(key => Object.hasOwn(changes, key))) {
+                    schema = readPromptAgentParameterSchema(documentRef, node.id, node, { openAiOutputFormat });
+                }
             }
             parameters = normalizePromptAgentParameters(input, schema);
         } catch (error) {

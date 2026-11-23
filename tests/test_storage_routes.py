@@ -79,6 +79,28 @@ class StorageRouteSecurityTests(unittest.TestCase):
             library.return_value.read_thumbnail.assert_called_once_with(-8, '4:123')
             write_bytes.assert_called_once_with(handler, b'thumbnail', content_type='image/webp', headers={'Cache-Control': 'no-store'})
 
+    def test_svg_originals_are_served_as_images_in_a_sandbox(self):
+        original = b'<svg xmlns="http://www.w3.org/2000/svg"/>'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            service = StorageService(database_path=str(root / 'test.db'), assets_dir=root / 'assets',
+                                     temp_dir=root / 'tmp', exports_dir=root / 'exports')
+            service.put_asset('media:svg', original, 'image/svg+xml')
+            library = storage_routes.MediaLibrary(service)
+            item = library.save({'mimeType': 'image/svg+xml'}, original)
+            for path in ('/api/storage/assets/media%3Asvg', item['fileUrl']):
+                with self.subTest(path=path), mock.patch.object(storage_routes, 'storage_service', service), \
+                        mock.patch.object(storage_routes, 'write_bytes') as write_bytes:
+                    handler = make_handler()
+                    handler.path = path
+                    self.assertTrue(storage_routes.handle_get(handler))
+                    self.assertEqual((handler, original), write_bytes.call_args.args)
+                    self.assertEqual('image/svg+xml', write_bytes.call_args.kwargs['content_type'])
+                    headers = write_bytes.call_args.kwargs['headers']
+                    self.assertEqual('nosniff', headers['X-Content-Type-Options'])
+                    self.assertIn('sandbox', headers['Content-Security-Policy'])
+                    self.assertIn("default-src 'none'", headers['Content-Security-Policy'])
+
     def test_history_image_tool_errors_do_not_expose_directory_paths(self):
         handler = make_handler()
         handler.path = '/api/storage/library?imagesOnly=1&limit=1'

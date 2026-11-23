@@ -11,6 +11,7 @@ import { createNodeMarkup } from '../../js/nodes/node-view-factory.js';
 import { NODE_CONFIGS } from '../../js/nodes/registry.js';
 import { createNodeDomBindingsApi } from '../../js/nodes/node-dom-bindings.js';
 import { createNodeLifecycleApi } from '../../js/nodes/node-lifecycle.js';
+import { getUniversalInputRoles } from '../../js/nodes/universal-input-policy.js';
 import '../../js/features/execution/protocols/openai.js';
 const result = [];
 try {
@@ -162,6 +163,68 @@ try {
         outputFormat:node.querySelector('#sample-param-output_format').value,compression:node.querySelector('#sample-param-output_compression').value};
     model.value='model';model.dispatchEvent(new Event('change',{bubbles:true}));
     result.at(-1).variants={hiddenForDefault,shownForWebp,fixed,fidelityOnImage2:!!node.querySelector('#sample-param-input_fidelity')};
+    const field = key => node.querySelector(`#sample-${key}-field`);
+    const control = key => node.querySelector(`#sample-param-${key}`);
+    const isHidden = key => !field(key) || field(key).classList.contains('hidden');
+    const change = (input, value) => {
+        input.value = value;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    const formats = () => [...control('output_format').options].map(option => option.value);
+    const staticFormats = formats();
+    state.models.push({ id: 'latest', modelId: 'gpt-image-2.6-flare', taskType: 'image', protocol: 'openai', providerIds: ['provider'] });
+    model.add(new Option('GPT Image 2.6 Flare', 'latest'));
+    change(model, 'latest');
+    const latestFormats = formats();
+    change(control('output_format'), 'gif');
+    const gifKeys = ['frame_count', 'frame_duration_ms'];
+    const gifFields = gifKeys.map(key => {
+        const input = control(key);
+        return [!isHidden(key), input?.value, input?.placeholder, input?.min, input?.max, field(key)?.closest('[data-image-protocol-fields]')?.dataset.imageProtocolFields];
+    });
+    field('frame_count').querySelector('.number-step-plus').click();
+    const gifStep = control('frame_count').value;
+    const gifCompressionHidden = isHidden('output_compression');
+    if (control('frame_count')) change(control('frame_count'), '7');
+    if (control('frame_duration_ms')) change(control('frame_duration_ms'), '120');
+    change(control('output_format'), 'svg');
+    const svgFieldsHidden = [...gifKeys, 'output_compression'].every(isHidden);
+    const svgSummary = node.querySelector('#sample-advanced-summary').textContent;
+    change(control('output_format'), 'webp');
+    const webpCompression = !isHidden('output_compression') && control('output_compression').value;
+    change(control('output_format'), 'gif');
+    const gifDraft = gifKeys.map(key => !isHidden(key) && control(key).value);
+    const stored = state.nodes.get('sample').data.protocolParams || {};
+    result.at(-1).formats = { staticFormats, latestFormats, gifFields, gifStep, gifCompressionHidden, svgFieldsHidden, svgSummary,
+        webpCompression, gifDraft, savedDraft: gifKeys.map(key => stored[key]) };
+    state.models.push({ id: 'markup-model', modelId: 'gpt-image-2.5-sunburst', taskType: 'image', protocol: 'openai', providerIds: ['provider'] });
+    model.add(new Option('GPT Image 2.5 Sunburst', 'markup-model'));
+    const formatDrafts = [['gif', 'markup-model'], ['svg', 'model']].map(([format, olderModel]) => {
+        change(control('output_format'), format);
+        change(model, olderModel);
+        const unavailable = control('output_format').selectedOptions[0];
+        const savedOnOlderModel = state.nodes.get('sample').data.protocolParams.output_format;
+        const frameFieldsHidden = gifKeys.every(isHidden);
+        change(model, 'latest');
+        const restored = control('output_format').selectedOptions[0];
+        return { unavailable: [unavailable.value, unavailable.disabled, unavailable.textContent], savedOnOlderModel, frameFieldsHidden,
+            restored: [restored.value, restored.disabled], restoredFrames: gifKeys.map(key => control(key).value) };
+    });
+    change(model, 'model');
+    change(control('output_format'), 'png');
+    change(model, 'latest');
+    result.at(-1).formatDrafts = { formatDrafts, explicitlyChangedFormat: control('output_format').value };
+    change(model, 'markup-model');
+    const markupHasStaticFormats = formats().join(',') === staticFormats.join(',');
+    change(control('edit_guide'), 'markup');
+    const maskPort = node.querySelector('.node-port.input[data-port="mask"]');
+    const visibleGuide = () => [maskPort.dataset.port, maskPort.querySelector('.port-label').textContent, maskPort.getAttribute('aria-label'),
+        getUniversalInputRoles(state.nodes.get('sample'), state).find(([role]) => role === 'mask')[1]];
+    const markupGuide = visibleGuide();
+    change(model, 'model');
+    const unsupportedMarkup = [control('edit_guide').value, control('edit_guide').selectedOptions[0].disabled];
+    change(control('edit_guide'), 'mask');
+    result.at(-1).markup = { markupHasStaticFormats, markupGuide, unsupportedMarkup, maskGuide: visibleGuide() };
     document.getElementById('surface-result').textContent = JSON.stringify(result);
 } catch(error) { document.getElementById('surface-result').textContent = JSON.stringify({error:error.stack}); }
 </script></body></html>

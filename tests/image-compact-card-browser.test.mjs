@@ -62,4 +62,29 @@ test('image card retains editable advanced values and primary controls across se
         fixed: { resolutions: ['', '1K'], aspects: ['1:1', '2:3', '3:2'], requested: '1536 × 1024 px',
             fidelity: true, outputFormat: 'webp', compression: '75' }
     });
+    assert.deepEqual(bound.formats.staticFormats, ['', 'png', 'jpeg', 'webp']);
+    assert.deepEqual(bound.formats.latestFormats, ['', 'png', 'jpeg', 'webp', 'gif', 'svg']);
+    assert.deepEqual(bound.formats.gifFields, [[true, '', '9', '2', '16', 'output'], [true, '', '200', '20', '2000', 'output']]);
+    assert.equal(bound.formats.gifStep, '10');
+    assert.ok(bound.formats.gifCompressionHidden && bound.formats.svgFieldsHidden);
+    assert.match(bound.formats.svgSummary, /输出格式：svg/);
+    assert.doesNotMatch(bound.formats.svgSummary, /帧/);
+    assert.equal(bound.formats.webpCompression, '75');
+    assert.deepEqual(bound.formats.gifDraft, ['7', '120']);
+    assert.deepEqual(bound.formats.savedDraft, [7, 120]);
+    assert.deepEqual(bound.formatDrafts, {
+        formatDrafts: [
+            { unavailable: ['gif', true, 'GIF 动图（当前模型不支持）'], savedOnOlderModel: 'gif', frameFieldsHidden: true,
+                restored: ['gif', false], restoredFrames: ['7', '120'] },
+            { unavailable: ['svg', true, 'SVG 矢量（当前模型不支持）'], savedOnOlderModel: 'svg', frameFieldsHidden: true,
+                restored: ['svg', false], restoredFrames: ['7', '120'] }
+        ],
+        explicitlyChangedFormat: 'png'
+    });
+    assert.deepEqual(bound.markup, {
+        markupHasStaticFormats: true,
+        markupGuide: ['mask', '标注图层', '连接输入端口：标注图层', '标注图层'],
+        unsupportedMarkup: ['markup', true],
+        maskGuide: ['mask', '遮罩', '连接输入端口：遮罩', '遮罩']
+    });
 });

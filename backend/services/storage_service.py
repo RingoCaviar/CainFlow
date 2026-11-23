@@ -19,6 +19,7 @@ from urllib.parse import quote, unquote_to_bytes
 
 from backend import config
 from backend.services.database_compaction import compact_sqlite_database
+from backend.services.svg_image import SVG_MIME, is_svg_mime, validate_static_svg
 from backend.services.undo_media import UndoMediaMixin
 
 
@@ -65,6 +66,16 @@ class StorageError(Exception):
 
 class StorageDocumentConflict(StorageError):
     pass
+
+
+def _validate_asset_mime(body, mime_type):
+    if not is_svg_mime(mime_type):
+        return mime_type
+    try:
+        validate_static_svg(body)
+    except ValueError as error:
+        raise StorageError(str(error)) from error
+    return SVG_MIME
 
 
 class StorageService(UndoMediaMixin):
@@ -2127,6 +2138,7 @@ class StorageService(UndoMediaMixin):
         if not isinstance(body, (bytes, bytearray)) or not body:
             raise StorageError('Asset body is empty')
         body = bytes(body)
+        mime_type = _validate_asset_mime(body, mime_type)
         digest = hashlib.sha256(body).hexdigest()
         relative_path = self._asset_relative_path(digest, mime_type)
         destination = os.path.join(self.assets_dir, *relative_path.split('/'))
@@ -2927,6 +2939,7 @@ class StorageService(UndoMediaMixin):
                 raise StorageError('Invalid Media asset data URL') from error
             if not body:
                 raise StorageError('Asset body is empty')
+            mime_type = _validate_asset_mime(body, mime_type)
             digest = hashlib.sha256(body).hexdigest()
             decoded.append((f'media:{digest}', body, mime_type, digest))
         self.initialize()

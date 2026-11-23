@@ -59,6 +59,22 @@ test('preview falls back to a blob download with the original extension', async 
     assert.match(link.href, /^blob:/);
 });
 
+test('preview downloads GIF and SVG output using its native format and untouched bytes', async () => {
+    for (const [format, mime, original] of [
+        ['gif', 'image/gif', Buffer.from('GIF89a')],
+        ['svg', 'image/svg+xml', Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>')]
+    ]) {
+        const source = `data:${mime};base64,${original.toString('base64')}`;
+        const windowRef = { __cainflowDesktop: { async saveFile(name, type, blob) {
+            assert.equal(name, `cainflow_export.${format}`);
+            assert.equal(type, mime);
+            assert.deepEqual(Buffer.from(await blob.arrayBuffer()), original);
+            return true;
+        } } };
+        assert.equal(await downloadPreviewImage(source, { windowRef, documentRef: {} }), 'saved');
+    }
+});
+
 test('ZIP export passes ordered Unicode entries and their original bytes to native save', async () => {
     const entries = [
         { path: '01_主图.jpg', bytes: Buffer.from('unmodified JPEG') },

@@ -19,6 +19,14 @@ function mergeRoleCount(node, incoming = []) {
     return Math.max(1, Number.isSafeInteger(configured) ? configured : 1, ...(indices.map(index => index + 1)));
 }
 
+function usesMarkupEditGuide(node) {
+    return node?.data?.protocolParams?.edit_guide === 'markup';
+}
+
+export function getImageEditGuideLabel(node) {
+    return usesMarkupEditGuide(node) ? '标注图层' : '遮罩';
+}
+
 export function getUniversalInputRoles(node, state = null, incoming = null) {
     if (node?.type === 'ECommerceImageSet') return [['referenceImages', '商品参考图', 'image'], ['styleReferenceImages', '风格参考图', 'image'], ['style', '画面风格', 'style']];
     if (node?.type === 'ProductRetouch') return [['image', '商品参考图', 'image']];
@@ -31,7 +39,7 @@ export function getUniversalInputRoles(node, state = null, incoming = null) {
     if (isUniversalInputNode(node) && node.type !== 'ImageGenerate') return [['image', '图片输入', 'image']];
     return node?.type === 'ImageGenerate' ? [
         ['prompt', '主提示词', 'text'], ['camera_prompt', '视角提示词', 'text'], ['style', '画面风格', 'style'],
-        ['referenceImages', '参考图', 'image'], ['mask', '遮罩', 'image'], ['params', '自定义参数', 'params']
+        ['referenceImages', '参考图', 'image'], ['mask', getImageEditGuideLabel(node), 'image'], ['params', '自定义参数', 'params']
     ] : [];
 }
 
@@ -103,13 +111,16 @@ export function resolveImageGenerationInputContract(state, node) {
     const capacities = [useModelMaximum ? undefined : reference?.portCount, configuration.referenceImage?.maxCount, modelMaximum]
         .filter(value => value !== undefined && value !== null && Number.isFinite(Number(value))).map(Number);
     return { protocolId, modelMaximum, supportsReferences, supportsMask: protocolId === 'openai' && openAi?.maxReferences !== 0,
+        supportsMarkup: openAi?.supportsMarkup === true,
         maxReferences: capacities.length ? Math.max(0, Math.min(...capacities)) : Infinity, error: '' };
 }
 
-function roleError(contract, port) {
+function roleError(contract, port, node) {
     if (contract.error) return contract.error;
     if (port === 'referenceImages' && (!contract.supportsReferences || contract.maxReferences === 0)) return '当前模型协议不支持参考图输入，请保留关系并选择兼容模型。';
-    if (port === 'mask' && !contract.supportsMask) return '当前模型协议不支持遮罩输入，请选择兼容模型。';
+    if (port === 'mask' && !(usesMarkupEditGuide(node) ? contract.supportsMarkup : contract.supportsMask)) {
+        return `当前模型协议不支持${getImageEditGuideLabel(node)}输入，请选择兼容模型。`;
+    }
     return '';
 }
 
@@ -173,10 +184,11 @@ export function resolveUniversalInput({ state, sourceNode, sourcePort, sourceTyp
         if (targetNode.type === 'ImageResize' && hasRemoteImageOutput(sourceNode)) return failure('URL 图片不支持连接到图片缩放节点。');
         return { port, type, multiple, error: '' };
     }
-    const contract = resolveImageGenerationInputContract(state, targetNode), unsupported = roleError(contract, port);
+    const guideLabel = getImageEditGuideLabel(targetNode);
+    const contract = resolveImageGenerationInputContract(state, targetNode), unsupported = roleError(contract, port, targetNode);
     if (unsupported) return failure(unsupported);
     if (type === 'image' && contract.protocolId === 'google' && hasRemoteImageOutput(sourceNode)) return failure('URL 图片仅支持兼容参考图，当前模型不支持。');
-    if (port === 'mask' && imageOutput(sourceNode).count !== 1) return failure('新增遮罩需要已明确输出的单图来源；多图或尚无输出的来源不能自动截取。');
+    if (port === 'mask' && imageOutput(sourceNode).count !== 1) return failure(`新增${guideLabel}需要已明确输出的单图来源；多图或尚无输出的来源不能自动截取。`);
     if (port === 'referenceImages') {
         const count = [...incoming.map(edge => state.nodes.get(edge.from.nodeId)), sourceNode]
             .filter(node => node?.enabled !== false).reduce((sum, node) => sum + Math.max(1, imageOutput(node).count), 0);
@@ -245,11 +257,13 @@ export function validateUniversalImageInputs({ state, node, inputs }) {
     const inputReferenceCount = inputs ? Object.entries(inputs).filter(([port]) => referencePort(port))
         .reduce((sum, [, value]) => sum + normalizeImageList(value).length, 0) : 0;
     const contract = resolveImageGenerationInputContract(state, node);
+    const guideLabel = getImageEditGuideLabel(node);
+    const usingMarkup = usesMarkupEditGuide(node);
     // Old mask connections retain their previous protocol behavior, including
-    // protocols that ignored the mask. Explicit replacements get the new rule.
-    const checked = incoming.filter(edge => edge.to.port !== 'mask' || edge.maskConsumption === 'single');
+    // protocols that ignored the mask. Explicit replacements and markup use the single-image rule.
+    const checked = incoming.filter(edge => edge.to.port !== 'mask' || edge.maskConsumption === 'single' || usingMarkup);
     for (const edge of checked) {
-        const unsupported = roleError(contract, logicalPort(edge.to.port));
+        const unsupported = roleError(contract, logicalPort(edge.to.port), node);
         if (unsupported) return unsupported;
         if (node.type === 'ImageGenerate' && contract.protocolId === 'google' && edge.type === 'image' && hasRemoteImageOutput(state.nodes.get(edge.from.nodeId))) return 'URL 图片仅支持兼容参考图，当前模型不支持。';
     }
@@ -271,12 +285,12 @@ export function validateUniversalImageInputs({ state, node, inputs }) {
     }
     if (inputs && references.length && inputReferenceCount < retainedReferenceCount) return '已连接参考来源的原图存在缺失，读取批次不完整；请恢复原图后重试。';
     for (const edge of masks) {
-        if (edge.maskConsumption !== 'single') continue;
+        if (edge.maskConsumption !== 'single' && !usingMarkup) continue;
         const source = state.nodes.get(edge.from.nodeId), output = imageOutput(source);
         const actualCount = inputs ? normalizeImageList(inputs.mask).length : output.count;
         const sourceCount = Math.max(output.count, actualCount);
-        if (output.missingPositions.length) return '遮罩来源原图存在缺失，请恢复原图后重试。';
-        if (sourceCount !== 1 || actualCount !== 1) return `该遮罩连接要求单图来源，当前完整批次有 ${sourceCount} 张；请恢复单图或明确更改用途。`;
+        if (output.missingPositions.length) return `${guideLabel}来源原图存在缺失，请恢复原图后重试。`;
+        if (sourceCount !== 1 || actualCount !== 1) return `该${guideLabel}连接要求单图来源，当前完整批次有 ${sourceCount} 张；请恢复单图或明确更改用途。`;
     }
     return '';
 }

@@ -1,9 +1,49 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createCanvasMcpActions } from '../js/features/canvas-mcp/canvas-mcp-actions.js';
+import { createSavedCanvasDocument } from '../js/features/canvas-mcp/saved-canvas-document.js';
 import { createCanvasContext } from '../js/features/prompt-agent/prompt-agent-canvas-context.js';
 import { createPromptAgentCanvasAdapter } from '../js/features/prompt-agent/prompt-agent-canvas-adapter.js';
 import { projectPlanConnections } from '../js/features/prompt-agent/prompt-agent-reference-inputs.js';
+import '../js/features/execution/protocols/openai.js';
+
+test('saved Canvas MCP projects and validates OpenAI GIF frame and edit guide settings', async () => {
+    const document = { workflowId: 'gif-workflow', connections: [], nodes: [
+        { id: 'generate', type: 'ImageGenerate', apiConfigId: 'image', providerId: 'provider', prompt: '摇摆的树' }
+    ] };
+    const { dispatch } = createSavedCanvasDocument({ document, revision: 'saved-1',
+        models: [{ id: 'image', modelId: 'gpt-image-2.6-flare', taskType: 'image', protocol: 'openai', providerIds: ['provider'] }],
+        providers: [{ id: 'provider', endpoint: 'https://controlled.test/v1', apikey: 'never-exposed' }]
+    });
+    const listed = await dispatch('list_models', {});
+    assert.doesNotMatch(JSON.stringify(listed), /never-exposed|controlled\.test/);
+    const fields = listed.result.models[0].providers[0].parameters.protocolParams.properties;
+    assert.ok(fields.output_format.enum.includes('gif') && fields.output_format.enum.includes('svg'));
+    assert.deepEqual(fields.frame_count, { type: 'integer', minimum: 2, maximum: 16, requiresOutputFormat: ['gif'] });
+    assert.deepEqual(fields.frame_duration_ms, { type: 'integer', minimum: 20, maximum: 2000, requiresOutputFormat: ['gif'] });
+    assert.deepEqual(fields.edit_guide.enum, ['', 'mask', 'markup']);
+
+    const scope = { workflowId: document.workflowId, revision: 'saved-1' };
+    const edit = parameters => dispatch('edit_canvas', { ...scope, plan: { version: 1, steps: [
+        { id: 'edit', nodeId: 'generate', type: 'ImageGenerate', execute: false, parameters }
+    ] } });
+    await assert.rejects(edit({ protocolParams: { frame_count: 12 } }), { code: 'edit_failed' });
+    await assert.rejects(edit({ protocolParams: { output_format: 'gif', frame_count: 17 } }), { code: 'edit_failed' });
+    const gif = { output_format: 'gif', frame_count: 12, frame_duration_ms: 250 };
+    await edit({ protocolParams: gif });
+    const read = () => dispatch('read_canvas', scope);
+    await assert.rejects(edit({ background: 'transparent' }), { code: 'edit_failed' });
+    assert.deepEqual((await read()).result.nodes[0].parameters.protocolParams, gif);
+    await edit({ background: 'transparent', protocolParams: { output_format: 'png', edit_guide: 'markup' } });
+    const node = (await read()).result.nodes[0];
+    assert.equal(node.parameters.background, 'transparent');
+    assert.deepEqual(node.parameters.protocolParams, { output_format: 'png', edit_guide: 'markup' });
+    assert.equal(node.inputs.find(port => port.name === 'mask').label, '标注图层');
+    await assert.rejects(edit({ protocolParams: { output_format: 'svg', edit_guide: '' } }), { code: 'edit_failed' });
+    const { document: patched } = await edit({ background: 'opaque', generationCount: 3, protocolParams: { output_format: 'svg', edit_guide: '' } });
+    assert.equal(patched.nodes[0].generationCount, 3);
+    assert.equal(patched.nodes[0].protocolParams.output_format, 'svg');
+});
 
 test('MCP reads and validates visual style edits with revision guards', async () => {
     const node = { id: 'style', type: 'VisualStyle', visualStyle: { preset: 'natural', palette: '青绿' } };
@@ -366,6 +406,7 @@ test('runs a selected live node and reports its own results after switching work
 
 test('reads only the exact bounded inline image captured by the requested run', async () => {
     const workflowId = 'wf-a';
+    const vector = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString('base64');
     const { dispatch } = createCanvasMcpActions({
         canvasAdapter: { context: () => createCanvasContext({ workflowId, nodes: [], connections: [] }) },
         async runWorkflow() {
@@ -376,6 +417,8 @@ test('reads only the exact bounded inline image captured by the requested run', 
                     'data:image/svg+xml;base64,YQ==',
                     'data:image/png;base64,' + 'A'.repeat(6_000_001)
                 ]
+            }, {
+                nodeId: 'vector', succeeded: true, images: [`data:image/svg+xml;base64,${vector}`], mediaAssetKeys: ['media:svg']
             }] };
         }
     });
@@ -384,6 +427,7 @@ test('reads only the exact bounded inline image captured by the requested run', 
     await new Promise(resolve => setImmediate(resolve));
     const query = { workflowId, runId, nodeId: 'image' };
     assert.deepEqual(await dispatch('get_run_image', { ...query, index: 0 }), { mimeType: 'image/png', data: 'YQ==' });
+    assert.deepEqual(await dispatch('get_run_image', { ...query, nodeId: 'vector', index: 0 }), { mimeType: 'image/svg+xml', data: vector });
     for (const index of [1, 2, 3]) {
         await assert.rejects(dispatch('get_run_image', { ...query, index }), { code: 'image_unavailable' });
     }

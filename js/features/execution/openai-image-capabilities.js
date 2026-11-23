@@ -1,4 +1,9 @@
-// Static image requests supported by the canvas. See the OpenAI Images API
+export const OPENAI_GIF_FRAME_PARAMETERS = {
+    frame_count: { min: 2, max: 16, defaultValue: 9 },
+    frame_duration_ms: { min: 20, max: 2000, defaultValue: 200 }
+};
+
+// Image requests supported by the canvas. See the OpenAI Images API
 // reference and the image generation guide for model and endpoint constraints.
 const STATIC_GPT_IMAGE = {
     sizeProfile: 'gpt-image-1',
@@ -18,9 +23,10 @@ const FLEXIBLE_GPT_IMAGE = { ...STATIC_GPT_IMAGE, sizeProfile: 'flexible', sizes
 const HIGH_QUALITIES = [...STATIC_GPT_IMAGE.qualities, 'xhigh', 'max'];
 const GPT_IMAGE_1 = { ...STATIC_GPT_IMAGE, inputFidelities: ['low', 'high'] };
 const GPT_IMAGE_1_MINI = { ...STATIC_GPT_IMAGE, inputFidelities: ['low'] };
-const GPT_IMAGE_2_5 = { ...FLEXIBLE_GPT_IMAGE, qualities: HIGH_QUALITIES };
+const GPT_IMAGE_2_5 = { ...FLEXIBLE_GPT_IMAGE, qualities: HIGH_QUALITIES, supportsMarkup: true };
 const GPT_IMAGE_2_6 = {
     ...GPT_IMAGE_2_5,
+    outputFormats: [...GPT_IMAGE_2_5.outputFormats, 'gif', 'svg'],
     complexities: ['low', 'medium', 'high']
 };
 

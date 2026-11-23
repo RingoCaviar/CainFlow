@@ -2,12 +2,22 @@
  * OpenAI 兼容 协议插件 - 纯配置模式
  */
 import { registerProtocol } from './index.js';
+import { OPENAI_GIF_FRAME_PARAMETERS } from '../openai-image-capabilities.js';
 
 function imageSelect(id, label, choices) {
     return {
         id, label, exposed: true, inputPort: false, portType: 'text', required: false,
         omitIfEmpty: true, dataType: 'string', uiControl: 'select', taskTypes: ['image'],
         options: [{ value: '', label: '默认' }, ...choices.map(([value, name]) => ({ value, label: name }))]
+    };
+}
+
+function imageNumber(id, label, { min, max, defaultValue }) {
+    return {
+        id, label, exposed: true, inputPort: false, portType: 'text', required: false,
+        omitIfEmpty: true, dataType: 'number', uiControl: 'number', taskTypes: ['image'],
+        min, max, step: 1,
+        ...(defaultValue !== undefined ? { placeholder: String(defaultValue) } : {})
     };
 }
 
@@ -252,23 +262,14 @@ export const OpenaiProtocol = {
 ],
         },
         output_format: imageSelect('output_format', '输出格式', [
-            ['png', 'PNG'], ['jpeg', 'JPEG'], ['webp', 'WebP']
+            ['png', 'PNG'], ['jpeg', 'JPEG'], ['webp', 'WebP'], ['gif', 'GIF 动图'], ['svg', 'SVG 矢量']
         ]),
-        output_compression: {
-            id: 'output_compression',
-            exposed: true,
-            inputPort: false,
-            portType: 'text',
-            required: false,
-            omitIfEmpty: true,
-            dataType: 'number',
-            uiControl: 'number',
-            label: '输出压缩 (%)',
-            min: 0,
-            max: 100,
-            step: 1,
-            taskTypes: ['image']
-        },
+        output_compression: imageNumber('output_compression', '输出压缩 (%)', { min: 0, max: 100 }),
+        frame_count: imageNumber('frame_count', 'GIF 帧数', OPENAI_GIF_FRAME_PARAMETERS.frame_count),
+        frame_duration_ms: imageNumber('frame_duration_ms', 'GIF 帧时长 (ms)', OPENAI_GIF_FRAME_PARAMETERS.frame_duration_ms),
+        edit_guide: imageSelect('edit_guide', '编辑引导', [
+            ['mask', '遮罩'], ['markup', '标注图层']
+        ]),
         input_fidelity: imageSelect('input_fidelity', '参考图保真度', [
             ['low', '低'], ['high', '高']
         ]),

@@ -572,7 +572,7 @@ export function createDiskStorageApi(getState) {
                     cache: 'no-store', redirect: 'error', headers: { 'X-Media-Version': fileVersion }
                 });
                 const mime = (response.headers.get('Content-Type') || '').split(';')[0];
-                if (!response.ok || !/^image\/(?:png|jpeg|webp|gif|bmp|avif)$/.test(mime)) return null;
+                if (!response.ok || !/^image\/(?:png|jpeg|webp|gif|bmp|avif|svg\+xml)$/.test(mime)) return null;
                 return await response.blob();
             } catch {
                 return null;

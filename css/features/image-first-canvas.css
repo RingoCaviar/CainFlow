@@ -2221,6 +2221,12 @@ html:root #canvas-container .node.node-text .text-node-editor:not(:focus)::-webk
 .image-parameter-panel .image-parameter-output-options > .node-field label { white-space: nowrap; }
 .image-parameter-panel .image-parameter-output-options:not(:has(> .node-field:not(.hidden):not([hidden]))) { display: none; }
 .image-parameter-panel .image-parameter-settings-popup .node-protocol-params:empty { display: none; }
+.image-parameter-settings-popup [data-image-protocol-fields="output"]:has(> [id$="-frame_count-field"]:not(.hidden)) {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr));
+}
+.image-parameter-settings-popup [data-image-protocol-fields="output"]:has(> [id$="-frame_count-field"]:not(.hidden)) > [id$="-output_format-field"] {
+    grid-column: 1 / -1;
+}
 .image-parameter-panel .image-parameter-settings-popup textarea[id$="-param-systemPrompt"] {
     field-sizing: content; width: 100%; height: auto; min-height: calc(2lh + 14px); max-height: calc(6lh + 14px);
     box-sizing: border-box; resize: none; padding: 6px 8px; line-height: 1.5;

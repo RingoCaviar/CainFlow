@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from backend import config
 from backend.services.http_helpers import read_json_body, read_request_body, write_bytes, write_error, write_json
 from backend.services.storage_service import DOCUMENT_NAMES, StorageDocumentConflict, StorageError, storage_service
+from backend.services.svg_image import is_svg_mime
 
 
 def _document_name(path):
@@ -46,13 +47,22 @@ def _authorize_storage_path(handler, path):
     return False
 
 
+def _image_headers(mime):
+    if not is_svg_mime(mime):
+        return {}
+    return {
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+    }
+
+
 def _write_asset(handler, path, *, read_body=True):
     result = storage_service.get_asset(_asset_key(path), read_body=read_body)
     if not result:
         write_error(handler, 404, 'Asset not found')
         return
     info, body = result
-    headers = {'X-CainFlow-Asset-Size': str(info['size_bytes'])}
+    headers = {'X-CainFlow-Asset-Size': str(info['size_bytes']), **_image_headers(info['mime_type'])}
     if read_body:
         headers['Cache-Control'] = 'private, max-age=31536000, immutable'
     else:
@@ -94,7 +104,8 @@ def handle_get(handler):
                 if not media:
                     write_error(handler, 404, '文件不存在，请刷新历史')
                 else:
-                    write_bytes(handler, media[1], content_type=media[0], headers={'Cache-Control': 'no-store'})
+                    write_bytes(handler, media[1], content_type=media[0],
+                                headers={'Cache-Control': 'no-store', **_image_headers(media[0])})
             else:
                 item = library.get(int(path.rsplit('/', 1)[-1]))
                 write_json(handler, {'item': item}, status=200 if item else 404)

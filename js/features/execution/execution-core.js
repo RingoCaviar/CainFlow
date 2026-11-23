@@ -1707,13 +1707,14 @@ export function createExecutionCoreApi({
 
     function getOpenAiImageRequestLogBody(requestBody, inputs, modelId) {
         const referenceImages = getOpenAiReferenceImages(inputs);
-        if (referenceImages.length === 0 && !requestBody.mask?.data) return requestBody;
+        const guideField = requestBody.markup?.data ? 'markup' : requestBody.mask?.data ? 'mask' : '';
+        const guide = requestBody[guideField];
+        if (referenceImages.length === 0 && !guideField) return requestBody;
+        const guideSize = guideField === 'mask' ? `, ${guide.size || 0} bytes` : '';
         return {
             ...getOpenAiImageEditFields(requestBody, modelId),
             image: `[${referenceImages.length} reference image file(s)]`,
-            ...(requestBody.mask?.data ? {
-                mask: `[mask file: ${requestBody.mask.name || 'mask.png'}, ${requestBody.mask.size || 0} bytes]`
-            } : {})
+            ...(guideField ? { [guideField]: `[${guideField} file: ${guide.name || guideField + '.png'}${guideSize}]` } : {})
         };
     }
 

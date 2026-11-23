@@ -3,6 +3,7 @@ import { agentNodeDefinition as getNodeDefinition } from './prompt-agent-referen
 import { publicImageProtocolFields } from './prompt-agent-parameters.js';
 import { listNodeDefinitions } from '../../nodes/registry.js';
 import { getDynamicNodePorts } from '../../nodes/node-view-factory.js';
+import { getImageEditGuideLabel } from '../../nodes/universal-input-policy.js';
 import { DOUBAO_VIDEO_RATIO_OPTIONS } from '../execution/provider-request-utils.js';
 import { hasCommerceReferenceChange, needsCommerceReferenceVerification, projectCommerceReferences } from '../ecommerce-image-set/commerce-reference-revision.js';
 import { getCommerceOutputAssetKey } from '../ecommerce-image-set/commerce-detail-page.js';
@@ -150,8 +151,16 @@ export function createCanvasContext({ workflowId, nodes, connections, selectedId
         const actual = getGenerationContext?.(node.id);
         const protocolSchema = actual?.parameterSchema?.protocolParams?.properties || {};
         if (protocolSchema.systemPrompt?.type === 'string') node.supportsSystemPrompt = true;
-        const protocolParams = Object.fromEntries(Object.entries(actual?.parameters?.protocolParams || {}).filter(([key, value]) =>
-            publicImageProtocolFields.has(key) && Object.hasOwn(protocolSchema, key) && isParameterValue(value)));
+        const actualProtocolParams = actual?.parameters?.protocolParams || {};
+        if (actualProtocolParams.edit_guide === 'markup') {
+            const label = getImageEditGuideLabel({ data: { protocolParams: actualProtocolParams } });
+            node.inputs = node.inputs.map(port => port.name === 'mask' ? { ...port, label } : port);
+        }
+        const protocolParams = Object.fromEntries(Object.entries(actualProtocolParams).filter(([key, value]) => {
+            if (!publicImageProtocolFields.has(key) || !Object.hasOwn(protocolSchema, key) || !isParameterValue(value)) return false;
+            const formats = protocolSchema[key].requiresOutputFormat;
+            return !formats || formats.includes(actualProtocolParams.output_format);
+        }));
         if (Object.keys(protocolParams).length) node.parameters.protocolParams = protocolParams;
         if (actual?.parameterSchema) {
             const options = CANVAS_FIELDS.ImageGenerate.flatMap(key => {

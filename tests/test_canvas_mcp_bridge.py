@@ -77,8 +77,9 @@ PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jP
 
 
 @contextmanager
-def image_provider(holds=None):
+def image_provider(holds=None, formats=None):
     holds = holds or {}
+    formats = formats or {}
     requests = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -92,7 +93,11 @@ def image_provider(holds=None):
                 if not release.wait(15):
                     self.send_error(504)
                     return
-            response = json.dumps({'data': [{'b64_json': PNG}]}).encode()
+            output_format = payload.get('output_format')
+            reply = {'data': [{'b64_json': formats.get(output_format, PNG)}]}
+            if output_format in formats:
+                reply['output_format'] = output_format
+            response = json.dumps(reply).encode()
             try:
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
@@ -228,6 +233,44 @@ class CanvasMcpServiceTests(unittest.TestCase):
             self.assertEqual(state['nodes'][0]['assets'], run['nodeResults'][0]['mediaAssetKeys'])
             self.assertEqual(len(state['nodes'][0]['assets']), 1)
             self.assertNotIn('local-test-key', json.dumps(state))
+
+    def test_gif_and_svg_results_keep_their_bytes_in_history_and_mcp(self):
+        from backend.services import canvas_mcp_app_data as app
+
+        gif = bytes.fromhex('47494638396101000100800000000000ffffff21ff0b4e45545343415045322e300301000000'
+                            '21f904000a0000002c0000000001000100000202440100'
+                            '21f904000a0000002c00000000010001000002024c01003b')
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><path d="M0 0h8v8H0z"/></svg>'
+        originals = {'gif': gif, 'svg': svg}
+        formats = {name: base64.b64encode(original).decode('ascii') for name, original in originals.items()}
+        with running_server() as port, image_provider(formats=formats) as (endpoint, requests):
+            app.storage_service.put_document('session', {
+                'models': [{'id': 'model', 'name': 'Image', 'modelId': 'gpt-image-2.6-flare', 'protocol': 'openai',
+                            'taskType': 'image', 'providerIds': ['provider']}],
+                'providers': [{'id': 'provider', 'name': 'Image Provider', 'endpoint': endpoint, 'apikey': 'local-test-key'}],
+            })
+            created = self.call(port, 'create_workflow', {'name': '后台动图和矢量图'})
+            workflow_id = created['workflowId']
+            edited = self.call(port, 'edit_canvas', {
+                'workflowId': workflow_id, 'revision': created['revision'], 'plan': {'version': 1, 'steps': [
+                    {'id': name, 'type': 'ImageGenerate', 'modelId': 'model', 'providerId': 'provider',
+                     'parameters': {'prompt': name, 'protocolParams': {'output_format': name}}}
+                    for name in formats
+                ]},
+            })
+            started = self.call(port, 'run_workflow', {'workflowId': workflow_id, 'revision': edited['revision']})
+            run = self.wait_for_run(port, workflow_id, started['runId'])
+            self.assertEqual(run['status'], 'completed', run)
+            self.assertEqual(run['historySaved'], 2, run)
+            self.assertCountEqual([request['output_format'] for _, request in requests], formats)
+            history_directory = Path(app.storage_service.get_export_directory())
+            for name, original in originals.items():
+                with self.subTest(output=name):
+                    node_id = edited['bindings'][name]
+                    image = self.call(port, 'get_run_image', {'workflowId': workflow_id, 'runId': run['runId'], 'nodeId': node_id})
+                    self.assertEqual(image['mimeType'], 'image/svg+xml' if name == 'svg' else 'image/gif')
+                    self.assertEqual(base64.b64decode(image['data']), original)
+                    self.assertEqual([path.read_bytes() for path in history_directory.glob(f'*.{name}')], [original])
 
     def test_stops_held_provider_requests_by_node_and_by_run(self):
         from backend.services import canvas_mcp_app_data as app

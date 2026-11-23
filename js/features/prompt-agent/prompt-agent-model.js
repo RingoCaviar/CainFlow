@@ -1,5 +1,5 @@
 import { orderImageReferenceConnections } from '../../nodes/image-reference-projection.js';
-import { getImageGenerateExtraProtocol, getImageParameterValues, supportsImageWebSearch } from '../../nodes/image-parameter-controls.js';
+import { getImageGenerateExtraProtocol, getImageParameterValues, OPENAI_GIF_FRAME_FIELDS, supportsImageWebSearch } from '../../nodes/image-parameter-controls.js';
 import { resolveImageGenerationInputContract } from '../../nodes/universal-input-policy.js';
 import { resolveAgentProvider } from './prompt-agent-provider.js';
 import { trackAgentRequest } from './prompt-agent-request.js';
@@ -11,7 +11,7 @@ import { getProtocol } from '../execution/protocols/index.js';
 import { getPromptAgentInstructions } from './prompt-agent-instructions.js';
 import { normalizePromptAgentChoices } from './prompt-agent-choices.js';
 import { createPromptAgentInput } from './prompt-agent-input.js';
-import { imageRequestProtocolFields, normalizePromptAgentParameters } from './prompt-agent-parameters.js';
+import { imageRequestProtocolFields, normalizePromptAgentParameters, openAiImageParameterFormats } from './prompt-agent-parameters.js';
 import { getAgentSearchAvailability, normalizeAgentSearch, getConversationSearchSources } from './prompt-agent-search-data.js';
 import { searchPromptAgent } from './prompt-agent-search.js';
 import { normalizeCanvasPlan } from './prompt-agent-canvas-plan.js';
@@ -208,13 +208,16 @@ export function imageParameterCapabilities(model, provider) {
     const protocolParameters = getImageGenerateExtraProtocol(getProtocol(protocol), model.modelId)?.parameters || {};
     const properties = Object.fromEntries(Object.values(protocolParameters).flatMap(parameter => {
         if (parameter.id !== 'systemPrompt' && !(imageRequestProtocolFields[protocol] || []).includes(parameter.id)) return [];
-        const type = { select: 'string', textarea: 'string', number: 'number', toggle: 'boolean' }[parameter.uiControl];
+        const type = protocol === 'openai' && OPENAI_GIF_FRAME_FIELDS.includes(parameter.id) ? 'integer'
+            : { select: 'string', textarea: 'string', number: 'number', toggle: 'boolean' }[parameter.uiControl];
         if (!type) return [];
         const schema = { type };
         if (parameter.uiControl === 'select') schema.enum = (parameter.options || []).map(option => String(option.value ?? ''));
         if (Number.isFinite(parameter.min)) schema.minimum = parameter.min;
         if (Number.isFinite(parameter.max)) schema.maximum = parameter.max;
-        if (protocol === 'openai' && parameter.id === 'output_compression') schema.requiresOutputFormat = ['jpeg', 'webp'];
+        if (protocol === 'openai' && Object.hasOwn(openAiImageParameterFormats, parameter.id)) {
+            schema.requiresOutputFormat = openAiImageParameterFormats[parameter.id];
+        }
         return [[parameter.id, schema]];
     }));
     if (Object.keys(properties).length) parameters.protocolParams = { type: 'object', properties };
@@ -304,11 +307,18 @@ function explicitImageParameters(text) {
         if (search) parameters.search = !/^(?:不|别|禁止|无需|关闭|禁用|取消|disable|without)/i.test(search[1]);
         else if (/(?:用|通过|先)(?:生图)?联网(?:搜索|检索).{0,20}(?:生成|制作|画)|(?:生图|生成时|出图时)(?:请)?联网(?:搜索|检索)?/.test(clause)) parameters.search = true;
 
-        const format = clause.match(/(?:输出格式|图片格式|文件格式|图像格式|output.format)\s*(?:设为|设置为|改为|改成|用|是|为|[:：=])?\s*\.?\b(png|webp|jpe?g)\b/i)
-            || clause.match(/(?:输出|保存|导出)(?:为|成)?\s*\.?\b(png|webp|jpe?g)\b/i);
+        const format = clause.match(/(?:输出格式|图片格式|文件格式|图像格式|output.format)\s*(?:设为|设置为|改为|改成|用|是|为|[:：=])?\s*\.?\b(png|webp|jpe?g|gif|svg)\b/i)
+            || clause.match(/(?:输出|保存|导出)(?:为|成)?\s*\.?\b(png|webp|jpe?g|gif|svg)\b/i)
+            || clause.match(/(?:生成|制作)\s*\b(gif|svg)\b\s*(?:动图|动画|图片|图像)/i);
         if (format) protocolParams.output_format = format[1].toLowerCase().replace(/^jpg$/, 'jpeg');
         const compression = clause.match(/(?:输出压缩(?:率)?|压缩率|output.compression)\s*(?:设为|设置为|改为|改成|用|为|[:：=])?\s*(\d{1,3})(?:\s*[%％])?(?!\d)/i);
         if (compression) protocolParams.output_compression = Number(compression[1]);
+        const frameCount = clause.match(/(?:帧数|frame[_ ]count)\s*(?:设为|设置为|改为|是|为|[:：=])?\s*(\d+(?:\.\d+)?)/i);
+        if (frameCount) protocolParams.frame_count = Number(frameCount[1]);
+        const frameDuration = clause.match(/(?:每帧(?:时长|持续时间)|frame[_ ]duration[_ ]ms)\s*(?:设为|设置为|改为|是|为|[:：=])?\s*(\d+(?:\.\d+)?)\s*(毫秒|ms|秒|s\b)?/i);
+        if (frameDuration) protocolParams.frame_duration_ms = Number(frameDuration[1]) * (/^(?:秒|s)$/i.test(frameDuration[2]) ? 1000 : 1);
+        const editGuide = clause.match(/(?:编辑引导|edit[_ ]guide)\s*(?:设为|设置为|改为|改成|用|是|为|[:：=])?\s*(遮罩|标注图层|mask|markup)/i);
+        if (editGuide) protocolParams.edit_guide = ({ 遮罩: 'mask', 标注图层: 'markup' })[editGuide[1]] ?? editGuide[1].toLowerCase();
         const fidelity = clause.match(/(?:参考图保真度|input.fidelity)\s*(?:设为|设置为|改为|用|为|[:：=])?\s*(high|low|高|低)/i);
         if (fidelity) protocolParams.input_fidelity = ({ 高: 'high', 低: 'low' })[fidelity[1]] || fidelity[1].toLowerCase();
         const complexity = clause.match(/(?:构图规划(?:档位)?|complexity)\s*(?:设为|设置为|改为|用|为|[:：=])?\s*(high|medium|low|高|中|低)/i);

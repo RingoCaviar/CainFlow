@@ -52,7 +52,7 @@ function renderSelectControl(nodeId, param, value, customValues = {}) {
 
     const optionsHtml = options.map(option => {
         const selected = String(selectedValue ?? '') === String(option.value ?? '') ? 'selected' : '';
-        return `<option value="${escapeHtml(option.value)}" ${selected}>${escapeHtml(option.label)}</option>`;
+        return `<option value="${escapeHtml(option.value)}" ${selected}${option.disabled ? ' disabled' : ''}>${escapeHtml(option.label)}</option>`;
     }).join('');
 
     // 检查是否有 custom 选项
@@ -101,12 +101,13 @@ function renderNumberControl(nodeId, param, value) {
     const minAttr = min !== '' ? ` min="${min}"` : '';
     const maxAttr = max !== '' ? ` max="${max}"` : '';
     const stepAttr = ` step="${step}"`;
+    const placeholderAttr = param.placeholder ? ` placeholder="${escapeHtml(param.placeholder)}"` : '';
 
     // 带加减号控件的数字输入
     return `
         <div class="number-stepper">
             <button type="button" class="number-step number-step-minus" data-target="${nodeId}-param-${param.id}" data-step="-${step}" ${min !== '' && parseFloat(currentValue) <= parseFloat(min) ? 'disabled' : ''}>−</button>
-            <input type="number" id="${nodeId}-param-${param.id}" value="${escapeHtml(String(currentValue))}"${minAttr}${maxAttr}${stepAttr} data-min="${min}" data-max="${max}" data-step="${step}" />
+            <input type="number" id="${nodeId}-param-${param.id}" value="${escapeHtml(String(currentValue))}"${minAttr}${maxAttr}${stepAttr}${placeholderAttr} data-min="${min}" data-max="${max}" data-step="${step}" />
             <button type="button" class="number-step number-step-plus" data-target="${nodeId}-param-${param.id}" data-step="${step}" ${max !== '' && parseFloat(currentValue) >= parseFloat(max) ? 'disabled' : ''}>+</button>
         </div>
     `;

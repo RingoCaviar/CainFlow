@@ -66,6 +66,7 @@ test('a short viewport with a pinned toolbar keeps model setup and the image foo
 test('short parameter fields share rows while custom dimensions and long text keep their space', { timeout: 30000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false,
         models: [{ id: 'image', modelId: 'gpt-image-2', name: 'A deliberately long model name for compact selectors', protocol: 'openai', taskType: 'image', providerIds: ['p'] },
+            { id: 'animated', modelId: 'gpt-image-2.6-flare', name: 'GPT Image 2.6 Flare', protocol: 'openai', taskType: 'image', providerIds: ['p'] },
             { id: 'google', modelId: 'gemini-3.1-flash-image', name: 'Gemini Image', protocol: 'google', taskType: 'image', providerIds: ['p'], thinking: { profile: 'google-image' } },
             { id: 'google-fixed', modelId: 'gemini-2.5-flash-image', name: 'Gemini 2.5 Flash Image', protocol: 'google', taskType: 'image', providerIds: ['p'] }],
         providers: [{ id: 'p', name: 'A deliberately long provider name', endpoint: 'https://controlled.test/v1', apikey: 'test' }],
@@ -171,6 +172,27 @@ test('short parameter fields share rows while custom dimensions and long text ke
         await app.waitFor("document.querySelector('#image-parameter-panel .thinking-control').hidden===true");
         assert.deepEqual(await app.evaluate("['output_format', 'output_compression', 'systemPrompt'].map(suffix => document.getElementById('paired-param-' + suffix).value)"),
             ['webp', '70', '保留产品原有颜色'], 'switching models preserves the configured output and rules');
+
+        await app.evaluate(`(() => {
+            const choose = (id, value) => {
+                const select = document.getElementById(id);
+                select.value = value;
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+            };
+            choose('paired-apiconfig', 'animated');
+            choose('paired-param-output_format', 'gif');
+        })()`);
+        const frameControls = ['param-frame_count', 'param-frame_duration_ms'];
+        for (const width of [1280, 280]) {
+            await app.send('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: false });
+            await settle();
+            assert.ok(await app.evaluate("document.getElementById('paired-param-frame_duration_ms').offsetWidth >= 55"), 'GIF frame duration has space for four digits');
+            if (width === 1280) await paired(...frameControls);
+            else {
+                const [count, duration] = await Promise.all(frameControls.map(rect));
+                assert.ok(count.top < duration.top && Math.abs(count.width - duration.width) < 1, 'the GIF controls stack at narrow widths');
+            }
+        }
     });
 });
 

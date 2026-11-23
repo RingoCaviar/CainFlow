@@ -27,7 +27,7 @@ import {
 } from '../features/execution/provider-request-utils.js';
 import { getImageAspectSelectState, normalizeImageSizeControls, resolveImageRequestSize, usesOpenAiImageSize } from '../features/execution/image-generation-size.js';
 import { getOpenAiImageCapabilities } from '../features/execution/openai-image-capabilities.js';
-import { getImageGenerateExtraProtocol, supportsImageWebSearch, supportsOpenAiOutputCompression, syncImageParameterControls } from './image-parameter-controls.js';
+import { getImageGenerateExtraProtocol, isOpenAiImageOutputFieldActive, OPENAI_GIF_FRAME_FIELDS, supportsImageWebSearch, syncImageParameterControls } from './image-parameter-controls.js';
 import { collectConnectionSnapshotsForNodes } from '../canvas/connection-copy-utils.js';
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 import { getProtocol } from '../features/execution/protocols/index.js';
@@ -48,7 +48,7 @@ import {
 import { activateProtocolVariantDraft, getProtocolVariantDraftKey, saveProtocolVariantDraft } from './protocol-variant-drafts.js';
 import { getPrimaryImageImportMediaAssetReference, getPrimaryTextInput } from '../features/execution/execution-data-utils.js';
 import { getSurfaceCoordinator } from '../features/ui/surface-coordinator.js';
-import { isUniversalInputNode } from './universal-input-policy.js';
+import { getImageEditGuideLabel, isUniversalInputNode } from './universal-input-policy.js';
 import { readImageSaveFilename } from './image-save-settings.js';
 import { bindImageMentionPicker } from '../features/ui/image-mention-picker.js';
 import {
@@ -56,7 +56,7 @@ import {
 } from './prompt-image-mentions.js';
 
 const builtInImageProtocols = new Map([[TtapiProtocol.id, TtapiProtocol], [TtapiOpenaiProtocol.id, TtapiOpenaiProtocol]]);
-const imageProtocolOutputFields = new Set(['output_format', 'output_compression', 'response_format']);
+const imageProtocolOutputFields = new Set(['output_format', 'output_compression', 'response_format', ...OPENAI_GIF_FRAME_FIELDS]);
 const videoProtocolOutputFields = new Set(['duration', 'ratio', 'aspect_ratio', 'resolution', 'size', 'generate_audio', 'watermark', 'response_format']);
 
 export function createNodeDomBindingsApi({
@@ -1615,7 +1615,8 @@ export function createNodeDomBindingsApi({
         const providerId = providerSelect?.value || state.nodes.get(id)?.providerId || '';
         const provider = getResolvedProviderForModel(model, state.providers, providerId);
         const protocolId = getEffectiveProtocol(model, provider);
-        return getImageGenerateExtraProtocol(getProtocol(protocolId) || builtInImageProtocols.get(protocolId), model?.modelId);
+        const drafts = state.nodes.get(id)?.data?.protocolParams;
+        return getImageGenerateExtraProtocol(getProtocol(protocolId) || builtInImageProtocols.get(protocolId), model?.modelId, drafts);
     }
 
     function syncImageGenerateProtocolParams(id) {
@@ -1663,6 +1664,9 @@ export function createNodeDomBindingsApi({
             const parameters = parametersBySection[fields.dataset.imageProtocolFields];
             fields.innerHTML = renderProtocolParameters(id, { parameters }, 'image', node.data || {});
         }
+        const markup = container.querySelector(`select[id="${id}-param-edit_guide"] option[value="markup"]`);
+        const modelId = state.models.find(model => model.id === documentRef.getElementById(`${id}-apiconfig`)?.value)?.modelId;
+        if (markup && !getOpenAiImageCapabilities(modelId)?.supportsMarkup) markup.disabled = true;
         bindZoomSettleGuard(container);
         bindCustomNodeSelects(container);
         bindImageGenerateProtocolParamInputs(id, container);
@@ -1988,11 +1992,22 @@ export function createNodeDomBindingsApi({
         if (hasSearch && documentRef.getElementById(`${id}-search`)?.checked) configured.push('搜索：开启');
         const extra = getImageGenerateSelectedProtocol(id);
         const format = documentRef.getElementById(`${id}-param-output_format`)?.value;
-        const compressionField = documentRef.getElementById(`${id}-output_compression-field`);
-        if (extra?.id === 'openai') compressionField?.classList.toggle('hidden', !supportsOpenAiOutputCompression(format));
+        const editGuide = getImageEditGuideLabel(node);
+        const editGuidePort = node?.el?.querySelector('.node-port.input[data-port="mask"]');
+        const editGuidePortLabel = editGuidePort?.querySelector('.port-label');
+        if (editGuidePortLabel && editGuidePortLabel.textContent !== editGuide) {
+            editGuidePortLabel.textContent = editGuide;
+            editGuidePort.title = editGuide;
+            editGuidePort.setAttribute('aria-label', `连接输入端口：${editGuide}`);
+        }
         for (const [key, parameter] of Object.entries(extra?.parameters || {})) {
-            if (!documentRef.getElementById(`${id}-param-${key}`)) continue;
-            if (extra.id === 'openai' && key === 'output_compression' && compressionField?.classList.contains('hidden')) continue;
+            const control = documentRef.getElementById(`${id}-param-${parameter.id || key}`);
+            if (!control) continue;
+            if (extra.id === 'openai' && imageProtocolOutputFields.has(key)) {
+                const active = isOpenAiImageOutputFieldActive(key, format);
+                control.closest('.node-field')?.classList.toggle('hidden', !active);
+                if (!active) continue;
+            }
             const value = node?.data?.protocolParams?.[key];
             if (value !== undefined && value !== '' && String(value) !== String(parameter.defaultValue ?? '')) {
                 configured.push(`${parameter.label || parameter.name || key}：${String(value)}`);
