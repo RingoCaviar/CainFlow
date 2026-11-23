@@ -57,12 +57,12 @@
     --agent-panel-surface: color-mix(in srgb, var(--surface-panel-strong, var(--panel-bg)) 94%, var(--text-primary));
     background: linear-gradient(var(--agent-panel-surface), var(--agent-panel-surface)), var(--surface-panel-underlay, var(--bg-canvas));
     color: var(--text-primary);
-    font-size: 14px;
+    font-size: 0.875rem;
     /* The workbench disables selection globally for canvas gestures. Agent
        replies are normal text and must remain selectable for copy/paste. */
     user-select: text;
     -webkit-user-select: text;
-    box-shadow: var(--shadow-lg, 0 16px 48px rgba(0, 0, 0, 0.3));
+    box-shadow: var(--panel-shadow-soft);
 }
 
 .prompt-agent-panel.active {
@@ -92,7 +92,7 @@ body.toolbar-controls-active .prompt-agent-panel.active {
     padding: 4px 8px 4px 12px;
     border-bottom: 1px solid var(--border-color);
 }
-.prompt-agent-header h2 { margin: 0; font-size: 14px; line-height: 1.4; }
+.prompt-agent-header h2 { margin: 0; font-size: inherit; font-weight: 600; line-height: 1.4; }
 .prompt-agent-header .btn { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; }
 .prompt-agent-header-actions { position: relative; display: flex; align-items: center; gap: 4px; }
 .prompt-agent-resize-controls:not([hidden]) {
@@ -128,9 +128,8 @@ body.toolbar-controls-active .prompt-agent-panel.active {
     gap: 4px;
     min-width: 0;
     padding: 4px;
-    border: 1px solid var(--border-color);
+    border: 1px solid transparent;
     border-radius: 6px;
-    background: var(--surface-control);
     color: var(--text-secondary);
     font-size: 13px;
 }
@@ -150,8 +149,8 @@ body.toolbar-controls-active .prompt-agent-panel.active {
 .prompt-agent-panel.is-resizing { user-select: none; }
 .prompt-agent-panel .btn { min-height: 28px; }
 
-.prompt-agent-model-label:hover { border-color: var(--panel-active-border); background: var(--surface-control-hover); }
-.prompt-agent-model-label:focus-within { outline: 2px solid var(--text-link); outline-offset: 2px; }
+.prompt-agent-model-label:hover,
+.prompt-agent-model-label:has(> .prompt-agent-model-trigger[aria-expanded="true"]) { background: var(--surface-control-hover); }
 .prompt-agent-model-label select {
     flex: 1;
     min-width: 0;
@@ -165,11 +164,12 @@ body.toolbar-controls-active .prompt-agent-panel.active {
     color: var(--text-primary);
     font: inherit;
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 500;
     text-overflow: ellipsis;
     cursor: pointer;
 }
 .prompt-agent-model-label select:disabled { cursor: not-allowed; }
+.prompt-agent-model-label select:focus-visible { outline: 2px solid var(--text-link); outline-offset: 2px; }
 .prompt-agent-model-label select option { background: var(--panel-bg); color: var(--text-primary); }
 
 .prompt-agent-model-hint {
@@ -217,7 +217,6 @@ body.toolbar-controls-active .prompt-agent-panel.active {
     border-radius: 20px;
     background: var(--panel-bg);
     color: var(--text-primary);
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
     font: inherit;
     font-size: 12px;
     white-space: nowrap;
@@ -243,16 +242,31 @@ body.toolbar-controls-active .prompt-agent-panel.active {
 .prompt-agent-message:focus-visible { outline: 2px solid var(--text-link); outline-offset: -2px; }
 
 .prompt-agent-empty {
-    margin: 12px auto 0;
-    max-width: 280px;
+    margin: 16px 4px 0;
+    max-width: 360px;
     color: var(--text-secondary);
-    text-align: center;
     line-height: 1.6;
-    font-size: 14px;
 }
-.prompt-agent-empty h3 { margin: 0 0 4px; font-size: 18px; color: var(--text-primary); }
-.prompt-agent-empty button { display: block; width: 100%; margin: 8px 0; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--surface-control); color: var(--text-primary); font: inherit; font-size: 13px; cursor: pointer; }
-.prompt-agent-empty button:hover { background: var(--surface-control-hover); }
+.prompt-agent-empty h3 { margin: 0 0 4px; font-size: 1rem; font-weight: 600; color: var(--text-primary); }
+.prompt-agent-empty p { margin: 0 0 8px; text-wrap: pretty; }
+.prompt-agent-empty button {
+    display: block;
+    min-height: 32px;
+    margin-inline-start: -6px;
+    padding: 4px 6px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-link);
+    font: inherit;
+    font-size: 13px;
+    text-align: start;
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, currentColor 55%, transparent);
+    text-underline-offset: 3px;
+    cursor: pointer;
+}
+.prompt-agent-empty button:hover { background: var(--surface-control-hover); text-decoration-color: currentColor; }
 .prompt-agent-empty button:focus-visible { outline: 2px solid var(--text-link); outline-offset: 2px; }
 
 .prompt-agent-message {
@@ -260,28 +274,49 @@ body.toolbar-controls-active .prompt-agent-panel.active {
     padding: 6px 8px;
     border: 1px solid var(--border-color);
     border-radius: 12px;
-    font-size: 14px;
     line-height: 1.5;
     white-space: pre-wrap;
 }
 
-.prompt-agent-message-user {
-    margin-left: 4%;
-    background: var(--panel-active-bg);
-}
-
 .prompt-agent-message-agent { margin-right: 0; background: transparent; border-color: transparent; border-radius: 0; }
 .prompt-agent-processing { display: inline-flex; align-items: center; gap: 8px; margin: 4px 0 10px 8px; color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
-.prompt-agent-processing-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--text-link); animation: prompt-agent-processing-pulse 1.2s ease-in-out infinite; }
-@keyframes prompt-agent-processing-pulse { 50% { opacity: 0.35; transform: scale(0.75); } }
+.prompt-agent-processing-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--text-link); }
 .prompt-agent-message-body { overflow-wrap: anywhere; }
-.prompt-agent-message-agent .prompt-agent-message-body { white-space: normal; }
+.prompt-agent-message-body:not(:has(> *)),
+.prompt-agent-message-body > :is(p, ul, ol) {
+    box-sizing: border-box;
+    max-inline-size: 66ch;
+}
+.prompt-agent-message-agent .prompt-agent-message-body {
+    white-space: normal;
+    text-wrap: pretty;
+    line-height: 1.65;
+}
+.prompt-agent-message-body strong { font-weight: 600; }
 .prompt-agent-message-body p { margin: 0 0 5px; }
 .prompt-agent-message-body p:last-child { margin-bottom: 0; }
-.prompt-agent-message-body ul, .prompt-agent-message-body ol { margin: 4px 0; padding-left: 20px; }
-.prompt-agent-message-body pre { overflow: auto; white-space: pre; padding: 8px; background: var(--panel-bg-soft); border-radius: 6px; }
-.prompt-agent-message-body code { white-space: pre-wrap; font-family: monospace; background: var(--panel-bg-soft); border-radius: 3px; }
-.prompt-agent-message-body pre code { white-space: pre; }
+.prompt-agent-message-body :is(ul, ol) { margin: 6px 0; padding-inline-start: 1.4em; }
+.prompt-agent-message-body li + li { margin-block-start: 2px; }
+.prompt-agent-message-body :is(pre, code) { font: 0.8125rem/1.55 var(--font-mono, monospace); }
+.prompt-agent-message-body pre {
+    box-sizing: border-box;
+    inline-size: fit-content;
+    max-inline-size: 100%;
+    overflow: auto;
+    margin: 8px 0;
+    padding: 8px;
+    border-radius: 6px;
+    background: var(--panel-bg-soft);
+    white-space: pre;
+}
+.prompt-agent-message-body pre:focus-visible { outline: 2px solid var(--text-link); outline-offset: 2px; }
+.prompt-agent-message-body code {
+    padding-inline: 0.18em;
+    border-radius: 3px;
+    background: var(--panel-bg-soft);
+    white-space: pre-wrap;
+}
+.prompt-agent-message-body pre > code { padding: 0; background: transparent; white-space: inherit; }
 .prompt-agent-work-summary { margin-bottom: 4px; color: var(--text-secondary); font-size: 12px; }
 .prompt-agent-work-summary summary { cursor: pointer; user-select: none; }
 .prompt-agent-work-summary ol { margin: 4px 0 0; padding-left: 20px; }
@@ -349,7 +384,7 @@ body.toolbar-controls-active .prompt-agent-panel.active {
     border-radius: 8px;
 }
 
-.prompt-agent-composer { display: flex; flex-direction: column; align-items: stretch; padding: 6px; gap: 4px; flex: none; border-top: 1px solid var(--border-color); border-bottom: 0; }
+.prompt-agent-composer { display: flex; flex-direction: column; align-items: stretch; padding: 6px; gap: 4px; flex: none; }
 .prompt-agent-composer-context { display: contents; }
 .prompt-agent-input-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 4px; min-width: 0; }
 .prompt-agent-input-row > #prompt-agent-add-reference { grid-column: 1; }
@@ -396,6 +431,7 @@ body.toolbar-controls-active .prompt-agent-panel.active {
     background: rgba(15, 23, 42, 0.86);
     color: #fff;
     font-size: 12px;
+    font-variant-numeric: tabular-nums;
     font-weight: 700;
     line-height: 1;
     pointer-events: none;
@@ -591,7 +627,6 @@ body.toolbar-controls-active .prompt-agent-panel.active {
     background: var(--bg-input, var(--bg-dark));
     color: var(--text-primary);
     font: inherit;
-    font-size: 14px;
     line-height: 1.5;
 }
 .prompt-agent-composer textarea::placeholder { color: var(--text-secondary); opacity: 1; }
@@ -600,9 +635,9 @@ body.toolbar-controls-active .prompt-agent-panel.active {
 .prompt-agent-plan-inputs > span { flex-basis: 100%; }
 .prompt-agent-plan-reference { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 6px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--panel-bg-soft); color: var(--text-primary); text-align: left; overflow-wrap: anywhere; }
 .prompt-agent-plan-reference img { width: 32px; height: 32px; object-fit: cover; border-radius: 4px; }
-.prompt-agent-step-settings { font-size: 12px; margin-top: 4px; }
+.prompt-agent-step-settings { font-size: 0.75rem; margin-top: 4px; }
 .prompt-agent-step-settings summary { cursor: pointer; color: var(--text-secondary); overflow-wrap: anywhere; }
-.prompt-agent-step-prompt { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 4px 0; }
+.prompt-agent-step-prompt { max-inline-size: 66ch; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.6; margin: 4px 0; }
 .prompt-agent-canvas-plan > p:empty { display: none; }
 
 @media (max-width: 720px) {
@@ -656,13 +691,12 @@ body.toolbar-controls-active .prompt-agent-panel.active {
 }
 .prompt-agent-search-content > label { display: grid; gap: 4px; min-width: 0; font-size: 11px; }
 .prompt-agent-search-content > .prompt-agent-model-label { padding: 0; border: 0; background: transparent; }
-.prompt-agent-search-content > .prompt-agent-model-label:focus-within { outline: none; }
 .prompt-agent-search-content > label > .prompt-agent-model-trigger { border: 1px solid var(--panel-input-border); border-radius: 6px; background: var(--panel-input-bg); }
 .prompt-agent-search-content p, .prompt-agent-search-status { font-size: 11px; margin: 0; color: var(--text-secondary); }
 .prompt-agent-search-status { font-size: 12px; }
 .prompt-agent-search-content p { overflow-wrap: anywhere; }
 .prompt-agent-search-results { min-width: 0; margin-top: 4px; font-size: 12px; overflow-wrap: anywhere; }
-.prompt-agent-search-results a, .prompt-agent-message-body a { color: var(--text-link); text-decoration: underline; }
+.prompt-agent-search-results a, .prompt-agent-message-body a { color: var(--text-link); text-decoration: underline; text-underline-offset: 0.15em; }
 .prompt-agent-search-results iframe { border: 0; width: 100%; max-height: 100px; }
 .prompt-agent-search-images { display: grid; grid-template-columns: repeat(auto-fill,minmax(112px,1fr)); gap: 4px; }
 .prompt-agent-search-image { min-width: 0; padding: 4px; border: 1px solid var(--panel-border); border-radius: 6px; }
@@ -723,17 +757,17 @@ body.toolbar-controls-active .prompt-agent-panel.active {
 .prompt-agent-reference-cell > .prompt-agent-reference-option { width: 100%; }
 #prompt-agent-reference-more[hidden] { display: none; }
 .prompt-agent-reference-picker { left: 6px; right: 6px; padding: 6px; gap: 6px; }
-.prompt-agent-canvas-plan { border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 8px; margin-top: 4px; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.prompt-agent-canvas-plan { border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 8px; margin-top: 4px; line-height: 1.45; overflow-wrap: anywhere; }
 .prompt-agent-canvas-plan > strong { font-size: 13px; line-height: 1.4; }
 .prompt-agent-canvas-plan ol, .prompt-agent-canvas-plan ul { padding-left: 18px; margin: 4px 0; }
 .prompt-agent-canvas-plan li { margin: 2px 0; }
-.prompt-agent-canvas-plan details > summary { font-size: 12px; }
+.prompt-agent-canvas-plan details > summary { font-size: 0.75rem; }
 .prompt-agent-canvas-plan small { font-size: 11px; line-height: 1.4; }
 .prompt-agent-canvas-plan > p { margin: 4px 0; }
 .prompt-agent-change-list li { white-space: pre-wrap; overflow-wrap: anywhere; }
 .prompt-agent-canvas-plan select:not(.prompt-agent-model-native) { display: block; width: 100%; min-width: 0; margin-top: 4px; color: var(--text-primary); background: var(--panel-input-bg); }
 .prompt-agent-canvas-plan button { min-height: 28px; font-size: 12px; }
-.prompt-agent-canvas-actions .btn { font-size: 13px; }
+.prompt-agent-canvas-actions .btn { font-size: 0.8125rem; }
 .prompt-agent-canvas-plan button[hidden] { display: none; }
 .prompt-agent-canvas-plan .prompt-agent-model-trigger { display: block; width: 100%; padding: 4px 24px 4px 8px; margin: 4px 0; border: 1px solid var(--panel-input-border); border-radius: 6px; background: var(--panel-input-bg); font-size: 13px; }
 
@@ -757,6 +791,16 @@ body.toolbar-controls-active .prompt-agent-panel.active {
     background-color: var(--surface-control-hover);
     border-color: var(--panel-hover-border);
 }
+#prompt-agent-panel :is(.prompt-agent-header-actions, .prompt-agent-input-row, .prompt-agent-reference-heading) > .btn-ghost {
+    border-color: transparent;
+    background-color: transparent;
+    color: var(--text-secondary);
+}
+#prompt-agent-panel :is(.prompt-agent-header-actions, .prompt-agent-input-row, .prompt-agent-reference-heading) > .btn-ghost:is(:hover:not(:disabled), [aria-expanded="true"]) {
+    border-color: transparent;
+    background-color: var(--surface-control-hover);
+    color: var(--text-primary);
+}
 :is(#prompt-agent-panel, #prompt-agent-search-menu, #prompt-agent-reference-picker) .btn-primary {
     background-color: var(--panel-primary-action-bg);
     color: var(--panel-primary-action-text);
@@ -769,7 +813,7 @@ body.toolbar-controls-active .prompt-agent-panel.active {
     outline: 2px solid var(--text-link);
     outline-offset: 2px;
 }
-#prompt-agent-send, #prompt-agent-cancel { font-size: 13px; }
+#prompt-agent-send, #prompt-agent-cancel { font-size: 0.8125rem; }
 .prompt-agent-canvas-actions [hidden] { display: none; }
 /* Shared thinking controls use flat semantic surfaces in settings, nodes and Agent. */
 .prompt-agent-node-context {
@@ -804,7 +848,7 @@ body.toolbar-controls-active .prompt-agent-panel.active {
     overflow: auto;
 }
 .prompt-agent-input-image-context > p { margin: 4px 0 0; }
-.prompt-agent-context-heading { margin: 0; color: var(--text-secondary); font-size: 12px; }
+.prompt-agent-context-heading, .prompt-agent-attachment-label { margin: 0; color: var(--text-secondary); font-size: 0.75rem; }
 .thinking-control { min-width: 0; margin: 4px 0; color: var(--text-main); font-size: 12px; }
 .thinking-control > summary { cursor: pointer; padding: 4px; border-radius: 4px; }
 .thinking-control > summary:focus-visible { outline: 2px solid var(--text-link); outline-offset: 2px; }
@@ -824,6 +868,8 @@ body.toolbar-controls-active .prompt-agent-panel.active {
     margin-inline-end: auto;
     padding-inline-start: 0;
     text-align: center;
+    font-size: 0.8125rem;
+    font-weight: 500;
     line-height: inherit;
 }
 .thinking-control-compact { flex: 0 0 28px; }
@@ -876,7 +922,7 @@ body.toolbar-controls-active .prompt-agent-panel.active {
 .prompt-agent-size-aspect-hint:empty { display: none; }
 .prompt-agent-size-fields .prompt-agent-size-aspect-hint { grid-column: 1 / -1; }
 .prompt-agent-size-settings select,
-.prompt-agent-size-settings input { box-sizing: border-box; width: 100%; min-width: 0; min-height: 28px; border: 1px solid var(--panel-input-border); border-radius: 6px; color: var(--text-primary); background: var(--panel-input-bg); padding: 4px 6px; font: inherit; }
+.prompt-agent-size-settings input { box-sizing: border-box; width: 100%; min-width: 0; min-height: 28px; border: 1px solid var(--panel-input-border); border-radius: 6px; color: var(--text-primary); background: var(--panel-input-bg); padding: 4px 6px; font: inherit; font-size: 0.75rem; }
 .prompt-agent-size-settings select:focus-visible,
 .prompt-agent-size-settings input:focus-visible { outline: 2px solid var(--menu-focus-ring); outline-offset: 1px; }
 .prompt-agent-size-dimensions { display: flex; gap: 6px; padding-top: 6px; border-top: 1px solid var(--menu-border, var(--panel-border-strong)); }
@@ -898,14 +944,19 @@ body.toolbar-controls-active .prompt-agent-panel.active {
 .prompt-agent-search-toggle input:focus-visible + .toggle-slider { outline: 2px solid var(--menu-focus-ring); outline-offset: 2px; }
 .prompt-agent-search-toggle input:disabled + .toggle-slider { opacity: .5; cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
-    .prompt-agent-processing-dot { animation: none; }
     .prompt-agent-search-toggle .toggle-slider, .prompt-agent-search-toggle .toggle-slider::before { transition-duration: 300ms; }
 }
 
 /* Canvas plan changes precede the confirmation controls. */
-.prompt-agent-canvas-plan { padding: 12px; border-radius: 10px; font-size: 13px; background: color-mix(in srgb, var(--bg-input) 45%, var(--agent-panel-surface, var(--panel-bg))); }
+.prompt-agent-canvas-plan {
+    --agent-plan-surface: color-mix(in srgb, var(--bg-input) 24%, var(--agent-panel-surface, var(--panel-bg)));
+    padding: 12px;
+    border-radius: 10px;
+    font-size: 0.8125rem;
+    background: var(--agent-plan-surface);
+}
 .prompt-agent-plan-header { display: flex; align-items: center; min-height: 24px; }
-.prompt-agent-plan-header strong { min-width: 0; font-size: 14px; }
+.prompt-agent-plan-header strong { min-width: 0; font-size: 0.875rem; font-weight: 600; }
 .prompt-agent-plan-impact { margin: 4px 0 8px; }
 .prompt-agent-plan-destructive-impact { margin: 0 0 4px; font-weight: 600; }
 .prompt-agent-canvas-plan .prompt-agent-plan-highlights { padding-inline-start: 16px; margin: 0; }
@@ -918,13 +969,14 @@ body.toolbar-controls-active .prompt-agent-panel.active {
 }
 .prompt-agent-plan-reference-impact { margin: 4px 0 0; color: var(--text-secondary); }
 .prompt-agent-plan-destructive-impact:empty, .prompt-agent-plan-reference-impact:empty, .prompt-agent-plan-count:empty { display: none; }
-.prompt-agent-plan-count { margin-inline-start: 8px; color: var(--text-secondary); font-weight: 400; }
+.prompt-agent-plan-count { margin-inline-start: 8px; color: var(--text-secondary); font-size: 0.75rem; font-weight: 400; }
+.prompt-agent-plan-count, .prompt-agent-step-number { font-variant-numeric: tabular-nums; }
 .prompt-agent-canvas-plan .prompt-agent-plan-inputs { margin: 6px 0 8px; color: var(--text-secondary); }
 .prompt-agent-canvas-plan .prompt-agent-plan-steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
 .prompt-agent-canvas-plan .prompt-agent-plan-steps > li { min-width: 0; margin: 0; padding: 8px 0 0; border-top: 1px solid var(--border-color); }
 .prompt-agent-step-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
-.prompt-agent-step-number { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%; background: color-mix(in srgb, var(--accent-primary) 12%, transparent); color: var(--text-primary); font-size: 12px; }
-.prompt-agent-step-title { flex: 1 1 80px; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+.prompt-agent-step-number { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%; background: color-mix(in srgb, var(--text-secondary) 9%, transparent); color: var(--text-secondary); font-size: 12px; }
+.prompt-agent-step-title { flex: 1 1 80px; min-width: 0; overflow-wrap: anywhere; font-size: inherit; font-weight: 600; }
 .prompt-agent-step-status { padding: 2px 6px; border-radius: 4px; color: var(--text-secondary); background: color-mix(in srgb, var(--text-secondary) 9%, transparent); font-size: 12px; white-space: nowrap; }
 .prompt-agent-step-status[data-status=failed] { color: var(--text-danger); background: color-mix(in srgb, var(--accent-red) 12%, transparent); }
 .prompt-agent-step-status[data-status=completed] { color: var(--text-success); background: color-mix(in srgb, var(--accent-green) 12%, transparent); }
@@ -933,7 +985,7 @@ body.toolbar-controls-active .prompt-agent-panel.active {
 .prompt-agent-canvas-plan .prompt-agent-step-settings { margin-top: 7px; }
 .prompt-agent-canvas-plan .prompt-agent-step-settings summary { line-height: 1.6; }
 .prompt-agent-plan-overview { margin-top: 4px; }
-.prompt-agent-plan-overview > summary { cursor: pointer; color: var(--text-primary); font-weight: 600; padding: 5px 0; }
+.prompt-agent-plan-overview > summary { cursor: pointer; color: var(--text-primary); font-weight: 500; padding: 5px 0; }
 .prompt-agent-plan-overview > summary:focus-visible { outline: 2px solid var(--text-link); outline-offset: 2px; }
 .prompt-agent-plan-overview[open] > summary { margin-bottom: 4px; }
 .prompt-agent-change-list li { white-space: pre-wrap; }
@@ -941,13 +993,13 @@ body.toolbar-controls-active .prompt-agent-panel.active {
     margin-top: 8px;
     padding: 8px 0 0;
     border-top: 1px solid var(--border-color);
-    background: color-mix(in srgb, var(--bg-input) 45%, var(--agent-panel-surface, var(--panel-bg)));
 }
 .prompt-agent-plan-overview[open] ~ .prompt-agent-plan-footer {
     position: sticky;
     z-index: 1;
     bottom: 0;
     padding-bottom: 4px;
+    background: rgb(from var(--agent-plan-surface) r g b / 1);
 }
 .prompt-agent-transcript:has(.prompt-agent-plan-overview[open]) { flex-direction: column; }
 .prompt-agent-transcript:has(.prompt-agent-plan-overview[open]) .prompt-agent-scroll-bottom {
@@ -974,10 +1026,21 @@ body.toolbar-controls-active .prompt-agent-panel.active {
 
 /* Conversation hierarchy: explicit speakers, quiet Agent surface, compact plans. */
 .prompt-agent-message { margin-bottom: 12px; padding: 8px 12px; white-space: normal; }
-.prompt-agent-message-user { display: grid; grid-template-columns: minmax(0, 1fr); row-gap: 4px; width: fit-content; max-width: 90%; box-sizing: border-box; margin-left: auto; margin-right: 0; background: color-mix(in srgb, var(--bg-canvas) 78%, var(--accent-primary)); border-color: color-mix(in srgb, var(--bg-canvas) 65%, var(--accent-primary)); border-radius: 12px 12px 3px 12px; }
+.prompt-agent-message-user {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 4px;
+    width: fit-content;
+    max-width: 90%;
+    box-sizing: border-box;
+    margin: 0 0 36px auto;
+    border-color: transparent;
+    border-radius: 12px 12px 3px 12px;
+    background: var(--panel-active-bg);
+}
 .prompt-agent-message-user .prompt-agent-message-body { grid-column: 1; grid-row: 1; min-width: 0; white-space: pre-wrap; }
 .prompt-agent-message-user .prompt-agent-message-references { grid-column: 1 / -1; margin-top: 0; }
-.prompt-agent-message-user { position: relative; margin-bottom: 40px; }
 .prompt-agent-message-actions { position: absolute; top: calc(100% + 4px); right: 0; display: flex; gap: 2px; }
 .prompt-agent-message-action { display: grid; place-items: center; width: 24px; height: 24px; padding: 4px; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); cursor: pointer; }
 .prompt-agent-message-action svg { width: 14px; height: 14px; }

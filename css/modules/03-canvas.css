@@ -83,13 +83,13 @@
     background-position: var(--canvas-dot-offset-x) var(--canvas-dot-offset-y);
 }
 
-#canvas-container.canvas-performance-protected > .canvas-grid {
+#canvas-container.canvas-performance-protected:not(.is-panning) > .canvas-grid {
     background-position: 0 0;
 }
 
 /* One extra tile covers both leading edges while the painted grid follows the pointer. */
 @supports (transform: translateX(mod(1px, 2px))) {
-    #canvas-container.is-panning:not(.canvas-gpu-disabled, .canvas-performance-protected) > .canvas-grid {
+    #canvas-container.is-panning:not(.canvas-gpu-disabled) > .canvas-grid {
         top: calc(0px - var(--canvas-dot-spacing-scaled));
         left: calc(0px - var(--canvas-dot-spacing-scaled));
         background-position: 0 0;

@@ -145,6 +145,65 @@ test('Agent size controls support click and touch, and focus and failure text re
     });
 });
 
+test('proxy connectivity test reports latency above open settings', { timeout: 30000 }, async () => {
+    await withAppBrowser({
+        ...emptySession,
+        nodes: [{ id: 'commerce-toast-fixture', type: 'ECommerceImageSet', x: 80, y: 100 }]
+    }, async app => {
+        await app.evaluate(`document.getElementById('btn-settings').click();
+            document.querySelector('#settings-modal [data-tab=proxy]').click()`);
+        await app.waitFor("document.getElementById('btn-test-proxy').matches(':enabled') && document.getElementById('proxy-enabled').checked");
+        await app.evaluate("document.getElementById('btn-test-proxy').click()");
+
+        const findToast = "[...document.querySelectorAll('#toast-container .toast')].find(toast => toast.textContent.includes('延迟: 37ms'))";
+        await app.waitFor(`Boolean((${findToast})?.getAnimations().every(animation => animation.playState !== 'running'))`);
+        for (const width of [1100, 420]) {
+            await app.send('Emulation.setDeviceMetricsOverride', { width, height: 820, deviceScaleFactor: 1, mobile: false });
+            const aboveSettings = await app.evaluate(`(() => {
+                const toast = ${findToast};
+                const { x, y, width, height } = toast.getBoundingClientRect();
+                // Let hit testing see the passive toast without changing its paint order.
+                const previous = toast.style.pointerEvents;
+                toast.style.pointerEvents = 'auto';
+                try {
+                    const target = document.elementFromPoint(x + width / 2, y + height / 2);
+                    return toast.contains(target);
+                } finally {
+                    toast.style.pointerEvents = previous;
+                }
+            })()`);
+            assert.ok(aboveSettings, `${width}px settings leaves the proxy latency toast visible`);
+        }
+
+        await app.evaluate(`document.getElementById('settings-close').click();
+            document.getElementById('commerce-toast-fixture').click()`);
+        await app.waitFor("document.querySelector('#image-parameter-panel.is-docked:not([hidden])') !== null");
+        const pointerTargets = await app.evaluate(`(async () => {
+            const { bootstrapCainFlowApp } = await import('/js/app/bootstrap.js');
+            const { toastControllerApi } = (await bootstrapCainFlowApp()).registry;
+            const warning = toastControllerApi.showToast('有待处理的通知', 'warning', 0).element;
+            const stack = warning.parentElement;
+            const targetTypes = () => [stack, warning].map(element => getComputedStyle(element).pointerEvents);
+            const beforeSettings = targetTypes();
+            document.getElementById('btn-settings').click();
+            return [beforeSettings, targetTypes()];
+        })()`);
+        assert.deepEqual(pointerTargets, [['auto', 'auto'], ['none', 'none']],
+            'settings receives pointer input while the narrow commerce notification stack is visible');
+    }, {
+        initScript: `(() => {
+            const originalFetch = window.fetch.bind(window);
+            window.fetch = (url, options) => {
+                if (url === '/api/proxy' && (!options?.method || options.method === 'GET')) {
+                    return Promise.resolve(Response.json({ enabled: true, ip: '127.0.0.1', port: '7890' }));
+                }
+                if (url === '/api/test_proxy') return Promise.resolve(Response.json({ latency: 37 }));
+                return originalFetch(url, options);
+            };
+        })()`
+    });
+});
+
 test('settings forms reflow, expose labels and keep navigation visible after scrolling', { timeout: 60000 }, async () => {
     await withAppBrowser({ ...emptySession,
         providers: [{ id: 'usable-provider', name: '本地接口', endpoint: 'https://controlled.test/v1', apikey: 'fixture' }],

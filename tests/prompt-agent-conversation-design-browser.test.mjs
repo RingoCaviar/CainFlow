@@ -176,7 +176,9 @@ test('conversation prose and compact plan remain usable in seven themes at 300px
         ],
         providers: [{ id: 'p', endpoint: 'https://controlled.test/v1', apikey: 'test' }] }, async ({ evaluate, send, waitFor }) => {
         await send('Emulation.setDeviceMetricsOverride', { width: 800, height: 800, deviceScaleFactor: 1, mobile: false });
-        const payload = { intent: 'generate', message: '**雪山海报**。\\n\\n- 清晨柔光\\n- 简洁构图',
+        const codeLine = `preview_path = "D:/creative-workflows/${'very-long-asset-name-'.repeat(6)}snow-mountain.png"`;
+        const reply = '**雪山海报**。\\n\\n- 清晨柔光\\n- 简洁构图\n\n' + ['```', codeLine, '```'].join('\n');
+        const payload = { intent: 'generate', message: reply,
             canvasPlan: { version: 1, steps: [{ id: 'generate', type: 'ImageGenerate', title: '生成雪山海报', parameters: { prompt: '清晨的雪山，柔和自然光，细致的冰晶纹理与远处连绵山脊，'.repeat(5) } }], connections: [] } };
         await evaluate(`window.originalFetch=window.fetch; window.fetch=async(url,options={})=>{
             if(String(url)==='/proxy')return new Response(JSON.stringify({choices:[{message:{content:${JSON.stringify(JSON.stringify(payload))}}}]}));
@@ -196,6 +198,26 @@ test('conversation prose and compact plan remain usable in seven themes at 300px
                 model:size('.prompt-agent-model-trigger'), action:size('.prompt-agent-canvas-actions .btn'),
                 step:size('.prompt-agent-step-settings'), paragraphGap:getComputedStyle(document.querySelector('.prompt-agent-message-body p')).marginBottom};})()`);
         assert.deepEqual(typography, { message: '14px', input: '14px', title: '14px', model: '13px', action: '13px', step: '12px', paragraphGap: '5px' });
+        const code = await evaluate(`(() => {
+            const body = document.querySelector('.prompt-agent-message-agent .prompt-agent-message-body');
+            const block = body.querySelector('pre');
+            block.scrollLeft = block.scrollWidth;
+            return { text: block.textContent, scrolls: block.scrollLeft > 0, keepsTranscriptInBounds: body.scrollWidth <= body.clientWidth + 1 };
+        })()`);
+        assert.deepEqual(code, { text: `${codeLine}\n`, scrolls: true, keepsTranscriptInBounds: true });
+        const scaledText = await evaluate(`(() => {
+            const root = document.documentElement;
+            const original = root.style.fontSize;
+            root.style.fontSize = '20px';
+            try {
+                const panel = document.getElementById('prompt-agent-panel');
+                const size = selector => getComputedStyle(panel.querySelector(selector)).fontSize;
+                return { reply: size('.prompt-agent-message-agent .prompt-agent-message-body'), input: size('textarea'), fits: panel.scrollWidth <= panel.clientWidth + 1 };
+            } finally {
+                root.style.fontSize = original;
+            }
+        })()`);
+        assert.deepEqual(scaledText, { reply: '17.5px', input: '17.5px', fits: true });
         const planRows = `(() => {
             const card = document.querySelector('.prompt-agent-canvas-plan');
             const header = card.querySelector('.prompt-agent-plan-header');
@@ -262,6 +284,15 @@ test('conversation prose and compact plan remain usable in seven themes at 300px
             assert.ok(await evaluate(planRows), `${viewport}px viewport: the impact and consent controls stay in order`);
             await assertCenteredModels(`${viewport}px viewport`);
         }
+        await send('Emulation.setDeviceMetricsOverride', { width: 1500, height: 900, deviceScaleFactor: 1, mobile: false });
+        const wideMeasures = await evaluate(`(() => {
+            document.getElementById('prompt-agent-resize').dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+            const body = document.querySelector('.prompt-agent-message-agent .prompt-agent-message-body');
+            const width = element => element.getBoundingClientRect().width;
+            return { body: width(body), paragraph: width(body.querySelector('p')), code: width(body.querySelector('pre')) };
+        })()`);
+        assert.ok(wideMeasures.body > 800 && wideMeasures.paragraph < wideMeasures.body * 0.75 && wideMeasures.code > wideMeasures.paragraph,
+            `wide prose has a readable measure and code can use more room: ${JSON.stringify(wideMeasures)}`);
         assert.ok(await evaluate(`(()=>{const input=document.getElementById('prompt-agent-input'),handle=document.getElementById('prompt-agent-input-resize'),a=input.getBoundingClientRect(),b=handle.getBoundingClientRect(),before=a.height;handle.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));return b.top>=a.top&&b.top<a.top+22&&b.right<=a.right&&input.getBoundingClientRect().height>before})()`), 'upper-right resize handle increases the input height');
         await evaluate("document.getElementById('prompt-agent-cancel').hidden=false;document.getElementById('prompt-agent-send').disabled=true");
         assert.ok(await evaluate(`(()=>{const input=document.getElementById('prompt-agent-input').getBoundingClientRect(),cancel=document.getElementById('prompt-agent-cancel'),r=cancel.getBoundingClientRect();return getComputedStyle(document.getElementById('prompt-agent-send')).display==='none'&&input.right<=r.left&&Math.abs((input.top+input.bottom)/2-(r.top+r.bottom)/2)<=2&&cancel.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()`), 'stop request replaces Send at the right of the text box');

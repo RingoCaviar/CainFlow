@@ -1930,6 +1930,9 @@ export function createConnectionsApi({
     }
 
     function detectMisalignedConnections({ nodeIds = [], viewportOnly = false } = {}) {
+        // A new pan can advance the viewport before its frame has moved the DOM.
+        // Its release will check alignment against the settled viewport.
+        if (viewportOnly && state.canvas.isPanning) return [];
         const nodeSet = new Set(Array.isArray(nodeIds) ? nodeIds : [nodeIds]);
         const containerRect = canvasContainer.getBoundingClientRect();
         const viewport = getCurrentConnectionViewport(containerRect);

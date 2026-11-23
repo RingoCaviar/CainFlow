@@ -19,6 +19,19 @@
     gap: 8px;
 }
 
+#settings-modal:not(.hidden) ~ #toast-container {
+    z-index: calc(var(--layer-modal) + 1);
+}
+
+#settings-modal:not(.hidden) ~ #toast-container .toast {
+    pointer-events: none;
+}
+
+/* Keep download progress visible while settings owns the modal controls. */
+#settings-modal:not(.hidden) ~ #toast-container .update-download-toast__cancel {
+    display: none;
+}
+
 .toast {
     padding: 10px 16px;
     background: var(--bg-context-menu);

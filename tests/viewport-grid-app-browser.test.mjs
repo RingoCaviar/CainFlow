@@ -65,6 +65,124 @@ test('middle pan keeps wires aligned across the raster margin and restores only 
     });
 });
 
+test('wires stay attached when another pan starts before the previous settlement frame', { timeout: 30000 }, async () => {
+    await withAppBrowser({
+        autoCheckUpdatesOnLoad: false,
+        canvas: { x: 20, y: -10, zoom: .75 },
+        nodes: [{ id: 'rapid-source', type: 'Text', x: 80, y: 160 }, { id: 'rapid-dest', type: 'Text', x: 680, y: 210 }],
+        connections: [{ id: 'rapid-edge', from: { nodeId: 'rapid-source', port: 'text' },
+            to: { nodeId: 'rapid-dest', port: 'text' }, type: 'text' }]
+    }, async app => {
+        await app.waitFor("document.querySelector('[data-conn-id=rapid-edge]')?.getAttribute('d')");
+        const result = await app.evaluate(`(async () => {
+            const canvas = document.getElementById('canvas-container');
+            const mouse = (target, type, x, buttons) => target.dispatchEvent(new MouseEvent(type, {
+                bubbles: true, cancelable: true, button: 1, buttons, clientX: x, clientY: 590
+            }));
+            const paint = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            const sample = () => {
+                const path = document.querySelector('[data-conn-id=rapid-edge]');
+                const port = document.querySelector('#rapid-source .node-port.output .port-dot').getBoundingClientRect();
+                const start = path.getPointAtLength(0).matrixTransform(path.getScreenCTM());
+                return { x: port.left, error: Math.hypot(start.x - port.left - port.width / 2, start.y - port.top - port.height / 2) };
+            };
+            mouse(canvas, 'mousedown', 505, 4);
+            mouse(document, 'mousemove', 565, 4);
+            await paint();
+            const first = sample();
+            // The next move reaches the viewport before the queued alignment check.
+            mouse(document, 'mouseup', 565, 0);
+            mouse(canvas, 'mousedown', 505, 4);
+            mouse(document, 'mousemove', 655, 4);
+            await paint();
+            const second = sample();
+            mouse(document, 'mouseup', 655, 0);
+            await paint();
+            return { first, second, settled: sample() };
+        })()`);
+        assert.equal(result.second.x, result.first.x + 150);
+        for (const sample of Object.values(result)) {
+            assert.ok(sample.error < .25, JSON.stringify(result));
+        }
+    });
+});
+
+test('the grid stays anchored through long-frame protection during middle-button and space pans', { timeout: 30000 }, async () => {
+    await withAppBrowser({
+        autoCheckUpdatesOnLoad: false,
+        canvas: { x: 11, y: -19, zoom: .75 },
+        nodes: [{ id: 'pan-grid-node', type: 'Text', x: 100, y: 100, text: 'Pan' }],
+        connections: []
+    }, async app => {
+        const start = { x: 505, y: 500 };
+        const space = { key: ' ', code: 'Space', windowsVirtualKeyCode: 32 };
+        const canvas = "document.getElementById('canvas-container')";
+        const protectedMode = `${canvas}.classList.contains('canvas-performance-protected')`;
+        const sampleGrid = () => app.evaluate(`(async () => {
+            const { state } = await (await import('/js/app/bootstrap.js')).bootstrapCainFlowApp();
+            const canvas = ${canvas};
+            const grid = canvas.querySelector(':scope > .canvas-grid');
+            const view = canvas.getBoundingClientRect(), bounds = grid.getBoundingClientRect();
+            const style = getComputedStyle(grid);
+            const spacing = parseFloat(style.backgroundSize);
+            const phaseError = delta => Math.abs(delta - Math.round(delta / spacing) * spacing);
+            return {
+                x: state.canvas.x, y: state.canvas.y,
+                errorX: phaseError(bounds.left - view.left + parseFloat(style.backgroundPositionX) - state.canvas.x),
+                errorY: phaseError(bounds.top - view.top + parseFloat(style.backgroundPositionY) - state.canvas.y),
+                protected: ${protectedMode}
+            };
+        })()`);
+        const settlePaint = () => app.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+        const samplesByButton = [];
+        for (const [button, buttons] of [['middle', 4], ['left', 1]]) {
+            const move = async (dx, dy) => {
+                await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', buttons, x: start.x + dx, y: start.y + dy });
+                await settlePaint();
+            };
+            const origin = await sampleGrid();
+            if (button === 'left') await app.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...space });
+            await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', button, buttons, ...start });
+            await move(73, -49);
+            const before = await sampleGrid();
+            assert.equal(before.x, origin.x + 73, `${button} pan moved the viewport`);
+            assert.equal(before.y, origin.y - 49);
+            // Force two missed frame deadlines in the real performance guard.
+            await app.evaluate(`new Promise(resolve => {
+                let delays = 2;
+                requestAnimationFrame(function stall() {
+                    const end = performance.now() + 80;
+                    while (performance.now() < end) {}
+                    requestAnimationFrame(--delays ? stall : resolve);
+                });
+            })`);
+            await app.waitFor(protectedMode);
+            const protectedAtRest = await sampleGrid();
+            await move(128, -81);
+            const moving = await sampleGrid();
+            assert.equal(protectedAtRest.protected, true);
+            assert.equal(moving.protected, true);
+            assert.equal(moving.x, origin.x + 128, `${button} pan keeps moving with protection on`);
+            assert.equal(moving.y, origin.y - 81);
+            const samples = [before, protectedAtRest, moving];
+            if (button === 'middle') {
+                await app.waitFor(`!${protectedMode}`);
+                samples.push(await sampleGrid());
+            }
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', button, buttons: 0, x: start.x + 128, y: start.y - 81 });
+            if (button === 'left') await app.send('Input.dispatchKeyEvent', { type: 'keyUp', ...space });
+            await settlePaint();
+            samples.push(await sampleGrid());
+            samplesByButton.push({ button, samples });
+        }
+        for (const { button, samples } of samplesByButton) {
+            for (const sample of samples) {
+                assert.ok(sample.errorX < .02 && sample.errorY < .02, `${button} grid lost its world position: ${JSON.stringify(sample)}`);
+            }
+        }
+    });
+});
+
 test('the real canvas grid follows the public viewport across themes without moving ports or intercepting input', { timeout: 45000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false,
         models: [{ id: 'chat', modelId: 'chat', protocol: 'openai', taskType: 'chat', providerIds: ['p'] }],

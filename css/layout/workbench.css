@@ -681,7 +681,8 @@ body:has(#main-layout > .image-parameter-panel.is-docked:not([hidden])) #toast-c
     }
     /* A lone passive status can overlap the canvas in this compact layout.
        Only capture input for interactive notifications or a scrollable stack. */
-    body:has(#main-layout > .image-parameter-panel.is-docked[data-node-type="ECommerceImageSet"]:not([hidden])) #toast-container:has(> .toast:not(.toast-status), > .toast + .toast) {
+    body:not(:has(#settings-modal:not(.hidden))):has(#main-layout > .image-parameter-panel.is-docked[data-node-type="ECommerceImageSet"]:not([hidden]))
+        #toast-container:has(> .toast:not(.toast-status), > .toast + .toast) {
         pointer-events: auto;
     }
     body:has(#main-layout > .image-parameter-panel.is-docked[data-node-type="ECommerceImageSet"]:not([hidden])) #toast-container .toast {
