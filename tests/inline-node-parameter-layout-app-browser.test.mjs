@@ -34,12 +34,17 @@ test('chat uses a compact canvas card and keeps its editable parameters and repl
     const chatSession = {
         ...session,
         models: [{ id: 'chat-model', modelId: 'chat', name: '对话模型', protocol: 'openai', taskType: 'chat', providerIds: ['p'] }],
-        nodes: [{ id: chatId, type: 'TextChat', x: 180, y: 120, height: 620, chatLayoutVersion: 3,
-            apiConfigId: 'chat-model', providerId: 'p', prompt, sysprompt: '先分析再回答', search: true }]
+        nodes: [
+            { id: chatId, type: 'TextChat', x: 180, y: 120, height: 620, chatLayoutVersion: 3,
+                apiConfigId: 'chat-model', providerId: 'p', prompt, sysprompt: '先分析再回答', search: true },
+            { id: 'linked-chat', type: 'TextChat', x: 680, y: 120, lastText: '查看例子',
+                lastResponse: '<p><a href="#reply-example">查看例子</a></p>' }
+        ]
     };
     await withAppBrowser(chatSession, async app => {
         const card = `#${chatId}`;
         const editor = `#${chatId}-prompt`;
+        const response = `#${chatId}-response`;
         const parameterButton = `${card} button.node-chat-parameter-button`;
         const panel = '#image-parameter-panel';
         const run = `${panel} [data-parameter-action=generate]`;
@@ -58,6 +63,30 @@ test('chat uses a compact canvas card and keeps its editable parameters and repl
             await key(app, 'Escape');
             await app.waitFor(`!(${hasVisiblePanel}) && document.activeElement === document.querySelector('${parameterButton}')`);
         };
+        const replyLine = selector => app.evaluate(`(() => {
+            const element = document.querySelector(${JSON.stringify(selector)});
+            const range = document.createRange();
+            range.selectNodeContents(element.querySelector('p') || element);
+            const line = range.getBoundingClientRect();
+            const y = line.top + line.height / 2;
+            return { start: { x: line.left + 1, y }, end: { x: line.right - 1, y },
+                center: { x: line.left + line.width / 2, y } };
+        })()`);
+        const clickAt = async point => {
+            await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', buttons: 1, clickCount: 1 });
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', buttons: 0, clickCount: 1 });
+        };
+        const dragAcrossReply = async selector => {
+            const { start, end } = await replyLine(selector);
+            await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...start, button: 'left', buttons: 1, clickCount: 1 });
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...end, button: 'left', buttons: 1 });
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...end, button: 'left', buttons: 0, clickCount: 1 });
+        };
+        await nativeClick(app, '#linked-chat-response a[href="#reply-example"]');
+        await app.waitFor('location.hash === "#reply-example"');
+        assert.equal(await app.evaluate("document.getElementById('linked-chat').classList.contains('selected')"), false,
+            'a reply link activates without selecting the card');
+        assert.equal(await app.evaluate("document.getElementById('image-parameter-panel').checkVisibility()"), false);
         const collapsed = await app.evaluate(`(() => {
             const card = document.querySelector('${card}');
             const style = getComputedStyle(card);
@@ -122,23 +151,30 @@ test('chat uses a compact canvas card and keeps its editable parameters and repl
 
         await key(app, 'Escape');
         await app.waitFor(`!(${hasVisiblePanel})`);
-        const drag = await app.evaluate(`(() => {
-            const response = document.getElementById('${chatId}-response');
-            const range = document.createRange();
-            range.selectNodeContents(response.querySelector('p') || response);
-            const line = range.getBoundingClientRect();
-            const y = line.top + line.height / 2;
-            return [{ x: line.left + 1, y }, { x: line.right - 1, y }];
-        })()`);
-        await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...drag[0], button: 'left', buttons: 1, clickCount: 1 });
-        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...drag[1], button: 'left', buttons: 1 });
-        await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...drag[1], button: 'left', buttons: 0, clickCount: 1 });
-        assert.match(await app.evaluate('window.getSelection().toString()'), /对话回复/);
-        assert.equal(await app.evaluate(`Boolean(${hasVisiblePanel})`), false, 'selecting reply text leaves the parameters closed');
+        await clickAt(await app.evaluate('({ x: innerWidth - 125, y: innerHeight / 2 })'));
+        const selected = `document.querySelector('${card}').classList.contains('selected')`;
+        await app.waitFor(`!${selected}`);
+        await clickAt((await replyLine(response)).center);
+        await app.waitFor(`${selected} && ${hasVisiblePanel}`);
+        assert.equal(await app.evaluate('window.getSelection().toString()'), '', 'one click on the reply selects the node without selecting text');
+        await key(app, 'Escape');
+        await app.waitFor(`!(${hasVisiblePanel})`);
+        const cardLeft = `document.querySelector('${card}').getBoundingClientRect().left`;
+        const leftBeforeDrag = await app.evaluate(cardLeft);
+        await dragAcrossReply(response);
+        assert.equal(await app.evaluate('window.getSelection().toString()'), '', 'dragging across the canvas reply does not select text');
+        await app.waitFor(`${cardLeft} > ${leftBeforeDrag + 24}`);
+        assert.equal(await app.evaluate(`Boolean(${hasVisiblePanel})`), false, 'dragging the reply does not open the parameters');
         await useKeyboardToOpenAndCloseParameters();
         await nativeClick(app, `#${chatId}-preview-btn`);
         await app.waitFor("document.querySelector('#node-text-response-preview-dialog')?.checkVisibility()");
-        assert.equal(await text('.node-text-response-preview-text'), reply);
+        const viewer = '.node-text-response-preview-text';
+        assert.equal(await text(viewer), reply);
+        await dragAcrossReply(viewer);
+        assert.match(await app.evaluate('window.getSelection().toString()'), /对话回复/, 'the full reply viewer allows selecting text');
+        await app.evaluate("Object.defineProperty(navigator.clipboard, 'writeText', { value: async value => { window.copiedChatReply = value; } })");
+        await nativeClick(app, '#node-text-response-preview-dialog [data-copy-text-response]');
+        await app.waitFor(`window.copiedChatReply === ${JSON.stringify(reply)}`);
         await key(app, 'Escape');
         await app.waitFor("!document.querySelector('#node-text-response-preview-dialog')");
         await nativeClick(app, `#${chatId}-response`);

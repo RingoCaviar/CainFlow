@@ -2601,7 +2601,7 @@ export function createNodeDomBindingsApi({
             });
         }
 
-        const interactiveSelector = 'input, textarea, select, button, label, .toggle-switch, .toggle-slider, .node-select, .port, .node-resize-handle, [contenteditable="true"], .chat-response-area, .preview-controls, .workflow-action-btn';
+        const interactiveSelector = 'input, textarea, select, button, label, .toggle-switch, .toggle-slider, .node-select, .port, .node-resize-handle, [contenteditable="true"], .node:not(.node-chat.image-first-card) .chat-response-area, .chat-response-area a[href], .preview-controls, .workflow-action-btn';
         function beginNodeDrag(pos, isCloneDrag) {
             if (!state.selectedNodes.has(id)) selectNode(id, isCloneDrag);
 

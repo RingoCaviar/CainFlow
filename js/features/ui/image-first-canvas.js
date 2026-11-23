@@ -1013,14 +1013,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         node.el.addEventListener('click', event => {
             if (event.target.closest('.node-resize-handle') || (resizePress && event.detail > 0)) return;
             if (event.target.closest('.color-reset-preview.is-picking,.image-compare-divider')) return;
-            if (view.chatResponse) {
-                if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
-                if (view.chatResponse.contains(event.target)) {
-                    const selection = documentRef.getSelection();
-                    if (selection && !selection.isCollapsed && (view.chatResponse.contains(selection.anchorNode)
-                        || view.chatResponse.contains(selection.focusNode))) return;
-                }
-            }
+            if (node.type === 'TextChat' && (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey
+                || event.target.closest('.chat-response-area a[href]'))) return;
             if (isRetouchPreviewPointer(event)) {
                 if (deferredRetouchDock?.node === node && event.detail > 1) return;
                 if (event.detail === 1 && (current !== node || panel.hidden)) {
@@ -1246,8 +1240,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             const prompt = documentRef.getElementById(`${node.id}-prompt`);
             (prompt.disabled ? panel : prompt).focus({ preventScroll: true });
         });
-        const chatResponse = result.querySelector('.chat-response-area');
-        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections: [], chatEmptyTitle, chatResponse }, []);
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections: [], chatEmptyTitle }, []);
     }
     function installProductRetouch(node) {
         const form = documentRef.createElement('div');
