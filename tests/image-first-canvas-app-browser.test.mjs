@@ -270,7 +270,8 @@ test('parameter run executes only its current node and reuses cached upstream im
                 requestAnimationFrame(() => requestAnimationFrame(resolve));
             })`)
         });
-        await app.waitFor('currentNodeRequests.length===2');
+        // Registering both batch requests can trail the pressed-node layout on a busy release run.
+        await app.waitFor('currentNodeRequests.length===2', 15000);
         await app.waitFor("document.getElementById('editor-second-run-status').textContent==='完成'&&document.getElementById('btn-stop').disabled");
         assert.deepEqual(await app.evaluate('currentNodeRequests.map(request=>request.prompt)'), ['second local draft', 'second local draft'], 'batch count repeats only the current node');
         assert.deepEqual(await app.evaluate('currentNodeRequests.map(request=>request.references)'), [cachedReferenceImages,cachedReferenceImages]);

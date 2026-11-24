@@ -43,10 +43,33 @@ test('canvas compositor hints follow active gestures and release after settling'
         await app.waitFor("!document.getElementById('canvas-container').classList.contains('is-zooming')");
         assert.deepEqual(await hints(),{node:'auto',layer:'auto'});
         assert.ok(await app.evaluate('gpuState.canvas.zoom>1'));
-        await app.evaluate(`document.getElementById('canvas-container').dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:1,buttons:4,clientX:500,clientY:400}))`);
-        assert.equal((await hints()).layer,'transform');
-        await app.evaluate("window.dispatchEvent(new Event('blur'))");
-        assert.deepEqual(await hints(),{node:'auto',layer:'auto'});
+    });
+});
+
+test('the first middle-button pan does not change the node layer compositing hint', { timeout: 30000 }, async () => {
+    await withAppBrowser({ autoCheckUpdatesOnLoad: false,
+        nodes: [{ id: 'pan-node', type: 'Text', x: 80, y: 100, text: 'Panning' }], connections: [] }, async app => {
+        const sample = () => app.evaluate(`(() => {
+            const canvas = document.getElementById('canvas-container');
+            return { hint: getComputedStyle(document.getElementById('nodes-layer')).willChange,
+                panning: canvas.classList.contains('is-panning'), x: document.getElementById('pan-node').getBoundingClientRect().left };
+        })()`);
+        const start = { x: 505, y: 400 };
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...start });
+        await app.waitFor("document.getElementById('canvas-container').matches(':hover')");
+        const ready = await sample();
+        await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', button: 'middle', buttons: 4, ...start });
+        const pressed = await sample();
+        const moved = { x: start.x + 48, y: start.y - 23 };
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', buttons: 4, ...moved });
+        await app.waitFor(`document.getElementById('pan-node').getBoundingClientRect().left === ${ready.x + 48}`);
+        const firstFrame = await sample();
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'middle', buttons: 0, ...moved });
+        const released = await sample();
+
+        assert.deepEqual([pressed.panning, firstFrame.panning, released.panning], [true, true, false]);
+        assert.deepEqual([ready.hint, pressed.hint, firstFrame.hint, released.hint], ['auto', 'auto', 'auto', 'auto'],
+            'panning leaves node-layer compositing to the browser');
     });
 });
 
@@ -63,12 +86,14 @@ test('GPU preference defaults on for old sessions, applies immediately and survi
         await app.evaluate('setGpu(false)');
         assert.equal(await app.evaluate("getComputedStyle(document.getElementById('gpu-node')).willChange"),'auto');
         await app.evaluate(`document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0,clientX:dragPoint.x+30,clientY:dragPoint.y}));setGpu(true);document.getElementById('canvas-container').dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:1,buttons:4,clientX:500,clientY:400}))`);
-        assert.equal(await app.evaluate("getComputedStyle(document.getElementById('nodes-layer')).willChange"),'transform');
-        await app.evaluate('setGpu(false)');
-        assert.equal(await app.evaluate("getComputedStyle(document.getElementById('nodes-layer')).willChange"),'auto');
         await app.evaluate(`document.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,buttons:4,clientX:530,clientY:420}));new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))`);
+        const panHints = () => app.evaluate(`['.canvas-grid', '#connections-svg'].map(selector => getComputedStyle(document.querySelector(selector)).willChange)`);
+        assert.deepEqual(await panHints(), ['transform', 'transform']);
+        await app.evaluate('setGpu(false)');
+        assert.deepEqual(await panHints(), ['auto', 'auto']);
         assert.equal(await app.evaluate('gpuSettingsApp.state.canvas.isPanning'),true);
         await app.evaluate("window.dispatchEvent(new Event('blur'));setGpu(true)");
+        assert.equal(await app.evaluate('gpuSettingsApp.state.canvas.isPanning'), false);
         await app.evaluate(`document.getElementById('canvas-container').dispatchEvent(new WheelEvent('wheel',{bubbles:true,cancelable:true,clientX:500,clientY:400,deltaY:-40}));setGpu(false)`);
         assert.deepEqual(await app.evaluate(`({enabled:gpuSettingsApp.state.canvasGpuAccelerationEnabled,node:getComputedStyle(document.getElementById('gpu-node')).willChange,layer:getComputedStyle(document.getElementById('nodes-layer')).willChange})`),{enabled:false,node:'auto',layer:'auto'});
         await app.waitFor("!document.getElementById('canvas-container').classList.contains('is-zooming')");

@@ -154,7 +154,7 @@ test('chat uses a compact canvas card and keeps its editable parameters and repl
         await clickAt(await app.evaluate('({ x: innerWidth - 125, y: innerHeight / 2 })'));
         const selected = `document.querySelector('${card}').classList.contains('selected')`;
         await app.waitFor(`!${selected}`);
-        await clickAt((await replyLine(response)).center);
+        await nativeClick(app, response);
         await app.waitFor(`${selected} && ${hasVisiblePanel}`);
         assert.equal(await app.evaluate('window.getSelection().toString()'), '', 'one click on the reply selects the node without selecting text');
         await key(app, 'Escape');

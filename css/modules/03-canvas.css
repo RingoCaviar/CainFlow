@@ -411,11 +411,8 @@
     width: 0;
     height: 0;
     z-index: 2;
+    /* Promoting the whole node layer on press repaints it before the first pan frame. */
     will-change: auto;
-}
-
-#canvas-container:not(.canvas-gpu-disabled).is-panning #nodes-layer {
-    will-change: transform;
 }
 
 

@@ -109,6 +109,25 @@ def _read_payload(handler, limit):
     return payload
 
 
+def _discard_rejected_body(handler):
+    """Consume an already-sent body so closing the local connection cannot replace the rejection with RST."""
+    lengths = _header_values(handler, 'Content-Length')
+    if (len(lengths) != 1 or not lengths[0].isascii() or not lengths[0].isdecimal()
+            or _header_values(handler, 'Transfer-Encoding')):
+        return
+    remaining = int(lengths[0])
+    if remaining > MAX_CALL_BYTES:
+        return
+    try:
+        while remaining:
+            chunk = handler.rfile.read(min(remaining, 64 * 1024))
+            if not chunk:
+                return
+            remaining -= len(chunk)
+    except (OSError, TimeoutError, ValueError):
+        return
+
+
 def _handle_settings(settings, port, payload):
     action = payload.get('action')
     if action == 'status':
@@ -136,7 +155,11 @@ def handle(handler):
     else:
         try:
             handler.connection.settimeout(BODY_TIMEOUT_SECONDS)
-            _authorize(handler, service, is_settings)
+            try:
+                _authorize(handler, service, is_settings)
+            except CanvasMcpError:
+                _discard_rejected_body(handler)
+                raise
             payload = _read_payload(handler, MAX_CALL_BYTES)
             if is_settings:
                 response = _handle_settings(settings, handler.server.server_address[1], payload)
