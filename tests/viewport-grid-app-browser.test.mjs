@@ -332,3 +332,33 @@ test('one drag stays inside a single wire raster margin', { timeout: 30000 }, as
             'a single drag must reuse one painted wire layer instead of re-anchoring repeatedly');
     });
 });
+
+test('the experimental connection bitmap follows zoom and returns to SVG over a focused editor', { timeout: 30000 }, async () => {
+    await withAppBrowser({
+        autoCheckUpdatesOnLoad: false,
+        canvas: { x: 0, y: 0, zoom: .85 },
+        nodes: [{ id: 'bitmap-source', type: 'Text', x: 80, y: 160 }, { id: 'bitmap-dest', type: 'Text', x: 680, y: 210 }],
+        connections: [{ id: 'bitmap-edge', from: { nodeId: 'bitmap-source', port: 'text' },
+            to: { nodeId: 'bitmap-dest', port: 'text' }, type: 'text' }]
+    }, async app => {
+        await app.waitFor("document.querySelector('[data-conn-id=bitmap-edge].canvas-rendered')?.getAttribute('d')");
+        await app.evaluate(`
+            window.bitmapState = () => {
+                const layer = document.querySelector('.canvas-connections');
+                const path = document.querySelector('[data-conn-id=bitmap-edge]');
+                return { visibility: getComputedStyle(layer).visibility, stroke: getComputedStyle(path).stroke, width: layer.width };
+            };
+            document.querySelector('#bitmap-source textarea').focus();
+            document.getElementById('canvas-container').dispatchEvent(new WheelEvent('wheel', {
+                bubbles: true, cancelable: true, clientX: 490, clientY: 410, deltaY: -14
+            }));
+        `);
+        await app.waitFor("bitmapState().visibility === 'visible' && bitmapState().stroke === 'none'");
+        const active = await app.evaluate('bitmapState()');
+        assert.ok(active.width > 300, 'the projected curve uses an allocated bitmap');
+        await app.waitFor("bitmapState().visibility === 'hidden' && bitmapState().stroke !== 'none'");
+        assert.equal(await app.evaluate("document.activeElement.closest('.node')?.id"), 'bitmap-source');
+    }, {
+        initScript: "if (location.hostname === '127.0.0.1') history.replaceState(null, '', '?perf=1&canvasConnections=1');"
+    });
+});

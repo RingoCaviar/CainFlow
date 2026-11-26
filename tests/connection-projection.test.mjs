@@ -6,7 +6,8 @@ function createHarness({
     mismatches = [],
     beginConnectionRestoration,
     updateDirtyConnections,
-    refreshNodeProjection
+    refreshNodeProjection,
+    updateBitmapViewport
 } = {}) {
     const frames = [];
     const calls = [];
@@ -14,6 +15,7 @@ function createHarness({
         updateAllConnections() { calls.push(['all']); },
         refreshNodeProjection: refreshNodeProjection || (() => { calls.push(['node-projection']); }),
         beginConnectionRestoration,
+        updateBitmapViewport,
         updateDirtyConnections: updateDirtyConnections || (() => { calls.push(['dirty']); return true; }),
         invalidateNodePortCache(id) { calls.push(['geometry', id]); },
         markNodeConnectionsDirty(id) { calls.push(['appearance', id]); },
@@ -38,6 +40,23 @@ test('performance workload runs through ConnectionProjection maintenance ownersh
         nodeProjectionCount: 1,
         connectionFullRefreshCount: 1
     });
+});
+
+test('viewport projection clears the bitmap when the final viewport gesture ends', async () => {
+    const bitmapActivity = [];
+    const { api, flushFrame } = createHarness({ updateBitmapViewport: active => bitmapActivity.push(active) });
+    api.interactions.viewportFrame();
+    const pan = api.interactions.beginInteraction('pan');
+    api.interactions.viewportFrame();
+    const zoom = api.interactions.beginInteraction('zoom');
+    const panFinished = pan.finish();
+    api.interactions.viewportFrame();
+    const zoomAborted = zoom.abort();
+    api.interactions.viewportFrame();
+    assert.deepEqual(bitmapActivity, [true, true, false]);
+    flushFrame();
+    flushFrame();
+    await Promise.all([panFinished, zoomAborted]);
 });
 
 test('ConnectionProjection owns the cadence of restored connection batches', async () => {

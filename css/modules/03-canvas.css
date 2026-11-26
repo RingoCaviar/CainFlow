@@ -325,16 +325,24 @@
     transition: none !important;
 }
 
-#connections-group path.canvas-rendered {
-    stroke: transparent !important;
+.canvas-connection-bitmap-active:is(.is-panning, .is-zooming) #connections-group .canvas-rendered:not(.selected, .is-hovered, .connection-traced, .connection-inspected, :hover) {
+    stroke: none !important;
     filter: none !important;
 }
 
 .canvas-connections {
     position: absolute;
-    inset: 0;
+    inset: 0 auto auto 0;
     z-index: 1;
     pointer-events: none;
+    transform-origin: 0 0;
+    stroke: var(--canvas-connection-normal);
+    visibility: hidden;
+}
+
+.canvas-connection-bitmap-active:is(.is-panning, .is-zooming) > .canvas-connections {
+    visibility: visible;
+    will-change: transform;
 }
 
 #connections-group.is-performance-protected .connection-flow-decoration,

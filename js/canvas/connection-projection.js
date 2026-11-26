@@ -17,6 +17,7 @@ export function createConnectionProjection({
     markConnectionDirty,
     detectMisalignedConnections,
     projectionHandoffAdapter = null,
+    updateBitmapViewport = null,
     onAlignmentCorrected = () => {},
     onAlignmentRepairFailed = () => {},
     requestAnimationFrameRef = requestAnimationFrame,
@@ -39,6 +40,7 @@ export function createConnectionProjection({
     const pendingNodeIds = new Set();
     const pendingConnectionIds = new Set();
     const pendingAlignmentFrames = new Map();
+    const viewportInteractions = new Set();
 
     function normalizeIds(ids) {
         if (ids == null) return [];
@@ -268,6 +270,9 @@ export function createConnectionProjection({
     }
 
     const interactions = {
+        viewportFrame() {
+            if (!destroyed && viewportInteractions.size > 0) updateBitmapViewport?.(true);
+        },
         nodeGeometryChanged(nodeIds) {
             if (destroyed) return;
             markGeometry(nodeIds);
@@ -300,6 +305,9 @@ export function createConnectionProjection({
         },
         beginInteraction(kind, nodeIds = []) {
             const targets = new Set(normalizeIds(nodeIds));
+            const viewportOnly = kind === CANVAS_INTERACTION_KIND.PAN || kind === CANVAS_INTERACTION_KIND.ZOOM;
+            const bitmapLease = viewportOnly && updateBitmapViewport ? {} : null;
+            if (bitmapLease) viewportInteractions.add(bitmapLease);
             let closed = false;
             return {
                 changed(change = {}) {
@@ -319,12 +327,14 @@ export function createConnectionProjection({
                     if (destroyed) return Promise.resolve({ inspected: 0, corrected: 0 });
                     if (closed) return Promise.resolve({ inspected: 0, corrected: 0 });
                     closed = true;
+                    if (bitmapLease && viewportInteractions.delete(bitmapLease) && viewportInteractions.size === 0) {
+                        updateBitmapViewport(false);
+                    }
                     if (kind === CANVAS_INTERACTION_KIND.CONNECTION_DRAW) markGeometry([...targets]);
                     // Retain an aligned translated path; measure on the next frame
                     // rather than synchronously rebuilding every edge on pointer up.
                     if (kind === CANVAS_INTERACTION_KIND.NODE_DRAG) schedule();
                     else commit();
-                    const viewportOnly = kind === CANVAS_INTERACTION_KIND.PAN || kind === CANVAS_INTERACTION_KIND.ZOOM;
                     return verifyAlignment([...targets], 'interaction-settled', null, { viewportOnly });
                 },
                 abort() {
@@ -485,6 +495,8 @@ export function createConnectionProjection({
 
     function destroy() {
         destroyed = true;
+        if (viewportInteractions.size > 0) updateBitmapViewport(false);
+        viewportInteractions.clear();
         cancelMaterializationSettlement();
         restorationTransaction.abortController?.abort();
         if (frameId) cancelAnimationFrameRef?.(frameId);

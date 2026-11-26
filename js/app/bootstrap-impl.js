@@ -45,6 +45,7 @@ import { createSelectionApi } from '../canvas/selection.js';
 import { createViewportApi } from '../canvas/viewport.js';
 import { createCanvasInteractionsApi } from '../canvas/canvas-interactions.js';
 import { createRenderProjectionManager } from '../canvas/render-projection-manager.js';
+import { createCanvasConnectionRenderer } from '../canvas/canvas-connection-renderer.js';
 import { createInteractionPerformanceGuard } from '../canvas/interaction-performance-guard.js';
 import { createNodeAutoLayoutApi } from '../canvas/node-auto-layout.js';
 import { NODE_CONFIGS } from '../nodes/registry.js';
@@ -353,11 +354,14 @@ const cameraControlNodeApi = createCameraControlNodeApi({
     showToast,
     documentRef: document
 });
+const canvasConnectionRenderer = createCanvasConnectionRenderer({ state, canvasContainer });
 const viewportApi = createViewportApi({
     state,
     elements,
     updateAllConnections: () => updateAllConnections(),
-    scheduleConnectionRefresh
+    scheduleConnectionRefresh,
+    reportConnectionViewportFrame: canvasConnectionRenderer.enabled
+        ? () => registry.connectionProjectionApi?.interactions.viewportFrame() : null
 });
 const renderProjectionManager = createRenderProjectionManager({
     state,
@@ -676,6 +680,7 @@ const mediaControllerApi = createMediaControllerApi({
     canvasContainer
 });
 const connectionsApi = createConnectionsApi({
+    connectionRenderer: canvasConnectionRenderer,
     onNodeGeometryChanged: nodeId => connectionProjectionInteractions.nodeGeometryChanged(nodeId),
     onTopologyChanged: change => connectionProjectionInteractions.topologyChanged(change),
     state,
@@ -991,6 +996,7 @@ const {
 
 registry.connectionProjectionApi = createConnectionProjection({
     projectionHandoffAdapter: connectionsApi.projectionHandoffAdapter,
+    updateBitmapViewport: canvasConnectionRenderer.enabled ? canvasConnectionRenderer.updateViewport : null,
     updateAllConnections,
     refreshNodeProjection: () => renderProjectionManager.refreshNow(),
     beginConnectionRestoration,
@@ -1925,6 +1931,7 @@ function getThemeControllerApi() {
             saveState,
             onThemeApplied: () => {
                 viewportApi.refreshCanvasThemeMetrics();
+                canvasConnectionRenderer.refreshStyle();
                 viewportApi.applyCanvasVisualTransform();
             }
         });

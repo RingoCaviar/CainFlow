@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createViewportApi } from '../js/canvas/viewport.js';
 
-function createHarness() {
+function createHarness({ originLines = [], ResizeObserver } = {}) {
     const calls = [];
-    const documentRef = { dispatchEvent() {} };
+    const documentRef = { dispatchEvent() {}, defaultView: { ResizeObserver } };
     const container = {
         ownerDocument: documentRef,
         style: { setProperty() {} },
@@ -15,18 +15,66 @@ function createHarness() {
         canvasContainer: container,
         nodesLayer: { style: { setProperty() {} } },
         connectionsGroup: { setAttribute() {} },
-        originAxes: { setAttribute() {} },
+        originAxes: { setAttribute() {}, querySelectorAll() { return originLines; } },
         zoomLevel: { textContent: '' }
     };
+    const canvas = { x: 10, y: 20, zoom: 1 };
     const api = createViewportApi({
-        state: { canvas: { x: 10, y: 20, zoom: 1 } },
+        state: { canvas },
         elements,
         updateAllConnections() {},
         scheduleConnectionRefresh(options) { calls.push(options); },
         requestAnimationFrameRef(callback) { callback(); }
     });
-    return { api, calls };
+    return { api, calls, canvas };
 }
+
+test('origin axes paint bounded segments that still span the viewport after a distant pan', () => {
+    const makeLine = () => {
+        const attributes = new Map();
+        return { setAttribute(name, value) { attributes.set(name, Number(value)); }, attributes };
+    };
+    const horizontal = makeLine();
+    const vertical = makeLine();
+    const { api, canvas } = createHarness({ originLines: [horizontal, vertical] });
+    const update = () => api.applyCanvasVisualTransform({ dispatchTransformEvent: false });
+    update();
+    const initial = [...horizontal.attributes.values()];
+    assert.ok(horizontal.attributes.get('x1') < -canvas.x);
+    assert.ok(horizontal.attributes.get('x2') > 800 - canvas.x);
+    assert.ok(horizontal.attributes.get('x2') - horizontal.attributes.get('x1') < 10_000);
+    canvas.x += 200;
+    update();
+    assert.deepEqual([...horizontal.attributes.values()], initial, 'a short pan reuses the bounded segment');
+
+    canvas.zoom = 2.5;
+    update();
+    assert.ok((horizontal.attributes.get('x2') - horizontal.attributes.get('x1')) * canvas.zoom < 10_000);
+
+    canvas.x = 2_000_000;
+    canvas.zoom = 0.5;
+    update();
+    const toScreen = worldX => worldX * canvas.zoom + canvas.x;
+    assert.ok(toScreen(horizontal.attributes.get('x1')) <= 0);
+    assert.ok(toScreen(horizontal.attributes.get('x2')) >= 800);
+    assert.ok(vertical.attributes.get('y1') < -canvas.y / canvas.zoom);
+    assert.ok(vertical.attributes.get('y2') > (600 - canvas.y) / canvas.zoom);
+});
+
+test('growing the idle canvas extends origin axes without another gesture', () => {
+    let resize;
+    class ResizeObserver {
+        constructor(callback) { resize = callback; }
+        observe() {}
+    }
+    const horizontal = { setAttribute(name, value) { this[name] = Number(value); } };
+    const vertical = { setAttribute(name, value) { this[name] = Number(value); } };
+    const { api, canvas } = createHarness({ originLines: [horizontal, vertical], ResizeObserver });
+    api.applyCanvasVisualTransform({ dispatchTransformEvent: false });
+    resize([{ contentRect: { width: 4200, height: 3400 } }]);
+    assert.ok(horizontal.x2 * canvas.zoom + canvas.x >= 4200);
+    assert.ok(vertical.y2 * canvas.zoom + canvas.y >= 3400);
+});
 
 test('settleConnections is explicit and does not depend on reason', () => {
     const { api, calls } = createHarness();

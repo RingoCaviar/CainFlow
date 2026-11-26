@@ -20,6 +20,7 @@ export function createViewportApi({
     elements,
     updateAllConnections,
     scheduleConnectionRefresh = null,
+    reportConnectionViewportFrame = null,
     requestAnimationFrameRef = requestAnimationFrame
 }) {
     const DEFAULT_CANVAS_DOT_SPACING = 22;
@@ -37,7 +38,12 @@ export function createViewportApi({
     let wirePanMargin = MIN_WIRE_PAN_MARGIN;
     const canvasGrid = elements.canvasGrid || elements.canvasContainer;
     const wireLayer = elements.connectionsGroup?.ownerSVGElement;
+    const [horizontalAxis, verticalAxis] = elements.originAxes?.querySelectorAll?.('line') || [];
     let wireAnchor = null;
+    let originAxisBounds = null;
+    let originAxisViewportSize = null;
+    let originAxisScrollLeft = 0;
+    let originAxisScrollTop = 0;
     const refreshingTextNodes = new Set();
 
     function getCanvasDotSpacing() {
@@ -108,6 +114,35 @@ export function createViewportApi({
         setTransformAttribute(elements.originAxes, svgTransform);
     }
 
+    function updateOriginAxisBounds(x, y, zoom) {
+        if (!horizontalAxis || !verticalAxis || !(zoom > 0)) return;
+        const container = elements.canvasContainer;
+        const width = originAxisViewportSize?.width ?? container.clientWidth;
+        const height = originAxisViewportSize?.height ?? container.clientHeight;
+        if (!(width > 0 && height > 0)) return;
+
+        const margin = wireAnchor ? wirePanMargin : 0;
+        const left = (originAxisScrollLeft - x - margin) / zoom;
+        const top = (originAxisScrollTop - y - margin) / zoom;
+        const right = left + (width + 2 * margin) / zoom;
+        const bottom = top + (height + 2 * margin) / zoom;
+        if (originAxisBounds && zoom <= originAxisBounds.zoom * 2 &&
+            left >= originAxisBounds.left && right <= originAxisBounds.right &&
+            top >= originAxisBounds.top && bottom <= originAxisBounds.bottom) return;
+
+        // Chromium expands the dash pattern before clipping. A bounded segment
+        // avoids generating dashes across two million world units on zoom.
+        const padding = Math.max(width, height, MAX_WIRE_PAN_MARGIN * 2) / zoom;
+        originAxisBounds = {
+            left: left - padding, right: right + padding,
+            top: top - padding, bottom: bottom + padding, zoom
+        };
+        horizontalAxis.setAttribute('x1', originAxisBounds.left);
+        horizontalAxis.setAttribute('x2', originAxisBounds.right);
+        verticalAxis.setAttribute('y1', originAxisBounds.top);
+        verticalAxis.setAttribute('y2', originAxisBounds.bottom);
+    }
+
     function applyCanvasVisualTransform(options = {}) {
         const { x, y, zoom } = state.canvas;
         const transform = `translate(${x}px, ${y}px) scale(${zoom})`;
@@ -115,6 +150,8 @@ export function createViewportApi({
         if (elements.nodesLayer.style.transformOrigin !== '0px 0px') elements.nodesLayer.style.transformOrigin = '0px 0px';
         setCustomStyle(elements.nodesLayer.style, '--canvas-zoom', zoom);
         applyWireTransform(x, y, zoom);
+        updateOriginAxisBounds(x, y, zoom);
+        reportConnectionViewportFrame?.();
         const dotSpacing = getCanvasDotSpacing() * zoom;
         setCustomStyle(canvasGrid.style, '--canvas-dot-spacing-scaled', `${dotSpacing}px`);
         setCustomStyle(canvasGrid.style, '--canvas-dot-offset-x', `${x}px`);
@@ -196,6 +233,27 @@ export function createViewportApi({
         if (needsCleanup) requestAnimationFrameRef(() => {
             for (const nodeEl of refreshingTextNodes) nodeEl.classList.remove('render-refresh');
             refreshingTextNodes.clear();
+        });
+    }
+
+    if (horizontalAxis && verticalAxis) {
+        const container = elements.canvasContainer;
+        const { ResizeObserver } = container.ownerDocument?.defaultView || {};
+        const refreshOriginAxes = () => {
+            const { x, y, zoom } = state.canvas;
+            updateOriginAxisBounds(x, y, zoom);
+        };
+        if (ResizeObserver) {
+            const observer = new ResizeObserver(([entry]) => {
+                originAxisViewportSize = entry.contentRect;
+                refreshOriginAxes();
+            });
+            observer.observe(container);
+        }
+        container.addEventListener?.('scroll', () => {
+            originAxisScrollLeft = container.scrollLeft;
+            originAxisScrollTop = container.scrollTop;
+            refreshOriginAxes();
         });
     }
 
