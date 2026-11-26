@@ -290,3 +290,45 @@ test('the real canvas grid follows the public viewport across themes without mov
         assert.equal(await app.evaluate('gridViewportClick'), 'canvas-container');
     });
 });
+
+test('one drag stays inside a single wire raster margin', { timeout: 30000 }, async () => {
+    await withAppBrowser({
+        autoCheckUpdatesOnLoad: false,
+        canvas: { x: 20, y: -10, zoom: .75 },
+        nodes: [{ id: 'margin-source', type: 'Text', x: 80, y: 160 }, { id: 'margin-dest', type: 'Text', x: 680, y: 210 }],
+        connections: [{ id: 'margin-edge', from: { nodeId: 'margin-source', port: 'text' },
+            to: { nodeId: 'margin-dest', port: 'text' }, type: 'text' }]
+    }, async app => {
+        await app.waitFor("document.querySelector('[data-conn-id=margin-edge]')?.getAttribute('d')");
+        const result = await app.evaluate(`(async () => {
+            const canvas = document.getElementById('canvas-container');
+            const svg = document.getElementById('connections-svg');
+            const mouse = (target, type, x, buttons) => target.dispatchEvent(new MouseEvent(type, {
+                bubbles: true, cancelable: true, button: 1, buttons, clientX: x, clientY: 560
+            }));
+            const paint = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            const margin = () => parseFloat(getComputedStyle(svg).getPropertyValue('--pan-margin')) || 0;
+            const anchor = () => svg.style.getPropertyValue('--wire-anchor');
+            mouse(canvas, 'mousedown', 505, 4);
+            mouse(document, 'mousemove', 545, 4);
+            await paint();
+            const opened = { margin: margin(), anchor: anchor(), width: canvas.clientWidth, height: canvas.clientHeight };
+            const anchors = [anchor()];
+            // 420px is well past the old fixed 192px margin and still inside one drag.
+            for (const x of [605, 705, 845, 925]) {
+                mouse(document, 'mousemove', x, 4);
+                await paint();
+                anchors.push(anchor());
+            }
+            const released = { anchor: anchor() };
+            mouse(document, 'mouseup', 925, 0);
+            await paint();
+            return { opened, anchors, released };
+        })()`);
+        const { opened, anchors } = result;
+        assert.ok(opened.margin >= Math.max(opened.width, opened.height) * .5,
+            `the pan margin must cover a real drag instead of the old 192px: ${JSON.stringify(opened)}`);
+        assert.deepEqual([...new Set(anchors)], [opened.anchor],
+            'a single drag must reuse one painted wire layer instead of re-anchoring repeatedly');
+    });
+});

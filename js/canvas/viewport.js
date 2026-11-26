@@ -24,8 +24,17 @@ export function createViewportApi({
 }) {
     const DEFAULT_CANVAS_DOT_SPACING = 22;
     const TEXT_REFRESH_BUFFER_SCREENS = 0.5;
-    const WIRE_PAN_MARGIN = 192;
+    // Re-anchoring rewrites the wire group's transform, which repaints every
+    // visible path. At 192px that happens 15+ times per drag on a normal
+    // viewport and each re-anchor costs 50-60ms in the compositor, which reads
+    // as stutter. The margin now scales with the viewport so a typical drag
+    // re-anchors at most once, and the extra layer area only costs one raster
+    // pass that the tile manager already limits to what is visible.
+    const MIN_WIRE_PAN_MARGIN = 192;
+    const MAX_WIRE_PAN_MARGIN = 1024;
+    const WIRE_PAN_MARGIN_RATIO = 0.55;
     let canvasDotSpacing = null;
+    let wirePanMargin = MIN_WIRE_PAN_MARGIN;
     const canvasGrid = elements.canvasGrid || elements.canvasContainer;
     const wireLayer = elements.connectionsGroup?.ownerSVGElement;
     let wireAnchor = null;
@@ -61,15 +70,29 @@ export function createViewportApi({
         if (element && element.getAttribute?.('transform') !== value) element.setAttribute('transform', value);
     }
 
+    // Read once per gesture: the margin only has to absorb the drag distance
+    // before the next re-anchor, and a single layout read at gesture start is
+    // cheaper than the repaint it prevents.
+    function resolveWirePanMargin() {
+        const container = elements.canvasContainer;
+        const width = Number(container?.clientWidth) || 0;
+        const height = Number(container?.clientHeight) || 0;
+        const size = Math.max(width, height);
+        if (!size) return MIN_WIRE_PAN_MARGIN;
+        return Math.min(MAX_WIRE_PAN_MARGIN,
+            Math.max(MIN_WIRE_PAN_MARGIN, Math.round(size * WIRE_PAN_MARGIN_RATIO)));
+    }
+
     function applyWireTransform(x, y, zoom) {
         if (wireLayer && state.canvas.isPanning && !state.connecting && state.canvasGpuAccelerationEnabled !== false) {
             // Rasterize a margin around the viewport so small pans can move
             // the same clipped wire layer without repainting hundreds of paths.
+            if (!wireAnchor) wirePanMargin = resolveWirePanMargin();
             if (!wireAnchor || wireAnchor.zoom !== zoom ||
-                Math.abs(x - wireAnchor.x) >= WIRE_PAN_MARGIN || Math.abs(y - wireAnchor.y) >= WIRE_PAN_MARGIN) {
+                Math.abs(x - wireAnchor.x) >= wirePanMargin || Math.abs(y - wireAnchor.y) >= wirePanMargin) {
                 wireAnchor = { x, y, zoom };
-                setCustomStyle(wireLayer.style, '--pan-margin', `${WIRE_PAN_MARGIN}px`);
-                setCustomStyle(wireLayer.style, '--wire-anchor', `translate(${x + WIRE_PAN_MARGIN}px, ${y + WIRE_PAN_MARGIN}px) scale(${zoom})`);
+                setCustomStyle(wireLayer.style, '--pan-margin', `${wirePanMargin}px`);
+                setCustomStyle(wireLayer.style, '--wire-anchor', `translate(${x + wirePanMargin}px, ${y + wirePanMargin}px) scale(${zoom})`);
                 wireLayer.classList.add('pan-wire-layer');
             }
             wireLayer.style.transform = `translate(${x - wireAnchor.x}px, ${y - wireAnchor.y}px)`;
