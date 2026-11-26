@@ -130,6 +130,7 @@ export function createConnectionsApi({
     const MAX_LANE_OFFSET = 42;
     const FLOW_ANIMATION_TARGET_FPS = 60;
     const FLOW_ANIMATION_FRAME_MS = 1000 / FLOW_ANIMATION_TARGET_FPS;
+    const FLOW_ANIMATION_VIEWPORT_FRAME_MS = 1000 / 15;
     let lastFlowAnimationTime = 0;
     const TARGET_SNAP_RADIUS = 32;
     const TARGET_CELL_SIZE = TARGET_SNAP_RADIUS * 2;
@@ -700,7 +701,11 @@ export function createConnectionsApi({
 
     function animateFlowDecorations(now) {
         flowAnimationFrame = null;
-        if (lastFlowAnimationTime && now - lastFlowAnimationTime < FLOW_ANIMATION_FRAME_MS) {
+        const movingViewport = state.canvas.isPanning || canvasContainer.classList?.contains('is-zooming');
+        const frameInterval = movingViewport && canvasContainer.classList?.contains('canvas-dense-mode')
+            ? FLOW_ANIMATION_VIEWPORT_FRAME_MS
+            : FLOW_ANIMATION_FRAME_MS;
+        if (lastFlowAnimationTime && now - lastFlowAnimationTime < frameInterval) {
             scheduleFlowAnimation();
             return;
         }

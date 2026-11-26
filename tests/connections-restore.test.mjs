@@ -99,7 +99,8 @@ function createHarness(connectionCount, {
     onGeometryRead = () => {},
     onPathWrite = () => {},
     onFlowRead = () => {},
-    onArrowTransform = () => {}
+    onArrowTransform = () => {},
+    canvasClasses = createClassList()
 } = {}) {
     const frames = [];
     const paths = [];
@@ -200,6 +201,7 @@ function createHarness(connectionCount, {
     const api = createConnectionsApi({
         state,
         canvasContainer: {
+            classList: canvasClasses,
             getBoundingClientRect: () => {
                 onGeometryRead();
                 return { left: 0, top: 0, width: 800, height: 600 };
@@ -1208,6 +1210,41 @@ test('a flow path with insufficient length does not leave an animation running',
     frames.shift()(100);
     assert.equal(decoration.removed, true);
     assert.equal(frames.length, 0);
+});
+
+test('flow arrows update less often during a dense viewport gesture and resume without a path refresh', () => {
+    const canvasClasses = createClassList();
+    canvasClasses.add('canvas-dense-mode');
+    let transforms = 0;
+    const { api, frames, paths, state } = createHarness(1, {
+        running: true, canvasClasses, onArrowTransform: () => transforms++
+    });
+    api.updateAllConnections();
+    frames.shift()(100);
+    const decoration = paths.find(element => element.classList.contains('connection-flow-decoration'));
+    assert.equal(transforms, 7);
+
+    state.canvas.isPanning = true;
+    frames.shift()(120);
+    assert.equal(transforms, 7, 'a pan frame does not immediately resample the arrows');
+    assert.equal(decoration.classList.contains('active'), true);
+    frames.shift()(180);
+    assert.equal(transforms, 14, 'arrows still update during a held pan');
+
+    state.canvas.isPanning = false;
+    frames.shift()(200);
+    assert.equal(transforms, 21, 'updates resume when the pan ends');
+    canvasClasses.add('is-zooming');
+    frames.shift()(220);
+    assert.equal(transforms, 21, 'zoom uses the same reduced cadence');
+    canvasClasses.remove('is-zooming');
+    frames.shift()(240);
+    assert.equal(transforms, 28, 'updates resume when zoom ends');
+
+    canvasClasses.remove('canvas-dense-mode');
+    state.canvas.isPanning = true;
+    frames.shift()(260);
+    assert.equal(transforms, 35, 'a regular canvas keeps its usual update frequency during pan');
 });
 
 test('destroying connections cancels flow animation and removes derived paths', () => {
