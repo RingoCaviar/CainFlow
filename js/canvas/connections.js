@@ -257,6 +257,7 @@ export function createConnectionsApi({
             updateFlowDecoration(path, connection.id, projected.flowActive === true);
         });
         canvasConnectionRenderer.end();
+        ensureFlowAnimation();
         return {
             adoptedCount: pathById.size,
             hasUnmaterializedConnections: hasUnmaterializedConnections()
@@ -657,35 +658,30 @@ export function createConnectionsApi({
 
         excludeConnectionFromBitmap(connId);
         const decoration = ensureFlowDecoration(connId);
-        const pathData = path.getAttribute('d') || '';
-        if (decoration.pathData !== pathData) {
-            let totalLength = 0;
-            try {
-                totalLength = path.getTotalLength();
-            } catch {
-                removeFlowDecoration(connId);
-                return;
-            }
-
-            if (!Number.isFinite(totalLength) || totalLength < 80) {
-                removeFlowDecoration(connId);
-                return;
-            }
-
-            const arrowCount = decoration.arrows.length;
-            const edgePadding = Math.min(28, totalLength * 0.18);
-            const usableLength = Math.max(totalLength - edgePadding * 2, 1);
-            decoration.pathData = pathData;
-            decoration.totalLength = totalLength;
-            decoration.edgePadding = edgePadding;
-            decoration.usableLength = usableLength;
-            decoration.spacing = Math.max(26, usableLength / Math.max(arrowCount - 1, 1));
-        }
         decoration.active = true;
-        decoration.group.classList.toggle('active', decoration.active);
         if (path.nextSibling !== decoration.group) {
             path.parentNode?.insertBefore(decoration.group, path.nextSibling);
         }
+    }
+
+    function measureFlowPath(decoration, path, pathData) {
+        if (decoration.pathData === pathData) return true;
+        let totalLength;
+        try {
+            totalLength = path.getTotalLength();
+        } catch {
+            return false;
+        }
+        if (!Number.isFinite(totalLength) || totalLength < 80) return false;
+
+        const edgePadding = Math.min(28, totalLength * 0.18);
+        const usableLength = Math.max(totalLength - edgePadding * 2, 1);
+        decoration.pathData = pathData;
+        decoration.totalLength = totalLength;
+        decoration.edgePadding = edgePadding;
+        decoration.usableLength = usableLength;
+        decoration.spacing = Math.max(26, usableLength / Math.max(decoration.arrows.length - 1, 1));
+        return true;
     }
 
     function stopFlowAnimation() {
@@ -709,23 +705,21 @@ export function createConnectionsApi({
             return;
         }
         lastFlowAnimationTime = now;
-        let hasActiveDecoration = false;
+        const updates = [];
+        const obsolete = [];
 
+        // SVG metric reads can flush style after an arrow transform or path
+        // write. Measure every path before touching any decorations this frame.
         flowDecorationById.forEach((decoration, connId) => {
             if (!decoration.active) return;
 
             const path = pathById.get(connId);
             const pathData = path?.getAttribute('d');
-            if (!path || !pathData) {
-                decoration.active = false;
-                decoration.group.classList.remove('active');
+            if (!pathData || !measureFlowPath(decoration, path, pathData)) {
+                obsolete.push(connId);
                 return;
             }
 
-            hasActiveDecoration = true;
-            decoration.group.classList.add('active');
-
-            const arrowCount = decoration.arrows.length;
             const totalLength = decoration.totalLength;
             const edgePadding = decoration.edgePadding;
             const usableLength = decoration.usableLength;
@@ -733,7 +727,7 @@ export function createConnectionsApi({
             const speed = 0.045;
             const phase = (now * speed) % spacing;
 
-            decoration.arrows.forEach((arrow, index) => {
+            const poses = decoration.arrows.map((_, index) => {
                 const rawLength = edgePadding + phase + index * spacing;
                 const loopedLength = edgePadding + ((rawLength - edgePadding) % usableLength + usableLength) % usableLength;
                 const currentPoint = path.getPointAtLength(loopedLength);
@@ -742,19 +736,20 @@ export function createConnectionsApi({
                 const progress = (loopedLength - edgePadding) / usableLength;
                 const opacity = 0.38 + Math.sin(progress * Math.PI) * 0.48;
 
-                arrow.setAttribute(
-                    'transform',
-                    `translate(${currentPoint.x} ${currentPoint.y}) rotate(${angle})`
-                );
-                arrow.style.opacity = opacity.toFixed(3);
+                return { transform: `translate(${currentPoint.x} ${currentPoint.y}) rotate(${angle})`, opacity: opacity.toFixed(3) };
             });
+            updates.push({ decoration, poses });
         });
 
-        if (!hasActiveDecoration) {
-            return;
+        for (const connId of obsolete) removeFlowDecoration(connId);
+        for (const { decoration, poses } of updates) {
+            decoration.arrows.forEach((arrow, index) => {
+                arrow.setAttribute('transform', poses[index].transform);
+                arrow.style.opacity = poses[index].opacity;
+            });
+            decoration.group.classList.add('active');
         }
-
-        scheduleFlowAnimation();
+        if (updates.length) scheduleFlowAnimation();
     }
 
     function ensureFlowAnimation() {

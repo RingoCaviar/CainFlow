@@ -97,7 +97,9 @@ function createHarness(connectionCount, {
     onConnectionsChanged = () => {},
     onTopologyChanged,
     onGeometryRead = () => {},
-    onPathWrite = () => {}
+    onPathWrite = () => {},
+    onFlowRead = () => {},
+    onArrowTransform = () => {}
 } = {}) {
     const frames = [];
     const paths = [];
@@ -181,11 +183,12 @@ function createHarness(connectionCount, {
                 addEventListener() {},
                 setAttribute(name, value) {
                     if (name === 'd') onPathWrite();
+                    if (name === 'transform' && element.classList.contains('connection-flow-arrow')) onArrowTransform(value);
                     attributes.set(name, value);
                 },
                 getAttribute(name) { return attributes.get(name) || ''; },
-                getTotalLength() { return 120; },
-                getPointAtLength(length) { return { x: length, y: 0 }; },
+                getTotalLength() { onFlowRead('length'); return 120; },
+                getPointAtLength(length) { onFlowRead('point'); return { x: length, y: 0 }; },
                 removeAttribute() {},
                 appendChild() {},
                 remove() { element.removed = true; }
@@ -1167,6 +1170,44 @@ test('ConnectionProjection transfers a renderer-owned view through an opaque han
     assert.equal(handoff.rendererCache, undefined);
     assert.equal(projection.maintenance.adoptViewHandoff(handoff), true);
     assert.deepEqual(adopted, { rendererCache: 'private-cache' });
+});
+
+test('flow animation batches native path reads before updating any arrows', () => {
+    const operations = [];
+    const { api, frames, paths } = createHarness(2, {
+        running: true,
+        onFlowRead: operation => operations.push(operation),
+        onArrowTransform: () => operations.push('transform')
+    });
+    api.updateAllConnections();
+    assert.deepEqual(operations, [], 'rendering paths does not synchronously measure their lengths');
+    frames.shift()(100);
+    assert.equal(operations.filter(operation => operation === 'length').length, 2);
+    const firstWrite = operations.indexOf('transform');
+    assert.ok(firstWrite > 0);
+    assert.deepEqual(operations.slice(firstWrite), Array(14).fill('transform'));
+
+    operations.length = 0;
+    frames.shift()(200);
+    assert.equal(operations.includes('length'), false, 'unchanged paths reuse their measured length');
+    assert.deepEqual(operations, [...Array(28).fill('point'), ...Array(14).fill('transform')]);
+
+    const firstPath = paths.find(path => path.classList.contains('connection-path'));
+    firstPath.setAttribute('d', 'M 124 24 L 220 24');
+    operations.length = 0;
+    frames.shift()(300);
+    assert.equal(operations.filter(operation => operation === 'length').length, 1, 'a changed path is measured again');
+});
+
+test('a flow path with insufficient length does not leave an animation running', () => {
+    const { api, frames, paths } = createHarness(1, { running: true });
+    api.updateAllConnections();
+    const [path, decoration] = paths;
+    path.getTotalLength = () => 60;
+
+    frames.shift()(100);
+    assert.equal(decoration.removed, true);
+    assert.equal(frames.length, 0);
 });
 
 test('destroying connections cancels flow animation and removes derived paths', () => {

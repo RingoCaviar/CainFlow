@@ -91,6 +91,12 @@ Define an evidence-backed implementation plan that makes CainFlow's canvas inter
 
 同一 WebView2 窗口的 200／400 对照中，连续 4.5 秒的重复平移和滚轮缩放曾分别排队 78 和 45 个空连线投影回调。现在只为待处理的连线、节点或全量投影排队，复测两项均为零。相同测量中平移 p95 为 39.9 → 40.0 ms，缩放 p95 均为 40.1 ms。定向回归覆盖视口运动期间无空投影，以及手势结束仍做连线校验。见 [连线投影实现](../../js/canvas/connection-projection.js)。
 
+#### 运行中连线的流动箭头
+
+WebView2 CPU 采样将缩放收尾的大量时间归到刷新连线时执行的 `getTotalLength()`，将重复平移期间的热点归到箭头动画的 `getPointAtLength()`。原代码边读取 SVG 路径边写入箭头变换。现将长度测量移出连线路径投影，每个动画帧先集中读所有运行中路径，再集中写箭头变换和透明度。路径数据相同时复用长度，变更后重测。短线仍不显示箭头。
+
+同配置 200 节点／400 连线的独立桌面窗口中，两个 5 秒重复平移样本的 Chromium 布局次数从 6,885／12,493 降到 195／153。两边聚焦窗口的第二轮滚轮缩放从 87,921 降到 136，帧间隔 p95 从 40.1 降到 30.0 ms。平移 p95 由 40.0／40.0 ms 变为 49.9／40.1 ms，超过 50 ms 的帧由 3／4 变为 8／8。聚焦缩放对照的超过 50 ms 帧由 2 变为 5。布局工作有明显下降，长帧仍有波动。 [流动箭头实现](../../js/canvas/connections.js)
+
 ## Out of scope
 
 - Redesigning the editor's node UI or changing workflow semantics solely for benchmark performance.

@@ -2,6 +2,33 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {withAppBrowser, waitForAutosave, reloadAppBrowser} from './helpers/app-browser.mjs';
 
+test('running connection arrows animate after projection and stop when the node finishes', { timeout: 30000 }, async () => {
+    await withAppBrowser({
+        autoCheckUpdatesOnLoad: false,
+        nodes: [{ id: 'flow-source', type: 'Text', x: 80, y: 130 }, { id: 'flow-target', type: 'Text', x: 640, y: 220 }],
+        connections: [{ id: 'flow-wire', from: { nodeId: 'flow-source', port: 'text' },
+            to: { nodeId: 'flow-target', port: 'text' }, type: 'text' }]
+    }, async app => {
+        await app.evaluate(`(async () => {
+            const { state, registry } = await (await import('/js/app/bootstrap.js')).bootstrapCainFlowApp();
+            window.setFlowRunning = running => {
+                if (running) state.runningNodeIds.add('flow-source');
+                else state.runningNodeIds.delete('flow-source');
+                registry.connectionProjectionApi.interactions.nodeAppearanceChanged('flow-source');
+            };
+            window.flowArrowTransform = () => document.querySelector(
+                '[data-conn-flow-id="flow-wire"].active .connection-flow-arrow'
+            )?.getAttribute('transform');
+            setFlowRunning(true);
+        })()`);
+        await app.waitFor("flowArrowTransform()?.startsWith('translate(')");
+        await app.evaluate('window.firstFlowArrow = flowArrowTransform()');
+        await app.waitFor('flowArrowTransform() && flowArrowTransform() !== firstFlowArrow');
+        await app.evaluate('setFlowRunning(false)');
+        await app.waitFor("!document.querySelector('[data-conn-flow-id=flow-wire]')");
+    });
+});
+
 test('temporary wire animation runs only while a path is drawn', { timeout: 30000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false,
         nodes: [{ id: 'wire-source', type: 'Text', x: 80, y: 120, text: 'Wire source' }], connections: [] }, async app => {
