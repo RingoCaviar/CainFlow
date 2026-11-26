@@ -3,7 +3,7 @@
  */
 import { getFirstCompatibleDefinitionPort, getNodeDefinition, getNodeDefinitionPorts, listNodeDefinitions } from '../nodes/registry.js';
 import { createCanvasConnectionRenderer } from './canvas-connection-renderer.js';
-import { checkLineIntersection, getBezierCurveGeometry } from './geometry.js';
+import { checkLineIntersection, createBezierLengthSampler, getBezierCurveGeometry } from './geometry.js';
 import { orderImageReferenceConnections } from '../nodes/image-reference-projection.js';
 import {
     applyReferenceImagePorts,
@@ -673,9 +673,10 @@ export function createConnectionsApi({
 
     function measureFlowPath(decoration, path, pathData) {
         if (decoration.pathData === pathData) return true;
+        const sampler = createBezierLengthSampler(pathData);
         let totalLength;
         try {
-            totalLength = path.getTotalLength();
+            totalLength = sampler?.length ?? path.getTotalLength();
         } catch {
             return false;
         }
@@ -684,6 +685,7 @@ export function createConnectionsApi({
         const edgePadding = Math.min(28, totalLength * 0.18);
         const usableLength = Math.max(totalLength - edgePadding * 2, 1);
         decoration.pathData = pathData;
+        decoration.sampler = sampler;
         decoration.totalLength = totalLength;
         decoration.edgePadding = edgePadding;
         decoration.usableLength = usableLength;
@@ -738,18 +740,16 @@ export function createConnectionsApi({
                 return;
             }
 
-            const totalLength = decoration.totalLength;
-            const edgePadding = decoration.edgePadding;
-            const usableLength = decoration.usableLength;
-            const spacing = decoration.spacing;
+            const { totalLength, edgePadding, usableLength, spacing, sampler } = decoration;
             const speed = 0.045;
             const phase = (now * speed) % spacing;
 
             const poses = decoration.arrows.map((_, index) => {
                 const rawLength = edgePadding + phase + index * spacing;
                 const loopedLength = edgePadding + ((rawLength - edgePadding) % usableLength + usableLength) % usableLength;
-                const currentPoint = path.getPointAtLength(loopedLength);
-                const tangentPoint = path.getPointAtLength(Math.min(loopedLength + 1.5, totalLength));
+                const tangentLength = Math.min(loopedLength + 1.5, totalLength);
+                const currentPoint = sampler?.pointAtLength(loopedLength) ?? path.getPointAtLength(loopedLength);
+                const tangentPoint = sampler?.pointAtLength(tangentLength) ?? path.getPointAtLength(tangentLength);
                 const angle = Math.atan2(tangentPoint.y - currentPoint.y, tangentPoint.x - currentPoint.x) * 180 / Math.PI;
                 const progress = (loopedLength - edgePadding) / usableLength;
                 const opacity = 0.38 + Math.sin(progress * Math.PI) * 0.48;

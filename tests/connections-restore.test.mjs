@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createConnectionsApi } from '../js/canvas/connections.js';
 import { createConnectionProjection } from '../js/canvas/connection-projection.js';
 import { createCanvasPerformanceMonitor } from '../js/app/dev/canvas-performance-monitor.js';
-import { getConnectionSamplePoints } from '../js/canvas/geometry.js';
+import { createBezierLengthSampler, getConnectionSamplePoints } from '../js/canvas/geometry.js';
 
 function createClassList() {
     const values = new Set();
@@ -1210,6 +1210,37 @@ test('a flow path with insufficient length does not leave an animation running',
     frames.shift()(100);
     assert.equal(decoration.removed, true);
     assert.equal(frames.length, 0);
+});
+
+test('running Bézier paths reuse a distance sampler and replace it when the path changes', () => {
+    const nativeReads = [];
+    const transforms = [];
+    const { api, frames, paths } = createHarness(1, {
+        running: true,
+        createBezierPathImpl: () => 'M 0 20 C 40 20, 80 20, 120 20',
+        onFlowRead: read => nativeReads.push(read),
+        onArrowTransform: transform => transforms.push(transform)
+    });
+    api.updateAllConnections();
+    frames.shift()(100);
+    frames.shift()(200);
+    assert.deepEqual(nativeReads, []);
+    const firstArrowX = frame => Number(/^translate\(([^ ]+) 20\) rotate\(0\)$/.exec(transforms[frame * 7])[1]);
+    assert.ok(Math.abs(firstArrowX(0) - 26.1) < 1e-8);
+    assert.ok(Math.abs(firstArrowX(1) - 30.6) < 1e-8);
+
+    const [path] = paths;
+    path.setAttribute('d', 'M 0 30 C 40 30, 80 30, 120 30');
+    frames.shift()(300);
+    assert.match(transforms[14], /^translate\([^ ]+ 30\) rotate\(0\)$/);
+    assert.deepEqual(nativeReads, []);
+});
+
+test('Bézier distance sampling follows a curved route and leaves rounded orthogonal paths to SVG', () => {
+    const sampler = createBezierLengthSampler('M 0 0 C 0 100, 200 100, 200 0');
+    const halfway = sampler.pointAtLength(sampler.length / 2);
+    assert.ok(Math.hypot(halfway.x - 100, halfway.y - 75) < 0.08);
+    assert.equal(createBezierLengthSampler('M 0 0 L 40 0 Q 50 0 50 10 L 50 100'), null);
 });
 
 test('flow arrows update less often during a dense viewport gesture and resume without a path refresh', () => {

@@ -28,6 +28,10 @@ test('running connections switch between animated arrows and static overview col
         await app.waitFor("flowArrowTransform()?.startsWith('translate(')");
         await app.evaluate('window.firstFlowArrow = flowArrowTransform()');
         await app.waitFor('flowArrowTransform() && flowArrowTransform() !== firstFlowArrow');
+        assert.equal(await app.evaluate(`(() => {
+            const { e, f } = flowArrow().transform.baseVal.getItem(0).matrix;
+            return flowPath.isPointInStroke(new DOMPoint(e, f));
+        })()`), true);
 
         await app.evaluate('zoomFlow(0.1)');
         await app.waitFor("flowArrow() && getComputedStyle(flowArrow().parentElement).display === 'none'");

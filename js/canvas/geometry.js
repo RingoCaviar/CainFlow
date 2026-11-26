@@ -235,3 +235,60 @@ export function createBezierPath(x1, y1, x2, y2, options = {}) {
     const { start, control1, control2, end } = getBezierCurveGeometry(x1, y1, x2, y2, options);
     return `M ${start.x} ${start.y} C ${control1.x} ${control1.y}, ${control2.x} ${control2.y}, ${end.x} ${end.y}`;
 }
+
+export function createBezierLengthSampler(pathData) {
+    // The renderer emits a single absolute cubic. Other SVG routes use native metrics.
+    const tokens = pathData.trim().split(/[\s,]+/);
+    if (tokens.length !== 10 || tokens[0] !== 'M' || tokens[3] !== 'C') return null;
+    const coordinates = [tokens[1], tokens[2], ...tokens.slice(4)].map(Number);
+    if (!coordinates.every(Number.isFinite)) return null;
+
+    const [start, first, second, end] = [0, 2, 4, 6].map(index => ({ x: coordinates[index], y: coordinates[index + 1] }));
+    const tolerance = 0.08; // World pixels, below one screen pixel even at 500% zoom.
+    const samples = [{ ...start, distance: 0 }];
+    let length = 0;
+
+    const distance = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+    const midpoint = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+    function flatten(a, b, c, d, lengthError, depth) {
+        const chord = distance(a, d);
+        const polygon = distance(a, b) + distance(b, c) + distance(c, d);
+        const dx = d.x - a.x, dy = d.y - a.y;
+        const deviation = Math.max(
+            Math.abs(dx * (b.y - a.y) - dy * (b.x - a.x)),
+            Math.abs(dx * (c.y - a.y) - dy * (c.x - a.x))
+        );
+        if (polygon - chord <= lengthError && deviation <= tolerance * chord) {
+            if (chord > 0) {
+                if (samples.length >= 512) return false;
+                length += chord;
+                samples.push({ ...d, distance: length });
+            }
+            return true;
+        }
+        if (depth === 16) return false;
+        const ab = midpoint(a, b), bc = midpoint(b, c), cd = midpoint(c, d);
+        const abc = midpoint(ab, bc), bcd = midpoint(bc, cd);
+        const center = midpoint(abc, bcd);
+        // Divide the length-error budget across both halves of the curve.
+        return flatten(a, ab, abc, center, lengthError / 2, depth + 1) &&
+            flatten(center, bcd, cd, d, lengthError / 2, depth + 1);
+    }
+
+    if (!flatten(start, first, second, end, tolerance, 0) || !Number.isFinite(length)) return null;
+    function pointAtLength(position) {
+        if (position <= 0 || length === 0) return start;
+        if (position >= length) return end;
+        let low = 0, high = samples.length - 1;
+        while (high - low > 1) {
+            const mid = (low + high) >>> 1;
+            if (samples[mid].distance < position) low = mid;
+            else high = mid;
+        }
+        const a = samples[low], b = samples[high];
+        const fraction = (position - a.distance) / (b.distance - a.distance);
+        return { x: a.x + fraction * (b.x - a.x), y: a.y + fraction * (b.y - a.y) };
+    }
+
+    return { length, pointAtLength };
+}
