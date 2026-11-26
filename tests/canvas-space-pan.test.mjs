@@ -301,6 +301,41 @@ test('precision wheel deltas produce proportional zoom changes', () => {
     assert.ok(state.canvas.zoom < 1.01);
 });
 
+test('wheel input that cannot change zoom skips the anchor read and the gesture lifecycle', () => {
+    for (const [zoom, deltaY, deltaMode] of [[0.1, 1, 2], [5, -1, 1], [1, 0, 0]]) {
+        const { canvasContainer, canvasListeners, state, projectionCalls, viewportCalls, viewportSaveCalls } = createHarness();
+        state.canvas.zoom = zoom;
+        const addedClasses = [];
+        canvasContainer.classList.add = name => addedClasses.push(name);
+        let layoutReads = 0;
+        canvasContainer.getBoundingClientRect = () => {
+            layoutReads++;
+            return { left: 0, top: 0, width: 800, height: 600 };
+        };
+        let prevented = false;
+        try {
+            const wheel = canvasListeners.find(({ type }) => type === 'wheel').listener;
+            const event = { clientX: 400, clientY: 300, deltaX: 10, deltaY, deltaMode,
+                target: { closest() { return null; } }, preventDefault() { prevented = true; } };
+            wheel(event);
+            assert.equal(prevented, true);
+            assert.deepEqual(state.canvas, { x: 10, y: 20, zoom, isPanning: false });
+            assert.equal(layoutReads, 0);
+            assert.deepEqual(addedClasses, []);
+            assert.equal(state.zoomTimer, undefined);
+            assert.deepEqual(projectionCalls, []);
+            assert.deepEqual(viewportCalls, []);
+            assert.deepEqual(viewportSaveCalls, []);
+            if (deltaY) {
+                wheel({ ...event, deltaY: -deltaY });
+                assert.notEqual(state.canvas.zoom, zoom);
+                assert.equal(layoutReads, 1);
+                assert.deepEqual(addedClasses, ['is-zooming']);
+            }
+        } finally { clearTimeout(state.zoomTimer); }
+    }
+});
+
 test('line-mode mouse wheels are normalized before zooming', () => {
     const { canvasListeners, state } = createHarness();
     const wheelListener = canvasListeners.find(({ type }) => type === 'wheel');

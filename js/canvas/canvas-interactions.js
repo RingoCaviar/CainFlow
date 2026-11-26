@@ -75,6 +75,8 @@ export function createCanvasInteractionsApi({
     const SHAKE_REVERSE_DOT = -0.45;
     const FALLBACK_NODE_WIDTH = 180;
     const FALLBACK_NODE_HEIGHT = 120;
+    const MIN_WHEEL_ZOOM = 0.1;
+    const MAX_WHEEL_ZOOM = 5;
     const WHEEL_ZOOM_SENSITIVITY = 0.0011;
     const WHEEL_LINE_HEIGHT_PX = 32;
     const MAX_WHEEL_ZOOM_DELTA_PX = 100;
@@ -633,11 +635,10 @@ export function createCanvasInteractionsApi({
         closeProjectionInteraction(CANVAS_INTERACTION_KIND.ZOOM);
     }
 
-    function getWheelDeltaPixels(event, canvasHeight) {
-        const rawDelta = Number(event?.deltaY) || 0;
-        const pixels = event?.deltaMode === 1
+    function getWheelDeltaPixels(rawDelta, deltaMode, canvasHeight) {
+        const pixels = deltaMode === 1
             ? rawDelta * WHEEL_LINE_HEIGHT_PX
-            : event?.deltaMode === 2
+            : deltaMode === 2
                 ? rawDelta * Math.max(1, canvasHeight)
                 : rawDelta;
         return Math.max(-MAX_WHEEL_ZOOM_DELTA_PX, Math.min(MAX_WHEEL_ZOOM_DELTA_PX, pixels));
@@ -1487,9 +1488,20 @@ export function createCanvasInteractionsApi({
             if (!idleText && hasScrollableNodeAncestor(e.target)) return;
 
             e.preventDefault();
+            const oldZoom = state.canvas.zoom;
+            const deltaY = Number(e.deltaY) || 0;
+            if (!deltaY || (oldZoom === MIN_WHEEL_ZOOM && deltaY > 0) ||
+                (oldZoom === MAX_WHEEL_ZOOM && deltaY < 0)) return;
+
             // Read the anchor before interaction classes invalidate the canvas
             // subtree, so wheel input does not force an extra style/layout pass.
             const rect = canvasContainer.getBoundingClientRect();
+            // Normalize precision touchpads and wheel mice into proportional zoom.
+            const zoomDelta = getWheelDeltaPixels(deltaY, e.deltaMode, rect.height);
+            const zoomFactor = Math.exp(-zoomDelta * WHEEL_ZOOM_SENSITIVITY);
+            const newZoom = Math.max(MIN_WHEEL_ZOOM, Math.min(MAX_WHEEL_ZOOM, oldZoom * zoomFactor));
+            if (newZoom === oldZoom) return;
+
             canvasContainer.classList.add('is-zooming');
 
             if (!state.isInteracting) {
@@ -1515,13 +1527,6 @@ export function createCanvasInteractionsApi({
 
             const mx = e.clientX - rect.left;
             const my = e.clientY - rect.top;
-            const oldZoom = state.canvas.zoom;
-            // Precision touchpads emit small pixel deltas while wheel mice often emit
-            // line deltas. Scaling proportionally keeps both inputs continuous instead
-            // of turning every event into a visible 10% jump.
-            const zoomDelta = getWheelDeltaPixels(e, rect.height);
-            const zoomFactor = Math.exp(-zoomDelta * WHEEL_ZOOM_SENSITIVITY);
-            const newZoom = Math.max(0.1, Math.min(5, oldZoom * zoomFactor));
             state.canvas.x = mx - (mx - state.canvas.x) * (newZoom / oldZoom);
             state.canvas.y = my - (my - state.canvas.y) * (newZoom / oldZoom);
             state.canvas.zoom = newZoom;
