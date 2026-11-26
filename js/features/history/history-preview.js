@@ -345,7 +345,6 @@ export function createHistoryPreviewApi({
         syncNoteForm(item);
         const actionHost = documentRef.getElementById('history-image-result-actions');
         actionHost?.replaceChildren();
-        btnDownload?.classList.toggle('hidden', !isVideo && Boolean(createImageResultActions));
         if (!isVideo && actionHost && createImageResultActions) {
             const actions = createImageResultActions({
                 name: `历史图片 ${item.id}`, historyId: item.id, assetKey: item.imageAssetKey,

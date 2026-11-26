@@ -5,7 +5,7 @@ import { runUiFixture } from './helpers/ui-browser-fixture.mjs';
 
 test('history image preview unfolds actions and zooms or fits using the lower-right controls', async () => {
     const result = await runUiFixture('tests/fixtures/history-preview-controls.html');
-    assert.deepEqual(result, { folded: true, revealed: true, download: true, zoomIn: true, zoomOut: true, fit: true, closed: true });
+    assert.deepEqual(result, { folded: true, downloadVisible: true, revealed: true, download: true, zoomIn: true, zoomOut: true, fit: true, closed: true });
 });
 
 test('history image preview remembers the information disclosure through navigation and reload', { timeout: 30000 }, async () => {
@@ -93,13 +93,13 @@ test('history image preview remembers the information disclosure through navigat
         await app.waitFor('innerWidth === 360 && innerHeight === 420');
         await app.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
         assert.deepEqual(await app.evaluate(`(() => {
-            const controls = ['btn-copy-prompt', 'btn-next-preview', 'btn-preview-fit', 'btn-toggle-history-preview-info'];
+            const controls = ['btn-download-preview', 'btn-copy-prompt', 'btn-next-preview', 'btn-preview-fit', 'btn-toggle-history-preview-info'];
             return controls.filter(id => {
                 const button = document.getElementById(id);
                 const { x, y, width, height } = button.getBoundingClientRect();
                 return !button.contains(document.elementFromPoint(x + width / 2, y + height / 2));
             });
-        })()`), [], 'copy, navigation, zoom, and disclosure remain clickable in a narrow and short window');
+        })()`), [], 'download, copy, navigation, zoom, and disclosure remain clickable in a narrow and short window');
         await app.send('Emulation.setDeviceMetricsOverride', { width: 1100, height: 820, deviceScaleFactor: 1, mobile: false });
 
         const position = await app.evaluate(`(() => {

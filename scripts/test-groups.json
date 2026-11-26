@@ -346,6 +346,7 @@
     "tests/connection-target-snap.test.mjs": {"tier": "fast", "groups": ["canvas"]},
     "tests/connections-restore.test.mjs": {"tier": "fast", "groups": ["canvas"]},
     "tests/context-menu-contract.test.mjs": {"tier": "fast", "groups": ["ui"]},
+    "tests/text-context-menu-browser.test.mjs": {"tier": "browser", "groups": ["ui"], "sources": ["css/modules/08-context-menu.css", "js/features/ui/text-context-menu.js"]},
     "tests/commerce-candidate-comparison-browser.test.mjs": {"tier": "browser", "groups": ["nodes", "ui", "theme"], "sources": ["js/features/ecommerce-image-set/commerce-shot-candidates-dialog.js", "css/features/image-first-canvas.css", "css/components/form-controls.css"]},
     "tests/commerce-detail-page-ui-app-browser.test.mjs": {"tier": "browser", "groups": ["canvas", "nodes", "media", "workflow"], "sources": ["js/core/zip-archive-worker.js", "js/features/ecommerce-image-set/commerce-detail-page-dialog.js", "js/features/ecommerce-image-set/commerce-detail-page.js", "js/features/ecommerce-image-set/commerce-image-set-export-dialog.js", "js/features/media/zip-download.js", "js/features/execution/execution-core.js", "js/features/workflow/workflow-runtime-manager.js"]},
     "tests/commerce-detail-page.test.mjs": {"tier": "fast", "groups": ["nodes", "media"]},

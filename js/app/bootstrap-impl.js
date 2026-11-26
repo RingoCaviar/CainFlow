@@ -77,6 +77,7 @@ import { createDesktopExit } from '../features/persistence/desktop-exit.js';
 import { createClipboardControllerApi } from '../features/ui/clipboard-controller.js';
 import { createGlobalInteractionsApi } from '../features/ui/global-interactions.js';
 import { createContextMenuControllerApi } from '../features/ui/context-menu-controller.js';
+import { installTextContextMenu } from '../features/ui/text-context-menu.js';
 import { createErrorModalControllerApi } from '../features/ui/error-modal-controller.js';
 import { openDialogStyle1 } from '../features/ui/dialog-style-1.js';
 import { createRuntimeControllerApi } from '../features/ui/runtime-controller.js';
@@ -1050,6 +1051,10 @@ function getBatchConnectionModeApi() {
 getCanvasInteractionsApi().initCanvasInteractions();
 
 getContextMenuControllerApi().initContextMenu();
+installTextContextMenu({
+    showToast,
+    onNativeClipboardWrite: () => getClipboardControllerApi().markNativeClipboardWrite()
+});
 getBatchConnectionModeApi().initBatchConnectionMode();
 
 // ===== 节点配置 =====

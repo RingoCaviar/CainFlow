@@ -81,6 +81,7 @@
 }
 
 .preview-action-reveal,
+.preview-action-download,
 .preview-zoom-controls button {
     display: inline-flex;
     align-items: center;
@@ -97,7 +98,7 @@
 }
 
 /* Preview controls sit over the media and need an opaque, contrast-safe backplate. */
-:is(.fullscreen-overlay, #history-preview-modal) :is(.preview-action-list > *, .preview-action-reveal, .preview-zoom-controls button) {
+:is(.fullscreen-overlay, #history-preview-modal) :is(.preview-action-list > *, .preview-action-reveal, .preview-action-download, .preview-zoom-controls button) {
     background: var(--preview-control-surface);
     border: 1px solid var(--preview-control-border);
     border-radius: 10px;
@@ -108,7 +109,7 @@
     transition: background-color 150ms ease-out;
 }
 
-:is(.fullscreen-overlay, #history-preview-modal) :is(.preview-action-list > *, .preview-action-reveal, .preview-zoom-controls button):hover,
+:is(.fullscreen-overlay, #history-preview-modal) :is(.preview-action-list > *, .preview-action-reveal, .preview-action-download, .preview-zoom-controls button):hover,
 :is(.fullscreen-overlay, #history-preview-modal) .preview-action-dock:is(:hover, :focus-within, .is-expanded) > .preview-action-reveal {
     background: var(--preview-control-hover);
     transform: none;
@@ -121,7 +122,7 @@
     --preview-control-text: #052e16;
 }
 
-:is(.fullscreen-overlay, #history-preview-modal) :is(.preview-action-list > *, .preview-action-reveal, .preview-zoom-controls button):focus-visible {
+:is(.fullscreen-overlay, #history-preview-modal) :is(.preview-action-list > *, .preview-action-reveal, .preview-action-download, .preview-zoom-controls button):focus-visible {
     outline: 2px solid currentColor;
     outline-offset: -4px;
 }
@@ -151,5 +152,5 @@
 
 @media (prefers-reduced-motion: reduce) {
     .preview-action-dock .preview-action-list,
-    :is(.fullscreen-overlay, #history-preview-modal) :is(.preview-action-list > *, .preview-action-reveal, .preview-zoom-controls button) { transition-duration: 0ms; }
+    :is(.fullscreen-overlay, #history-preview-modal) :is(.preview-action-list > *, .preview-action-reveal, .preview-action-download, .preview-zoom-controls button) { transition-duration: 0ms; }
 }

@@ -13,13 +13,17 @@ try {
     const api = createHistoryPreviewApi({ getHistory: async () => [item], getHistoryMetadata: async () => [item],
         getHistoryEntry: async () => item, getHistoryImageBlob: async () => null, deleteHistoryEntry: async () => {},
         getImageResolution: async () => '200 × 100', downloadImage: async () => {}, copyToClipboard: () => {},
-        copyImageToClipboard: async () => {}, renderHistoryList: () => {}, showToast: () => {}, documentRef: document, windowRef: window });
+        copyImageToClipboard: async () => {}, renderHistoryList: () => {}, showToast: () => {}, documentRef: document, windowRef: window,
+        createImageResultActions: () => ({ element: document.createElement('div') }) });
     api.initHistoryPreview();
     await api.openHistoryPreview(item);
     const modal = document.getElementById('history-preview-modal');
     const img = document.getElementById('history-preview-img');
     const actions = modal.querySelector('.preview-action-list');
     result.folded = getComputedStyle(actions).visibility === 'hidden';
+    const download = document.getElementById('btn-download-preview');
+    const { x, y, width, height } = download.getBoundingClientRect();
+    result.downloadVisible = download.contains(document.elementFromPoint(x + width / 2, y + height / 2));
     modal.querySelector('.preview-action-reveal').click();
     result.revealed = getComputedStyle(actions).visibility === 'visible';
     let saved;

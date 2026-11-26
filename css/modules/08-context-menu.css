@@ -29,6 +29,17 @@
     display: none;
 }
 
+.context-menu.text-context-menu {
+    min-width: min(144px, calc(100vw - 16px));
+    animation: none;
+}
+
+.text-context-menu .context-menu-item:disabled {
+    opacity: 0.55;
+    cursor: default;
+    pointer-events: none;
+}
+
 #workflow-context-menu,
 #workflow-folder-context-menu {
     z-index: var(--layer-menu);
