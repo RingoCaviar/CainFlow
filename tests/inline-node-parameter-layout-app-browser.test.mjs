@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { reloadAppBrowser, withAppBrowser } from './helpers/app-browser.mjs';
-import { key, nativeClick, openParameters } from './helpers/image-first-integrated-fixture.mjs';
+import { key, nativeClick, openParameters, persist } from './helpers/image-first-integrated-fixture.mjs';
 import { getProtocolVariantDraftKey } from '../js/nodes/protocol-variant-drafts.js';
 
 const params = Array.from({ length: 11 }, (_, index) => ({ key: `setting_${index}`, value: `${index}` }));
@@ -23,6 +23,51 @@ const session = {
     ],
     connections: []
 };
+
+test('chat restores automatic and manually resized card heights across reloads', { timeout: 30000 }, async () => {
+    await withAppBrowser({
+        ...session,
+        nodes: [
+            { id: 'auto-chat', type: 'TextChat', x: 60, y: 60, height: 780, chatLayoutVersion: 3,
+                textareaHeights: { response: 720 }, lastText: '已保存的回复' },
+            { id: 'manual-chat', type: 'TextChat', x: 520, y: 60, width: 440, height: 360, userResized: true,
+                chatLayoutVersion: 3, textareaHeights: { response: 240 }, lastText: '已保存的回复' }
+        ]
+    }, async app => {
+        const cardHeight = id => app.evaluate(`document.getElementById('${id}').offsetHeight`);
+        const automaticHeight = await cardHeight('auto-chat');
+        assert.ok(automaticHeight < 300, `automatic card restored at ${automaticHeight}px`);
+        assert.equal(await cardHeight('manual-chat'), 360);
+
+        const resizeHandle = '#manual-chat .node-resize-handle--bottom-right';
+        const start = await app.evaluate(`(() => {
+            const rect = document.querySelector('${resizeHandle}').getBoundingClientRect();
+            return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        })()`);
+        const end = { x: start.x + 28, y: start.y + 40 };
+        await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...start, button: 'left', buttons: 1, clickCount: 1 });
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...end, buttons: 1 });
+        await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...end, button: 'left', clickCount: 1 });
+        const snapshot = await persist(app);
+        const resized = snapshot.nodes.find(node => node.id === 'manual-chat');
+        assert.ok(resized.width > 440 && resized.height > 360);
+        assert.ok(resized.textareaHeights.response > 240);
+        assert.equal(snapshot.nodes.find(node => node.id === 'auto-chat').textareaHeights?.response, undefined);
+
+        await reloadAppBrowser(app);
+        assert.equal(await cardHeight('auto-chat'), automaticHeight);
+        assert.equal(await cardHeight('manual-chat'), resized.height);
+        assert.equal(await app.evaluate("document.getElementById('manual-chat').offsetWidth"), resized.width);
+        assert.equal(await app.evaluate("document.getElementById('manual-chat-response').style.height"), `${resized.textareaHeights.response}px`);
+        assert.equal(await app.evaluate("document.getElementById('auto-chat-response').textContent"), '已保存的回复');
+
+        await app.evaluate(`document.querySelector('${resizeHandle}')
+            .dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`);
+        assert.equal(await cardHeight('manual-chat'), automaticHeight, 'fitting to content clears the manual reply height');
+        await reloadAppBrowser(app);
+        assert.equal(await cardHeight('manual-chat'), automaticHeight);
+    });
+});
 
 test('chat uses a compact canvas card and keeps its editable parameters and reply through reload', { timeout: 30000 }, async () => {
     const chatId = 'compact-chat';
@@ -183,6 +228,7 @@ test('chat uses a compact canvas card and keeps its editable parameters and repl
 
         await reloadAppBrowser(app);
         assert.equal(await text(`#${chatId}-response`), reply);
+        assert.ok(await visibleCardHeight() < 300, 'restoring a short reply keeps the card compact');
         await app.evaluate(`
             document.getElementById('btn-theme-toggle').click();
             document.querySelector('#theme-menu [data-theme-id=paper]').click();

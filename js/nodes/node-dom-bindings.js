@@ -2735,6 +2735,7 @@ export function createNodeDomBindingsApi({
             if (!node || blockRunningNodeMutation(id, e, '节点正在运行，暂不能调整大小')) return;
             pushHistory();
             node.userResized = false;
+            if (type === 'TextChat') queryNodeControl(el, `#${id}-response`)?.style.removeProperty('height');
             fitNodeToContent(id, {
                 allowShrink: true,
                 reason: 'element-resize',
@@ -3367,13 +3368,14 @@ export function createNodeDomBindingsApi({
             const responseField = responseArea?.closest('.node-chat-response-field');
             const getResponseText = () => responseArea && !responseArea.querySelector('.chat-response-placeholder')
                 ? responseArea.innerText.trim() : '';
-            let hadResponse = null;
+            // The installed card performs the initial fit once its parameter form is out of the card.
+            let hadResponse;
             const refreshResponse = () => {
                 const hasResponse = Boolean(getResponseText());
                 responseField?.classList.toggle('is-empty', !hasResponse);
                 if (copyBtn) copyBtn.disabled = !hasResponse;
                 if (previewBtn) previewBtn.disabled = !hasResponse;
-                if (hadResponse !== hasResponse) fitNodeToContent(id, { reason: 'element-resize' });
+                if (hadResponse !== undefined && hadResponse !== hasResponse) fitNodeToContent(id, { reason: 'element-resize' });
                 hadResponse = hasResponse;
             };
             if (copyBtn) {

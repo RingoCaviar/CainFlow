@@ -60,12 +60,10 @@ export function createNodeSerializer({ state, documentRef }) {
                 heights.manual = true;
             }
         });
-        const responseArea = documentRef.getElementById(`${id}-response`);
-        if (responseArea) {
-            const savedHeight = parseFloat(responseArea.style.height || '0');
-            const responseHeight = responseArea.closest?.('.node-chat-response-field.is-empty')
-                ? savedHeight
-                : (responseArea.offsetHeight || savedHeight);
+        if (node?.type === 'TextChat' && node.userResized === true) {
+            // An automatic measurement is not a resize and must not become a fixed height on restore.
+            const responseArea = documentRef.getElementById(`${id}-response`);
+            const responseHeight = parseFloat(responseArea?.style.height);
             if (Number.isFinite(responseHeight) && responseHeight > 0) {
                 heights.response = Math.round(responseHeight);
             }

@@ -1257,24 +1257,24 @@ export function createNodeLifecycleApi({
         }
         const restoreLayoutOptions = silent ? { save: false } : {};
         const id = effectiveRestoreData?.id ? effectiveRestoreData.id : generateId();
-        const shouldNormalizeLegacyChatLayout = normalizedType === 'TextChat'
-            && effectiveRestoreData
-            && effectiveRestoreData.chatLayoutVersion !== 3;
+        const isChat = normalizedType === 'TextChat';
+        const usesImageCard = isImageFirstCardNode(normalizedType);
+        const shouldNormalizeLegacyChatLayout = isChat && effectiveRestoreData && effectiveRestoreData.chatLayoutVersion !== 3;
+        const restoredUserResized = effectiveRestoreData?.userResized === true;
+        const initialUserResized = restoredUserResized && !shouldNormalizeLegacyChatLayout;
         if (shouldNormalizeLegacyChatLayout) {
             const { textareaHeights, ...restoredChatData } = effectiveRestoreData;
             effectiveRestoreData = restoredChatData;
         }
         // Recalculate automatic card height while retaining saved editor sizes.
-        if (isImageFirstCardNode(normalizedType) && effectiveRestoreData && effectiveRestoreData.userResized !== true) {
-            const { height, ...restoredGenerationData } = effectiveRestoreData;
-            effectiveRestoreData = restoredGenerationData;
+        if (effectiveRestoreData && (usesImageCard || isChat) && !initialUserResized) {
+            const { height, ...restoredCardData } = effectiveRestoreData;
+            effectiveRestoreData = restoredCardData;
         }
-        const restoredUserResized = effectiveRestoreData?.userResized === true;
-        const initialUserResized = restoredUserResized && !shouldNormalizeLegacyChatLayout;
         const el = documentRef.createElement('div');
         el.className = `node ${config.cssClass}`;
         // TextChat shares the card chrome while keeping text-based sizing.
-        if (isImageFirstCardNode(normalizedType) || normalizedType === 'TextChat') el.classList.add('image-first-card');
+        if (usesImageCard || isChat) el.classList.add('image-first-card');
         el.id = id;
         if (effectiveRestoreData?.isClone === true && effectiveRestoreData?.cloneSourceId) {
             el.classList.add('node-clone');
@@ -1282,16 +1282,16 @@ export function createNodeLifecycleApi({
         }
         el.style.left = x + 'px';
         el.style.top = y + 'px';
-        const restoredManualWidth = isImageFirstCardNode(normalizedType) && restoredUserResized
+        const restoredManualWidth = usesImageCard && restoredUserResized
             && Number.isFinite(Number(effectiveRestoreData.width)) && Number(effectiveRestoreData.width) > 0;
         const initialWidth = restoredManualWidth ? Number(effectiveRestoreData.width) : clampNodeWidthToDefault(effectiveRestoreData?.width, config, {
-            userResized: restoredUserResized || (isImageFirstCardNode(normalizedType) && Number(effectiveRestoreData?.width) > 0)
+            userResized: restoredUserResized || (usesImageCard && Number(effectiveRestoreData?.width) > 0)
         });
         el.style.width = initialWidth + 'px';
 
         const restoredHeight = Number(effectiveRestoreData?.height);
         const hasRestoredHeight = Number.isFinite(restoredHeight) && restoredHeight > 0;
-        const preservesRestoredHeight = hasRestoredHeight && isImageFirstCardNode(normalizedType) && restoredUserResized;
+        const preservesRestoredHeight = hasRestoredHeight && usesImageCard && restoredUserResized;
         const initialHeightSource = preservesRestoredHeight
             ? restoredHeight
             : Math.max(hasRestoredHeight ? restoredHeight : 0, getDefaultNodeHeight(config));

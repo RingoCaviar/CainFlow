@@ -278,8 +278,9 @@ function getTextareaHeightStyle(restoreData = {}, key) {
     return Number.isFinite(height) && height > 0 ? ` style="height:${Math.round(height)}px"` : '';
 }
 
-function getResponseAreaHeightStyle(restoreData = {}, key) {
-    const height = Number(restoreData?.textareaHeights?.[key]);
+function getChatResponseHeightStyle(restoreData) {
+    if (restoreData.userResized !== true) return '';
+    const height = Number(restoreData.textareaHeights?.response);
     return Number.isFinite(height) && height > 0 ? ` style="height:${Math.round(height)}px"` : '';
 }
 
@@ -897,7 +898,7 @@ function renderTextChatBody(id, restoreData, models, providers) {
                     </div>
                 </div>
                 <div class="chat-response-wrapper" id="${id}-wrapper">
-                    <div class="chat-response-area" id="${id}-response" role="region" aria-labelledby="${id}-response-label"${getResponseAreaHeightStyle(rd, 'response')}>${response || '<div class="chat-response-placeholder">运行后显示回复</div>'}</div>
+                    <div class="chat-response-area" id="${id}-response" role="region" aria-labelledby="${id}-response-label"${getChatResponseHeightStyle(rd)}>${response || '<div class="chat-response-placeholder">运行后显示回复</div>'}</div>
                 </div>
             </div>
             <div class="node-field node-generation-progress-field">
