@@ -24,7 +24,12 @@ function createHarness({
         requestAnimationFrameRef(callback) { frames.push(callback); return frames.length; },
         cancelAnimationFrameRef() {}
     });
-    return { api, calls, flushFrame() { frames.shift()?.(0); } };
+    return {
+        api,
+        calls,
+        get pendingFrames() { return frames.length; },
+        flushFrame() { frames.shift()?.(0); }
+    };
 }
 
 test('performance workload runs through ConnectionProjection maintenance ownership', () => {
@@ -57,6 +62,22 @@ test('viewport projection clears the bitmap when the final viewport gesture ends
     flushFrame();
     flushFrame();
     await Promise.all([panFinished, zoomAborted]);
+});
+
+test('camera-only motion leaves connection projection idle until viewport settlement', async () => {
+    for (const kind of ['pan', 'zoom']) {
+        const harness = createHarness();
+        const interaction = harness.api.interactions.beginInteraction(kind);
+        interaction.changed();
+        interaction.changed();
+        assert.equal(harness.pendingFrames, 0, kind);
+
+        const settled = interaction.finish();
+        assert.equal(harness.pendingFrames, 1, kind);
+        harness.flushFrame();
+        await settled;
+        assert.deepEqual(harness.calls, [['detect']], kind);
+    }
 });
 
 test('ConnectionProjection owns the cadence of restored connection batches', async () => {

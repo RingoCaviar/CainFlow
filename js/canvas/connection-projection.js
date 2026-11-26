@@ -105,6 +105,7 @@ export function createConnectionProjection({
 
     function schedule() {
         if (destroyed || frameId || restorationTransaction.inProgress) return;
+        if (!pendingWholeProjection && pendingNodeIds.size === 0 && pendingConnectionIds.size === 0) return;
         frameId = requestAnimationFrameRef(() => {
             frameId = 0;
             commit();
