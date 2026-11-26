@@ -20,3 +20,9 @@ export function rememberImageFirstRestoredSize(node, restoreData) {
 export function getImageFirstRestoredSize(node) {
     return restoredSizes.get(node) || null;
 }
+
+export function clearImageFirstRestoredSize(node) {
+    if (!restoredSizes.delete(node)) return;
+    node.el.style.removeProperty('min-width');
+    node.el.style.removeProperty('min-height');
+}

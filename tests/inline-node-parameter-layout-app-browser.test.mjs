@@ -24,6 +24,73 @@ const session = {
     connections: []
 };
 
+test('chat introduces the question first and explains what is needed to generate', { timeout: 30000 }, async () => {
+    await withAppBrowser({
+        autoCheckUpdatesOnLoad: false,
+        models: [{ id: 'chat', modelId: 'chat', name: '对话模型', protocol: 'openai', taskType: 'chat', providerIds: ['p'] }],
+        providers: [{ id: 'p', name: '供应商', endpoint: 'https://controlled.test/v1', apikey: 'test' }],
+        nodes: [
+            { id: 'blank-chat', type: 'TextChat', x: 140, y: 90, apiConfigId: 'chat', providerId: 'p' },
+            { id: 'linked-chat', type: 'TextChat', x: 640, y: 90, apiConfigId: 'chat', providerId: 'p' },
+            { id: 'empty-linked-chat', type: 'TextChat', x: 640, y: 450, apiConfigId: 'chat', providerId: 'p' },
+            { id: 'source', type: 'Text', x: 140, y: 450, text: '来自文本节点的问题' },
+            { id: 'empty-source', type: 'Text', x: 140, y: 700, text: '   ' }
+        ],
+        connections: [
+            { id: 'question-link', type: 'text', from: { nodeId: 'source', port: 'text' }, to: { nodeId: 'linked-chat', port: 'prompt' } },
+            { id: 'empty-question-link', type: 'text', from: { nodeId: 'empty-source', port: 'text' }, to: { nodeId: 'empty-linked-chat', port: 'prompt' } }
+        ]
+    }, async app => {
+        const action = "document.querySelector('#image-parameter-panel [data-parameter-action=generate]')";
+        const message = "document.querySelector('#image-parameter-panel .image-parameter-feedback')";
+        await openParameters(app, 'blank-chat');
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel .image-first-parameter-content > section').getAttribute('aria-labelledby')"), 'blank-chat-question-heading');
+        assert.equal(await app.evaluate(`${action}.disabled`), true);
+        assert.equal(await app.evaluate(`${message}.textContent`), '先输入你想问的问题');
+
+        await nativeClick(app, '#blank-chat-prompt');
+        await app.send('Input.insertText', { text: '帮我总结这段文案' });
+        assert.equal(await app.evaluate(`${action}.disabled`), false);
+        await openParameters(app, 'linked-chat');
+        assert.equal(await app.evaluate(`${action}.disabled`), false);
+        assert.equal(await app.evaluate("document.getElementById('linked-chat-question-source').textContent"), '运行时优先使用连接的文本');
+        await app.evaluate("document.querySelector('#source .node-bypass-btn').click()");
+        await app.waitFor(`${action}.disabled`);
+        assert.equal(await app.evaluate("document.getElementById('linked-chat-question-source').hidden"), true);
+        assert.equal(await app.evaluate(`${message}.textContent`), '先输入你想问的问题');
+        await openParameters(app, 'empty-linked-chat');
+        assert.equal(await app.evaluate(`${action}.disabled`), true);
+        assert.equal(await app.evaluate("document.getElementById('empty-linked-chat-question-source').textContent"), '连接的节点还没有文本');
+        await nativeClick(app, '#empty-linked-chat-prompt');
+        await app.send('Input.insertText', { text: '使用本地提问' });
+        await nativeClick(app, '#image-parameter-panel [data-parameter-action=generate]');
+        await app.waitFor("window.sentChatQuestion === '使用本地提问'");
+        await app.waitFor("document.getElementById('empty-linked-chat-response').textContent.trim() === '收到问题'");
+    }, { initScript: `
+        const originalFetch = window.fetch;
+        window.fetch = async (url, options) => {
+            if (url !== '/proxy' || !options?.body) return originalFetch(url, options);
+            window.sentChatQuestion = JSON.parse(options.body).messages.find(message => message.role === 'user').content;
+            return Response.json({ choices: [{ message: { content: '收到问题' } }] });
+        };
+    ` });
+});
+
+test('an unconfigured chat directs the user to model settings', { timeout: 30000 }, async () => {
+    await withAppBrowser({
+        autoCheckUpdatesOnLoad: false,
+        nodes: [{ id: 'unconfigured-chat', type: 'TextChat', x: 140, y: 90, prompt: '帮我总结这段文案' }]
+    }, async app => {
+        await openParameters(app, 'unconfigured-chat');
+        const config = "document.querySelector('#image-parameter-panel .image-parameter-configuration')";
+        assert.equal(await app.evaluate(`${config}.checkVisibility()`), true);
+        assert.equal(await app.evaluate(`${config}.querySelector('button').textContent`), '配置对话模型');
+        assert.equal(await app.evaluate("document.querySelector('#image-parameter-panel [data-parameter-action=generate]').disabled"), true);
+        await nativeClick(app, '#image-parameter-panel [data-parameter-action=configure-model]');
+        await app.waitFor("document.getElementById('settings-modal').checkVisibility()");
+    });
+});
+
 test('chat keeps its saved card size when an oversized reply viewport is restored', { timeout: 30000 }, async () => {
     const reply = '这是一段保存在工作流中的长回复。'.repeat(40);
     await withAppBrowser({
@@ -212,12 +279,14 @@ test('chat uses a compact canvas card and keeps its editable parameters and repl
         assert.equal(await app.evaluate(`document.querySelectorAll('${editor}').length`), 1);
         const answerSummary = `${panel} .node-chat-answer-settings > summary`;
         const systemSettings = `document.getElementById('${chatId}-system-settings')`;
-        assert.equal(await text(answerSummary), '回答设置');
+        assert.match(await text(answerSummary), /^回答设置/);
+        assert.equal(await text(`${answerSummary} .node-chat-answer-state`), '已开启联网 · 已设置系统提示语');
         assert.equal(await app.evaluate(`${systemSettings}.checkVisibility()`), false);
         await nativeClick(app, answerSummary);
         assert.ok(await app.evaluate(`${systemSettings}.checkVisibility() && !${systemSettings}.open`));
         await nativeClick(app, `label[for=${chatId}-fixed]`);
         assert.equal(await app.evaluate(`document.getElementById('${chatId}-fixed').checked`), true);
+        assert.match(await text(`${answerSummary} .node-chat-answer-state`), /已开启复用/);
         await nativeClick(app, answerSummary);
         assert.equal(await app.evaluate(`${systemSettings}.checkVisibility()`), false);
         assert.equal(await text(run), '生成回复');
@@ -233,6 +302,7 @@ test('chat uses a compact canvas card and keeps its editable parameters and repl
         await app.waitFor('window.chatRequest');
         assert.equal(await app.evaluate(userRequest), nextPrompt);
         assert.equal(await app.evaluate(`document.querySelector('${run}').disabled`), true);
+        assert.equal(await text(run), '生成回复中…');
         await app.evaluate('window.releaseChatReply()');
         await app.waitFor(`document.querySelector('${card} #${chatId}-response')?.textContent.includes(${JSON.stringify(reply)})`);
         await app.waitFor(`!document.querySelector('${run}').disabled`);

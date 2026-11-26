@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { withAppBrowser } from './helpers/app-browser.mjs';
+import { reloadAppBrowser, withAppBrowser } from './helpers/app-browser.mjs';
+import { nativeClick, persist } from './helpers/image-first-integrated-fixture.mjs';
 import { runUiFixture } from './helpers/ui-browser-fixture.mjs';
 
 test('node edges expose the matching resize cursors without covering ports or controls', async () => {
@@ -119,5 +120,64 @@ test('an empty image card can shrink on its first drag and stops at its manual m
         }
         await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: handle.x, y: handle.y - 142, button: 'left', clickCount: 1 });
         assert.equal(await app.evaluate(readHeight), 248, 'release keeps the manual minimum');
+    });
+});
+
+test('clicking a resize edge without dragging keeps automatic sizing', { timeout: 30000 }, async () => {
+    await withAppBrowser({
+        autoCheckUpdatesOnLoad: false,
+        nodes: [{ id: 'image', type: 'ImageGenerate', x: 140, y: 90 }]
+    }, async app => {
+        await nativeClick(app, '#image [data-resize-edge=bottom]');
+        const node = (await persist(app)).nodes.find(node => node.id === 'image');
+        assert.notEqual(node.userResized, true);
+        assert.equal(await app.evaluate("document.getElementById('image').offsetHeight"), 348);
+    });
+});
+
+test('a legacy image card keeps the fitted size when reopened', { timeout: 30000 }, async () => {
+    await withAppBrowser({
+        autoCheckUpdatesOnLoad: false,
+        nodes: [{ id: 'image', type: 'ImageGenerate', x: 140, y: 90, width: 320, height: 200, userResized: true }]
+    }, async app => {
+        const size = () => app.evaluate("(() => { const card = document.getElementById('image'); return [card.offsetWidth, card.offsetHeight]; })()");
+        assert.deepEqual(await size(), [320, 200]);
+        await nativeClick(app, '#image .node-resize-handle--bottom-right', { count: 2 });
+        const fitted = await size();
+        assert.ok(fitted[0] >= 360 && fitted[1] === 348, `fitted card: ${fitted.join(' × ')}`);
+        assert.equal((await persist(app)).nodes.find(node => node.id === 'image').userResized, false);
+        await reloadAppBrowser(app);
+        assert.deepEqual(await size(), fitted);
+    });
+});
+
+test('a long text split preview scrolls inside its saved card', { timeout: 30000 }, async () => {
+    await withAppBrowser({
+        autoCheckUpdatesOnLoad: false,
+        nodes: [{
+            id: 'split', type: 'TextSplit', x: 140, y: 90, width: 370, height: 600, userResized: true,
+            text: `短文|${'这是需要换行的一段文本。'.repeat(280)}|另一段`,
+            delimiter: '|', outputCount: 3, previewEnabled: true
+        }]
+    }, async app => {
+        const check = async () => {
+            const layout = await app.evaluate(`(() => {
+                const card = document.getElementById('split');
+                const preview = document.querySelector('#split .text-split-preview');
+                const rect = preview.getBoundingClientRect();
+                return {
+                    height: card.offsetHeight, items: preview.children.length,
+                    x: rect.left + 12, y: rect.top + 24, renderedWidth: card.getBoundingClientRect().width
+                };
+            })()`);
+            assert.equal(layout.height, 600);
+            assert.equal(layout.items, 3);
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: layout.x, y: layout.y, deltaX: 0, deltaY: 180 });
+            await app.waitFor("document.querySelector('#split .text-split-preview').scrollTop > 0");
+            assert.equal(await app.evaluate("document.getElementById('split').getBoundingClientRect().width"), layout.renderedWidth);
+        };
+        await check();
+        await reloadAppBrowser(app);
+        await check();
     });
 });

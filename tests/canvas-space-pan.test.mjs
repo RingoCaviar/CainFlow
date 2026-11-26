@@ -924,11 +924,27 @@ test('window blur settles a node resize and clears its cursor state', () => {
         startWidth: 320, startHeight: 240, minWidth: 180, minHeight: 120,
         maxWidth: Infinity, maxHeight: Infinity, textareaResizeTargets: []
     };
-    // The resize state must be cleared even when the pointer is released outside the window.
+    windowListeners.find(({ type }) => type === 'mousemove').listener({ clientX: 114, clientY: 100 });
+    // A real drag must settle even when the pointer is released outside the window.
     windowListeners.find(({ type }) => type === 'blur').listener();
     assert.equal(state.resizing, null);
     assert.equal(state.nodes.get('node-1').userResized, true);
+    assert.equal(state.nodes.get('node-1').width, 306);
     assert.equal(saveCalls.length, 1);
+});
+
+test('releasing an unmoved resize does not add undo history or save', () => {
+    let historyEntries = 0;
+    const { windowListeners, state, saveCalls } = createHarness({ pushHistory() { historyEntries += 1; } });
+    const node = { userResized: false, x: 50, y: 60, el: { classList: createClassList() } };
+    state.nodes.set('node-1', node);
+    state.resizing = { nodeId: 'node-1', node, edge: 'bottom', startX: 100, startY: 100 };
+    windowListeners.find(({ type, options }) => type === 'mouseup' && !(options === true || options?.capture))
+        .listener({ clientX: 100, clientY: 100, target: { closest() { return null; } } });
+    assert.equal(state.resizing, null);
+    assert.equal(node.userResized, false);
+    assert.equal(historyEntries, 0);
+    assert.equal(saveCalls.length, 0);
 });
 
 test('resizing processes one pointer per frame and flushes the last pointer on release', () => {

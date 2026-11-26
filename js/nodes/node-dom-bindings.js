@@ -6,6 +6,7 @@ import { createImageReferenceOverview } from './image-reference-overview.js';
 import { createImageNodeResults } from './image-node-results.js';
 import { renderImageNodeRunState } from './image-node-run-state.js';
 import { bindNodeMediaAspect } from './node-media-aspect.js';
+import { clearImageFirstRestoredSize } from './image-first-presentation.js';
 import { normalizeProductRetouchSettings } from '../features/product-retouch/product-retouch-settings.js';
 import { getThinkingCapability } from '../features/execution/thinking-config.js';
 import { createSelectionApi } from '../canvas/selection.js';
@@ -2735,6 +2736,7 @@ export function createNodeDomBindingsApi({
             if (!node || blockRunningNodeMutation(id, e, '节点正在运行，暂不能调整大小')) return;
             pushHistory();
             node.userResized = false;
+            clearImageFirstRestoredSize(node);
             if (type === 'TextChat') queryNodeControl(el, `#${id}-response`)?.style.removeProperty('height');
             fitNodeToContent(id, {
                 allowShrink: true,
@@ -2807,7 +2809,6 @@ export function createNodeDomBindingsApi({
                 textareaResizeTargets
             };
 
-            pushHistory();
             el.classList.add('is-interacting');
             documentRef.body.classList.add('is-interacting');
             documentRef.body.classList.add(state.resizing.cursorClass);

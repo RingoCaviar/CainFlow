@@ -187,10 +187,25 @@ html:root :is(#canvas-container, #image-parameter-panel) .node-chat-option-copy 
 }
 
 #image-parameter-panel .node-chat-answer-settings > summary {
-    padding: 4px 0;
+    padding: 7px 0;
     color: var(--text-primary);
     font-weight: 600;
     cursor: pointer;
+}
+
+#image-parameter-panel :is(.node-chat-question-source, .node-chat-answer-state) {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 400;
+    overflow-wrap: anywhere;
+}
+
+#image-parameter-panel .node-chat-question-source {
+    margin: 0 0 4px;
+}
+
+#image-parameter-panel .node-chat-answer-state:not(:empty) {
+    margin-inline-start: 10px;
 }
 
 #image-parameter-panel .node-chat-answer-settings > .node-chat-answer-section {

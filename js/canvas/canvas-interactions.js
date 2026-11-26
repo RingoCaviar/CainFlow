@@ -455,17 +455,25 @@ export function createCanvasInteractionsApi({
         else refreshNodeConnections(r.nodeId);
     }
 
+    function startNodeResizeMovement(resize, pointer) {
+        if (resize.hasPointerMovement) return true;
+        if (!pointer || (pointer.x === resize.startX && pointer.y === resize.startY)) return false;
+        pushHistory();
+        resize.hasPointerMovement = true;
+        return true;
+    }
+
     function settleNodeResize(releasePointer = null) {
         const r = state.resizing;
         if (!r) return;
         const pointer = takeGesturePointer(r, releasePointer);
-        if (!isCurrentGesture(r)) {
+        if (!isCurrentGesture(r) || !startNodeResizeMovement(r, pointer)) {
             r.node?.el.classList.remove('is-interacting');
             if (r.cursorClass) documentRef.body.classList.remove(r.cursorClass);
             state.resizing = null;
             return;
         }
-        if (r.hasPointerMovement && pointer) applyNodeResizePointer(r, pointer, { settling: true });
+        if (pointer) applyNodeResizePointer(r, pointer, { settling: true });
         const node = state.nodes.get(r.nodeId);
         if (node) {
             let finalWidth = parseFloat(node.el.style.width) || r.startWidth;
@@ -473,7 +481,7 @@ export function createCanvasInteractionsApi({
             distributeNodeTextareaResize(r, finalHeight);
             if (typeof getNodeMinimumSize === 'function') {
                 const measuredWidth = finalWidth;
-                const measureOptions = { normalizeFlexibleHeights: true, manualResize: r.hasPointerMovement === true };
+                const measureOptions = { normalizeFlexibleHeights: true, manualResize: true };
                 let minimum = getNodeMinimumSize(node, { ...measureOptions, width: finalWidth });
                 const configuredMaxWidth = Number.isFinite(r.maxWidth) && r.maxWidth > 0 ? r.maxWidth : Infinity;
                 finalWidth = Math.min(configuredMaxWidth, Math.max(finalWidth, Number(minimum?.minWidth) || 0));
@@ -1335,10 +1343,10 @@ export function createCanvasInteractionsApi({
                 }
                 if (state.dragging && !state.dragging.captureTarget) queueNodeDragMovement(state.dragging, pos);
             }
-            if (state.resizing && isCurrentGesture(state.resizing) &&
-                (state.resizing.hasPointerMovement || e.clientX !== state.resizing.startX || e.clientY !== state.resizing.startY)) {
-                state.resizing.hasPointerMovement = true;
-                queueGestureFrame(state.resizing, { x: e.clientX, y: e.clientY }, applyNodeResizePointer);
+            const resize = state.resizing;
+            if (resize && isCurrentGesture(resize)) {
+                const pointer = { x: e.clientX, y: e.clientY };
+                if (startNodeResizeMovement(resize, pointer)) queueGestureFrame(resize, pointer, applyNodeResizePointer);
             }
             if (state.connecting) {
                 const dx = e.clientX - state.connecting.screenX;

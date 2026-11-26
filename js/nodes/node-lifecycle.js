@@ -741,6 +741,10 @@ export function createNodeLifecycleApi({
             };
         }
 
+        if (el.classList.contains('text-split-preview')) {
+            return { width: Math.ceil(minWidth + marginX), height: Math.ceil(minHeight + marginY) };
+        }
+
         if (el.matches?.(NODE_SCROLLABLE_RESULT_SELECTOR) || el.classList.contains('custom-param-list')) {
             const explicitHeightValue = String(el.style?.height || '');
             const explicitHeight = /px$/i.test(explicitHeightValue) ? parseFloat(explicitHeightValue) : NaN;

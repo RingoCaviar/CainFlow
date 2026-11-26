@@ -1603,7 +1603,9 @@ export function createExecutionCoreApi({
     function readTextChatPrompts(node, inputs) {
         const { id } = node;
         const sysprompt = documentRef.getElementById(`${id}-sysprompt`)?.value || '';
-        const prompt = appendReferenceDescriptions(getPrimaryTextInput(inputs.prompt) || documentRef.getElementById(`${id}-prompt`)?.value || '', state, id);
+        const linkedPrompt = getPrimaryTextInput(inputs.prompt);
+        const localPrompt = documentRef.getElementById(`${id}-prompt`)?.value || '';
+        const prompt = appendReferenceDescriptions(linkedPrompt.trim() ? linkedPrompt : localPrompt, state, id);
         return [prompt, sysprompt];
     }
 

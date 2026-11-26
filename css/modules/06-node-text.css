@@ -270,6 +270,7 @@
 }
 
 .node-text-split .text-split-preview {
+    --text-split-fragment-min-height: 96px;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -281,11 +282,15 @@
     scroll-padding-block: 8px;
 }
 
+.node-text-split .text-split-preview:has(.text-split-preview-item) {
+    min-height: var(--text-split-fragment-min-height);
+}
+
 .node-text-split .text-split-preview-item {
     display: flex;
     flex-direction: column;
     flex: 1 1 auto;
-    min-height: 0;
+    min-height: var(--text-split-fragment-min-height);
     overflow: hidden;
     border: 1px solid var(--border-input);
     background: var(--bg-input);

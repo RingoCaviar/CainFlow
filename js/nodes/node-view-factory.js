@@ -859,14 +859,15 @@ function renderTextChatBody(id, restoreData, models, providers) {
         .join('');
 
     return `
-        ${renderNodeModelSettings(id, opts, providerOptions)}
         <section class="node-parameter-section" aria-labelledby="${id}-question-heading">
             <h3 class="node-parameter-heading" id="${id}-question-heading">提问内容</h3>
             ${renderImageReferenceOverview(id)}
             <div class="node-field node-chat-prompt-field">
-                <textarea id="${id}-prompt" aria-labelledby="${id}-question-heading" placeholder="输入你的问题..." rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${rd.prompt || ''}</textarea>
+                <p class="node-chat-question-source" id="${id}-question-source" hidden>运行时优先使用连接的文本</p>
+                <textarea id="${id}-prompt" aria-labelledby="${id}-question-heading" placeholder="例如，帮我把这段文案缩短一半" rows="3"${getTextareaHeightStyle(rd, 'prompt')}>${escapeHtml(rd.prompt || '')}</textarea>
             </div>
         </section>
+        ${renderNodeModelSettings(id, opts, providerOptions)}
         <section class="node-parameter-section node-chat-answer-section" aria-labelledby="${id}-answer-heading">
             <h3 class="node-parameter-heading" id="${id}-answer-heading">回答设置</h3>
             <div class="node-parameter-grid node-chat-toggle-grid">

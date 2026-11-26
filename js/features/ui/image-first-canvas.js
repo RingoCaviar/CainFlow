@@ -5,12 +5,13 @@ import { REFERENCE_IMAGES_PORT } from '../../nodes/reference-image-ports.js';
 import { createImageInputDetail } from './image-input-detail.js';
 import { hasDedicatedInputPort } from '../../nodes/universal-input-policy.js';
 import { isImageFirstCardNode } from '../../nodes/image-first-presentation.js';
-import { getCanonicalImageList, getCanonicalImageIndex } from '../execution/execution-data-utils.js';
+import { getCanonicalImageList, getCanonicalImageIndex, getPrimaryTextInput } from '../execution/execution-data-utils.js';
 import { projectImageOutput } from '../../nodes/image-output-projection.js';
 import { normalizeCameraState } from '../camera/camera-prompt-utils.js';
 import { getSurfaceCoordinator } from './surface-coordinator.js';
 import { projectImageCardRunStatus, renderImageNodeRunState } from '../../nodes/image-node-run-state.js';
 import { getNodeModelConfigurationIssue } from '../execution/model-configuration-readiness.js';
+import { appendReferenceDescriptions } from '../execution/reference-image-description.js';
 import { getResolvedProviderForModel } from '../execution/provider-request-utils.js';
 import { createCommerceImageSetView } from '../../nodes/commerce-image-set-view.js';
 import { createProductRetouchView } from '../../nodes/product-retouch-view.js';
@@ -40,6 +41,7 @@ const emptyPreviewMessages = new Set(['无输入图片', '无输入视频', '运
 
 /** A single editor presentation; the workflow and its original controls remain authoritative. */
 export function createImageFirstCanvas({ state, selectionApi, documentRef, windowRef, storage,
+    getCachedOutputValue = () => undefined,
     runCurrentNode, waitForNodeRun, cancelCommerceImageSet, removeCommerceScene, fitNode, onSettingsChanged = () => {}, bindPorts = () => {}, updateInputConnection, swapInputConnections, moveMergeInputConnection,
     panelManager = null, openModelSettings = () => {}, openResultPreview = () => {}, focusReferenceSource = () => {},
     openShotError = () => {}, openNodeFailureLog = () => false, openNodeRunError = null, openReferencePreview = null, bindReferencePrompt = null,
@@ -57,7 +59,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     panel.hidden = true;
     const toolIcon = name => `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${name === 'close' ? '<path d="m6 6 12 12M6 18 18 6"/>' : name === 'restore' ? '<path d="M8 3v5H3m18 8h-5v5M8 8 3 3m13 13 5 5"/>' : '<path d="M14 3h7v7M10 21H3v-7M21 3l-7 7M3 21l7-7"/>'}</svg>`;
     panel.innerHTML = `<header class="image-parameter-header"><h2 class="image-parameter-title"></h2><span class="image-parameter-drag-handle" tabindex="0" role="button" aria-label="拖动节点参数浮层" hidden><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/></svg></span><div class="image-parameter-tools"><button type="button" data-parameter-action="expand" aria-label="放大节点参数浮层" aria-pressed="false">${toolIcon('expand')}</button><button type="button" data-parameter-action="close" aria-label="关闭节点参数浮层">${toolIcon('close')}</button></div></header>
-        <div class="image-parameter-scroll"></div><footer class="image-parameter-footer"><span class="image-parameter-feedback"></span><span class="image-parameter-count-slot" hidden></span><button type="button" class="save-btn" data-parameter-action="generate">生成</button></footer>
+        <div class="image-parameter-scroll"></div><footer class="image-parameter-footer"><span class="image-parameter-feedback" role="status"></span><span class="image-parameter-count-slot" hidden></span><button type="button" class="save-btn" data-parameter-action="generate">生成</button></footer>
         <span class="image-parameter-resize" data-parameter-resize="width" tabindex="0" role="separator" aria-orientation="vertical" aria-label="调整节点参数浮层宽度"></span>
         <span class="image-parameter-resize-height" data-parameter-resize="height" tabindex="0" role="separator" aria-orientation="horizontal" aria-label="调整节点参数浮层高度" hidden></span>
         <span class="image-parameter-resize-corner" data-parameter-resize="both" tabindex="0" role="button" aria-label="调整节点参数浮层大小" hidden></span>`;
@@ -731,11 +733,38 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
                 : node.type === 'ImageSave' ? (running ? '更新中' : '更新媒体')
                 : node.type === 'VisualStyle' ? (running ? '提取中…' : '提取风格')
                 : node.type === 'CameraControl' ? '编辑视角'
-                : isChat ? '生成回复'
+                : isChat ? (running ? '生成回复中…' : '生成回复')
                 : node.type === 'ImageResize' ? (running ? '处理中' : '处理图片')
                     : node.type === 'ColorReset' ? (running ? '调色中' : '应用调色') : (generationCount > 1 ? `生成 ×${generationCount}` : '生成'));
             const issue = node.type === 'ImageGenerate' || (isChat && !node.isClone)
                 ? getNodeModelConfigurationIssue({ state, node, documentRef }) : null;
+            let needsQuestion = false;
+            let chatHint = '';
+            if (isChat) {
+                const { question, questionSource, answerState, search, reuse, systemPrompt } = view.chat;
+                const questionLinks = state.connections.filter(({ from, to }) => {
+                    if (to.nodeId !== node.id || to.port !== 'prompt') return false;
+                    const source = state.nodes.get(from.nodeId);
+                    return source && source.enabled !== false;
+                });
+                const hasLinkedQuestion = questionLinks.some(({ from }) =>
+                    getPrimaryTextInput(getCachedOutputValue(state.nodes.get(from.nodeId), from.port)).trim());
+                questionSource.hidden = questionLinks.length === 0;
+                setText(questionSource, hasLinkedQuestion ? '运行时优先使用连接的文本' : '连接的节点还没有文本');
+                if (questionLinks.length) question.setAttribute('aria-describedby', questionSource.id);
+                else question.removeAttribute('aria-describedby');
+                needsQuestion = !hasLinkedQuestion && !question.value.trim() && !appendReferenceDescriptions('', state, node.id).trim();
+                setText(answerState, [
+                    search.checked && '已开启联网',
+                    reuse.checked && '已开启复用',
+                    systemPrompt.value.trim() && '已设置系统提示语'
+                ].filter(Boolean).join(' · '));
+                if (!running && !issue) {
+                    if (node.isClone) chatHint = '请到原节点生成回复';
+                    else if (node.enabled === false) chatHint = '启用此节点后可生成回复';
+                    else if (needsQuestion) chatHint = '先输入你想问的问题';
+                }
+            }
             if (view.batch) {
                 const { hasRequests, allFailed } = view.batch.refresh({ running, blocked: !!issue || running || node.enabled === false || node.isClone === true });
                 view.form.classList.toggle('has-image-batch', hasRequests);
@@ -745,18 +774,18 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             setText(configurationMessage, issue?.message || '');
             setText(configureModel, isChat ? '配置对话模型' : '配置生图模型');
             generate.disabled = !!issue || running || node.enabled === false
-                || (isChat && node.isClone === true)
+                || (isChat && (node.isClone === true || needsQuestion))
                 || (node.type === 'VisualStyle' && (state.isRunning || state.runningNodeIds?.size > 0 || node.isClone))
                 || (node.type === 'ImageMerge' && !mergeHasEnabledSource)
                 || (node.type === 'CameraControl' && (node.isClone || view.cameraOpen?.disabled));
-            setText(feedback, node.type === 'ImageImport' ? '在卡片选择文件，或切换 URL 输入链接。'
+            setText(feedback, chatHint || (node.type === 'ImageImport' ? '在卡片选择文件，或切换 URL 输入链接。'
                 : node.type === 'ImagePreview' ? (node.previewInputState === 'stale' ? '未更新 · 当前无输入' : node.previewInputState === 'empty' ? '当前无输入' : '预览当前连接的图片')
                     : node.type === 'ImageCompare' ? node.el.querySelector('.image-compare-container')?.dataset.compareMessage || 'B 为必需输入；A 可选，移动指针调整分界。'
                     : node.type === 'ImageMerge' ? mergeFeedback
                     : node.type === 'ImageSave' ? node.el.querySelector('.save-preview-container')?.dataset.saveMessage || '修改文件名后，使用卡片上的保存按钮保存媒体。'
                     : node.type === 'CameraControl' ? '在独立编辑器调整相机；参数即时保存，输出为相机提示词。'
                     : node.type === 'ImageResize' || node.type === 'ColorReset' ? '修改即时预览；点击按钮执行当前节点。'
-                    : documentRef.getElementById(`${node.id}-run-status`)?.textContent || '修改不会自动生成');
+                    : documentRef.getElementById(`${node.id}-run-status`)?.textContent || '修改不会自动生成'));
             const passiveFeedback = ['修改不会自动生成', '待运行', '已完成', '当前无输入', '预览当前连接的图片',
                 'B 为必需输入；A 可选，移动指针调整分界。',
                 '修改文件名后，使用卡片上的保存按钮保存媒体。', '在独立编辑器调整相机；参数即时保存，输出为相机提示词。',
@@ -1217,6 +1246,9 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const summary = documentRef.createElement('summary');
         summary.id = heading.id;
         summary.textContent = heading.textContent;
+        const answerState = documentRef.createElement('span');
+        answerState.className = 'node-chat-answer-state';
+        summary.append(answerState);
         heading.remove();
         answer.before(disclosure);
         disclosure.append(summary, answer);
@@ -1240,7 +1272,15 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             const prompt = documentRef.getElementById(`${node.id}-prompt`);
             (prompt.disabled ? panel : prompt).focus({ preventScroll: true });
         });
-        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections: [], chatEmptyTitle }, []);
+        const chat = {
+            question: form.querySelector('textarea[id$="-prompt"]'),
+            questionSource: form.querySelector('.node-chat-question-source'),
+            answerState,
+            search: form.querySelector('input[id$="-search"]'),
+            reuse: form.querySelector('input[id$="-fixed"]'),
+            systemPrompt: form.querySelector('textarea[id$="-sysprompt"]')
+        };
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections: [], chatEmptyTitle, chat }, []);
     }
     function installProductRetouch(node) {
         const form = documentRef.createElement('div');
