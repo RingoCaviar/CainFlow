@@ -9,6 +9,7 @@ import { bindNodeMediaAspect } from './node-media-aspect.js';
 import { normalizeProductRetouchSettings } from '../features/product-retouch/product-retouch-settings.js';
 import { getThinkingCapability } from '../features/execution/thinking-config.js';
 import { createSelectionApi } from '../canvas/selection.js';
+import { notifyCanvasGeometrySettled } from '../canvas/canvas-geometry-settled.js';
 /**
  * 负责把节点 DOM 与交互行为绑定起来，包括拖拽、输入监听、按钮操作和端口事件。
  */
@@ -240,6 +241,7 @@ export function createNodeDomBindingsApi({
         canvasContainer.classList.remove('is-zooming');
         documentRef.body.classList.remove('is-interacting');
         documentRef.getElementById('connections-group').classList.remove('is-interacting');
+        notifyCanvasGeometrySettled(state, documentRef);
         viewportApi.updateCanvasTransform();
         const requestFrame = documentRef.defaultView?.requestAnimationFrame;
         if (typeof requestFrame === 'function') {

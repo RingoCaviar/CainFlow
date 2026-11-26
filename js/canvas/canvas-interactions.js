@@ -3,6 +3,7 @@
  */
 import { appendMappedConnectionSnapshots } from './connection-copy-utils.js';
 import { CANVAS_INTERACTION_KIND } from './canvas-interaction-kinds.js';
+import { notifyCanvasGeometrySettled } from './canvas-geometry-settled.js';
 import { createSelectionApi } from './selection.js';
 
 export function createCanvasInteractionsApi({
@@ -172,6 +173,12 @@ export function createCanvasInteractionsApi({
         }
     }
 
+    // Node content fits measure the DOM, so they stay deferred until the
+    // viewport stops moving. Announce that boundary once, after the flags drop.
+    function notifyGeometrySettled() {
+        notifyCanvasGeometrySettled(state, documentRef);
+    }
+
     function persistCurrentViewport() {
         return saveViewportState({
             workflowId: getActiveWorkflowId(),
@@ -233,6 +240,7 @@ export function createCanvasInteractionsApi({
             updateConnections: false
         });
         closeProjectionInteraction(CANVAS_INTERACTION_KIND.PAN, abort ? 'abort' : 'finish');
+        notifyGeometrySettled();
         notifyViewportSettled();
     }
 
@@ -912,6 +920,7 @@ export function createCanvasInteractionsApi({
         canvasContainer.classList.remove('is-zooming');
         documentRef.body.classList.remove('is-interacting');
         documentRef.getElementById('connections-group').classList.remove('is-interacting');
+        notifyGeometrySettled();
 
         if (isNodeFormControlActive()) {
             state.pendingZoomVisualRefresh = true;

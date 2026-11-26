@@ -148,3 +148,28 @@ test('the public viewport preserves identical DOM while real transforms, theme m
         assert.deepEqual(await app.evaluate('({events:viewportBudget.events.length,intents:viewportBudget.intents.length})'), beforeTheme, 'the existing explicit event and projection opt-outs remain intact');
     });
 });
+
+test('offscreen shells skip their own paint, not only their body', { timeout: 30000 }, async () => {
+    await withAppBrowser({
+        autoCheckUpdatesOnLoad: false,
+        nodes: [
+            { id: 'painted-shell', type: 'Text', x: 100, y: 100, text: '可见节点' },
+            { id: 'skipped-shell', type: 'Text', x: 6000, y: 100, text: '离屏节点' }
+        ],
+        connections: []
+    }, async app => {
+        await app.waitFor(`document.getElementById('skipped-shell')?.dataset.renderProjection === 'shell' &&
+            document.getElementById('painted-shell')?.dataset.renderProjection === 'full'`);
+        assert.deepEqual(await app.evaluate(`(() => {
+            const offscreen = document.getElementById('skipped-shell');
+            const onscreen = document.getElementById('painted-shell');
+            return {
+                offscreenShell: getComputedStyle(offscreen).contentVisibility,
+                onscreenShell: getComputedStyle(onscreen).contentVisibility
+            };
+        })()`), {
+            offscreenShell: 'hidden',
+            onscreenShell: 'visible'
+        }, 'the skipped projection must cover the card shell, not only its body');
+    });
+});

@@ -46,7 +46,7 @@ test('canvas compositor hints follow active gestures and release after settling'
     });
 });
 
-test('the first middle-button pan does not change the node layer compositing hint', { timeout: 30000 }, async () => {
+test('the first middle-button pan promotes the node layer only while the gesture is active', { timeout: 30000 }, async () => {
     await withAppBrowser({ autoCheckUpdatesOnLoad: false,
         nodes: [{ id: 'pan-node', type: 'Text', x: 80, y: 100, text: 'Panning' }], connections: [] }, async app => {
         const sample = () => app.evaluate(`(() => {
@@ -68,8 +68,8 @@ test('the first middle-button pan does not change the node layer compositing hin
         const released = await sample();
 
         assert.deepEqual([pressed.panning, firstFrame.panning, released.panning], [true, true, false]);
-        assert.deepEqual([ready.hint, pressed.hint, firstFrame.hint, released.hint], ['auto', 'auto', 'auto', 'auto'],
-            'panning leaves node-layer compositing to the browser');
+        assert.deepEqual([ready.hint, pressed.hint, firstFrame.hint, released.hint], ['auto', 'transform', 'transform', 'auto'],
+            'the world layer is composited only for the gesture; promoting it outside panning rasterizes every card');
     });
 });
 

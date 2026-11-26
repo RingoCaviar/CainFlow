@@ -44,10 +44,18 @@
     outline: 1px solid transparent;
 }
 
-/* Reversible render projections: DOM/model/ports stay mounted and authoritative. */
-.node.is-virtualized .node-body {
+/* Reversible render projections: DOM/model/ports stay mounted and authoritative.
+   The whole offscreen card is skipped, not just its body. Body-only skipping kept
+   the shell, border, shadow and header in the paint bounds, so every pan frame
+   repainted every offscreen card. `contain-intrinsic-size` keeps a plausible box
+   for hidden shells so port geometry and the projection test stay stable. */
+.node.is-virtualized {
     content-visibility: hidden;
     contain-intrinsic-size: auto 240px;
+    pointer-events: none;
+}
+
+.node.is-virtualized .node-body {
     pointer-events: none;
 }
 
@@ -114,6 +122,13 @@
    settled text rasterize at the final scale. Hidden shells stay cheap. */
 #canvas-container:not(.canvas-gpu-disabled) .node.is-interacting,
 #canvas-container:not(.canvas-gpu-disabled).is-zooming .node:not(.is-virtualized) {
+    will-change: transform;
+}
+
+/* Panning only becomes pure compositing once offscreen shells are skipped above.
+   Promoting the world layer before that rasterizes every card and stalls frames,
+   which is why this hint is scoped to the pan gesture and removed when it ends. */
+#canvas-container:not(.canvas-gpu-disabled).is-panning #nodes-layer {
     will-change: transform;
 }
 

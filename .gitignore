@@ -22,6 +22,7 @@ log/
 /data/
 /exports/
 /.scratch/
+/.workbuddy/
 
 # Local release builds
 build/

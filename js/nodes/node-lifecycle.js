@@ -5,6 +5,7 @@ import { normalizeVisualStyle, normalizeVisualStyleDetailLevel } from '../featur
 import { NODE_DEFAULT_TYPES } from '../core/state.js';
 import { cleanupElementResources } from '../core/common-utils.js';
 import { createSelectionApi } from '../canvas/selection.js';
+import { CANVAS_GEOMETRY_SETTLED_EVENT } from '../canvas/canvas-geometry-settled.js';
 import { appendMappedConnectionSnapshots } from '../canvas/connection-copy-utils.js';
 import { normalizeCommerceImageSetState } from '../features/ecommerce-image-set/commerce-image-set-plan.js';
 import { normalizeProductRetouchSettings, readProductRetouchAnalysis } from '../features/product-retouch/product-retouch-settings.js';
@@ -241,6 +242,9 @@ export function createNodeLifecycleApi({
     function scheduleNodeSizeConnectionRefresh(nodeId = null) {
         if (nodeId) pendingNodeSizeConnectionRefreshIds.add(nodeId);
         if (pendingNodeSizeConnectionRefresh !== null) return;
+        // Connection projections re-read port geometry; keep the ids queued and
+        // let the viewport settle flush them together with the content fits.
+        if (isGeometryWorkFrozen()) return;
         const requestFrame = view.requestAnimationFrame || ((callback) => view.setTimeout(callback, 16));
         pendingNodeSizeConnectionRefresh = requestFrame(() => {
             pendingNodeSizeConnectionRefresh = null;
@@ -274,6 +278,51 @@ export function createNodeLifecycleApi({
             return;
         }
         updateAllConnections();
+    }
+
+    // Every content-fit check reads offsetWidth/offsetHeight, and those reads
+    // force synchronous layout across the whole canvas document. Running them
+    // from the 50/150ms checks while the viewport is moving turns a pan into
+    // hundreds of forced layouts. Record the node instead and settle once.
+    const deferredGeometryNodeIds = new Set();
+    let deferredGeometryFlushHandle = null;
+    const DEFERRED_GEOMETRY_FRAME_BUDGET_MS = 8;
+
+    function isGeometryWorkFrozen() {
+        return state.canvas?.isPanning === true || state.isInteracting === true;
+    }
+
+    function deferGeometryWork(nodeId) {
+        if (nodeId) deferredGeometryNodeIds.add(String(nodeId));
+    }
+
+    function scheduleDeferredGeometryFlush() {
+        if (deferredGeometryFlushHandle !== null) return;
+        const requestFrame = view.requestAnimationFrame || ((callback) => view.setTimeout(callback, 16));
+        deferredGeometryFlushHandle = requestFrame(() => {
+            deferredGeometryFlushHandle = null;
+            flushDeferredGeometryWork();
+        });
+    }
+
+    function flushDeferredGeometryWork() {
+        if (isGeometryWorkFrozen()) return 0;
+        const now = () => (typeof view.performance?.now === 'function' ? view.performance.now() : Date.now());
+        const startedAt = now();
+        let settled = 0;
+        while (deferredGeometryNodeIds.size) {
+            const nodeId = deferredGeometryNodeIds.values().next().value;
+            deferredGeometryNodeIds.delete(nodeId);
+            if (!state.nodes.has(nodeId)) continue;
+            ensureNodeContentVisible(nodeId);
+            scheduleNodeSizeConnectionRefresh(nodeId);
+            settled += 1;
+            if (now() - startedAt > DEFERRED_GEOMETRY_FRAME_BUDGET_MS) break;
+        }
+        if (deferredGeometryNodeIds.size) scheduleDeferredGeometryFlush();
+        // Connection geometry queued during the gesture drains with the fits.
+        if (pendingNodeSizeConnectionRefreshIds.size) scheduleNodeSizeConnectionRefresh();
+        return settled;
     }
 
     function readObservedNodeSize(entry, el) {
@@ -978,6 +1027,11 @@ export function createNodeLifecycleApi({
         if (!node?.el) return false;
         // The active gesture owns geometry through release, even if a delayed fit runs.
         if (state.resizing?.node === node) return false;
+        // A moving viewport must not measure; the node is fitted once it settles.
+        if (isGeometryWorkFrozen()) {
+            deferGeometryWork(node.id);
+            return false;
+        }
         const nextWidth = Math.round(width);
         const nextHeight = Math.round(height);
         // Reapplying the same inline dimensions cannot change the rendered box.
@@ -1008,6 +1062,7 @@ export function createNodeLifecycleApi({
     function fitNodeToContent(nodeId, options = {}) {
         const node = state.nodes.get(nodeId);
         if (!node || !node.el) return;
+        if (isGeometryWorkFrozen()) { deferGeometryWork(nodeId); return; }
         const config = nodeConfigs[node.type] || null;
         if (syncNodeMediaAspect(node)) {
             const width = node.el.offsetWidth || Number(node.width) || getDefaultNodeWidth(config);
@@ -1049,6 +1104,7 @@ export function createNodeLifecycleApi({
     function ensureNodeContentVisible(nodeId, options = {}) {
         const node = state.nodes.get(nodeId);
         if (!node || !node.el) return;
+        if (isGeometryWorkFrozen()) { deferGeometryWork(nodeId); return; }
         if (syncNodeMediaAspect(node)) { fitNodeToContent(nodeId, options); return; }
         const config = nodeConfigs[node.type] || null;
         if (config?.contentSized === true && node.userResized !== true) {
@@ -1069,6 +1125,7 @@ export function createNodeLifecycleApi({
     function enforceNodeContentMinimum(nodeId, options = {}) {
         const node = state.nodes.get(nodeId);
         if (!node || !node.el) return null;
+        if (isGeometryWorkFrozen()) { deferGeometryWork(nodeId); return null; }
         const minimum = getNodeMinimumSize(node);
         const currentWidth = node.el.offsetWidth || Number(node.width) || minimum.minWidth;
         const currentHeight = node.el.offsetHeight || Number(node.height) || minimum.minHeight;
@@ -2387,10 +2444,13 @@ export function createNodeLifecycleApi({
         return true;
     }
 
+    documentRef.addEventListener?.(CANVAS_GEOMETRY_SETTLED_EVENT, scheduleDeferredGeometryFlush);
+
     return {
         fitNodeToContent,
         getNodeMinimumSize,
         enforceNodeContentMinimum,
+        flushDeferredGeometryWork,
         addNode,
         removeNode,
         detachNodesFromConnections,
