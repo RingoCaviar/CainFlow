@@ -24,6 +24,52 @@ const session = {
     connections: []
 };
 
+test('chat keeps its saved card size when an oversized reply viewport is restored', { timeout: 30000 }, async () => {
+    const reply = '这是一段保存在工作流中的长回复。'.repeat(40);
+    await withAppBrowser({
+        ...session,
+        nodes: [{ id: 'compact-resized-chat', type: 'TextChat', x: 60, y: 60,
+            width: 360, height: 338, userResized: true, chatLayoutVersion: 3,
+            textareaHeights: { response: 720 }, lastText: reply }]
+    }, async app => {
+        const assertCard = async () => {
+            const layout = await app.evaluate(`(() => {
+                const card = document.getElementById('compact-resized-chat');
+                const response = document.getElementById('compact-resized-chat-response');
+                response.scrollTop = response.scrollHeight;
+                return {
+                    width: card.offsetWidth,
+                    height: card.offsetHeight,
+                    replyFits: response.getBoundingClientRect().bottom <= card.getBoundingClientRect().bottom,
+                    replyScrolls: response.scrollTop > 0 && getComputedStyle(response).overflowY === 'auto'
+                };
+            })()`);
+            assert.deepEqual(layout, { width: 360, height: 338, replyFits: true, replyScrolls: true });
+            assert.equal(await app.evaluate("document.getElementById('compact-resized-chat-response').textContent"), reply);
+        };
+        await assertCard();
+        await openParameters(app, 'compact-resized-chat');
+        await app.evaluate(`(() => {
+            const prompt = document.getElementById('compact-resized-chat-prompt');
+            prompt.value = '保留原来的卡片尺寸';
+            prompt.dispatchEvent(new Event('change', { bubbles: true }));
+        })()`);
+        const saved = (await persist(app)).nodes.find(node => node.id === 'compact-resized-chat');
+        assert.equal(saved.prompt, '保留原来的卡片尺寸');
+        assert.equal(saved.height, 338);
+        assert.ok(saved.textareaHeights.response > 0 && saved.textareaHeights.response < 338);
+
+        const previousPid = app.server.pid;
+        await app.send('Page.navigate', { url: 'about:blank' });
+        await app.waitFor("location.href === 'about:blank'");
+        await app.server.restart();
+        assert.notEqual(app.server.pid, previousPid);
+        await app.send('Page.navigate', { url: app.server.baseUrl });
+        await app.waitFor('window.__cainflowAppReady === true');
+        await assertCard();
+    });
+});
+
 test('chat restores automatic and manually resized card heights across reloads', { timeout: 30000 }, async () => {
     await withAppBrowser({
         ...session,

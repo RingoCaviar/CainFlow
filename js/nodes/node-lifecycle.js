@@ -1059,6 +1059,27 @@ export function createNodeLifecycleApi({
         return true;
     }
 
+    function fitChatResponseAndMeasureNodeMinimum(node, options = {}) {
+        const minimum = getNodeMinimumSize(node, options);
+        if (node.type !== 'TextChat' || node.userResized !== true || !node.parameterRoot) return minimum;
+
+        const cardHeight = node.el.offsetHeight || Number(node.height);
+        const overflow = minimum.minHeight - cardHeight;
+        if (!(overflow > 0)) return minimum;
+
+        const response = node.el.querySelector('.node-chat-response-field:not(.is-empty) .chat-response-area');
+        const savedHeight = parseFloat(response?.style.height);
+        if (!(savedHeight > 0)) return minimum;
+
+        // A fixed reply viewport can scroll inside the user's card. Recover old
+        // snapshots where its saved height no longer fits the outer dimensions.
+        const responseMinHeight = getPx(getComputedStyle(response), 'min-height');
+        const fittedHeight = Math.max(responseMinHeight, savedHeight - overflow);
+        if (fittedHeight >= savedHeight) return minimum;
+        response.style.height = `${fittedHeight}px`;
+        return getNodeMinimumSize(node, options);
+    }
+
     function fitNodeToContent(nodeId, options = {}) {
         const node = state.nodes.get(nodeId);
         if (!node || !node.el) return;
@@ -1086,7 +1107,7 @@ export function createNodeLifecycleApi({
         const { allowShrink = false, preserveCurrentWidth = false, reason = '' } = options;
         const baseMinimum = getNodeMinimumSize(node);
         const currentWidth = node.el.offsetWidth || Number(node.width) || baseMinimum.minWidth;
-        const minimum = getNodeMinimumSize(node, { width: currentWidth });
+        const minimum = fitChatResponseAndMeasureNodeMinimum(node, { width: currentWidth });
         const currentHeight = node.el.offsetHeight || Number(node.height) || minimum.minHeight;
         const preservesImagePreviewSize = node.userResized === true && node.el.classList.contains('image-first-card');
         const shouldShrink = allowShrink && reason === 'element-resize' && !preservesImagePreviewSize;
@@ -1111,7 +1132,7 @@ export function createNodeLifecycleApi({
             fitNodeToContent(nodeId, options);
             return;
         }
-        const minimum = getNodeMinimumSize(node);
+        const minimum = fitChatResponseAndMeasureNodeMinimum(node);
         const currentWidth = node.el.offsetWidth || Number(node.width) || minimum.minWidth;
         const currentHeight = node.el.offsetHeight || Number(node.height) || minimum.minHeight;
         applyNodeSize(
