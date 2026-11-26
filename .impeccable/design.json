@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-16T07:21:51.706Z",
+  "generatedAt": "2026-11-26T09:26:29Z",
   "title": "Design System: CainFlow",
   "extensions": {
     "colorMeta": {
@@ -172,8 +172,8 @@
     ],
     "breakpoints": [
       {
-        "name": "canvas-navigation-wrap",
-        "value": "440px"
+        "name": "canvas-run-scope-separate",
+        "value": "384px (available canvas width)"
       },
       {
         "name": "theme-menu-compact",
@@ -186,6 +186,10 @@
       {
         "name": "parameter-compact-height",
         "value": "540px"
+      },
+      {
+        "name": "commerce-dock-scroll-height",
+        "value": "360px (viewport height)"
       },
       {
         "name": "parameter-compact-width",
@@ -278,6 +282,7 @@
     "overview": "图片和节点关系居中，工具紧凑、按需展开。保留全部七套主题及其差异，层级沿用现有表面、边框和阴影，按钮与输入框保持克制、明确。",
     "keyCharacteristics": [
       "图片主体节点卡片",
+      "智能对话卡片显示回复，选中后通过共享节点参数浮层编辑",
       "系统字体与紧凑控件",
       "语义主题与组件所属皮肤",
       "稳定的编辑浮层和明确的模态层级"
@@ -292,6 +297,11 @@
         "name": "The Functional Depth Rule",
         "body": "深度服务遮挡关系、焦点和操作可达性。",
         "section": "elevation"
+      },
+      {
+        "name": "画布正文与全文查看",
+        "body": "单击智能对话回复正文选中节点，拖动正文移动节点。通过「放大查看」选取部分回复，或用复制按钮复制全文。",
+        "section": "components"
       }
     ],
     "dos": [

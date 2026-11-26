@@ -251,6 +251,24 @@
         ],
         "createdAt": "2026-11-19T06:56:31.161Z",
         "reason": "Codex verified: the static scan reads the inherited purple shadow from .btn-run.running in css/modules/02-buttons.css. Neither fixture mounts the workflow Run control."
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "tests/fixtures/text-chat-compact.html"
+        ],
+        "createdAt": "2026-11-26T09:25:58.026Z",
+        "reason": "Codex: static scan follows panels.css to .workflow-item::before. The TextChat fixture mounts no workflow-list items."
+      },
+      {
+        "rule": "pulsing-dot",
+        "value": "*",
+        "files": [
+          "tests/fixtures/text-chat-compact.html"
+        ],
+        "createdAt": "2026-11-26T09:25:58.096Z",
+        "reason": "Codex: the match is the existing .workflow-item.is-running::after execution indicator in panels.css. No workflow-list item is mounted by the TextChat fixture."
       }
     ]
   }
