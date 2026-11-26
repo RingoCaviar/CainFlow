@@ -1247,6 +1247,35 @@ test('flow arrows update less often during a dense viewport gesture and resume w
     assert.equal(transforms, 35, 'a regular canvas keeps its usual update frequency during pan');
 });
 
+test('running connections use a static indicator when the arrows are smaller than a CSS pixel', () => {
+    const reads = [];
+    const { api, connectionsGroup, frames, paths, state } = createHarness(1, {
+        running: true, onFlowRead: operation => reads.push(operation)
+    });
+    state.canvas.zoom = 0.1;
+    api.updateAllConnections();
+    frames.shift()(100);
+    const path = paths.find(element => element.classList.contains('connection-path'));
+    assert.equal(connectionsGroup.classList.contains('is-flow-overview'), true);
+    assert.equal(path.classList.contains('connection-flow-source'), true);
+    assert.deepEqual(reads, []);
+    frames.shift()(120);
+    assert.deepEqual(reads, []);
+
+    state.performanceProtection = { active: true };
+    state.canvas.zoom = 0.125;
+    frames.shift()(140);
+    assert.deepEqual(reads, [], 'the overview does not resume sampling while performance protection is active');
+    state.performanceProtection.active = false;
+    frames.shift()(160);
+    assert.equal(connectionsGroup.classList.contains('is-flow-overview'), false);
+    assert.deepEqual(reads, ['length', ...Array(14).fill('point')]);
+
+    state.runningNodeIds.clear();
+    api.updateAllConnections();
+    assert.equal(path.classList.contains('connection-flow-source'), false);
+});
+
 test('destroying connections cancels flow animation and removes derived paths', () => {
     const cancelledFrames = [];
     const { api, paths } = createHarness(1, {

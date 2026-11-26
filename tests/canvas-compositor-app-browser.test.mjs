@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {withAppBrowser, waitForAutosave, reloadAppBrowser} from './helpers/app-browser.mjs';
 
-test('running connection arrows animate after projection and stop when the node finishes', { timeout: 30000 }, async () => {
+test('running connections switch between animated arrows and static overview color', { timeout: 30000 }, async () => {
     await withAppBrowser({
         autoCheckUpdatesOnLoad: false,
         nodes: [{ id: 'flow-source', type: 'Text', x: 80, y: 130 }, { id: 'flow-target', type: 'Text', x: 640, y: 220 }],
@@ -16,16 +16,30 @@ test('running connection arrows animate after projection and stop when the node 
                 else state.runningNodeIds.delete('flow-source');
                 registry.connectionProjectionApi.interactions.nodeAppearanceChanged('flow-source');
             };
-            window.flowArrowTransform = () => document.querySelector(
+            window.flowPath = document.querySelector('#connections-group .connection-path');
+            window.idleFlowStroke = getComputedStyle(flowPath).stroke;
+            window.zoomFlow = zoom => { state.canvas.zoom = zoom; };
+            window.flowArrow = () => document.querySelector(
                 '[data-conn-flow-id="flow-wire"].active .connection-flow-arrow'
-            )?.getAttribute('transform');
+            );
+            window.flowArrowTransform = () => flowArrow()?.getAttribute('transform');
             setFlowRunning(true);
         })()`);
         await app.waitFor("flowArrowTransform()?.startsWith('translate(')");
         await app.evaluate('window.firstFlowArrow = flowArrowTransform()');
         await app.waitFor('flowArrowTransform() && flowArrowTransform() !== firstFlowArrow');
+
+        await app.evaluate('zoomFlow(0.1)');
+        await app.waitFor("flowArrow() && getComputedStyle(flowArrow().parentElement).display === 'none'");
+        await app.waitFor('getComputedStyle(flowPath).stroke === getComputedStyle(flowArrow()).stroke');
+        await app.evaluate('window.overviewFlowArrow = flowArrowTransform(); zoomFlow(0.125)');
+        await app.waitFor("flowArrow() && getComputedStyle(flowArrow().parentElement).display === 'block' && flowArrowTransform() !== overviewFlowArrow");
+
+        await app.evaluate('zoomFlow(0.1)');
+        await app.waitFor('getComputedStyle(flowPath).stroke === getComputedStyle(flowArrow()).stroke');
         await app.evaluate('setFlowRunning(false)');
         await app.waitFor("!document.querySelector('[data-conn-flow-id=flow-wire]')");
+        await app.waitFor('getComputedStyle(flowPath).stroke === idleFlowStroke');
     });
 });
 

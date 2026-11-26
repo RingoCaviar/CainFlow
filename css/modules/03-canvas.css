@@ -285,6 +285,14 @@
     display: block;
 }
 
+#connections-group.is-flow-overview .connection-flow-decoration {
+    display: none;
+}
+
+#connections-group.is-flow-overview:not(.is-performance-protected) .connection-flow-source:not(:hover, .is-hovered) {
+    stroke: var(--canvas-connection-flow);
+}
+
 .connection-flow-arrow {
     fill: none;
     stroke: var(--canvas-connection-flow);

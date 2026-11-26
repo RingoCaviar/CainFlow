@@ -131,6 +131,8 @@ export function createConnectionsApi({
     const FLOW_ANIMATION_TARGET_FPS = 60;
     const FLOW_ANIMATION_FRAME_MS = 1000 / FLOW_ANIMATION_TARGET_FPS;
     const FLOW_ANIMATION_VIEWPORT_FRAME_MS = 1000 / 15;
+    // Each arrow is eight world pixels tall.
+    const FLOW_ARROW_MIN_ZOOM = 1 / 8;
     let lastFlowAnimationTime = 0;
     const TARGET_SNAP_RADIUS = 32;
     const TARGET_CELL_SIZE = TARGET_SNAP_RADIUS * 2;
@@ -646,6 +648,7 @@ export function createConnectionsApi({
     function removeFlowDecoration(connId) {
         const decoration = flowDecorationById.get(connId);
         if (!decoration) return;
+        pathById.get(connId)?.classList.remove('connection-flow-source');
         decoration.group.remove();
         flowDecorationById.delete(connId);
     }
@@ -659,7 +662,10 @@ export function createConnectionsApi({
 
         excludeConnectionFromBitmap(connId);
         const decoration = ensureFlowDecoration(connId);
-        decoration.active = true;
+        if (!decoration.active) {
+            path.classList.add('connection-flow-source');
+            decoration.active = true;
+        }
         if (path.nextSibling !== decoration.group) {
             path.parentNode?.insertBefore(decoration.group, path.nextSibling);
         }
@@ -691,16 +697,23 @@ export function createConnectionsApi({
             flowAnimationFrame = null;
         }
         lastFlowAnimationTime = 0;
+        connectionsGroup.classList?.remove('is-flow-overview');
     }
 
-    function scheduleFlowAnimation() {
+    function scheduleFlowAnimation({ trackOverview = false } = {}) {
         if (flowAnimationFrame !== null) return;
-        if (!isGlobalAnimationEnabled()) return;
+        if (state.globalAnimationEnabled === false || (!trackOverview && state.performanceProtection?.active === true)) return;
         flowAnimationFrame = view.requestAnimationFrame(animateFlowDecorations);
     }
 
     function animateFlowDecorations(now) {
         flowAnimationFrame = null;
+        const showingOverview = connectionsGroup.classList?.contains('is-flow-overview');
+        if (state.canvas.zoom < FLOW_ARROW_MIN_ZOOM || (showingOverview && state.performanceProtection?.active)) {
+            if (!showingOverview) connectionsGroup.classList?.add('is-flow-overview');
+            scheduleFlowAnimation({ trackOverview: true });
+            return;
+        }
         const movingViewport = state.canvas.isPanning || canvasContainer.classList?.contains('is-zooming');
         const frameInterval = movingViewport && canvasContainer.classList?.contains('canvas-dense-mode')
             ? FLOW_ANIMATION_VIEWPORT_FRAME_MS
@@ -746,6 +759,7 @@ export function createConnectionsApi({
             updates.push({ decoration, poses });
         });
 
+        if (showingOverview) connectionsGroup.classList.remove('is-flow-overview');
         for (const connId of obsolete) removeFlowDecoration(connId);
         for (const { decoration, poses } of updates) {
             decoration.arrows.forEach((arrow, index) => {
