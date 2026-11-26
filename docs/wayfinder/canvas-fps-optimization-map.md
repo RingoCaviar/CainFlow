@@ -83,6 +83,12 @@ Define an evidence-backed implementation plan that makes CainFlow's canvas inter
 
 另用 7 节点／5 连线／5 图片和 60 节点／100 连线／28 图片的合成工作流各采样一轮，作为后续图片压力对照。小型场景平移／缩放 p95 为 10.1／30.1 ms，图片密集场景为 20.1／10.1 ms。这两组是单轮样本，不能用于判断位图缓存收益。
 
+#### 重复平移首帧
+
+在 200 节点／400 连线的适配视口中，通过重复中键短拖复现约 30–40 ms 的 p95。隔离对照发现，隐藏整个 SVG 层后仍有松手附近的长帧。跳过连线收尾校验的样本 p95 为 40 ms，和两组正常样本的 30.1／40.0 ms 重叠。两组短时保留 SVG 合成层的试验也未见稳定收益，继续沿用原来的手势结束释放方式。
+
+平移首帧计算 SVG 余量时复用现有 `ResizeObserver` 已观测的画布宽高。改动前，15 次手势为这个计算同步读取了 30 次宽高，单次最长约 0.3 ms。改动后的 14 次手势中，这项计算没有再同步读取宽高，窗口变化后的下一次手势按最新尺寸计算余量。该样本 p95 仍为 40.0 ms，首轮保留的长帧最大 120 ms，剩余瓶颈仍需单独定位。见 [视口投影实现](../../js/canvas/viewport.js)。
+
 ## Out of scope
 
 - Redesigning the editor's node UI or changing workflow semantics solely for benchmark performance.

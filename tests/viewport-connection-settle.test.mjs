@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createViewportApi } from '../js/canvas/viewport.js';
 
-function createHarness({ originLines = [], ResizeObserver } = {}) {
+function createHarness({ originLines = [], ResizeObserver, wireLayer } = {}) {
     const calls = [];
     const documentRef = { dispatchEvent() {}, defaultView: { ResizeObserver } };
     const container = {
@@ -14,7 +14,7 @@ function createHarness({ originLines = [], ResizeObserver } = {}) {
     const elements = {
         canvasContainer: container,
         nodesLayer: { style: { setProperty() {} } },
-        connectionsGroup: { setAttribute() {} },
+        connectionsGroup: { setAttribute() {}, ownerSVGElement: wireLayer },
         originAxes: { setAttribute() {}, querySelectorAll() { return originLines; } },
         zoomLevel: { textContent: '' }
     };
@@ -26,7 +26,7 @@ function createHarness({ originLines = [], ResizeObserver } = {}) {
         scheduleConnectionRefresh(options) { calls.push(options); },
         requestAnimationFrameRef(callback) { callback(); }
     });
-    return { api, calls, canvas };
+    return { api, calls, canvas, container };
 }
 
 test('origin axes paint bounded segments that still span the viewport after a distant pan', () => {
@@ -74,6 +74,35 @@ test('growing the idle canvas extends origin axes without another gesture', () =
     resize([{ contentRect: { width: 4200, height: 3400 } }]);
     assert.ok(horizontal.x2 * canvas.zoom + canvas.x >= 4200);
     assert.ok(vertical.y2 * canvas.zoom + canvas.y >= 3400);
+});
+
+test('starting a pan reuses the observed viewport size for the SVG margin', () => {
+    let resize;
+    class ResizeObserver {
+        constructor(callback) { resize = callback; }
+        observe() {}
+    }
+    const wireStyle = new Map();
+    const wireLayer = {
+        style: { setProperty(name, value) { wireStyle.set(name, value); } },
+        classList: { add() {}, remove() {} }
+    };
+    const originLines = [{ setAttribute() {} }, { setAttribute() {} }];
+    const { api, canvas, container } = createHarness({ ResizeObserver, wireLayer, originLines });
+    resize([{ contentRect: { width: 1200, height: 700 } }]);
+    Object.defineProperty(container, 'clientWidth', {
+        get() { assert.fail('pan startup must not read the viewport layout again'); }
+    });
+    canvas.isPanning = true;
+    api.applyCanvasVisualTransform({ dispatchTransformEvent: false });
+    assert.equal(wireStyle.get('--pan-margin'), '660px');
+
+    canvas.isPanning = false;
+    api.applyCanvasVisualTransform({ dispatchTransformEvent: false });
+    resize([{ contentRect: { width: 800, height: 600 } }]);
+    canvas.isPanning = true;
+    api.applyCanvasVisualTransform({ dispatchTransformEvent: false });
+    assert.equal(wireStyle.get('--pan-margin'), '440px');
 });
 
 test('settleConnections is explicit and does not depend on reason', () => {

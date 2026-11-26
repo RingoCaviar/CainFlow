@@ -41,7 +41,7 @@ export function createViewportApi({
     const [horizontalAxis, verticalAxis] = elements.originAxes?.querySelectorAll?.('line') || [];
     let wireAnchor = null;
     let originAxisBounds = null;
-    let originAxisViewportSize = null;
+    let canvasViewportSize = null;
     let originAxisScrollLeft = 0;
     let originAxisScrollTop = 0;
     const refreshingTextNodes = new Set();
@@ -76,13 +76,12 @@ export function createViewportApi({
         if (element && element.getAttribute?.('transform') !== value) element.setAttribute('transform', value);
     }
 
-    // Read once per gesture: the margin only has to absorb the drag distance
-    // before the next re-anchor, and a single layout read at gesture start is
-    // cheaper than the repaint it prevents.
     function resolveWirePanMargin() {
         const container = elements.canvasContainer;
-        const width = Number(container?.clientWidth) || 0;
-        const height = Number(container?.clientHeight) || 0;
+        // A first pan frame has already changed canvas styles. Reuse the
+        // observed size so reading the margin does not flush layout here.
+        const width = canvasViewportSize?.width ?? (Number(container?.clientWidth) || 0);
+        const height = canvasViewportSize?.height ?? (Number(container?.clientHeight) || 0);
         const size = Math.max(width, height);
         if (!size) return MIN_WIRE_PAN_MARGIN;
         return Math.min(MAX_WIRE_PAN_MARGIN,
@@ -117,8 +116,8 @@ export function createViewportApi({
     function updateOriginAxisBounds(x, y, zoom) {
         if (!horizontalAxis || !verticalAxis || !(zoom > 0)) return;
         const container = elements.canvasContainer;
-        const width = originAxisViewportSize?.width ?? container.clientWidth;
-        const height = originAxisViewportSize?.height ?? container.clientHeight;
+        const width = canvasViewportSize?.width ?? container.clientWidth;
+        const height = canvasViewportSize?.height ?? container.clientHeight;
         if (!(width > 0 && height > 0)) return;
 
         const margin = wireAnchor ? wirePanMargin : 0;
@@ -236,7 +235,7 @@ export function createViewportApi({
         });
     }
 
-    if (horizontalAxis && verticalAxis) {
+    if (wireLayer || (horizontalAxis && verticalAxis)) {
         const container = elements.canvasContainer;
         const { ResizeObserver } = container.ownerDocument?.defaultView || {};
         const refreshOriginAxes = () => {
@@ -245,16 +244,18 @@ export function createViewportApi({
         };
         if (ResizeObserver) {
             const observer = new ResizeObserver(([entry]) => {
-                originAxisViewportSize = entry.contentRect;
+                canvasViewportSize = entry.contentRect;
                 refreshOriginAxes();
             });
             observer.observe(container);
         }
-        container.addEventListener?.('scroll', () => {
-            originAxisScrollLeft = container.scrollLeft;
-            originAxisScrollTop = container.scrollTop;
-            refreshOriginAxes();
-        });
+        if (horizontalAxis && verticalAxis) {
+            container.addEventListener?.('scroll', () => {
+                originAxisScrollLeft = container.scrollLeft;
+                originAxisScrollTop = container.scrollTop;
+                refreshOriginAxes();
+            });
+        }
     }
 
     return {
