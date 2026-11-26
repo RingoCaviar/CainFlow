@@ -4,6 +4,7 @@
 import { getFirstCompatibleDefinitionPort, getNodeDefinition, getNodeDefinitionPorts, listNodeDefinitions } from '../nodes/registry.js';
 import { createCanvasConnectionRenderer } from './canvas-connection-renderer.js';
 import { checkLineIntersection, createBezierLengthSampler, getBezierCurveGeometry } from './geometry.js';
+import { screenPointToCanvasWorld } from './viewport.js';
 import { orderImageReferenceConnections } from '../nodes/image-reference-projection.js';
 import {
     applyReferenceImagePorts,
@@ -534,12 +535,9 @@ export function createConnectionsApi({
         if (dotRect.width <= 0 || dotRect.height <= 0) return null;
 
         const containerRect = containerRectOverride || canvasContainer.getBoundingClientRect();
-        const { x: cx, y: cy } = state.canvas;
         const zoom = Math.max(0.0001, Number(state.canvas?.zoom) || 1);
-        return {
-            x: (dotRect.left + dotRect.width / 2 - containerRect.left - cx) / zoom,
-            y: (dotRect.top + dotRect.height / 2 - containerRect.top - cy) / zoom
-        };
+        return screenPointToCanvasWorld(dotRect.left + dotRect.width / 2, dotRect.top + dotRect.height / 2,
+            { ...state.canvas, zoom }, containerRect, canvasContainer);
     }
 
     function invalidateNodePortCache(nodeId = null, { markDirty = true, translationOnly = false, measurementOnly = false } = {}) {
@@ -1209,8 +1207,8 @@ export function createConnectionsApi({
         if (connectionById.has(paintedId) && pathById.get(paintedId)?.getAttribute('d')) return paintedId;
         if (typeof getConnectionSamplePoints !== 'function') return null;
         const rect = canvasContainer.getBoundingClientRect();
-        const { x, y, zoom } = state.canvas;
-        const point = { x: (clientX - rect.left - x) / zoom, y: (clientY - rect.top - y) / zoom };
+        const { zoom } = state.canvas;
+        const point = screenPointToCanvasWorld(clientX, clientY, state.canvas, rect, canvasContainer);
         const radius = CONNECTION_PICK_RADIUS / zoom;
         const bounds = expandBounds({ left: point.x, right: point.x, top: point.y, bottom: point.y }, radius);
         let best = null;
@@ -1531,11 +1529,13 @@ export function createConnectionsApi({
     function getCurrentConnectionViewport(containerRect = null) {
         const { x, y, zoom } = state.canvas;
         const rect = containerRect || canvasContainer.getBoundingClientRect();
+        const left = (canvasContainer.scrollLeft || 0) - x;
+        const top = (canvasContainer.scrollTop || 0) - y;
         return {
-            left: -x / zoom,
-            top: -y / zoom,
-            right: (rect.width - x) / zoom,
-            bottom: (rect.height - y) / zoom
+            left: left / zoom,
+            top: top / zoom,
+            right: (left + rect.width) / zoom,
+            bottom: (top + rect.height) / zoom
         };
     }
 
@@ -1675,6 +1675,15 @@ export function createConnectionsApi({
         for (const measurement of measurements) renderConnectionPath(measurement);
     }
 
+    function materializeBitmapCoverage(viewport) {
+        const candidates = state.connections.filter(connection =>
+            !pathById.get(connection.id)?.getAttribute('d') && isConnectionNearViewport(connection, viewport));
+        if (candidates.length === 0) return;
+        const containerRect = canvasContainer.getBoundingClientRect();
+        renderConnectionPaths(candidates, { containerRect, viewport, laneById: getConnectionLaneMap() });
+        ensureFlowAnimation();
+    }
+
     function excludeConnectionFromBitmap(connectionId) {
         if (!curveGeometryById.delete(connectionId)) return;
         canvasConnectionRenderer.remove(connectionId);
@@ -1796,7 +1805,7 @@ export function createConnectionsApi({
         const containerRect = canvasContainer.getBoundingClientRect();
         return {
             containerRect,
-            viewport: getCurrentConnectionViewport(containerRect),
+            viewport: canvasConnectionRenderer.getProjectionCoverage?.(containerRect) || getCurrentConnectionViewport(containerRect),
             laneById: getConnectionLaneMap()
         };
     }
@@ -1904,7 +1913,7 @@ export function createConnectionsApi({
         if (connectionsToRender.length) {
             const containerRect = canvasContainer.getBoundingClientRect();
             renderConnectionPaths(connectionsToRender, {
-                containerRect, viewport: getCurrentConnectionViewport(containerRect), laneById
+                containerRect, viewport: canvasConnectionRenderer.getProjectionCoverage?.(containerRect) || getCurrentConnectionViewport(containerRect), laneById
             });
             if (canvasConnectionRenderer.enabled && !state.dragging) canvasConnectionRenderer.end();
         }
@@ -2348,9 +2357,10 @@ export function createConnectionsApi({
 
     function getTargetLayout() {
         const { x, y, zoom } = state.canvas;
+        const { scrollLeft = 0, scrollTop = 0 } = canvasContainer;
         const containerRect = canvasContainer.getBoundingClientRect?.();
         const dense = canvasContainer.classList?.contains('canvas-dense-mode');
-        const viewport = `${x}:${y}:${zoom}:${containerRect?.left}:${containerRect?.top}:${containerRect?.width}:${containerRect?.height}:${state.themeId}:${dense}`;
+        const viewport = `${x}:${y}:${zoom}:${scrollLeft}:${scrollTop}:${containerRect?.left}:${containerRect?.top}:${containerRect?.width}:${containerRect?.height}:${state.themeId}:${dense}`;
         if (targetLayout?.viewport === viewport) return targetLayout;
         const cells = new Map();
         const ports = Array.from((canvasContainer.querySelectorAll ? canvasContainer : documentRef).querySelectorAll('.node-port'));
@@ -2392,9 +2402,8 @@ export function createConnectionsApi({
         if (!nearest) return null;
         const { target, entry } = nearest;
         const rect = layout.containerRect;
-        const { x, y, zoom } = state.canvas;
         const position = rect
-            ? { x: (entry.center.x - rect.left - x) / zoom, y: (entry.center.y - rect.top - y) / zoom }
+            ? screenPointToCanvasWorld(entry.center.x, entry.center.y, state.canvas, rect, canvasContainer)
             : getPortPosition(target.nodeId, target.port, target.dir);
         return { target, position, portEl: entry.portEl, center: entry.center };
     }
@@ -2959,6 +2968,7 @@ export function createConnectionsApi({
     }
 
     return {
+        materializeBitmapCoverage,
         destroy,
         projectionHandoffAdapter: {
             capture: exportConnectionProjection,

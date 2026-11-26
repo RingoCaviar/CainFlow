@@ -356,9 +356,83 @@ test('the experimental connection bitmap follows zoom and returns to SVG over a 
         await app.waitFor("bitmapState().visibility === 'visible' && bitmapState().stroke === 'none'");
         const active = await app.evaluate('bitmapState()');
         assert.ok(active.width > 300, 'the projected curve uses an allocated bitmap');
+        const fallback = await app.evaluate(`(() => {
+            const path = document.querySelector('[data-conn-id=bitmap-edge]');
+            path.classList.add('is-hovered');
+            const visible = bitmapState();
+            path.classList.remove('is-hovered');
+            return { visible, restored: bitmapState() };
+        })()`);
+        assert.equal(fallback.visible.visibility, 'hidden', 'the highlighted SVG stroke replaces the bitmap');
+        assert.notEqual(fallback.visible.stroke, 'none');
+        assert.equal(fallback.restored.visibility, 'visible');
+        const toggle = await app.evaluate(`(() => {
+            const button = document.getElementById('cainflow-perf-connection-bitmap');
+            button.click();
+            const svg = bitmapState();
+            button.click();
+            return { svg, bitmap: bitmapState() };
+        })()`);
+        assert.equal(toggle.svg.visibility, 'hidden');
+        assert.notEqual(toggle.svg.stroke, 'none');
+        assert.equal(toggle.bitmap.visibility, 'visible');
         await app.waitFor("bitmapState().visibility === 'hidden' && bitmapState().stroke !== 'none'");
         assert.equal(await app.evaluate("document.activeElement.closest('.node')?.id"), 'bitmap-source');
     }, {
         initScript: "if (location.hostname === '127.0.0.1') history.replaceState(null, '', '?perf=1&canvasConnections=1');"
     });
+});
+
+for (const gpuEnabled of [true, false]) test(`a held pan reveals a connection beyond the bitmap margin with ${gpuEnabled ? 'Canvas 2D' : 'SVG fallback'}`, { timeout: 30000 }, async () => {
+    await withAppBrowser({
+        autoCheckUpdatesOnLoad: false,
+        canvasGpuAccelerationEnabled: gpuEnabled,
+        canvas: { x: 0, y: 0, zoom: 1 },
+        nodes: [{ id: 'far-source', type: 'Text', x: 2500, y: 100 }, { id: 'far-target', type: 'Text', x: 3000, y: 160 }],
+        connections: [{ id: 'far-edge', from: { nodeId: 'far-source', port: 'text' },
+            to: { nodeId: 'far-target', port: 'text' }, type: 'text' }]
+    }, async app => {
+        assert.equal(await app.evaluate("Boolean(document.querySelector('[data-conn-id=far-edge]')?.getAttribute('d'))"), false);
+        await app.evaluate(`(() => {
+            const canvas = document.getElementById('canvas-container');
+            const {left, top} = canvas.getBoundingClientRect();
+            const start = { bubbles: true, cancelable: true, button: 1, buttons: 4, clientX: left + 350, clientY: top + 400 };
+            canvas.dispatchEvent(new MouseEvent('mousedown', start));
+            window.dispatchEvent(new MouseEvent('mousemove', { ...start, clientX: start.clientX - 2350 }));
+        })()`);
+        await app.waitFor("document.getElementById('canvas-container').classList.contains('is-panning') && Boolean(document.querySelector('[data-conn-id=far-edge]')?.getAttribute('d'))");
+        const sample = await app.evaluate(`(() => {
+            const path = document.querySelector('[data-conn-id=far-edge]');
+            const endpoint = path.getPointAtLength(0).matrixTransform(path.getScreenCTM());
+            const dot = document.querySelector('#far-source .node-port.output .port-dot').getBoundingClientRect();
+            const midpoint = path.getPointAtLength(path.getTotalLength() / 2).matrixTransform(path.getScreenCTM());
+            const canvas = document.querySelector('.canvas-connections');
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.floor((midpoint.x - rect.left)*canvas.width/rect.width);
+            const y = Math.floor((midpoint.y - rect.top)*canvas.height/rect.height);
+            const bitmap = getComputedStyle(canvas).visibility === 'visible';
+            const painted = bitmap && canvas.getContext('2d').getImageData(x-2,y-2,5,5).data.some((value,index)=>index%4===3&&value>0);
+            return { alignment: Math.hypot(endpoint.x - dot.x - dot.width / 2, endpoint.y - dot.y - dot.height / 2),
+                bitmap, painted, stroke: getComputedStyle(path).stroke, hit: document.elementsFromPoint(midpoint.x, midpoint.y).includes(path),
+                x: midpoint.x, y: midpoint.y };
+        })()`);
+        assert.ok(sample.alignment < .25, `revealed connection starts at the real port (${sample.alignment}px)`);
+        assert.equal(sample.bitmap, gpuEnabled);
+        assert.equal(sample.painted, gpuEnabled);
+        assert.equal(sample.stroke === 'none', gpuEnabled);
+        assert.equal(sample.hit, true);
+        await app.evaluate(`(() => {
+            const canvas = document.getElementById('canvas-container');
+            const { left, top } = canvas.getBoundingClientRect();
+            window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 1, clientX: left - 2000, clientY: top+400 }));
+            const hit = document.elementsFromPoint(${sample.x}, ${sample.y}).find(element => element.dataset.connId === 'far-edge');
+            hit.dispatchEvent(new MouseEvent('dblclick', { bubbles:true, cancelable:true, clientX:${sample.x}, clientY:${sample.y} }));
+        })()`);
+        await app.waitFor("!document.querySelector('[data-conn-id=far-edge]')");
+        await app.evaluate(`(() => {
+            const canvas = document.getElementById('canvas-container'); canvas.focus();
+            canvas.dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,bubbles:true,cancelable:true}));
+        })()`);
+        await app.waitFor("Boolean(document.querySelector('[data-conn-id=far-edge]')?.getAttribute('d'))");
+    }, { initScript: "if (location.hostname === '127.0.0.1') history.replaceState(null, '', '?perf=1&canvasConnections=1');" });
 });

@@ -145,7 +145,7 @@ export function createCanvasPerformanceMonitor({
         });
     }
 
-    function mount({ createFixture, clearFixture } = {}) {
+    function mount({ createFixture, clearFixture, setConnectionBitmapEnabled } = {}) {
         if (!enabled || !globalRef.document || globalRef.document.getElementById('cainflow-perf-controls')) return;
         const controls = globalRef.document.createElement('div');
         controls.id = 'cainflow-perf-controls';
@@ -166,7 +166,20 @@ export function createCanvasPerformanceMonitor({
         const clearButton = globalRef.document.createElement('button');
         clearButton.textContent = 'Clear fixture';
         clearButton.addEventListener('click', () => { clearFixture?.(); });
-        controls.append(fixtureButton, sampleButton, clearButton);
+        controls.append(fixtureButton, sampleButton);
+        if (setConnectionBitmapEnabled) {
+            const bitmapButton = globalRef.document.createElement('button');
+            bitmapButton.id = 'cainflow-perf-connection-bitmap';
+            bitmapButton.textContent = 'Connection bitmap';
+            bitmapButton.setAttribute('aria-pressed', 'true');
+            bitmapButton.addEventListener('click', () => {
+                const enabled = bitmapButton.getAttribute('aria-pressed') !== 'true';
+                setConnectionBitmapEnabled(enabled);
+                bitmapButton.setAttribute('aria-pressed', String(enabled));
+            });
+            controls.append(bitmapButton);
+        }
+        controls.append(clearButton);
         globalRef.document.body.appendChild(controls);
     }
 

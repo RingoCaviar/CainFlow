@@ -1,7 +1,14 @@
 const ACTIVE_CLASS = 'canvas-connection-bitmap-active';
 const MAX_BITMAP_PIXELS = 6_000_000;
+const MAX_BITMAP_SIDE = 8192;
 const MIN_BITMAP_PIXEL_RATIO = 0.75;
 const ZOOM_REDRAW_THRESHOLD = 0.15;
+const CURVE_POINTS = ['start', 'control1', 'control2', 'end'];
+
+function sameCurve(first, second) {
+    return first === second || (!!first && !!second && CURVE_POINTS.every(point =>
+        first[point].x === second[point].x && first[point].y === second[point].y));
+}
 
 export function createCanvasConnectionRenderer({ canvasContainer, documentRef = document, state, windowRef = window } = {}) {
     const flags = new URLSearchParams(windowRef.location?.search);
@@ -9,42 +16,73 @@ export function createCanvasConnectionRenderer({ canvasContainer, documentRef = 
     if (!canvasContainer || !state?.canvas || flags.get('perf') !== '1' || flags.get('canvasConnections') !== '1') return disabled;
 
     const canvas = documentRef.createElement('canvas');
-    const context = canvas.getContext('2d');
-    if (!context) return disabled;
-    canvas.className = 'canvas-connections';
-    canvas.setAttribute?.('aria-hidden', 'true');
-    canvasContainer.prepend(canvas);
+    let context;
+    try {
+        context = canvas.getContext('2d');
+    } catch {
+        context = null;
+    }
+    if (context) {
+        canvas.className = 'canvas-connections';
+        canvas.setAttribute?.('aria-hidden', 'true');
+        canvasContainer.prepend(canvas);
+    }
 
-    const entries = new Map();
+    let entries = new Map();
+    let pendingEntries = null;
     let bitmap = null;
+    let bitmapEnabled = true;
     let moving = false;
-    let updating = false;
     let color = '';
+    let observedSize = null;
+    let projectedCoverage = null;
+    let scrollLeft = canvasContainer.scrollLeft || 0;
+    let scrollTop = canvasContainer.scrollTop || 0;
 
     function setActive(active) {
         canvasContainer.classList.toggle(ACTIVE_CLASS, active);
     }
 
-    function rasterize(view, dpr) {
-        bitmap = null;
-        if (updating || !entries.size || !color || color === 'none' || context.isContextLost?.()) return;
-        const { width, height } = canvasContainer.getBoundingClientRect();
-        if (!(width > 0 && height > 0 && view.zoom > 0)) return;
+    function measureCoverage(view, { width, height } = observedSize || canvasContainer.getBoundingClientRect()) {
+        if (!(width > 0 && height > 0 && view.zoom > 0)) return null;
         const margin = Math.min(1024, Math.round(Math.max(width, height) * 0.55));
         const cssWidth = Math.ceil(width + 2 * margin);
         const cssHeight = Math.ceil(height + 2 * margin);
-        const ratio = Math.min(dpr, 2, Math.sqrt(MAX_BITMAP_PIXELS / (cssWidth * cssHeight)));
+        const left = (scrollLeft - view.x - margin) / view.zoom;
+        const top = (scrollTop - view.y - margin) / view.zoom;
+        return { left, top, right: left + cssWidth / view.zoom, bottom: top + cssHeight / view.zoom,
+            width, height, cssWidth, cssHeight, zoom: view.zoom };
+    }
+
+    function coversViewport(coverage, view) {
+        if (!coverage || Math.abs(view.zoom / coverage.zoom - 1) >= ZOOM_REDRAW_THRESHOLD) return false;
+        const left = (scrollLeft - view.x) / view.zoom;
+        const top = (scrollTop - view.y) / view.zoom;
+        return left >= coverage.left && top >= coverage.top && left + coverage.width / view.zoom <= coverage.right &&
+            top + coverage.height / view.zoom <= coverage.bottom;
+    }
+
+    function requestCoverage() {
+        if (pendingEntries || coversViewport(projectedCoverage, state.canvas)) return null;
+        projectedCoverage = measureCoverage(state.canvas);
+        return projectedCoverage;
+    }
+
+    function rasterize(view, dpr) {
+        bitmap = null;
+        if (!bitmapEnabled || pendingEntries || !entries.size || !color || color === 'none' ||
+            state.canvasGpuAccelerationEnabled === false || context.isContextLost?.()) return;
+        const coverage = measureCoverage(view);
+        if (!coverage) return;
+        const { left, top, right, bottom, cssWidth, cssHeight } = coverage;
+        const ratio = Math.min(dpr, 2, MAX_BITMAP_SIDE / cssWidth, MAX_BITMAP_SIDE / cssHeight,
+            Math.sqrt(MAX_BITMAP_PIXELS / (cssWidth * cssHeight)));
         if (ratio < MIN_BITMAP_PIXEL_RATIO) return;
         const pixelWidth = Math.floor(cssWidth * ratio), pixelHeight = Math.floor(cssHeight * ratio);
         if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
         if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
         canvas.style.width = cssWidth + 'px';
         canvas.style.height = cssHeight + 'px';
-
-        const left = (-view.x - margin) / view.zoom;
-        const top = (-view.y - margin) / view.zoom;
-        const right = left + cssWidth / view.zoom;
-        const bottom = top + cssHeight / view.zoom;
         const scaleX = pixelWidth / cssWidth, scaleY = pixelHeight / cssHeight;
         context.setTransform(1, 0, 0, 1, 0, 0);
         context.clearRect(0, 0, pixelWidth, pixelHeight);
@@ -62,22 +100,24 @@ export function createCanvasConnectionRenderer({ canvasContainer, documentRef = 
         context.strokeStyle = color;
         context.lineWidth = 2.5;
         context.stroke();
-        bitmap = { left, top, right, bottom, width, height, zoom: view.zoom, dpr };
+        bitmap = { ...coverage, dpr };
     }
 
     function updateViewport(active) {
         moving = active;
         const contextLost = context.isContextLost?.();
         if (contextLost) bitmap = null;
-        if (!active || state.canvasGpuAccelerationEnabled === false || contextLost) {
+        if (!bitmapEnabled || state.canvasGpuAccelerationEnabled === false) {
+            releaseBitmap();
+            return;
+        }
+        if (!active || pendingEntries || state.dragging || state.connecting || contextLost) {
             setActive(false);
             return;
         }
         const view = state.canvas;
         const dpr = windowRef.devicePixelRatio || 1;
-        if (!bitmap || bitmap.dpr !== dpr || Math.abs(view.zoom / bitmap.zoom - 1) >= ZOOM_REDRAW_THRESHOLD ||
-            (-view.x / view.zoom) < bitmap.left || (-view.y / view.zoom) < bitmap.top ||
-            ((bitmap.width - view.x) / view.zoom) > bitmap.right || ((bitmap.height - view.y) / view.zoom) > bitmap.bottom) {
+        if (bitmap?.dpr !== dpr || !coversViewport(bitmap, view)) {
             rasterize(view, dpr);
         }
         if (bitmap) {
@@ -94,43 +134,97 @@ export function createCanvasConnectionRenderer({ canvasContainer, documentRef = 
         setActive(false);
     }
 
-    function begin() {
-        updating = true;
-        entries.clear();
+    function releaseBitmap() {
         invalidate();
+        if (canvas.width !== 0) canvas.width = 0;
+        if (canvas.height !== 0) canvas.height = 0;
+    }
+
+    function setBitmapEnabled(enabled) {
+        if (bitmapEnabled === enabled) return;
+        bitmapEnabled = enabled;
+        if (enabled) prepareBitmap();
+        else releaseBitmap();
+    }
+
+    function begin() {
+        pendingEntries = new Map();
+        projectedCoverage = null;
+        setActive(false);
     }
 
     function draw(id, curve) {
         if (!id || !curve?.start || !curve.control1 || !curve.control2 || !curve.end) return;
-        entries.set(id, curve);
-        if (bitmap) invalidate();
+        if (pendingEntries) {
+            pendingEntries.set(id, curve);
+        } else if (!sameCurve(entries.get(id), curve)) {
+            entries.set(id, curve);
+            invalidate();
+        }
     }
 
     function refreshStyle() {
-        color = windowRef.getComputedStyle(canvas).stroke;
-        bitmap = null;
+        const nextColor = windowRef.getComputedStyle(canvas).stroke;
+        if (nextColor !== color) {
+            color = nextColor;
+            invalidate();
+        }
+        prepareBitmap();
+    }
+
+    function prepareBitmap() {
         if (moving) updateViewport(true);
-        else rasterize(state.canvas, windowRef.devicePixelRatio || 1);
+        else if (!bitmap) rasterize(state.canvas, windowRef.devicePixelRatio || 1);
     }
 
     function end() {
-        updating = false;
-        refreshStyle();
+        if (pendingEntries) {
+            const changed = entries.size !== pendingEntries.size || [...pendingEntries].some(([id, curve]) =>
+                !sameCurve(entries.get(id), curve));
+            entries = pendingEntries;
+            pendingEntries = null;
+            if (changed) invalidate();
+        }
+        if (!entries.size) releaseBitmap();
+        if (color) prepareBitmap();
+        else refreshStyle();
     }
 
     function remove(id) {
-        if (entries.delete(id) && bitmap) invalidate();
+        pendingEntries?.delete(id);
+        if (!entries.delete(id)) return;
+        if (!entries.size) releaseBitmap();
+        else if (bitmap) invalidate();
     }
 
-    const resizeObserver = windowRef.ResizeObserver ? new windowRef.ResizeObserver(invalidate) : null;
+    const resizeObserver = windowRef.ResizeObserver ? new windowRef.ResizeObserver(([{ contentRect }]) => {
+        const previous = observedSize || bitmap;
+        observedSize = contentRect;
+        if (contentRect.width !== previous?.width || contentRect.height !== previous?.height) {
+            projectedCoverage = null;
+            invalidate();
+        }
+    }) : null;
     resizeObserver?.observe(canvasContainer);
+    function onScroll() {
+        scrollLeft = canvasContainer.scrollLeft || 0;
+        scrollTop = canvasContainer.scrollTop || 0;
+        if (moving) setActive(false);
+    }
+    canvasContainer.addEventListener?.('scroll', onScroll);
     canvas.addEventListener?.('contextlost', invalidate);
     function destroy() {
         resizeObserver?.disconnect();
+        canvasContainer.removeEventListener?.('scroll', onScroll);
         canvas.removeEventListener?.('contextlost', invalidate);
-        begin();
-        canvas.remove();
+        pendingEntries = null;
+        entries.clear();
+        releaseBitmap();
+        canvas.remove?.();
     }
 
-    return { enabled: true, begin, draw, end, remove, updateViewport, refreshStyle, destroy };
+    const getProjectionCoverage = size => measureCoverage(state.canvas, size);
+    if (!context) return { ...disabled, begin() { projectedCoverage = null; }, requestCoverage, getProjectionCoverage, destroy };
+    return { enabled: true, begin, draw, end, remove, requestCoverage, updateViewport, refreshStyle, setBitmapEnabled, destroy,
+        getProjectionCoverage };
 }

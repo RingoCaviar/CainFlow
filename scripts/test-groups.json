@@ -664,7 +664,7 @@
     "tests/video-save-local-asset.test.mjs": {"tier": "fast", "groups": ["media", "nodes"]},
     "tests/viewport-connection-settle.test.mjs": {"tier": "fast", "groups": ["canvas"]},
     "tests/viewport-dom-budget-app-browser.test.mjs": {"tier": "browser", "groups": ["canvas"], "sources": ["js/canvas/canvas-interactions.js"]},
-    "tests/viewport-grid-app-browser.test.mjs": {"tier": "browser", "groups": ["canvas"], "sources": ["css/modules/03-canvas.css", "js/canvas/viewport.js", "js/canvas/canvas-interactions.js", "js/features/persistence/session-manager.js"]},
+    "tests/viewport-grid-app-browser.test.mjs": {"tier": "browser", "groups": ["canvas"], "sources": ["css/modules/03-canvas.css", "js/canvas/viewport.js", "js/canvas/canvas-interactions.js", "js/canvas/canvas-connection-renderer.js", "js/canvas/connection-projection.js", "js/features/persistence/session-manager.js"]},
     "tests/viewport-state-persistence.test.mjs": {"tier": "fast", "groups": ["workflow", "canvas"]},
     "tests/viewport-zoom-label-app-browser.test.mjs": {"tier": "browser", "groups": ["canvas"], "sources": ["js/canvas/viewport.js"]},
     "tests/viewport-zoom-scope-app-browser.test.mjs": {"tier": "browser", "groups": ["canvas"]},

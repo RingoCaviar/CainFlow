@@ -15,6 +15,11 @@ export function getViewportWorldBounds({ x, y, zoom }, { width, height }, buffer
     };
 }
 
+export function screenPointToCanvasWorld(sx, sy, { x, y, zoom }, { left, top },
+    { scrollLeft = 0, scrollTop = 0 }) {
+    return { x: (sx - left - x + scrollLeft) / zoom, y: (sy - top - y + scrollTop) / zoom };
+}
+
 export function createViewportApi({
     state,
     elements,
@@ -190,8 +195,7 @@ export function createViewportApi({
 
     function screenToCanvas(sx, sy) {
         const rect = elements.canvasContainer.getBoundingClientRect();
-        const { x, y, zoom } = state.canvas;
-        return { x: (sx - rect.left - x) / zoom, y: (sy - rect.top - y) / zoom };
+        return screenPointToCanvasWorld(sx, sy, state.canvas, rect, elements.canvasContainer);
     }
 
     function isOutsideTextRefreshArea(nodeEl, area) {
@@ -254,6 +258,7 @@ export function createViewportApi({
                 originAxisScrollLeft = container.scrollLeft;
                 originAxisScrollTop = container.scrollTop;
                 refreshOriginAxes();
+                reportConnectionViewportFrame?.();
             });
         }
     }

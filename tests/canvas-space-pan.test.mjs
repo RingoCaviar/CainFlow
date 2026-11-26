@@ -248,6 +248,8 @@ test('panning scopes interaction styling to the canvas instead of restyling the 
 
 test('wheel zoom measures its anchor before applying scoped interaction styles', () => {
     const { canvasContainer, documentRef, canvasListeners, state } = createHarness({ requestFrame() { return 1; } });
+    canvasContainer.scrollLeft = 40;
+    canvasContainer.scrollTop = 70;
     const calls = [];
     canvasContainer.getBoundingClientRect = () => {
         calls.push('measure');
@@ -261,8 +263,8 @@ test('wheel zoom measures its anchor before applying scoped interaction styles',
             target: { closest() { return null; } }, preventDefault() {}
         });
         assert.deepEqual(calls, ['measure', 'style'], 'do not force layout after changing the canvas interaction style');
-        assert.ok(Math.abs((380 - state.canvas.x) / state.canvas.zoom - 370) < 1e-8);
-        assert.ok(Math.abs((270 - state.canvas.y) / state.canvas.zoom - 250) < 1e-8);
+        assert.ok(Math.abs((420 - state.canvas.x) / state.canvas.zoom - 410) < 1e-8);
+        assert.ok(Math.abs((340 - state.canvas.y) / state.canvas.zoom - 320) < 1e-8);
     } finally { clearTimeout(state.zoomTimer); }
 });
 

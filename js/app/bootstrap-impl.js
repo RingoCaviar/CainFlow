@@ -360,7 +360,7 @@ const viewportApi = createViewportApi({
     elements,
     updateAllConnections: () => updateAllConnections(),
     scheduleConnectionRefresh,
-    reportConnectionViewportFrame: canvasConnectionRenderer.enabled
+    reportConnectionViewportFrame: canvasConnectionRenderer.requestCoverage
         ? () => registry.connectionProjectionApi?.interactions.viewportFrame() : null
 });
 const renderProjectionManager = createRenderProjectionManager({
@@ -997,6 +997,8 @@ const {
 registry.connectionProjectionApi = createConnectionProjection({
     projectionHandoffAdapter: connectionsApi.projectionHandoffAdapter,
     updateBitmapViewport: canvasConnectionRenderer.enabled ? canvasConnectionRenderer.updateViewport : null,
+    requestBitmapCoverage: canvasConnectionRenderer.requestCoverage,
+    materializeBitmapCoverage: connectionsApi.materializeBitmapCoverage,
     updateAllConnections,
     refreshNodeProjection: () => renderProjectionManager.refreshNow(),
     beginConnectionRestoration,
@@ -2614,7 +2616,8 @@ const canvasStressTestBridge = createCanvasStressTestBridge({
 });
 canvasPerformanceMonitor.mount({
     createFixture: canvasStressTestBridge.createCanvasStressTestNodes,
-    clearFixture: canvasStressTestBridge.clearCanvasStressTestNodes
+    clearFixture: canvasStressTestBridge.clearCanvasStressTestNodes,
+    setConnectionBitmapEnabled: canvasConnectionRenderer.setBitmapEnabled
 });
 
 registerGlobalBridges({

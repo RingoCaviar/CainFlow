@@ -1501,6 +1501,8 @@ export function createCanvasInteractionsApi({
             const zoomFactor = Math.exp(-zoomDelta * WHEEL_ZOOM_SENSITIVITY);
             const newZoom = Math.max(MIN_WHEEL_ZOOM, Math.min(MAX_WHEEL_ZOOM, oldZoom * zoomFactor));
             if (newZoom === oldZoom) return;
+            const mx = e.clientX - rect.left + (canvasContainer.scrollLeft || 0);
+            const my = e.clientY - rect.top + (canvasContainer.scrollTop || 0);
 
             canvasContainer.classList.add('is-zooming');
 
@@ -1525,8 +1527,6 @@ export function createCanvasInteractionsApi({
                 finishZoomInteraction();
             }, ZOOM_SETTLE_DELAY_MS);
 
-            const mx = e.clientX - rect.left;
-            const my = e.clientY - rect.top;
             state.canvas.x = mx - (mx - state.canvas.x) * (newZoom / oldZoom);
             state.canvas.y = my - (my - state.canvas.y) * (newZoom / oldZoom);
             state.canvas.zoom = newZoom;

@@ -6,6 +6,7 @@ function createHarness(search = '?canvasConnections=1', { width = 100, height = 
     const operations = [];
     const events = new EventTarget();
     let contextLost = false;
+    let notifySize;
     const context = {
         setTransform() {}, clearRect() { operations.push('clear'); }, beginPath() { operations.push('begin'); },
         moveTo() {}, bezierCurveTo() { operations.push('curve'); }, stroke() { operations.push('stroke'); },
@@ -28,6 +29,10 @@ function createHarness(search = '?canvasConnections=1', { width = 100, height = 
     };
     const windowRef = {
         location: { search }, document: documentRef, devicePixelRatio: 1,
+        ResizeObserver: class {
+            constructor(callback) { notifySize = callback; }
+            observe() {}
+        },
         getComputedStyle() { return { stroke: 'rgb(120, 50, 220)' }; }
     };
     const state = { canvas: { x: 0, y: 0, zoom: 1 } };
@@ -36,6 +41,8 @@ function createHarness(search = '?canvasConnections=1', { width = 100, height = 
     });
     return {
         renderer, operations, canvas, classes, state,
+        setPixelRatio(value) { windowRef.devicePixelRatio = value; },
+        resize(width, height) { notifySize([{ contentRect: { width, height } }]); },
         loseContext() { contextLost = true; events.dispatchEvent(new Event('contextlost')); },
         restoreContext() { contextLost = false; }
     };
@@ -92,8 +99,36 @@ test('crossing the cached bounds or zoom threshold redraws exactly once per cros
     assert.equal(countClears(), 3);
 });
 
+test('publishing unchanged connection geometry keeps the active raster while a changed route replaces it', () => {
+    const { renderer, operations, classes, canvas } = createHarness(flags);
+    const publish = geometry => {
+        renderer.begin();
+        renderer.draw('edge', geometry);
+        renderer.end();
+    };
+    publish(curve);
+    renderer.updateViewport(true);
+    publish(structuredClone(curve));
+    assert.equal(operations.filter(operation => operation === 'stroke').length, 1);
+    assert.equal(classes.has('canvas-connection-bitmap-active'), true);
+
+    publish({ ...curve, end: { x: 60, y: 50 } });
+    assert.equal(operations.filter(operation => operation === 'stroke').length, 2);
+    assert.equal(classes.has('canvas-connection-bitmap-active'), true);
+
+    renderer.begin();
+    renderer.end();
+    assert.equal(classes.has('canvas-connection-bitmap-active'), false);
+    assert.equal(canvas.width * canvas.height, 0);
+});
+
 test('insufficient bitmap budget, missing context and disabling acceleration preserve SVG', () => {
-    assert.equal(createHarness(flags, { contextAvailable: false }).renderer.enabled, false);
+    const svg = createHarness(flags, { contextAvailable: false });
+    assert.equal(svg.renderer.enabled, false);
+    assert.ok(svg.renderer.requestCoverage());
+    assert.equal(svg.renderer.requestCoverage(), null);
+    svg.state.canvas.x = -60;
+    assert.ok(svg.renderer.requestCoverage(), 'the SVG fallback can request geometry across the raster margin');
     const large = createHarness(flags, { width: 4000, height: 3000 });
     large.renderer.draw('visible', curve);
     large.renderer.end();
@@ -109,6 +144,23 @@ test('insufficient bitmap budget, missing context and disabling acceleration pre
     state.canvasGpuAccelerationEnabled = false;
     renderer.updateViewport(true);
     assert.equal(classes.has('canvas-connection-bitmap-active'), false);
+});
+
+test('resize and DPR changes rebuild the raster within the backing-store budget', () => {
+    const { renderer, operations, canvas, classes, resize, setPixelRatio } = createHarness(flags);
+    renderer.draw('edge', curve);
+    renderer.end();
+    renderer.updateViewport(true);
+    const initialWidth = canvas.width;
+    setPixelRatio(2);
+    renderer.updateViewport(true);
+    assert.equal(canvas.width, initialWidth * 2);
+    resize(1364, 861);
+    assert.equal(classes.has('canvas-connection-bitmap-active'), false);
+    renderer.updateViewport(true);
+    assert.equal(operations.filter(operation => operation === 'stroke').length, 3);
+    assert.ok(canvas.width * canvas.height <= 6_000_000);
+    assert.equal(classes.has('canvas-connection-bitmap-active'), true);
 });
 
 test('a lost bitmap context immediately shows SVG and restores only after rasterizing again', () => {

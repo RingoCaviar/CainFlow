@@ -18,6 +18,8 @@ export function createConnectionProjection({
     detectMisalignedConnections,
     projectionHandoffAdapter = null,
     updateBitmapViewport = null,
+    requestBitmapCoverage = null,
+    materializeBitmapCoverage = null,
     onAlignmentCorrected = () => {},
     onAlignmentRepairFailed = () => {},
     requestAnimationFrameRef = requestAnimationFrame,
@@ -272,7 +274,12 @@ export function createConnectionProjection({
 
     const interactions = {
         viewportFrame() {
-            if (!destroyed && viewportInteractions.size > 0) updateBitmapViewport?.(true);
+            if (destroyed || viewportInteractions.size === 0) return;
+            if (!restorationTransaction.inProgress) {
+                const coverage = requestBitmapCoverage?.();
+                if (coverage) materializeBitmapCoverage?.(coverage);
+            }
+            updateBitmapViewport?.(true);
         },
         nodeGeometryChanged(nodeIds) {
             if (destroyed) return;
@@ -307,7 +314,7 @@ export function createConnectionProjection({
         beginInteraction(kind, nodeIds = []) {
             const targets = new Set(normalizeIds(nodeIds));
             const viewportOnly = kind === CANVAS_INTERACTION_KIND.PAN || kind === CANVAS_INTERACTION_KIND.ZOOM;
-            const bitmapLease = viewportOnly && updateBitmapViewport ? {} : null;
+            const bitmapLease = viewportOnly && (updateBitmapViewport || requestBitmapCoverage) ? {} : null;
             if (bitmapLease) viewportInteractions.add(bitmapLease);
             let closed = false;
             return {
@@ -329,7 +336,7 @@ export function createConnectionProjection({
                     if (closed) return Promise.resolve({ inspected: 0, corrected: 0 });
                     closed = true;
                     if (bitmapLease && viewportInteractions.delete(bitmapLease) && viewportInteractions.size === 0) {
-                        updateBitmapViewport(false);
+                        updateBitmapViewport?.(false);
                     }
                     if (kind === CANVAS_INTERACTION_KIND.CONNECTION_DRAW) markGeometry([...targets]);
                     // Retain an aligned translated path; measure on the next frame
@@ -496,7 +503,7 @@ export function createConnectionProjection({
 
     function destroy() {
         destroyed = true;
-        if (viewportInteractions.size > 0) updateBitmapViewport(false);
+        if (viewportInteractions.size > 0) updateBitmapViewport?.(false);
         viewportInteractions.clear();
         cancelMaterializationSettlement();
         restorationTransaction.abortController?.abort();

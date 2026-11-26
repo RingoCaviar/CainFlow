@@ -55,7 +55,11 @@ test('mixed selection reuses internal paths and stays aligned across resize rele
     });
 });
 
-test('a quick cut crosses both wires along its route and one undo restores them', { timeout: 30000 }, async () => {
+const bitmapTestOptions = {
+    initScript: "if (location.hostname === '127.0.0.1') history.replaceState(null, '', '?perf=1&canvasConnections=1');"
+};
+
+for (const bitmap of [false, true]) test(`a quick cut crosses both wires along its route and one undo restores them${bitmap ? ' with the bitmap renderer enabled' : ''}`, { timeout: 30000 }, async () => {
     const nodes = [
         { id: 'first-source', type: 'Text', x: 100, y: 120, text: 'first' },
         { id: 'first-target', type: 'Text', x: 620, y: 120 },
@@ -72,6 +76,7 @@ test('a quick cut crosses both wires along its route and one undo restores them'
         Boolean(document.querySelector('path[data-conn-id="' + id + '"]')?.getAttribute('d')))`;
     await withAppBrowser({ ...session, nodes, connections }, async app => {
         await app.waitFor(bothDrawn);
+        if (bitmap) assert.equal(await app.evaluate("Boolean(document.querySelector('canvas.canvas-connections'))"), true);
         const points = await app.evaluate(`['first-cut', 'second-cut'].map(id => {
             const path = document.querySelector('path[data-conn-id="' + id + '"]');
             const { x, y } = path.getPointAtLength(path.getTotalLength() / 2).matrixTransform(path.getScreenCTM());
@@ -90,10 +95,10 @@ test('a quick cut crosses both wires along its route and one undo restores them'
         assert.equal(await app.evaluate("document.querySelectorAll('path[data-conn-id$=-cut]').length"), 0);
         await undo(app);
         await app.waitFor(bothDrawn);
-    });
+    }, bitmap ? bitmapTestOptions : undefined);
 });
 
-test('an isolated node can insert into a wire at the final drag position and undo as one action', { timeout: 30000 }, async () => {
+for (const bitmap of [false, true]) test(`an isolated node can insert into a wire at the final drag position and undo as one action${bitmap ? ' with the bitmap renderer enabled' : ''}`, { timeout: 30000 }, async () => {
     const edge = {
         id: 'original-wire', from: { nodeId: 'input', port: 'image' },
         to: { nodeId: 'output', port: 'image' }, type: 'image'
@@ -109,6 +114,7 @@ test('an isolated node can insert into a wire at the final drag position and und
     }, async app => {
         const originalDrawn = "Boolean(document.querySelector('path[data-conn-id=original-wire]')?.getAttribute('d'))";
         await app.waitFor(originalDrawn);
+        if (bitmap) assert.equal(await app.evaluate("Boolean(document.querySelector('canvas.canvas-connections'))"), true);
         await app.evaluate(`(() => {
             const header = document.querySelector('#bridge .node-header');
             const node = document.getElementById('bridge').getBoundingClientRect();
@@ -131,7 +137,7 @@ test('an isolated node can insert into a wire at the final drag position and und
         await undo(app);
         await app.waitFor(originalDrawn);
         assert.equal(await app.evaluate("parseFloat(document.getElementById('bridge').style.top)"), 90);
-    });
+    }, bitmap ? bitmapTestOptions : undefined);
 });
 
 async function action(app, id, menuId) {
