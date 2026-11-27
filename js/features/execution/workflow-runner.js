@@ -1,4 +1,5 @@
-import { findTextFileSource, readFileImportText } from '../workflow/file-import.js';
+import { createFileImportRunReader, fileImportOutput, findImageFileSource, getFileDerivedInputConnection, hasOriginalFileInput } from '../workflow/file-import.js';
+import { splitTextForTextSplitNode } from '../../core/common-utils.js';
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
 import { getNodeModelConfigurationIssue } from './model-configuration-readiness.js';
 import { getCommerceRunBlocker, getRunInputConnections, usesCommerceRunReferences } from './commerce-run-preflight.js';
@@ -294,6 +295,21 @@ export function createWorkflowRunnerApi({
         return node.customTitle || nodeConfigs[node.type]?.title || node.type;
     }
 
+    function getNodeFailureLog(node, error) {
+        if (!error?.fileImportFailure && hasOriginalFileInput(node, state)) {
+            return {
+                message: '处理原文件输入失败，请检查下游节点配置。',
+                details: { nodeId: node.id, inputSource: '文件导入', status: error?.serverResponse?.status },
+                userFacing: null
+            };
+        }
+        return {
+            message: error?.message || String(error || '未知错误'),
+            details: error?.serverResponse || { nodeId: node.id, error: error?.stack || error },
+            userFacing: error?.userFacing || null
+        };
+    }
+
     function emitNodeRunState(payload) {
         const node = state.nodes.get(payload.nodeId);
         if (['waiting', 'running', 'completed', 'error', 'aborted'].includes(payload.status) && node) {
@@ -400,6 +416,7 @@ export function createWorkflowRunnerApi({
     }
 
     function createNodeCompletionLogDetails(node, inputs, extra = {}) {
+        if (hasOriginalFileInput(node, state)) return { nodeId: node.id, inputSource: '文件导入', ...extra };
         const data = node?.data && typeof node.data === 'object' ? node.data : {};
         const details = {
             nodeId: node?.id || '',
@@ -1101,11 +1118,49 @@ export function createWorkflowRunnerApi({
         return undefined;
     }
 
-    async function getEnabledNodeOutputValue(fromNode, toNode, portName) {
+    const originalReaders = new WeakMap();
+    async function getEnabledNodeOutputValue(fromNode, toNode, portName, plan) {
         if (!fromNode || fromNode.enabled === false) return undefined;
-        const textFile = portName === 'text' ? findTextFileSource(fromNode, state) : null;
-        if (textFile) {
-            return readFileImportText(getActiveWorkflowId(), textFile.id, textFile.fileImport ?? textFile.data?.fileImport);
+        if (fromNode.type === 'CustomParams' && portName === 'params' && hasOriginalFileInput(fromNode, state)) {
+            const inputs = Object.create(null);
+            for (const edge of state.connections.filter(edge => edge.to.nodeId === fromNode.id)) {
+                const value = await getEnabledNodeOutputValue(state.nodes.get(edge.from.nodeId), fromNode, edge.from.port, plan);
+                if (value !== undefined) inputs[edge.to.port] = value;
+            }
+            return getCachedOutputValue(fromNode, portName, inputs);
+        }
+        if (fromNode.type === 'Text' && portName === 'text') {
+            const edge = getFileDerivedInputConnection(fromNode, state, 'text');
+            if (edge) return getEnabledNodeOutputValue(state.nodes.get(edge.from.nodeId), toNode, edge.from.port, plan);
+        }
+        if (fromNode.type === 'TextSplit' && (portName === 'text' || /^part_\d+$/.test(portName))) {
+            const edge = getFileDerivedInputConnection(fromNode, state, 'text');
+            if (edge) {
+                const value = await getEnabledNodeOutputValue(state.nodes.get(edge.from.nodeId), fromNode, edge.from.port, plan);
+                const text = getTextInputList(value)[0] || '';
+                const delimiter = documentRef.getElementById(`${fromNode.id}-delimiter`)?.value ?? fromNode.data?.delimiter ?? '';
+                const removed = documentRef.getElementById(`${fromNode.id}-remove-empty-lines`)?.checked ?? fromNode.data?.removeEmptyLines;
+                const parts = splitTextForTextSplitNode(text, delimiter, { removeEmptyLines: removed === true });
+                const count = parseInt(documentRef.getElementById(`${fromNode.id}-output-count`)?.value ?? fromNode.data?.outputCount, 10);
+                if (count > 0) parts.length = Math.min(parts.length, count);
+                if (portName !== 'text') return parts[Number(portName.slice(5)) - 1];
+                return parts;
+            }
+        }
+        if ((fromNode.type === 'ImageMerge' && portName === 'image' || fromNode.type === 'TextMerge' && portName === 'text')
+            && hasOriginalFileInput(fromNode, state)) {
+            const prefix = `${portName}_`;
+            const connections = state.connections.filter(edge => edge.to.nodeId === fromNode.id && edge.to.port.startsWith(prefix))
+                .sort((a, b) => Number(a.to.port.slice(prefix.length)) - Number(b.to.port.slice(prefix.length)));
+            const values = await Promise.all(connections.map(edge =>
+                getEnabledNodeOutputValue(state.nodes.get(edge.from.nodeId), toNode, edge.from.port, plan)));
+            return values.flat().filter(value => value !== undefined && value !== null);
+        }
+        const original = fromNode.type === 'FileImport' ? fromNode :
+            portName === 'image' ? findImageFileSource(fromNode, state) : null;
+        if (original) {
+            if (!originalReaders.has(plan)) originalReaders.set(plan, createFileImportRunReader(getActiveWorkflowId()));
+            return originalReaders.get(plan)(original, portName, toNode);
         }
         if (portName === 'video') {
             const videos = Array.isArray(fromNode.data?.videos) && fromNode.data.videos.length > 0
@@ -1274,7 +1329,7 @@ export function createWorkflowRunnerApi({
 
                 const fromNode = state.nodes.get(connection.from.nodeId);
                 if (fromNode?.enabled === false) continue;
-                const outputValue = await getEnabledNodeOutputValue(fromNode, toNode, connection.from.port);
+                const outputValue = await getEnabledNodeOutputValue(fromNode, toNode, connection.from.port, plan);
                 if ((plan.agentSequential || plan.imageBatch)
                     && (outputValue === undefined || outputValue === null || outputValue === '' || (Array.isArray(outputValue) && outputValue.length === 0))) {
                     throw new Error('方案引用的外部节点没有可用输出，请先生成或导入素材');
@@ -1307,7 +1362,7 @@ export function createWorkflowRunnerApi({
 
         const fromNode = state.nodes.get(connection.from.nodeId);
         const toNode = state.nodes.get(nodeId);
-        return await getEnabledNodeOutputValue(fromNode, toNode, connection.from.port);
+        return await getEnabledNodeOutputValue(fromNode, toNode, connection.from.port, plan);
     }
 
     function hasPromptInputValue(plan, nodeId) {
@@ -1316,7 +1371,10 @@ export function createWorkflowRunnerApi({
         for (const connection of plan.inputConnectionsByNode[nodeId] || []) {
             if (!promptPortIds.has(connection.to.port)) continue;
             const fromNode = state.nodes.get(connection.from.nodeId);
-            if (connection.from.port === 'text' && findTextFileSource(fromNode, state)) return true;
+            if (fromNode?.type === 'FileImport' && fromNode.enabled !== false && connection.from.port === 'text'
+                && fileImportOutput(fromNode.fileImport ?? fromNode.data?.fileImport).type === 'text') return true;
+            if (fromNode?.type === 'Text' && connection.from.port === 'text' && getFileDerivedInputConnection(fromNode, state, 'text')) return true;
+            if (['TextSplit', 'TextMerge'].includes(fromNode?.type) && hasOriginalFileInput(fromNode, state)) return true;
             const promptValue = getCachedOutputValue(fromNode, connection.from.port);
             if (typeof promptValue === 'string' && promptValue.trim()) return true;
             if (promptValue !== undefined && promptValue !== null && promptValue !== '') return true;
@@ -2038,7 +2096,7 @@ export function createWorkflowRunnerApi({
                     batchCount: settled.length,
                     successCount: batchResults.length,
                     failedCount: rejected.length,
-                    errors: rejected.map((result) => result.reason?.message || String(result.reason))
+                    errors: rejected.map(result => getNodeFailureLog(node, result.reason).message)
                 });
             }
             if (batchResults.length === 0 && rejected.length > 0) {
@@ -2118,6 +2176,12 @@ export function createWorkflowRunnerApi({
     }
 
     async function executeNodeAttempt(node, inputs, signal, connections, plan) {
+        if (node.type === 'FileImport') {
+            const port = fileImportOutput(node.fileImport ?? node.data?.fileImport).name;
+            await getEnabledNodeOutputValue(node, { type: 'ImagePreview' }, port, plan);
+            signal?.throwIfAborted();
+            return {};
+        }
         node.generationAttemptIncomplete = false;
         const token = generationRevisionApi?.beginAttempt(node, inputs, {
             sources: recipeSourcesByInputs.get(inputs), runToken: node.activeMediaOperationId
@@ -2388,12 +2452,11 @@ export function createWorkflowRunnerApi({
                 currentNode.isSucceeded = false;
                 showNodeExecutionFailure(currentNode, err);
                 clearNodeRunning(nid, currentNode, { status: 'error' });
-                const errorMsg = err.message || '未知错误';
+                const { message: errorMsg, details: errorDetails, userFacing } = getNodeFailureLog(currentNode, err);
                 if (timeBadge) timeBadge.textContent = 'Err';
-                const errorDetails = err.serverResponse || { nodeId: nid, error: err.stack || err };
                 const suppressErrorModal = isCommerceImageGeneration(currentNode, plan);
                 addLog('error', `节点失败: ${nodeTitle}`, errorMsg, errorDetails, {
-                    userFacing: err.userFacing || null,
+                    userFacing,
                     nodeId: nid,
                     nodeTitle,
                     suppressErrorModal
@@ -2773,6 +2836,8 @@ export function createWorkflowRunnerApi({
         const getDialogFailureIds = () => Array.from(failedNodes)
             .filter(nodeId => !isCommerceImageGeneration(state.nodes.get(nodeId), plan));
         const runningNodes = new Set();
+        const originalFailures = new Set();
+        const blockedByOriginal = new Set();
         let terminatedByError = false;
         const isRunActive = () => !session.stopped && !session.controller.signal.aborted;
 
@@ -2925,11 +2990,10 @@ export function createWorkflowRunnerApi({
                                     node.isSucceeded = false;
                                     showNodeExecutionFailure(node, err);
                                     clearNodeRunning(nid, node, { status: 'error' });
-                                    const errorMsg = err.message || '未知错误';
+                                    const { message: errorMsg, details: errorDetails, userFacing } = getNodeFailureLog(node, err);
                                     if (timeBadge) timeBadge.textContent = 'Err';
-                                    const errorDetails = err.serverResponse || { nodeId: nid, error: err.stack || err };
                                     addLog('error', `节点失败: ${nodeTitle}`, errorMsg, errorDetails, {
-                                        userFacing: err.userFacing || null,
+                                        userFacing,
                                         nodeId: nid,
                                         nodeTitle,
                                         suppressErrorModal: isCommerceImageGeneration(node, plan)
@@ -2937,10 +3001,14 @@ export function createWorkflowRunnerApi({
 
                                     failedNodes.add(nid);
 
-                                    if (plan.imageBatch || !state.autoRetry || plan.agentSequential || plan.imageRetryNodeId) {
+                                    if (err.fileImportFailure) {
+                                        originalFailures.add(nid);
+                                        collectDownstreamNodeIds(plan, nid).forEach(id => blockedByOriginal.add(id));
+                                    }
+                                    if (err.fileImportFailure || plan.imageBatch || !state.autoRetry || plan.agentSequential || plan.imageRetryNodeId) {
                                         showToast(`「${nodeTitle}」出错: ${errorMsg}`, 'error', 5000);
                                         terminatedByError = true;
-                                        if (!plan.imageBatch) session.stopped = true;
+                                        if (!plan.imageBatch && !err.fileImportFailure) session.stopped = true;
                                     }
                                 } finally {
                                     if (timerId) clearInterval(timerId);
@@ -2965,13 +3033,13 @@ export function createWorkflowRunnerApi({
                 if (!isRunActive()) break;
 
                 const actualFailures = order.filter((id) => {
-                    if (session.canceledBranchNodeIds.has(id)) return false;
+                    if (session.canceledBranchNodeIds.has(id) || blockedByOriginal.has(id)) return false;
                     const node = state.nodes.get(id);
                     return node && node.enabled !== false && !completedNodes.has(id);
                 });
 
                 if (actualFailures.length === 0) {
-                    if (retryAttempt > 0) {
+                    if (retryAttempt > 0 && !terminatedByError) {
                         addLog('success', '工作流并行重试完成', `经过 ${retryAttempt} 次重试后，所有节点已成功执行。`);
                     }
                     break;
@@ -2991,6 +3059,7 @@ export function createWorkflowRunnerApi({
                 addLog('warning', `自动重试开始（第 ${retryAttempt} 轮）`, `${actualFailures.length} 个节点未成功，正在准备重新执行相关分支...`);
                 showToast(`正在启动第 ${retryAttempt} 轮自动重试（${actualFailures.length} 个节点）...`, 'warning', 4000);
                 failedNodes.clear();
+                originalFailures.forEach(id => failedNodes.add(id));
                 resetNodesForPlan({ ...plan, mode: 'selected-only', scopeNodeSet: new Set(actualFailures) }, { preserveFixedCache: false });
                 await new Promise((resolve) => setTimeout(resolve, 1500));
                 if (!isRunActive()) break;

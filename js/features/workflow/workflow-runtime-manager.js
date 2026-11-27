@@ -1,4 +1,5 @@
 import { normalizeVisualStyle, normalizeVisualStyleDetailLevel } from '../visual-style/visual-style.js';
+import { hasOriginalFileInput, isOriginalFileUrl, stripOriginalFileCopies } from './file-import.js';
 import { cleanupElementResources } from '../../core/common-utils.js';
 import { renderWorkflowRunControls } from '../ui/workflow-toolbar-status.js';
 import { createInitialState } from '../../core/state.js';
@@ -473,7 +474,7 @@ export function serializeRuntimeNode(node, doc) {
         serialized.cameraPrompt = serialized.text;
         serialized.cameraPreviewImage = node.data?.cameraPreviewImage || '';
     }
-    return applyNodePersistenceExtensions(node, serialized);
+    return stripOriginalFileCopies(node, applyNodePersistenceExtensions(node, serialized));
 }
 
 function serializeRuntimeWorkflow(runtimeState, doc, workflowVersion = '1.3') {
@@ -827,6 +828,7 @@ export function createWorkflowRuntimeManager({
 
     function syncVisibleTextNode(runtimeNode, node) {
         node.data = node.data || {};
+        node.fileDerivedText = runtimeNode.fileDerivedText === true;
         const texts = getTextInputList(runtimeNode?.data?.texts);
         if (texts.length > 0) {
             node.data.texts = texts.slice();
@@ -1234,9 +1236,12 @@ export function createWorkflowRuntimeManager({
         return nodes;
     }
 
-    async function captureWorkflowNodeResult(node, includeImages, includeText) {
+    async function captureWorkflowNodeResult(node, includeImages, includeText, runState) {
+        if (['Text', 'TextSplit', 'TextMerge'].includes(node.type) && hasOriginalFileInput(node, runState)) includeText = false;
         let images = includeImages ? getCanonicalImageList(node, { includeResizePreview: false }).slice() : [];
-        if (includeImages && images.length === 0 && IMAGE_RESULT_NODE_TYPES.has(node.type)) {
+        const hasOriginalMedia = images.some(isOriginalFileUrl);
+        images = images.filter(value => !isOriginalFileUrl(value));
+        if (includeImages && !hasOriginalMedia && images.length === 0 && IMAGE_RESULT_NODE_TYPES.has(node.type)) {
             const keys = (node.data?.mediaAssetKeys?.length
                 ? node.data.mediaAssetKeys : [node.data?.imageAssetKey])
                 .filter((key) => typeof key === 'string' && key);
@@ -1260,7 +1265,7 @@ export function createWorkflowRuntimeManager({
             nodeId: node.id,
             succeeded: node.isSucceeded === true,
             images,
-            mediaAssetKeys: includeImages && Array.isArray(node.data?.mediaAssetKeys)
+            mediaAssetKeys: includeImages && !hasOriginalMedia && Array.isArray(node.data?.mediaAssetKeys)
                 ? node.data.mediaAssetKeys.slice() : [],
             ...(texts.length ? { texts } : {}),
             ...(node.executionFailure?.message ? { error: node.executionFailure.message } : {}),
@@ -1951,6 +1956,7 @@ export function createWorkflowRuntimeManager({
         });
         runtimeNodeLifecycleApi = createNodeLifecycleApi({
             state: runtimeState,
+            observeFileImports: false,
             nodeConfigs,
             createNodeMarkup,
             nodesLayer: runtimeElements.nodesLayer,
@@ -2161,7 +2167,7 @@ export function createWorkflowRuntimeManager({
             confirmRef,
             resolveExecutionPlan: (runInput) => runtimeExecutionCoreApi.resolveExecutionPlan(runInput),
             normalizeRunOptions: (runInput) => runtimeExecutionCoreApi.normalizeRunOptions(runInput),
-            getCachedOutputValue: (node, portName) => runtimeExecutionCoreApi.getCachedOutputValue(node, portName),
+            getCachedOutputValue: (...args) => runtimeExecutionCoreApi.getCachedOutputValue(...args),
             executeNode: (node, inputs, signal, executionContext) => runtimeExecutionCoreApi.executeNode(node, inputs, signal, executionContext),
             generationRevisionApi: runtimeGenerationRevisionApi,
             waitForPendingImageAssetSaves: runtimeExecutionCoreApi.waitForPendingImageAssetSaves,
@@ -2487,7 +2493,7 @@ export function createWorkflowRuntimeManager({
                         ...(runError ? { reason: 'error', outcome: 'failed', error: runError.message || String(runError) } : {}),
                         nodeResults: await Promise.all(getWorkflowRunResultNodes(context).map((node) => captureWorkflowNodeResult(
                             node, runInput?.agentSequential || runInput?.imageBatch ? node.isSucceeded === true : !runError && executionResult?.outcome === 'completed',
-                            captureTextResults
+                            captureTextResults, context.state
                         )))
                     };
                     if (typeof retainResults === 'function') {

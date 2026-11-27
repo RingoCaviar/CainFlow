@@ -2,6 +2,7 @@
  * Shared DOM renderer for image preview/save style display nodes.
  */
 import { normalizeImageList } from '../execution/execution-data-utils.js';
+import { isOriginalFileUrl } from '../workflow/file-import.js';
 import { createPreviewPriority, TRANSPARENT_PREVIEW_PIXEL } from './media-preview-cache.js';
 
 function defaultIsInlineImageData(value) {
@@ -61,6 +62,7 @@ export function createDisplayImageRenderer({
     normalizeImages = normalizeImageList
 } = {}) {
     const previewsByImage = new WeakMap();
+    const watchedOriginalImages = new WeakSet();
     let visibilityObserver = null;
 
     function observePreviewVisibility(img) {
@@ -165,6 +167,12 @@ export function createDisplayImageRenderer({
         img.loading = preferImmediateSrc ? 'eager' : 'lazy';
         img.decoding = 'async';
         img.alt = alt;
+        if (isOriginalFileUrl(src) && !watchedOriginalImages.has(img)) {
+            watchedOriginalImages.add(img);
+            img.addEventListener?.('error', () => {
+                if (isOriginalFileUrl(img.getAttribute('src'))) img.alt = '无法读取原图。文件变更后请重新运行。';
+            });
+        }
         if (cursor) img.style.cursor = cursor;
         else img.style.removeProperty('cursor');
         if (shouldUseThumbnail) {

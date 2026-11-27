@@ -268,6 +268,87 @@ test('saved conversations use connected custom parameter values when running the
     ]);
 });
 
+test('original images pass through a saved preview into the provider without media owners', async () => {
+    const saved = document([
+        { id: 'original', type: 'FileImport', fileImport: { id: 'a'.repeat(32), name: 'cover.png', kind: 'image' } },
+        { id: 'preview', type: 'ImagePreview' },
+        { id: 'chat', type: 'TextChat', apiConfigId: 'chat-model', providerId: 'provider', prompt: 'Describe it' }
+    ], [wire('original', 'image', 'preview', 'image', 'image'), wire('preview', 'image', 'chat', 'image_1', 'image')]);
+    const data = 'data:image/png;base64,YQ==';
+    let reads = 0;
+    const run = await executeSavedWorkflow({ document: saved,
+        models: [{ id: 'chat-model', modelId: 'gpt-4o', taskType: 'chat', protocol: 'openai', providerIds: ['provider'] }],
+        providers: [{ id: 'provider', endpoint: 'https://controlled.test/v1', apikey: 'test' }],
+        async loadFileValue(nodeId, reference, kind) {
+            assert.deepEqual([nodeId, reference, kind], ['original', 'a'.repeat(32), 'image']);
+            reads++;
+            return data;
+        },
+        async saveMedia() { assert.fail('A preview must not create a copy of the original'); },
+        async requestProvider({ body }) {
+            assert.match(body, /data:image\/png;base64,YQ==/);
+            return Response.json({ choices: [{ message: { content: 'Received image' } }] });
+        }
+    });
+    assert.equal(run.outcome, 'completed', JSON.stringify(run.nodeResults));
+    assert.equal(reads, 1);
+    assert.doesNotMatch(JSON.stringify(run.document), /base64,YQ==/);
+});
+
+test('a text split keeps its output count without saving any original content', async () => {
+    const saved = document([
+        { id: 'original', type: 'FileImport', fileImport: { id: 'a'.repeat(32), name: 'notes.md' } },
+        { id: 'split', type: 'TextSplit', delimiter: '|' }
+    ], [wire('original', 'text', 'split', 'text')]);
+    const run = await executeSavedWorkflow({ document: saved, loadFileText: async () => 'secret-one|secret-two' });
+    assert.equal(run.outcome, 'completed');
+    assert.equal(run.document.nodes.find(node => node.id === 'split').fileTextPartCount, 2);
+    assert.doesNotMatch(JSON.stringify([run.document, run.nodeResults]), /secret-one|secret-two/);
+});
+
+test('a changed original is read once per saved run for multiple conversations', async () => {
+    const chat = { type: 'TextChat', apiConfigId: 'chat-model', providerId: 'provider' };
+    const saved = document([
+        { id: 'original', type: 'FileImport', fileImport: { id: 'a'.repeat(32), name: 'notes.md' } },
+        { ...chat, id: 'first' },
+        { ...chat, id: 'second' }
+    ], [wire('original', 'text', 'first', 'prompt'), wire('original', 'text', 'second', 'prompt')]);
+    let source = '# First version';
+    let readCount = 0;
+    const requests = [];
+    const options = {
+        document: saved,
+        models: [{ id: 'chat-model', modelId: 'gpt-4o', taskType: 'chat', protocol: 'openai', providerIds: ['provider'] }],
+        providers: [{ id: 'provider', endpoint: 'https://controlled.test/v1', apikey: 'test' }],
+        async loadFileText() {
+            readCount++;
+            return source;
+        },
+        async requestProvider({ body }) {
+            requests.push(JSON.parse(body).messages.at(-1).content);
+            source = '# Next version';
+            return Response.json({ choices: [{ message: { content: 'Read the file' } }] });
+        }
+    };
+    assert.equal((await executeSavedWorkflow(options)).outcome, 'completed');
+    assert.equal((await executeSavedWorkflow(options)).outcome, 'completed');
+    assert.equal(readCount, 2);
+    assert.deepEqual(requests, ['# First version', '# First version', '# Next version', '# Next version']);
+});
+
+test('an unavailable original stops its branch while an independent text node completes', async () => {
+    const saved = document([
+        { id: 'original', type: 'FileImport', fileImport: { id: 'a'.repeat(32), name: 'notes.md' } },
+        { id: 'dependent', type: 'Text' },
+        { id: 'independent', type: 'Text', text: 'independent result' }
+    ], [wire('original', 'text', 'dependent', 'text')]);
+    const run = await executeSavedWorkflow({ document: saved, loadFileText: async () => { throw new Error('原件已变更，请重跑。'); } });
+    assert.equal(run.outcome, 'failed');
+    assert.equal(run.nodeResults.find(node => node.nodeId === 'dependent').succeeded, false);
+    assert.deepEqual(run.nodeResults.find(node => node.nodeId === 'independent').texts, ['independent result']);
+    assert.match(run.nodeResults.find(node => node.nodeId === 'original').failureMessage, /重跑/);
+});
+
 test('saved conversations attach canvas and pinned history mentions and reject missing originals before requesting', async () => {
     const red = 'data:image/png;base64,' + (await readFile(new URL('./fixtures/reference-red.png', import.meta.url))).toString('base64');
     const blue = 'data:image/png;base64,' + (await readFile(new URL('./fixtures/reference-blue.png', import.meta.url))).toString('base64');

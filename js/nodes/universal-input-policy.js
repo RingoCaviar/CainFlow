@@ -8,6 +8,7 @@ import { getProtocol } from '../features/execution/protocols/index.js';
 import { resolveDeclarativeProtocolVariant } from '../features/execution/protocols/declarative-protocol-schema.js';
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
 import { DEFAULT_REFERENCE_IMAGE_COUNT, isMultiConnectionInput } from './reference-image-ports.js';
+import { fileImportOutput } from '../features/workflow/file-import.js';
 
 // Each node type opts in when its card and input details use this contract.
 const UNIVERSAL_INPUT_NODE_TYPES = new Set(['ImageGenerate', 'ECommerceImageSet', 'ProductRetouch', 'ImagePreview', 'ImageResize', 'ColorReset', 'ImageCompare', 'ImageMerge', 'ImageSave', 'CameraControl']);
@@ -64,6 +65,10 @@ function hasRemoteImageOutput(node) {
 }
 
 function sourceOutputDescriptor(node, name) {
+    if (node?.type === 'FileImport') {
+        const output = fileImportOutput(node.fileImport ?? node.data?.fileImport);
+        return output.name === name ? output : null;
+    }
     const declared = getNodeDefinitionPorts(node?.type, 'output');
     if (node?.type !== 'TextSplit') return declared.find(port => port.name === name);
     const template = declared.find(port => port.type === 'text');
@@ -80,7 +85,7 @@ function sourceOutputDescriptor(node, name) {
     const parts = Array.isArray(data.parts) && data.parts.length ? data.parts
         : Array.isArray(data.texts) && data.texts.length ? data.texts
             : splitTextForTextSplitNode(data.text || node.text || '', data.delimiter || node.delimiter || '', { removeEmptyLines: data.removeEmptyLines === true });
-    const count = configured || Math.max(1, parts.length);
+    const count = configured || Math.max(1, parts.length, data.fileTextPartCount || 0);
     return index > 0 && index <= count ? { ...template, name } : null;
 }
 

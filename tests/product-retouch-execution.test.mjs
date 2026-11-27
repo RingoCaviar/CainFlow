@@ -15,7 +15,7 @@ const advice = '杯身右侧：沿局部纹理去除污点';
 function createRetouchFixture({
     protocol = 'openai', modelId = 'gpt-image-2', endpoint = 'https://fixture.test', autoComplete = true,
     analysisProtocol = 'openai', analysisModelId = 'vision-chat', analysisEndpoint = 'https://vision.test',
-    analysisAutoComplete = true
+    analysisAutoComplete = true, useOriginalFile = false
 } = {}) {
     const node = {
         id: 'retouch',
@@ -43,7 +43,8 @@ function createRetouchFixture({
     };
     const core = createExecutionCoreApi({
         state: {
-            nodes: new Map([[node.id, node]]), connections: [],
+            nodes: new Map([[node.id, node], ...(useOriginalFile ? [['original', { type: 'FileImport' }]] : [])]),
+            connections: useOriginalFile ? [{ from: { nodeId: 'original', port: 'image' }, to: { nodeId: node.id, port: 'image' } }] : [],
             models: [
                 { id: 'image-model', name: 'Image', modelId, taskType: 'image', protocol, providerIds: ['provider'] },
                 { id: 'vision-model', name: 'Vision', modelId: analysisModelId, taskType: 'chat', protocol: analysisProtocol, providerIds: ['vision-provider'] }
@@ -138,6 +139,16 @@ test('product retouch analyzes the original before editing and exposes only the 
     ]);
     assert.deepEqual(history.map(entry => entry.image), [finished]);
     assert.ok(updates.some(({ details }) => details?.downstreamImageResults));
+});
+
+test('product retouch persists only the generated result when the input is an original file', async () => {
+    const { node, execute, analysisRequests, saves, history } = createRetouchFixture({ useOriginalFile: true });
+    assert.equal((await execute()).image, finished);
+    assert.equal(analysisRequests[0].body.messages.at(-1).content[1].image_url.url, original);
+    assert.equal(analysisRequests[0].headers['X-Cainflow-Private-Input'], '1');
+    assert.deepEqual(saves[0].images, [finished]);
+    assert.equal(node.data.productRetouchComparison, undefined);
+    assert.equal(history[0].prompt, '');
 });
 
 test('product retouch stores the bytes resolved from its remote source for comparison', async () => {

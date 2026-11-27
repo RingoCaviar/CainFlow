@@ -1,4 +1,4 @@
-import { findTextFileSource, readFileImportText } from '../workflow/file-import.js';
+import { hasOriginalFileInput, isOriginalFileUrl, originalFileRequestHeaders, readFileImportInfo } from '../workflow/file-import.js';
 import { buildVisualStylePrompt, normalizeVisualStyle, resolveVisualStyle, visualStyleKey, VISUAL_STYLE_FIELDS } from '../visual-style/visual-style.js';
 import { resolveCommerceImageSetStyle } from '../ecommerce-image-set/commerce-art-direction.js';
 import { analyzeVisualStyle } from '../visual-style/visual-style-analysis.js';
@@ -158,7 +158,7 @@ export function createExecutionCoreApi({
     recordNodeRequest = () => {},
     getProxyHeaders,
     classifyProviderError,
-    logRequestToPanel,
+    logRequestToPanel: recordRequestToPanel,
     formatProxyErrorMessage,
     saveHistoryEntry,
     renderHistoryList,
@@ -522,14 +522,16 @@ export function createExecutionCoreApi({
 
     function commitImageGenerateOutputs(node, images = [], prompt = '', signal = null) {
         const normalizedImages = normalizeImageList(images);
+        const storedPrompt = hasOriginalFileInput(node, state) ? '' : prompt;
+        const imagePromptList = normalizedImages.map(() => storedPrompt || '');
         setCanonicalImageOutput(node, normalizedImages, {
             currentIndex: normalizedImages.length - 1,
             assetKey: node.id,
-            imagePromptList: normalizedImages.map(() => prompt || ''),
+            imagePromptList,
             imageCount: normalizedImages.length,
             assetReady: false
         });
-        node.imagePromptList = normalizedImages.map(() => prompt || '');
+        node.imagePromptList = imagePromptList;
         if (normalizedImages.length) node.data.visualStyleSnapshot = node.pendingVisualStyleSnapshot ? structuredClone(node.pendingVisualStyleSnapshot) : null;
         node.generationCompletedCount = normalizedImages.length;
         if (getNodeImageResultPersistence(node.type) === IMAGE_RESULT_PERSISTENCE.PERSISTENT && normalizedImages.length > 0) {
@@ -556,7 +558,7 @@ export function createExecutionCoreApi({
 
     async function saveImageGenerationHistoryEntry(entry) {
         try {
-            const result = await saveHistoryEntry(entry);
+            const result = await saveHistoryEntry(withoutOriginalPrompt(entry));
             if (result === false) throw new Error('保存目录写入失败');
             return result;
         } catch (error) {
@@ -566,12 +568,24 @@ export function createExecutionCoreApi({
 
     async function saveVideoGenerationHistoryEntry(entry) {
         try {
-            const result = await saveHistoryEntry({ ...entry, mediaType: 'video' });
+            const result = await saveHistoryEntry({ ...withoutOriginalPrompt(entry), mediaType: 'video' });
             if (result === false) throw new Error('保存目录写入失败');
             return result;
         } catch (error) {
             throw new Error(`视频已生成，但本地保存失败：${error.message || error}。请检查保存目录和磁盘空间。`, { cause: error });
         }
+    }
+
+    function withoutOriginalPrompt(entry) {
+        return hasOriginalFileInput(state.nodes.get(entry.nodeId), state) ? { ...entry, prompt: '' } : entry;
+    }
+
+    function logRequestToPanel(title, url, body, metadata) {
+        if (!hasOriginalFileInput(state.nodes.get(metadata?.nodeId), state)) {
+            return recordRequestToPanel?.(title, url, body, metadata);
+        }
+        const finish = recordRequestToPanel?.(title, url, { source: '文件导入' }, metadata);
+        if (typeof finish === 'function') return status => finish(status);
     }
 
     function getNodeGenerationDurationSeconds(node) {
@@ -1145,11 +1159,11 @@ export function createExecutionCoreApi({
         return plan ? plan.executionOrder : null;
     }
 
-    function getCachedOutputValue(node, portName) {
+    function getCachedOutputValue(node, portName, resolvedInputs) {
         if (node?.type === 'VisualStyle' && portName === 'style' && node.enabled !== false) return normalizeVisualStyle(node.data?.visualStyle);
         if (!node || node.enabled === false) return undefined;
         if (portName === 'params' && node.type === 'CustomParams') {
-            return getCustomParamsFromNode(node);
+            return getCustomParamsFromNode(node, resolvedInputs);
         }
         if (portName === 'image' && node.type === 'ImageImport') {
             return getImageImportOutputValue(node);
@@ -1236,7 +1250,7 @@ export function createExecutionCoreApi({
         return undefined;
     }
 
-    function getCustomParamsFromNode(node) {
+    function getCustomParamsFromNode(node, resolvedInputs) {
         const rows = Array.from(documentRef.querySelectorAll(`#${node.id}-params-list [data-param-row]`));
         const params = {};
         const validKeys = new Set(); // 记录当前有效的参数名
@@ -1251,7 +1265,8 @@ export function createExecutionCoreApi({
         });
 
         // 然后从端口连接覆盖参数值（但只处理当前有效的参数）
-        const inputs = collectCachedInputsForNode(node.id);
+        const authored = hasOriginalFileInput(node, state) ? { ...params } : null;
+        const inputs = resolvedInputs ?? collectCachedInputsForNode(node.id);
         Object.keys(inputs).forEach((portName) => {
             // 端口名格式为 param_{key}
             const match = portName.match(/^param_(.+)$/);
@@ -1274,7 +1289,7 @@ export function createExecutionCoreApi({
         });
 
         node.data = node.data || {};
-        node.data.params = Object.entries(params).map(([key, value]) => ({ key, value }));
+        node.data.params = Object.entries(authored ?? params).map(([key, value]) => ({ key, value }));
         return params;
     }
 
@@ -2383,6 +2398,7 @@ export function createExecutionCoreApi({
             const needsGoogleKey = request.protocol === 'google' && analysisProvider.autoComplete === false
                 && !/[?&](?:key|api[_-]?key)=[^&#\s]+/i.test(request.url);
             const headers = getProxyHeaders(request.url, request.method, {
+                ...originalFileRequestHeaders(node, state),
                 'Content-Type': 'application/json',
                 ...(request.protocol === 'openai' ? { Authorization: `Bearer ${analysisProvider.apikey}` } : {}),
                 ...(needsGoogleKey ? { 'x-goog-api-key': analysisProvider.apikey } : {})
@@ -2433,9 +2449,10 @@ export function createExecutionCoreApi({
         signal?.throwIfAborted();
         if (!image) throw new Error('供应商未返回精修图片，请重试。');
 
-        const assets = await saveWorkflowNodeMediaAssets([image, reference], workflowId, node.id, node.activeMediaOperationId);
+        const toSave = hasOriginalFileInput(node, state) ? [image] : [image, reference];
+        const assets = await saveWorkflowNodeMediaAssets(toSave, workflowId, node.id, node.activeMediaOperationId);
         const savedAssets = assets.filter(asset => typeof asset?.asset_key === 'string' && asset.asset_key.startsWith('media:'));
-        if (assets.length !== 2 || savedAssets.length !== 2 || state.nodes.get(node.id) !== node || signal?.aborted) {
+        if (assets.length !== toSave.length || savedAssets.length !== toSave.length || state.nodes.get(node.id) !== node || signal?.aborted) {
             if (savedAssets.length) await releaseWorkflowNodeMediaAssets(savedAssets, workflowId, node.id);
             signal?.throwIfAborted();
             throw new Error('图片已精修，但工作流媒体保存失败。');
@@ -2446,7 +2463,8 @@ export function createExecutionCoreApi({
         rememberWorkflowMediaOperation(node, savedAssets);
         setCanonicalImageOutput(node, [image], { assetKey: resultAssetKey, imageCount: 1, assetReady: true });
         node.data.mediaAssetKeys = [resultAssetKey];
-        node.data.productRetouchComparison = { originalAssetKey: originalAsset.asset_key, resultAssetKey };
+        if (originalAsset) node.data.productRetouchComparison = { originalAssetKey: originalAsset.asset_key, resultAssetKey };
+        else delete node.data.productRetouchComparison;
         delete node.data.mediaIntegrity;
         if (node.activeMediaOperationId) node.productRetouchResultCommitted = true;
         try {
@@ -2631,14 +2649,17 @@ export function createExecutionCoreApi({
                         protocol, url, edit: isOpenAiImageEdit
                     });
                 };
+                const diagnosticHeaders = originalFileRequestHeaders(node, state);
                 const headers = isGoogle
-                    ? getProxyHeaders(url, 'POST')
+                    ? getProxyHeaders(url, 'POST', diagnosticHeaders)
                     : ((isTtapi || isTtapiOpenAi)
                         ? getProxyHeaders(url, 'POST', {
+                            ...diagnosticHeaders,
                             'TT-API-KEY': apiCfg.apikey,
                             'Content-Type': 'application/json'
                         })
                         : getProxyHeaders(url, 'POST', {
+                            ...diagnosticHeaders,
                             Authorization: `Bearer ${apiCfg.apikey}`,
                             'Content-Type': isOpenAiImageEdit ? null : 'application/json'
                         }));
@@ -3057,8 +3078,7 @@ export function createExecutionCoreApi({
             const resolved = await resolveRequestMentions(node, inputs, readTextChatPrompts(node, inputs), { signal });
             const [prompt, sysprompt] = resolved.prompts;
             inputs = resolved.inputs;
-            const linkedFile = state.connections.some(edge => edge.to.nodeId === id && edge.to.port === 'prompt'
-                && edge.from.port === 'text' && findTextFileSource(state.nodes.get(edge.from.nodeId), state));
+            const linkedFile = hasOriginalFileInput(node, state);
             const diagnosticHeaders = linkedFile ? { 'X-Cainflow-Private-Input': '1' } : {};
             const responseArea = documentRef.getElementById(`${id}-response`);
 
@@ -3202,11 +3222,8 @@ export function createExecutionCoreApi({
                 throw err;
             }
         },
-        CustomParams: async (node) => {
-            const params = getCustomParamsFromNode(node);
-            node.data = node.data || {};
-            node.data.params = Object.entries(params).map(([key, value]) => ({ key, value }));
-            return { params };
+        CustomParams: async (node, inputs) => {
+            return { params: getCustomParamsFromNode(node, hasOriginalFileInput(node, state) ? inputs : undefined) };
         },
         ImagePreview: async (node, inputs) => {
             const { id } = node;
@@ -3249,7 +3266,7 @@ export function createExecutionCoreApi({
                 currentIndex: previousIndex,
                 assetKey: node.id
             });
-            await saveNodeImageAssetNow(node, images, node.id);
+            if (!images.some(isOriginalFileUrl)) await saveNodeImageAssetNow(node, images, node.id);
             await syncImageMergeNode(node.id, images);
             await refreshDependentImageResizePreviews(node.id);
             connectionProjection?.nodeGeometryChanged(node.id);
@@ -3261,6 +3278,7 @@ export function createExecutionCoreApi({
                 .flatMap(([, value]) => getTextInputList(value))
                 .filter((value) => typeof value === 'string');
             if (texts.length === 0) throw new Error('请至少连接一段文本');
+            node.fileDerivedText = hasOriginalFileInput(node, state);
             node.data.texts = texts.slice();
             node.data.text = texts[texts.length - 1];
             const summary = documentRef.getElementById(`${node.id}-merge-summary`);
@@ -3290,12 +3308,17 @@ export function createExecutionCoreApi({
             }
         },
         FileImport: async (node) => {
-            await readFileImportText(getActiveWorkflowId(), node.id, node.fileImport ?? node.data?.fileImport);
+            try {
+                await readFileImportInfo(getActiveWorkflowId(), node.id, node.fileImport ?? node.data?.fileImport);
+            } catch (error) {
+                error.fileImportFailure = true;
+                throw error;
+            }
         },
         Text: async (node, inputs = {}) => {
-            if (findTextFileSource(node, state)) return;
             const textarea = documentRef.getElementById(`${node.id}-text`);
             const hasIncomingText = Object.prototype.hasOwnProperty.call(inputs, 'text');
+            if (hasIncomingText) node.fileDerivedText = hasOriginalFileInput(node, state);
             const texts = getTextInputList(inputs.text);
             const text = texts.length > 0
                 ? texts[0]
@@ -3336,6 +3359,8 @@ export function createExecutionCoreApi({
             connectionProjection?.nodeGeometryChanged(node.id);
         },
         TextSplit: async (node, inputs = {}) => {
+            node.fileDerivedText = hasOriginalFileInput(node, state);
+            if (!node.fileDerivedText) delete node.fileTextPartCount;
             const delimiterInput = documentRef.getElementById(`${node.id}-delimiter`);
             const outputCountInput = documentRef.getElementById(`${node.id}-output-count`);
             const removeEmptyLinesInput = documentRef.getElementById(`${node.id}-remove-empty-lines`);

@@ -22,7 +22,7 @@ const knownFields = new Set(`
     filename fileImport autoAddedForGeneration savePreviewMode videoPreviewIndex video videos videoId videoUrl videoAssetKey videoStatus videoStatusText
     videoCreateHttpStatus videoCreateStatus videoStatusUpdateTime videoEnhancedPrompt videoMissingLocalAsset
     useVideoSizeParam enhancePrompt enableUpsample doubaoResolution doubaoDuration doubaoCameraFixed doubaoGenerateAudio doubaoWatermark doubaoSeed
-    text texts textPreviewIndex delimiter outputCount removeEmptyLines previewEnabled mergeOutputEnabled parts params customParams
+    text texts textPreviewIndex delimiter outputCount removeEmptyLines previewEnabled mergeOutputEnabled parts fileTextPartCount params customParams
     pitch yaw distance fov roll cameraViewMode cameraPrompt cameraPreviewImage agentReferenceSource
 `.trim().split(/\s+/));
 

@@ -18,7 +18,9 @@ export function createGlobalInteractionsApi({
     toggleNodesEnabled,
     showToast,
     scheduleSave,
+    pushHistory,
     getActiveWorkflowId = () => '',
+    appendInactiveFileImports = () => false,
     documentRef = document,
     windowRef = window
 }) {
@@ -32,6 +34,19 @@ export function createGlobalInteractionsApi({
 
     function isNodeRunning(nodeId) {
         return state.runningNodeIds?.has(nodeId) || state.nodes.get(nodeId)?.el?.classList.contains('running');
+    }
+
+    function waitForStableCanvas() {
+        const root = documentRef.documentElement;
+        if (root?.dataset.canvasLoadState !== 'loading') return;
+        return new Promise(resolve => {
+            const observer = new windowRef.MutationObserver(() => {
+                if (root.dataset.canvasLoadState === 'loading') return;
+                observer.disconnect();
+                resolve();
+            });
+            observer.observe(root, { attributes: true, attributeFilter: ['data-canvas-load-state'] });
+        });
     }
 
     function importImageDataAtDrop(event, imageData, message, { forceCreate = false } = {}) {
@@ -63,13 +78,8 @@ export function createGlobalInteractionsApi({
             if (!drop) return;
             clearTimeout(drop.timer);
             pendingFileDrops.delete(data.nodeId);
-            if (getActiveWorkflowId() !== drop.workflowId) return;
             const fileImport = normalizeFileImport(data.fileImport);
-            if (!fileImport?.id) {
-                showToast(data.error || '无法登记原文件。', 'error');
-                return;
-            }
-            if (addNode('FileImport', drop.position.x, drop.position.y, { id: data.nodeId, fileImport })) scheduleSave();
+            drop.resolve(fileImport?.id ? { id: data.nodeId, fileImport } : { error: data.error || '无法登记原文件。' });
         });
         canvasContainer.addEventListener('auxclick', (e) => {
             if (e.button === 1) e.preventDefault();
@@ -109,25 +119,46 @@ export function createGlobalInteractionsApi({
             }
 
             const droppedFiles = Array.from(e.dataTransfer?.files || []);
-            if (typeof native?.postMessageWithAdditionalObjects === 'function' && droppedFiles.length === 1
-                && /\.(md|markdown|txt)$/i.test(droppedFiles[0].name)) {
+            if (typeof native?.postMessageWithAdditionalObjects === 'function' && droppedFiles.length) {
                 if (!e.target.closest?.('#canvas-container') || isModalOrFullscreenOpen({ documentRef, windowRef })) return;
+                if (documentRef.documentElement?.dataset.canvasLoadState === 'loading') return;
                 const workflowId = getActiveWorkflowId();
                 if (!workflowId) return;
-                const nodeId = 'file-' + windowRef.crypto.randomUUID();
                 const position = viewportApi.screenToCanvas(e.clientX, e.clientY);
-                const timer = setTimeout(() => {
-                    pendingFileDrops.delete(nodeId);
-                    if (getActiveWorkflowId() === workflowId) showToast('无法读取拖入文件的原始位置。', 'error');
-                }, 10000);
-                pendingFileDrops.set(nodeId, { workflowId, position, timer });
-                try {
-                    native.postMessageWithAdditionalObjects({ type: 'cainflow-file-import', workflowId, nodeId }, droppedFiles);
-                } catch {
-                    clearTimeout(timer);
-                    pendingFileDrops.delete(nodeId);
-                    showToast('无法读取拖入文件的原始位置。', 'error');
+                const results = await Promise.all(droppedFiles.map(file => new Promise(resolve => {
+                    const nodeId = 'file-' + windowRef.crypto.randomUUID();
+                    const unavailable = () => {
+                        clearTimeout(timer);
+                        pendingFileDrops.delete(nodeId);
+                        resolve({ error: '无法读取拖入文件的原始位置。' });
+                    };
+                    const timer = setTimeout(unavailable, 10000);
+                    pendingFileDrops.set(nodeId, { timer, resolve });
+                    try {
+                        native.postMessageWithAdditionalObjects({ type: 'cainflow-file-import', workflowId, nodeId }, [file]);
+                    } catch {
+                        unavailable();
+                    }
+                })));
+                await waitForStableCanvas();
+                const nodes = results.filter(result => result.fileImport).map((result, index) => ({
+                    ...result,
+                    type: 'FileImport',
+                    x: position.x + (index % 4) * 300,
+                    y: position.y + Math.floor(index / 4) * 230
+                }));
+                if (nodes.length) {
+                    if (getActiveWorkflowId() === workflowId) {
+                        pushHistory?.();
+                        nodes.forEach(node => addNode(node.type, node.x, node.y, node, Boolean(pushHistory)));
+                        scheduleSave();
+                    } else if (!appendInactiveFileImports(workflowId, nodes)) {
+                        showToast('原工作流已关闭，无法添加这批文件。', 'warning');
+                    }
                 }
+                const failures = results.flatMap((result, index) => result.error
+                    ? [`${droppedFiles[index].name}：${result.error}`] : []);
+                if (failures.length) showToast(failures.join('\n'), 'warning');
                 return;
             }
             const files = droppedFiles.filter((file) => file.type.startsWith('image/'));

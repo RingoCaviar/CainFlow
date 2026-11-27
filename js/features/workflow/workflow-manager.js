@@ -1,5 +1,6 @@
 import { beginCanvasLoad } from '../ui/canvas-load-state.js';
 import { createWorkflowAutosave } from './workflow-autosave.js';
+import { projectFileImportForShare } from './file-import.js';
 /**
  * 负责工作流文件管理，包括列表渲染、保存、加载、删除与校验提示。
  */
@@ -106,6 +107,7 @@ export function createWorkflowManagerApi({
     mediaAssetExists = async () => true,
     deleteImageAsset = async () => false,
     clearUndoStack = () => {},
+    pushHistory = () => {},
     updateCacheUsage = () => {},
     recordWorkflowDiagnostic = async () => {},
     onWorkflowViewApplied = () => {},
@@ -296,6 +298,21 @@ export function createWorkflowManagerApi({
     const getRunningWorkflowNames = () => workflowDesk.snapshot().open
         .filter(({ running }) => running)
         .map(({ label }) => label);
+    const inactiveFileImportBatches = new Map();
+
+    function publishWorkflowView(workflow) {
+        const batches = inactiveFileImportBatches.get(workflow.workflowId);
+        if (batches?.length) {
+            const excludeNodeIds = new Set(batches.flat());
+            for (const batch of batches) {
+                if (batch.some(id => state.nodes.has(id))) pushHistory({ excludeNodeIds });
+                batch.forEach(id => excludeNodeIds.delete(id));
+            }
+            inactiveFileImportBatches.delete(workflow.workflowId);
+        }
+        onWorkflowViewApplied(workflow);
+    }
+
     const workflowSessionActivator = createWorkflowSessionSelectionAdapter({
         state,
         workflowDesk,
@@ -306,7 +323,7 @@ export function createWorkflowManagerApi({
             return Array.isArray(names) ? findNextUntitledName(names) : `未命名工作流-${createWorkflowId()}`;
         },
         applyViewport: () => viewportApi.updateCanvasTransform({ updateConnections: false }),
-        onViewApplied: onWorkflowViewApplied
+        onViewApplied: publishWorkflowView
     });
     const workflowTargetSelection = createWorkflowSelectionAdapter({
         state,
@@ -325,7 +342,7 @@ export function createWorkflowManagerApi({
         clearUndoStack,
         updatePortStyles,
         applyViewport: () => viewportApi.updateCanvasTransform(),
-        onViewApplied: onWorkflowViewApplied,
+        onViewApplied: publishWorkflowView,
         onConnectionsChanged,
         scheduleAssetCleanup: scheduleOpenWorkflowAssetCleanup,
         showToast,
@@ -1945,6 +1962,7 @@ export function createWorkflowManagerApi({
     }
 
     function releaseWorkflowTabMemory(tab) {
+        inactiveFileImportBatches.delete(tab?.workflowId || tab?.data?.workflowId);
         if (!tab || typeof tab !== 'object') return;
         onWorkflowReleased(tab.workflowId || tab.data?.workflowId || '');
         releaseDetachedEditorView({
@@ -2070,11 +2088,7 @@ export function createWorkflowManagerApi({
 
     function prepareWorkflowExport(workflowData) {
         const exported = stripInlineImagesFromWorkflowData(workflowData);
-        for (const node of exported?.nodes || []) {
-            if (node.type === 'FileImport' && node.fileImport) {
-                node.fileImport = { name: node.fileImport.name };
-            }
-        }
+        if (Array.isArray(exported?.nodes)) exported.nodes = exported.nodes.map(projectFileImportForShare);
         return exported;
     }
 
@@ -3365,6 +3379,22 @@ export function createWorkflowManagerApi({
         return true;
     }
 
+    function appendInactiveFileImports(workflowId, nodes) {
+        const tab = (state.workflowTabs || []).find(candidate => candidate.workflowId === workflowId);
+        if (!tab?.data || workflowId === getActiveWorkflowId()) return false;
+        const saved = updateWorkflowTabDataByName(tab.name, {
+            ...tab.data,
+            nodes: [...(tab.data.nodes || []), ...nodes]
+        }, { dirty: true });
+        if (saved) {
+            const batches = inactiveFileImportBatches.get(workflowId) || [];
+            batches.push(nodes.map(node => node.id));
+            inactiveFileImportBatches.set(workflowId, batches);
+            scheduleSave({ dirty: false });
+        }
+        return saved;
+    }
+
     function projectWorkflowRunningStateById(workflowId, running = false) {
         const tab = (state.workflowTabs || []).find((candidate) => candidate.workflowId === workflowId);
         if (!tab) return false;
@@ -3406,6 +3436,7 @@ export function createWorkflowManagerApi({
         flushAutosave,
         hasPendingAutosave,
         markActiveWorkflowDirty,
+        appendInactiveFileImports,
         mutatePromptAgentByWorkflowId,
         refreshActiveWorkflowIntegrityState,
         snapshotActiveWorkflow,

@@ -54,6 +54,8 @@ _SENSITIVE_BODY_KEYS = {
 
 def should_log_path(raw_path):
     path = (urlparse(raw_path).path or '').strip()
+    if path in ('/api/storage/file-imports/info', '/api/storage/file-imports/content'):
+        return False
     return path == '/proxy' or path.startswith('/api/')
 
 
@@ -62,7 +64,7 @@ def start_request_log(handler):
         return None
 
     parsed = urlparse(handler.path)
-    private_body = parsed.path == '/api/storage/file-imports/text' or (
+    private_body = parsed.path.startswith('/api/storage/file-imports/') or (
         parsed.path == '/proxy' and handler.headers.get('X-Cainflow-Private-Input') == '1'
     )
     started_at = datetime.now().astimezone()

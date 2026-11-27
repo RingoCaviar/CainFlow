@@ -1,4 +1,6 @@
-import { bindFileImportNode, normalizeFileImport } from '../features/workflow/file-import.js';
+import { bindFileImportNode, fileImportOutput, normalizeFileImport } from '../features/workflow/file-import.js';
+import { confirmAction } from '../features/ui/app-dialogs.js';
+import { resolveImageGenerationInputContract } from './universal-input-policy.js';
 import { normalizeVisualStyle, normalizeVisualStyleDetailLevel } from '../features/visual-style/visual-style.js';
 /**
  * 管理节点的创建、删除、选择、启停与尺寸自适应等生命周期行为。
@@ -53,6 +55,7 @@ export function createNodeLifecycleApi({
     renderImageMergePreview = null,
     bindNodeInteractions,
     deferTextAndVideoCardFit = false,
+    observeFileImports = true,
     serializeOneNode = null,
     pushHistory,
     scheduleSave,
@@ -1264,6 +1267,105 @@ export function createNodeLifecycleApi({
         }
     }
 
+    function bindVisibleFileImportNode(nodeData) {
+        if (nodeData?.type !== 'FileImport') return;
+        const { id, el } = nodeData;
+        if (nodeData.refreshFileImport) { void nodeData.refreshFileImport(); return; }
+        const windowRef = documentRef.defaultView || globalThis;
+        const isCurrent = () => state.nodes.get(id) === nodeData;
+        let replacing = false;
+        let pendingConflictIds = new Set();
+        function checkModel(edge) {
+            const target = state.nodes.get(edge.to.nodeId);
+            const port = edge.to.port;
+            if (getGenerationNodeInputConnectionPolicy(target, port)?.supported === false) return '当前模型不支持此输入';
+            if (target?.type === 'ImageGenerate' && edge.from.port === 'image') {
+                const contract = resolveImageGenerationInputContract(state, target);
+                if (contract.error) return contract.error;
+                if (port === 'mask' ? !contract.supportsMask : !contract.supportsReferences || contract.maxReferences === 0) {
+                    return '当前生图模型不支持此图片输入';
+                }
+            }
+            return '';
+        }
+        bindFileImportNode({ node: nodeData, getWorkflowId: getActiveWorkflowId, windowRef, isCurrent,
+            onStatus(status) {
+                const edges = state.connections.filter(edge => edge.from.nodeId === id);
+                const warnings = [];
+                for (const edge of edges) {
+                    const reason = checkModel(edge);
+                    const target = state.nodes.get(edge.to.nodeId);
+                    if (reason) warnings.push(`${target?.customTitle || nodeConfigs[target?.type]?.title || edge.to.nodeId} · ${edge.to.port}：${reason}`);
+                    const path = edge.id && documentRef.querySelector(`[data-conn-id="${CSS.escape(edge.id)}"]`);
+                    path?.classList.toggle('file-import-connection-warning',
+                        pendingConflictIds.has(edge.id) || Boolean(reason) || !['ready', 'loading'].includes(status));
+                }
+                return warnings.join('；');
+            },
+            async onReplace(report, refresh) {
+                const choose = windowRef.__cainflowDesktop?.chooseFileImport;
+                if (!choose) { report(nodeData.fileImportStatus, '请在 CainFlow 桌面选择原文件。'); return; }
+                if (replacing || state.runningNodeIds?.has(id)) return;
+                const workflowId = getActiveWorkflowId();
+                if (!workflowId) return;
+                replacing = true;
+                try {
+                    const candidate = normalizeFileImport(await choose(workflowId, id));
+                    if (!candidate?.id || !isCurrent() || getActiveWorkflowId() !== workflowId || state.runningNodeIds?.has(id)) return;
+                    const nextPort = fileImportOutput(candidate);
+                    const conflicts = state.connections.filter(edge => edge.from.nodeId === id
+                        && (edge.from.port !== nextPort.name || edge.type && edge.type !== nextPort.type));
+                    if (conflicts.length) {
+                        pendingConflictIds = new Set(conflicts.map(edge => edge.id));
+                        const paths = conflicts.flatMap(edge => {
+                            const path = edge.id && documentRef.querySelector(`[data-conn-id="${CSS.escape(edge.id)}"]`);
+                            if (!path) return [];
+                            path.classList.add('file-import-connection-warning');
+                            return [path];
+                        });
+                        const targets = conflicts.map(({ to }) => {
+                            const target = state.nodes.get(to.nodeId);
+                            return `${target?.customTitle || nodeConfigs[target?.type]?.title || to.nodeId} · ${to.port}`;
+                        });
+                        let confirmed;
+                        try {
+                            confirmed = await confirmAction({
+                                documentRef, title: '更换原文件', confirmLabel: '更换并断开连线',
+                                message: `新文件的${nextPort.label}与以下输入类型冲突，确认后将断开这些连线：\n${targets.join('\n')}`,
+                                danger: true
+                            });
+                        }
+                        finally {
+                            pendingConflictIds.clear();
+                            paths.forEach(path => path.classList.remove('file-import-connection-warning'));
+                        }
+                        if (!confirmed || !isCurrent() || getActiveWorkflowId() !== workflowId || state.runningNodeIds?.has(id)) return;
+                    }
+                    pushHistory();
+                    nodeData.fileImport = candidate;
+                    const port = el.querySelector('.node-port.output');
+                    port.dataset.port = nextPort.name;
+                    port.dataset.type = nextPort.type;
+                    port.querySelector('.port-dot').className = `port-dot type-${nextPort.type}`;
+                    port.querySelector('.port-label').textContent = nextPort.label;
+                    if (conflicts.length) {
+                        state.connections = state.connections.filter(edge => !conflicts.includes(edge));
+                        showToast(`已更换文件并断开 ${conflicts.length} 条类型冲突连线，可撤销。`, 'warning');
+                    }
+                    invalidateNodePortCache?.(id);
+                    onConnectionsChanged();
+                    connectionProjection?.nodeGeometryChanged(id);
+                    scheduleSave();
+                    await refresh();
+                } catch {
+                    if (isCurrent()) report(nodeData.fileImportStatus, '无法关联选中的原文件。');
+                } finally {
+                    replacing = false;
+                }
+            }
+        });
+    }
+
     function addNode(type, x, y, restoreData, silent = false) {
         if (type === 'ImageSave' && !restoreData?.id) {
             showToast('保存节点已弃用，生成的图片和视频会自动保存', 'info');
@@ -1728,6 +1830,7 @@ export function createNodeLifecycleApi({
             }
         }
         if (normalizedType === 'TextSplit') {
+            if (Number.isSafeInteger(effectiveRestoreData?.fileTextPartCount)) nodeData.fileTextPartCount = effectiveRestoreData.fileTextPartCount;
             nodeData.data.text = effectiveRestoreData?.text || effectiveRestoreData?.lastText || '';
             nodeData.data.delimiter = effectiveRestoreData?.delimiter || '';
             const restoredParts = Array.isArray(effectiveRestoreData?.parts) ? effectiveRestoreData.parts.slice() : [];
@@ -1771,10 +1874,8 @@ export function createNodeLifecycleApi({
         state.nodes.set(id, nodeData);
         if (normalizedType === 'FileImport') {
             nodeData.fileImport = normalizeFileImport(effectiveRestoreData?.fileImport);
-            const workflowId = getActiveWorkflowId();
-            bindFileImportNode({ node: nodeData, workflowId, windowRef: documentRef.defaultView || globalThis,
-                isCurrent: () => getActiveWorkflowId() === workflowId && state.nodes.get(id) === nodeData });
         }
+        if (observeFileImports) bindVisibleFileImportNode(nodeData);
         el.addEventListener('load', (event) => {
             if (event.target?.tagName === 'IMG' && !isPendingImagePreview(event.target)) {
                 if (normalizedType === 'ImageImport' && nodeData.importMode === 'url') return;
@@ -2485,6 +2586,7 @@ export function createNodeLifecycleApi({
 
     return {
         fitNodeToContent,
+        bindVisibleFileImportNode,
         getNodeMinimumSize,
         enforceNodeContentMinimum,
         flushDeferredGeometryWork,

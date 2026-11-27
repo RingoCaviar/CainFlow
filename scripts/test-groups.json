@@ -620,7 +620,7 @@
     "tests/test_desktop_runtime.py": {"tier": "python", "groups": ["desktop", "backend"]},
     "tests/test_diagnostic_routes.py": {"tier": "python", "groups": ["backend"]},
     "tests/test_diagnostic_service.py": {"tier": "python", "groups": ["backend"]},
-    "tests/test_file_import.py": {"tier": "python", "groups": ["desktop", "backend", "workflow"], "sources": ["backend/desktop.py", "backend/handler.py", "backend/routes/storage_routes.py", "backend/services/desktop_bridge.py", "backend/services/log_service.py", "backend/services/proxy_service.py"]},
+    "tests/test_file_import.py": {"tier": "python", "groups": ["desktop", "backend", "workflow"], "sources": ["backend/desktop.py", "backend/handler.py", "backend/routes/storage_routes.py", "backend/services/desktop_bridge.py", "backend/services/file_import.py", "backend/services/log_service.py", "backend/services/proxy_service.py", "backend/webview2_runtime.py"]},
     "tests/test_http_server_lifecycle.py": {"tier": "python", "groups": ["backend"]},
     "tests/test_media_library.py": {"tier": "python", "groups": ["media", "backend"], "sources": ["backend/services/svg_image.py"]},
     "tests/test_media_safety_gate.py": {"tier": "python", "groups": ["media", "backend"]},

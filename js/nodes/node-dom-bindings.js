@@ -593,7 +593,8 @@ export function createNodeDomBindingsApi({
         const parts = limitTextSplitParts(rawParts, outputCount);
         const renderedOutputCount = mergeOutputEnabled
             ? 1
-            : getTextSplitRenderedOutputCount(parts, outputCount);
+            : outputCount === 0 && !node.fileDerivedText && Number.isSafeInteger(node.fileTextPartCount)
+                ? Math.max(1, node.fileTextPartCount) : getTextSplitRenderedOutputCount(parts, outputCount);
 
         return {
             delimiter: delimiterInput.value,

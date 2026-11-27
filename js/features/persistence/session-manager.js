@@ -522,14 +522,15 @@ export function createSessionManagerApi({
         }, 0);
     }
 
-    function captureHistorySnapshot() {
+    function captureHistorySnapshot({ excludeNodeIds } = {}) {
         const workflowId = getWorkflowSnapshot()?.active?.workflowId || 'workflow';
         const historyId = `${workflowId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
         // A prepared edit keeps this snapshot until its connection validates.
         // Detach nested endpoints and parameter objects before the graph changes.
         const snapshot = JSON.parse(JSON.stringify(sanitizeWorkflowDataForSessionCache({
-            nodes: nodeSerializer.serializeNodes(),
-            connections: state.connections.map((connection) => ({ ...connection }))
+            nodes: nodeSerializer.serializeNodes().filter(node => !excludeNodeIds?.has(node.id)),
+            connections: state.connections.filter(edge => !excludeNodeIds?.has(edge.from.nodeId) && !excludeNodeIds?.has(edge.to.nodeId))
+                .map(connection => ({ ...connection }))
         })));
         snapshot.historyId = historyId;
         undoMedia.protect(snapshot, workflowId);
@@ -545,10 +546,10 @@ export function createSessionManagerApi({
         }
     }
 
-    function pushHistory() {
+    function pushHistory(options) {
         if (historyTransition) throw new Error('撤销或重做正在保存，请稍后再修改');
         if (state.canvasPlanApplying) return null;
-        const snapshot = captureHistorySnapshot();
+        const snapshot = captureHistorySnapshot(options);
         const discardedRedoSnapshots = getRedoStack().splice(0).flatMap((raw) => {
             try { return [JSON.parse(raw)]; } catch { return []; }
         });

@@ -4,6 +4,7 @@
  * 这里集中处理“创建任务 -> 轮询任务 -> 恢复任务 -> 写回节点状态”的链路，
  * 避免把各供应商的异步细节继续堆在 execution-core.js 里。
  */
+import { hasOriginalFileInput, originalFileRequestHeaders } from '../workflow/file-import.js';
 import {
     buildDoubaoVideoRequest,
     buildNewApiAsyncImageRequest,
@@ -204,7 +205,7 @@ export function createAsyncMediaExecutionApi({
         if (Object.prototype.hasOwnProperty.call(payload, 'videoAssetKey')) node.data.videoAssetKey = payload.videoAssetKey || '';
         if (Object.prototype.hasOwnProperty.call(payload, 'status')) node.data.videoStatus = payload.status || '';
         if (Object.prototype.hasOwnProperty.call(payload, 'statusText')) node.data.videoStatusText = payload.statusText || '';
-        if (Object.prototype.hasOwnProperty.call(payload, 'prompt')) node.data.prompt = payload.prompt || '';
+        if (Object.hasOwn(payload, 'prompt') && !hasOriginalFileInput(node, state)) node.data.prompt = payload.prompt || '';
         if (Object.prototype.hasOwnProperty.call(payload, 'createHttpStatus')) node.data.videoCreateHttpStatus = payload.createHttpStatus || '';
         if (Object.prototype.hasOwnProperty.call(payload, 'createStatus')) node.data.videoCreateStatus = payload.createStatus || '';
         if (Object.prototype.hasOwnProperty.call(payload, 'statusUpdateTime')) node.data.videoStatusUpdateTime = payload.statusUpdateTime || '';
@@ -287,7 +288,7 @@ export function createAsyncMediaExecutionApi({
         if (Object.prototype.hasOwnProperty.call(payload, 'imageTaskStatus')) node.data.imageTaskStatus = payload.imageTaskStatus || '';
         if (Object.prototype.hasOwnProperty.call(payload, 'imageTaskStatusText')) node.data.imageTaskStatusText = payload.imageTaskStatusText || '';
         if (Object.prototype.hasOwnProperty.call(payload, 'imageTaskUrl')) node.data.imageTaskUrl = payload.imageTaskUrl || '';
-        if (Object.prototype.hasOwnProperty.call(payload, 'prompt')) node.data.prompt = payload.prompt || '';
+        if (Object.hasOwn(payload, 'prompt') && !hasOriginalFileInput(node, state)) node.data.prompt = payload.prompt || '';
         if (Object.prototype.hasOwnProperty.call(payload, 'createHttpStatus')) node.data.imageTaskCreateHttpStatus = payload.createHttpStatus || '';
         if (Object.prototype.hasOwnProperty.call(payload, 'createStatus')) node.data.imageTaskCreateStatus = payload.createStatus || '';
         if (Object.prototype.hasOwnProperty.call(payload, 'progress')) node.data.imageTaskProgress = payload.progress === undefined || payload.progress === null ? '' : String(payload.progress);
@@ -408,6 +409,7 @@ export function createAsyncMediaExecutionApi({
             });
             const requestBody = null;
             const headers = getVideoProxyHeaders(url, 'GET', {
+                ...originalFileRequestHeaders(node, state),
                 ...(protocolPlan?.create.headers || { Authorization: `Bearer ${apiCfg.apikey}` }),
                 Accept: 'application/json',
                 ...(protocolPlan ? {} : { 'Content-Type': 'application/json' })
@@ -576,6 +578,7 @@ export function createAsyncMediaExecutionApi({
                 imageTaskId
             });
             const headers = getProxyHeaders(url, 'GET', {
+                ...originalFileRequestHeaders(node, state),
                 Authorization: `Bearer ${apiCfg.apikey}`,
                 Accept: 'application/json',
                 'Content-Type': 'application/json'
@@ -767,6 +770,7 @@ export function createAsyncMediaExecutionApi({
                     inputs
                 });
                 const headers = getProxyHeaders(url, 'POST', {
+                    ...originalFileRequestHeaders(node, state),
                     Authorization: `Bearer ${apiCfg.apikey}`,
                     'Content-Type': 'application/json',
                     Accept: 'application/json'
@@ -1261,14 +1265,16 @@ export function createAsyncMediaExecutionApi({
                         inputs: executionInputs
                     })
                     : buildUnifiedVideoRequest({ modelCfg, prompt, aspectRatio: aspect, useSizeParam, duration: videoDuration, loop: videoLoop, enhancePrompt, enableUpsample, inputs: executionInputs })));
-            const headers = getVideoProxyHeaders(url, 'POST', protocolPlan
-                ? {
+            const headers = getVideoProxyHeaders(url, 'POST', {
+                ...originalFileRequestHeaders(node, state),
+                ...(protocolPlan ? {
                     ...protocolPlan.create.headers,
                     ...(protocolPlan.create.encoding === 'multipart' ? { 'Content-Type': null } : {})
                 }
                 : {
                     Authorization: `Bearer ${apiCfg.apikey}`
-                });
+                })
+            });
 
             logRequestToPanel(
                 generationCount > 1 ? `视频请求发送: ${modelCfg.name} (${index + 1}/${generationCount})` : `视频请求发送: ${modelCfg.name}`,
@@ -1380,7 +1386,7 @@ export function createAsyncMediaExecutionApi({
             url: getVideoResultSource(result),
             assetKey: result.videoAssetKey || '',
             status: result.status || '',
-            prompt: result.prompt || prompt
+            prompt: hasOriginalFileInput(node, state) ? '' : result.prompt || prompt
         }));
         node.isSucceeded = true;
 

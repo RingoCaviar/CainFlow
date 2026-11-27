@@ -4,6 +4,7 @@
  */
 
 import { formatProgressBytes, formatProgressSpeed } from '../utils/format-utils.js';
+import { isOriginalFileUrl } from '../../workflow/file-import.js';
 
 /**
  * 检查 Blob 是否看起来像视频文件（通过检查文件头）
@@ -107,7 +108,7 @@ export function buildBackendVideoDownloadUrl(videoUrl, filenameBase) {
 }
 
 function isLocalMediaAssetUrl(videoUrl = '') {
-    return String(videoUrl || '').trim().startsWith('/api/storage/assets/');
+    return String(videoUrl || '').trim().startsWith('/api/storage/assets/') || isOriginalFileUrl(videoUrl);
 }
 
 async function readVideoResponseBlob(response, videoUrl, onProgress, downloadStartedAt, windowRef) {

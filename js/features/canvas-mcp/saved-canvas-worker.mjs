@@ -99,6 +99,7 @@ async function main() {
             isNodeStopped: id => nodeAbortController(id).signal.aborted,
             loadMedia: assetKey => rpc('loadMedia', { assetKey }),
             loadFileText: (nodeId, referenceId) => rpc('loadFileText', { nodeId, referenceId }),
+            loadFileValue: (nodeId, referenceId, kind) => rpc('loadFileText', { nodeId, referenceId, kind }),
             getHistoryEntry: async (id, { fileVersion }) => {
                 const { mimeType, body } = await rpc('historyMedia', { id: Number(id), fileVersion });
                 return { fileVersion, image: `data:${mimeType};base64,${body}` };

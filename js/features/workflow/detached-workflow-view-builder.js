@@ -122,6 +122,7 @@ export function createDetachedWorkflowViewBuilder({
                     }));
                     entry.bound = true;
                 }
+                entry.state.nodes.forEach(node => { if (node.refreshFileImport) void node.refreshFileImport(); });
                 visibleConnectionProjectionMaintenance?.adoptViewHandoff?.(entry.projectionHandoff);
                 activeEntry = entry;
                 if (!entry.activated) {

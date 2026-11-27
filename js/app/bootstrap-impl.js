@@ -1533,8 +1533,8 @@ function saveState() {
 }
 
 // ===== 撤销系统 =====
-function pushHistory() {
-    return getSessionManagerApi().pushHistory();
+function pushHistory(options) {
+    return getSessionManagerApi().pushHistory(options);
 }
 
 function updateUndoButton() {
@@ -1617,7 +1617,9 @@ function getGlobalInteractionsApi() {
             addNode,
             pasteNode,
             clipboardControllerApi: getClipboardControllerApi(),
+            pushHistory,
             getActiveWorkflowId: () => workflowManagerApi.getActiveWorkflowId(),
+            appendInactiveFileImports: (...args) => workflowManagerApi.appendInactiveFileImports(...args),
             toggleNodesEnabled,
             showToast,
             scheduleSave
@@ -2206,7 +2208,10 @@ function getWorkflowRuntimeManagerApi() {
             restoreColorResetPreview,
             showResolutionBadge,
             visibleNodesLayer: nodesLayer,
-            bindVisibleNodeInteractions: ({ id, type, el }) => nodeDomBindingsApi.bindNodeInteractions({ id, type, el }),
+            bindVisibleNodeInteractions: ({ id, type, el }) => {
+                nodeDomBindingsApi.bindNodeInteractions({ id, type, el });
+                getNodeLifecycleApi().bindVisibleFileImportNode(state.nodes.get(id));
+            },
             onVisibleNodeChanged: nodeId => {
                 nodeDomBindingsApi.syncDependentPromptSources(nodeId);
                 nodeDomBindingsApi.refreshDependentReferenceSources(nodeId);
@@ -2256,6 +2261,7 @@ const workflowManagerApi = createWorkflowManagerApi({
     nodeSerializer,
     viewportApi,
     addNode,
+    pushHistory,
     updateAllConnections,
     updatePortStyles,
     onConnectionsChanged: () => handleNodeGraphChanged(),

@@ -177,6 +177,18 @@ test('dragging an image output onto blank canvas creates a node with an immediat
 
 const allTypes = ['ImageImport', 'ImageCompare', 'ImageMerge', 'ImageResize', 'ColorReset', 'ImageGenerate', 'ECommerceImageSet', 'ProductRetouch', 'VideoGenerate', 'CameraControl', 'CustomParams', 'TextChat', 'Text', 'TextMerge', 'TextSplit', 'ImagePreview', 'VisualStyle'];
 
+test('an original image can be wired through the canvas universal image input', { timeout: 30000 }, async () => {
+    await withAppBrowser({ ...session, nodes: [
+        { id: 'original', type: 'FileImport', x: 60, y: 260, fileImport: { name: 'reference.png', kind: 'image' } },
+        { id: 'target', type: 'ImagePreview', x: 620, y: 240 }
+    ] }, async app => {
+        const destination = await point(app, '#target .universal-input .port-dot');
+        await dragFromPort(app, '#original .node-port[data-port=image] .port-dot', destination, false);
+        await assertConnected(app, 'original', 'target', 'image', { fromPort: 'image' });
+        assert.deepEqual(await savedConnections(app), [{ from: { nodeId: 'original', port: 'image' }, to: { nodeId: 'target', port: 'image' } }]);
+    });
+});
+
 test('a connection created under a hovered node loses emphasis when the pointer leaves', { timeout: 30000 }, async () => {
     await withAppBrowser({ ...session, nodes: [...session.nodes, { id: 'hover-target', type: 'ImageGenerate', x: 620, y: 240 }] }, async app => {
         const destination = await point(app, '#hover-target .universal-input .port-dot');

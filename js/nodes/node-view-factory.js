@@ -18,6 +18,7 @@ import {
 import { getImageAspectSelectState, normalizeImageSizeControls, resolveImageRequestSize } from '../features/execution/image-generation-size.js';
 import { getImageParameterValues, renderImageParameterOptions, supportsImageWebSearch } from './image-parameter-controls.js';
 import { splitTextForTextSplitNode } from '../core/common-utils.js';
+import { fileImportOutput } from '../features/workflow/file-import.js';
 import { applyReferenceImagePorts } from './reference-image-ports.js';
 import { renderCommerceImageSetBody } from './commerce-image-set-view.js';
 import { renderProductRetouchBody } from './product-retouch-view.js';
@@ -110,7 +111,8 @@ function getTextSplitOutputCountSettingValue(restoreData = {}) {
 function getTextSplitRenderedOutputCountValue(restoreData = {}) {
     const setting = getTextSplitOutputCountSettingValue(restoreData);
     if (setting > 0) return setting;
-    return Math.max(1, getTextSplitPartsFromRestoreData(restoreData).length);
+    const storedCount = Number.isSafeInteger(restoreData?.fileTextPartCount) ? restoreData.fileTextPartCount : 0;
+    return Math.max(1, getTextSplitPartsFromRestoreData(restoreData).length, storedCount);
 }
 
 function getTextSplitOutputPorts(restoreData = {}) {
@@ -153,6 +155,7 @@ function getTextMergeInputPorts(restoreData = {}) {
 }
 
 export function getDynamicNodePorts(type, direction, restoreData) {
+    if (type === 'FileImport' && direction === 'outputs') return [fileImportOutput(restoreData?.fileImport ?? restoreData?.data?.fileImport)];
     if (type === 'TextSplit' && direction === 'outputs') return getTextSplitOutputPorts(restoreData);
     if (type === 'TextMerge' && direction === 'inputs') return getTextMergeInputPorts(restoreData);
     if (type === 'ImageMerge' && direction === 'inputs') return getImageMergeInputPorts(restoreData);
@@ -1326,6 +1329,10 @@ function renderNodeBody(type, id, restoreData, state) {
     if (type === 'FileImport') return `
         <button type="button" data-file-import-open title="打开原文件">${escapeHtml(restoreData?.fileImport?.name || '选择原文件')}</button>
         <textarea class="text-node-editor" data-file-import-preview aria-label="原文件内容" readonly></textarea>
+        <img data-file-import-image alt="原图预览" style="max-width:100%;max-height:260px;object-fit:contain" hidden>
+        <video data-file-import-video controls preload="metadata" style="max-width:100%;max-height:260px" hidden></video>
+        <small data-file-import-details></small>
+        <button type="button" data-file-import-replace>选择原文件</button>
         <small data-file-import-status role="status"></small>`;
     if (type === 'TextMerge') return renderTextMergeBody(id);
     if (type === 'TextSplit') return renderTextSplitBody(id, restoreData);

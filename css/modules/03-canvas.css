@@ -437,3 +437,7 @@ body.is-interacting #canvas-container * {
     user-select: none !important;
     cursor: inherit !important;
 }
+.file-import-connection-warning {
+    stroke: var(--accent-orange, #c66c28) !important;
+    stroke-dasharray: 5 4;
+}

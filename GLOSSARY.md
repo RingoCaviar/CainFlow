@@ -10,6 +10,12 @@ CainFlow is a visual workspace for composing and running media-generation workfl
 选中图片节点后显示、用于编辑该节点参数的浮层；普通模式与放大模式属于同一组件。
 _Avoid_: 参数面板, 节点参数面板, 参数浮窗, 下方参数
 
+**文件导入节点**:
+工作流中关联一份本地原文件的画布节点。节点按文件类型呈现内容，并可向兼容的下游节点提供输入。
+
+**原文件引用**:
+文件导入节点与用户选定的原文件位置之间的关联。该位置提供文件的当前内容，文件缺失时仍保留关联。
+
 ### Prompt Agent
 
 **Prompt Agent**:

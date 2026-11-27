@@ -2,7 +2,7 @@ import { VISUAL_STYLE_FIELDS, VISUAL_STYLE_PRESETS, VISUAL_STYLE_DETAIL_LEVELS, 
 import { agentNodeDefinition as getNodeDefinition } from './prompt-agent-reference-inputs.js';
 import { publicImageProtocolFields } from './prompt-agent-parameters.js';
 import { listNodeDefinitions } from '../../nodes/registry.js';
-import { normalizeFileImport } from '../workflow/file-import.js';
+import { fileImportOutput, normalizeFileImport } from '../workflow/file-import.js';
 import { getDynamicNodePorts } from '../../nodes/node-view-factory.js';
 import { getImageEditGuideLabel } from '../../nodes/universal-input-policy.js';
 import { DOUBAO_VIDEO_RATIO_OPTIONS } from '../execution/provider-request-utils.js';
@@ -81,7 +81,7 @@ export function projectCanvasNode(node, running = false) {
         patchable: definition?.type === node.type && node.isClone !== true, parameters,
         ...(commerceDetailPage ? { commerceDetailPage } : {}),
         ...(fileImport ? { fileImport: {
-            name: fileImport.name, type: 'text', status: node.fileImportStatus || (fileImport.id ? 'registered' : 'unbound')
+            name: fileImport.name, type: fileImportOutput(fileImport).name, status: node.fileImportStatus || (fileImport.id ? 'registered' : 'unbound')
         } } : {}),
         ...(node.type === 'ImageImport' && node.data?.imageDescription ? { imageDescription: String(node.data.imageDescription).slice(0, 2000) } : {}),
         ...(node.type === 'TextChat' && node.isClone !== true ? { supportsSystemPrompt: true } : {}),

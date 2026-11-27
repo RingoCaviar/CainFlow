@@ -1,4 +1,5 @@
 import { normalizeVisualStyleDetailLevel } from '../features/visual-style/visual-style.js';
+import { projectFileImportForShare, stripOriginalFileCopies } from '../features/workflow/file-import.js';
 /**
  * 负责节点与连接的序列化和反序列化，为保存、导入、撤销和工作流复制提供数据结构转换。
  */
@@ -345,7 +346,7 @@ export function createNodeSerializer({ state, documentRef }) {
                 serialized.cameraPreviewImage = node.data?.cameraPreviewImage || '';
             }
 
-            nodes.push(applyNodePersistenceExtensions(node, serialized));
+            nodes.push(stripOriginalFileCopies(node, applyNodePersistenceExtensions(node, serialized)));
         }
         return nodes;
     }
@@ -387,7 +388,7 @@ export function createNodeSerializer({ state, documentRef }) {
     function buildWorkflowExport(version = '1.3') {
         return {
             canvas: { x: state.canvas.x, y: state.canvas.y, zoom: state.canvas.zoom },
-            nodes: serializeNodes(),
+            nodes: serializeNodes().map(projectFileImportForShare),
             connections: state.connections.map(serializeConnection),
             version
         };

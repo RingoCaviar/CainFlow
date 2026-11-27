@@ -5,6 +5,7 @@ import { createExecutionCoreApi } from '../js/features/execution/execution-core.
 import { createWorkflowRunnerApi } from '../js/features/execution/workflow-runner.js';
 import { commerceImageSetSourceKey } from '../js/features/ecommerce-image-set/commerce-image-set-plan.js';
 import { applyImageSaveMediaState } from '../js/features/workflow/workflow-runtime-manager.js';
+import { stripOriginalFileCopies } from '../js/features/workflow/file-import.js';
 import { createNodeElement as element } from './helpers/node-element-fixture.mjs';
 
 function documentRef() {
@@ -19,7 +20,7 @@ function documentRef() {
     };
 }
 
-function createRunner({ nodes, connections, executeNode, getCachedOutputValue, getImageAsset, selectedNodeIds }) {
+function createRunner({ nodes, connections, executeNode, getCachedOutputValue, getImageAsset, selectedNodeIds, workflowId = '' }) {
     const mode = selectedNodeIds ? 'selected-only' : 'all';
     const nodeIds = selectedNodeIds ?? nodes.map(node => node.id);
     const state = {
@@ -50,6 +51,7 @@ function createRunner({ nodes, connections, executeNode, getCachedOutputValue, g
         normalizeRunOptions: () => ({ mode, selectedNodeIds }),
         getCachedOutputValue,
         getImageAsset,
+        getActiveWorkflowId: () => workflowId,
         executeNode,
         addNode: () => null,
         generateId: () => 'unused',
@@ -58,6 +60,63 @@ function createRunner({ nodes, connections, executeNode, getCachedOutputValue, g
         getAbortMessage: () => 'stopped', playNotificationSound: () => {}
     });
 }
+
+test('a compatible workflow consumer reads the exact complex original through its pinned file input', async (t) => {
+    const referenceId = 'a'.repeat(32);
+    const version = 'original-version';
+    const expected = new Uint8Array([37, 80, 68, 70, 45, 0, 255]);
+    t.mock.method(globalThis, 'fetch', async url => {
+        const request = new URL(url, 'http://localhost');
+        assert.equal(request.searchParams.get('workflowId'), 'original-workflow');
+        assert.equal(request.searchParams.get('nodeId'), 'original');
+        assert.equal(request.searchParams.get('referenceId'), referenceId);
+        if (request.pathname.endsWith('/info')) return Response.json({ name: 'brief.pdf', kind: 'file', mime: 'application/pdf', size: expected.length, version });
+        assert.equal(request.pathname, '/api/storage/file-imports/content');
+        assert.equal(request.searchParams.get('v'), version);
+        return new Response(expected);
+    });
+    const nodes = [
+        { id: 'original', type: 'FileImport', el: element(), data: {}, fileImport: { id: referenceId, name: 'brief.pdf', kind: 'file' } },
+        { id: 'consumer', type: 'TestFileConsumer', el: element(), data: {} }
+    ];
+    const consumed = [];
+    const runner = createRunner({
+        nodes, workflowId: 'original-workflow',
+        connections: [{ id: 'wire', type: 'file', from: { nodeId: 'original', port: 'file' }, to: { nodeId: 'consumer', port: 'file' } }],
+        getCachedOutputValue: () => undefined,
+        executeNode: async (node, { file }) => {
+            assert.equal(node.id, 'consumer');
+            assert.equal(file.mimeType, 'application/pdf');
+            assert.equal(file.version, version);
+            consumed.push(new Uint8Array(await (await fetch(file.url)).arrayBuffer()));
+        }
+    });
+    const result = await runner.runWorkflow();
+    assert.equal(result.reason, 'finished');
+    assert.deepEqual(consumed, [expected]);
+});
+
+test('saving a comparison omits an original-file A input and keeps the ordinary B result', () => {
+    const original = '/api/storage/file-imports/content?referenceId=local-original';
+    const node = { type: 'ImageCompare', compareImageA: original, compareImageB: 'retained result' };
+    const saved = stripOriginalFileCopies(node, { compareImageA: original, compareImageB: 'retained result', imageAssetKey: 'media:normal' });
+    assert.deepEqual(saved, { compareImageB: 'retained result', imageAssetKey: 'media:normal' });
+});
+
+test('a custom parameter forwards a resolved original-file reference without storing it as a manual value', async () => {
+    const source = { id: 'original', type: 'FileImport', fileImport: { id: 'a'.repeat(32), name: 'brief.pdf', kind: 'file' } };
+    const node = { id: 'params', type: 'CustomParams', data: {} };
+    const core = createExecutionCoreApi({
+        state: { nodes: new Map([[source.id, source], [node.id, node]]),
+            connections: [{ from: { nodeId: source.id, port: 'file' }, to: { nodeId: node.id, port: 'param_document' } }] },
+        documentRef: { ...documentRef(), querySelectorAll: () => [{ querySelector: selector => ({ value: selector.endsWith('-key') ? 'document' : 'draft' }) }] },
+        windowRef: {}
+    });
+    const reference = { kind: 'file', mimeType: 'application/pdf', url: '/api/storage/file-imports/content?referenceId=original' };
+    const { params } = await core.executeNode(node, { param_document: reference });
+    assert.deepEqual(params, { document: reference });
+    assert.deepEqual(node.data.params, [{ key: 'document', value: 'draft' }]);
+});
 
 test('preview with no current input keeps its image batch available to downstream nodes', async () => {
     const preview = {

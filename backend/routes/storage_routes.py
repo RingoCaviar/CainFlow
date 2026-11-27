@@ -1,12 +1,13 @@
 import ipaddress
 import json
+import os
 import re
 
 from backend.services.media_library import MediaLibrary
 from urllib.parse import parse_qs, unquote, urlparse
 
 from backend import config, desktop_security
-from backend.services.file_import import FileImportError, file_imports
+from backend.services.file_import import FileImportError, file_import_version, file_imports
 from backend.services.http_helpers import read_json_body, read_request_body, write_bytes, write_error, write_json
 from backend.services.storage_service import DOCUMENT_NAMES, StorageDocumentConflict, StorageError, storage_service
 from backend.services.svg_image import is_svg_mime
@@ -77,23 +78,68 @@ def handle_asset_head(handler):
         _write_asset(handler, path, read_body=False)
 
 
+def _write_original_file(handler, scope, version):
+    with file_imports().open_content(*scope, version=version) as (source, info):
+        size = info['size']
+        first, last, status = 0, size - 1, 200
+        range_header = handler.headers.get('Range')
+        if range_header:
+            match = re.fullmatch(r'bytes=(\d{0,20})-(\d{0,20})', range_header)
+            if match and size and (match[1] or match[2]):
+                first = int(match[1]) if match[1] else max(0, size - int(match[2]))
+                last = min(size - 1, int(match[2])) if match[1] and match[2] else size - 1
+            if not match or not (match[1] or match[2]) or first > last or first >= size:
+                write_bytes(handler, b'', status=416, headers={'Content-Range': f'bytes */{size}', 'Cache-Control': 'no-store'})
+                return
+            status = 206
+        handler.send_response(status)
+        handler.send_header('Content-Type', info['mime'] if info['kind'] in ('image', 'video') else 'application/octet-stream')
+        handler.send_header('Content-Length', str(last - first + 1))
+        handler.send_header('Accept-Ranges', 'bytes')
+        handler.send_header('Cache-Control', 'no-store')
+        handler.send_header('Content-Security-Policy', "sandbox; default-src 'none'; style-src 'unsafe-inline'")
+        handler.send_header('X-Content-Type-Options', 'nosniff')
+        handler.send_header('Connection', 'close')
+        if status == 206:
+            handler.send_header('Content-Range', f'bytes {first}-{last}/{size}')
+        handler.end_headers()
+        handler.close_connection = True
+        remaining = last - first + 1
+        try:
+            source.seek(first)
+            while remaining:
+                chunk = source.read(min(remaining, 128 * 1024))
+                if not chunk or file_import_version(os.fstat(source.fileno())) != info['version']:
+                    break
+                handler.wfile.write(chunk)
+                remaining -= len(chunk)
+        except OSError:
+            pass
+
+
 def handle_get(handler):
     parsed = urlparse(handler.path)
     path = parsed.path
     if not _authorize_storage_path(handler, path):
         return True
-    if path == '/api/storage/file-imports/text':
+    if path in ('/api/storage/file-imports/text', '/api/storage/file-imports/info', '/api/storage/file-imports/content'):
         if not desktop_security.is_desktop_session_enabled() or not desktop_security.is_api_request_authorized(handler):
             write_error(handler, 403, '文件导入需要 CainFlow 桌面会话。')
             return True
         query = parse_qs(parsed.query)
         scope = [(query.get(key) or [''])[0] for key in ('workflowId', 'nodeId', 'referenceId')]
+        version = (query.get('v') or [None])[0]
         try:
-            text = file_imports().read_text(*scope)
+            if path.endswith('/content'):
+                _write_original_file(handler, scope, version)
+                return True
+            result = (file_imports().info(*scope) if path.endswith('/info') else
+                      {'text': file_imports().read_value(*scope, 'text', version)})
         except FileImportError as error:
-            write_error(handler, 404, str(error))
+            write_json(handler, {'error': str(error), 'code': error.code}, status=409 if error.code == 'changed' else 404,
+                       headers={'Cache-Control': 'no-store'})
             return True
-        write_json(handler, {'text': text}, headers={'Cache-Control': 'no-store'})
+        write_json(handler, result, headers={'Cache-Control': 'no-store'})
         return True
     if path == '/api/storage/library' or path.startswith('/api/storage/library/'):
         query = parse_qs(parsed.query)

@@ -264,7 +264,7 @@ class CanvasMcpService:
             if not saved or method != 'execute':
                 raise ValueError('No file input context')
             try:
-                return file_imports().read_text(workflow_id, parameters['nodeId'], parameters['referenceId'])
+                return file_imports().read_value(workflow_id, parameters['nodeId'], parameters['referenceId'], parameters.get('kind', 'text'))
             except FileImportError as error:
                 raise CanvasWorkerError(str(error), 'input') from error
 

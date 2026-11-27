@@ -1,9 +1,14 @@
 import json
+import io
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from urllib.parse import urlencode
+from backend import desktop_security
+from backend.routes.storage_routes import handle_get
 
 from backend.services.file_import import FileImportError, FileImports
 from backend.services.log_service import finalize_request_log, set_request_body, set_response_data, start_request_log
@@ -60,6 +65,88 @@ class FileImportTests(unittest.TestCase):
             registry = FileImports(root / 'app-data')
             imported = registry.register('workflow', 'node', original)
             self.assertEqual(registry.read_text('workflow', 'node', imported['id']), '简体中文')
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows sharing violation')
+    def test_windows_exclusive_handle_reports_busy_and_recovers(self):
+        import ctypes
+        from ctypes import wintypes
+
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
+                                       wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+        kernel.CreateFileW.restype = wintypes.HANDLE
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            original = root / 'report.txt'
+            original.write_text('source')
+            registry = FileImports(root / 'app-data')
+            reference = registry.register('workflow', 'node', original)
+            scope = ('workflow', 'node', reference['id'])
+            handle = kernel.CreateFileW(str(original), 0x80000000, 0, None, 3, 0x80, None)
+            self.assertNotEqual(handle, wintypes.HANDLE(-1).value)
+            try:
+                with self.assertRaises(FileImportError) as got:
+                    registry.info(*scope)
+                self.assertEqual(got.exception.code, 'busy')
+            finally:
+                kernel.CloseHandle(handle)
+            with patch('backend.services.file_import._open_original_bytes', side_effect=PermissionError('Access is denied')):
+                with self.assertRaises(FileImportError) as got:
+                    registry.info(*scope)
+                self.assertEqual(got.exception.code, 'denied')
+            self.assertEqual(registry.read_text(*scope), 'source')
+
+    def test_typed_originals_only_store_references_and_reject_changed_versions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = FileImports(root / 'app-data')
+            for name, kind, mime in [
+                ('example.png', 'image', 'image/png'), ('example.mp4', 'video', 'video/mp4'),
+                ('example.pdf', 'file', 'application/pdf'),
+            ]:
+                original = root / name
+                original.write_bytes(b'original bytes')
+                reference = registry.register('workflow', name, original)
+                self.assertEqual((reference['kind'], reference['mime']), (kind, mime))
+                self.assertNotIn('path', reference)
+                with registry.open_content('workflow', name, reference['id'], reference['version']) as (stream, info):
+                    self.assertEqual(stream.read(), b'original bytes')
+                    self.assertEqual(info['size'], 14)
+                original.write_bytes(b'changed')
+                with self.assertRaisesRegex(FileImportError, '变更'):
+                    with registry.open_content('workflow', name, reference['id'], reference['version']):
+                        pass
+            self.assertEqual([path.name for path in registry.directory.iterdir()], ['file-imports.db'])
+
+    def test_complex_original_range_is_scoped_and_returns_exact_bytes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            original = root / 'document.pdf'
+            original.write_bytes(b'%PDF-test-data')
+            registry = FileImports(root / 'app-data')
+            reference = registry.register('workflow', 'node', original)
+            cookie = desktop_security.enable_desktop_session()
+            self.addCleanup(desktop_security.disable_desktop_session)
+            query = urlencode(dict(workflowId='workflow', nodeId='node', referenceId=reference['id'], v=reference['version']))
+            def response(range_value, scope=query):
+                headers = {}
+                body = io.BytesIO()
+                handler = SimpleNamespace(
+                    path='/api/storage/file-imports/content?' + scope,
+                    client_address=('127.0.0.1', 0),
+                    headers={'Range': range_value, 'Cookie': f'{desktop_security.COOKIE_NAME}={cookie}'},
+                    send_response=lambda code: headers.update(status=code),
+                    send_header=lambda key, value: headers.update({key: value}),
+                    end_headers=lambda: None, wfile=body,
+                )
+                with patch('backend.routes.storage_routes.file_imports', return_value=registry):
+                    self.assertTrue(handle_get(handler))
+                return headers, body.getvalue()
+            headers, content = response('bytes=1-3')
+            self.assertEqual((headers['status'], headers['Content-Range'], content), (206, 'bytes 1-3/14', b'PDF'))
+            self.assertEqual(response('bytes=999-')[0]['status'], 416)
+            self.assertEqual(response('bytes=1-3', query.replace('workflowId=workflow', 'workflowId=other'))[0]['status'], 404)
 
     def test_native_drop_registers_only_the_webview_file_object_from_the_editor(self):
         class CoreWebView2File:

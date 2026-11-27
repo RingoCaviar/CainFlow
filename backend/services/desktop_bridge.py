@@ -189,6 +189,12 @@ class DesktopBridge:
             return False
         return file_imports().open_original(workflow_id, node_id, reference_id)
 
+    def choose_file_import(self, workflow_id, node_id):
+        if sys.platform != 'win32' or not self._window:
+            return None
+        picked = self._window.create_file_dialog(self._webview.OPEN_DIALOG, allow_multiple=False)
+        return file_imports().register(workflow_id, node_id, picked[0]) if picked else None
+
     def open_directory(self, path):
         target = os.path.realpath(str(path or ''))
         allowed = [

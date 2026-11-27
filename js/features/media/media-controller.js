@@ -1,5 +1,6 @@
 import { getSurfaceCoordinator } from '../ui/surface-coordinator.js';
 import { downloadPreviewImage } from './preview-image-download.js';
+import { isOriginalFileUrl } from '../workflow/file-import.js';
 import { createImagePreviewBatchNavigation } from '../../nodes/image-preview-batch-navigation.js';
 import { readImageResizeSettings } from '../../nodes/image-resize-settings.js';
 import { readImageSaveFilename } from '../../nodes/image-save-settings.js';
@@ -54,7 +55,8 @@ import {
 
 export function getVideoPreviewSource(video) {
     const assetKey = String(video?.assetKey || '').trim();
-    return assetKey ? `/api/storage/assets/${encodeURIComponent(assetKey)}` : /^\/api\/storage\/assets\//.test(video?.url || '') ? video.url : '';
+    return assetKey ? `/api/storage/assets/${encodeURIComponent(assetKey)}` :
+        /^\/api\/storage\/assets\//.test(video?.url || '') || isOriginalFileUrl(video?.url) ? video.url : '';
 }
 
 export function getCurrentFullscreenImage(images, currentIndex, fallback = '') {
@@ -925,11 +927,28 @@ export function createMediaControllerApi({
         video = getStoredSaveVideo(node) || video;
         const source = getVideoPreviewSource(video), pane = elements.video;
         let player = pane.querySelector('video');
+        const showOriginalReadFailure = () => {
+            if (!isOriginalFileUrl(player?.getAttribute('src'))) return;
+            player.hidden = true;
+            const warning = '无法播放原文件。文件变更后请重新运行。';
+            const placeholder = ensureElement(pane, '.save-preview-placeholder',
+                () => createPreviewPlaceholder('save-preview-placeholder', warning, { withIcon: false }));
+            updatePlaceholderText(placeholder, warning);
+        };
         if (source) {
-            if (!player) { player = documentRef.createElement('video'); player.className = 'save-preview-video'; player.controls = true; player.preload = 'metadata'; player.playsInline = true; pane.append(player); }
+            if (!player) {
+                player = documentRef.createElement('video');
+                player.className = 'save-preview-video';
+                player.controls = true;
+                player.preload = 'metadata';
+                player.playsInline = true;
+                player.addEventListener('error', showOriginalReadFailure);
+                pane.append(player);
+            }
             if (player.getAttribute('src') !== source) player.src = source;
             player.hidden = false; player.title = video?.status || video?.id || '可保存视频文件';
             pane.querySelector('.save-preview-placeholder')?.remove();
+            if (player.error) showOriginalReadFailure();
             delete node.data.videoPreviewReleased;
         } else {
             if (player) { if (player.getAttribute('src')) { player.pause?.(); player.removeAttribute('src'); } player.hidden = true; }
@@ -1827,13 +1846,13 @@ export function createMediaControllerApi({
             const forwarded = forwardedKeys.length > 0
                 ? await syncForwardedMediaAssetKeys(node, forwardedKeys)
                 : false;
-            if (!forwarded) {
+            if (!forwarded && !imageList.some(isOriginalFileUrl)) {
                 await persistUnownedDisplayImages(
                     node, imageList, writeToken,
                     '图片预览保存失败；请检查本地存储空间后重试'
                 );
             }
-            saveDisplayImageAssetSoon(nodeId, imageList);
+            if (!imageList.some(isOriginalFileUrl)) saveDisplayImageAssetSoon(nodeId, imageList);
             updateResolutionBadgeSoon(nodeId, currentImage);
         } else {
             const retainedImages = getStoredImagePreviewList(node);
@@ -1877,7 +1896,7 @@ export function createMediaControllerApi({
             const keys = getForwardedMediaAssetKeys(nodeId);
             const forwarded = keys.length ? await syncForwardedMediaAssetKeys(node, keys) : false;
             if (!current()) return;
-            if (!forwarded) await persistUnownedDisplayImages(node, suppliedImages, writeToken, '保存节点图片持久化失败；请检查本地存储空间后重试');
+            if (!forwarded && !suppliedImages.some(isOriginalFileUrl)) await persistUnownedDisplayImages(node, suppliedImages, writeToken, '保存节点图片持久化失败；请检查本地存储空间后重试');
             if (!current()) return;
         }
         const retainedImages = getStoredImageSaveList(node);
@@ -1972,7 +1991,7 @@ export function createMediaControllerApi({
         node.imagePreviewIndex = Math.max(0, Math.min(count - 1, previousIndex));
         if (missingItems.length) node.data.mediaIntegrity = { state: 'missing', mediaType: 'image', ownerType: 'workflow-node', itemCount: count, missingItems };
         else if (!explicit) delete node.data.mediaIntegrity;
-        if (!explicit) {
+        if (!explicit && !nextImages.some(isOriginalFileUrl)) {
             if (completeKeys && keys.length === count) {
                 const unchanged = previousKeys.length === keys.length && keys.every((key, index) => key === previousKeys[index]);
                 if (unchanged || missingItems.length) {
@@ -2132,7 +2151,7 @@ export function createMediaControllerApi({
         delete node.data.imageList;
         delete node.data.images;
         node.data.image = nextImageB;
-        node.imageData = isInlineImageData(nextImageB) ? nextImageB : null;
+        node.imageData = isInlineImageData(nextImageB) || isOriginalFileUrl(nextImageB) ? nextImageB : null;
         node.imageDataList = [nextImageB];
         node.generatedImages = [];
         renderImageComparePreview(nodeId, nextImageA, nextImageB);
@@ -2143,7 +2162,7 @@ export function createMediaControllerApi({
         const keys = bSource?.data?.imageAssetReady === true ? getForwardedMediaAssetKeys(nodeId, ['imageB']).slice(0, 1) : [];
         const forwarded = keys.length ? await syncForwardedMediaAssetKeys(node, keys) : false;
         if (!current()) return;
-        if (!forwarded && node.imageData) {
+        if (!forwarded && node.imageData && !isOriginalFileUrl(node.imageData)) {
             await persistUnownedDisplayImages(node, [nextImageB], beginDisplayImageAssetWrite(node), '对比预览已更新，但本地图片保存失败');
             if (!current()) return;
         }
