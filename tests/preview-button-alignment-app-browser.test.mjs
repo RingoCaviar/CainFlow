@@ -12,7 +12,44 @@ const session = { autoCheckUpdatesOnLoad: false,
     providers: [{ id: 'p', endpoint: 'https://controlled.test/v1', apikey: 'test' }],
     nodes: [{ id: 'source', type: 'ImageImport', x: 30, y: 80 }, { id: 'generate', type: 'ImageGenerate', x: 430, y: 80, width: 320 }], connections: [] };
 
-const alignment = selector => `(()=>{const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');return [...document.querySelectorAll(${JSON.stringify(selector)})].filter(b=>b.checkVisibility()).map(b=>{const box=b.getBoundingClientRect(),svg=b.querySelector('svg');let x,y;if(svg){const r=svg.getBoundingClientRect();x=(r.left+r.right)/2;y=(r.top+r.bottom)/2;}else{const range=document.createRange();range.selectNodeContents(b);const r=range.getBoundingClientRect();ctx.font=getComputedStyle(b).font;const m=ctx.measureText(b.textContent.trim());x=(r.left+r.right)/2;if(b.matches(".image-parameter-settings-entry")){const arrow=getComputedStyle(b,"::after");x+=((parseFloat(arrow.width)||0)+(parseFloat(arrow.marginLeft)||0))/2;}y=r.top+m.fontBoundingBoxAscent-(m.actualBoundingBoxAscent-m.actualBoundingBoxDescent)/2;}return {label:b.getAttribute('aria-label')||b.title||b.textContent.trim(),x:x-(box.left+box.right)/2,y:y-(box.top+box.bottom)/2}})})()`;
+const alignment = selector => `(() => {
+    const context = document.createElement('canvas').getContext('2d');
+    const pixels = value => parseFloat(value) || 0;
+    return [...document.querySelectorAll(${JSON.stringify(selector)})]
+        .filter(button => button.checkVisibility())
+        .map(button => {
+            const box = button.getBoundingClientRect();
+            const icon = button.querySelector('svg');
+            let x, y;
+            if (icon) {
+                const rect = icon.getBoundingClientRect();
+                x = (rect.left + rect.right) / 2;
+                y = (rect.top + rect.bottom) / 2;
+            } else {
+                const range = document.createRange();
+                range.selectNodeContents(button);
+                const rect = range.getBoundingClientRect();
+                const style = getComputedStyle(button);
+                context.font = style.font;
+                const metrics = context.measureText(button.textContent.trim());
+                x = (rect.left + rect.right) / 2;
+                if (button.matches('.image-parameter-settings-entry')) {
+                    const arrow = getComputedStyle(button, '::after');
+                    if (arrow.display !== 'none' && arrow.content !== 'none') {
+                        // Measure the center of the label and chevron as one flex group.
+                        x += (pixels(style.columnGap) + pixels(arrow.marginLeft) + pixels(arrow.width)) / 2;
+                    }
+                }
+                y = rect.top + metrics.fontBoundingBoxAscent
+                    - (metrics.actualBoundingBoxAscent - metrics.actualBoundingBoxDescent) / 2;
+            }
+            return {
+                label: button.getAttribute('aria-label') || button.title || button.textContent.trim(),
+                x: x - (box.left + box.right) / 2,
+                y: y - (box.top + box.bottom) / 2
+            };
+        });
+})()`;
 const themes = ['dark', 'light', 'pink', 'pro', 'paper', 'glass-light', 'glass-dark'];
 const imageBackgrounds = ['#fff', '#000', '#00ff00', '#ff0080', '#0055ff'];
 
