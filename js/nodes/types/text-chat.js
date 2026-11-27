@@ -23,6 +23,20 @@ export const textChatNode = {
     minHeight: 144,
     contentSized: true
 };
+
+const graphemes = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter() : null;
+
+export function formatSystemPromptPreview(prompt) {
+    const text = prompt.trim().replace(/\s+/g, ' ');
+    if (!text) return '未设置';
+    if (!graphemes) return `已设置 · ${Array.from(text).slice(0, 28).join('')}`;
+    let count = 0;
+    for (const { index } of graphemes.segment(text)) {
+        if (count === 28) return `已设置 · ${text.slice(0, index)}`;
+        count += 1;
+    }
+    return `已设置 · ${text}`;
+}
 /**
  * 定义智能对话节点的元数据、端口和默认尺寸。
  */

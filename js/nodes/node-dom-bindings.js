@@ -1,4 +1,5 @@
 import { bindVisualStyleNode } from './visual-style-view.js';
+import { formatSystemPromptPreview } from './types/text-chat.js';
 import { createThinkingControl } from '../features/execution/thinking-control.js';
 import { bindTextNodeReader } from './text-node-reader.js';
 import { bindTextNodeTools } from './text-node-tools.js';
@@ -809,6 +810,8 @@ export function createNodeDomBindingsApi({
         const doubaoSeedInput = documentRef.getElementById(`${id}-doubao-seed`);
         if (!modelSelect) return;
         const model = state.models.find((item) => item.id === modelSelect.value);
+        const modelSummary = documentRef.getElementById(`${id}-model-settings-current`);
+        if (modelSummary) modelSummary.textContent = model?.name || model?.modelId || '请选择模型';
         const provider = model ? getResolvedProviderForModel(model, state.providers, providerSelect?.value || '') : null;
         const protocol = getEffectiveProtocol(model, provider);
         const declaredProtocol = getVideoGenerateSelectedProtocol(id);
@@ -1865,9 +1868,7 @@ export function createNodeDomBindingsApi({
             const searchInput = documentRef.getElementById(`${id}-search`);
             if (searchInput) searchInput.disabled = node.isClone === true || searchInput.dataset.runningLockApplied === '1';
             const systemSummary = documentRef.getElementById(`${id}-system-summary`);
-            if (systemSummary) systemSummary.textContent = node.data.sysprompt.trim()
-                ? `已设置 · ${node.data.sysprompt.trim().replace(/\s+/g, ' ').slice(0, 28)}`
-                : '未设置';
+            if (systemSummary) systemSummary.textContent = formatSystemPromptPreview(node.data.sysprompt);
         }
     }
 
@@ -3080,7 +3081,7 @@ export function createNodeDomBindingsApi({
             const downloadBtn = queryNodeControl(el, `#${id}-download-video`);
             const resumeIdInput = queryNodeControl(el, `#${id}-resume-video-id`);
             const resumeBtn = queryNodeControl(el, `#${id}-resume-video`);
-            for (const details of queryNodeControls(el, '.node-video-advanced, .node-video-recovery')) {
+            for (const details of queryNodeControls(el, '.node-model-settings--disclosure, .node-video-advanced, .node-video-recovery')) {
                 details.addEventListener('toggle', () => fitNodeToContent(id, { reason: 'element-resize' }));
                 details.addEventListener('mousedown', event => event.stopPropagation());
             }

@@ -410,20 +410,22 @@ test('model entry restores its fields after Escape and reopening', { timeout: 30
         await app.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
         const modelGroup = '#editor-first-parameter-settings [data-parameter-group=model]';
         const heading = `document.querySelector('${modelGroup} .node-model-settings-heading')`;
+        const groupVisible = `document.querySelector('${modelGroup}').checkVisibility()`;
         for (let i = 0; i < 3; i++) {
             await nativeClick(app, '#image-parameter-panel .image-parameter-model-entry');
-            assert.equal(await app.evaluate(`${heading}?.checkVisibility() && ${heading}.textContent.trim()`), '模型与供应商');
+            assert.equal(await app.evaluate(`document.getElementById('editor-first-parameter-settings').getAttribute('aria-label')`), '模型与供应商');
+            assert.equal(await app.evaluate(`${heading}.checkVisibility()`), false, 'the entry name replaces the repeated visible heading');
             assert.ok(await app.evaluate(`['apiconfig', 'provider'].every(suffix => {
                 const field = document.getElementById('editor-first-' + suffix);
                 return field?.closest('${modelGroup}') && field.nextElementSibling?.querySelector('.node-select-trigger')?.checkVisibility();
             })`), `both original selectors are visible in the model group on open ${i+1}`);
             await app.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
             await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
-            assert.equal(await app.evaluate(`${heading}?.checkVisibility()`), false);
+            assert.equal(await app.evaluate(groupVisible), false);
         }
         for (const entry of ['settings', 'more']) {
             await nativeClick(app, `#image-parameter-panel .image-parameter-${entry}-entry`);
-            assert.equal(await app.evaluate(`${heading}?.checkVisibility()`), false, `the model heading stays out of ${entry}`);
+            assert.equal(await app.evaluate(groupVisible), false, `the model fields stay out of ${entry}`);
         }
     });
 });
@@ -615,7 +617,7 @@ test('one screen-space image editor follows selection and preserves edits, width
             await app.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowRight', code: 'ArrowRight' });
         }
         const beforeZoom = await editorMeasurements(app, 'editor-first');
-        assert.equal(beforeZoom.width, 590);
+        assert.equal(beforeZoom.width, 510);
         assert.ok(Number.parseFloat(beforeZoom.font) >= 13, 'editor text retains the readable application font size');
 
         await openNode(app, 'editor-second');

@@ -22,6 +22,7 @@ import { applyReferenceImagePorts } from './reference-image-ports.js';
 import { renderCommerceImageSetBody } from './commerce-image-set-view.js';
 import { renderProductRetouchBody } from './product-retouch-view.js';
 import { getCustomParamsInputPorts } from './types/custom-params.js';
+import { formatSystemPromptPreview } from './types/text-chat.js';
 import { getProtocol } from '../features/execution/protocols/index.js';
 import { describeVideoProtocolCard } from './video-protocol-card.js';
 
@@ -325,10 +326,13 @@ function renderNodeFormToggleField({
     });
 }
 
-function renderNodeModelSettings(id, modelOptions, providerOptions, { placement = 'leading', extra = '' } = {}) {
+function renderNodeModelSettings(id, modelOptions, providerOptions, { placement = 'leading', extra = '', summary = '' } = {}) {
+    const disclosure = placement === 'disclosure';
+    const container = disclosure ? 'details' : 'section';
+    const heading = disclosure ? 'summary' : 'h3';
     return `
-        <section class="node-model-settings node-model-settings--${placement}" aria-labelledby="${id}-model-settings-heading">
-            <h3 id="${id}-model-settings-heading" class="node-model-settings-heading">模型与供应商</h3>
+        <${container} class="node-model-settings node-model-settings--${placement}" aria-labelledby="${id}-model-settings-heading">
+            <${heading} id="${id}-model-settings-heading" class="node-model-settings-heading">模型与供应商${disclosure ? `<span class="node-model-settings-current" id="${id}-model-settings-current">${escapeHtml(summary)}</span>` : ''}</${heading}>
             <div class="node-model-settings-fields">
                 <div class="node-field node-form-field">
                     <label for="${id}-apiconfig">模型</label>
@@ -340,7 +344,7 @@ function renderNodeModelSettings(id, modelOptions, providerOptions, { placement 
                 </div>
             </div>
             ${extra}
-        </section>`;
+        </${container}>`;
 }
 
 function renderNodeFormNote(note, options = {}) {
@@ -649,6 +653,8 @@ function renderVideoGenerateBody(id, restoreData, models, providers) {
 
     return `
         ${renderNodeModelSettings(id, opts, providerOptions, {
+            placement: 'disclosure',
+            summary: selectedModel?.name || selectedModel?.modelId || '请选择模型',
             extra: `<div class="node-protocol-summary${protocolCard.summary ? '' : ' hidden'}" id="${id}-protocol-summary">${escapeHtml(protocolCard.summary)}</div>`
         })}
         <div class="node-video-parameters" id="${id}-protocol-params">
@@ -846,9 +852,7 @@ function renderCameraControlBody(id, restoreData) {
 function renderTextChatBody(id, restoreData, models, providers) {
     const rd = restoreData || {};
     const systemPrompt = String(rd.sysprompt || '');
-    const systemSummary = systemPrompt.trim()
-        ? `已设置 · ${systemPrompt.trim().replace(/\s+/g, ' ').slice(0, 28)}`
-        : '未设置';
+    const systemSummary = formatSystemPromptPreview(systemPrompt);
     const response = rd.lastResponse || escapeHtml(rd.lastText || rd.text || '').replace(/\n/g, '<br>');
     const opts = renderApiConfigOptions(models, providers, rd.apiConfigId, 'chat');
     const selectedModel = getSelectedModelForTask(models, rd.apiConfigId, 'chat');

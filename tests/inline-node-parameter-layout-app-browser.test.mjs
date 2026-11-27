@@ -91,6 +91,105 @@ test('an unconfigured chat directs the user to model settings', { timeout: 30000
     });
 });
 
+test('chat settings stay reachable in a narrow window without growing the primary panel', { timeout: 30000 }, async () => {
+    const initialSystemPrompt = `${'甲'.repeat(27)}👩‍💻 سلام`;
+    await withAppBrowser({
+        autoCheckUpdatesOnLoad: false,
+        nodes: [{ id: 'narrow-chat', type: 'TextChat', x: 70, y: 210, prompt: '概括这段描述',
+            sysprompt: initialSystemPrompt }]
+    }, async app => {
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 470, deviceScaleFactor: 1, mobile: false });
+        await openParameters(app, 'narrow-chat');
+        const panel = "document.getElementById('image-parameter-panel')";
+        assert.equal(await app.evaluate("document.getElementById('narrow-chat-question-heading').checkVisibility()"), false);
+        assert.equal(await app.evaluate(`(() => {
+            const prompt = document.getElementById('narrow-chat-prompt').getBoundingClientRect();
+            const buttons = [...${panel}.querySelectorAll('.image-parameter-footer button')].map(button => button.getBoundingClientRect());
+            return Math.abs(buttons[0].left - prompt.left) < 1 &&
+                Math.abs(buttons.at(-1).right - prompt.right) < 1 &&
+                buttons.every(rect => Math.abs(rect.top - buttons[0].top) < 1 && rect.height === buttons[0].height);
+        })()`), true, 'footer controls align with each other and with both edges of the prompt');
+        const { nodes: accessibilityNodes } = await app.send('Accessibility.getFullAXTree');
+        assert.ok(accessibilityNodes.some(node => node.role?.value === 'textbox' && node.name?.value === '提问内容'));
+        const before = await app.evaluate(`${panel}.offsetHeight`);
+        const trigger = '#image-parameter-panel [data-parameter-group-toggle=answer]';
+        await app.evaluate(`document.querySelector('${trigger}').focus()`);
+        await key(app, 'Enter');
+        const popup = `${panel}.querySelector('.image-parameter-settings-popup')`;
+        await app.waitFor(`${popup}.matches(':popover-open')`);
+        assert.equal(await app.evaluate(`${popup}.contains(document.activeElement)`), true);
+        assert.deepEqual(await app.evaluate(`(() => {
+            const popup = ${popup};
+            return {
+                name: popup.getAttribute('aria-label'),
+                heading: document.getElementById('narrow-chat-answer-heading').checkVisibility(),
+                helpSize: getComputedStyle(document.getElementById('narrow-chat-search-help')).fontSize,
+                labelSize: getComputedStyle(popup.querySelector('label[for="narrow-chat-search"]')).fontSize
+            };
+        })()`), { name: '回答设置', heading: false, helpSize: '11px', labelSize: '13px' });
+        const fit = await app.evaluate(`(() => {
+            const menu = ${popup};
+            const bounds = menu.getBoundingClientRect();
+            return bounds.left >= 0 && bounds.right <= innerWidth && bounds.top >= 0 && bounds.bottom <= innerHeight &&
+                menu.scrollWidth <= menu.clientWidth + 1;
+        })()`);
+        assert.equal(fit, true);
+        assert.equal(await app.evaluate(`(() => {
+            const answer = ${popup}.querySelector('.node-chat-answer-section');
+            const disclosure = answer.querySelector('summary');
+            const inset = parseFloat(getComputedStyle(disclosure).paddingInlineStart);
+            const disclosureLeft = disclosure.getBoundingClientRect().left + inset;
+            return [...answer.querySelectorAll('.node-chat-option')].every(option => {
+                const copy = option.querySelector('.node-chat-option-copy').getBoundingClientRect();
+                const toggle = option.querySelector('.toggle-switch').getBoundingClientRect();
+                return Math.abs(copy.left - disclosureLeft) < 1 &&
+                    Math.abs(toggle.right - (disclosure.getBoundingClientRect().right - inset)) < 1 &&
+                    Math.abs(copy.top + copy.height / 2 - toggle.top - toggle.height / 2) < 1;
+            });
+        })()`), true, 'switches center on the accompanying text and share the disclosure insets');
+        const previewText = "document.getElementById('narrow-chat-system-summary').textContent";
+        assert.equal(await app.evaluate(previewText), `已设置 · ${'甲'.repeat(27)}👩‍💻`);
+        const summary = '#narrow-chat-system-settings > summary';
+        assert.equal(await app.evaluate(`(() => {
+            const [label, preview] = document.querySelector('${summary}').children;
+            return preview.textContent.startsWith('已设置') &&
+                Math.abs(label.getBoundingClientRect().top - preview.getBoundingClientRect().top) < 4 &&
+                preview.getBoundingClientRect().right <= document.querySelector('${summary}').getBoundingClientRect().right;
+        })()`), true);
+        await app.evaluate(`document.querySelector('${summary}').focus()`);
+        await key(app, 'Enter');
+        await app.waitFor("document.getElementById('narrow-chat-system-settings').open");
+        const promptField = "document.getElementById('narrow-chat-sysprompt')";
+        assert.equal(await app.evaluate(`${promptField}.checkVisibility()`), true);
+        await app.evaluate(`${promptField}.focus(); ${promptField}.select()`);
+        const updatedPreview = `${'丁'.repeat(27)}e\u0301`;
+        await app.send('Input.insertText', { text: `${updatedPreview} 테스트` });
+        await app.evaluate(`document.querySelector('${summary}').focus()`);
+        await app.waitFor(`${previewText} === ${JSON.stringify(`已设置 · ${updatedPreview}`)}`);
+        assert.equal(await app.evaluate(`${panel}.offsetHeight`), before);
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 320, height: 275, deviceScaleFactor: 1, mobile: false });
+        await app.waitFor(`${popup}.getBoundingClientRect().bottom < document.querySelector('${trigger}').getBoundingClientRect().top`);
+        const model = '#image-parameter-panel [data-parameter-group-toggle=model]';
+        await nativeClick(app, model);
+        await app.waitFor(`${popup}.getAttribute('aria-label') === '模型与供应商'`);
+        await nativeClick(app, trigger);
+        await app.waitFor(`${popup}.getAttribute('aria-label') === '回答设置'`);
+        assert.equal(await app.evaluate(previewText), `已设置 · ${updatedPreview}`);
+        await key(app, 'Escape');
+        assert.equal(await app.evaluate(`document.activeElement.matches('${trigger}')`), true);
+
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 280, height: 470, deviceScaleFactor: 1, mobile: false });
+        await app.waitFor(`${panel}.offsetWidth === 256`);
+        assert.equal(await app.evaluate(`(() => {
+            const footer = ${panel}.querySelector('.image-parameter-footer');
+            const [model, answer, generate] = [...footer.querySelectorAll('button')].map(button => button.getBoundingClientRect());
+            const right = footer.getBoundingClientRect().right - parseFloat(getComputedStyle(footer).paddingInlineEnd);
+            return Math.abs(model.top - answer.top) < 1 && Math.abs(model.bottom - answer.bottom) < 1 &&
+                Math.abs(generate.top - answer.bottom - 6) < 1 && Math.abs(generate.right - right) < 1;
+        })()`), true, 'ultra-narrow chat keeps settings together and aligns the primary action with the footer edge');
+    });
+});
+
 test('chat keeps its saved card size when an oversized reply viewport is restored', { timeout: 30000 }, async () => {
     const reply = '这是一段保存在工作流中的长回复。'.repeat(40);
     await withAppBrowser({
@@ -277,18 +376,30 @@ test('chat uses a compact canvas card and keeps its editable parameters and repl
             });
         })()`), [prompt, 'chat-model', 'p', '先分析再回答', true, false]);
         assert.equal(await app.evaluate(`document.querySelectorAll('${editor}').length`), 1);
-        const answerSummary = `${panel} .node-chat-answer-settings > summary`;
+        const answerSummary = `${panel} [data-parameter-group-toggle=answer]`;
+        const modelControl = `${panel} [data-parameter-group-toggle=model]`;
+        const popupVisible = `document.querySelector('${panel} .image-parameter-settings-popup').matches(':popover-open')`;
+        const panelBounds = () => app.evaluate(`document.querySelector('${panel}').getBoundingClientRect().toJSON()`);
         const systemSettings = `document.getElementById('${chatId}-system-settings')`;
+        const initialPanel = await panelBounds();
+        assert.equal(initialPanel.width, 390);
         assert.match(await text(answerSummary), /^回答设置/);
-        assert.equal(await text(`${answerSummary} .node-chat-answer-state`), '已开启联网 · 已设置系统提示语');
+        assert.equal(await text(`${panel} .node-chat-answer-state`), '已开启联网 · 已设置系统提示语');
         assert.equal(await app.evaluate(`${systemSettings}.checkVisibility()`), false);
         await nativeClick(app, answerSummary);
+        await app.waitFor(popupVisible);
+        assert.equal((await panelBounds()).height, initialPanel.height);
         assert.ok(await app.evaluate(`${systemSettings}.checkVisibility() && !${systemSettings}.open`));
         await nativeClick(app, `label[for=${chatId}-fixed]`);
         assert.equal(await app.evaluate(`document.getElementById('${chatId}-fixed').checked`), true);
-        assert.match(await text(`${answerSummary} .node-chat-answer-state`), /已开启复用/);
-        await nativeClick(app, answerSummary);
+        assert.match(await text(`${panel} .node-chat-answer-state`), /已开启复用/);
+        await nativeClick(app, modelControl);
+        assert.equal(await app.evaluate(`document.getElementById('${chatId}-provider').closest('.node-model-settings').checkVisibility()`), true);
         assert.equal(await app.evaluate(`${systemSettings}.checkVisibility()`), false);
+        await key(app, 'Escape');
+        await app.waitFor(`!(${popupVisible})`);
+        assert.ok(await app.evaluate(`document.activeElement.matches('${modelControl}')`));
+        assert.ok(await app.evaluate(hasVisiblePanel));
         assert.equal(await text(run), '生成回复');
 
         await editPrompt(nextPrompt);
@@ -384,6 +495,11 @@ test('inline node parameters group declared controls, preserve drafts and keep l
     await withAppBrowser(session, async app => {
         const sectionHeadings = id => app.evaluate(`Array.from(document.querySelectorAll('#${id} .node-parameter-heading'), heading => heading.textContent)`);
         await app.waitFor("document.getElementById('inline-video-param-duration')?.id");
+        const videoModel = "document.querySelector('#inline-video .node-model-settings')";
+        assert.equal(await app.evaluate(`${videoModel}.open`), false);
+        await app.evaluate(`${videoModel}.querySelector('summary').click()`);
+        assert.ok(await app.evaluate(`${videoModel}.open`));
+        await app.evaluate(`${videoModel}.querySelector('summary').click()`);
         assert.deepEqual(await sectionHeadings('inline-video'), ['创作内容', '输出设置', '任务与结果']);
         assert.deepEqual(await app.evaluate(`(() => {
             const field = suffix => document.getElementById('inline-video-param-' + suffix);

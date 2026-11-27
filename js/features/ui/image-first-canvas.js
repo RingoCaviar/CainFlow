@@ -103,8 +103,12 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (width >= dockMinWidth && width <= dockMaxWidth) dockWidthPreferences.set(type, width);
     }
     const persistDockWidth = type => storage?.setItem(dockWidthKeys.get(type), String(dockWidthPreferences.get(type)));
-    const currentWidthPreference = () => current?.type === 'ImageImport' ? importPreferredWidth
-        : preferredWidth ?? (current?.type === 'ImageMerge' ? 440 : 560);
+    const currentWidthPreference = () => {
+        if (current?.type === 'ImageImport') return importPreferredWidth;
+        if (preferredWidth !== null) return preferredWidth;
+        if (current?.type === 'ImageGenerate') return views.get(current)?.wideReferenceStrip ? 560 : 480;
+        return current?.type === 'TextChat' ? 390 : 440;
+    };
     const setWidthPreference = width => { if (current?.type === 'ImageImport') importPreferredWidth = width; else preferredWidth = width; };
     const persistWidthPreference = () => storage?.setItem(current?.type === 'ImageImport' ? 'cainflow_image_import_parameter_width' : 'cainflow_node_parameter_width', String(Math.round(currentWidthPreference())));
     let positionFrame = null, gesture = null, expanded = false, expandedRect = null, returnFocusElement = null;
@@ -273,6 +277,29 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const view = views.get(current);
         const popup = view?.settingsPopup;
         if (!popup?.matches(':popover-open')) return;
+        if (current.type === 'TextChat') {
+            const bounds = available();
+            const trigger = view.groupButtons.get(view.group).getBoundingClientRect();
+            const panelRect = panel.getBoundingClientRect();
+            const width = Math.min(336, bounds.width);
+            popup.style.width = `${width}px`;
+            let aboveEdge = panelRect.top - 6;
+            let above = Math.max(0, aboveEdge - bounds.top);
+            const below = Math.max(0, bounds.bottom - panelRect.bottom - 6);
+            // In short windows the editor can fill the whole available area.
+            // Borrow space from the prompt while keeping the footer actionable.
+            if (Math.max(above, below) < Math.min(96, popup.scrollHeight)) {
+                aboveEdge = footer.getBoundingClientRect().top - 6;
+                above = Math.max(0, aboveEdge - bounds.top);
+            }
+            const placeBelow = below >= popup.scrollHeight || below >= above;
+            const space = placeBelow ? below : above;
+            popup.style.maxHeight = `${space}px`;
+            popup.style.left = `${clamp(trigger.left, bounds.left, bounds.right - width)}px`;
+            popup.style.top = `${clamp(placeBelow ? panelRect.bottom + 6 : aboveEdge - popup.offsetHeight,
+                bounds.top, Math.max(bounds.top, bounds.bottom - popup.offsetHeight))}px`;
+            return;
+        }
         const rect = footer.getBoundingClientRect();
         const bottom = Math.min(rect.top - 6, windowRef.innerHeight - 12);
         const width = view.group === 'more' ? Math.min(400, panel.offsetWidth) : panel.offsetWidth - 24;
@@ -461,8 +488,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
     function setGroup(node, group, { focus = false } = {}) {
         const view = views.get(node);
         if (!view) return;
-        if (view.settingsPopup && group === 'reference') return;
-        if (view.settingsPopup && group === 'advanced') group = 'more';
+        if (view.settingsPopup && group === 'advanced' && node.type === 'ImageGenerate') group = 'more';
+        if (view.settingsPopup && !view.groupButtons.has(group)) return;
         if (view.settingsPopup?.matches(':popover-open')) surfaces?.closePopovers?.(panel);
         // A submenu entry selects a page; closing the popup must not turn the
         // next activation of that same page into an empty menu.
@@ -476,20 +503,52 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         });
         for (const [name, button] of view.groupButtons || []) button.setAttribute('aria-expanded', String(name === view.group));
         if (view.settingsPopup && current === node) {
-            view.settingsPopup.setAttribute('aria-label', group === 'model' ? '模型与供应商' : group === 'size' ? '宽高比与分辨率' : '更多设置');
+            view.settingsPopup.setAttribute('aria-label', view.groupButtons.get(group).dataset.parameterGroupLabel);
             view.settingsPopup.showPopover();
             surfaces?.openPopover?.(view.settingsPopup.id, { element: view.settingsPopup, trigger: view.groupButtons.get(group), relatedTriggers: [...view.groupButtons.values()], owner: panel, close: () => view.settingsPopup.hidePopover() });
             positionSettingsPopup();
+            view.settingsPopup.scrollTop = 0;
             if (focus) {
-                const control = view.sections.filter(section => !section.hidden).flatMap(section => Array.from(section.querySelectorAll('button, input, select, textarea, [tabindex]')))
+                const control = [...view.settingsPopup.querySelectorAll('button, input, select, textarea, summary, [tabindex]')]
                     .find(element => !element.disabled && element.tabIndex >= 0 && element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }));
-                (control || view.groupButtons.get(group))?.focus({ preventScroll: true });
+                control?.focus();
             }
         }
         schedulePosition();
     }
     function setText(element, text) {
         if (element.textContent !== text) element.textContent = text;
+    }
+    function createSettingsPopup(node, form, sections, entries) {
+        const groupButtons = new Map();
+        const settingsPopup = documentRef.createElement('div');
+        settingsPopup.className = 'image-parameter-settings-popup';
+        settingsPopup.id = `${node.id}-parameter-settings`;
+        // The coordinator owns outside-click and Escape dismissal.
+        settingsPopup.setAttribute('popover', 'manual');
+        for (const [name, label] of entries) {
+            const button = documentRef.createElement('button');
+            button.type = 'button';
+            button.textContent = label;
+            button.dataset.nodeReadAction = 'true';
+            button.dataset.parameterGroupToggle = name;
+            button.dataset.parameterGroupLabel = label;
+            button.setAttribute('aria-expanded', 'false');
+            button.setAttribute('aria-controls', settingsPopup.id);
+            button.addEventListener('click', event => {
+                if (views.get(node)?.group === name && settingsPopup.matches(':popover-open')) settingsPopup.hidePopover();
+                else setGroup(node, name, { focus: event.detail === 0 });
+            });
+            groupButtons.set(name, button);
+        }
+        settingsPopup.append(...sections);
+        settingsPopup.addEventListener('toggle', () => {
+            const visible = settingsPopup.matches(':popover-open');
+            for (const [name, button] of groupButtons) button.setAttribute('aria-expanded', String(visible && views.get(node)?.group === name));
+            if (!visible) surfaces?.forgetPopover?.(settingsPopup.id);
+        });
+        form.append(settingsPopup);
+        return { settingsPopup, groupButtons };
     }
     function openEmptyAction(node, view, action) {
         if (state.nodes.get(node.id) !== node || views.get(node) !== view || !node.el.isConnected
@@ -632,6 +691,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         if (view.chatEmptyTitle) setText(view.chatEmptyTitle, name);
         if (node.type !== 'ImagePreview') refreshMediaEmptyContent(node, view, name);
         if (node.type === 'ImageGenerate') {
+            // Keep eight 60 px reference thumbnails directly reachable at the default width.
+            view.wideReferenceStrip = view.form.querySelectorAll('.image-parameter-references .image-reference-thumbnail').length >= 8;
             const settings = readImageGenerationSettings(node, documentRef);
             refreshGenerationEmptyContent(node, view, name, settings);
             const model = state.models.find(item => item.id === settings.apiConfigId);
@@ -819,7 +880,7 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         }
         footer.insertBefore(countSlot, generate);
         panel.dataset.nodeType = node.type;
-        if (node.type === 'ImageMerge') feedback.setAttribute('role', 'status');
+        if (node.type === 'ImageMerge' || node.type === 'TextChat') feedback.setAttribute('role', 'status');
         else feedback.removeAttribute('role');
         panel.hidden = false;
         panel.setAttribute('aria-hidden', 'false'); panel.inert = false;
@@ -1240,18 +1301,21 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         runFeedback.append(node.el.querySelector('.node-failure-summary'));
         form.append(runFeedback);
         const answer = form.querySelector('.node-chat-answer-section');
-        const heading = answer.querySelector('.node-parameter-heading');
-        const disclosure = documentRef.createElement('details');
-        disclosure.className = 'node-chat-answer-settings';
-        const summary = documentRef.createElement('summary');
-        summary.id = heading.id;
-        summary.textContent = heading.textContent;
+        const model = form.querySelector('.node-model-settings');
+        model.classList.replace('node-model-settings--leading', 'node-model-settings--popover');
+        model.dataset.parameterGroup = 'model';
+        answer.dataset.parameterGroup = 'answer';
         const answerState = documentRef.createElement('span');
         answerState.className = 'node-chat-answer-state';
-        summary.append(answerState);
-        heading.remove();
-        answer.before(disclosure);
-        disclosure.append(summary, answer);
+        answer.querySelector('.node-parameter-heading').after(answerState);
+        const sections = [model, answer];
+        const { settingsPopup, groupButtons } = createSettingsPopup(node, form, sections, [
+            ['model', '模型与供应商'], ['answer', '回答设置']
+        ]);
+        const footerTools = documentRef.createElement('div');
+        footerTools.className = 'image-parameter-footer-tools node-chat-footer-tools';
+        footerTools.append(...groupButtons.values());
+        form.append(footerTools);
         const parametersButton = documentRef.createElement('button');
         parametersButton.type = 'button';
         parametersButton.className = 'node-chat-parameter-button';
@@ -1280,7 +1344,8 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
             reuse: form.querySelector('input[id$="-fixed"]'),
             systemPrompt: form.querySelector('textarea[id$="-sysprompt"]')
         };
-        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections: [], chatEmptyTitle, chat }, []);
+        registerView(node, { form, fragment: documentRef.createDocumentFragment(), sections, settingsPopup,
+            groupButtons, footerTools, chatEmptyTitle, chat }, []);
     }
     function installProductRetouch(node) {
         const form = documentRef.createElement('div');
@@ -1347,17 +1412,9 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const quality = form.querySelector(`[id="${nodeId}-quality-field"]`);
         if (quality) advanced.querySelector('.image-parameter-output-options').prepend(quality);
         group(advanced, 'advanced');
-        const groupButtons = new Map();
-        for (const [name, label] of [['model','模型 / 供应商'],['size','尺寸'],['more','更多设置']]) {
-            const button = documentRef.createElement('button'); button.type = 'button'; button.textContent = label;
-            button.dataset.nodeReadAction = 'true'; button.dataset.parameterGroupToggle = name; button.setAttribute('aria-expanded', 'false');
-            button.addEventListener('click', event => {
-                const view = views.get(node);
-                if (view?.group === name && view.settingsPopup?.matches(':popover-open')) view.settingsPopup.hidePopover();
-                else setGroup(node, name, { focus: event.detail === 0 });
-            });
-            groupButtons.set(name, button);
-        }
+        const { settingsPopup, groupButtons } = createSettingsPopup(node, form, sections, [
+            ['model', '模型与供应商'], ['size', '宽高比与分辨率'], ['more', '更多设置']
+        ]);
         const promptField = form.querySelector('.image-node-prompt-field');
         const promptActions = promptField?.querySelector('.image-prompt-actions');
         promptActions?.remove();
@@ -1366,21 +1423,14 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         const moreEntry = groupButtons.get('more');
         moreEntry.className = 'image-parameter-more-entry';
         moreEntry.setAttribute('aria-label', '更多设置');
-        moreEntry.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>';
+        moreEntry.textContent = '更多';
         const modelEntry = groupButtons.get('model');
         modelEntry.classList.add('image-parameter-model-entry');
+        modelEntry.dataset.compactLabel = '模型';
         const modelLabel = documentRef.createElement('span');
         modelLabel.className = 'image-parameter-entry-label';
         modelLabel.textContent = modelEntry.textContent;
         modelEntry.replaceChildren(modelLabel);
-        const settingsPopup = documentRef.createElement('div');
-        settingsPopup.className = 'image-parameter-settings-popup';
-        settingsPopup.id = `${node.id}-parameter-settings`;
-        // The coordinator owns outside-click/Escape dismissal. Native auto
-        // dismissal would close before the trigger's click handler can toggle.
-        settingsPopup.setAttribute('popover', 'manual');
-        settingsPopup.setAttribute('aria-label', '生成参数');
-        settingsPopup.append(...sections);
         const settingsEntry = groupButtons.get('size');
         settingsEntry.className = 'image-parameter-settings-entry';
         settingsEntry.dataset.compactLabel = '尺寸';
@@ -1388,16 +1438,10 @@ export function createImageFirstCanvas({ state, selectionApi, documentRef, windo
         settingsLabel.className = 'image-parameter-entry-label';
         settingsLabel.textContent = '尺寸';
         settingsEntry.replaceChildren(settingsLabel);
-        for (const button of groupButtons.values()) button.setAttribute('aria-controls', settingsPopup.id);
-        settingsPopup.addEventListener('toggle', () => {
-            const visible = settingsPopup.matches(':popover-open');
-            for (const [name, button] of groupButtons) button.setAttribute('aria-expanded', String(visible && views.get(node)?.group === name));
-            if (!visible) surfaces?.forgetPopover?.(settingsPopup.id);
-        });
         const footerTools = documentRef.createElement('div');
         footerTools.className = 'image-parameter-footer-tools';
         footerTools.append(settingsEntry, modelEntry, moreEntry);
-        form.append(settingsPopup, footerTools);
+        form.append(footerTools);
         const placeholder = documentRef.createElement('div'); placeholder.className = 'image-first-placeholder';
         const runState = body.querySelector('.image-node-run-actions');
         const progress = body.querySelector('.node-generation-progress-field');

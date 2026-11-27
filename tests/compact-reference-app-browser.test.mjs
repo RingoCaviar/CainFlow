@@ -209,16 +209,18 @@ test('commerce, chat and video reference galleries edit their own sources withou
         await uploadImageOriginal(app, 'red', originals[0]);
         await uploadImageOriginal(app, 'blue', originals[1]);
         for (const target of ['chat-target', 'video-target']) {
-            if (target === 'chat-target') await openParameters(app, target);
+            if (target === 'chat-target') await openParameters(app, target, 'model');
             const modelGroup = await app.evaluate(`(() => {
                 const node = document.getElementById('${target}');
                 const group = document.getElementById(node.id + '-apiconfig')?.closest('.node-model-settings[aria-labelledby]');
                 const heading = document.getElementById(group?.getAttribute('aria-labelledby'));
-                return { heading: heading?.checkVisibility() ? heading.textContent.trim() : null,
+                return { heading: heading?.firstChild.textContent.trim(),
+                    headingVisible: heading?.checkVisibility(),
                     hasPair: ['apiconfig', 'provider'].every(field => group?.contains(document.getElementById(node.id + '-' + field))),
                     referencesOutside: !group?.contains(document.querySelector('${gallery(target)}')) };
             })()`);
-            assert.deepEqual(modelGroup, { heading: '模型与供应商', hasPair: true, referencesOutside: true }, target);
+            assert.deepEqual(modelGroup, { heading: '模型与供应商', headingVisible: target === 'video-target', hasPair: true, referencesOutside: true }, target);
+            if (target === 'chat-target') await key(app, 'Escape');
         }
 
         for (const target of targets) {

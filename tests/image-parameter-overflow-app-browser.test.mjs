@@ -238,9 +238,9 @@ test('parameter editor uses viewport space and preserves scrolling without overl
         await settle();
         assert.equal(await app.evaluate("document.getElementById('image-generation-count').value"), '2', 'count click reaches its control');
         assert.equal(await app.evaluate("document.querySelector('.image-parameter-scroll').scrollTop"), offset, 'clicking count retains the scroll position');
-        for (const width of [280, 320, 390, 1280]) {
+        for (const width of [280, 310, 320, 390, 1280]) {
             await app.send('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: false });
-            const panelWidth = Math.min(560, width - 24);
+            const panelWidth = Math.min(480, width - 24);
             await app.waitFor(`innerWidth === ${width} && innerHeight === 800 &&
                 document.getElementById('image-parameter-panel').style.width === '${panelWidth}px'`);
             for (const count of [1, 10, 100]) {
@@ -259,23 +259,49 @@ test('parameter editor uses viewport space and preserves scrolling without overl
             const layout = await app.evaluate(`(() => {
                 const panel = document.getElementById('image-parameter-panel');
                 const footer = panel.querySelector('.image-parameter-footer');
+                const midpoint = rect => rect.top + rect.height / 2;
                 const controls = ['.image-parameter-settings-entry', '.image-parameter-model-entry', '.image-parameter-more-entry', '.generation-count-control', '[data-parameter-action=generate]'].map(selector => {
                     const element = footer.querySelector(selector), r = element.getBoundingClientRect();
-                    return { top:r.top, bottom:r.bottom, left:r.left, right:r.right, width:r.width, height:r.height, font:parseFloat(getComputedStyle(element).fontSize) };
+                    return { top:r.top, bottom:r.bottom, left:r.left, right:r.right, width:r.width, height:r.height, font:parseFloat(getComputedStyle(element).fontSize), text:element.textContent.trim() };
                 });
                 const prompt = panel.querySelector('.image-node-prompt-field textarea');
                 const border = getComputedStyle(prompt);
-                return { controls, promptWidth:prompt.getBoundingClientRect().width, fieldWidth:prompt.closest('.image-node-prompt-field').getBoundingClientRect().width, overflow:footer.scrollWidth-footer.clientWidth, borderWidth:parseFloat(border.borderTopWidth), borderStyle:border.borderTopStyle, borderColor:border.borderTopColor };
+                const stepper = footer.querySelector('.generation-count-control');
+                const stepperBounds = stepper.getBoundingClientRect();
+                const stepperParts = Array.from(stepper.children, element => element.getBoundingClientRect());
+                const compactEntries = [...footer.querySelectorAll('[data-compact-label]')].map(button => {
+                    const rect = button.getBoundingClientRect();
+                    return { label:getComputedStyle(button, '::before').content, width:rect.width };
+                });
+                return { controls, compactEntries,
+                    stepperAligned: stepperParts.every(rect => Math.abs(midpoint(rect)-midpoint(stepperBounds))<1) &&
+                        Math.abs(stepperParts[1].left+stepperParts[1].width/2-stepperBounds.left-stepperBounds.width/2)<1,
+                    promptWidth:prompt.getBoundingClientRect().width, fieldWidth:prompt.closest('.image-node-prompt-field').getBoundingClientRect().width,
+                    overflow:footer.scrollWidth-footer.clientWidth, borderWidth:parseFloat(border.borderTopWidth), borderStyle:border.borderTopStyle, borderColor:border.borderTopColor };
             })()`);
             assert.ok(layout.overflow <= 1, `${width}px footer must not overflow`);
-            assert.ok(layout.controls.every(r => Math.abs(r.top-layout.controls[0].top)<1 && Math.abs(r.height-32)<1 && r.font===13), `${width}px controls stay compact and aligned on one row: ${JSON.stringify(layout.controls)}`);
-            assert.ok(layout.controls.every((r,index)=>!index || Math.abs(r.left-layout.controls[index-1].right-6)<1), `${width}px footer gaps keep the shared 6px rhythm`);
-            assert.equal(layout.controls[2].width, 32, 'More remains square');
+            assert.ok(layout.stepperAligned, `${width}px stepper buttons and input share the control centerline`);
+            assert.ok(layout.controls.every(r => Math.abs(r.height-32)<1 && r.font===13));
+            const rows = width < 320 ? [layout.controls.slice(0, 3), layout.controls.slice(3)] : [layout.controls];
+            for (const row of rows) {
+                assert.ok(row.every(r => Math.abs(r.top-row[0].top)<1), `${width}px controls align on their row`);
+                assert.ok(row.every((r,index)=>!index || Math.abs(r.left-row[index-1].right-6)<1), `${width}px footer gaps keep the shared 6px rhythm`);
+            }
+            if (width < 320) {
+                assert.ok(Math.abs(rows[1][0].top - rows[0][0].bottom - 6) < 1);
+                assert.ok(Math.abs(rows[1][1].right - rows[0][2].right) < 1);
+            }
+            if (width === 320) {
+                assert.deepEqual(layout.compactEntries.map(entry => entry.label), ['"尺寸"', '"模型"']);
+                assert.ok(layout.compactEntries.every(entry => entry.width >= 30), 'compact labels retain room for two characters');
+            }
+            assert.equal(layout.controls[2].text, '更多');
+            assert.ok(layout.controls[2].width >= 32 && layout.controls[2].width <= 52, 'the More label fits a compact control');
             assert.equal(layout.controls[3].width, 82, 'count retains its three-digit input space even in a narrow window');
             if (width>=320) assert.ok(layout.controls[4].width>=72 && layout.controls[4].width<=82,
                 `${width}px viewport: generate fits a three-digit batch label at ${layout.controls[4].width}px`);
             if (width===1280) assert.ok(layout.controls[0].width<=124 && layout.controls[0].width<layout.controls[1].width, 'short size summary uses compact width rather than an equal share');
-            assert.ok(layout.controls.every((r, index) => r.left>=0 && r.right<=width && (!index || r.left>=layout.controls[index-1].right)), 'all five controls remain on screen without overlap');
+            assert.ok(layout.controls.every(r => r.left>=0 && r.right<=width), 'all five controls remain on screen');
             assert.ok(Math.abs(layout.promptWidth-layout.fieldWidth)<1, 'More no longer takes width from the prompt');
             assert.ok(layout.borderWidth>0 && layout.borderStyle==='solid' && !['transparent','rgba(0, 0, 0, 0)'].includes(layout.borderColor), 'prompt keeps a visible border');
         }
