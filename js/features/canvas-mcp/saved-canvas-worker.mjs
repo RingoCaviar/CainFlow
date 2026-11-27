@@ -98,6 +98,7 @@ async function main() {
             ...command, ...command.args, signal: abort.signal, getNodeSignal: id => nodeAbortController(id).signal,
             isNodeStopped: id => nodeAbortController(id).signal.aborted,
             loadMedia: assetKey => rpc('loadMedia', { assetKey }),
+            loadFileText: (nodeId, referenceId) => rpc('loadFileText', { nodeId, referenceId }),
             getHistoryEntry: async (id, { fileVersion }) => {
                 const { mimeType, body } = await rpc('historyMedia', { id: Number(id), fileVersion });
                 return { fileVersion, image: `data:${mimeType};base64,${body}` };

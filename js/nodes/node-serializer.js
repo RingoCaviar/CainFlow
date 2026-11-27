@@ -174,6 +174,7 @@ export function createNodeSerializer({ state, documentRef }) {
             }
 
             if (node.type === 'ImagePreview') serialized.previewZoom = Number(node.previewZoom) || 1;
+            if (node.type === 'FileImport' && node.fileImport) serialized.fileImport = { ...node.fileImport };
 
             if (node.type === 'ImageCompare') {
                 serialized.comparePosition = Math.max(0, Math.min(100, Number(node.comparePosition ?? node.data?.comparePosition ?? 50) || 0));

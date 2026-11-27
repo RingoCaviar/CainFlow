@@ -19,7 +19,7 @@ const knownFields = new Set(`
     resizeMode scalePercent targetWidth targetHeight keepAspect originalWidth originalHeight outputWidth outputHeight outputFormat outputQuality estimatedBytes
     whiteBalanceMode whiteBalanceGains customWhiteBalanceGains autoWhiteBalanceGains whiteBalanceSamplePoint whiteBalanceStatus whiteBalanceMessage
     temperature tint vibrance saturation
-    filename autoAddedForGeneration savePreviewMode videoPreviewIndex video videos videoId videoUrl videoAssetKey videoStatus videoStatusText
+    filename fileImport autoAddedForGeneration savePreviewMode videoPreviewIndex video videos videoId videoUrl videoAssetKey videoStatus videoStatusText
     videoCreateHttpStatus videoCreateStatus videoStatusUpdateTime videoEnhancedPrompt videoMissingLocalAsset
     useVideoSizeParam enhancePrompt enableUpsample doubaoResolution doubaoDuration doubaoCameraFixed doubaoGenerateAudio doubaoWatermark doubaoSeed
     text texts textPreviewIndex delimiter outputCount removeEmptyLines previewEnabled mergeOutputEnabled parts params customParams

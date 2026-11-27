@@ -1153,7 +1153,7 @@ export function createWorkflowManagerApi({
     }
 
     function downloadWorkflowJson(name, data) {
-        const blob = new Blob([JSON.stringify(stripInlineImagesFromWorkflowData(data), null, 2)], { type: 'application/json' });
+        const blob = new Blob([JSON.stringify(prepareWorkflowExport(data), null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const link = documentRef.createElement('a');
         link.href = url;
@@ -2068,6 +2068,16 @@ export function createWorkflowManagerApi({
         };
     }
 
+    function prepareWorkflowExport(workflowData) {
+        const exported = stripInlineImagesFromWorkflowData(workflowData);
+        for (const node of exported?.nodes || []) {
+            if (node.type === 'FileImport' && node.fileImport) {
+                node.fileImport = { name: node.fileImport.name };
+            }
+        }
+        return exported;
+    }
+
     function hasCurrentCanvasContent() {
         return state.nodes.size > 0 || state.connections.length > 0;
     }
@@ -2901,7 +2911,7 @@ export function createWorkflowManagerApi({
                 return false;
             }
             const persistExport = async ({ data }) => {
-                const exportBlob = new Blob([JSON.stringify(stripInlineImagesFromWorkflowData(data), null, 2)], { type: 'application/json' });
+                const exportBlob = new Blob([JSON.stringify(prepareWorkflowExport(data), null, 2)], { type: 'application/json' });
                 if (windowRef.__cainflowDesktop?.saveFile) {
                     const destination = await windowRef.__cainflowDesktop.saveFile(fileName, exportBlob.type, exportBlob);
                     if (!destination) return false;

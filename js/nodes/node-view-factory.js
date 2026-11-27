@@ -1323,6 +1323,10 @@ function renderNodeBody(type, id, restoreData, state) {
     if (type === 'ImageMerge') return renderImageMergeBody(id);
     if (type === 'ImageCompare') return renderImageCompareBody(id);
     if (type === 'Text') return renderTextBody(id, restoreData);
+    if (type === 'FileImport') return `
+        <button type="button" data-file-import-open title="打开原文件">${escapeHtml(restoreData?.fileImport?.name || '选择原文件')}</button>
+        <textarea class="text-node-editor" data-file-import-preview aria-label="原文件内容" readonly></textarea>
+        <small data-file-import-status role="status"></small>`;
     if (type === 'TextMerge') return renderTextMergeBody(id);
     if (type === 'TextSplit') return renderTextSplitBody(id, restoreData);
     if (type === 'CustomParams') return renderCustomParamsBody(id, restoreData);

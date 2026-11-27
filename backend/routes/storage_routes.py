@@ -5,7 +5,8 @@ import re
 from backend.services.media_library import MediaLibrary
 from urllib.parse import parse_qs, unquote, urlparse
 
-from backend import config
+from backend import config, desktop_security
+from backend.services.file_import import FileImportError, file_imports
 from backend.services.http_helpers import read_json_body, read_request_body, write_bytes, write_error, write_json
 from backend.services.storage_service import DOCUMENT_NAMES, StorageDocumentConflict, StorageError, storage_service
 from backend.services.svg_image import is_svg_mime
@@ -80,6 +81,19 @@ def handle_get(handler):
     parsed = urlparse(handler.path)
     path = parsed.path
     if not _authorize_storage_path(handler, path):
+        return True
+    if path == '/api/storage/file-imports/text':
+        if not desktop_security.is_desktop_session_enabled() or not desktop_security.is_api_request_authorized(handler):
+            write_error(handler, 403, '文件导入需要 CainFlow 桌面会话。')
+            return True
+        query = parse_qs(parsed.query)
+        scope = [(query.get(key) or [''])[0] for key in ('workflowId', 'nodeId', 'referenceId')]
+        try:
+            text = file_imports().read_text(*scope)
+        except FileImportError as error:
+            write_error(handler, 404, str(error))
+            return True
+        write_json(handler, {'text': text}, headers={'Cache-Control': 'no-store'})
         return True
     if path == '/api/storage/library' or path.startswith('/api/storage/library/'):
         query = parse_qs(parsed.query)

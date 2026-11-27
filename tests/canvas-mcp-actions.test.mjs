@@ -5,7 +5,29 @@ import { createSavedCanvasDocument } from '../js/features/canvas-mcp/saved-canva
 import { createCanvasContext } from '../js/features/prompt-agent/prompt-agent-canvas-context.js';
 import { createPromptAgentCanvasAdapter } from '../js/features/prompt-agent/prompt-agent-canvas-adapter.js';
 import { projectPlanConnections } from '../js/features/prompt-agent/prompt-agent-reference-inputs.js';
+import { normalizeCanvasPlan } from '../js/features/prompt-agent/prompt-agent-canvas-plan.js';
 import '../js/features/execution/protocols/openai.js';
+
+test('Agent and saved Canvas MCP expose file metadata but can only bind files through the desktop', async () => {
+    const document = { workflowId: 'files-workflow', connections: [], nodes: [
+        { id: 'source', type: 'FileImport', fileImport: { id: 'a'.repeat(32), name: 'notes.md', path: 'D:/private/notes.md' } }
+    ] };
+    const { dispatch } = createSavedCanvasDocument({ document, revision: 'file-revision' });
+    const scope = { workflowId: document.workflowId, revision: 'file-revision' };
+    const { result } = await dispatch('read_canvas', scope);
+    assert.deepEqual(result.nodes[0].fileImport, { name: 'notes.md', type: 'text', status: 'registered' });
+    assert.doesNotMatch(JSON.stringify(result), /D:\/private|aaaaaaaa/);
+    const plan = { version: 1,
+        steps: [{ id: 'new-file', type: 'FileImport', execute: false }]
+    };
+    const agentContext = createCanvasContext(document);
+    assert.deepEqual(agentContext.nodes[0].fileImport, result.nodes[0].fileImport);
+    assert.throws(() => normalizeCanvasPlan(plan, agentContext), /桌面画布/);
+    await assert.rejects(dispatch('edit_canvas', { ...scope, plan }), { code: 'invalid_arguments' });
+    await assert.rejects(dispatch('edit_canvas', { ...scope, plan: { version: 1,
+        steps: [{ id: 'edit-file', type: 'FileImport', nodeId: 'source', parameters: { path: 'D:/private/notes.md' }, execute: false }]
+    } }), { code: 'invalid_arguments' });
+});
 
 test('saved Canvas MCP projects and validates OpenAI GIF frame and edit guide settings', async () => {
     const document = { workflowId: 'gif-workflow', connections: [], nodes: [

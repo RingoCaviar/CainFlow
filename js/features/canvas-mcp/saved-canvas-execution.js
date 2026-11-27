@@ -12,12 +12,13 @@ import {
 import { resolveWorkflowExecutionPlan } from '../execution/workflow-execution-plan.js';
 import { buildInputBatches, shouldRunNodeForEachInput } from '../execution/workflow-runner.js';
 import { createReferenceImageCatalog } from '../media/reference-image-catalog.js';
+import { findTextFileSource } from '../workflow/file-import.js';
 import { migrateLegacyWorkflowData } from '../persistence/legacy-node-migration.js';
 import { normalizeVisualStyle } from '../visual-style/visual-style.js';
 import { generateSavedImages, generateSavedVideos, runSavedConversation, savedExecutionError } from './saved-canvas-provider-execution.js';
 
 export const SAVED_EXECUTABLE_TYPES = Object.freeze([
-    'Text', 'TextMerge', 'TextSplit', 'CustomParams', 'TextChat', 'ImageImport', 'ImagePreview', 'ImageMerge',
+    'Text', 'TextMerge', 'TextSplit', 'CustomParams', 'TextChat', 'FileImport', 'ImageImport', 'ImagePreview', 'ImageMerge',
     'ImageCompare', 'VisualStyle', 'CameraControl', 'ImageGenerate', 'VideoGenerate'
 ]);
 
@@ -93,7 +94,7 @@ export function planSavedWorkflowExecution({ document, nodeIds, targetNodeId, im
 }
 
 export async function executeSavedWorkflow({ document, models = [], providers = [], nodeIds, targetNodeId,
-    signal, getNodeSignal, isNodeStopped = () => false, imageBatch = false, loadMedia, getHistoryEntry, saveMedia, requestProvider }) {
+    signal, getNodeSignal, isNodeStopped = () => false, imageBatch = false, loadMedia, loadFileText, getHistoryEntry, saveMedia, requestProvider }) {
     const { document: saved, nodes, plan, enabledNodeIds } = planSavedWorkflowExecution({ document, nodeIds, targetNodeId, imageBatch });
     if (!plan) return { outcome: 'no-execution', nodeResults: [], document: saved };
     const state = { nodes, connections: saved.connections, models, providers, activeWorkflowId: saved.workflowId };
@@ -102,6 +103,10 @@ export async function executeSavedWorkflow({ document, models = [], providers = 
     const outputs = new Map();
     const cachedOutputs = new Map();
     const media = new Map();
+    const readOriginal = node => {
+        if (typeof loadFileText !== 'function' || !node.data.fileImport?.id) throw savedExecutionError('input');
+        return loadFileText(node.id, node.data.fileImport.id);
+    };
     const generationRevision = createImageGenerationRevisionApi({ state,
         getCachedOutputValue: (node, port) => outputs.get(node.id)?.[port] ?? cachedOutputs.get(node.id)?.[port] });
     const referenceCatalog = createReferenceImageCatalog({ state, getImageAsset: readAsset, getHistoryEntry });
@@ -150,6 +155,8 @@ export async function executeSavedWorkflow({ document, models = [], providers = 
     async function outputFor(node, port, resolvingParams) {
         const output = outputs.get(node.id);
         if (output) return output[port];
+        const textFile = port === 'text' ? findTextFileSource(node, state) : null;
+        if (textFile) return outputs.get(textFile.id)?.text ?? readOriginal(textFile);
         if (port === 'image') return savedImages(node);
         if (port === 'video' && node.type === 'VideoGenerate') return node.data.videos || node.data.video;
         if (port === 'style' && node.type === 'VisualStyle') return normalizeVisualStyle(node.data.visualStyle);
@@ -221,10 +228,12 @@ export async function executeSavedWorkflow({ document, models = [], providers = 
     async function executeNode(node, inputs, nodeSignal) {
         const providerContext = { state, signal: nodeSignal, requestProvider, resolveMentions };
         switch (node.type) {
+            case 'FileImport':
+                return { text: await readOriginal(node) };
             case 'Text': {
                 const texts = getTextInputList(inputs.text);
                 const text = Object.hasOwn(inputs, 'text') ? texts[0] || '' : node.data.text || '';
-                writeNode(node, { text, texts, textPreviewIndex: 0 });
+                if (!findTextFileSource(node, state)) writeNode(node, { text, texts, textPreviewIndex: 0 });
                 return { text: texts.length ? texts : text };
             }
             case 'TextMerge': {
@@ -325,7 +334,8 @@ export async function executeSavedWorkflow({ document, models = [], providers = 
             const output = await executeNode(node, await collectInputs(node), nodeSignal);
             nodeSignal?.throwIfAborted();
             outputs.set(id, output);
-            const texts = getTextInputList(output.text ?? entriesForNumberedPorts(output, 'part_').map(([, value]) => value));
+            const texts = findTextFileSource(node, state) ? [] :
+                getTextInputList(output.text ?? entriesForNumberedPorts(output, 'part_').map(([, value]) => value));
             const images = normalizeImageList(output.image);
             const mediaAssetKeys = node.type === 'ImageImport' ? getImageImportMediaAssetReferences(node) : node.data.mediaAssetKeys || [];
             outcomes.set(id, { nodeId: id, succeeded: true, texts, images, mediaAssetKeys });

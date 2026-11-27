@@ -16,6 +16,7 @@ import { imageSaveNode } from './types/image-save.js';
 import { textChatNode } from './types/text-chat.js';
 import { textMergeNode } from './types/text-merge.js';
 import { textNode } from './types/text.js';
+import { fileImportNode } from './types/file-import.js';
 import { textSplitNode } from './types/text-split.js';
 import { cameraControlNode } from './types/camera-control.js';
 import { customParamsNode } from './types/custom-params.js';
@@ -43,6 +44,7 @@ const nodeDefinitions = [
     customParamsNode,
     textChatNode,
     textNode,
+    fileImportNode,
     textMergeNode,
     textSplitNode,
     imagePreviewNode,
@@ -57,7 +59,7 @@ export const NODE_CONFIGS = Object.freeze(
 );
 
 export function listNodeDefinitions() {
-    return nodeDefinitions.filter(definition => definition.type !== 'ImageSave');
+    return nodeDefinitions.filter(definition => definition.type !== 'ImageSave' && definition.type !== 'FileImport');
 }
 
 export function getNodeDefinition(type) {

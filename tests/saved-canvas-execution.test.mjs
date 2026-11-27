@@ -214,6 +214,34 @@ test('saved conversation exposes plain reply text and encodes the restored edito
     assert.equal(run.document.nodes[0].lastResponse, '&lt;b&gt;Literal reply&lt;/b&gt;<br>Next line');
 });
 
+test('a saved workflow reads an original Markdown file into the conversation prompt', async () => {
+    const saved = document([
+        { id: 'file', type: 'FileImport', fileImport: { id: 'd'.repeat(32), name: 'notes.md' } },
+        { id: 'relay', type: 'Text', text: 'Keep this authored text' },
+        { id: 'chat', type: 'TextChat', apiConfigId: 'chat-model', providerId: 'provider', prompt: 'fallback' }
+    ], [wire('file', 'text', 'relay', 'text'), wire('relay', 'text', 'chat', 'prompt')]);
+    let calls = 0;
+    const run = await executeSavedWorkflow({ document: saved,
+        models: [{ id: 'chat-model', modelId: 'gpt-4o', taskType: 'chat', protocol: 'openai', providerIds: ['provider'] }],
+        providers: [{ id: 'provider', endpoint: 'https://controlled.test/v1', apikey: 'test' }],
+        async loadFileText(nodeId, referenceId) {
+            assert.equal(nodeId, 'file');
+            assert.equal(referenceId, 'd'.repeat(32));
+            return '# File input\n\n- 需求';
+        },
+        async requestProvider({ body }) {
+            calls++;
+            assert.equal(JSON.parse(body).messages[0].content, '# File input\n\n- 需求');
+            return Response.json({ choices: [{ message: { content: 'Read the file' } }] });
+        }
+    });
+    assert.equal(calls, 1);
+    assert.equal(run.outcome, 'completed', JSON.stringify(run.nodeResults));
+    assert.equal(run.document.nodes[0].text, undefined);
+    assert.equal(run.document.nodes[1].text, 'Keep this authored text');
+    assert.deepEqual(run.nodeResults.find(node => node.nodeId === 'file').texts, []);
+});
+
 test('saved conversations use connected custom parameter values when running the graph or just the conversation', async () => {
     const saved = document([
         { id: 'temperature', type: 'Text', text: '0.25' },

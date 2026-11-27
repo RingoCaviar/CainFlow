@@ -1,3 +1,4 @@
+import { bindFileImportNode, normalizeFileImport } from '../features/workflow/file-import.js';
 import { normalizeVisualStyle, normalizeVisualStyleDetailLevel } from '../features/visual-style/visual-style.js';
 /**
  * 管理节点的创建、删除、选择、启停与尺寸自适应等生命周期行为。
@@ -1768,6 +1769,12 @@ export function createNodeLifecycleApi({
         if (nodeData.isSucceeded) el.classList.add('completed');
         if (!nodeData.enabled) el.classList.add('disabled');
         state.nodes.set(id, nodeData);
+        if (normalizedType === 'FileImport') {
+            nodeData.fileImport = normalizeFileImport(effectiveRestoreData?.fileImport);
+            const workflowId = getActiveWorkflowId();
+            bindFileImportNode({ node: nodeData, workflowId, windowRef: documentRef.defaultView || globalThis,
+                isCurrent: () => getActiveWorkflowId() === workflowId && state.nodes.get(id) === nodeData });
+        }
         el.addEventListener('load', (event) => {
             if (event.target?.tagName === 'IMG' && !isPendingImagePreview(event.target)) {
                 if (normalizedType === 'ImageImport' && nodeData.importMode === 'url') return;

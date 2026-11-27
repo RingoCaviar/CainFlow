@@ -126,6 +126,7 @@ def handle_proxy_request(handler):
             'x-target-url',
             'x-target-url-b64',
             'x-target-method',
+            'x-cainflow-private-input',
             'x-proxy-enabled',
             'x-proxy-host',
             'x-proxy-port',

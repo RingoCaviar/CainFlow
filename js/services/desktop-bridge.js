@@ -81,6 +81,7 @@ export async function initializeDesktopBridge() {
         chooseDirectory: () => api.choose_directory(),
         openDirectory: (path) => api.open_directory(path),
         openExternal: (url) => api.open_external(url),
+        openFileImport: (workflowId, nodeId, referenceId) => api.open_file_import(workflowId, nodeId, referenceId),
         setTaskbarStatus: async (status) => {
             const documentRef = globalThis.document;
             if (!documentRef?.hidden && documentRef?.hasFocus?.()) return false;

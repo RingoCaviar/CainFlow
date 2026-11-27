@@ -1,3 +1,4 @@
+import { findTextFileSource, readFileImportText } from '../workflow/file-import.js';
 import { readImageGenerationSettings } from '../../nodes/image-generation-settings.js';
 import { getNodeModelConfigurationIssue } from './model-configuration-readiness.js';
 import { getCommerceRunBlocker, getRunInputConnections, usesCommerceRunReferences } from './commerce-run-preflight.js';
@@ -1102,6 +1103,10 @@ export function createWorkflowRunnerApi({
 
     async function getEnabledNodeOutputValue(fromNode, toNode, portName) {
         if (!fromNode || fromNode.enabled === false) return undefined;
+        const textFile = portName === 'text' ? findTextFileSource(fromNode, state) : null;
+        if (textFile) {
+            return readFileImportText(getActiveWorkflowId(), textFile.id, textFile.fileImport ?? textFile.data?.fileImport);
+        }
         if (portName === 'video') {
             const videos = Array.isArray(fromNode.data?.videos) && fromNode.data.videos.length > 0
                 ? fromNode.data.videos
@@ -1311,6 +1316,7 @@ export function createWorkflowRunnerApi({
         for (const connection of plan.inputConnectionsByNode[nodeId] || []) {
             if (!promptPortIds.has(connection.to.port)) continue;
             const fromNode = state.nodes.get(connection.from.nodeId);
+            if (connection.from.port === 'text' && findTextFileSource(fromNode, state)) return true;
             const promptValue = getCachedOutputValue(fromNode, connection.from.port);
             if (typeof promptValue === 'string' && promptValue.trim()) return true;
             if (promptValue !== undefined && promptValue !== null && promptValue !== '') return true;

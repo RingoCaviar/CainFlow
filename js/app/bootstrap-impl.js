@@ -1617,6 +1617,7 @@ function getGlobalInteractionsApi() {
             addNode,
             pasteNode,
             clipboardControllerApi: getClipboardControllerApi(),
+            getActiveWorkflowId: () => workflowManagerApi.getActiveWorkflowId(),
             toggleNodesEnabled,
             showToast,
             scheduleSave

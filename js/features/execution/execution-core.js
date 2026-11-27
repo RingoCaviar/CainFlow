@@ -1,3 +1,4 @@
+import { findTextFileSource, readFileImportText } from '../workflow/file-import.js';
 import { buildVisualStylePrompt, normalizeVisualStyle, resolveVisualStyle, visualStyleKey, VISUAL_STYLE_FIELDS } from '../visual-style/visual-style.js';
 import { resolveCommerceImageSetStyle } from '../ecommerce-image-set/commerce-art-direction.js';
 import { analyzeVisualStyle } from '../visual-style/visual-style-analysis.js';
@@ -3056,6 +3057,9 @@ export function createExecutionCoreApi({
             const resolved = await resolveRequestMentions(node, inputs, readTextChatPrompts(node, inputs), { signal });
             const [prompt, sysprompt] = resolved.prompts;
             inputs = resolved.inputs;
+            const linkedFile = state.connections.some(edge => edge.to.nodeId === id && edge.to.port === 'prompt'
+                && edge.from.port === 'text' && findTextFileSource(state.nodes.get(edge.from.nodeId), state));
+            const diagnosticHeaders = linkedFile ? { 'X-Cainflow-Private-Input': '1' } : {};
             const responseArea = documentRef.getElementById(`${id}-response`);
 
             if (!apiCfg.apikey) throw new Error('API 提供商密钥未配置');
@@ -3080,12 +3084,11 @@ export function createExecutionCoreApi({
                     customParams: inputs.params
                 });
                 const { protocol, url, requestBody } = chatPlan;
+                const diagnosticBody = linkedFile ? { source: '文件导入' } : requestBody;
 
                 if (protocol === 'google') {
-                    const body = requestBody;
-
-                    const headers = getProxyHeaders(url, 'POST');
-                    logRequestToPanel(`请求发送: ${modelCfg.name}`, url, body, {
+                    const headers = getProxyHeaders(url, 'POST', diagnosticHeaders);
+                    logRequestToPanel(`请求发送: ${modelCfg.name}`, url, diagnosticBody, {
                         nodeId: id,
                         nodeType: 'TextChat',
                         providerType: protocol
@@ -3094,12 +3097,12 @@ export function createExecutionCoreApi({
                     responseText = await runTrackedProviderRequest(node, apiCfg, modelCfg, url, async () => {
                         const res = await executeChatRequestPlan(chatPlan, { fetchRef, headers, signal });
                         if (!res.ok) {
-                            const t = await res.text();
+                            const t = linkedFile ? '' : await res.text();
                             const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
                             const err = new Error(formatProxyErrorMessage(res.status, t, '请求失败', errorContext));
                             err.serverResponse = {
                                 url,
-                                requestBody: body,
+                                requestBody: diagnosticBody,
                                 status: res.status,
                                 body: t
                             };
@@ -3110,7 +3113,7 @@ export function createExecutionCoreApi({
                             apiCfg,
                             modelCfg,
                             url,
-                            requestBody: body
+                            requestBody: diagnosticBody
                         });
 
                         let resultText = jsonResponse.candidates?.[0]?.content?.parts?.filter(part => !part.thought).map(part => part.text || '').join('') || '';
@@ -3126,9 +3129,10 @@ export function createExecutionCoreApi({
                     }, { nodeType: 'TextChat' });
                 } else {
                     const headers = getProxyHeaders(url, 'POST', {
+                        ...diagnosticHeaders,
                         Authorization: `Bearer ${apiCfg.apikey}`
                     });
-                    logRequestToPanel(`请求发送: ${modelCfg.name}`, url, requestBody, {
+                    logRequestToPanel(`请求发送: ${modelCfg.name}`, url, diagnosticBody, {
                         nodeId: id,
                         nodeType: 'TextChat',
                         providerType: protocol
@@ -3137,12 +3141,12 @@ export function createExecutionCoreApi({
                     responseText = await runTrackedProviderRequest(node, apiCfg, modelCfg, url, async () => {
                         const res = await executeChatRequestPlan(chatPlan, { fetchRef, headers, signal });
                         if (!res.ok) {
-                            const t = await res.text();
+                            const t = linkedFile ? '' : await res.text();
                             const errorContext = buildProviderErrorContext(apiCfg, modelCfg, url);
                             const err = new Error(formatProxyErrorMessage(res.status, t, '请求失败', errorContext));
                             err.serverResponse = {
                                 url,
-                                requestBody,
+                                requestBody: diagnosticBody,
                                 status: res.status,
                                 body: t
                             };
@@ -3153,7 +3157,7 @@ export function createExecutionCoreApi({
                             apiCfg,
                             modelCfg,
                             url,
-                            requestBody
+                            requestBody: diagnosticBody
                         });
                         const resultText = jsonResponse.choices?.[0]?.message?.content || '';
                         if (!String(resultText || '').trim()) {
@@ -3285,7 +3289,11 @@ export function createExecutionCoreApi({
                 await refreshDependentImageResizePreviews(id);
             }
         },
+        FileImport: async (node) => {
+            await readFileImportText(getActiveWorkflowId(), node.id, node.fileImport ?? node.data?.fileImport);
+        },
         Text: async (node, inputs = {}) => {
+            if (findTextFileSource(node, state)) return;
             const textarea = documentRef.getElementById(`${node.id}-text`);
             const hasIncomingText = Object.prototype.hasOwnProperty.call(inputs, 'text');
             const texts = getTextInputList(inputs.text);

@@ -312,6 +312,9 @@ export function serializeRuntimeNode(node, doc) {
         if (node.data?.imageAssetReady === true) serialized.imageAssetReady = true;
         if (node.data?.imageHydratedAt) serialized.imageHydratedAt = node.data.imageHydratedAt;
     }
+    if (node.type === 'FileImport' && (node.fileImport ?? node.data?.fileImport)) {
+        serialized.fileImport = { ...(node.fileImport ?? node.data.fileImport) };
+    }
     if (node.type === 'ImageResize') {
         Object.assign(serialized, readImageResizeSettings(node));
         serialized.originalWidth = node.originalWidth || 0;

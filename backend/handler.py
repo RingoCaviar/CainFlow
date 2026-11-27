@@ -1,9 +1,11 @@
 import http.server
+from pathlib import Path
 
 from backend import state
 from backend import desktop_security
 from backend.routes import canvas_mcp_routes, conversation_routes, diagnostic_routes, media_routes, notification_routes, protocol_routes, settings_routes, storage_routes, update_routes, workflow_routes
 from backend.services.http_helpers import write_error, write_text
+from backend.services.file_import import file_imports
 from backend.services.log_service import should_log_path, start_request_log
 from backend.services.proxy_service import handle_proxy_request
 
@@ -93,14 +95,15 @@ class ProxyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         # The source tree can also be the static root. Keep the MCP credential
         # and its atomic-write files outside the static handler's reach.
         settings = getattr(self.server, 'canvas_mcp_settings', None)
-        if settings is not None:
-            try:
-                if settings.is_private_static_path(self.translate_path(self.path)):
-                    self.send_error(404, 'File not found')
-                    return None
-            except (OSError, RuntimeError, ValueError):
+        try:
+            candidate = self.translate_path(self.path)
+            if (Path(candidate).resolve().is_relative_to(file_imports().directory.resolve())
+                    or (settings is not None and settings.is_private_static_path(candidate))):
                 self.send_error(404, 'File not found')
                 return None
+        except (OSError, RuntimeError, ValueError):
+            self.send_error(404, 'File not found')
+            return None
         return super().send_head()
 
     def do_OPTIONS(self):

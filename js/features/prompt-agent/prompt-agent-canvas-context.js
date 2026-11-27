@@ -2,6 +2,7 @@ import { VISUAL_STYLE_FIELDS, VISUAL_STYLE_PRESETS, VISUAL_STYLE_DETAIL_LEVELS, 
 import { agentNodeDefinition as getNodeDefinition } from './prompt-agent-reference-inputs.js';
 import { publicImageProtocolFields } from './prompt-agent-parameters.js';
 import { listNodeDefinitions } from '../../nodes/registry.js';
+import { normalizeFileImport } from '../workflow/file-import.js';
 import { getDynamicNodePorts } from '../../nodes/node-view-factory.js';
 import { getImageEditGuideLabel } from '../../nodes/universal-input-policy.js';
 import { DOUBAO_VIDEO_RATIO_OPTIONS } from '../execution/provider-request-utils.js';
@@ -25,7 +26,7 @@ export const CANVAS_SCALAR_RULES = Object.freeze({
 });
 
 export const CANVAS_FIELDS = Object.freeze({
-    ImageImport: [], ImageGenerate: ['prompt', 'aspect', 'resolution', 'customWidth', 'customHeight', 'quality', 'moderation', 'background', 'generationCount', 'search', 'protocolParams'],
+    FileImport: [], ImageImport: [], ImageGenerate: ['prompt', 'aspect', 'resolution', 'customWidth', 'customHeight', 'quality', 'moderation', 'background', 'generationCount', 'search', 'protocolParams'],
     ImageResize: ['resizeMode', 'scalePercent', 'targetWidth', 'targetHeight', 'keepAspect', 'quality'],
     ImageMerge: ['inputCount'], ImagePreview: [], ImageCompare: [], Text: ['text'],
     ...Object.fromEntries(Object.entries(CANVAS_SCALAR_RULES).map(([type, fields]) => [type, Object.keys(fields)])),
@@ -41,6 +42,7 @@ const generationAliases = { aspect: 'aspectRatio', generationCount: 'count' };
 // Explicit field projection: never serialize providers, arbitrary node data or URLs.
 export function projectCanvasNode(node, running = false) {
     const definition = getNodeDefinition(node.type);
+    const fileImport = node.type === 'FileImport' ? normalizeFileImport(node.fileImport) : null;
     const fields = Object.hasOwn(CANVAS_FIELDS, node.type) ? CANVAS_FIELDS[node.type] : ['prompt', 'text'];
     const readableFields = node.type === 'TextSplit' ? [...fields, 'text'] : fields;
     const parameters = Object.fromEntries(readableFields.filter(key =>
@@ -78,6 +80,9 @@ export function projectCanvasNode(node, running = false) {
         enabled: node.enabled !== false, running, editable: CANVAS_TYPES.includes(node.type) && node.isClone !== true,
         patchable: definition?.type === node.type && node.isClone !== true, parameters,
         ...(commerceDetailPage ? { commerceDetailPage } : {}),
+        ...(fileImport ? { fileImport: {
+            name: fileImport.name, type: 'text', status: node.fileImportStatus || (fileImport.id ? 'registered' : 'unbound')
+        } } : {}),
         ...(node.type === 'ImageImport' && node.data?.imageDescription ? { imageDescription: String(node.data.imageDescription).slice(0, 2000) } : {}),
         ...(node.type === 'TextChat' && node.isClone !== true ? { supportsSystemPrompt: true } : {}),
         inputs: getDynamicNodePorts(node.type, 'inputs', node) || definition?.inputs || [],

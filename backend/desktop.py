@@ -310,7 +310,13 @@ def run_desktop():
         gui = 'edgechromium' if sys.platform == 'win32' else None
         try:
             if sys.platform == 'win32':
-                restore_initialization_hook = install_webview2_initialization_hook(initialization_result)
+                from backend.services.file_import import file_imports
+
+                restore_initialization_hook = install_webview2_initialization_hook(
+                    initialization_result,
+                    file_drop_origin=f'http://{config.LOCAL_HOST}:{port}',
+                    register_file_drop=file_imports().register,
+                )
             webview.start(func=smoke_worker, args=(window,) if smoke_worker else None, gui=gui, debug=False)
         except Exception as error:
             webview_error = error

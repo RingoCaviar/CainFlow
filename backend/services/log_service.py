@@ -62,6 +62,9 @@ def start_request_log(handler):
         return None
 
     parsed = urlparse(handler.path)
+    private_body = parsed.path == '/api/storage/file-imports/text' or (
+        parsed.path == '/proxy' and handler.headers.get('X-Cainflow-Private-Input') == '1'
+    )
     started_at = datetime.now().astimezone()
     context = {
         'finalized': False,
@@ -71,7 +74,8 @@ def start_request_log(handler):
         'requestId': f'req_{uuid.uuid4().hex[:12]}',
         'method': getattr(handler, 'command', ''),
         'path': parsed.path,
-        'query': parsed.query,
+        'privateBody': private_body,
+        'query': '' if private_body else parsed.query,
         'clientIp': handler.client_address[0] if getattr(handler, 'client_address', None) else '',
         'request': {
             'headers': sanitize_headers(dict(handler.headers.items())),
@@ -98,7 +102,8 @@ def set_request_body(handler, body, content_type=None, partial=False):
     context = get_request_log(handler)
     if not context:
         return
-    context['request'].update(summarize_body(body, content_type=content_type, partial=partial, include_full_body=False))
+    if not context.get('privateBody'):
+        context['request'].update(summarize_body(body, content_type=content_type, partial=partial, include_full_body=False))
     if content_type:
         context['request']['contentType'] = content_type
 
@@ -115,7 +120,10 @@ def set_response_data(handler, status=None, headers=None, body=None, content_typ
         response['headers'] = sanitize_headers(headers)
     if content_type:
         response['contentType'] = content_type
-    if body is not None or total_bytes is not None:
+    if context.get('privateBody'):
+        if total_bytes is not None:
+            response['bodyBytes'] = total_bytes
+    elif body is not None or total_bytes is not None:
         response.update(summarize_body(
             body,
             content_type=content_type,

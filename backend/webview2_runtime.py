@@ -1,10 +1,12 @@
 import ctypes
+import json
 import os
 import platform
 import struct
 import sys
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import urlsplit
 
 
 WEBVIEW2_STATUS_AVAILABLE = 'available'
@@ -138,12 +140,38 @@ def detect_webview2_runtime(webview_module=None, loader_path=None, version_query
     )
 
 
-def install_webview2_initialization_hook(result, edge_module=None):
+def install_webview2_initialization_hook(result, edge_module=None, *, file_drop_origin=None, register_file_drop=None):
     if edge_module is None:
         from webview.platforms import edgechromium as edge_module
 
     edge_class = edge_module.EdgeChrome
     original_handler = edge_class.on_webview_ready
+    original_message_handler = edge_class.on_script_notify if register_file_drop else None
+
+    def handle_message(instance, sender, args):
+        frame = args.get_WebMessageAsJson()
+        if not frame.startswith('{'):
+            return original_message_handler(instance, sender, args)
+        message = json.loads(frame)
+        if message.get('type') != 'cainflow-file-import':
+            return original_message_handler(instance, sender, args)
+        source = urlsplit(str(args.Source))
+        if f'{source.scheme}://{source.netloc}' != file_drop_origin:
+            return
+        workflow_id, node_id = message.get('workflowId'), message.get('nodeId')
+        if not isinstance(node_id, str) or not 0 < len(node_id) <= 200:
+            return
+        reply = {'type': 'cainflow-file-import-result', 'nodeId': node_id}
+        try:
+            files = list(args.get_AdditionalObjects() or ())
+            if len(files) != 1 or 'CoreWebView2File' not in str(type(files[0])) or not files[0].Path:
+                raise ValueError('无法取得拖入文件的原始位置。')
+            reply['fileImport'] = register_file_drop(workflow_id, node_id, str(files[0].Path))
+        except ValueError as error:
+            reply['error'] = str(error)
+        except Exception:
+            reply['error'] = '无法登记原文件。'
+        instance.webview.CoreWebView2.PostWebMessageAsJson(json.dumps(reply, ensure_ascii=True))
 
     def monitored_handler(instance, sender, args):
         if bool(args.IsSuccess):
@@ -160,9 +188,13 @@ def install_webview2_initialization_hook(result, edge_module=None):
             pass
 
     edge_class.on_webview_ready = monitored_handler
+    if register_file_drop:
+        edge_class.on_script_notify = handle_message
 
     def restore():
         if edge_class.on_webview_ready is monitored_handler:
             edge_class.on_webview_ready = original_handler
+        if register_file_drop and edge_class.on_script_notify is handle_message:
+            edge_class.on_script_notify = original_message_handler
 
     return restore

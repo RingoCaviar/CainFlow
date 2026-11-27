@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 from backend import config
 from backend.services.storage_service import storage_service
 from backend.services.image_clipboard import copy_png_to_clipboard
+from backend.services.file_import import file_imports
 from backend.services.windows_taskbar_service import WindowsTaskbarService
 
 
@@ -182,6 +183,11 @@ class DesktopBridge:
         if parsed.scheme not in {'http', 'https'}:
             raise ValueError('Only HTTP and HTTPS URLs may be opened')
         return bool(webbrowser.open(parsed.geturl()))
+
+    def open_file_import(self, workflow_id, node_id, reference_id):
+        if sys.platform != 'win32':
+            return False
+        return file_imports().open_original(workflow_id, node_id, reference_id)
 
     def open_directory(self, path):
         target = os.path.realpath(str(path or ''))

@@ -334,6 +334,7 @@ export function normalizeCanvasPlan(raw, context, { message = '', mentionedIds =
             const { aspectRatio, ...rest } = parameters; parameters = { ...rest, aspect: aspectRatio };
         }
         if (!object(parameters)) fail('节点参数必须是对象');
+        if (step.type === 'FileImport' && !existing) fail('请在桌面画布上拖入原文件。');
         const fields = Object.hasOwn(CANVAS_FIELDS, step.type) ? CANVAS_FIELDS[step.type] : [];
         const registered = existing ? existing.patchable : CANVAS_CREATABLE_TYPES.includes(step.type);
         if (!CANVAS_TYPES.includes(step.type) && (!registered || execute || Object.keys(parameters).length)) {

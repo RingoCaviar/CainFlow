@@ -258,8 +258,19 @@ class CanvasMcpService:
                 raise ValueError('No media read context')
             return storage.load_workflow_media(parameters['assetKey'])
 
+        def load_file_text(parameters):
+            from backend.services.file_import import FileImportError, file_imports
+
+            if not saved or method != 'execute':
+                raise ValueError('No file input context')
+            try:
+                return file_imports().read_text(workflow_id, parameters['nodeId'], parameters['referenceId'])
+            except FileImportError as error:
+                raise CanvasWorkerError(str(error), 'input') from error
+
         callbacks = {
             'loadMedia': load_media, 'hasMedia': lambda parameters: storage.workflow_media_exists(parameters['assetKey']),
+            'loadFileText': load_file_text,
             'stageMedia': stage_media, 'listHistory': app.list_history,
             'historyMedia': app.history_media, 'getPrompt': app.get_prompt,
             'requestProvider': lambda parameters: app.request_provider(parameters, configuration['providers']),

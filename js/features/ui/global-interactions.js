@@ -1,5 +1,6 @@
 import { canUseCanvasShortcuts, isModalOrFullscreenOpen, isTextEditingTarget } from './shortcut-guard.js';
 import { AGENT_RESULT_DRAG_TYPE, takeAgentResultDrag } from '../prompt-agent/prompt-agent-result-drag.js';
+import { normalizeFileImport } from '../workflow/file-import.js';
 
 /**
  * Handles global interactions such as image drag/drop, paste, and Escape.
@@ -17,6 +18,7 @@ export function createGlobalInteractionsApi({
     toggleNodesEnabled,
     showToast,
     scheduleSave,
+    getActiveWorkflowId = () => '',
     documentRef = document,
     windowRef = window
 }) {
@@ -53,6 +55,22 @@ export function createGlobalInteractionsApi({
     }
 
     function initGlobalInteractions() {
+        const native = windowRef.chrome?.webview;
+        const pendingFileDrops = new Map();
+        native?.addEventListener?.('message', ({ data }) => {
+            if (data?.type !== 'cainflow-file-import-result') return;
+            const drop = pendingFileDrops.get(data.nodeId);
+            if (!drop) return;
+            clearTimeout(drop.timer);
+            pendingFileDrops.delete(data.nodeId);
+            if (getActiveWorkflowId() !== drop.workflowId) return;
+            const fileImport = normalizeFileImport(data.fileImport);
+            if (!fileImport?.id) {
+                showToast(data.error || '无法登记原文件。', 'error');
+                return;
+            }
+            if (addNode('FileImport', drop.position.x, drop.position.y, { id: data.nodeId, fileImport })) scheduleSave();
+        });
         canvasContainer.addEventListener('auxclick', (e) => {
             if (e.button === 1) e.preventDefault();
         });
@@ -90,7 +108,29 @@ export function createGlobalInteractionsApi({
                 return;
             }
 
-            const files = Array.from(e.dataTransfer.files).filter((file) => file.type.startsWith('image/'));
+            const droppedFiles = Array.from(e.dataTransfer?.files || []);
+            if (typeof native?.postMessageWithAdditionalObjects === 'function' && droppedFiles.length === 1
+                && /\.(md|markdown|txt)$/i.test(droppedFiles[0].name)) {
+                if (!e.target.closest?.('#canvas-container') || isModalOrFullscreenOpen({ documentRef, windowRef })) return;
+                const workflowId = getActiveWorkflowId();
+                if (!workflowId) return;
+                const nodeId = 'file-' + windowRef.crypto.randomUUID();
+                const position = viewportApi.screenToCanvas(e.clientX, e.clientY);
+                const timer = setTimeout(() => {
+                    pendingFileDrops.delete(nodeId);
+                    if (getActiveWorkflowId() === workflowId) showToast('无法读取拖入文件的原始位置。', 'error');
+                }, 10000);
+                pendingFileDrops.set(nodeId, { workflowId, position, timer });
+                try {
+                    native.postMessageWithAdditionalObjects({ type: 'cainflow-file-import', workflowId, nodeId }, droppedFiles);
+                } catch {
+                    clearTimeout(timer);
+                    pendingFileDrops.delete(nodeId);
+                    showToast('无法读取拖入文件的原始位置。', 'error');
+                }
+                return;
+            }
+            const files = droppedFiles.filter((file) => file.type.startsWith('image/'));
             if (files.length > 0) {
                 const targetNodeId = getImageDropTargetNodeId(e);
                 if (targetNodeId && files.length === 1) {
