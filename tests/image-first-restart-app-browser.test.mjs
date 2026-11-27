@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { join, resolve, sep } from 'node:path';
 import { startCainflowServer } from './helpers/browser-theme-fixture.mjs';
 import { withAppBrowser, reloadAppBrowser, delay, waitForAutosave } from './helpers/app-browser.mjs';
+import { uploadImageOriginal } from './helpers/image-upload.mjs';
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const png = await readFile(new URL('./fixtures/reference-red.png', import.meta.url));
@@ -104,6 +105,90 @@ async function restart(app, whileStopped = async () => {}) {
     assert.equal(await app.evaluate('restartRequests.length'), 0, 'backend startup and page restoration never call the image provider');
     return [previous.pid, result.pid];
 }
+
+async function assertCanvasCardSizesAfterRestart(videoModel = null) {
+    const models = videoModel ? [...configuration.models, videoModel] : configuration.models;
+    const connections = videoModel
+        ? [connection('video-reference', 'imported-size', 'sized-video', 'referenceImages')]
+        : [];
+    const nodes = [
+        { id: 'sized-text', type: 'Text', x: 30, y: 60, text: '保存在工作流中的正文。'.repeat(12) },
+        { id: 'sized-video', type: 'VideoGenerate', x: 360, y: 60,
+            ...(videoModel && { apiConfigId: videoModel.id, providerId: 'p' }) },
+        { id: 'sized-commerce', type: 'ECommerceImageSet', x: 850, y: 60 },
+        { id: 'sized-chat', type: 'TextChat', x: 30, y: 430, width: 475, height: 285,
+            userResized: true, chatLayoutVersion: 3, textareaHeights: { response: 229 },
+            lastText: '保存在工作流中的长回复。'.repeat(40) },
+        { id: 'imported-size', type: 'ImageImport', x: 870, y: 440 }
+    ];
+    await withAppBrowser({ ...configuration, models, nodes, connections }, async app => {
+        await app.send('Emulation.setDeviceMetricsOverride', { width: 1250, height: 1100, deviceScaleFactor: 1, mobile: false });
+        const sizes = () => app.evaluate(`Object.fromEntries(${JSON.stringify(nodes.map(node => node.id))}.map(id => {
+            const card = document.getElementById(id);
+            return [id, [card.offsetWidth, card.offsetHeight]];
+        }))`);
+        for (const node of nodes.filter(node => !['ImageImport', 'TextChat'].includes(node.type))) {
+            const start = await app.evaluate(`(() => {
+                const rect = document.querySelector('#${node.id} .node-resize-handle--bottom').getBoundingClientRect();
+                return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+            })()`);
+            const end = { x: start.x, y: start.y + 65 };
+            await app.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...start, button: 'left', buttons: 1, clickCount: 1 });
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...end, buttons: 1 });
+            await app.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...end, button: 'left', clickCount: 1 });
+        }
+        await uploadImageOriginal(app, 'imported-size', `data:image/png;base64,${png.toString('base64')}`);
+        await app.waitFor("document.getElementById('imported-size').classList.contains('node-media-aspect')");
+        await waitForAutosave(app);
+        const before = await sizes();
+        assert.deepEqual(before['sized-chat'], [475, 285], 'the saved chat size survives editor preparation');
+        const snapshot = await saved(app);
+        for (const node of snapshot.nodes) {
+            assert.equal(node.userResized, node.type !== 'ImageImport', node.id);
+            assert.deepEqual([node.width, node.height], before[node.id], node.id);
+        }
+        await app.send('Page.addScriptToEvaluateOnNewDocument', { source: `
+            const originalFetch = window.fetch;
+            const assetUrl = ${JSON.stringify('/api/storage/assets/' + encodeURIComponent(snapshot.nodes.find(node => node.id === 'imported-size').mediaAssetKeys[0]))};
+            let release;
+            const pending = new Promise(resolve => { release = resolve; });
+            window.fetch = async (url, ...options) => {
+                if (url === assetUrl) {
+                    window.releaseImageRestore = release;
+                    await pending;
+                }
+                return originalFetch(url, ...options);
+            };
+        ` });
+        const previousPid = app.server.pid;
+        await app.send('Page.navigate', { url: 'about:blank' });
+        await app.waitFor("location.href === 'about:blank'");
+        await app.server.restart();
+        assert.notEqual(app.server.pid, previousPid);
+        await app.send('Page.navigate', { url: app.server.baseUrl });
+        await app.waitFor("typeof window.releaseImageRestore === 'function'");
+        await app.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+        await app.evaluate('window.releaseImageRestore()');
+        await app.waitFor("window.__cainflowAppReady === true && document.getElementById('imported-size').classList.contains('node-media-aspect')");
+        await delay(500);
+        assert.deepEqual(await sizes(), before);
+        if (videoModel) {
+            assert.equal(await app.evaluate("document.getElementById('sized-video-apiconfig').value"), videoModel.id);
+            assert.equal(await app.evaluate("!!document.querySelector('path[data-conn-id=video-reference]')?.getAttribute('d')"), true);
+        }
+    });
+}
+
+test('canvas cards keep their rendered dimensions after an app restart', { timeout: 45000 }, async () => {
+    await assertCanvasCardSizesAfterRestart();
+});
+
+test('canvas card sizes survive restart with a configured video protocol and connected reference', { timeout: 45000 }, async () => {
+    await assertCanvasCardSizesAfterRestart({
+        id: 'video', modelId: 'kling-o3', name: '受控视频',
+        protocol: 'async-video-api', taskType: 'video', providerIds: ['p']
+    });
+});
 
 test('GPT Image 2.6 GIF and SVG output retain their original bytes in the directory and render after reload', { timeout: 30000 }, async () => {
     const encoded = {

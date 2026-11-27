@@ -51,6 +51,7 @@ export function createNodeLifecycleApi({
     renderImageComparePreview = null,
     renderImageMergePreview = null,
     bindNodeInteractions,
+    deferTextAndVideoCardFit = false,
     serializeOneNode = null,
     pushHistory,
     scheduleSave,
@@ -1113,8 +1114,9 @@ export function createNodeLifecycleApi({
         const currentWidth = node.el.offsetWidth || Number(node.width) || baseMinimum.minWidth;
         const minimum = fitChatResponseAndMeasureNodeMinimum(node, { width: currentWidth });
         const currentHeight = node.el.offsetHeight || Number(node.height) || minimum.minHeight;
-        const preservesImagePreviewSize = node.userResized === true && node.el.classList.contains('image-first-card');
-        const shouldShrink = allowShrink && reason === 'element-resize' && !preservesImagePreviewSize;
+        const preservesUserSize = node.userResized === true
+            && (node.type === 'VideoGenerate' || node.el.classList.contains('image-first-card'));
+        const shouldShrink = allowShrink && reason === 'element-resize' && !preservesUserSize;
         const respectsUserWidth = node.userResized === true && currentWidth >= minimum.minWidth;
         const respectsUserHeight = node.userResized === true && currentHeight >= minimum.minHeight;
         const nextWidth = shouldShrink
@@ -1129,6 +1131,9 @@ export function createNodeLifecycleApi({
     function ensureNodeContentVisible(nodeId, options = {}) {
         const node = state.nodes.get(nodeId);
         if (!node || !node.el) return;
+        // Chat and video fit after their controls are initialized in the live editor.
+        // Measuring the unbound controls would inflate the restored card.
+        if (deferTextAndVideoCardFit && (node.type === 'TextChat' || node.type === 'VideoGenerate')) return;
         if (isGeometryWorkFrozen()) { deferGeometryWork(nodeId); return; }
         if (syncNodeMediaAspect(node)) { fitNodeToContent(nodeId, options); return; }
         const config = nodeConfigs[node.type] || null;

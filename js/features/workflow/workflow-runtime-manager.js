@@ -1969,6 +1969,7 @@ export function createWorkflowRuntimeManager({
             bindNodeInteractions: editorPreparation
                 ? () => {}
                 : ({ id, type, el }) => runtimeNodeBindingsApi.bindNodeInteractions({ id, type, el }),
+            deferTextAndVideoCardFit: editorPreparation,
             serializeOneNode: null,
             pushHistory: () => {},
             scheduleSave: () => {},

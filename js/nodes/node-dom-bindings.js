@@ -913,6 +913,7 @@ export function createNodeDomBindingsApi({
             : '');
         refreshVideoGenerateProtocolParams(id);
         syncVideoReferenceImagePorts(id);
+        fitNodeToContent(id);
     }
 
     function syncVideoReferenceImagePorts(id) {
@@ -1771,7 +1772,6 @@ export function createNodeDomBindingsApi({
         }
         if (protocolError) {
             for (const group of fields) group.replaceChildren();
-            fitNodeToContent(id);
             return;
         }
         const activeVariantId = resolvedVariant.variant ? resolvedVariant.variantId : model?.modelId;
@@ -1807,7 +1807,6 @@ export function createNodeDomBindingsApi({
         bindVideoGenerateProtocolParamInputs(id, container);
         bindProtocolReferencePrompts(id, container);
         bindProtocolNumberStepControls(container, documentRef);
-        fitNodeToContent(id);
     }
 
     function syncNodeFormData(id, type) {
